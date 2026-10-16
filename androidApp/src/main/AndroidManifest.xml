@@ -14,6 +14,8 @@
 
     <application
         android:name=".RummageApp"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Rummage"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:largeHeap="true">
