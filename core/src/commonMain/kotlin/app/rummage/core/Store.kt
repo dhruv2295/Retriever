@@ -38,6 +38,11 @@ class Store(driver: SqlDriver) {
         q.requeue(kinds.map { it.name })
     }
 
+    /** Gives every skipped file three fresh attempts, e.g. after a fix for whatever made them fail. */
+    fun retrySkipped() {
+        q.retrySkipped()
+    }
+
     fun files(kind: Kind? = null, folder: String? = null, sort: Sort = Sort.NEWEST, limit: Int = 200, offset: Int = 0): List<StoredFile> {
         val k = kind?.name
         val l = limit.toLong()

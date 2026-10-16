@@ -76,6 +76,9 @@ ORDER BY size DESC, modified_at ASC;
 requeue:
 UPDATE files SET state = 'pending', attempts = 0 WHERE state = 'indexed' AND kind IN ?;
 
+retrySkipped:
+UPDATE files SET state = 'pending', attempts = 0 WHERE state = 'skipped';
+
 fileById:
 SELECT * FROM files WHERE id = ?;
 

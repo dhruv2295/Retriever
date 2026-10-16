@@ -15,6 +15,8 @@ data class FileMetric(
     val ok: Boolean,
     val error: String?,
     val state: DeviceState,
+    /** The failure itself, so the platform can log its stack trace. */
+    val cause: Throwable? = null,
 )
 
 enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET }
@@ -80,11 +82,11 @@ class IndexEngine(
                 val parts = piece.parts.map { if (it is Part.Text) Part.Text(Prefix.document(file.name, it.text)) else it }
                 val timed = try {
                     measureTimedValue { embedder.embed(parts) }
-                } catch (e: Exception) {
+                } catch (e: InputTooLongException) {
                     // Dense text (numbers, non-Latin scripts) can exceed the token window even under the
                     // character cap. Split a text-only piece in half and embed the halves instead.
                     val only = piece.parts.singleOrNull() as? Part.Text
-                    if (only == null || depth >= 3 || e.message?.contains("exceeds maximum") != true) throw e
+                    if (only == null || depth >= 3) throw e
                     for (half in Chunker.chunks(only.text, maxChars = only.text.length / 2 + 1)) {
                         add(Piece(piece.locator, listOf(Part.Text(half)), half), depth + 1)
                     }
@@ -106,7 +108,7 @@ class IndexEngine(
             store.markFailed(stored.id, stored.attempts)
             throw e
         } catch (e: Throwable) {
-            return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state)
+            return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
         }
     }
 }

@@ -153,10 +153,18 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
 
     Box {
         ListItem(
+            // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
             headlineContent = {
-                Text(path.ifEmpty { "Top level" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(path.substringAfterLast('/').ifEmpty { "Top level" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
-            supportingContent = { Text(countLabel(count)) },
+            supportingContent = {
+                val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
+                Text(
+                    if (parent.isEmpty()) countLabel(count) else "${countLabel(count)} · $parent",
+                    maxLines = 1,
+                    overflow = TextOverflow.MiddleEllipsis,
+                )
+            },
             leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = { showMenu = true }),
         )

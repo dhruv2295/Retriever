@@ -77,7 +77,7 @@ class OverflowSplitTest {
         private val inner = FakeEmbedder()
         override suspend fun embedRaw(parts: List<Part>): FloatArray {
             val t = parts.filterIsInstance<Part.Text>().sumOf { it.text.length }
-            if (t > 300) throw IllegalArgumentException("Input sequence length ($t) exceeds maximum supported signature length (512).")
+            if (t > 300) throw InputTooLongException("Input sequence length ($t) exceeds maximum supported signature length (512).")
             return inner.embedRaw(parts)
         }
     }
@@ -227,6 +227,22 @@ class StoreTest {
         assertEquals(1L, store.countsByState()["pending"])
         store.markFailed(id, 3)
         assertEquals(1L, store.countsByState()["skipped"])
+    }
+
+    @Test
+    fun retrySkippedGivesSkippedFilesFreshAttempts() = runTest {
+        val store = newStore(SIG)
+        store.upsertFiles(listOf(file("a.txt"), file("b.txt")))
+        val (a, b) = store.pending(10)
+        store.markFailed(a.id, 3)
+        store.replaceChunks(b.id, listOf(Store.NewChunk(0, "", "b", vec(SIG))))
+
+        store.retrySkipped()
+
+        val retried = store.pending(10).single()
+        assertEquals(a.id, retried.id)
+        assertEquals(0, retried.attempts)
+        assertEquals(mapOf("indexed" to 1L, "pending" to 1L), store.countsByState())
     }
 }
 

@@ -27,6 +27,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -113,6 +114,14 @@ class StatusViewModel(private val app: Application) : AndroidViewModel(app) {
                 graph.store.requeue(setOf(kind))
                 IndexScheduler.indexNow(app)
             }
+        }
+    }
+
+    fun retrySkipped() {
+        viewModelScope.launch(Dispatchers.IO) {
+            graph.store.retrySkipped()
+            reload()
+            IndexScheduler.resumeByUser(app)
         }
     }
 
@@ -242,6 +251,9 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = viewModel()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = vm::indexNow) { Text("Index now") }
                     OutlinedButton(onClick = vm::pause) { Text("Pause") }
+                }
+                if (skipped > 0) {
+                    TextButton(onClick = vm::retrySkipped) { Text("Try skipped files again") }
                 }
             }
 

@@ -37,6 +37,9 @@ interface Embedder : AutoCloseable {
     suspend fun embedRaw(parts: List<Part>): FloatArray
 }
 
+/** The input is longer than the model's token window. The caller should split it; the embedder is fine. */
+class InputTooLongException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
+
 /** The embedder can't embed anything any more; the caller must open a new one. Not the file's fault. */
 class EmbedderClosedException(message: String = "embedder closed", cause: Throwable? = null) :
     IllegalStateException(message, cause)

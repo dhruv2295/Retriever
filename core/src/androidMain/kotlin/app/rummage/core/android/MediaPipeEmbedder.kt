@@ -9,6 +9,7 @@ import app.rummage.core.Embedder
 import app.rummage.core.MAX_INPUT_TOKENS
 import app.rummage.core.EmbedderClosedException
 import app.rummage.core.EmbedderFactory
+import app.rummage.core.InputTooLongException
 import app.rummage.core.ModelVariant
 import app.rummage.core.Part
 import app.rummage.core.Signature
@@ -25,6 +26,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+// LiteRT-LM reports it as INVALID_ARGUMENT "Input sequence length (N) exceeds maximum supported signature length".
+private fun Throwable.isInputTooLong(): Boolean =
+    generateSequence(this) { it.cause }.any { it.message?.contains("exceeds maximum supported signature length") == true }
 
 class MediaPipeEmbedderFactory(
     private val context: Context,
@@ -117,6 +122,9 @@ private class MediaPipeEmbedder(
             val result = try {
                 infer(parts)
             } catch (e: Exception) {
+                // An over-long input fails the same way on every backend: report it so the caller splits
+                // the text, and keep the GPU (falling back to CPU here would slow every later file).
+                if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)
                 if (cpuFallback) throw IllegalStateException("Embedding failed on CPU", e)
                 Log.w(TAG, "embedding failed on ${backend.name}; rebuilding on CPU", e)
                 runCatching { embedder.close() }.onFailure { Log.w(TAG, "closing failed embedder", it) }

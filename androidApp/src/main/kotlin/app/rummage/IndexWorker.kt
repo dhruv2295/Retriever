@@ -115,6 +115,9 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             graph.monitor,
             profile,
             onFile = { metric ->
+                if (!metric.ok) {
+                    Log.w("Rummage", "Couldn't index ${metric.file.kind} ${metric.file.name} (${metric.file.mime}, ${metric.file.size} B): ${metric.error}", metric.cause)
+                }
                 val s = graph.indexState.updateAndGet {
                     it.copy(
                         processed = it.processed + if (metric.ok) 1 else 0,
