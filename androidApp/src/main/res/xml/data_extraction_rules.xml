@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31). Same exclusions as backup_rules.xml, for cloud backup and device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="retriever.db" />
+        <exclude domain="database" path="retriever.db-wal" />
+        <exclude domain="database" path="retriever.db-shm" />
+        <exclude domain="database" path="retriever-demo.db" />
+        <exclude domain="database" path="retriever-demo.db-wal" />
+        <exclude domain="database" path="retriever-demo.db-shm" />
+        <exclude domain="external" path="models/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="retriever.db" />
+        <exclude domain="database" path="retriever.db-wal" />
+        <exclude domain="database" path="retriever.db-shm" />
+        <exclude domain="database" path="retriever-demo.db" />
+        <exclude domain="database" path="retriever-demo.db-wal" />
+        <exclude domain="database" path="retriever-demo.db-shm" />
+        <exclude domain="external" path="models/" />
+    </device-transfer>
+</data-extraction-rules>

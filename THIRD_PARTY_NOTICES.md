@@ -1,6 +1,6 @@
 # Third-party notices
 
-Rummage includes code adapted from the open-source projects below. Each is licensed under the
+Retriever includes code adapted from the open-source projects below. Each is licensed under the
 Apache License, Version 2.0; the full text is reproduced at the end of this file. Adapted files keep
 the upstream license header (where the upstream file had one) and carry an "Adapted from" line
 describing what was changed.
@@ -25,20 +25,26 @@ describing what was changed.
 
 ## Files containing adapted code
 
-- androidApp/src/main/kotlin/app/rummage/IndexWorker.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/Notifications.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/Thumbnails.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/home/PhotoLibraryService.kt` (Apache-2.0); platform-samples `samples/graphics/pdf/src/main/java/com/example/platform/graphics/pdf/PdfRendererViewModel.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/DuplicatesScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/ConfirmDeleteDialog.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/SetupScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` and `ui/common/Utils.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/Format.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/Utils.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/FileRow.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/SearchScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/home/SquareDrawerItem.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/rummage/PlayerScreen.kt — TikTokCompose `app/src/main/java/com/example/tiktokcompose/ui/composables/TikTokScreen.kt` (Apache-2.0)
-- androidApp/src/main/AndroidManifest.xml — gallery `Android/src/app/src/main/AndroidManifest.xml` (uses-native-library block) (Apache-2.0)
-- core/src/androidMain/kotlin/app/rummage/core/android/MediaStoreSource.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
-- core/src/androidMain/kotlin/app/rummage/core/android/MediaPipeEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt` (Apache-2.0)
-- core/src/androidMain/kotlin/app/rummage/core/android/MediaDecoding.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/VideoAudioExtractor.kt`, `Common.kt`, `VideoDecoderSupport.kt`, `VideoThumbnails.kt`, and `services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
-- core/src/androidMain/kotlin/app/rummage/core/android/AndroidExtractor.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/IndexWorker.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/Notifications.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/Thumbnails.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0); platform-samples `samples/graphics/pdf/src/main/java/com/example/platform/graphics/pdf/PdfRendererViewModel.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/DuplicatesScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/ConfirmDeleteDialog.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/SetupScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` and `ui/common/Utils.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/Format.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/Utils.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/FileRow.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/SearchScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/home/SquareDrawerItem.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/PlayerScreen.kt — TikTokCompose `app/src/main/java/com/example/tiktokcompose/ui/composables/TikTokScreen.kt` (Apache-2.0)
+- androidApp/src/main/AndroidManifest.xml — gallery `Android/src/app/src/main/AndroidManifest.xml` (uses-native-library block, npu uses-feature, foreground service type) (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/ModelDownload.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` (Apache-2.0)
+- core/src/commonMain/kotlin/app/retriever/core/Retriever.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingCoordinator.kt` (Apache-2.0)
+- core/src/commonMain/kotlin/app/retriever/core/ModelBuilds.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt` (Apache-2.0)
+- core/src/commonMain/kotlin/app/retriever/core/Model.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt` (commit-pinned resolve URLs) (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/MediaStoreSource.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0); platform-samples `samples/storage/src/main/java/com/example/platform/storage/mediastore/MediaStoreQuery.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/Device.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/common/HardwareUtils.kt` (Apache-2.0)
+- core/src/commonMain/kotlin/app/retriever/core/VideoMoments.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/AudioInterleaving.kt` and `Common.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/MediaPipeEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/MediaDecoding.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/VideoAudioExtractor.kt`, `Common.kt`, `VideoDecoderSupport.kt`, `VideoThumbnails.kt`, and `services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
 
 ## Apache License 2.0
 

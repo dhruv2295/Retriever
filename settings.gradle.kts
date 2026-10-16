@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Rummage"
+rootProject.name = "Retriever"
 include(":core", ":androidApp")

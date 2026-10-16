@@ -10,18 +10,27 @@ plugins {
 
 kotlin {
     targets.withType<KotlinMultiplatformAndroidLibraryTarget>().configureEach {
-        namespace = "app.rummage.core"
+        namespace = "app.retriever.core"
         compileSdk = libs.versions.compileSdk.get().toInt()
         minSdk = libs.versions.minSdk.get().toInt()
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
     }
-    // Host target so commonTest runs on the JVM. iOS targets join in phase 6.
+    // Host target so commonTest runs on the JVM.
     jvm { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
+    // iOS targets build the static RetrieverCore framework that the SwiftUI app links.
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { t ->
+        t.binaries.framework { baseName = "RetrieverCore"; isStatic = true }
+        t.binaries.all { linkerOpts("-lsqlite3") }
+    }
 
     sourceSets {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.sqldelight.coroutines)
+        }
+        iosMain.dependencies {
+            implementation(libs.sqldelight.native.driver)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
@@ -35,6 +44,7 @@ kotlin {
             implementation(libs.mediapipe.tasks.retrieval)
             implementation(libs.litertlm.android)
             implementation(libs.mlkit.text.recognition)
+            implementation(libs.mlkit.text.recognition.devanagari)
         }
     }
 }
@@ -42,9 +52,9 @@ kotlin {
 sqldelight {
     databases {
         create("IndexDb") {
-            packageName.set("app.rummage.core.db")
-            // minSdk 35 ships SQLite 3.42+, so upsert and newer syntax are available.
-            dialect("app.cash.sqldelight:sqlite-3-38-dialect:${libs.versions.sqldelight.get()}")
+            packageName.set("app.retriever.core.db")
+            // minSdk 30 ships SQLite 3.28: upsert (3.24) and FTS4 unicode61 remove_diacritics=2 (3.27) work; newer syntax does not.
+            dialect("app.cash.sqldelight:sqlite-3-25-dialect:${libs.versions.sqldelight.get()}")
         }
     }
 }

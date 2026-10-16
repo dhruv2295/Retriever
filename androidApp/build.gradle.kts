@@ -5,18 +5,31 @@ plugins {
 }
 
 android {
-    namespace = "app.rummage"
+    namespace = "app.retriever"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "app.rummage"
+        applicationId = "app.retriever"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.compileSdk.get().toInt()
         versionCode = 1
-        versionName = "0.1-spike"
+        versionName = "0.2"
+        // litertlm ships only these two ABIs, so a 32-bit device must not install the app.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    packaging {
+        // LiteRT loads NPU dispatch libraries from applicationInfo.nativeLibraryDir, so they must be extracted.
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
+    lint { checkDependencies = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -40,4 +53,8 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.compose.icons.extended)
+    implementation(libs.lifecycle.process)
+    implementation(libs.litert.npu.google.tensor)
+    implementation(libs.litert.npu.mediatek)
+    implementation(libs.litert.npu.qualcomm)
 }

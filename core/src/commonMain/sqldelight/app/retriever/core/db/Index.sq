@@ -1,0 +1,240 @@
+import app.retriever.core.FileState;
+
+CREATE TABLE files (
+  id INTEGER PRIMARY KEY,
+  uri TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  modified_at INTEGER NOT NULL,
+  state TEXT AS FileState NOT NULL DEFAULT 'PENDING',
+  attempts INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX files_by_state ON files(state);
+
+-- AUTOINCREMENT keeps ids monotonic, so SearchEngine can load only rows above the last id it saw.
+CREATE TABLE chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  locator TEXT NOT NULL DEFAULT '',
+  text TEXT,
+  -- NULL: a text tail chunk, keyword-searchable now, embedded by the deepen pass.
+  vector BLOB,
+  scale REAL,
+  -- Deepen-pass tries, counted before each embed so a chunk that kills the process is given up on.
+  tail_attempts INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX chunks_by_file ON chunks(file_id);
+
+CREATE INDEX chunks_tail ON chunks(file_id) WHERE vector IS NULL;
+
+-- tokenchars: the Devanagari vowel signs and other combining marks, which unicode61 would otherwise treat
+-- as separators ('बिजली' would index as ब | जल | ...). Same tokenizer on both tables.
+-- ponytail: Devanagari marks only; add Bengali/Tamil/... ranges when those users appear
+CREATE VIRTUAL TABLE chunk_fts USING fts4(text, tokenize=unicode61 "remove_diacritics=2" "tokenchars=ऀँंःऺऻ़ऽािीुूृॄॅॆेैॉॊोौ्ॎॏ॒॑॓॔ॕॖॗॢॣ");
+
+-- rowid = files.id. Names reach keyword search here as soon as a file is synced, before any embedding.
+CREATE VIRTUAL TABLE file_fts USING fts4(name, folder, tokenize=unicode61 "remove_diacritics=2" "tokenchars=ऀँंःऺऻ़ऽािीुूृॄॅॆेैॉॊोौ्ॎॏ॒॑॓॔ॕॖॗॢॣ");
+
+CREATE TABLE index_meta (
+  key TEXT NOT NULL PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Lets SearchEngine notice deleted vectors with one row read instead of a count over every chunk.
+CREATE TRIGGER vector_deleted AFTER DELETE ON chunks WHEN old.vector IS NOT NULL
+BEGIN
+  INSERT OR REPLACE INTO index_meta (key, value)
+  VALUES ('vectors_deleted', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = 'vectors_deleted'), 0) + 1 AS TEXT));
+END;
+
+CREATE TABLE recent_queries (
+  phrase TEXT NOT NULL PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+
+upsertFile:
+INSERT INTO files (uri, name, folder, mime, kind, size, modified_at, state, attempts)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)
+ON CONFLICT(uri) DO UPDATE SET
+  name = excluded.name, folder = excluded.folder, mime = excluded.mime, kind = excluded.kind,
+  size = excluded.size, modified_at = excluded.modified_at, state = 'PENDING', attempts = 0
+WHERE files.modified_at != excluded.modified_at OR files.size != excluded.size OR files.name != excluded.name OR files.folder != excluded.folder
+  OR files.kind != excluded.kind OR files.mime != excluded.mime;
+
+changes:
+SELECT changes();
+
+fileIdByUri:
+SELECT id FROM files WHERE uri = ?;
+
+fileByUri:
+SELECT * FROM files WHERE uri = ?;
+
+allFiles:
+SELECT * FROM files;
+
+allUris:
+SELECT uri FROM files;
+
+fileCount:
+SELECT COUNT(*) FROM files;
+
+folderCounts:
+SELECT folder, COUNT(*) AS n FROM files GROUP BY folder ORDER BY n DESC;
+
+filesNewest:
+SELECT * FROM files
+WHERE (:kind IS NULL OR kind = :kind) AND (:folder IS NULL OR folder = :folder)
+ORDER BY modified_at DESC, id
+LIMIT :limit OFFSET :offset;
+
+filesLargest:
+SELECT * FROM files
+WHERE (:kind IS NULL OR kind = :kind) AND (:folder IS NULL OR folder = :folder)
+ORDER BY size DESC, id
+LIMIT :limit OFFSET :offset;
+
+filesName:
+SELECT * FROM files
+WHERE (:kind IS NULL OR kind = :kind) AND (:folder IS NULL OR folder = :folder)
+ORDER BY name COLLATE NOCASE ASC, id
+LIMIT :limit OFFSET :offset;
+
+sizeCollisions:
+SELECT * FROM files
+WHERE size IN (SELECT size FROM files WHERE size >= :minSize GROUP BY size HAVING COUNT(*) > 1)
+ORDER BY size DESC, modified_at ASC;
+
+requeue:
+UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'INDEXED' AND kind IN ?;
+
+retrySkipped:
+UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'SKIPPED';
+
+skippedFiles:
+SELECT * FROM files WHERE state = 'SKIPPED' ORDER BY name COLLATE NOCASE ASC, id LIMIT ?;
+
+fileById:
+SELECT * FROM files WHERE id = ?;
+
+-- Cheap kinds first (screenshots, documents, PDFs), then photos and videos interleaved newest first, audio last.
+pendingFiles:
+SELECT * FROM files WHERE state = 'PENDING'
+ORDER BY CASE kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, modified_at DESC
+LIMIT ?;
+
+setState:
+UPDATE files SET state = ?, attempts = ? WHERE id = ?;
+
+deleteFileById:
+DELETE FROM files WHERE id = ?;
+
+countByState:
+SELECT state, COUNT(*) FROM files GROUP BY state;
+
+countByKind:
+SELECT kind, COUNT(*) FROM files GROUP BY kind;
+
+chunkIdsForFile:
+SELECT id FROM chunks WHERE file_id = ?;
+
+deleteChunksForFile:
+DELETE FROM chunks WHERE file_id = ?;
+
+deleteChunk:
+DELETE FROM chunks WHERE id = ?;
+
+insertChunk:
+INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale) VALUES (?, ?, ?, ?, ?, ?);
+
+lastId:
+SELECT last_insert_rowid();
+
+vectorsAfter:
+SELECT c.id, c.file_id, c.vector, c.scale, f.kind
+FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE c.vector IS NOT NULL AND c.id > ? ORDER BY c.id LIMIT ?;
+
+vectorCount:
+SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL;
+
+vectorsDeleted:
+SELECT value FROM index_meta WHERE key = 'vectors_deleted';
+
+tailChunks:
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts
+FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE c.vector IS NULL AND c.tail_attempts < 3
+ORDER BY CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, f.modified_at DESC, c.id
+LIMIT ?;
+
+tailChunkCount:
+SELECT COUNT(*) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
+
+setTailAttempts:
+UPDATE chunks SET tail_attempts = ? WHERE id = ?;
+
+chunkById:
+SELECT * FROM chunks WHERE id = ?;
+
+chunksByIds:
+SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
+
+insertFts:
+INSERT INTO chunk_fts (rowid, text) VALUES (?, ?);
+
+deleteFts:
+DELETE FROM chunk_fts WHERE rowid = ?;
+
+-- Ranks every match without snippet(); snippets are cut only for the winners (ftsSnippets).
+searchFts:
+SELECT CAST(chunk_fts.rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info, f.kind
+FROM chunk_fts JOIN chunks c ON c.id = chunk_fts.rowid JOIN files f ON f.id = c.file_id
+WHERE chunk_fts MATCH ?;
+
+ftsSnippets:
+SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', -1, 12) AS snippet
+FROM chunk_fts WHERE chunk_fts MATCH ? AND rowid IN ?;
+
+insertFileFts:
+INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);
+
+deleteFileFts:
+DELETE FROM file_fts WHERE rowid = ?;
+
+searchFileFts:
+SELECT CAST(file_fts.rowid AS INTEGER) AS fileId, CAST(matchinfo(file_fts, 'pcnalx') AS BLOB) AS info, f.kind
+FROM file_fts JOIN files f ON f.id = file_fts.rowid
+WHERE file_fts MATCH ?;
+
+chunkCount:
+SELECT COUNT(*) FROM chunks;
+
+getMeta:
+SELECT value FROM index_meta WHERE key = ?;
+
+setMeta:
+INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?);
+
+resetForNewModel {
+  DELETE FROM chunk_fts;
+  DELETE FROM chunks;
+  UPDATE files SET state = 'PENDING', attempts = 0;
+}
+
+addRecentQuery {
+  INSERT OR REPLACE INTO recent_queries (phrase, at) VALUES (:phrase, :at);
+  DELETE FROM recent_queries WHERE phrase NOT IN (SELECT phrase FROM recent_queries ORDER BY at DESC LIMIT 10);
+}
+
+recentQueries:
+SELECT phrase FROM recent_queries ORDER BY at DESC;
+
+clearRecentQueries:
+DELETE FROM recent_queries;

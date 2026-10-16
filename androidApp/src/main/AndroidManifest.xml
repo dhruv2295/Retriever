@@ -11,12 +11,20 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
 
+    <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0): the
+         chip-specific model builds use the NPU where there is one; phones without it still install. -->
+    <uses-feature android:name="android.hardware.npu" android:required="false" />
+
+    <!-- Backups leave out the index (rebuilt from the files) and the model (downloaded again). -->
     <application
-        android:name=".RummageApp"
+        android:name=".RetrieverApp"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="Rummage"
+        android:label="Retriever"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:largeHeap="true">
         <!-- Same as Google AI Edge Gallery: without these, Android hides OpenCL from the app and LiteRT
@@ -37,20 +45,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".SpikeActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-
         <receiver
             android:name=".PauseReceiver"
             android:exported="false" />
 
         <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0):
-             WorkManager's foreground service needs the dataSync type on Android 14+. -->
+             WorkManager's foreground service needs its types declared on Android 14+. IndexWorker uses
+             mediaProcessing from Android 15 (its own time budget) and dataSync below it. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="dataSync|mediaProcessing"
             android:exported="false"
             tools:node="merge">
         </service>

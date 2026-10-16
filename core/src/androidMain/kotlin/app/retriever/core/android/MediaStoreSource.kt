@@ -1,0 +1,158 @@
+// Cursor loop adapted from Google AI Edge Gallery (Apache-2.0):
+// Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt
+// Modified for Retriever: Files collection per storage volume, MediaColumns projection, generation-based
+// incremental scans, null-MIME fallback, and query failures are rethrown instead of returning an empty result.
+// Query and projection pattern also follows android/platform-samples
+// samples/storage/src/main/java/com/example/platform/storage/mediastore/MediaStoreQuery.kt (Apache-2.0).
+package app.retriever.core.android
+
+import android.content.ContentUris
+import android.content.Context
+import android.net.Uri
+import android.os.storage.StorageManager
+import android.provider.MediaStore
+import android.util.Log
+import android.webkit.MimeTypeMap
+import app.retriever.core.Changes
+import app.retriever.core.FileRules
+import app.retriever.core.FileSource
+import app.retriever.core.Kind
+import app.retriever.core.SourceFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+
+class MediaStoreSource(private val context: Context) : FileSource {
+    // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER).
+    override val rulesVersion = 3
+
+    override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) {
+        val old = parse(since)
+        val volumes = MediaStore.getExternalVolumeNames(context).toList()
+        // Storage not mounted yet (early boot): report nothing rather than a full scan that finds no files.
+        if (volumes.isEmpty()) return@withContext Changes(emptyList(), emptyList(), since.orEmpty(), present = null, scope = emptySet())
+        // An unmounted volume (an ejected SD card) keeps its token, so it resumes incrementally when it is back.
+        val tokens = JSONObject(old.filterKeys { it !in volumes })
+        val upserted = ArrayList<SourceFile>()
+        val removed = ArrayList<String>()
+        val skips = HashMap<String, Int>()
+        var fullVolumes = 0
+        for (volume in volumes) {
+            // Read the token before querying so a change landing mid-scan is picked up next time.
+            val version = MediaStore.getVersion(context, volume)
+            tokens.put(volume, "$version:${MediaStore.getGeneration(context, volume)}")
+            val prior = old[volume]?.split(':')
+            val sinceGeneration = if (prior?.size == 2 && prior[0] == version) prior[1].toLongOrNull() else null
+            if (sinceGeneration == null) fullVolumes++
+            upserted += query(volume, sinceGeneration, skips, removed)
+        }
+        val isFull = fullVolumes == volumes.size
+        Log.i("Retriever", "MediaStore scan: ${upserted.size} files, skipped $skips, full=$isFull")
+        Changes(
+            upserted = upserted,
+            removed = removed,
+            nextToken = tokens.toString(),
+            isFullScan = isFull,
+            present = if (isFull) null else volumes.flatMapTo(HashSet()) { presentUris(it) },
+            scope = volumes.mapTo(HashSet()) { MediaStore.Files.getContentUri(it).toString() + "/" },
+        )
+    }
+
+    private fun parse(token: String?): Map<String, String> = runCatching {
+        val json = JSONObject(token ?: return emptyMap())
+        json.keys().asSequence().associateWith { json.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    private fun presentUris(volume: String): List<String> {
+        val collection = MediaStore.Files.getContentUri(volume)
+        val cursor = context.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+            ?: error("MediaStore query returned no cursor")
+        return cursor.use { c ->
+            buildList {
+                while (c.moveToNext()) add(ContentUris.withAppendedId(collection, c.getLong(0)).toString())
+            }
+        }
+    }
+
+    /** On an incremental scan, a changed row that no longer qualifies (now hidden, now empty) goes to [removed]. */
+    private fun query(
+        volume: String,
+        sinceGeneration: Long?,
+        skips: MutableMap<String, Int>,
+        removed: MutableList<String>,
+    ): List<SourceFile> {
+        val collection = MediaStore.Files.getContentUri(volume)
+        val volumeLabel = volumeLabel(collection)
+        val projection = buildList {
+            add(MediaStore.MediaColumns._ID)
+            add(MediaStore.MediaColumns.DISPLAY_NAME)
+            add(MediaStore.MediaColumns.RELATIVE_PATH)
+            add(MediaStore.MediaColumns.MIME_TYPE)
+            add(MediaStore.MediaColumns.SIZE)
+            add(MediaStore.MediaColumns.DATE_MODIFIED)
+        }.toTypedArray()
+        val incremental = sinceGeneration != null
+        val selection = if (incremental) "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?" else "${MediaStore.MediaColumns.SIZE} > 0"
+        val args = if (incremental) arrayOf(sinceGeneration.toString()) else null
+        val out = ArrayList<SourceFile>()
+        try {
+            val cursor = context.contentResolver.query(collection, projection, selection, args, null)
+                ?: error("MediaStore query returned no cursor")
+            cursor.use { c ->
+                val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val pathCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+                val mimeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val sizeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val dateCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                while (c.moveToNext()) {
+                    try {
+                        val uri = ContentUris.withAppendedId(collection, c.getLong(idCol)).toString()
+                        val name = c.getString(nameCol).orEmpty()
+                        val relativePath = c.getString(pathCol).orEmpty()
+                        val size = c.getLong(sizeCol)
+                        if (size <= 0 || FileRules.shouldSkip(relativePath, name)) {
+                            skips.merge("rules", 1, Int::plus)
+                            if (incremental) removed += uri
+                            continue
+                        }
+                        val mime = mimeOf(c.getString(mimeCol), name)
+                        val kind = FileRules.classify(mime, relativePath, name)
+                        if (kind == Kind.OTHER) skips.merge("other", 1, Int::plus)
+                        out += SourceFile(
+                            uri = uri,
+                            name = name,
+                            folder = (volumeLabel?.let { "$it/" }.orEmpty() + relativePath).removeSuffix("/"),
+                            mime = mime,
+                            kind = kind,
+                            size = size,
+                            modifiedAt = c.getLong(dateCol) * 1000,
+                        )
+                    } catch (e: Exception) {
+                        skips.merge("unreadable", 1, Int::plus)
+                        Log.w("Retriever", "Skipping unreadable MediaStore row: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Retriever", "MediaStore.Files query failed on $volume: ${e.message}")
+            throw IllegalStateException("MediaStore query failed", e)
+        }
+        return out
+    }
+
+    private fun mimeOf(mime: String?, name: String): String {
+        if (!mime.isNullOrEmpty() && mime != "application/octet-stream") return mime
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            ?: FileRules.mimeForExtension(ext)
+            ?: mime
+            ?: "application/octet-stream"
+    }
+
+    /** Null for the primary volume; "SD card" and the like otherwise. */
+    private fun volumeLabel(collection: Uri): String? = runCatching {
+        context.getSystemService(StorageManager::class.java).getStorageVolume(collection)
+            ?.takeIf { !it.isPrimary }?.getDescription(context)
+    }.getOrNull()
+}
