@@ -10,7 +10,9 @@ CREATE TABLE files (
   size INTEGER NOT NULL,
   modified_at INTEGER NOT NULL,
   state TEXT AS FileState NOT NULL DEFAULT 'PENDING',
-  attempts INTEGER NOT NULL DEFAULT 0
+  attempts INTEGER NOT NULL DEFAULT 0,
+  -- 1: the extractor stopped at a cap (pages, bytes, minutes), so only the first part of the file is searchable.
+  partial INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX files_by_state ON files(state);
@@ -63,7 +65,7 @@ INSERT INTO files (uri, name, folder, mime, kind, size, modified_at, state, atte
 VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)
 ON CONFLICT(uri) DO UPDATE SET
   name = excluded.name, folder = excluded.folder, mime = excluded.mime, kind = excluded.kind,
-  size = excluded.size, modified_at = excluded.modified_at, state = 'PENDING', attempts = 0
+  size = excluded.size, modified_at = excluded.modified_at, state = 'PENDING', attempts = 0, partial = 0
 WHERE files.modified_at != excluded.modified_at OR files.size != excluded.size OR files.name != excluded.name OR files.folder != excluded.folder
   OR files.kind != excluded.kind OR files.mime != excluded.mime;
 
@@ -132,6 +134,15 @@ LIMIT ?;
 setState:
 UPDATE files SET state = ?, attempts = ? WHERE id = ?;
 
+setIndexed:
+UPDATE files SET state = 'INDEXED', attempts = ?, partial = ? WHERE id = ?;
+
+partialFiles:
+SELECT id FROM files WHERE id IN ? AND partial = 1;
+
+deepeningFiles:
+SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND vector IS NULL AND tail_attempts < 3;
+
 deleteFileById:
 DELETE FROM files WHERE id = ?;
 
@@ -177,6 +188,9 @@ LIMIT ?;
 tailChunkCount:
 SELECT COUNT(*) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
 
+tailFileCount:
+SELECT COUNT(DISTINCT file_id) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
+
 setTailAttempts:
 UPDATE chunks SET tail_attempts = ? WHERE id = ?;
 
@@ -186,17 +200,27 @@ SELECT * FROM chunks WHERE id = ?;
 chunksByIds:
 SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
 
+firstTextAt:
+SELECT text FROM chunks WHERE file_id = ? AND locator = ? AND text IS NOT NULL ORDER BY ordinal LIMIT 1;
+
 insertFts:
 INSERT INTO chunk_fts (rowid, text) VALUES (?, ?);
 
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
 
--- Ranks every match without snippet(); snippets are cut only for the winners (ftsSnippets).
+-- The newest matches, for ranking without snippet(); snippets are cut only for the winners (ftsSnippets).
 searchFts:
-SELECT CAST(chunk_fts.rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info, f.kind
-FROM chunk_fts JOIN chunks c ON c.id = chunk_fts.rowid JOIN files f ON f.id = c.file_id
-WHERE chunk_fts MATCH ?;
+SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
+FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY rowid DESC LIMIT ?;
+
+-- As searchFts, among files of the given kinds, filtered before the LIMIT. The id set comes from chunks_by_file, which
+-- covers (file_id, id), so the filter never reads the wide chunk rows; '+' keeps SQLite from turning it into docid lookups.
+searchFtsOfKinds:
+SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
+FROM chunk_fts
+WHERE chunk_fts MATCH ? AND +rowid IN (SELECT id FROM chunks WHERE file_id IN (SELECT id FROM files WHERE kind IN ?))
+ORDER BY rowid DESC LIMIT ?;
 
 ftsSnippets:
 SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', -1, 12) AS snippet

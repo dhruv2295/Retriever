@@ -1,16 +1,20 @@
 import Foundation
 import RetrieverCore
+import UIKit
 
 /// Every sentence the shell shows, in plain words from the person's side. Ported from Android's StatusScreen and
-/// SetupScreen copy; "phone" reads "iPhone" here.
+/// SetupScreen copy; "phone" reads "iPhone" or "iPad" here.
 enum Copy {
+    /// What the person holds, as they'd call it.
+    static let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+
     static func stop(_ stop: StopReason?) -> String? {
         switch stop {
         case StopReason.done: "All caught up"
-        case StopReason.hot: "Resting while your iPhone cools down"
+        case StopReason.hot: "Resting while your \(device) cools down"
         case StopReason.unplugged: "Waiting for the charger"
         case StopReason.budget: "Taking a short break"
-        case StopReason.busy: "Paused while you use your iPhone"
+        case StopReason.busy: "Paused while you use your \(device)"
         case StopReason.paused: "Paused"
         default: nil
         }
@@ -94,5 +98,43 @@ enum Copy {
     ]
 
     static let backgroundNote =
-        "Retriever reads your files while it's open, on battery too. When you leave, iPhone lets it carry on now and then, mostly overnight while charging."
+        "Retriever reads your files while it's open, on battery too, and keeps the screen on as it goes. After you leave, it carries on where \(device) allows, mostly overnight on the charger."
+
+    static let screenKeptOn = "Retriever keeps your screen on while it reads. Lock your \(device) any time to stop."
+
+    static func deepReading(_ n: Int) -> String {
+        n == 1 ? "1 long file still being read in depth" : "\(count(n)) long files still being read in depth"
+    }
+
+    static func textOnlyNote(ramGb: Double) -> String {
+        "This \(device) has \(Int(ramGb.rounded())) GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them."
+    }
+
+    static let textOnlySearch = "Retriever finds files here by their names and the words inside them."
+
+    static let lessLikely = "Less likely matches"
+    static func nothingWell(_ q: String) -> String { "Nothing matches “\(q)” well" }
+    static let closestFiles = "These are the closest files, but they may not be what you're looking for."
+    static let closestFilesShort = "These are the closest files."
+
+    static func extent(_ extent: ReadExtent?) -> String? {
+        switch extent {
+        case ReadExtent.firstPart: "Only the first part of this file was read"
+        case ReadExtent.deepening: "Still reading the rest of this file"
+        default: nil
+        }
+    }
+
+    static let keepReading = "Keep reading after I leave"
+    static let keepReadingNote = "Your \(device) shows how it's going and lets you stop it any time."
+
+    /// The Lock Screen's progress for a read that carries on after the person leaves.
+    static let continuedTitle = "Reading your files"
+
+    static func continuedSubtitle(_ s: AppModel.Snap) -> String {
+        "\(count(s.indexed)) of \(count(s.total))"
+    }
+
+    static let oneTimeDownload = "One-time download"
+    static let downloadNote = "It lets Retriever understand the photos and documents on this \(device)."
 }

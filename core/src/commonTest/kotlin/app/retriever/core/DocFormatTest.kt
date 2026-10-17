@@ -27,6 +27,10 @@ class DocFormatTest {
             Triple("main.kt", "application/octet-stream", DocFormat.TEXT),
             Triple("readme", "text/plain", DocFormat.TEXT),
             Triple("data", "application/json", DocFormat.TEXT),
+            // RTF is text/* to MediaStore and UTType, so it must win before the text rule indexes its control words.
+            Triple("letter.rtf", "text/rtf", DocFormat.RTF),
+            Triple("letter.RTF", "", DocFormat.RTF),
+            Triple("letter", "application/rtf", DocFormat.RTF),
         )
         for ((name, mime, want) in cases) assertEquals(want, docFormat(name, mime), "$name $mime")
     }
@@ -35,6 +39,8 @@ class DocFormatTest {
     fun unreadableIsNull() {
         assertNull(docFormat("archive.zip", "application/zip"))
         assertNull(docFormat("noext", ""))
+        // Word 97-2003: UIKit's NSAttributedString reads only plain, RTF, RTFD and HTML, so .doc stays name-only.
+        assertNull(docFormat("old.doc", "application/msword"))
     }
 
     @Test

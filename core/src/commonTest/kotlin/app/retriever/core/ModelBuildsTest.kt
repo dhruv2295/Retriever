@@ -31,11 +31,10 @@ class ModelBuildsTest {
     }
 
     @Test
-    fun qualcommAndMediaTekMatch() {
-        assertEquals("Qualcomm_SM8650", pick(android("SM8650", vendor = "QTI")).soc)
-        assertEquals("Qualcomm_SM8650", pick(android("SM8650-AC", vendor = "QTI")).soc)
-        assertEquals(ModelVariant.M740.generic, pick(android("SM8650", npu = false, vendor = "QTI")))
+    fun mediaTekMatchesAndQualcommIsGeneric() {
+        assertEquals(ModelVariant.M740.generic, pick(android("SM8650", vendor = "QTI")))
         assertEquals("MediaTek_MT6991", pick(android("MT6991", vendor = "Mediatek")).soc)
+        assertEquals("MediaTek_MT6991", pick(android("MT6991-AB", vendor = "Mediatek")).soc)
     }
 
     @Test
@@ -69,7 +68,7 @@ class ModelBuildsTest {
             assertTrue(b.fileName.endsWith("_${b.soc}.litertlm"), b.fileName)
             assertTrue(b.sizeBytes > 0)
         }
-        assertEquals(8, ModelBuilds.npu.count { it.variant == ModelVariant.M740 })
-        assertEquals(8, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
+        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M740 })
+        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
     }
 }

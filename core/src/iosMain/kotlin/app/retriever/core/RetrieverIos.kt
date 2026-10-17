@@ -64,6 +64,13 @@ fun modelReady(modelDir: String, build: ModelBuild): Boolean {
 @Throws(Throwable::class)
 suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds)
 
+/**
+ * The person's continued read: pending files only, so it ends DONE once they are read, and it waits for the
+ * foreground batch it replaces to stop rather than finding the index busy.
+ */
+@Throws(Throwable::class)
+suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, deepen = false, waitForLock = true)
+
 @Throws(Throwable::class)
 suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?, limit: Int): SearchEngine.SearchResult =
     searchImage(jpeg.toByteArray(), kinds, limit)

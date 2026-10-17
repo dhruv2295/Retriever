@@ -17,7 +17,14 @@ enum class FileState { PENDING, INDEXED, SKIPPED }
 class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }) {
     private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
 
-    data class StoredFile(val id: Long, val file: SourceFile, val attempts: Int, val state: FileState = FileState.PENDING)
+    /** [partial]: the extractor stopped at a cap, so only the first part of the file is searchable. */
+    data class StoredFile(
+        val id: Long,
+        val file: SourceFile,
+        val attempts: Int,
+        val state: FileState = FileState.PENDING,
+        val partial: Boolean = false,
+    )
     enum class Sort { NEWEST, LARGEST, NAME }
 
     /** A null [vector] is a text tail chunk: keyword-searchable at once, embedded later by the deepen pass. */
@@ -25,7 +32,8 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     data class ChunkRow(val id: Long, val fileId: Long, val ordinal: Int, val locator: String, val text: String?)
     data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0)
     data class KeywordHit(val chunkId: Long, val snippet: String?)
-    data class Counts(val byState: Map<FileState, Long>, val byKind: Map<Kind, Long>, val tailChunks: Long)
+    /** [tailFiles]: files with a chunk still waiting for the deepen pass. */
+    data class Counts(val byState: Map<FileState, Long>, val byKind: Map<Kind, Long>, val tailChunks: Long, val tailFiles: Long = 0)
 
     internal fun <R> inTransaction(body: () -> R): R = q.transactionWithResult { body() }
 
@@ -118,7 +126,8 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         }
     }
 
-    fun replaceChunks(fileId: Long, chunks: List<NewChunk>) {
+    /** [partial]: the extractor stopped at a cap, so [chunks] cover only the first part of the file. */
+    fun replaceChunks(fileId: Long, chunks: List<NewChunk>, partial: Boolean = false) {
         val index = signature()
         chunks.firstOrNull { it.vector != null && it.vector.signature != index }?.let {
             throw IllegalStateException("vector signature ${it.vector?.signature?.value} does not match index ${index?.value}")
@@ -133,8 +142,15 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
                 val chunkId = q.lastId().executeAsOne()
                 if (c.text != null) q.insertFts(chunkId, c.text)
             }
-            q.setState(FileState.INDEXED, stored.attempts.toLong(), fileId)
+            q.setIndexed(stored.attempts.toLong(), if (partial) 1L else 0L, fileId)
         }
+    }
+
+    /** How much of each of [fileIds] is searchable; files read whole and fully embedded are left out. */
+    fun readExtents(fileIds: Collection<Long>): Map<Long, ReadExtent> {
+        if (fileIds.isEmpty()) return emptyMap()
+        val deepening = q.deepeningFiles(fileIds).executeAsList().associateWith { ReadExtent.DEEPENING }
+        return deepening + q.partialFiles(fileIds).executeAsList().associateWith { ReadExtent.FIRST_PART }
     }
 
     /** Text chunks still waiting for a vector, in queue priority order. */
@@ -205,12 +221,11 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null): List<KeywordHit> {
         val match = matchExpression(query) ?: return emptyList()
         return ftsQuery(query) {
-            // ponytail: scores every match in Kotlin; cap candidates if a common word matches 100k rows
-            val top = q.searchFts(match).executeAsList()
-                .filter { kinds == null || Kind.valueOf(it.kind) in kinds }
-                .sortedByDescending { it.info?.let(::bm25) ?: 0.0 }
-                .take(limit)
-                .map { it.chunkId }
+            // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
+            // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
+            val scored: (Long, ByteArray?) -> Pair<Long, Double> = { id, info -> id to (info?.let(::bm25) ?: 0.0) }
+            val rows = if (kinds == null) q.searchFts(match, FTS_CAP, scored) else q.searchFtsOfKinds(match, kinds.map { it.name }, FTS_CAP, scored)
+            val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
             val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
             top.map { KeywordHit(it, snippets[it]) }
         }
@@ -248,6 +263,9 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
                 .executeAsList().associateBy { it.id }
         }
 
+    /** The text of [fileId]'s first chunk at [locator] that has any, e.g. a PDF page's words beside its page image. */
+    fun firstTextAt(fileId: Long, locator: String): String? = q.firstTextAt(fileId, locator).executeAsOneOrNull()
+
     fun file(id: Long): SourceFile? = q.fileById(id, ::storedFile).executeAsOneOrNull()?.file
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
@@ -259,7 +277,8 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         q.countByState { state, count -> state to count }.asFlow().mapToList(Dispatchers.Default),
         q.countByKind { kind, count -> Kind.valueOf(kind) to count }.asFlow().mapToList(Dispatchers.Default),
         q.tailChunkCount().asFlow().mapToOne(Dispatchers.Default),
-    ) { byState, byKind, tail -> Counts(byState.toMap(), byKind.toMap(), tail) }
+        q.tailFileCount().asFlow().mapToOne(Dispatchers.Default),
+    ) { byState, byKind, tail, tailFiles -> Counts(byState.toMap(), byKind.toMap(), tail, tailFiles) }
 
     fun chunkCount(): Long = q.chunkCount().executeAsOne()
 
@@ -291,6 +310,9 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         private const val PROFILE_KEY = "profile"
         private val JSON = Json { ignoreUnknownKeys = true }
         private val NON_WORD = Regex("[^\\p{L}\\p{M}\\p{N}]+")
+
+        /** Keyword matches ranked per query; see eval/REPORT.md, "Search speed at scale (wave 4)". */
+        internal const val FTS_CAP = 5_000L
 
         /** Query tokens; the FTS tables fold case and accents themselves with the same unicode61 tokenizer. */
         fun ftsTokens(s: String): List<String> = s.lowercase().split(NON_WORD).filter { it.isNotEmpty() }
@@ -329,9 +351,9 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
 private fun storedFile(
     id: Long, uri: String, name: String, folder: String, mime: String, kind: String,
-    size: Long, modifiedAt: Long, state: FileState, attempts: Long,
+    size: Long, modifiedAt: Long, state: FileState, attempts: Long, partial: Long,
 ): Store.StoredFile = Store.StoredFile(
-    id, SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt), attempts.toInt(), state,
+    id, SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt), attempts.toInt(), state, partial != 0L,
 )
 
 /** Vectors held in flat arrays for the scan; grows with doubling capacity so appends stay cheap. */

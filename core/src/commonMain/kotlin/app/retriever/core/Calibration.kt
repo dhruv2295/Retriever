@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.TimeSource
 import kotlin.time.measureTimedValue
 
 data class Samples(
@@ -30,8 +31,10 @@ data class BackendResult(
 
 data class CalibrationResult(val backends: List<BackendResult>, val chosen: Backend, val profile: DeviceProfile)
 
-class Calibration(private val factory: EmbedderFactory) {
-    private class Measured(val result: BackendResult, val raws: List<FloatArray>?)
+class Calibration(private val factory: EmbedderFactory, private val clock: TimeSource = TimeSource.Monotonic) {
+    private class Measured(val result: BackendResult, val raws: List<FloatArray>?, val totalMs: Double)
+
+    private class TooSlow : Exception("much slower than CPU")
 
     suspend fun run(
         samples: Samples,
@@ -54,14 +57,18 @@ class Calibration(private val factory: EmbedderFactory) {
         val backends = factory.backends(build)
         val results = mutableListOf<BackendResult>()
         var cpuRaws: List<FloatArray>? = null
+        var budgetMs: Double? = null
         if (Backend.CPU in backends) {
-            val cpu = measure(profile(Backend.CPU), build, images, texts, audio, queries, null, false)
+            val cpu = measure(profile(Backend.CPU), build, images, texts, audio, queries, null, false, null)
             results += cpu.result
             cpuRaws = cpu.raws
+            // A backend that can't beat CPU is never picked, so stop measuring it once it is far behind
+            // (an emulator's GPU falls back to WebGPU and takes ten minutes).
+            if (cpu.result.ok) budgetMs = maxOf(SLOW_FACTOR * cpu.totalMs, MIN_BUDGET_MS)
         }
         for (backend in backends.filter { it != Backend.CPU }) {
             results += measure(
-                profile(backend), build, images, texts, audio, queries, cpuRaws, Backend.CPU in backends,
+                profile(backend), build, images, texts, audio, queries, cpuRaws, Backend.CPU in backends, budgetMs,
             ).result
         }
 
@@ -82,20 +89,37 @@ class Calibration(private val factory: EmbedderFactory) {
         queries: List<List<Part>>,
         cpuRaws: List<FloatArray>?,
         needsAgreement: Boolean,
+        budgetMs: Double?,
     ): Measured {
         val backend = profile.backend
+        // From after the open: a GPU's first open compiles its kernels, which says nothing about its speed after.
+        var start = clock.markNow()
+        fun elapsedMs() = start.elapsedNow().inWholeNanoseconds / 1e6
+        fun checkBudget() {
+            if (budgetMs != null && elapsedMs() > budgetMs) throw TooSlow()
+        }
         var loadMs = 0.0
         try {
-            val opened = measureTimedValue { factory.open(profile, build) }
+            val opened = clock.measureTimedValue { factory.open(profile, build) }
             loadMs = opened.duration.inWholeNanoseconds / 1e6
             val embedder = opened.value
+            start = clock.markNow()
             try {
+                // A cold model pages in weights and builds caches on its first calls of each kind; time none of them.
+                for (kind in listOf(images, texts, audio, queries)) {
+                    kind.firstOrNull()?.let { parts ->
+                        repeat(WARM_UPS) {
+                            embedder.embedRaw(parts)
+                            checkBudget()
+                        }
+                    }
+                }
                 val all = images + texts + audio + queries
-                all.firstOrNull()?.let { embedder.embedRaw(it) } // warm-up
                 val raws = mutableListOf<FloatArray>()
                 val times = all.mapIndexed { i, parts ->
+                    checkBudget()
                     val timed = try {
-                        measureTimedValue { embedder.embedRaw(parts) }
+                        clock.measureTimedValue { embedder.embedRaw(parts) }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -137,7 +161,7 @@ class Calibration(private val factory: EmbedderFactory) {
                     detail = embedder.detail,
                     queryMs = median(times.subList(ni + nt + audio.size, times.size)),
                 )
-                return Measured(result, raws)
+                return Measured(result, raws, elapsedMs())
             } finally {
                 embedder.close()
             }
@@ -145,8 +169,16 @@ class Calibration(private val factory: EmbedderFactory) {
             throw e
         } catch (e: Exception) {
             val result = BackendResult(backend, false, e.message ?: e::class.simpleName, loadMs, null, null, null, null, null)
-            return Measured(result, null)
+            return Measured(result, null, elapsedMs())
         }
+    }
+
+    private companion object {
+        const val WARM_UPS = 2
+        const val SLOW_FACTOR = 3.0
+
+        /** A GPU compiling its kernels on first open may take this long however fast the CPU was. */
+        const val MIN_BUDGET_MS = 30_000.0
     }
 
     private fun median(values: List<Double>): Double? {

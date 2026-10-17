@@ -19,6 +19,7 @@ package app.retriever
 
 import androidx.compose.ui.text.TextStyle
 import app.retriever.core.Kind
+import app.retriever.core.ReadExtent
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Date
@@ -32,6 +33,13 @@ object Format {
         val exp = (ln(n.toDouble()) / ln(1000.0)).toInt()
         val pre = "kMGTPE"[exp - 1]
         return String.format(Locale.getDefault(), "%.1f %sB", n / 1000.0.pow(exp), pre)
+    }
+
+    /** Said under a result whose file was not read whole; null when it was. */
+    fun readNote(extent: ReadExtent?): String? = when (extent) {
+        ReadExtent.FIRST_PART -> "Only the first part of this file was read"
+        ReadExtent.DEEPENING -> "Still reading the rest of this file"
+        else -> null
     }
 
     fun date(ms: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ms))

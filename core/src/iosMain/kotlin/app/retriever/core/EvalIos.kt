@@ -41,10 +41,9 @@ suspend fun runEval(
         if (next == NextRun.DONE) break
     }
     val keywordOnly = mutableListOf<String>()
-    val production = queries.map { q ->
-        val r = retriever.search(q.q)
-        if (!r.vectorLane) keywordOnly += q.q
-        r.hits.indexOfFirst { it.file.uri.startsWith(CORPUS) && it.file.name == q.file }.takeIf { it >= 0 }?.plus(1)
+    val results = queries.map { q -> retriever.search(q.q).also { if (!it.vectorLane) keywordOnly += q.q } }
+    val production = queries.zip(results) { q, r ->
+        q.file?.let { f -> r.hits.indexOfFirst { it.file.uri.startsWith(CORPUS) && it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
     }
     retriever.release()
 
@@ -55,10 +54,11 @@ suspend fun runEval(
         profile,
         Store(inMemoryDriver(IndexDb.Schema)),
         log,
+        RelevanceFloor.measuredFor(Signature.of(retriever.requiredBuild.value, profile.visionTokens, profile.maxTokens)),
     )
     val run = eval.run(corpus, queries, evalGrid((listOf(70, 140, 280) + profile.visionTokens).distinct()))
     return "## Simulator run\n\nModel ${retriever.requiredBuild.value.fileName}, ${profile.backend}, tier ${profile.tier}, " +
         "vision tokens ${profile.visionTokens}, max tokens ${profile.maxTokens}. Production index: $next" +
         (if (keywordOnly.isEmpty()) "; every production search used the vector lane." else "; keyword-only searches: $keywordOnly") +
-        "\n\n" + run.report(EvalSetting(profile.visionTokens), production)
+        "\n\n" + run.report(EvalSetting(profile.visionTokens), production, results.map { it.strongCount })
 }

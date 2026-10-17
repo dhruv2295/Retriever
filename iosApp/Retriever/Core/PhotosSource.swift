@@ -126,7 +126,7 @@ final class PhotosSource: NSObject, NativeFileSource {
 
     /// Private key, the only size source that doesn't read the file; an unknown KVC key raises, hence the guard.
     static func fileSize(_ resource: PHAssetResource) -> Int64 {
-        guard resource.responds(to: Selector(("fileSize"))) else { return 0 }
+        guard resource.responds(to: NSSelectorFromString("fileSize")) else { return 0 }
         return (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0
     }
 

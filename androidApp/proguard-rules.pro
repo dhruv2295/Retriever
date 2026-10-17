@@ -9,5 +9,12 @@
 # liblitertlm_jni.so: thrown with ThrowNew on native errors; no Java code references it.
 -keep class com.google.ai.edge.litertlm.LiteRtLmJniException { <init>(java.lang.String); }
 
+# No rule for BenchmarkInfo: liblitertlm_jni.so has no JNI_OnLoad and no RegisterNatives, and its only reference to the class name sits inside nativeConversationGetBenchmarkInfo, part of the conversation API that Retriever never calls.
+
+# ML Kit's ComponentDiscovery creates its registrars (TextRegistrar and others) by reflection from manifest names; the
+# library rules keep only the class names, so R8 full mode drops the no-arg constructors and TextRecognition.getClient
+# then throws in Application.onCreate.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+
 # protobuf-javalite (via mediapipe tasks-core) ships no rules; its message schema looks fields up by their source name.
 -keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite { <fields>; }

@@ -1,0 +1,4 @@
+ALTER TABLE files ADD COLUMN partial INTEGER NOT NULL DEFAULT 0;
+
+-- Version 1 read 30 PDF pages and 300 KB of text at most: read again whatever those caps could have cut short.
+UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'INDEXED' AND (kind = 'PDF' OR (kind = 'DOC' AND size > 307200));

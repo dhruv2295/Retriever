@@ -13,18 +13,30 @@ struct StatusView: View {
             download: model.download,
             progress: model.downloadProgress,
             skippedFiles: model.skippedFiles,
-            actions: StatusActions(
-                pause: model.pause,
-                resume: model.resume,
-                retrySkipped: model.retrySkipped,
-                useMobileData: { model.setUseMobileData(true) },
-                chooseMorePhotos: model.chooseMorePhotos,
-                openSettings: model.openSettings
-            )
+            screenKeptOn: model.screenKeptOn,
+            canKeepReading: model.canKeepReading,
+            tune: model.tune,
+            actions: actions
         )
         .onChange(of: snap.skipped, initial: true) { _, n in
             if n > 0 { model.loadSkipped() }
         }
+    }
+
+    private var actions: StatusActions {
+        var actions = StatusActions(
+            pause: model.pause,
+            resume: model.resume,
+            retrySkipped: model.retrySkipped,
+            useMobileData: { model.setUseMobileData(true) },
+            chooseMorePhotos: model.chooseMorePhotos,
+            openSettings: model.openSettings,
+            keepReading: model.keepReading
+        )
+        #if DEBUG
+            actions.tuneAgain = model.tuneAgain
+        #endif
+        return actions
     }
 }
 
@@ -35,6 +47,8 @@ struct StatusActions {
     var useMobileData: () -> Void = {}
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
+    var keepReading: () -> Void = {}
+    var tuneAgain: () -> Void = {}
 }
 
 struct StatusContent: View {
@@ -43,23 +57,42 @@ struct StatusContent: View {
     let download: ModelDownload.State
     let progress: Double
     let skippedFiles: [AppModel.SkippedFile]
+    var screenKeptOn = false
+    var canKeepReading = false
+    var tune = AppModel.Tune.idle
     var actions = StatusActions()
 
     var body: some View {
         List {
             Section { progressSection }
-            if snap.setUp != true { Section("Getting ready") { gettingReady } }
-            if snap.skipped > 0 { Section { skipped } }
-            if snap.tail > 0 {
-                Section {
-                    Note("Some long documents are only partly read. Retriever reads the rest while your iPhone charges.")
-                }
+            if snap.textOnly {
+                Section { Note(Copy.textOnlyNote(ramGb: snap.ramGb)) }
+            } else if snap.setUp != true {
+                Section("Getting ready") { gettingReady }
             }
+            if snap.skipped > 0 { Section { skipped } }
+            if snap.tailFiles > 0 && !snap.textOnly { Section { Note(Copy.deepReading(snap.tailFiles)) } }
             photosSection
             Section {} footer: { Text(Copy.backgroundNote) }
+            #if DEBUG
+                // Debug-only, as Android keeps it behind BuildConfig.DEBUG.
+                if !snap.textOnly { Section("For testing") { testing } }
+            #endif
         }
         .navigationTitle(Copy.statusTitle(snap))
     }
+
+    #if DEBUG
+        @ViewBuilder private var testing: some View {
+            switch tune {
+            case .running: Busy("Tuning… about a minute")
+            case let .done(summary): Note(summary)
+            case .failed: Failure("Tune failed")
+            case .idle: EmptyView()
+            }
+            Button("Tune again", action: actions.tuneAgain).disabled(tune == .running)
+        }
+    #endif
 
     @ViewBuilder private var progressSection: some View {
         if snap.running {
@@ -81,11 +114,18 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
+        if screenKeptOn { Note(Copy.screenKeptOn) }
         if let error = snap.lastError { Failure(error) }
         if snap.paused {
             Button("Resume", action: actions.resume)
         } else if snap.pending > 0 {
             Button("Pause", action: actions.pause)
+        }
+        if canKeepReading {
+            VStack(alignment: .leading, spacing: 4) {
+                Button(Copy.keepReading, action: actions.keepReading)
+                Note(Copy.keepReadingNote)
+            }
         }
     }
 

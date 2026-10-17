@@ -345,10 +345,10 @@ class DuplicateFinderTest {
 
 class PrefsTest {
     @Test
-    fun lightTierLeavesAudioAndVideoOutByDefault() {
+    fun lightTierLeavesAudioOutByDefault() {
         val light = PROFILE.copy(tier = Tier.LIGHT, bulkOnlyWhenCharging = true)
         val prefs = Prefs.defaultFor(light)
-        assertEquals(Kind.entries.toSet() - Kind.AUDIO - Kind.VIDEO, prefs.kinds)
+        assertEquals(Kind.entries.toSet() - Kind.AUDIO, prefs.kinds)
         assertTrue(prefs.onlyWhileCharging)
     }
 

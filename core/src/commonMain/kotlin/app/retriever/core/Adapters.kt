@@ -40,6 +40,9 @@ interface EmbedderFactory {
     /** [build].variant must equal [profile].model. Throws when the model can't load; Swift implements it as `throws`. */
     @Throws(Throwable::class)
     fun open(profile: DeviceProfile, build: ModelBuild): Embedder
+
+    /** [inUse] is what search and indexing run on now: drop caches built for any other configuration. */
+    fun keepOnly(inUse: Embedder) {}
 }
 
 interface Embedder : AutoCloseable {

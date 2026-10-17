@@ -50,7 +50,8 @@ struct SetupView: View {
             useMobileData: model.useMobileData,
             tune: model.tune,
             setUp: model.setUp,
-            started: model.started
+            started: model.started,
+            ramGb: model.snap.flatMap { $0.textOnly ? $0.ramGb : nil }
         )
     }
 }
@@ -67,6 +68,8 @@ struct SetupState {
     var tune: AppModel.Tune
     var setUp: Bool
     var started: Bool
+    /// The memory of an iPhone too small for the model; nil when the model runs.
+    var ramGb: Double?
 
     var photosReady: Bool { photos == .authorized || photos == .limited }
     /// A later launch never restarts a finished download, so its state stays idle: set-up says it's done.
@@ -112,10 +115,10 @@ struct SetupContent: View {
                 .frame(maxWidth: state.asked ? 160 : 260)
                 .frame(maxWidth: .infinity)
                 .accessibilityHidden(true)
-            Text("Find anything on your iPhone by what's in it.")
+            Text("Find anything on your \(Copy.device) by what's in it.")
                 .font(.title.bold())
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Search your photos, screenshots, PDFs and documents in your own words. Everything stays on this iPhone.")
+            Text("Search your photos, screenshots, PDFs and documents in your own words. Everything stays on this \(Copy.device).")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -129,7 +132,7 @@ struct SetupContent: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            Text(state.size.map { "Needs a one-time download of \($0). Best on Wi-Fi." } ?? "Needs a one-time download. Best on Wi-Fi.")
+            Text(state.ramGb.map(Copy.textOnlyNote) ?? state.size.map { "Needs a one-time download of \($0). Best on Wi-Fi." } ?? "Needs a one-time download. Best on Wi-Fi.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -160,25 +163,30 @@ struct SetupContent: View {
             Note("Files you put in Retriever's folder in the Files app are always included.")
         }
 
-        SetupStep(title: state.size.map { "Download the search model · \($0)" } ?? "Download the search model", done: state.downloaded) {
-            if !state.downloaded {
-                download
-                Toggle("Use mobile data", isOn: Binding(get: { state.useMobileData }, set: actions.setUseMobileData))
-                Note(state.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Waits for Wi-Fi, so it won't use your data.")
+        if let ramGb = state.ramGb {
+            Note(Copy.textOnlyNote(ramGb: ramGb))
+        } else {
+            SetupStep(title: state.size.map { "\(Copy.oneTimeDownload) · \($0)" } ?? Copy.oneTimeDownload, done: state.downloaded) {
+                if !state.downloaded {
+                    Note(Copy.downloadNote)
+                    download
+                    Toggle("Use mobile data", isOn: Binding(get: { state.useMobileData }, set: actions.setUseMobileData))
+                    Note(state.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Waits for Wi-Fi, so it won't use your data.")
+                }
             }
-        }
 
-        SetupStep(title: "Get to know this iPhone · about a minute", done: { if case .done = state.tune { true } else { false } }()) {
-            switch state.tune {
-            case .idle:
-                if !state.downloaded { Note("Starts after the download.") }
-            case .running:
-                Busy("Testing how fast this iPhone reads photos…")
-            case let .done(summary):
-                Note(summary)
-            case .failed:
-                Failure("Couldn't finish this step.")
-                Button("Try again", action: actions.retryTune).buttonStyle(.bordered)
+            SetupStep(title: "Get to know this \(Copy.device) · about a minute", done: { if case .done = state.tune { true } else { false } }()) {
+                switch state.tune {
+                case .idle:
+                    if !state.downloaded { Note("Starts after the download.") }
+                case .running:
+                    Busy("Testing how fast this \(Copy.device) reads photos…")
+                case let .done(summary):
+                    Note(summary)
+                case .failed:
+                    Failure("Couldn't finish this step.")
+                    Button("Try again", action: actions.retryTune).buttonStyle(.bordered)
+                }
             }
         }
 

@@ -14,7 +14,7 @@ import org.junit.Test
 
 class SetupStepTest {
     /** Get started tapped, files allowed, names synced: the model is next. */
-    private val going = SetupUi(started = true, files = true, namesSynced = true)
+    private val going = SetupUi(started = true, access = Access.ALL, namesSynced = true)
 
     private fun next(ui: SetupUi, hasSpace: Boolean = true, metered: Boolean = false, profileExists: Boolean = false) =
         nextStep(ui, hasSpace, metered, profileExists)
@@ -23,7 +23,7 @@ class SetupStepTest {
 
     @Test fun startedWithoutFilesAsksForThem() = assertEquals(ASK_FILES, next(SetupUi(started = true)))
 
-    @Test fun filesGrantedFirstTimeSyncsNames() = assertEquals(SYNC_NAMES, next(SetupUi(started = true, files = true)))
+    @Test fun filesGrantedFirstTimeSyncsNames() = assertEquals(SYNC_NAMES, next(SetupUi(started = true, access = Access.ALL)))
 
     @Test fun noSpace() = assertEquals(NEEDS_SPACE, next(going, hasSpace = false))
 
@@ -60,6 +60,18 @@ class SetupStepTest {
 
     @Test fun canSearchOnceStartedWithFiles() {
         assertEquals(false, SetupUi(started = true).canSearch)
-        assertEquals(true, SetupUi(started = true, files = true).canSearch)
+        assertEquals(true, SetupUi(started = true, access = Access.ALL).canSearch)
+        // The narrower path is enough to start: only picked photos, or one folder.
+        assertEquals(true, SetupUi(started = true, access = Access(false, Photos.SELECTED)).canSearch)
+        assertEquals(true, SetupUi(started = true, access = Access(false, folders = listOf(PickedFolder("u", "Docs")))).canSearch)
+    }
+
+    @Test fun textOnlyNeverDownloadsOrTunes() {
+        val textOnly = going.copy(textOnly = true)
+        assertEquals(SYNC_NAMES, next(textOnly.copy(namesSynced = false)))
+        assertEquals(NONE, next(textOnly))
+        assertEquals(NONE, next(textOnly, metered = true, hasSpace = false))
+        assertEquals(NONE, next(textOnly.copy(model = ModelState.Done)))
+        assertEquals(SCHEDULE, next(textOnly.copy(ready = true)))
     }
 }

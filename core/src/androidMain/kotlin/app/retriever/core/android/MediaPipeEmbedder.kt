@@ -65,6 +65,11 @@ class MediaPipeEmbedderFactory(
         check(file.exists()) { "Model file missing: ${file.absolutePath}" }
         return MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, probe.oldMaliGpu)
     }
+
+    override fun keepOnly(inUse: Embedder) {
+        val keep = (inUse as? MediaPipeEmbedder)?.cache ?: return
+        File(context.cacheDir, "embed").listFiles()?.filter { it != keep }?.forEach { it.deleteRecursively() }
+    }
 }
 
 // Recovery, model-limit reading, NPU options, per-configuration cache and close adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt (Apache-2.0); old-Mali vision-on-CPU rule from GemmaEmbeddingModelStore.kt in the same directory. Modified for Retriever: coroutine Mutex instead of synchronized, throws instead of returning null, close waits for an in-flight embed, cache dir passed through setCacheDir, no in-place CPU rebuild (a probe input tells a bad input from a broken backend, and the core records the fallback).
@@ -102,6 +107,12 @@ private class MediaPipeEmbedder(
 
     override val signature = Signature.of(modelBuild, visionTokens, maxTokens)
 
+    // Own cache dir per configuration, or different token configs collide on the compiled program cache.
+    val cache = File(
+        context.cacheDir,
+        "embed/${modelBuild.fileName.substringBeforeLast('.')}-${delegate.name}-vt$visionTokens-t$maxTokens",
+    )
+
     /** Set when part of the model had to run somewhere other than [backend]. */
     override var detail: String? = null
         private set
@@ -132,11 +143,7 @@ private class MediaPipeEmbedder(
                 NpuOptions.builder().setDispatchLibraryDirectory(libs).setCompilerPluginLibraryDirectory(libs).build(),
             )
         }
-        // Own cache dir per configuration, or different token configs collide on the compiled program cache.
-        val cache = File(
-            context.cacheDir,
-            "embed/${modelBuild.fileName.substringBeforeLast('.')}-${textDelegate.name}-vt$visionTokens-t$maxTokens",
-        ).apply { mkdirs() }
+        cache.mkdirs()
         val builder = UniversalEmbedderOptions.builder()
             .setBaseOptions(base.build())
             .setCacheDir(cache.absolutePath)
@@ -145,7 +152,9 @@ private class MediaPipeEmbedder(
             .setTextDelegate(textDelegate)
         // A text-only model has no vision or audio encoder; configuring one makes loading fail.
         if (model.vision) builder.setVisionTokensPerImage(visionTokens).setVisionDelegate(visionDelegate)
-        if (model.audio && modelHasAudio) builder.setAudioDelegate(Delegate.CPU) // Gallery forces audio onto CPU for accuracy
+        // Gallery forces audio onto CPU for accuracy. Leaving it unset when audio is off was tried: MediaPipe still
+        // builds the audio encoder's 91 MB cache and native heap didn't drop (emulator, M740), so it isn't worth a reopen.
+        if (model.audio && modelHasAudio) builder.setAudioDelegate(Delegate.CPU)
         return UniversalEmbedder.createFromOptions(context, builder.build())
     }
 

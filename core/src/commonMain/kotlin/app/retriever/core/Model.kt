@@ -87,6 +87,9 @@ data class ModelBuild(
 
 enum class Backend { NPU, GPU, CPU }
 
+/** How much of a file search can reach: all of it, all by keyword with meaning still being added, or its first part only. */
+enum class ReadExtent { WHOLE, DEEPENING, FIRST_PART }
+
 enum class Tier { FULL, BALANCED, LIGHT }
 
 @Serializable

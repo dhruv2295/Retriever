@@ -102,16 +102,26 @@ fun highlighted(snippet: String, style: SpanStyle): AnnotatedString = buildAnnot
     if (open in 0 until length) addStyle(style, open, length)
 }
 
-/** The file name with every word of the query shown bold. */
+/**
+ * The file name with each whole word the query matched shown bold, as keyword search matches: the same words, or
+ * words starting with the last one when it has three letters or more. Little words like "on" are left plain.
+ */
 fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedString {
-    val tokens = Store.ftsTokens(query).sortedByDescending { it.length }
-    if (tokens.isEmpty()) return AnnotatedString(name)
-    val pattern = Regex(tokens.joinToString("|") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+    val tokens = Store.ftsTokens(query)
+    val words = tokens.filter { it !in STOP_WORDS }.toSet()
+    val prefix = tokens.lastOrNull()?.takeIf { it.length >= 3 }
+    if (words.isEmpty()) return AnnotatedString(name)
     return buildAnnotatedString {
         append(name)
-        pattern.findAll(name).forEach { addStyle(style, it.range.first, it.range.last + 1) }
+        NAME_WORD.findAll(name).forEach { m ->
+            val w = m.value.lowercase()
+            if (w in words || (prefix != null && w.startsWith(prefix))) addStyle(style, m.range.first, m.range.last + 1)
+        }
     }
 }
+
+private val NAME_WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
+private val STOP_WORDS = setOf("a", "an", "and", "at", "by", "for", "in", "is", "my", "of", "on", "or", "the", "to")
 
 private fun clickLabel(locator: String): String =
     Opener.locatorToPage(locator)?.let { "Open at page $it" }
@@ -130,6 +140,7 @@ fun FileRow(
     onLongClick: (() -> Unit)? = null,
     locator: String = "",
     query: String? = null,
+    readNote: String? = null,
     onLongClickLabel: String? = null,
     onClickLabel: String = clickLabel(locator),
     onClick: () -> Unit,
@@ -154,7 +165,7 @@ fun FileRow(
         Thumb(file, 48.dp, locator)
         Column(Modifier.weight(1f)) {
             val title = if (query != null) nameHighlighted(file.name, query, SpanStyle(fontWeight = FontWeight.Bold)) else AnnotatedString(file.name)
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 subtitle ?: "${Format.kindLabel(file.kind)} · ${Format.bytes(file.size)} · ${Format.date(file.modifiedAt)}",
                 style = MaterialTheme.typography.bodySmall,
@@ -162,6 +173,9 @@ fun FileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (readNote != null) {
+                Text(readNote, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
             if (!snippet.isNullOrBlank()) {
                 val text = if ('\u0002' in snippet) {
                     highlighted(snippet, SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.primary))
@@ -216,6 +230,7 @@ fun ThumbCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     locator: String = "",
+    readNote: String? = null,
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null,
 ) {
@@ -223,6 +238,7 @@ fun ThumbCell(
     val description = buildString {
         append("${Format.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
         Format.locatorSpoken(locator)?.let { append(if (Opener.locatorToPage(locator) != null) ", $it" else ", at $it") }
+        readNote?.let { append(", $it") }
     }
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }
     BoxWithConstraints(

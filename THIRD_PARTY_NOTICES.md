@@ -44,6 +44,7 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 ## Apple sample code
 
 - "Adding a search interface to your app" (https://developer.apple.com/documentation/swiftui/adding-a-search-interface-to-your-app), Apple Sample Code License. Used as a layout reference for the iOS search screen; no code copied.
+- iosApp/Retriever/Thumbnail.swift — Queryable `Queryable/Queryable/PhotoHelper/CachedImageManager.swift` (PHCachingImageManager setup), which Queryable took from Apple sample code. Apple Sample Code License; the upstream file header only says "See the License.txt file for this sample's licensing information", and the licence text was not available offline, so it is not reproduced here.
 
 ## Dependencies under other licenses
 
@@ -61,7 +62,8 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - androidApp/src/main/kotlin/app/retriever/Format.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/Utils.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/SearchScreen.kt — androidx compose material3 1.4.0 samples `SearchBarSamples.kt` (SimpleSearchBarSample) and gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt` results grid (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/PlayerScreen.kt — TikTokCompose `app/src/main/java/com/example/tiktokcompose/ui/composables/TikTokScreen.kt` (Apache-2.0)
-- androidApp/src/main/AndroidManifest.xml — gallery `Android/src/app/src/main/AndroidManifest.xml` (uses-native-library block, npu uses-feature, foreground service type) (Apache-2.0)
+- androidApp/src/main/AndroidManifest.xml — gallery `Android/src/app/src/main/AndroidManifest.xml` (uses-native-library block, npu uses-feature, foreground service type) (Apache-2.0); platform-samples `samples/storage/src/main/AndroidManifest.xml` (media read permissions) (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/Access.kt — platform-samples `samples/storage/src/main/java/com/example/platform/storage/mediastore/SelectedPhotosAccess.kt` (permission sets per Android version, full / selected / denied check) (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/ModelDownload.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` (Apache-2.0)
 - core/src/commonMain/kotlin/app/retriever/core/Retriever.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingCoordinator.kt` (Apache-2.0)
 - core/src/commonMain/kotlin/app/retriever/core/ModelBuilds.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt` (Apache-2.0)
@@ -74,7 +76,6 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — ImageBytes.bitmap's loadThumbnail fallback, gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
 - core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt`, by way of MediaPipeEmbedder.kt (Apache-2.0)
 - iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
-- iosApp/Retriever/Thumbnail.swift — Queryable `Queryable/Queryable/PhotoHelper/CachedImageManager.swift` (PHCachingImageManager setup) (MIT)
 - iosApp/Retriever/Views/ResultViews.swift — Queryable `Queryable/Queryable/View/PhotoResult` (grid layout reference) (MIT)
 
 ## Apache License 2.0

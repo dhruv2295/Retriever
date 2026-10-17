@@ -14,6 +14,17 @@ enum Route: Hashable {
 /// Setup until the person has given Retriever something to read and chosen to go on, then Home.
 struct RootView: View {
     let model: AppModel
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Held above the sidebar and the size-class switch, so neither throws away the search or the open pages.
+    @State private var search: SearchModel
+    /// The pages over Home as one stack shows them; at regular width the first one that has a sidebar item selects it.
+    @State private var path: [Route]
+
+    init(model: AppModel) {
+        self.model = model
+        _search = State(initialValue: SearchModel(services: model.services))
+        _path = State(initialValue: Self.initialPath)
+    }
 
     var body: some View {
         content
@@ -25,9 +36,9 @@ struct RootView: View {
     @ViewBuilder private var content: some View {
         #if DEBUG
             if let route = DebugRoute.current {
-                route.screen(model)
+                route.screen(model, path: $path).readableSetup(route.rawValue.hasPrefix("setup."))
             } else if let route = DebugRoute.live {
-                AppStack(model: model, path: route.path) { route.liveScreen(model) }
+                home { route.liveScreen(model) }
             } else {
                 main
             }
@@ -38,31 +49,52 @@ struct RootView: View {
 
     @ViewBuilder private var main: some View {
         if model.started && model.setupSeen {
-            AppStack(model: model, path: initialPath) { SearchView(model: model) }
+            home { SearchView(model: model, search: search) }
         } else {
-            SetupView(model: model, onDone: model.finishSetup)
+            SetupView(model: model, onDone: model.finishSetup).readableSetup(true)
         }
     }
 
-    private var initialPath: [Route] {
+    /// Sidebar and detail at regular width; today's single stack on iPhone and in narrow windows.
+    @ViewBuilder private func home<Root: View>(@ViewBuilder root: () -> Root) -> some View {
+        if sizeClass == .regular {
+            SplitRoot(model: model, path: $path, home: root)
+        } else {
+            AppStack(model: model, path: $path, root: root)
+        }
+    }
+
+    private static var initialPath: [Route] {
         #if DEBUG
+            if let route = DebugRoute.live { return route.path }
             if let route = DebugRoute.openOnLaunch { return [route] }
         #endif
         return []
     }
 }
 
+private extension View {
+    /// Setup reads as a column, not a stretched phone screen, on an iPad.
+    @ViewBuilder func readableSetup(_ on: Bool) -> some View {
+        if on {
+            frame(maxWidth: 640).frame(maxWidth: .infinity).background(Color(.systemBackground))
+        } else {
+            self
+        }
+    }
+}
+
 /// Home's navigation stack: every page, plus opening files at their match.
 struct AppStack<Root: View>: View {
     let model: AppModel
-    @State private var path: NavigationPath
+    @Binding var path: [Route]
     @State private var quickLook: URL?
     @State private var openFailed = false
     private let root: Root
 
-    init(model: AppModel, path: [Route] = [], @ViewBuilder root: () -> Root) {
+    init(model: AppModel, path: Binding<[Route]>, @ViewBuilder root: () -> Root) {
         self.model = model
-        _path = State(initialValue: NavigationPath(path))
+        _path = path
         self.root = root()
         Thumbnails.services = model.services
     }
@@ -90,7 +122,7 @@ struct AppStack<Root: View>: View {
         case .status:
             StatusView(model: model)
         case .setup:
-            SetupView(model: model, asked: true) { path = NavigationPath() }
+            SetupView(model: model, asked: true) { path = [] }
                 .navigationTitle("Setup")
                 .navigationBarTitleDisplayMode(.inline)
         case .browse:

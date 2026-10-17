@@ -16,8 +16,19 @@ data class Prefs(
 ) {
     companion object {
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(
-            kinds = if (profile.tier == Tier.LIGHT) Kind.entries.toSet() - Kind.AUDIO - Kind.VIDEO else Kind.entries.toSet(),
+            // LIGHT keeps video at its sparse 30 s keyframes; audio windows are dense, so they stay off.
+            kinds = if (profile.tier == Tier.LIGHT) Kind.entries.toSet() - Kind.AUDIO else Kind.entries.toSet(),
             onlyWhileCharging = profile.bulkOnlyWhenCharging,
+        )
+    }
+
+    /** A re-tune moved the defaults from [old]'s to [new]'s: every setting still at the old default takes the new one. */
+    fun retuned(old: DeviceProfile, new: DeviceProfile): Prefs {
+        val from = defaultFor(old)
+        val to = defaultFor(new)
+        return copy(
+            kinds = Kind.entries.filter { k -> if ((k in kinds) == (k in from.kinds)) k in to.kinds else k in kinds }.toSet(),
+            onlyWhileCharging = if (onlyWhileCharging == from.onlyWhileCharging) to.onlyWhileCharging else onlyWhileCharging,
         )
     }
 }

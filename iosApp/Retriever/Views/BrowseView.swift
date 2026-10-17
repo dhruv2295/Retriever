@@ -110,7 +110,7 @@ struct FileListView: View {
                 // Never an empty Group: its modifiers (title, task) would vanish with it.
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if files.isEmpty {
-                StateView(art: "IllusEmpty", title: "Nothing here yet", message: "Files show up here once Retriever finds them on your iPhone.")
+                StateView(art: "IllusEmpty", title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
             } else if grid {
                 ScrollView {
                     LazyVGrid(columns: gridColumns(typeSize, spacing: 4), spacing: 4) {

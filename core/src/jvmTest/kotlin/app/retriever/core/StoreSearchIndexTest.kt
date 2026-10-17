@@ -121,6 +121,23 @@ class StoreTest {
     }
 
     @Test
+    fun keywordSearchRanksTheNewestMatchesAndFiltersKindsBeforeTheCap() {
+        val store = newStore()
+        val cap = Store.FTS_CAP.toInt()
+        val files = listOf(testFile("old.pdf", Kind.PDF)) + List(cap) { testFile("new$it.txt") }
+        store.inTransaction {
+            store.upsertFiles(files)
+            for (f in files) store.replaceChunks(store.fileByUri(f.uri)!!.id, listOf(Store.NewChunk(0, "", "invoice", null)))
+        }
+        val pdf = store.fileByUri(files[0].uri)!!.id
+
+        val all = store.keywordSearch("invoice", cap + 1)
+        assertEquals(cap, all.size)
+        assertTrue(all.none { store.chunk(it.chunkId)?.fileId == pdf }, "the oldest match is past the cap")
+        assertEquals(pdf, store.chunk(store.keywordSearch("invoice", 10, setOf(Kind.PDF)).single().chunkId)?.fileId)
+    }
+
+    @Test
     fun keywordSearchMatchesThroughUnicodePunctuationAccentsAndCase() {
         val store = newStore()
         store.upsertFiles(listOf(testFile("a.txt")))

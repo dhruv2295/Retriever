@@ -16,19 +16,24 @@ import app.retriever.core.docFormat
 import app.retriever.core.textEntry
 import app.retriever.core.Kind
 import app.retriever.core.MIN_TEXT_CHARS
-import app.retriever.core.PDF_PAGES
+import app.retriever.core.PDF_OCR_PAGES
+import app.retriever.core.PDF_TEXT_PAGES
 import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.SourceFile
 import app.retriever.core.TEXT_BYTES
 import app.retriever.core.audioWindowSec
 import app.retriever.core.audioWindows
+import app.retriever.core.betterPageText
 import app.retriever.core.chunkChars
+import app.retriever.core.cutShort
+import app.retriever.core.looksBroken
 import app.retriever.core.momentAudioSec
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.slideOrder
 import app.retriever.core.stripHtml
+import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
 import app.retriever.core.textPieces
 import app.retriever.core.timeLocator
@@ -121,26 +126,45 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
                 return emptyList()
             }
             opened.use { renderer ->
-                for (i in 0 until minOf(renderer.pageCount, PDF_PAGES)) {
+                // Below Android 15 there is no text layer, so every page is an OCR page and the OCR cap is the ceiling.
+                var ocrPages = 0
+                var skipped = false
+                for (i in 0 until minOf(renderer.pageCount, PDF_TEXT_PAGES)) {
+                    // With no text layer, a page past the OCR cap has nothing to give: don't open the rest.
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM && ocrPages >= PDF_OCR_PAGES) {
+                        skipped = true
+                        break
+                    }
                     val locator = "p. ${i + 1}"
                     try {
                         renderer.openPage(i).use { page ->
                             val text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
                                 page.textContents.joinToString("\n") { it.text }
                             } else ""
-                            pieces += if (text.trim().length >= MIN_TEXT_CHARS) textPieces(locator, text, maxChars)
-                            else scannedPage(page, locator, maxChars)
+                            val hasText = text.trim().length >= MIN_TEXT_CHARS
+                            pieces += when {
+                                hasText && !looksBroken(text) -> textPieces(locator, text, maxChars)
+                                ocrPages < PDF_OCR_PAGES -> {
+                                    ocrPages++
+                                    scannedPage(page, locator, text, maxChars)
+                                }
+                                else -> {
+                                    skipped = true
+                                    if (hasText) textPieces(locator, text, maxChars) else emptyList()
+                                }
+                            }
                         }
                     } catch (e: Exception) {
                         if (e is kotlin.coroutines.cancellation.CancellationException) throw e
                     }
                 }
+                if (renderer.pageCount > PDF_TEXT_PAGES || skipped) pieces += cutShort()
             }
         }
         return pieces
     }
 
-    private suspend fun scannedPage(page: PdfRenderer.Page, locator: String, maxChars: Int): List<Piece> {
+    private suspend fun scannedPage(page: PdfRenderer.Page, locator: String, layer: String, maxChars: Int): List<Piece> {
         // 1024 px wide, but a receipt-shaped page (1:40) would be a 168 MB bitmap: cap the height and narrow it.
         val height = (1024L * page.height / page.width).coerceIn(1, MAX_PAGE_PX.toLong()).toInt()
         val width = (height.toLong() * page.width / page.height).coerceIn(1, 1024).toInt()
@@ -150,7 +174,7 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             val out = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-            return imageWithText(locator, out.toByteArray(), ocr(bitmap), maxChars)
+            return imageWithText(locator, out.toByteArray(), betterPageText(layer, ocr(bitmap)), maxChars)
         } finally {
             bitmap.recycle()
         }
@@ -158,37 +182,38 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
 
     private fun doc(file: SourceFile, uri: Uri, maxChars: Int): List<Piece> {
         val format = docFormat(file.name, file.mime) ?: return emptyList()
+        var cut = false
+        val onCut = { cut = true }
         val text = when (format) {
-            DocFormat.DOCX, DocFormat.XLSX, DocFormat.ODF -> zipEntry(uri, format.textEntry!!)
-            DocFormat.PPTX -> zipText(uri, ::slideOrder)
-            DocFormat.EPUB -> epub(uri)
-            DocFormat.HTML -> stripHtml(plainText(uri))
-            DocFormat.TEXT -> plainText(uri)
+            DocFormat.DOCX, DocFormat.XLSX, DocFormat.ODF -> zipText(uri, { if (it == format.textEntry) 0 else null }, onCut)
+            DocFormat.PPTX -> zipText(uri, ::slideOrder, onCut)
+            DocFormat.EPUB -> epub(uri, onCut)
+            DocFormat.HTML -> stripHtml(plainText(uri, onCut))
+            DocFormat.RTF -> stripRtf(plainText(uri, onCut))
+            DocFormat.TEXT -> plainText(uri, onCut)
         }
-        return Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it) }
+        val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it) }
+        return if (cut) pieces + cutShort() else pieces
     }
 
-    private fun epub(uri: Uri): String {
+    private fun epub(uri: Uri, onCut: () -> Unit): String {
         var n = 0
         val chapter = Regex(".*\\.(xhtml|html?)", RegexOption.IGNORE_CASE)
-        return zipText(uri, { if (chapter.matches(it)) n++ else null }, ::stripHtml)
+        return zipText(uri, { if (chapter.matches(it)) n++ else null }, onCut, ::stripHtml)
     }
 
-    private fun plainText(uri: Uri): String =
-        context.contentResolver.openInputStream(uri)?.use { String(it.readUpTo(TEXT_BYTES), Charsets.UTF_8) }.orEmpty()
-
-    private fun zipEntry(uri: Uri, name: String): String =
-        zipText(uri, { if (it == name) 0 else null })
+    private fun plainText(uri: Uri, onCut: () -> Unit): String =
+        context.contentResolver.openInputStream(uri)?.use { it.readCapped(TEXT_BYTES, onCut) }.orEmpty()
 
     // Entries whose [order] is non-null are read and concatenated sorted by it.
-    private fun zipText(uri: Uri, order: (String) -> Int?, strip: (String) -> String = ::stripXml): String {
+    private fun zipText(uri: Uri, order: (String) -> Int?, onCut: () -> Unit, strip: (String) -> String = ::stripXml): String {
         val entries = mutableListOf<Pair<Int, String>>()
         context.contentResolver.openInputStream(uri)?.use { input ->
             ZipInputStream(input).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     val n = order(entry.name) ?: continue
-                    entries += n to strip(String(zip.readUpTo(4 * TEXT_BYTES), Charsets.UTF_8))
+                    entries += n to strip(zip.readCapped(4 * TEXT_BYTES, onCut))
                 }
             }
         }
@@ -197,9 +222,10 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
 
     private fun audio(uri: Uri, profile: DeviceProfile): List<Piece> {
         val pcm = MediaDecoding.audioAt(context, uri, 0, AUDIO_FILE_SECONDS * 1000L)
-        return audioWindows(pcm, audioWindowSec(profile.maxTokens)).map { (start, samples) ->
+        val pieces = audioWindows(pcm, audioWindowSec(profile.maxTokens)).map { (start, samples) ->
             Piece(timeLocator(start), listOf(Part.Audio(samples)), null)
         }
+        return if (MediaDecoding.durationMs(context, uri) > AUDIO_FILE_SECONDS * 1000L) pieces + cutShort() else pieces
     }
 
     private fun video(uri: Uri, profile: DeviceProfile): List<Piece> {
@@ -211,16 +237,21 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
     }
 }
 
-/** Up to [n] bytes; InputStream.readNBytes(int) is API 33, above minSdk 30. */
-private fun InputStream.readUpTo(n: Int): ByteArray {
-    val buf = ByteArray(n)
-    var off = 0
-    while (off < n) {
-        val read = read(buf, off, n - off)
+/**
+ * The first [cap] bytes as UTF-8; [onCut] runs when there was more. Grows as it reads, so a small file or zip entry
+ * never costs a [cap]-sized buffer (readNBytes(int) is API 33, above minSdk 30).
+ */
+fun InputStream.readCapped(cap: Int, onCut: () -> Unit): String {
+    val out = ByteArrayOutputStream()
+    val buf = ByteArray(64 * 1024)
+    while (out.size() <= cap) {
+        val read = read(buf, 0, minOf(buf.size, cap + 1 - out.size()))
         if (read < 0) break
-        off += read
+        out.write(buf, 0, read)
     }
-    return buf.copyOf(off)
+    val bytes = out.toByteArray()
+    if (bytes.size > cap) onCut()
+    return String(bytes, 0, minOf(bytes.size, cap), Charsets.UTF_8)
 }
 
 object ImageBytes {

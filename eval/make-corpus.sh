@@ -1,11 +1,12 @@
 #!/bin/zsh
-# Rebuilds eval/corpus screenshots, PDFs and docs from eval/src. The photos are not touched (see prompts.md).
+# Rebuilds eval/corpus from eval/src: screenshots, PDFs and docs are rendered, the photos are copied (see prompts.md).
 set -eu
 cd "${0:A:h}"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PROFILE=$(mktemp -d)
 chrome() { "$CHROME" --headless=new --disable-gpu --hide-scrollbars --user-data-dir="$PROFILE" "$@" >/dev/null 2>&1; }
-mkdir -p corpus/screenshots corpus/docs
+mkdir -p corpus/screenshots corpus/docs corpus/photos
+cp src/photos/IMG_*.jpg corpus/photos/
 
 # name-matching 'screenshot' makes FileRules.classify() return SCREENSHOT
 i=0

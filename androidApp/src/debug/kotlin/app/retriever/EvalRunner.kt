@@ -6,7 +6,9 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.core.Backend
 import app.retriever.core.EvalSetting
 import app.retriever.core.Kind
+import app.retriever.core.RelevanceFloor
 import app.retriever.core.RetrievalEval
+import app.retriever.core.Signature
 import app.retriever.core.Store
 import app.retriever.core.android.MediaPipeEmbedderFactory
 import app.retriever.core.db.IndexDb
@@ -40,7 +42,7 @@ class EvalRunner(private val graph: AppGraph) {
             out.append(if (hit) "hit  " else "miss ").append(q).append(" -> ").append(top.joinToString(" | ") { it.file.name })
             out.appendLine(if (result.vectorLane) "" else " (words only)")
         }
-        out.appendLine("found $found/${QUERIES.size} in the top 5 · median query ${median(queryMs).f1()} ms")
+        out.appendLine("found $found/${QUERIES.size} in the top 5 · query ${latency(queryMs)}")
 
         val profile = CalibrationSamples.readingProfile(retriever.requiredBuild.value.variant)
         out.appendLine("median extract ms, newest $PER_KIND files per kind:")
@@ -69,6 +71,15 @@ class EvalRunner(private val graph: AppGraph) {
             .map { it.file }
             .filter { it.name != "queries.json" && it.name != "report.md" }
             .sortedBy { it.uri }
+        // The production path first, as a person meets it: the app's index, ranks, strong counts and latency.
+        val queryMs = mutableListOf<Double>()
+        val results = queries.map { q ->
+            val mark = TimeSource.Monotonic.markNow()
+            retriever.search(q.q).also { queryMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS) }
+        }
+        val production = queries.zip(results) { q, r ->
+            q.file?.let { f -> r.hits.indexOfFirst { it.file.folder.split('/').contains(CORPUS_DIR) && it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
+        }
         // One copy of the model in memory: the eval opens its own per vision-token count.
         retriever.release()
         val build = retriever.requiredBuild.value
@@ -80,13 +91,24 @@ class EvalRunner(private val graph: AppGraph) {
             build,
             profile,
             Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
+            floor = RelevanceFloor.measuredFor(Signature.of(build, profile.visionTokens, profile.maxTokens)),
         ).run(corpus, queries, evalGrid(listOf(70, 140)))
-        val report = "## ${Build.MODEL}: ${build.fileName}, ${profile.backend}\n\n" + run.report(EvalSetting(profile.visionTokens))
+        val report = "## ${Build.MODEL}: ${build.fileName}, ${profile.backend}\n\n" +
+            "Production search (Retriever.search, ${queries.size} queries): ${latency(queryMs)}" +
+            (if (results.all { it.vectorLane }) "; every search used the vector lane.\n\n" else "; some searches were keyword-only.\n\n") +
+            run.report(EvalSetting(profile.visionTokens), production, results.map { it.strongCount })
         report.also { File(graph.app.getExternalFilesDir("eval"), "eval-corpus.txt").writeText(it) }
     }
 
     private fun median(xs: List<Double>): Double =
         if (xs.isEmpty()) 0.0 else xs.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
+
+    /** p50, p95 (nearest rank) and max, in ms. */
+    private fun latency(ms: List<Double>): String {
+        if (ms.isEmpty()) return "no queries"
+        val s = ms.sorted()
+        return "p50 ${median(s).f1()} ms, p95 ${s[(s.size * 95 + 99) / 100 - 1].f1()} ms, max ${s.last().f1()} ms"
+    }
 
     private fun Double.f1() = "%.1f".format(Locale.US, this)
 

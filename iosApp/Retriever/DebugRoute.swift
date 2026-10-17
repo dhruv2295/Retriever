@@ -40,6 +40,12 @@
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
         case statusSkipped = "status.skipped"
+        case statusTextOnly = "status.textOnly"
+        case statusTailFiles = "status.tailFiles"
+        case setupTextOnly = "setup.textOnly"
+        case searchLessLikely = "search.lessLikely"
+        case searchNothingWell = "search.nothingWell"
+        case searchFirstPart = "search.firstPart"
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
         case searchEmpty = "search.empty"
@@ -98,21 +104,23 @@
             case .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
             case .statusPaused: .paused
             case .statusSkipped: .skipped(6)
+            case .statusTailFiles: .tailFiles(12)
+            case .setupTextOnly, .statusTextOnly: .textOnly(ramGb: 3)
             case .searchNoAccess: .noAccess
             default: .caughtUp
             }
         }
 
-        @MainActor @ViewBuilder func screen(_ model: AppModel) -> some View {
+        @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
             case .setupWelcome:
                 SetupView(model: model)
-            case .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupDownload, .setupWaitingWifi, .setupFailed, .setupTuning:
+            case .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupDownload, .setupWaitingWifi, .setupFailed, .setupTuning, .setupTextOnly:
                 SetupView(model: model, asked: true, onDone: {})
-            case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped:
+            case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             default:
-                AppStack(model: model) { fixtureSearch(model).task { await Self.hideKeyboard() } }
+                AppStack(model: model, path: path) { fixtureSearch(model).task { await Self.hideKeyboard() } }
             }
         }
 
@@ -126,6 +134,12 @@
                 SearchView(model: model, search: .fixture(text: "boarding pass", scope: .documents, hits: []), presented: true)
             case .searchWordsOnly:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, vectorLane: false), presented: true)
+            case .searchLessLikely:
+                SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits + Fixtures.closest.prefix(2), strongCount: 2), presented: true)
+            case .searchNothingWell:
+                SearchView(model: model, search: .fixture(text: "car insurance renewal", hits: Fixtures.closest, strongCount: 0), presented: true)
+            case .searchFirstPart:
+                SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, extents: [1: .firstPart, 2: .deepening]), presented: true)
             case .searchError:
                 SearchView(model: model, search: .fixture(text: "electricity bill", failed: true), presented: true)
             case .searchLoading:
@@ -224,6 +238,18 @@
                              snippet: "Return of the \u{2}deposit\u{3} after the inspection on Friday", score: 0.8),
             SearchEngine.Hit(file: file("Screenshot 2026-09-14 at 18.42.07.png", .screenshot, "Photos/Screenshots", daysAgo: 30), fileId: 3, chunkId: 31,
                              locator: "", snippet: "Paid \u{2}security\u{3} \u{2}deposit\u{3} ₹48,000 to Sharma Properties", score: 0.6),
+        ]
+    }
+
+    extension Fixtures {
+        /// Close but not good: shown after the strong hits, or alone when nothing matches well.
+        static let closest: [SearchEngine.Hit] = [
+            SearchEngine.Hit(file: file("Rent receipt March.pdf", .pdf, "Retriever/Home", daysAgo: 200), fileId: 4, chunkId: 41, locator: "p. 1",
+                             snippet: "Received with thanks from the tenant", score: 0.3),
+            SearchEngine.Hit(file: file("Society notice board.docx", .doc, "Downloads", daysAgo: 90), fileId: 5, chunkId: 51, locator: "",
+                             snippet: "Water supply will be off on Sunday morning", score: 0.25),
+            SearchEngine.Hit(file: file("Scan_0001_long_file_name_without_spaces_final_copy.pdf", .pdf, "Downloads", daysAgo: 400), fileId: 6, chunkId: 61, locator: "p. 2",
+                             snippet: nil, score: 0.2),
         ]
     }
 

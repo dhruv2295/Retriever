@@ -6,9 +6,12 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlin.time.measureTimedValue
 
-/** A query and the name of the corpus file it should find; [kind] is only cross-checked against that file. */
+/**
+ * A query and the name of the corpus file it should find; null: nothing in the corpus should match. [kind] is only
+ * cross-checked against that file.
+ */
 @Serializable
-data class EvalQuery(val q: String, val file: String, val kind: Kind? = null)
+data class EvalQuery(val q: String, val file: String? = null, val kind: Kind? = null)
 
 fun parseEvalQueries(json: String): List<EvalQuery> = Json { ignoreUnknownKeys = true }.decodeFromString(json)
 
@@ -25,8 +28,19 @@ data class EvalSetting(
             "k${tuning.rrfK} · kw${tuning.keywordWeight}"
 }
 
-/** [ranks]: each query's file, 1-based, in the top [RetrievalEval.LIMIT] (null: not there). [top]: corpus indexes, best first. */
-data class EvalRow(val setting: EvalSetting, val ranks: List<Int?>, val top: List<List<Int>>)
+/**
+ * Per query: [ranks], its file, 1-based, in the top [RetrievalEval.LIMIT] (null: not there, or a no-match query);
+ * [top], corpus indexes, strong then weak as search orders them; [strong], how many of [top] are strong;
+ * [cos], each file's best-chunk cosine in the vector lane, by corpus index; [keyword], the files a keyword lane found.
+ */
+data class EvalRow(
+    val setting: EvalSetting,
+    val ranks: List<Int?>,
+    val top: List<List<Int>>,
+    val strong: List<Int>,
+    val cos: List<Map<Int, Float>>,
+    val keyword: List<Set<Int>>,
+)
 
 data class EvalRun(
     val corpus: List<SourceFile>,
@@ -36,9 +50,11 @@ data class EvalRun(
     val embedMs: Map<Int, Pair<Double, Double>>,
     /** Refused settings, unreadable files, kind mismatches. */
     val notes: List<String>,
+    /** Null where no floor was measured for the model: every hit counts as strong, as search does there. */
+    val floor: RelevanceFloor?,
 ) {
-    /** The expected file's kind for each query. */
-    val kinds: List<Kind> = queries.map { q -> corpus.first { it.name == q.file }.kind }
+    /** The expected file's kind for each query; null for a no-match query. */
+    val kinds: List<Kind?> = queries.map { q -> q.file?.let { f -> corpus.first { it.name == f }.kind } }
 }
 
 data class Metrics(val n: Int, val at1: Int, val at5: Int, val mrr: Double)
@@ -83,6 +99,8 @@ class RetrievalEval(
     private val profile: DeviceProfile,
     private val store: Store,
     private val log: (String) -> Unit = {},
+    /** Production's floor for this model ([RelevanceFloor.measuredFor]); every row splits strong from weak with it, as search does. */
+    private val floor: RelevanceFloor? = RelevanceFloor(),
 ) {
     private class Group(val chunks: List<Pair<Int, FloatArray>>, val queries: List<FloatArray>, val keyword: List<List<Int>>, val names: List<List<Int>>)
 
@@ -90,10 +108,11 @@ class RetrievalEval(
     suspend fun run(corpus: List<SourceFile>, queries: List<EvalQuery>, settings: List<EvalSetting>): EvalRun {
         val notes = mutableListOf<String>()
         val targets = queries.map { q ->
-            corpus.indexOfFirst { it.name == q.file }.also { require(it >= 0) { "\"${q.q}\" wants ${q.file}, which is not in the corpus" } }
+            q.file?.let { f -> corpus.indexOfFirst { it.name == f }.also { require(it >= 0) { "\"${q.q}\" wants $f, which is not in the corpus" } } }
         }
         queries.forEachIndexed { i, q ->
-            if (q.kind != null && q.kind != corpus[targets[i]].kind) notes += "\"${q.q}\": queries.json says ${q.kind}, ${q.file} is ${corpus[targets[i]].kind}"
+            val t = targets[i] ?: return@forEachIndexed
+            if (q.kind != null && q.kind != corpus[t].kind) notes += "\"${q.q}\": queries.json says ${q.kind}, ${q.file} is ${corpus[t].kind}"
         }
         store.upsertFiles(corpus)
         val ids = corpus.map { checkNotNull(store.fileByUri(it.uri)).id }
@@ -163,7 +182,7 @@ class RetrievalEval(
 
         val rawDims = groups.values.firstOrNull()?.queries?.firstOrNull()?.size ?: 0
         // The vector lane doesn't depend on the fusion settings, so each one is scored once per (group, dims, int8).
-        val vectorLanes = HashMap<List<Any>, List<List<Int>>>()
+        val vectorLanes = HashMap<List<Any>, List<Map<Int, Float>>>()
         val rows = settings.mapNotNull { s ->
             val group = groups[s.prefixes to s.visionTokens] ?: return@mapNotNull null
             if (s.dims > rawDims) {
@@ -171,17 +190,26 @@ class RetrievalEval(
                 return@mapNotNull null
             }
             val lanes = vectorLanes.getOrPut(listOf(s.prefixes, s.visionTokens, s.dims, s.int8)) { vectorLanes(group, s) }
-            val top = queries.indices.map { qi ->
-                val fused = listOf(lanes[qi], group.keyword[qi], group.names[qi]).map { lane -> lane.map { it.toLong() } }
-                rrfMerge(fused, s.tuning.rrfK, listOf(1.0, s.tuning.keywordWeight, s.tuning.keywordWeight)).take(LIMIT).map { it.first.toInt() }
+            val keyword = queries.indices.map { qi -> (group.keyword[qi] + group.names[qi]).toSet() }
+            val ordered = queries.indices.map { qi ->
+                val cos = lanes[qi]
+                val fused = listOf(cos.keys.toList(), group.keyword[qi], group.names[qi]).map { lane -> lane.map { it.toLong() } }
+                val top = rrfMerge(fused, s.tuning.rrfK, listOf(1.0, s.tuning.keywordWeight, s.tuning.keywordWeight)).take(LIMIT).map { it.first.toInt() }
+                // SearchEngine.toHits' split: a keyword-found file is strong, a vector-only one must pass the floor.
+                val (strong, weak) = top.partition { floor == null || it in keyword[qi] || floor.passes(corpus[it].kind, cos.getValue(it)) }
+                (strong + weak) to strong.size
             }
-            EvalRow(s, top.mapIndexed { qi, files -> files.indexOf(targets[qi]).takeIf { it >= 0 }?.plus(1) }, top)
+            val top = ordered.map { it.first }
+            EvalRow(s, top.mapIndexed { qi, files -> targets[qi]?.let { files.indexOf(it) }?.takeIf { it >= 0 }?.plus(1) }, top, ordered.map { it.second }, lanes, keyword)
         }
-        return EvalRun(corpus, queries, rows, embedMs, notes.distinct())
+        return EvalRun(corpus, queries, rows, embedMs, notes.distinct(), floor)
     }
 
-    /** Production's vector lane: the best [SearchEngine.CANDIDATES] chunks, then each file at its best chunk. */
-    private fun vectorLanes(group: Group, s: EvalSetting): List<List<Int>> {
+    /**
+     * Production's vector lane: the best [SearchEngine.CANDIDATES] chunks, then each file at its best chunk, as
+     * corpus index to that chunk's cosine, best first. The default (d256 int8) scores as search does, with [dotInt8].
+     */
+    private fun vectorLanes(group: Group, s: EvalSetting): List<Map<Int, Float>> {
         val quantized = s.int8 && s.dims == DIMS
         val sig = Signature("eval")
         val chunkVectors = if (quantized) group.chunks.map { Vector.of(it.second, sig) } else emptyList()
@@ -190,7 +218,9 @@ class RetrievalEval(
             val scores = group.chunks.mapIndexed { i, (_, raw) ->
                 if (qv != null) dotInt8(chunkVectors[i].bytes, 0, qv.bytes, qv.scale, chunkVectors[i].scale) else cosine(q, raw, s.dims)
             }
-            scores.indices.sortedByDescending { scores[it] }.take(SearchEngine.CANDIDATES).map { group.chunks[it].first }.distinct()
+            val lane = LinkedHashMap<Int, Float>()
+            for (i in scores.indices.sortedByDescending { scores[it] }.take(SearchEngine.CANDIDATES)) lane.getOrPut(group.chunks[i].first) { scores[i] }
+            lane
         }
     }
 
@@ -203,11 +233,14 @@ class RetrievalEval(
 private fun median(xs: List<Double>): Double = if (xs.isEmpty()) 0.0 else xs.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
 
 /**
- * The markdown report: per-factor tables around [default], the best row of the grid, per-query ranks and timings.
- * [production] is the same queries through the real app, when the platform ran it.
+ * The markdown report: the relevance floor's evidence, per-factor tables around [default], the best row of the grid,
+ * per-query ranks and timings. [production] and [productionStrong] are the same queries through the real app, when
+ * the platform ran it. Ranking metrics count only queries with a file; no-match queries feed the floor section.
  */
-fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String {
-    val byKind = kinds.distinct().sortedBy { it.ordinal }
+fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null, productionStrong: List<Int>? = null): String {
+    val byKind = kinds.filterNotNull().distinct().sortedBy { it.ordinal }
+    val matched = kinds.count { it != null }
+    fun metrics(ranks: List<Int?>) = app.retriever.core.metrics(ranks.filterIndexed { i, _ -> kinds[i] != null })
     val defaultRow = rows.firstOrNull { it.setting == default } ?: return "No default row: ${notes.joinToString("; ")}"
     val best = rows.maxWith(compareBy<EvalRow>({ metrics(it.ranks).at5 }, { metrics(it.ranks).mrr }, { metrics(it.ranks).at1 }))
     fun f2(x: Double) = ((x * 100).roundToInt() / 100.0).toString().let { if (it.substringAfter('.').length < 2) it + "0" else it }
@@ -225,7 +258,7 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String
             if (pass) "**passes**" else "no"
     }
 
-    val header = "| Setting | All (n=${queries.size}) | " + byKind.joinToString(" | ") { "$it (n=${kinds.count { k -> k == it }})" } + " | vs default |\n" +
+    val header = "| Setting | All (n=$matched) | " + byKind.joinToString(" | ") { "$it (n=${kinds.count { k -> k == it }})" } + " | vs default |\n" +
         "|---|---|" + byKind.joinToString("") { "---|" } + "---|\n"
     fun line(label: String, ranks: List<Int?>, verdict: String) =
         "| $label | ${cell(metrics(ranks))} | " + byKind.joinToString(" | ") { cell(metrics(kindRanks(ranks, it))) } + " | $verdict |\n"
@@ -235,8 +268,10 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String
     out.appendLine("Cells: recall@1 · recall@5 (queries) · MRR. Ranks count within the top ${RetrievalEval.LIMIT}, as search returns them.")
     out.appendLine()
     out.appendLine("### Corpus")
-    out.appendLine(corpus.groupBy { it.kind }.entries.joinToString(", ") { "${it.value.size} ${it.key}" } + " files; ${queries.size} queries.")
+    out.appendLine(corpus.groupBy { it.kind }.entries.joinToString(", ") { "${it.value.size} ${it.key}" } + " files; $matched queries with a file, ${queries.size - matched} with none.")
     if (notes.isNotEmpty()) out.appendLine(notes.joinToString("\n") { "- $it" })
+    out.appendLine()
+    out.append(floorSection(defaultRow, productionStrong))
     out.appendLine()
     out.appendLine("### Embed time (median ms per model call)")
     out.appendLine("| Vision tokens | Image piece | Text piece |\n|---|---|---|")
@@ -245,7 +280,7 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String
     out.appendLine("### Default")
     out.append(header)
     out.append(line(default.label, defaultRow.ranks, "default"))
-    if (production != null) out.append(line("production path (Retriever.search)", production, "agrees on ${production.indices.count { production[it] == defaultRow.ranks[it] }}/${queries.size} ranks"))
+    if (production != null) out.append(line("production path (Retriever.search)", production, "agrees on ${production.indices.count { kinds[it] != null && production[it] == defaultRow.ranks[it] }}/$matched ranks"))
     out.appendLine()
     val factors = listOf<Pair<String, (EvalSetting) -> EvalSetting>>(
         "Dimensions and int8" to { it.copy(dims = default.dims, int8 = default.int8) },
@@ -270,6 +305,7 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String
     out.appendLine("| Query | File | Kind | Default | Vector alone | Best |" + (if (production != null) " Production |" else "") + " Default top 3 |")
     out.appendLine("|---|---|---|---|---|---|" + (if (production != null) "---|" else "") + "---|")
     queries.forEachIndexed { i, q ->
+        if (q.file == null) return@forEachIndexed
         val prod = if (production != null) " ${production[i] ?: "-"} |" else ""
         out.appendLine(
             "| ${q.q} | ${q.file} | ${kinds[i]} | ${defaultRow.ranks[i] ?: "-"} | ${alone?.ranks?.get(i) ?: "-"} | ${best.ranks[i] ?: "-"} |$prod " +
@@ -278,5 +314,69 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null): String
     }
     out.appendLine()
     out.appendLine("Best: ${best.setting.label}")
+    return out.toString()
+}
+
+/** The floor's three kind groups, as [RelevanceFloor.of] splits them, each with one of its kinds. */
+private val floorGroups = listOf("text->photo" to Kind.PHOTO, "text->screenshot" to Kind.SCREENSHOT, "text->text" to Kind.PDF)
+
+private fun groupOf(kind: Kind) = when (kind) {
+    Kind.PHOTO, Kind.VIDEO -> "text->photo"
+    Kind.SCREENSHOT -> "text->screenshot"
+    else -> "text->text"
+}
+
+/**
+ * Per query, from [row]'s vector lane: the right file's best-chunk cosine and, by group, the best other file's; for
+ * a no-match query every cosine is a wrong one. Then the per-group gap and what [EvalRun.floor] makes of it.
+ */
+private fun EvalRun.floorSection(row: EvalRow, productionStrong: List<Int>?): String {
+    fun f3(x: Float?) = if (x == null || x.isNaN()) "-" else ((x * 1000).roundToInt() / 1000.0).toString()
+    val target = queries.map { q -> q.file?.let { f -> corpus.indexOfFirst { it.name == f } } }
+    /** The best cosine among files of [group] other than the query's own file. */
+    fun wrong(qi: Int, group: String) = row.cos[qi].filterKeys { it != target[qi] && groupOf(corpus[it].kind) == group }.values.maxOrNull()
+    val out = StringBuilder()
+    out.appendLine("### Relevance floor (${row.setting.label}; int8 cosines, as search scores them)")
+    out.appendLine(
+        if (floor == null) "Floor: none measured for this model, so every hit is strong; the cosines below are what to set one from."
+        else "Floor: $floor. A keyword-found file is always strong; a file found only by meaning is strong when it passes.",
+    )
+    out.appendLine()
+    out.appendLine("| Query | Group | Right | Right found by | " + floorGroups.joinToString(" | ") { "Best wrong ${it.first}" } + " | Strong | Right strong | Rank |" +
+        (if (productionStrong != null) " Production strong |" else ""))
+    out.appendLine("|---|---|---|---|---|---|---|---|---|---|" + (if (productionStrong != null) "---|" else ""))
+    queries.forEachIndexed { i, q ->
+        val t = target[i]
+        val rank = row.ranks[i]
+        out.appendLine(
+            "| ${q.q} | ${t?.let { groupOf(corpus[it].kind) } ?: "no match"} | ${f3(t?.let { row.cos[i][it] })} | " +
+                "${if (t == null) "-" else if (t in row.keyword[i]) "keyword" else "meaning"} | " +
+                floorGroups.joinToString(" | ") { f3(wrong(i, it.first)) } + " | ${row.strong[i]} | " +
+                "${if (t == null) "-" else if (rank != null && rank <= row.strong[i]) "yes" else "**no**"} | ${rank ?: "-"} |" +
+                (if (productionStrong != null) " ${productionStrong[i]} |" else ""),
+        )
+    }
+    out.appendLine()
+    out.appendLine("min(right): lowest right-file cosine among queries that found it by meaning only (a keyword match is strong anyway).")
+    out.appendLine()
+    out.appendLine("| Group | min(right) | max(best wrong), queries with a file | max(no-match) | Floor |")
+    out.appendLine("|---|---|---|---|---|")
+    for ((group, kind) in floorGroups) {
+        val right = queries.indices.mapNotNull { i ->
+            target[i]?.takeIf { groupOf(corpus[it].kind) == group && it !in row.keyword[i] }?.let { row.cos[i][it] }
+        }
+        val wrongs = queries.indices.filter { target[it] != null }.mapNotNull { wrong(it, group) }
+        val none = queries.indices.filter { target[it] == null }.mapNotNull { wrong(it, group) }
+        out.appendLine("| $group | ${f3(right.minOrNull())} | ${f3(wrongs.maxOrNull())} | ${f3(none.maxOrNull())} | ${f3(floor?.of(kind))} |")
+    }
+    out.appendLine()
+    val withFile = queries.indices.filter { target[it] != null }
+    val noMatch = queries.indices.filter { target[it] == null }
+    val strongRight = withFile.count { row.ranks[it]?.let { r -> r <= row.strong[it] } == true }
+    val at5 = withFile.count { row.ranks[it]?.let { r -> r <= 5 } == true }
+    val at5Strong = withFile.count { row.ranks[it]?.let { r -> r <= 5 && r <= row.strong[it] } == true }
+    out.appendLine("- Right file strong: $strongRight/${withFile.size}. Recall@5 over strong hits: $at5Strong/${withFile.size} (over all hits: $at5/${withFile.size}).")
+    out.appendLine("- No-match queries with no strong hit: ${noMatch.count { row.strong[it] == 0 }}/${noMatch.size}; strong hits on them: ${noMatch.sumOf { row.strong[it] }}.")
+    out.appendLine("- Strong hits per query with a file: ${withFile.sumOf { row.strong[it] }} over ${withFile.size} queries.")
     return out.toString()
 }

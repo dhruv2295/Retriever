@@ -2,6 +2,8 @@ package app.retriever.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * The retrieval defaults RetrievalEval measured on the M440 model (iOS simulator, 30 files, 31 queries, Oct 2026),
@@ -25,6 +27,29 @@ class DefaultsTest {
         assertEquals(Tier.FULL to 140, vt(100.0, 8.0))
         assertEquals(Tier.BALANCED to 70, vt(500.0, 6.0))
         assertEquals(Tier.LIGHT to 70, vt(5000.0, 4.0))
+    }
+
+    /**
+     * LIGHT reads one keyframe per 30 s (still at most MAX_VIDEO_MOMENTS), so a slow phone indexes video instead of
+     * leaving it out; audio files stay off by default. Not measured by the eval: its corpus holds no video.
+     */
+    @Test
+    fun lightVideoIsSparse() {
+        val light = Tiers.profileFor(5000.0, 4.0, Backend.CPU, ModelVariant.M440)
+        assertEquals(30, light.videoFrameEverySec)
+        assertEquals(Kind.entries.toSet() - Kind.AUDIO, Prefs.defaultFor(light).kinds)
+        assertEquals(30, Prefs.defaultFor(light).effective(light).videoFrameEverySec)
+    }
+
+    /**
+     * INFERRED floor, not measured: under 4 GB (3 GB iPhones such as XR and SE 2, 2-3 GB Android phones) runs
+     * names-and-text only, since the M440 is 388 MB on disk plus its runtime. Re-measure on a device before moving it.
+     */
+    @Test
+    fun textOnlyBelowFourGigabytes() {
+        assertEquals(4.0, Tiers.MIN_MODEL_RAM_GB)
+        assertTrue(Tiers.textOnly(3.0))
+        assertFalse(Tiers.textOnly(4.0))
     }
 
     /** Without them: recall@5 31 to 29 fused, 30 to 27 on the vector lane alone. */

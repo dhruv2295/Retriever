@@ -24,6 +24,20 @@ object MediaDecoding {
     fun decodeAudio16kMono(context: Context, uri: Uri, maxSeconds: Int): ShortArray =
         audioAt(context, uri, 0, maxSeconds * 1000L)
 
+    /** The container's duration; 0 when it can't be read. */
+    fun durationMs(context: Context, uri: Uri): Long {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } catch (e: Exception) {
+            Log.w(TAG, "couldn't read the duration of $uri", e)
+            0L
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
     /** Mono 16 kHz PCM for [fromMs, toMs); empty when the file has no decodable audio. */
     fun audioAt(context: Context, uri: Uri, fromMs: Long, toMs: Long): ShortArray {
         val extractor = MediaExtractor()

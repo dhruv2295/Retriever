@@ -66,8 +66,12 @@ final class SearchModel {
 
     struct Answer {
         let hits: [SearchEngine.Hit]
+        /// The first this many hits are good matches; the rest are the closest of a weak lot.
+        let strongCount: Int
         let vectorLane: Bool
         let key: Key
+        /// Files read only in part, by file id; the rest were read whole.
+        var extents: [Int64: ReadExtent] = [:]
     }
 
     private(set) var text = ""
@@ -131,10 +135,13 @@ final class SearchModel {
             }
             // Kotlin doesn't see Swift's cancellation: drop an answer to a search that was replaced.
             guard !Task.isCancelled else { return }
-            answer = Answer(hits: result.hits, vectorLane: result.vectorLane, key: key)
+            answer = Answer(hits: result.hits, strongCount: Int(result.strongCount), vectorLane: result.vectorLane, key: key)
             failed = false
+            if let found = try? await retriever.readExtents(fileIds: result.hits.map { KotlinLong(value: $0.fileId) }), !Task.isCancelled, answer?.key == key {
+                answer?.extents = Dictionary(uniqueKeysWithValues: found.map { ($0.key.int64Value, $0.value) })
+            }
             // Words only while the model was busy opening: ask again shortly, a few times, for results by meaning.
-            if result.vectorLane {
+            if result.vectorLane || retriever.textOnly {
                 wordsOnlyRetries = 0
             } else if wordsOnlyRetries < 5 {
                 wordsOnlyRetries += 1
@@ -185,6 +192,12 @@ final class SearchModel {
         }
     }
 
+    /// "Find similar", or nil on a words-only phone, where there is no model to match a photo with.
+    func similar(_ snap: AppModel.Snap?) -> ((SourceFile) -> Void)? {
+        if snap?.textOnly == true { return nil }
+        return { [weak self] file in self?.findSimilar(file) }
+    }
+
     func findSimilar(_ file: SourceFile) {
         guard let extractor = services?.extractor else { return }
         let uri = file.uri
@@ -221,13 +234,14 @@ final class SearchModel {
     }
 
     /// Fixed state for screenshots and previews; nothing runs.
-    static func fixture(text: String = "", scope: Scope = .all, hits: [SearchEngine.Hit]? = nil, vectorLane: Bool = true, failed: Bool = false,
-                        slow: Bool = false, photo: UIImage? = nil, recent: [String] = [], recentFiles: [SourceFile] = []) -> SearchModel {
+    static func fixture(text: String = "", scope: Scope = .all, hits: [SearchEngine.Hit]? = nil, strongCount: Int? = nil, extents: [Int64: ReadExtent] = [:],
+                        vectorLane: Bool = true, failed: Bool = false, slow: Bool = false, photo: UIImage? = nil, recent: [String] = [],
+                        recentFiles: [SourceFile] = []) -> SearchModel {
         let m = SearchModel(services: nil)
         m.text = text
         m.scope = scope
         if let photo, let jpeg = photo.jpegData(compressionQuality: 0.8) { m.photo = Photo(jpeg: jpeg, thumb: photo) }
-        if let hits { m.answer = Answer(hits: hits, vectorLane: vectorLane, key: m.key) }
+        if let hits { m.answer = Answer(hits: hits, strongCount: strongCount ?? hits.count, vectorLane: vectorLane, key: m.key, extents: extents) }
         m.failed = failed
         m.slow = slow
         m.recent = recent
@@ -247,6 +261,7 @@ struct SearchView: View {
     @State private var addingFolder = false
     @State private var folderNote: String?
     @Environment(\.openFile) private var openFile
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private let fixedSnap: AppModel.Snap?
 
     /// `search` and `snap` pin a state for screenshots; by default the search runs live.
@@ -283,12 +298,18 @@ struct SearchView: View {
         .onSubmit(of: .search) { search.record() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                PhotosPicker(selection: $picked, matching: .images) {
-                    Label("Search by photo", systemImage: "photo.badge.magnifyingglass")
+                // Matching a photo needs the understanding that text-only leaves out.
+                if snap?.textOnly != true {
+                    PhotosPicker(selection: $picked, matching: .images) {
+                        Label("Search by photo", systemImage: "photo.badge.magnifyingglass")
+                    }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: Route.browse) { Label("Browse", systemImage: "square.grid.2x2") }
+            // At regular width the sidebar lists Browse.
+            if sizeClass != .regular {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: Route.browse) { Label("Browse", systemImage: "square.grid.2x2") }
+                }
             }
         }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
@@ -393,10 +414,10 @@ private struct HomeList: View {
             if !search.recentFiles.isEmpty {
                 Section("Recent files") {
                     ScrollView(.horizontal) {
-                        LazyHStack(spacing: 8) {
+                        LazyHStack(alignment: .top, spacing: 8) {
                             ForEach(search.recentFiles, id: \.uri) { file in
                                 if file.kind == .photo || file.kind == .screenshot || file.kind == .video {
-                                    ResultCell(file: file, onOpen: { openFile(file) }, onFindSimilar: search.findSimilar).frame(width: tile)
+                                    ResultCell(file: file, onOpen: { openFile(file) }, onFindSimilar: search.similar(snap)).frame(width: tile)
                                 } else {
                                     FileCard(file: file, side: tile) { openFile(file) }
                                 }
@@ -414,25 +435,25 @@ private struct HomeList: View {
     }
 }
 
-/// A file with no picture: its kind's icon over its name, the size of a picture cell.
+/// A file that isn't a picture: its first page or preview, the size of a picture cell, with its name under it.
 private struct FileCard: View {
     let file: SourceFile
     let side: CGFloat
     let open: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Button(action: open) {
-            VStack(alignment: .leading, spacing: 6) {
-                Image(systemName: Format.icon(file.kind)).font(.title3).foregroundStyle(.tint)
-                Spacer(minLength: 0)
-                // A name with no spaces would wrap mid-word ("Scan_0001.p" / "df"): one line, cut in the middle so the
-                // extension stays.
-                Text(file.name).font(.caption).lineLimit(file.name.contains(" ") ? 2 : 1).truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 4) {
+                Thumb(file: file, points: side)
+                    .frame(width: side, height: side)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.separator)) // white pages on white
+                FileName(name: file.name, wrapLines: typeSize.isAccessibilitySize ? 3 : 2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
             }
-            .padding(8)
-            .frame(width: side, height: side, alignment: .topLeading)
-            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(width: side, alignment: .topLeading)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(Format.kind(file.kind)), \(file.name), \(Format.date(file.modifiedAt))")
@@ -568,19 +589,28 @@ private struct ResultsView: View {
     }
 
     private func list(_ answer: SearchModel.Answer) -> some View {
-        let media = answer.hits.filter(inGrid)
-        let docs = answer.hits.filter { !inGrid($0) }
-        let mediaFirst = inGrid(answer.hits[0])
         let query = answer.key.query.isEmpty ? nil : answer.key.query
+        // A search by photo ranks by likeness alone, so all of it is one list.
+        let strong = search.photo == nil ? min(answer.strongCount, answer.hits.count) : answer.hits.count
+        let weak = Array(answer.hits.dropFirst(strong))
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 header(answer)
-                if mediaFirst {
-                    mediaSection(media)
-                    docSection(docs, query: query)
-                } else {
-                    docSection(docs, query: query)
-                    mediaSection(media)
+                if strong == 0 {
+                    // The words these results answer, not the field's, which may already be ahead of them.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Copy.nothingWell(answer.key.query)).font(typeSize.isAccessibilitySize ? .headline : .title3.bold())
+                        Text(typeSize.isAccessibilitySize ? Copy.closestFilesShort : Copy.closestFiles).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isHeader)
+                }
+                sections(Array(answer.hits.prefix(strong)), answer: answer, query: query)
+                if strong > 0 && !weak.isEmpty {
+                    SectionTitle(Copy.lessLikely)
+                    sections(weak, answer: answer, query: query, titled: false)
+                } else if strong == 0 {
+                    sections(weak, answer: answer, query: query)
                 }
             }
             .padding(.horizontal, 16)
@@ -616,28 +646,43 @@ private struct ResultsView: View {
     }
 
     private func note(_ answer: SearchModel.Answer) -> String? {
+        if snap?.textOnly == true { return Copy.textOnlySearch }
         if snap?.setUp != true { return "Matching file names only until setup finishes." }
         if !answer.vectorLane { return "Matching exact words for now. Results by meaning will be back shortly." }
         return nil
     }
 
-    @ViewBuilder private func mediaSection(_ hits: [SearchEngine.Hit]) -> some View {
+    /// Pictures and documents in rank order as far as a grid allows: the documents ranked above the best picture, then
+    /// the pictures, then the other documents, so neither one strong document nor one strong photo buries the rest.
+    /// `titled: false` under a heading that already says what they are.
+    @ViewBuilder private func sections(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, query: String?, titled: Bool = true) -> some View {
+        let lead = Array(hits.prefix { !inGrid($0) })
+        let after = hits.dropFirst(lead.count)
+        docSection(lead, answer: answer, query: query, titled: titled)
+        mediaSection(after.filter(inGrid), answer: answer, titled: titled)
+        docSection(after.filter { !inGrid($0) }, answer: answer, query: query, titled: titled,
+                   title: lead.isEmpty ? "Documents and more" : "More documents")
+    }
+
+    @ViewBuilder private func mediaSection(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, titled: Bool) -> some View {
         if !hits.isEmpty {
-            SectionTitle("Photos and videos")
+            if titled { SectionTitle("Photos and videos") }
             LazyVGrid(columns: gridColumns(typeSize, spacing: 8), spacing: 8) {
                 ForEach(hits, id: \.fileId) { hit in
-                    ResultCell(file: hit.file, locator: hit.locator, onOpen: { open(hit) }, onFindSimilar: search.findSimilar)
+                    ResultCell(file: hit.file, locator: hit.locator, onOpen: { open(hit) }, extent: answer.extents[hit.fileId], onFindSimilar: search.similar(snap))
                 }
             }
         }
     }
 
-    @ViewBuilder private func docSection(_ hits: [SearchEngine.Hit], query: String?) -> some View {
+    @ViewBuilder private func docSection(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, query: String?, titled: Bool,
+                                         title: String = "Documents and more") -> some View {
         if !hits.isEmpty {
-            SectionTitle("Documents and more")
+            if titled { SectionTitle(title) }
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(hits, id: \.fileId) { hit in
-                    FileButton(file: hit.file, locator: hit.locator, snippet: hit.snippet, query: query, onOpen: { open(hit) }, onFindSimilar: search.findSimilar)
+                    FileButton(file: hit.file, locator: hit.locator, snippet: hit.snippet, query: query, extent: answer.extents[hit.fileId],
+                               onOpen: { open(hit) }, onFindSimilar: search.similar(snap))
                     Divider()
                 }
             }

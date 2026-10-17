@@ -29,7 +29,7 @@ object Notifications {
     const val CHANNEL = "indexing"
 
     fun createChannel(context: Context) {
-        val channel = NotificationChannel(CHANNEL, "Indexing", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL, "Reading progress", NotificationManager.IMPORTANCE_LOW)
             .apply { description = "Shows while Retriever reads your files" }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -46,7 +46,7 @@ object Notifications {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle("Indexing your files")
+            .setContentTitle("Reading your files")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)

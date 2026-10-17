@@ -85,6 +85,7 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
@@ -96,10 +97,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,6 +113,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -120,6 +127,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.android.ImageBytes
@@ -194,6 +202,15 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     LaunchedEffect(text) { snapshotFlow { text.text.toString() }.collect { actions.onQuery(it) } }
     // A search by photo replaces the words.
     LaunchedEffect(ui.similar) { if (ui.similar != null) text.clearText() }
+    // The grid keeps its place by item key, so a new answer sharing a key (a section header, a file) would open
+    // part way down, past its best matches. Saveable, so coming back from a viewer keeps the place.
+    var shownAnswer by rememberSaveable { mutableIntStateOf(ui.answer) }
+    LaunchedEffect(ui.answer) {
+        if (ui.answer != shownAnswer) {
+            grid.scrollToItem(0)
+            shownAnswer = ui.answer
+        }
+    }
     LaunchedEffect(homeList, grid) {
         snapshotFlow { homeList.isScrollInProgress || grid.isScrollInProgress }.collect { actions.onScrolling(it) }
     }
@@ -202,6 +219,14 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     val inputField = @Composable {
         // Read here: the expanded bar shows this field in its own dialog window.
         val keyboard = LocalSoftwareKeyboardController.current
+        val focus = LocalFocusManager.current
+        // The bar focuses its field when it opens; a search by photo has nothing to type.
+        LaunchedEffect(ui.similar, bar.currentValue) {
+            if (ui.similar != null && bar.currentValue == SearchBarValue.Expanded) {
+                focus.clearFocus()
+                keyboard?.hide()
+            }
+        }
         SearchBarDefaults.InputField(
             textFieldState = text,
             searchBarState = bar,
@@ -225,7 +250,8 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
                         text.clearText()
                         actions.onClearSimilar()
                     }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
-                } else {
+                } else if (!ui.textOnly) {
+                    // Matching a photo needs the model a words-only phone leaves out.
                     IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
                         Icon(Icons.Outlined.ImageSearch, contentDescription = "Search with a photo")
                     }
@@ -250,8 +276,12 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
         }
     }
 
-    ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
-        SearchPane(ui, actions, grid, useText = { text.setTextAndPlaceCursorAtEnd(it) })
+    // Outside the Scaffold nothing sets the content colour, and the bar's dialog picks its status bar icons and its
+    // results' text colour from it.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
+            SearchPane(ui, actions, grid, useText = { text.setTextAndPlaceCursorAtEnd(it) })
+        }
     }
 }
 
@@ -300,12 +330,14 @@ private fun HomeBody(ui: SearchUi, index: IndexState, actions: SearchActions, st
         if (ui.recentFiles.isNotEmpty()) {
             item(key = "recent-header") { Header("Recent files") }
             item(key = "recent") {
+                // Wider at large text, so a file name keeps its words whole.
+                val tile = 96.dp * LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(ui.recentFiles, key = { it.uri }) { file ->
                         if (file.kind in visualKinds) {
-                            ThumbCell(file, onClick = { actions.onOpenFile(file) }, modifier = Modifier.width(96.dp))
+                            ThumbCell(file, onClick = { actions.onOpenFile(file) }, modifier = Modifier.width(tile))
                         } else {
-                            FileCard(file) { actions.onOpenFile(file) }
+                            FileCard(file, tile) { actions.onOpenFile(file) }
                         }
                     }
                 }
@@ -344,13 +376,14 @@ private fun Header(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A file with no picture: its kind's icon over its name, the same width as a picture cell. */
+/** A file with no picture: its kind's icon over its name, [width] wide like a picture cell. A name of one word keeps its ending. */
 @Composable
-private fun FileCard(file: SourceFile, onClick: () -> Unit) {
+private fun FileCard(file: SourceFile, width: Dp, onClick: () -> Unit) {
+    val oneWord = ' ' !in file.name.trim()
     Column(
         Modifier
-            .width(96.dp)
-            .heightIn(min = 96.dp)
+            .width(width)
+            .heightIn(min = width)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
             .clickable(onClickLabel = "Open", onClick = onClick)
@@ -358,7 +391,12 @@ private fun FileCard(file: SourceFile, onClick: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(kindIcon(file.kind), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(file.name, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            file.name,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = if (oneWord) 1 else 2,
+            overflow = if (oneWord) TextOverflow.MiddleEllipsis else TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -503,6 +541,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
     val note = when {
         ui.similar != null && !ui.vectorLane -> "Search by photo works once setup finishes."
         !ui.setUp -> "Matching file names only until setup finishes."
+        !ui.vectorLane && ui.textOnly -> "Retriever finds files here by their names and the words inside them."
         !ui.vectorLane -> "Matching exact words for now. Results by meaning will be back shortly."
         else -> null
     }
@@ -546,7 +585,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
                 art = R.drawable.illus_empty,
             )
         }
-        else -> ResultGrid(hits, ui.hitsFor.ifEmpty { null }, ui.searching || stale, grid, edge, actions.onOpenHit, actions.onFindSimilar)
+        else -> ResultGrid(hits, ui.strongCount, ui.extents, ui.hitsFor.ifEmpty { null }, ui.searching || stale, grid, edge, actions.onOpenHit, actions.onFindSimilar.takeUnless { ui.textOnly })
     }
 }
 
@@ -572,15 +611,17 @@ private fun Message(content: @Composable () -> Unit) {
 @Composable
 private fun ResultGrid(
     hits: List<SearchEngine.Hit>,
+    strongCount: Int,
+    extents: Map<Long, ReadExtent>,
     query: String?,
     searching: Boolean,
     grid: LazyGridState,
     edge: Dp,
     open: (SearchEngine.Hit) -> Unit,
-    findSimilar: (SourceFile) -> Unit,
+    findSimilar: ((SourceFile) -> Unit)?,
 ) {
-    val (media, docs) = hits.partition(::inGrid)
-    val mediaFirst = inGrid(hits.first())
+    val strong = hits.take(strongCount)
+    val weak = hits.drop(strongCount)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(110.dp),
         state = grid,
@@ -589,14 +630,54 @@ private fun ResultGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize().alpha(if (searching) 0.6f else 1f),
     ) {
-        if (mediaFirst) {
-            mediaSection(media, open, findSimilar)
-            docSection(docs, query, open, findSimilar)
-        } else {
-            docSection(docs, query, open, findSimilar)
-            mediaSection(media, open, findSimilar)
+        if (strong.isEmpty() && query != null) {
+            item(key = "nothing-well", span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Nothing matches “$query” well", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "These are the closest files, but they may not be what you're looking for.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        sections(strong, extents, query, titled = true, open, findSimilar)
+        if (weak.isNotEmpty()) {
+            sectionHeader("weak", "Less likely matches")
+            sections(weak, extents, query, titled = false, open, findSimilar)
         }
     }
+}
+
+/**
+ * Pictures and documents of [hits] in rank order as far as a grid allows: the documents ranked above the best picture,
+ * then the pictures, then the other documents. Neither one strong document nor one strong photo buries the rest of
+ * the other kind. [titled] gives each its header.
+ */
+private fun LazyGridScope.sections(
+    hits: List<SearchEngine.Hit>,
+    extents: Map<Long, ReadExtent>,
+    query: String?,
+    titled: Boolean,
+    open: (SearchEngine.Hit) -> Unit,
+    findSimilar: ((SourceFile) -> Unit)?,
+) {
+    val (lead, media, rest) = sectionsOf(hits)
+    docSection(lead, extents, query, titled, open, findSimilar)
+    mediaSection(media, extents, titled, open, findSimilar)
+    if (lead.isEmpty()) {
+        docSection(rest, extents, query, titled, open, findSimilar)
+    } else {
+        docSection(rest, extents, query, titled, open, findSimilar, "docs-more", "More documents")
+    }
+}
+
+/** The documents ranked above the first picture, the pictures, and the documents after it. */
+internal fun sectionsOf(hits: List<SearchEngine.Hit>): Triple<List<SearchEngine.Hit>, List<SearchEngine.Hit>, List<SearchEngine.Hit>> {
+    val lead = hits.takeWhile { !inGrid(it) }
+    val (media, rest) = hits.drop(lead.size).partition(::inGrid)
+    return Triple(lead, media, rest)
 }
 
 /** Pictures go in the grid, except a screenshot matched by its words: its row shows them. */
@@ -614,9 +695,15 @@ private fun LazyGridScope.sectionHeader(key: String, title: String) {
     }
 }
 
-private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, open: (SearchEngine.Hit) -> Unit, findSimilar: (SourceFile) -> Unit) {
+private fun LazyGridScope.mediaSection(
+    hits: List<SearchEngine.Hit>,
+    extents: Map<Long, ReadExtent>,
+    titled: Boolean,
+    open: (SearchEngine.Hit) -> Unit,
+    findSimilar: ((SourceFile) -> Unit)?,
+) {
     if (hits.isEmpty()) return
-    sectionHeader("media", "Photos and videos")
+    if (titled) sectionHeader("media", "Photos and videos")
     items(hits, key = { it.fileId }) { hit ->
         val still = hit.file.kind != Kind.VIDEO
         ThumbCell(
@@ -624,29 +711,35 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, open: (Sear
             onClick = { open(hit) },
             modifier = Modifier.animateItem(),
             locator = hit.locator,
-            onLongClick = if (still) ({ findSimilar(hit.file) }) else null,
-            onLongClickLabel = if (still) "Find similar" else null,
+            readNote = Format.readNote(extents[hit.fileId]),
+            onLongClick = if (still && findSimilar != null) ({ findSimilar(hit.file) }) else null,
+            onLongClickLabel = if (still && findSimilar != null) "Find similar" else null,
         )
     }
 }
 
 private fun LazyGridScope.docSection(
     hits: List<SearchEngine.Hit>,
+    extents: Map<Long, ReadExtent>,
     query: String?,
+    titled: Boolean,
     open: (SearchEngine.Hit) -> Unit,
-    findSimilar: (SourceFile) -> Unit,
+    findSimilar: ((SourceFile) -> Unit)?,
+    headerKey: String = "docs",
+    header: String = "Documents and more",
 ) {
     if (hits.isEmpty()) return
-    sectionHeader("docs", "Documents and more")
+    if (titled) sectionHeader(headerKey, header)
     items(hits, key = { it.fileId }, span = { GridItemSpan(maxLineSpan) }) { hit ->
-        val picture = hit.file.kind == Kind.SCREENSHOT
+        val picture = hit.file.kind == Kind.SCREENSHOT && findSimilar != null
         FileRow(
             hit.file,
             modifier = Modifier.animateItem().bleed(16.dp),
             snippet = hit.snippet,
             locator = hit.locator,
             query = query,
-            onLongClick = if (picture) ({ findSimilar(hit.file) }) else null,
+            readNote = Format.readNote(extents[hit.fileId]),
+            onLongClick = if (picture) ({ findSimilar?.invoke(hit.file) }) else null,
             onLongClickLabel = if (picture) "Find similar" else null,
             onClick = { open(hit) },
         )

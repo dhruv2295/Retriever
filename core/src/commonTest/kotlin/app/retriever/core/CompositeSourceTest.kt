@@ -7,6 +7,8 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+private const val SAF = "content://com.android.externalstorage.documents/"
+
 class CompositeSourceTest {
     /** Lists [files] in full on every call when [alwaysFull]; otherwise reports no change after the first scan. */
     private class ListSource(val token: String, var files: List<String>, val alwaysFull: Boolean) : FileSource {
@@ -81,6 +83,40 @@ class CompositeSourceTest {
         folders.scope = null
         sync.sync()
         assertEquals(all - "folder://b/3.pdf", store.knownUris())
+    }
+
+    /** Like Android's SafSource: always full, the whole prefix in scope unless a tree couldn't be read. */
+    private class SafLike(var files: List<String>, var scope: Set<String> = setOf(SAF)) : FileSource {
+        override suspend fun changes(since: String?): Changes {
+            val all = files.map { SourceFile(it, it.substringAfterLast('/'), "Documents", "application/pdf", Kind.PDF, 10, 1) }
+            return Changes(all, emptyList(), "", isFullScan = true, scope = scope)
+        }
+    }
+
+    @Test
+    fun pickedFoldersSitBesideMediaStoreAndGoWhenAllFilesTakesOver() = runTest {
+        val photo = "content://media/external_primary/file/1"
+        val media = ListSource("m", listOf(photo), alwaysFull = false)
+        val tree = "${SAF}tree/primary%3ADocuments/document/"
+        val card = "${SAF}tree/1A2B%3APapers/document/"
+        val onCard = "${card}1A2B%3APapers%2Fb.pdf"
+        val saf = SafLike(listOf("${tree}primary%3ADocuments%2Fa.pdf", onCard))
+        val store = Store(testDriver())
+        val sync = LibrarySync(store, CompositeSource(mapOf("content://media/" to media, SAF to saf))) { 1_000L }
+        sync.sync()
+        assertEquals(setOf(photo) + saf.files, store.knownUris())
+
+        // The card is out: only the tree that was read is in scope, so the card's file keeps its index.
+        saf.files = listOf("${tree}primary%3ADocuments%2Fa.pdf")
+        saf.scope = setOf(tree)
+        sync.sync()
+        assertTrue(onCard in store.knownUris())
+
+        // All-files access: no trees and the prefix in scope, so every picked-folder row goes and MediaStore's stay.
+        saf.files = emptyList()
+        saf.scope = setOf(SAF)
+        sync.sync()
+        assertEquals(setOf(photo), store.knownUris())
     }
 
     @Test

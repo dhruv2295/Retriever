@@ -14,7 +14,7 @@ object FileRules {
     val DOC_TEXT_EXTENSIONS = setOf(
         "txt", "md", "csv", "json", "xml", "html", "htm", "kt", "java", "py", "js", "ts", "swift",
         "go", "rs", "c", "cpp", "h", "yaml", "yml", "log", "docx", "pptx", "xlsx",
-        "odt", "ods", "odp", "epub",
+        "odt", "ods", "odp", "epub", "rtf",
     )
 
     private val MIME_BY_EXTENSION = mapOf(
@@ -31,6 +31,7 @@ object FileRules {
         "ods" to "application/vnd.oasis.opendocument.spreadsheet",
         "odp" to "application/vnd.oasis.opendocument.presentation",
         "epub" to "application/epub+zip",
+        "rtf" to "text/rtf",
         "pdf" to "application/pdf",
     )
 

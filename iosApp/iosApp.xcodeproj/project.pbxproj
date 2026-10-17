@@ -13,7 +13,18 @@
 
 /* Begin PBXFileReference section */
 		62FD2B4FDD2FDA301D6E81E6 /* Retriever.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Retriever.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C1000001A0000000000000F1 /* RetrieverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RetrieverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		C1000002A0000000000000F1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B230199D1B4F47B703EDB7BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7419598121944259B394AAA2;
+			remoteInfo = Retriever;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		46FBFC98D49F11B46A71666A /* Exceptions for "Retriever" folder in "Retriever" target */ = {
@@ -39,6 +50,11 @@
 			path = Configuration;
 			sourceTree = "<group>";
 		};
+		C1000003A0000000000000F1 /* RetrieverTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RetrieverTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -51,6 +67,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C1000004A0000000000000F1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -59,6 +82,7 @@
 			children = (
 				D1886E99A536D6ADBC5B0D2B /* Configuration */,
 				1A77955499A75E32F8D85CE3 /* Retriever */,
+				C1000003A0000000000000F1 /* RetrieverTests */,
 				0C87A4C7D0FCF67D4F8E4716 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -67,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				62FD2B4FDD2FDA301D6E81E6 /* Retriever.app */,
+				C1000001A0000000000000F1 /* RetrieverTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -99,6 +124,26 @@
 			productReference = 62FD2B4FDD2FDA301D6E81E6 /* Retriever.app */;
 			productType = "com.apple.product-type.application";
 		};
+		C1000005A0000000000000F1 /* RetrieverTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C1000006A0000000000000F1 /* Build configuration list for PBXNativeTarget "RetrieverTests" */;
+			buildPhases = (
+				C1000007A0000000000000F1 /* Sources */,
+				C1000004A0000000000000F1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C1000008A0000000000000F1 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C1000003A0000000000000F1 /* RetrieverTests */,
+			);
+			name = RetrieverTests;
+			productName = RetrieverTests;
+			productReference = C1000001A0000000000000F1 /* RetrieverTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -111,6 +156,10 @@
 				TargetAttributes = {
 					7419598121944259B394AAA2 = {
 						CreatedOnToolsVersion = 16.2;
+					};
+					C1000005A0000000000000F1 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 7419598121944259B394AAA2;
 					};
 				};
 			};
@@ -133,6 +182,7 @@
 			projectRoot = "";
 			targets = (
 				7419598121944259B394AAA2 /* Retriever */,
+				C1000005A0000000000000F1 /* RetrieverTests */,
 			);
 		};
 /* End PBXProject section */
@@ -177,7 +227,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C1000007A0000000000000F1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C1000008A0000000000000F1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7419598121944259B394AAA2 /* Retriever */;
+			targetProxy = C1000002A0000000000000F1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		46090DFEA5A195BD3A12AD1D /* Debug */ = {
@@ -367,6 +432,50 @@
 			};
 			name = Release;
 		};
+		C1000009A0000000000000F1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-Xfrontend",
+					"-disable-autolink-framework",
+					"-Xfrontend",
+					RetrieverCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.tests;
+				PRODUCT_NAME = RetrieverTests;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Retriever.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Retriever";
+			};
+			name = Debug;
+		};
+		C100000AA0000000000000F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-Xfrontend",
+					"-disable-autolink-framework",
+					"-Xfrontend",
+					RetrieverCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.tests;
+				PRODUCT_NAME = RetrieverTests;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Retriever.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Retriever";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -384,6 +493,15 @@
 			buildConfigurations = (
 				7E34A3AA3E4866E7E2A678CE /* Debug */,
 				739D72D8BF2497F51466E5C9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C1000006A0000000000000F1 /* Build configuration list for PBXNativeTarget "RetrieverTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1000009A0000000000000F1 /* Debug */,
+				C100000AA0000000000000F1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

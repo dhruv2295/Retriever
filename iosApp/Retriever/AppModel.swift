@@ -18,8 +18,11 @@ final class AppModel {
         var indexed = 0
         var pending = 0
         var skipped = 0
-        /// Long-document text read for keywords but not yet for meaning.
-        var tail = 0
+        /// Long files whose later parts are read for keywords but not yet for meaning.
+        var tailFiles = 0
+        /// Too little memory to understand photos: files are found by their names and the words inside them.
+        var textOnly = false
+        var ramGb = 0.0
         var running = false
         var processed = 0
         var failed = 0
@@ -72,6 +75,18 @@ final class AppModel {
         didSet { UserDefaults.standard.set(useMobileData, forKey: Self.mobileDataKey) }
     }
 
+    /// The foreground loop keeps the screen awake for the batch it's running.
+    private(set) var screenKeptOn = false
+    /// A read the person started carries on after they leave (IndexTask.continuedId); the foreground loop stands
+    /// aside until it ends.
+    private(set) var continuing = false
+
+    /// Status offers to keep reading after the person leaves: iOS 26 and files waiting.
+    var canKeepReading: Bool {
+        guard #available(iOS 26.0, *), let snap else { return false }
+        return snap.setUp == true && snap.pending > 0 && !snap.paused && !continuing
+    }
+
     private let fixtureDownload: (ModelDownload.State, Double)
 
     var download: ModelDownload.State { services?.download.state ?? fixtureDownload.0 }
@@ -84,8 +99,12 @@ final class AppModel {
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var waiter: CheckedContinuation<Void, Never>?
     @ObservationIgnored private var woken = false
+    /// A foreground batch is running; a thermal change re-checks the screen.
+    @ObservationIgnored private var reading = false
     /// The app left the front while the tune ran, so its graphics-chip test failed: tune again once back.
     @ObservationIgnored private var tuneLeft = false
+    /// The running tune is a Tune again (DEBUG), so it keeps the stored photo detail.
+    @ObservationIgnored private var tuningAgain = false
 
     private static let startedKey = "started"
     private static let setupSeenKey = "setupSeen"
@@ -100,14 +119,31 @@ final class AppModel {
         useMobileData = UserDefaults.standard.bool(forKey: Self.mobileDataKey)
         fixtureDownload = (.idle, 0)
         folders = Self.pickedFolders(services)
+        let textOnly = services.retriever.textOnly
+        let ramGb = services.retriever.probe.ramGb
         observation = services.retriever.observeAll { [weak self] snapshot in
-            let snap = Snap(snapshot)
+            let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
             Task { @MainActor in self?.apply(snap) }
         }
         services.lifecycle?.onLibraryChange = { [weak self] in self?.wake() }
-        tokens.append(NotificationCenter.default.addObserver(forName: IndexTask.ended, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.wake() }
+        services.lifecycle?.keepsReading = { [weak self] in self?.continuing ?? false }
+        tokens.append(NotificationCenter.default.addObserver(forName: IndexTask.ended, object: nil, queue: .main) { [weak self] note in
+            let continued = (note.object as? String) == IndexTask.continuedId
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if continued {
+                    self.continuing = false
+                    self.startLoop()
+                }
+                self.wake()
+            }
         })
+        for name in [ProcessInfo.thermalStateDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange,
+                     UIDevice.batteryLevelDidChangeNotification, UIDevice.batteryStateDidChangeNotification] {
+            tokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keepScreenOn(self?.reading ?? false) }
+            })
+        }
         watchDownload()
     }
 
@@ -123,6 +159,7 @@ final class AppModel {
         skippedFiles = skipped
         folders = started ? ["Work"] : []
         useMobileData = false
+        screenKeptOn = snap.running
     }
 
     // MARK: Phase
@@ -131,11 +168,14 @@ final class AppModel {
         guard let services else { return }
         switch phase {
         case .active:
+            // Back from Control Center, a banner or the app switcher, nothing stopped, so there's nothing to redo.
+            guard !active else { return }
             active = true
             photos = services.photos.status
             services.lifecycle?.observePhotos()
             // A background batch may still hold the index; it stops within a file and its task wakes the loop.
-            services.retriever.cancelBatch()
+            // The person's own continued read is left to finish; its end restarts the loop.
+            if !continuing { services.retriever.cancelBatch() }
             Task {
                 try? await services.retriever.warmSearch()
                 recent = (try? await services.retriever.recentQueries()) ?? recent
@@ -148,20 +188,21 @@ final class AppModel {
             // Even when caught up: photos taken before the next open get read overnight.
             if let snap, snap.setUp == true, !snap.paused { IndexTask.schedule() }
         default:
-            stopLoop()
+            break
         }
     }
 
     // MARK: Foreground loop
 
     private func startLoop() {
-        guard let services, active, started, loop == nil else { return }
+        guard let services, active, started, !continuing, loop == nil else { return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
-                UIApplication.shared.isIdleTimerDisabled = services.monitor.charging
+                self?.keepScreenOn(true)
                 let next = try? await services.retriever.indexBatchSeconds(seconds: 120)
-                UIApplication.shared.isIdleTimerDisabled = false
+                self?.keepScreenOn(false)
                 if Task.isCancelled {
+                    Self.log.info("foreground reading stopped")
                     // This batch held the index until now, so a newer loop may have found it locked and gone to sleep.
                     self?.wake()
                     return
@@ -178,9 +219,43 @@ final class AppModel {
         active = false
         loop?.cancel()
         loop = nil
-        // Swift cancellation doesn't reach the Kotlin coroutine.
-        services?.retriever.cancelBatch()
-        UIApplication.shared.isIdleTimerDisabled = false
+        // Swift cancellation doesn't reach the Kotlin coroutine. The continued read is the person's: it goes on.
+        if !continuing { services?.retriever.cancelBatch() }
+        keepScreenOn(false)
+    }
+
+    /// On while files wait to be read, on battery too: a locked iPhone sends the app to the background, which stops
+    /// reading. Off when only long files' later parts are left, when the iPhone runs hot, and on a low battery or in
+    /// Low Power Mode unless it is charging: reading goes on, and the screen locks as the person set it to.
+    private func keepScreenOn(_ on: Bool) {
+        reading = on
+        let info = ProcessInfo.processInfo
+        let hot = info.thermalState == .serious || info.thermalState == .critical
+        let monitor = services?.monitor
+        let power = monitor?.charging == true || ((monitor?.batteryPct ?? 100) > 20 && !info.isLowPowerModeEnabled)
+        screenKeptOn = on && !hot && power && (snap?.pending ?? 0) > 0
+        UIApplication.shared.isIdleTimerDisabled = screenKeptOn
+        Self.log.info("isIdleTimerDisabled \(self.screenKeptOn, privacy: .public)")
+    }
+
+    /// Status's "Keep reading after I leave", and Setup's done button: hands reading to a task iOS lets carry on
+    /// after the person leaves, with its progress on the Lock Screen.
+    func keepReading() {
+        guard #available(iOS 26.0, *), let services, canKeepReading, let snap else { return }
+        // Submitted in the tap itself: iOS takes it only from an app in front. The task waits for this loop's batch,
+        // which stops within its current file.
+        do {
+            try IndexTask.submitContinued(snap)
+            Self.log.info("continued reading submitted")
+        } catch {
+            Self.log.error("couldn't keep reading after leaving: \(error, privacy: .public)")
+            return
+        }
+        continuing = true
+        loop?.cancel()
+        loop = nil
+        services.retriever.cancelBatch()
+        keepScreenOn(false)
     }
 
     /// Something changed (a photo, a folder, Resume, setup finishing): run the next batch now.
@@ -224,7 +299,8 @@ final class AppModel {
 
     /// The next setup step; safe to call any time.
     func advance() {
-        guard let services, started else { return }
+        // Text-only has nothing to download or tune, whatever setUp says before access is answered.
+        guard let services, started, !services.retriever.textOnly else { return }
         Task {
             try? await services.retriever.refreshSetUp()
             if tuneLeft, active, tune != .running { return await runTune() }
@@ -257,21 +333,33 @@ final class AppModel {
         advance()
     }
 
+    #if DEBUG
+        /// Status's testing section, as on Android: measure again, keeping the photo detail already chosen. Only in
+        /// front, since iOS refuses the graphics chip in the background.
+        func tuneAgain() {
+            guard active, tune != .running else { return }
+            tuningAgain = true
+            Task { await runTune() }
+        }
+    #endif
+
     private func runTune() async {
         guard let services else { return }
         tune = .running
         tuneLeft = false
         do {
             let images = await Task.detached { Self.calibrationImages(services) }.value
-            let result = try await services.retriever.calibrate(samples: RetrieverIosKt.samples(images: images, texts: Copy.calibrationTexts), tuneAgain: false)
+            let result = try await services.retriever.calibrate(samples: RetrieverIosKt.samples(images: images, texts: Copy.calibrationTexts), tuneAgain: tuningAgain)
             let imageMs = result.backends.first { $0.backend == result.chosen }?.imageMs?.doubleValue
             tune = .done(Copy.tuneSummary(result.chosen, imageMs: imageMs))
             try? await services.retriever.refreshSetUp()
             wake()
-            if tuneLeft, active { await runTune() }
+            if tuneLeft, active { return await runTune() }
+            tuningAgain = false
         } catch {
             Self.log.error("tune failed: \(error, privacy: .public)")
             tune = .failed
+            tuningAgain = false
         }
     }
 
@@ -336,6 +424,7 @@ final class AppModel {
 
     func finishSetup() {
         setupSeen = true
+        keepReading()
     }
 
     private func startIfReady() {
@@ -385,23 +474,28 @@ final class AppModel {
 
     private func apply(_ new: Snap) {
         let becameSetUp = new.setUp == true && snap?.setUp != true
+        // Files waiting or not decides the screen, so re-decide when that flips (the first counts included).
+        let waitingChanged = (new.pending > 0) != ((snap?.pending ?? 0) > 0)
         snap = new
+        if waitingChanged { keepScreenOn(reading) }
         guard becameSetUp else { return }
         // Tuned in an earlier launch: say so rather than "starts after the download".
-        if tune == .idle { tune = .done(new.backend.map { Copy.tuneSummary($0, imageMs: nil) } ?? "Tuned for this iPhone") }
+        if tune == .idle { tune = .done(new.backend.map { Copy.tuneSummary($0, imageMs: nil) } ?? "Tuned for this \(Copy.device)") }
         wake()
     }
 }
 
 extension AppModel.Snap {
-    init(_ s: RetrieverSnapshot) {
+    init(_ s: RetrieverSnapshot, textOnly: Bool = false, ramGb: Double = 0) {
+        self.textOnly = textOnly
+        self.ramGb = ramGb
         let state = s.counts.byState
         setUp = s.setUp?.boolValue
         byKind = s.counts.byKind.mapValues { $0.intValue }
         indexed = state[FileState.indexed]?.intValue ?? 0
         pending = state[FileState.pending]?.intValue ?? 0
         skipped = state[FileState.skipped]?.intValue ?? 0
-        tail = Int(s.counts.tailChunks)
+        tailFiles = Int(s.counts.tailFiles)
         running = s.state.running
         processed = Int(s.state.processed)
         failed = Int(s.state.failed)
@@ -429,6 +523,8 @@ enum AppFixture {
     case caughtUp, paused
     case skipped(Int)
     case noAccess
+    case tailFiles(Int)
+    case textOnly(ramGb: Double)
 }
 
 extension AppModel {
@@ -475,9 +571,14 @@ extension AppModel {
             (snap.processed, snap.pendingAtStart, snap.filesPerMinute) = (120, total - done + 120, 38)
             snap.etaMinutes = Int((Double(total - done) / 38).rounded(.up))
             snap.current = "Photo 2026-09-14 at 18.42.07"
-            snap.tail = 3
+            snap.tailFiles = 3
         case .caughtUp:
             break
+        case let .tailFiles(n):
+            snap.tailFiles = n
+        case let .textOnly(ramGb):
+            (snap.textOnly, snap.ramGb, snap.byKind) = (true, ramGb, [.pdf: 64, .doc: 31, .photo: 0])
+            (download, tune) = ((.idle, 0), .idle)
         case .paused:
             (snap.indexed, snap.pending, snap.paused, snap.lastStop) = (1_904, 1_238, true, .paused)
         case let .skipped(n):

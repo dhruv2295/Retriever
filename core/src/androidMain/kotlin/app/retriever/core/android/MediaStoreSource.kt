@@ -18,13 +18,14 @@
 // Cursor loop adapted from Google AI Edge Gallery (Apache-2.0):
 // Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt
 // Modified for Retriever: Files collection per storage volume, MediaColumns projection, generation-based
-// incremental scans, null-MIME fallback, and query failures are rethrown instead of returning an empty result.
+// incremental scans reset when access changes, null-MIME fallback, and query failures are rethrown instead of returning an empty result.
 // Query and projection pattern also follows android/platform-samples
 // samples/storage/src/main/java/com/example/platform/storage/mediastore/MediaStoreQuery.kt (Apache-2.0).
 package app.retriever.core.android
 
 import android.content.ContentUris
 import android.content.Context
+import android.mtp.MtpConstants
 import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.MediaStore
@@ -39,17 +40,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-class MediaStoreSource(private val context: Context) : FileSource {
-    // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER).
-    override val rulesVersion = 3
+/** [access] names what the app may see (all files, or which media permissions); the token records it. */
+class MediaStoreSource(private val context: Context, private val access: () -> String = { "" }) : FileSource {
+    // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER). 4: folders left out.
+    override val rulesVersion = 4
 
     override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) {
-        val old = parse(since)
+        val seeing = access()
+        val old = resumable(parse(since), seeing)
         val volumes = MediaStore.getExternalVolumeNames(context).toList()
         // Storage not mounted yet (early boot): report nothing rather than a full scan that finds no files.
         if (volumes.isEmpty()) return@withContext Changes(emptyList(), emptyList(), since.orEmpty(), present = null, scope = emptySet())
         // An unmounted volume (an ejected SD card) keeps its token, so it resumes incrementally when it is back.
-        val tokens = JSONObject(old.filterKeys { it !in volumes })
+        val tokens = JSONObject(old.filterKeys { it !in volumes } + (ACCESS to seeing))
         val upserted = ArrayList<SourceFile>()
         val removed = ArrayList<String>()
         val skips = HashMap<String, Int>()
@@ -75,6 +78,20 @@ class MediaStoreSource(private val context: Context) : FileSource {
         )
     }
 
+    companion object {
+        private const val ACCESS = "access"
+
+        /** With all-files access the Files collection also lists folders; "format" is the hidden FileColumns.FORMAT. */
+        private const val NOT_FOLDER = "format != ${MtpConstants.FORMAT_ASSOCIATION}"
+
+        /**
+         * The per-volume tokens to resume from. Rows that wider access reveals keep their old generation, so an
+         * incremental scan would never list them: tokens taken under other access count as none (a full scan).
+         */
+        fun resumable(tokens: Map<String, String>, access: String): Map<String, String> =
+            if (tokens[ACCESS] == access) tokens else emptyMap()
+    }
+
     private fun parse(token: String?): Map<String, String> = runCatching {
         val json = JSONObject(token ?: return emptyMap())
         json.keys().asSequence().associateWith { json.getString(it) }
@@ -82,7 +99,7 @@ class MediaStoreSource(private val context: Context) : FileSource {
 
     private fun presentUris(volume: String): List<String> {
         val collection = MediaStore.Files.getContentUri(volume)
-        val cursor = context.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
+        val cursor = context.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), NOT_FOLDER, null, null)
             ?: error("MediaStore query returned no cursor")
         return cursor.use { c ->
             buildList {
@@ -109,7 +126,8 @@ class MediaStoreSource(private val context: Context) : FileSource {
             add(MediaStore.MediaColumns.DATE_MODIFIED)
         }.toTypedArray()
         val incremental = sinceGeneration != null
-        val selection = if (incremental) "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?" else "${MediaStore.MediaColumns.SIZE} > 0"
+        val selection = (if (incremental) "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?" else "${MediaStore.MediaColumns.SIZE} > 0") +
+            " AND $NOT_FOLDER"
         val args = if (incremental) arrayOf(sinceGeneration.toString()) else null
         val out = ArrayList<SourceFile>()
         try {

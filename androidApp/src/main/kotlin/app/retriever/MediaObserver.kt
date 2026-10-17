@@ -7,7 +7,8 @@ import android.os.HandlerThread
 import android.provider.MediaStore
 
 object MediaObserver {
-    private const val DEBOUNCE_MS = 60_000L
+    /** One scan this long after the first change, however many follow: a file that keeps changing can't put it off. */
+    private const val DELAY_MS = 60_000L
 
     fun register(app: RetrieverApp) {
         val handler = Handler(HandlerThread("retriever-media").apply { start() }.looper)
@@ -21,8 +22,7 @@ object MediaObserver {
         }
         val observer = object : ContentObserver(handler) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                handler.removeCallbacks(run)
-                handler.postDelayed(run, DEBOUNCE_MS)
+                if (!handler.hasCallbacks(run)) handler.postDelayed(run, DELAY_MS)
             }
         }
         app.contentResolver.registerContentObserver(

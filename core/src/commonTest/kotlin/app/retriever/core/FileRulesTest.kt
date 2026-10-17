@@ -22,6 +22,9 @@ class FileRulesTest {
         assertEquals(Kind.DOC, FileRules.classify("application/epub+zip", "Books/", "g.epub"))
         assertEquals(Kind.DOC, FileRules.classify("application/octet-stream", "Download/", "h.html"))
         assertEquals(Kind.OTHER, FileRules.classify("application/octet-stream", "Download/", "i.bin"))
+        assertEquals(Kind.DOC, FileRules.classify("application/rtf", "Download/", "k.rtf"))
+        assertEquals(Kind.DOC, FileRules.classify("application/octet-stream", "Download/", "l.rtf"))
+        assertEquals(Kind.DOC, FileRules.classify(FileRules.mimeForExtension("rtf")!!, "Download/", "m.rtf"))
     }
 
     @Test

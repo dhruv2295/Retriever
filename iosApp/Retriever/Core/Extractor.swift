@@ -1,5 +1,7 @@
 import AVFoundation
 import ImageIO
+import Network
+import os
 import PDFKit
 import Photos
 import RetrieverCore
@@ -12,9 +14,15 @@ import ZIPFoundation
 final class FileExtractor: NSObject, NativeExtractor {
     private let folders: FolderSource
     private static let ocrSide: CGFloat = 1600
+    private static let log = Logger(subsystem: "app.retriever", category: "extractor")
+    private let pathMonitor = NWPathMonitor()
+    private let cloudLock = NSLock()
+    private var cloudOnly = 0
 
     init(folders: FolderSource) {
         self.folders = folders
+        super.init()
+        pathMonitor.start(queue: DispatchQueue(label: "app.retriever.extractor.network"))
     }
 
     // MARK: Images
@@ -39,18 +47,33 @@ final class FileExtractor: NSObject, NativeExtractor {
         }
     }
 
+    /// An iCloud-only photo fetches its small derivative on Wi-Fi, or on any network when the person allows mobile
+    /// data; otherwise it keeps only its name. Async so a stalled download can be cancelled; the handler may come
+    /// back on the main queue, so this must never wait there.
     private func image(_ uri: String, maxSide: CGFloat) -> UIImage? {
         if let asset = asset(uri) {
+            assert(!Thread.isMainThread)
+            let path = pathMonitor.currentPath
+            let wifi = path.status == .satisfied && !path.isExpensive && !path.isConstrained
             let options = PHImageRequestOptions()
-            options.isSynchronous = true
             options.deliveryMode = .highQualityFormat
             options.resizeMode = .exact
-            options.isNetworkAccessAllowed = false // an iCloud-only original drops its image piece
-            var out: UIImage?
-            PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSide, height: maxSide), contentMode: .aspectFit, options: options) { image, _ in
-                out = image
+            options.isNetworkAccessAllowed = wifi || UserDefaults.standard.bool(forKey: "useMobileData")
+            let done = DispatchSemaphore(value: 0)
+            let box = Box<UIImage>()
+            let id = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSide, height: maxSide), contentMode: .aspectFit, options: options) { [self] image, info in
+                box.value = image
+                if image == nil, info?[PHImageResultIsInCloudKey] as? Bool == true {
+                    let n = cloudLock.withLock { cloudOnly += 1; return cloudOnly }
+                    Self.log.info("iCloud-only photos left without an image: \(n)")
+                }
+                done.signal()
             }
-            return out
+            guard done.wait(timeout: .now() + 20) == .success else {
+                PHImageManager.default().cancelImageRequest(id)
+                return nil
+            }
+            return box.value
         }
         guard let url = folders.resolve(uri), let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [

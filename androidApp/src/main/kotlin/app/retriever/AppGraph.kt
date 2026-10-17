@@ -1,11 +1,21 @@
 package app.retriever
 
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
+import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE
+import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.core.Backend
+import app.retriever.core.CompositeSource
 import app.retriever.core.DeviceProfile
 import app.retriever.core.EmbedderFactory
 import app.retriever.core.Extractor
@@ -21,6 +31,7 @@ import app.retriever.core.android.AndroidDeviceProbe
 import app.retriever.core.android.AndroidExtractor
 import app.retriever.core.android.MediaPipeEmbedderFactory
 import app.retriever.core.android.MediaStoreSource
+import app.retriever.core.android.SafSource
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +53,12 @@ class AppGraph(val app: Context) {
     val download = ModelDownload(app, modelDir)
     private val demo: DemoParts? = Demo.parts(app)
     private val probe = AndroidDeviceProbe(app).probe()
-    val source: FileSource = demo?.source ?: MediaStoreSource(app)
+    val source: FileSource = demo?.source ?: CompositeSource(
+        mapOf(
+            "content://media/" to MediaStoreSource(app, ::mediaAccess),
+            SafSource.PREFIX to SafSource(app, { access().trees }, { access().mediaKinds }),
+        ),
+    )
     val extractor: Extractor = demo?.extractor ?: AndroidExtractor(app)
 
     /** For work that must outlive a screen (setup, Tune again, the Pause action) and stay off the main thread. */
@@ -59,8 +75,71 @@ class AppGraph(val app: Context) {
         Store(AndroidSqliteDriver(IndexDb.Schema, app, demo?.dbName ?: Store.DB_NAME, callback = callback), ::log)
     }
 
-    /** All-files access; the worker reads it too, since names are synced before the model arrives. */
-    val platformReady: () -> Boolean = if (demo != null) ({ true }) else Environment::isExternalStorageManager
+    /** Read fresh on every call: the person can change any of it in Settings while the app runs. */
+    fun access(): Access = if (demo != null) Access.ALL else Access.of(
+        Build.VERSION.SDK_INT,
+        Environment.isExternalStorageManager(),
+        { ContextCompat.checkSelfPermission(app, it) == PackageManager.PERMISSION_GRANTED },
+        app.contentResolver.persistedUriPermissions.filter { it.isReadPermission }.map { it.uri.toString() },
+    )
+
+    /** Some access to files; the worker reads it too, since names are synced before the model arrives. */
+    val platformReady: () -> Boolean = { access().ready }
+
+    /** Keeps a folder from the system picker; returns why it can't be added, or null. */
+    fun addFolder(uri: Uri): String? {
+        val folders = access().folders
+        Access.refusePick(uri.toString(), folders)?.let { return it }
+        val resolver = app.contentResolver
+        val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+        try {
+            // Write lets Duplicates delete copies there; a provider may grant read only.
+            runCatching { resolver.takePersistableUriPermission(uri, read or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) }
+                .getOrElse { resolver.takePersistableUriPermission(uri, read) }
+        } catch (e: SecurityException) {
+            log("folder not kept", e)
+            return "Couldn't keep access to that folder. Try picking it again."
+        }
+        // The new folder covers any added inside it.
+        Access.inside(uri.toString(), folders).forEach { release(it.uri) }
+        accessChanged()
+        return null
+    }
+
+    fun removeFolder(uri: String) {
+        release(uri)
+        accessChanged()
+    }
+
+    private fun release(uri: String) {
+        val grant = app.contentResolver.persistedUriPermissions.firstOrNull { it.uri.toString() == uri } ?: return
+        val flags = (if (grant.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+            (if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        app.contentResolver.releasePersistableUriPermission(grant.uri, flags)
+    }
+
+    /** A folder or permission changed: sync now, or at the end of the batch already running. */
+    fun accessChanged() {
+        retriever.notifyChanged()
+        IndexScheduler.indexNow(app)
+    }
+
+    /** Picking more photos reveals old rows without changing a permission, so the picked set is part of it. */
+    private fun mediaAccess(): String {
+        val a = access()
+        if (a.photos != Photos.SELECTED) return a.fingerprint
+        // Videos too unless all of them are allowed: Android's picker hands out both.
+        val types = if (a.videos) "$MEDIA_TYPE_IMAGE" else "$MEDIA_TYPE_IMAGE, $MEDIA_TYPE_VIDEO"
+        var picked = 0L
+        app.contentResolver.query(
+            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+            arrayOf(MediaStore.MediaColumns._ID),
+            "$MEDIA_TYPE IN ($types)",
+            null,
+            MediaStore.MediaColumns._ID,
+        )?.use { c -> while (c.moveToNext()) picked = picked * 31 + c.getLong(0) }
+        return "${a.fingerprint}-$picked"
+    }
 
     val retriever = Retriever(
         store = store,

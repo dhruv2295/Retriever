@@ -1,9 +1,14 @@
 package app.retriever
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -26,6 +31,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.BatteryAlert
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -78,6 +86,9 @@ private const val SAMPLE_PER_KIND = 50
 
 private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.AUDIO, Kind.VIDEO)
 
+/** What a text-only phone still reads inside: the words in documents and screenshots. */
+private val TEXT_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)
+
 class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     private val app = graph.app
     private val retriever = graph.retriever
@@ -89,6 +100,33 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     val tune: StateFlow<TuneState> = _tune
     private val _skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
     val skipped: StateFlow<List<Store.StoredFile>> = _skipped
+    private val _access = MutableStateFlow(graph.access())
+    val access: StateFlow<Access> = _access
+    private val _folderError = MutableStateFlow<String?>(null)
+    val folderError: StateFlow<String?> = _folderError
+    val textOnly = retriever.textOnly
+    val ramGb = retriever.probe.ramGb
+
+    /** Permissions can change in Settings while Status is in the background; RetrieverApp syncs for that. */
+    fun refreshAccess() {
+        _access.value = graph.access()
+    }
+
+    /** The picker can reveal more photos without changing any permission, so this always syncs. */
+    fun photosPicked() {
+        graph.accessChanged()
+        refreshAccess()
+    }
+
+    fun addFolder(uri: Uri) {
+        _folderError.value = graph.addFolder(uri)
+        _access.value = graph.access()
+    }
+
+    fun removeFolder(uri: String) {
+        graph.removeFolder(uri)
+        _access.value = graph.access()
+    }
 
     fun resume() {
         viewModelScope.launch { IndexScheduler.resumeByUser(app) }
@@ -189,7 +227,15 @@ class StatusActions(
     val openBatterySettings: () -> Unit = {},
     val setSampleMode: (Boolean) -> Unit = {},
     val tuneAgain: () -> Unit = {},
+    val chooseMorePhotos: () -> Unit = {},
+    val allowAllFiles: () -> Unit = {},
+    val addFolder: () -> Unit = {},
+    val removeFolder: (String) -> Unit = {},
 )
+
+/** Why a text-only phone reads less, in its own numbers. */
+internal fun textOnlyNote(ramGb: Double): String =
+    "This phone has %.0f GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.".format(ramGb)
 
 @Composable
 fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { StatusViewModel(it) }) {
@@ -199,13 +245,24 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
     val tune by vm.tune.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
     val skippedFiles by vm.skipped.collectAsStateWithLifecycle()
+    val access by vm.access.collectAsStateWithLifecycle()
+    val folderError by vm.folderError.collectAsStateWithLifecycle()
     var skippedOpen by rememberSaveable { mutableStateOf(false) }
     val power = remember { context.getSystemService(PowerManager::class.java) }
     var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         unrestricted = power.isIgnoringBatteryOptimizations(context.packageName)
         if (skippedOpen) vm.loadSkipped()
+        vm.refreshAccess()
     }
+    // Asking again on Android 14 opens the picker, so the person can add to the photos they chose.
+    val activity = LocalActivity.current
+    val photosLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        openSettingsIfBlocked(activity, it)
+        vm.photosPicked()
+    }
+    val folderLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(vm::addFolder) }
     StatusContent(
         counts = counts,
         prefs = prefs,
@@ -229,7 +286,15 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
             openBatterySettings = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
             setSampleMode = vm::setSampleMode,
             tuneAgain = vm::tuneAgain,
+            chooseMorePhotos = { photosLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray()) },
+            allowAllFiles = { openAllFilesSettings(context) },
+            addFolder = { folderLauncher.launch(null) },
+            removeFolder = vm::removeFolder,
         ),
+        access = access,
+        textOnly = vm.textOnly,
+        ramGb = vm.ramGb,
+        folderError = folderError,
     )
 }
 
@@ -244,6 +309,10 @@ fun StatusContent(
     skippedOpen: Boolean,
     batteryHint: Boolean,
     actions: StatusActions = StatusActions(),
+    access: Access = Access.ALL,
+    textOnly: Boolean = false,
+    ramGb: Double = 0.0,
+    folderError: String? = null,
 ) {
     val searchable = counts.byState[FileState.INDEXED] ?: 0
     val waiting = counts.byState[FileState.PENDING] ?: 0
@@ -334,9 +403,10 @@ fun StatusContent(
                     }
                 }
 
-                if (counts.tailChunks > 0) {
+                if (counts.tailFiles > 0 && !textOnly) {
                     Muted(
-                        "Some long documents are only partly read. Retriever reads the rest while your phone charges.",
+                        if (counts.tailFiles == 1L) "1 long file still being read in depth"
+                        else "${Format.count(counts.tailFiles)} long files still being read in depth",
                         Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
@@ -351,8 +421,12 @@ fun StatusContent(
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Coverage(access, folderError, actions)
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Read inside")
-                for (kind in SEARCH_INSIDE) {
+                if (textOnly) Muted(textOnlyNote(ramGb), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                for (kind in if (textOnly) TEXT_INSIDE else SEARCH_INSIDE) {
                     SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
                 }
                 Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
@@ -392,7 +466,7 @@ fun StatusContent(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                                Text("Tuning… about a minute", style = MaterialTheme.typography.bodyMedium)
+                                Text("Tuning… a few minutes at most", style = MaterialTheme.typography.bodyMedium)
                             }
                             is TuneState.Failed -> Text("Tune failed: ${tune.message}", color = MaterialTheme.colorScheme.error)
                             is TuneState.Done -> Muted(tune.summary)
@@ -404,6 +478,65 @@ fun StatusContent(
             }
         }
     }
+}
+
+/** What Retriever can see, folders the person added, and what it can't see with a way to fix it. */
+@Composable
+private fun Coverage(access: Access, folderError: String?, actions: StatusActions) {
+    Header("What Retriever can see")
+    val (gaps, covered) = access.coverage().partition { it.gap }
+    for (line in covered) {
+        ListItem(
+            headlineContent = { Text(line.text) },
+            leadingContent = { Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            trailingContent = if (line.fix == Fix.CHOOSE_PHOTOS) {
+                { TextButton(onClick = actions.chooseMorePhotos) { Text("Choose more photos") } }
+            } else {
+                null
+            },
+        )
+    }
+    if (access.allFiles) return
+    if (access.folders.isNotEmpty()) {
+        Text(
+            "Folders you added",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        )
+        for (folder in access.folders) {
+            ListItem(
+                headlineContent = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                trailingContent = {
+                    IconButton(onClick = { actions.removeFolder(folder.uri) }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove ${folder.name}")
+                    }
+                },
+            )
+        }
+    }
+    TextButton(onClick = actions.addFolder, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Add a folder") }
+    folderError?.let {
+        Text(
+            it,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    }
+    for (line in gaps) {
+        ListItem(
+            headlineContent = { Text(line.text) },
+            leadingContent = { Icon(Icons.Outlined.Block, contentDescription = null) },
+            // The same request as Choose more photos; Settings when Android no longer asks.
+            trailingContent = if (line.fix == Fix.ALLOW_MEDIA) {
+                { TextButton(onClick = actions.chooseMorePhotos) { Text("Allow") } }
+            } else {
+                null
+            },
+        )
+    }
+    Button(onClick = actions.allowAllFiles, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Allow access to all files") }
 }
 
 @Composable

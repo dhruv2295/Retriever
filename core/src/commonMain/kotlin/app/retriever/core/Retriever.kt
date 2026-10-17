@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -79,6 +80,12 @@ class Retriever(
     private val now: () -> Long,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
+
+    /** Too little memory for the model: file names and text are indexed for keyword search, nothing is embedded. */
+    val textOnly: Boolean = Tiers.textOnly(probe.ramGb)
+
+    /** What text-only mode reads with: no model, no video frames, no audio. */
+    private val textOnlyProfile = DeviceProfile(Tier.LIGHT, variant, Backend.CPU, 70, 0, false, false)
     private val sync = LibrarySync(store, source, now)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -135,7 +142,7 @@ class Retriever(
     private fun reload() {
         _prefs.value = store.prefs()
         _requiredBuild.value = ModelBuilds.buildFor(variant, probe, npuFailed())
-        _setUp.value = modelReady(_requiredBuild.value) && store.profile() != null && platformReady()
+        _setUp.value = platformReady() && (textOnly || (modelReady(_requiredBuild.value) && store.profile() != null))
     }
 
     fun setUiBusy(busy: Boolean) {
@@ -163,17 +170,31 @@ class Retriever(
         withContext(Dispatchers.Default) { _prefs.value = store.updatePrefs(t) }
     }
 
-    fun counts(): Flow<Store.Counts> = store.counts()
+    /** In text-only mode nothing waits for a vector, so the deepen counts read zero. */
+    fun counts(): Flow<Store.Counts> =
+        if (textOnly) store.counts().map { it.copy(tailChunks = 0, tailFiles = 0) } else store.counts()
 
+    /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
     @Throws(Throwable::class)
-    suspend fun indexBatch(budget: Duration): NextRun {
-        if (!indexLock.tryLock()) {
+    suspend fun readExtents(fileIds: List<Long>): Map<Long, ReadExtent> = io {
+        store.readExtents(fileIds).let { m -> if (textOnly) m.filterValues { it != ReadExtent.DEEPENING } else m }
+    }
+
+    /**
+     * [deepen] false reads pending files only, so a batch with none left ends DONE instead of embedding long files'
+     * later parts. [waitForLock]: wait for a running batch (being cancelled) instead of returning DONE at once.
+     */
+    @Throws(Throwable::class)
+    suspend fun indexBatch(budget: Duration, deepen: Boolean = true, waitForLock: Boolean = false): NextRun {
+        if (waitForLock) {
+            indexLock.lock()
+        } else if (!indexLock.tryLock()) {
             changedSinceSync = true
             return NextRun.DONE
         }
         try {
             return coroutineScope {
-                val work = async(Dispatchers.Default) { runBatch(budget) }
+                val work = async(Dispatchers.Default) { runBatch(budget, deepen) }
                 batchJob = work
                 try {
                     work.await()
@@ -189,7 +210,7 @@ class Retriever(
         }
     }
 
-    private suspend fun runBatch(budget: Duration): NextRun {
+    private suspend fun runBatch(budget: Duration, mayDeepen: Boolean): NextRun {
         changedSinceSync = false
         _state.update { IndexState(running = true, lastStop = it.lastStop, build = it.build, backend = it.backend, detail = it.detail) }
         var stop: StopReason? = null
@@ -198,15 +219,19 @@ class Retriever(
         var build: ModelBuild? = null
         try {
             sync.sync()
-            val (e, b) = embedder() ?: return NextRun.DONE
-            used = e
-            build = b
-            if (store.signature() != e.signature) {
-                log("Model signature changed from ${store.signature()?.value} to ${e.signature.value}; indexing everything again", null)
-                store.resetForModel(e.signature)
+            val e = if (textOnly) {
+                null
+            } else {
+                val (opened, b) = embedder() ?: return NextRun.DONE
+                used = opened
+                build = b
+                if (store.signature() != opened.signature) {
+                    log("Model signature changed from ${store.signature()?.value} to ${opened.signature.value}; indexing everything again", null)
+                    store.resetForModel(opened.signature)
+                }
+                opened
             }
-            val stored = store.profile() ?: return NextRun.DONE
-            val prefs = store.prefs()
+            val stored = if (textOnly) textOnlyProfile else store.profile() ?: return NextRun.DONE
             val device = monitor.state()
             _state.update { it.copy(pendingAtStart = store.countsByState()[FileState.PENDING] ?: 0L) }
             lastFileAt = now()
@@ -217,16 +242,17 @@ class Retriever(
                 monitor,
                 // Read per file, so a switch flipped mid-batch applies at once.
                 settings = {
-                    val p = store.prefs()
-                    IndexSettings(p.effective(store.profile() ?: stored), p.kinds, p.paused)
+                    val p = batchPrefs()
+                    IndexSettings(p.effective(if (textOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
                 },
                 onFile = ::onFile,
                 busy = { monitor.state().screenOn && !uiVisible },
                 awaitUi = ::awaitUi,
             ).runBatch(
                 budget,
-                requireCharging = !uiVisible && prefs.effective(stored).bulkOnlyWhenCharging,
-                deepen = device.charging && !device.screenOn,
+                requireCharging = !uiVisible && batchPrefs().effective(stored).bulkOnlyWhenCharging,
+                // An open app deepens once nothing is pending; in the background only on the charger with the screen off.
+                deepen = mayDeepen && !textOnly && (uiVisible || (device.charging && !device.screenOn)),
             )
             stop = result.stopReason
             return nextRunFor(result.stopReason, changedSinceSync)
@@ -244,6 +270,9 @@ class Retriever(
             _state.update { it.copy(running = false, current = null, lastStop = stop ?: it.lastStop, lastError = error) }
         }
     }
+
+    /** Text-only mode reads screenshots, PDFs and documents; photos, video and audio stay findable by name. */
+    private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect TEXT_ONLY_KINDS) else it }
 
     private fun onFile(m: FileMetric) {
         if (!m.ok) log("Couldn't index ${m.file.kind} ${m.file.name} (${m.file.mime}, ${m.file.size} B): ${m.error}", m.cause)
@@ -277,6 +306,7 @@ class Retriever(
 
     private suspend fun openLocked(): Embedder? {
         reload()
+        if (textOnly) return null
         checkUnfinishedOpens()
         val build = requiredBuild.value
         val stored = store.profile()
@@ -305,6 +335,7 @@ class Retriever(
         }
         embedder = e
         embedderKey = key
+        factory.keepOnly(e)
         engine?.embedder = e
         _state.update { it.copy(build = build, backend = e.backend, detail = e.detail) }
         return e
@@ -490,6 +521,7 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun calibrate(samples: Samples, tuneAgain: Boolean): CalibrationResult {
+        check(!textOnly) { "This phone has too little memory for the model, so there is nothing to tune: Retriever searches file names and text." }
         cancelBatch()
         // Holding the model lock keeps searches keyword-only meanwhile, so two copies of the model never load.
         return indexLock.withLock {
@@ -525,7 +557,11 @@ class Retriever(
         }
         val profile = if (tuneAgain && stored != null) result.profile.copy(visionTokens = stored.visionTokens) else result.profile
         store.setProfile(profile)
-        if (!store.hasPrefs()) store.updatePrefs { Prefs.defaultFor(profile) }
+        if (!store.hasPrefs()) {
+            store.updatePrefs { Prefs.defaultFor(profile) }
+        } else if (stored != null && stored.tier != profile.tier) {
+            store.updatePrefs { it.retuned(stored, profile) }
+        }
         reload()
         return result.copy(profile = profile)
     }
@@ -544,6 +580,7 @@ class Retriever(
         const val NPU_FAILED = "npu_failed"
         const val UNFINISHED_OPENS = "unfinished_opens"
         const val GPU_UNSAFE = "gpu_unsafe"
+        val TEXT_ONLY_KINDS = setOf(Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
 
         fun nextRunFor(reason: StopReason, changedSinceSync: Boolean): NextRun = when (reason) {
             StopReason.BUDGET -> NextRun.SOON

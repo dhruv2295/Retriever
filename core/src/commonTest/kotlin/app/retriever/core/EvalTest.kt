@@ -93,6 +93,7 @@ class EvalTest {
         EvalQuery("empty", "empty.txt"),
         EvalQuery("a dog on the grass", "IMG_1001.jpg"),
         EvalQuery("deposit", "slips.txt"),
+        EvalQuery("volcano eruption"),
     )
 
     @Test
@@ -109,13 +110,18 @@ class EvalTest {
         assertEquals(rrfMerge(listOf(listOf(1L, 2L), listOf(2L))), rrfMerge(listOf(listOf(1L, 2L), listOf(2L)), weights = listOf(1.0, 1.0)))
     }
 
-    /** The eval reproduces production fusion: the default row's file order is SearchEngine.search's, query by query. */
+    /**
+     * The eval reproduces production fusion and its strong/weak split: each row's file order and strong count are
+     * SearchEngine.search's, query by query, under the default floor and under a low one that lets vector-only files through.
+     */
     @Test
     fun defaultRowMatchesSearchEngine() = runTest {
         val factory = Factory()
         val default = EvalSetting(profile.visionTokens)
         val tweaked = EvalSetting(profile.visionTokens, tuning = SearchTuning(rrfK = 10, keywordWeight = 2.0))
+        val low = RelevanceFloor(0.2f, 0.2f, 0.2f)
         val run = RetrievalEval(extractor, factory, build, profile, Store(testDriver())).run(corpus, queries, listOf(default, tweaked))
+        val lowRun = RetrievalEval(extractor, factory, build, profile, Store(testDriver()), floor = low).run(corpus, queries, listOf(default))
 
         val embedder = factory.open(profile, build)
         val store = Store(testDriver())
@@ -127,13 +133,19 @@ class EvalTest {
         val batch = IndexEngine(store, extractor, embedder, monitor, { IndexSettings(profile, Kind.entries.toSet()) }).runBatch(1.hours, false)
         assertEquals(corpus.size, batch.processed)
 
-        for ((setting, row) in listOf(default, tweaked).zip(run.rows)) {
-            val engine = SearchEngine(store, embedder, setting.tuning)
+        for ((floor, row) in listOf(RelevanceFloor() to run.rows[0], RelevanceFloor() to run.rows[1], low to lowRun.rows[0])) {
+            val engine = SearchEngine(store, embedder, row.setting.tuning) { floor }
             queries.forEachIndexed { i, q ->
-                val production = engine.search(q.q).hits.map { it.file.name }
-                assertEquals(production, row.top[i].map { corpus[it].name }, "${setting.label}: \"${q.q}\"")
+                val production = engine.search(q.q)
+                assertEquals(production.hits.map { it.file.name }, row.top[i].map { corpus[it].name }, "${row.setting.label} $floor: \"${q.q}\"")
+                assertEquals(production.strongCount, row.strong[i], "${row.setting.label} $floor: \"${q.q}\" strong")
             }
         }
+        // The low floor lets vector-only files through, so the strong counts above exercise the floor, not only the keyword rule.
+        assertTrue(lowRun.rows[0].strong.sum() > run.rows[0].strong.sum(), "${lowRun.rows[0].strong} vs ${run.rows[0].strong}")
+        // A no-match query has no rank and leaves the metrics alone.
+        assertEquals(null, run.rows[0].ranks.last())
+        assertEquals(null, run.kinds.last())
         // The two settings rank "deposit" differently, so the equality above shows SearchEngine uses its tuning.
         val deposit = queries.indexOfFirst { it.q == "deposit" }
         fun firstTwo(row: EvalRow) = row.top[deposit].take(2).map { corpus[it].name }

@@ -30,6 +30,14 @@ struct RetrieverApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
+            #if DEBUG
+                // `-keepreading`: taps "Keep reading after I leave" once it shows, to drill the submit with no taps.
+                .task {
+                    guard CommandLine.arguments.contains("-keepreading") else { return }
+                    while !model.canKeepReading { try? await Task.sleep(for: .seconds(1)) }
+                    model.keepReading()
+                }
+            #endif
         }
         .onChange(of: phase, initial: true) { _, phase in model.setPhase(phase) }
     }

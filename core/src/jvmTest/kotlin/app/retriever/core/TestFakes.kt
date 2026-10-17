@@ -111,3 +111,23 @@ internal fun settingsOf(kinds: Set<Kind> = Kind.entries.toSet(), profile: Device
     { IndexSettings(profile, kinds) }
 
 internal fun textPiece(text: String, locator: String = "") = Piece(locator, listOf(Part.Text(text)), null)
+
+internal val PIXEL = DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 8.0, false)
+
+/** A Retriever over [files] that hashes nothing and logs nowhere; [modelReady] stands for the downloaded model file. */
+internal fun testRetriever(
+    store: Store,
+    files: List<SourceFile>,
+    extractor: Extractor,
+    probe: DeviceProbe = PIXEL,
+    factory: FakeFactory = FakeFactory(),
+    monitor: FakeMonitor = FakeMonitor(),
+    modelReady: (ModelBuild) -> Boolean = { true },
+): Retriever {
+    val source = FakeSource().apply { next = Changes(files, emptyList(), "tok", isFullScan = true) }
+    val noHashes = object : ContentHasher {
+        override suspend fun quickHash(uri: String, size: Long): String? = null
+        override suspend fun fullHash(uri: String): String? = null
+    }
+    return Retriever(store, source, extractor, factory, monitor, noHashes, probe, modelReady, { true }, { _, _ -> }, System::currentTimeMillis)
+}

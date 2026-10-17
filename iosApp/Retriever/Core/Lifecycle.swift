@@ -11,6 +11,8 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
 
     /// Called on the main thread after the photo library changes, so the reading loop can wake.
     var onLibraryChange: (() -> Void)?
+    /// Called on the main thread: a read the person started carries on after they leave (IndexTask.continuedId).
+    var keepsReading: () -> Bool = { false }
 
     init(monitor: IosDeviceMonitor, retriever: Retriever) {
         self.monitor = monitor
@@ -21,12 +23,16 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         let observe: (Notification.Name, @escaping () -> Void) -> Void = { name, action in
             self.tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in action() })
         }
-        observe(UIApplication.didBecomeActiveNotification) { [weak self] in self?.setActive(true) }
-        observe(UIApplication.willResignActiveNotification) { [weak self] in self?.setActive(false) }
-        observe(UIApplication.didEnterBackgroundNotification) { [weak self] in self?.release() }
+        // Inactive (Control Center, a banner, the app switcher) is still in front: reading and the GPU carry on.
+        observe(UIApplication.willEnterForegroundNotification) { [weak self] in self?.enterForeground() }
+        observe(UIApplication.didBecomeActiveNotification) { [weak self] in self?.enterForeground() }
+        observe(UIApplication.didEnterBackgroundNotification) { [weak self] in self?.enterBackground() }
+        observe(IndexTask.ended) { [weak self] in
+            if UIApplication.shared.applicationState == .background { self?.retriever.uiVisible = false }
+        }
         observe(UIDevice.batteryStateDidChangeNotification) { [weak self] in self?.readBattery() }
         observe(UIDevice.batteryLevelDidChangeNotification) { [weak self] in self?.readBattery() }
-        setActive(UIApplication.shared.applicationState == .active)
+        if UIApplication.shared.applicationState != .background { enterForeground() }
         readBattery()
         observePhotos()
     }
@@ -50,11 +56,21 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         DispatchQueue.main.async { self.onLibraryChange?() }
     }
 
-    private func setActive(_ active: Bool) {
-        monitor.active = active
-        retriever.uiVisible = active
-        // A batch begun in front must not carry on into the background, where iOS refuses its GPU work.
-        if !active { retriever.cancelBatch() }
+    private func enterForeground() {
+        monitor.active = true
+        retriever.uiVisible = true
+    }
+
+    private func enterBackground() {
+        // The model reopens on the CPU: iOS refuses GPU work in the background.
+        monitor.active = false
+        // A batch begun in front must not carry on here, where iOS refuses its GPU work. A continued read's loop
+        // starts its next batch, which opens the model on the CPU.
+        retriever.cancelBatch()
+        // The person asked for this read and watches it on the Lock Screen, so it goes on as if open, on battery too.
+        guard !keepsReading() else { return }
+        retriever.uiVisible = false
+        release()
     }
 
     /// Frees the model's memory once the app is in the background. Under a background task, so the embed still

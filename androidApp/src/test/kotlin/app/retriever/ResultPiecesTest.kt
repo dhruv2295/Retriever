@@ -8,10 +8,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.retriever.core.Kind
+import app.retriever.core.ReadExtent
 import app.retriever.core.SourceFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -72,6 +74,15 @@ class ResultPiecesTest {
         assertEquals(0, nameHighlighted("Quarterly Report.pdf", "  ", style).spanStyles.size)
     }
 
+    @Test fun nameHighlightedMatchesWholeWordsAsKeywordSearchDoes() {
+        // "on" inside "json" is no match, and a little word is never bold on its own.
+        assertEquals(0, nameHighlighted("queries.json", "dinner on friday", style).spanStyles.size)
+        assertEquals(0, nameHighlighted("Notes on tax.txt", "on", style).spanStyles.size)
+        // The last word is a prefix, as in the search itself; earlier ones must match whole.
+        assertEquals(listOf(0 to 7), nameHighlighted("Invoice_2024.pdf", "invo", style).spanStyles.map { it.start to it.end })
+        assertEquals(0, nameHighlighted("Invoice_2024.pdf", "invo bill", style).spanStyles.size)
+    }
+
     @Test fun locatorLabels() {
         assertEquals("Page 12", Format.locatorLabel("p. 12"))
         assertEquals("3:41", Format.locatorLabel("3:41"))
@@ -88,6 +99,13 @@ class ResultPiecesTest {
         assertEquals("1 minute 1 second", Format.locatorSpoken("1:01"))
         assertEquals("2 minutes", Format.locatorSpoken("2:00"))
         assertNull(Format.locatorSpoken(""))
+    }
+
+    @Test fun readNotes() {
+        assertEquals("Only the first part of this file was read", Format.readNote(ReadExtent.FIRST_PART))
+        assertEquals("Still reading the rest of this file", Format.readNote(ReadExtent.DEEPENING))
+        assertNull(Format.readNote(ReadExtent.WHOLE))
+        assertNull(Format.readNote(null))
     }
 
     @Test fun etaBoundaries() {
@@ -153,6 +171,18 @@ class ResultPiecesTest {
         rule.setContent { ShotTheme(dark = false) { ThumbCell(doc, onClick = {}, modifier = Modifier.width(120.dp)) } }
         val node = rule.onNodeWithContentDescription("Document, Notes.docx, ${Format.date(doc.modifiedAt)}")
         assertEquals("Open", node.fetchSemanticsNode().config[SemanticsActions.OnClick].label)
+    }
+
+    @Test fun thumbCellSaysWhenOnlyPartWasRead() {
+        rule.setContent { ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Format.readNote(ReadExtent.FIRST_PART)) } }
+        rule.onNodeWithContentDescription(
+            "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Only the first part of this file was read",
+        ).assertExists()
+    }
+
+    @Test fun fileRowShowsItsReadNote() {
+        rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Format.readNote(ReadExtent.DEEPENING), onClick = {}) } }
+        rule.onNodeWithText("Still reading the rest of this file").assertExists()
     }
 
     @Test fun fileRowLight() = fileRows("fileRow_light", dark = false)

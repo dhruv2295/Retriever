@@ -125,7 +125,7 @@ enum SelfTest {
         say("second scan: looked up \(s.photos.lastLookups) of \(s.photos.lastAssets) assets")
         check("(f) second scan", s.photos.lastLookups == 0 && s.photos.lastAssets >= wanted, "\(s.photos.lastLookups) lookups for \(s.photos.lastAssets) assets")
 
-        // (g) Ranking: the right file first, not just somewhere in the list.
+        // (g) Ranking: the right file first, and a strong match, not just somewhere in the list.
         let labelled: [(query: String, file: String, locator: String?)] = [
             ("dog playing on grass", "IMG_1001", nil),
             ("sunset by the sea", "IMG_1003", nil),
@@ -137,9 +137,14 @@ enum SelfTest {
             let r = try await s.retriever.search(q: l.query, kinds: nil, limit: 20)
             let rank = r.hits.firstIndex { rightFile($0, l.file) && (l.locator == nil || $0.locator == l.locator) }
             let first = r.hits.first
-            check("(g) rank \"\(l.query)\"", rank == 0,
-                  "want \(l.file)\(l.locator.map { " at \($0)" } ?? ""): hits[0] \(first?.file.name ?? "-") \(first?.locator ?? "") rank \(rank.map { "\($0 + 1)" } ?? "none") score \(rank.map { fmt3(r.hits[$0].score) } ?? "-") vector=\(r.vectorLane)")
+            check("(g) rank \"\(l.query)\"", rank == 0 && r.strongCount > 0,
+                  "want \(l.file)\(l.locator.map { " at \($0)" } ?? ""): hits[0] \(first?.file.name ?? "-") \(first?.locator ?? "") rank \(rank.map { "\($0 + 1)" } ?? "none") score \(rank.map { fmt3(r.hits[$0].score) } ?? "-") strong \(r.strongCount) vector=\(r.vectorLane)")
         }
+
+        // (g) Nothing here is about swimming: the eval's no-match query with the widest gap to the floor (0.62 vs 0.69 for photos).
+        let none = try await s.retriever.search(q: "kids swimming in a pool", kinds: nil, limit: 20)
+        check("(g) no match \"kids swimming in a pool\"", none.vectorLane && none.strongCount == 0 && !none.hits.isEmpty,
+              "strong \(none.strongCount) of \(none.hits.count) hits; top \(top(none))")
 
         // (h) Largest first, with real sizes.
         let largest = try await s.retriever.files(kind: nil, folder: nil, sort: .largest, limit: 100, offset: 0)

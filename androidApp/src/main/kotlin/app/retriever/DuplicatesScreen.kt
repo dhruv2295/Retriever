@@ -1,7 +1,16 @@
 package app.retriever
 
+import android.app.Activity
+import android.content.IntentSender
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import app.retriever.core.android.SafSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +58,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.retriever.core.DuplicateGroup
+import app.retriever.core.SourceFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -59,6 +69,20 @@ import kotlin.coroutines.cancellation.CancellationException
 
 private const val MIN_SIZE = 64L * 1024
 
+/**
+ * A group's files with each file once. A picked folder and MediaStore can list the same file: at one path, or on a
+ * memory card under two volume names, where it shows as a folder's row and a MediaStore row with the same name and
+ * time (the group already shares size and content). Deleting either would lose the only copy, so the folder's row goes.
+ */
+internal fun oneEntryPerFile(files: List<SourceFile>): List<SourceFile> {
+    val media = files.filter { !it.uri.startsWith(SafSource.PREFIX) }
+    // MediaStore keeps whole seconds.
+    fun sameFile(a: SourceFile, b: SourceFile) = a.name == b.name && a.modifiedAt / 1000 == b.modifiedAt / 1000
+    return files
+        .filter { f -> !f.uri.startsWith(SafSource.PREFIX) || media.none { sameFile(it, f) } }
+        .distinctBy { it.folder to it.name }
+}
+
 data class DuplicatesState(
     val scanning: Boolean = true,
     val scannedFiles: Long = 0,
@@ -68,6 +92,8 @@ data class DuplicatesState(
     val failed: Int = 0,
     val error: String? = null,
     val keepOne: Boolean = false,
+    /** Android's own "allow Retriever to delete?" prompt, waiting to be shown. */
+    val confirm: IntentSender? = null,
 )
 
 class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
@@ -82,6 +108,8 @@ class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch {
             try {
                 val groups = retriever.duplicates(MIN_SIZE)
+                    .map { g -> g.copy(files = oneEntryPerFile(g.files)) }
+                    .filter { it.files.size >= 2 }
                 // Keep the oldest copy of each group (files arrive oldest first).
                 val selected = groups.flatMap { g -> g.files.drop(1).map { it.uri } }.toSet()
                 val scanned = retriever.counts().first().byState.values.sum()
@@ -108,37 +136,70 @@ class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
     fun selectedBytes(s: DuplicatesState): Long =
         s.groups.sumOf { g -> g.size * g.files.count { it.uri in s.selected } }
 
+    /** While Android asks the person: the files it asks about, those tried without asking, and which of those went. */
+    private var asked: List<String> = emptyList()
+    private var triedDirectly: List<String> = emptyList()
+    private var deletedDirectly: List<String> = emptyList()
+
     fun deleteSelected() {
         val uris = _state.value.selected.toList()
         if (uris.isEmpty() || _state.value.deleting) return
         _state.update { it.copy(deleting = true, failed = 0) }
         viewModelScope.launch {
             val resolver = graph.app.contentResolver
+            // Without all-files access, Android itself asks the person before others' photos and videos go.
+            val (saf, media) = uris.partition { it.startsWith(SafSource.PREFIX) }
+            val ask = if (graph.access().allFiles) emptyList() else media
             val deleted = withContext(Dispatchers.IO) {
-                uris.filter { uri ->
+                (uris - ask.toSet()).filter { uri ->
                     try {
-                        resolver.delete(Uri.parse(uri), null, null) > 0
+                        if (uri in saf) DocumentsContract.deleteDocument(resolver, Uri.parse(uri))
+                        else resolver.delete(Uri.parse(uri), null, null) > 0
                     } catch (e: Exception) {
                         Log.w("Retriever", "delete failed: $uri", e)
                         false
                     }
                 }
             }
-            // The next sync drops the deleted files from the index.
-            retriever.notifyChanged()
-            IndexScheduler.indexNow(graph.app)
-            val gone = deleted.toSet()
-            _state.update { s ->
-                val groups = s.groups
-                    .map { g -> g.copy(files = g.files.filter { it.uri !in gone }) }
-                    .filter { it.files.size >= 2 }
-                s.copy(
-                    groups = groups,
-                    selected = s.selected - gone,
-                    deleting = false,
-                    failed = uris.size - deleted.size,
-                )
+            val request = if (ask.isEmpty()) null else try {
+                MediaStore.createDeleteRequest(resolver, ask.map(Uri::parse)).intentSender
+            } catch (e: Exception) {
+                Log.w("Retriever", "delete request failed", e)
+                null
             }
+            if (request == null) {
+                finishDelete(uris, deleted)
+            } else {
+                asked = ask
+                triedDirectly = uris - ask.toSet()
+                deletedDirectly = deleted
+                _state.update { it.copy(confirm = request) }
+            }
+        }
+    }
+
+    /** Android's confirmation came back: on OK every file it asked about is gone; Cancel keeps them, which is no failure. */
+    fun onConfirmed(ok: Boolean) {
+        if (ok) finishDelete(triedDirectly + asked, deletedDirectly + asked) else finishDelete(triedDirectly, deletedDirectly)
+    }
+
+    fun confirmShown() = _state.update { it.copy(confirm = null) }
+
+    private fun finishDelete(uris: List<String>, deleted: List<String>) {
+        // The next sync drops the deleted files from the index.
+        retriever.notifyChanged()
+        IndexScheduler.indexNow(graph.app)
+        val gone = deleted.toSet()
+        _state.update { s ->
+            val groups = s.groups
+                .map { g -> g.copy(files = g.files.filter { it.uri !in gone }) }
+                .filter { it.files.size >= 2 }
+            s.copy(
+                groups = groups,
+                selected = s.selected - gone,
+                deleting = false,
+                failed = uris.size - deleted.size,
+            )
         }
     }
 }
@@ -149,6 +210,16 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
     val vm = appViewModel { DuplicatesViewModel(it) }
     val s by vm.state.collectAsStateWithLifecycle()
     var confirming by rememberSaveable { mutableStateOf(false) }
+    val confirmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        vm.onConfirmed(it.resultCode == Activity.RESULT_OK)
+    }
+    LaunchedEffect(s.confirm) {
+        s.confirm?.let {
+            confirmLauncher.launch(IntentSenderRequest.Builder(it).build())
+            // Cleared once shown: a rotation must not ask twice, and the result still reaches the new launcher.
+            vm.confirmShown()
+        }
+    }
     val context = LocalContext.current
     val reclaimable = s.groups.sumOf { it.wastedBytes }
     val selectedCount = s.selected.size

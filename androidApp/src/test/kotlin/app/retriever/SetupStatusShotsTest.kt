@@ -15,6 +15,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -26,10 +27,12 @@ class SetupStatusShotsTest {
     @get:Rule val rule = createComposeRule()
 
     private val build = ModelBuilds.npu.first().variant.generic
-    private val going = SetupUi(started = true, files = true, namesSynced = true, build = build)
+    private val going = SetupUi(started = true, access = Access.ALL, namesSynced = true, build = build)
 
-    private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, content: @Composable () -> Unit) {
+    /** [tall] fits a whole Status page, so the sections below the fold are in the shot too. */
+    private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, tall: Boolean = false, content: @Composable () -> Unit) {
         tallWindowForBigText(fontScale)
+        if (tall) RuntimeEnvironment.setQualifiers("+h1500dp")
         rule.setContent { ShotTheme(dark, fontScale, content) }
         rule.shot(name)
     }
@@ -53,6 +56,14 @@ class SetupStatusShotsTest {
         shot("setup_files_denied_light") { SetupContent(SetupUi(started = true, build = build), filesDenied = true) }
     @Test fun setupFellBack() =
         setup("setup_fellback_dark", going.copy(fellBack = true, model = ModelState.Downloading(0.1f, false)), dark = true)
+
+    private val choosing = SetupUi(started = true, build = build)
+    @Test fun setupAccessChoice() = setup("setup_access_choice_light", choosing)
+    @Test fun setupAccessChoiceDark() = setup("setup_access_choice_dark", choosing, dark = true)
+
+    private val lowMemory = going.copy(access = Access(false, Photos.ALL, videos = true), textOnly = true, ramGb = 3.0)
+    @Test fun setupTextOnly() = setup("setup_text_only_light", lowMemory)
+    @Test fun setupTextOnlyDark() = setup("setup_text_only_dark", lowMemory, dark = true)
 
     private val prefs = Prefs(excludedFolders = setOf("Android/media/WhatsApp/Stickers"))
     private val reading = Store.Counts(
@@ -81,9 +92,43 @@ class SetupStatusShotsTest {
         open: Boolean = false,
         dark: Boolean = false,
         fontScale: Float = 1f,
-    ) = shot(name, dark, fontScale) {
-        StatusContent(counts, prefs, index, TuneState.Done("Using the graphics chip · about 0.8 s per photo"), skippedFiles, open, batteryHint = true)
+        access: Access = Access.ALL,
+        textOnly: Boolean = false,
+        tall: Boolean = false,
+    ) = shot(name, dark, fontScale, tall) {
+        StatusContent(
+            counts, prefs, index, TuneState.Done("Using the graphics chip · about 0.8 s per photo"), skippedFiles, open, batteryHint = true,
+            access = access, textOnly = textOnly, ramGb = 3.0,
+        )
     }
+
+    private val caughtUp = Store.Counts(mapOf(FileState.INDEXED to 11_530L), mapOf(Kind.PHOTO to 9_000L), 0)
+    private val idle = IndexState(lastStop = StopReason.DONE, backend = Backend.GPU)
+    private val mediaOnly = Access(false, Photos.ALL, videos = true, audio = true)
+    private val withFolders = Access(
+        false,
+        Photos.SELECTED,
+        folders = listOf(
+            PickedFolder("content://com.android.externalstorage.documents/tree/primary%3ADocuments", "Documents"),
+            PickedFolder("content://com.android.externalstorage.documents/tree/1A2B-3C4D%3APapers", "SD card/Papers"),
+        ),
+    )
+
+    private fun coverage(name: String, access: Access, dark: Boolean) =
+        status(name, counts = caughtUp, index = idle, dark = dark, access = access, tall = true)
+
+    @Test fun statusCoveragePhotosOnly() = coverage("status_coverage_photos_only_light", mediaOnly, dark = false)
+    @Test fun statusCoveragePhotosOnlyDark() = coverage("status_coverage_photos_only_dark", mediaOnly, dark = true)
+    @Test fun statusCoverageFolders() = coverage("status_coverage_folders_light", withFolders, dark = false)
+    @Test fun statusCoverageFoldersDark() = coverage("status_coverage_folders_dark", withFolders, dark = true)
+
+    private val textOnlyCounts = Store.Counts(mapOf(FileState.INDEXED to 2_140L, FileState.PENDING to 310L), mapOf(Kind.PDF to 900L), 0)
+    @Test fun statusTextOnly() = status("status_text_only_light", textOnlyCounts, idle, textOnly = true, tall = true)
+    @Test fun statusTextOnlyDark() = status("status_text_only_dark", textOnlyCounts, idle, dark = true, textOnly = true, tall = true)
+
+    private val tail = reading.copy(tailFiles = 7)
+    @Test fun statusTailFiles() = status("status_tail_files_light", tail, running.copy(running = false, lastStop = StopReason.BUDGET))
+    @Test fun statusTailFilesDark() = status("status_tail_files_dark", tail, running.copy(running = false, lastStop = StopReason.BUDGET), dark = true)
 
     @Test fun statusReading() = status("status_reading_light")
     @Test fun statusReadingDark() = status("status_reading_dark", dark = true)

@@ -115,8 +115,8 @@ struct DuplicatesView: View {
         let photos = selected.contains { $0.hasPrefix("ph://") }
         let others = selected.contains { !$0.hasPrefix("ph://") }
         switch (photos, others) {
-        case (true, false): return "They'll go to Recently Deleted in Photos. iPhone will ask you once more."
-        case (true, true): return "The photos go to Recently Deleted in Photos, and iPhone will ask you once more. The other files can't be recovered."
+        case (true, false): return "They'll go to Recently Deleted in Photos. \(Copy.device) will ask you once more."
+        case (true, true): return "The photos go to Recently Deleted in Photos, and \(Copy.device) will ask you once more. The other files can't be recovered."
         default: return "They can't be recovered."
         }
     }

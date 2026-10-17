@@ -165,6 +165,7 @@ struct ResultCell: View {
     let file: SourceFile
     var locator = ""
     let onOpen: () -> Void
+    var extent: ReadExtent?
     var onFindSimilar: ((SourceFile) -> Void)?
 
     var body: some View {
@@ -185,6 +186,7 @@ struct ResultCell: View {
     private var label: String {
         var parts = [Format.kind(file.kind), file.name, Format.date(file.modifiedAt)]
         if let spoken = Format.spoken(locator) { parts.append(spoken) }
+        if let note = Copy.extent(extent) { parts.append(note) }
         return parts.joined(separator: ", ")
     }
 
@@ -215,6 +217,7 @@ struct FileRowView: View {
     var snippet: String?
     var query: String?
     var subtitle: String?
+    var extent: ReadExtent?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -251,13 +254,16 @@ struct FileRowView: View {
 
     private var texts: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(Format.name(file.name, query: query)).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+            FileName(name: file.name, query: query, wrapLines: typeSize.isAccessibilitySize ? 3 : 1)
             Text(subtitle ?? "\(file.folder) · \(Format.date(file.modifiedAt))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             if let snippet, !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
+            }
+            if let note = Copy.extent(extent) {
+                Text(note).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -284,6 +290,19 @@ struct FileRowView: View {
     }
 }
 
+/// A file's name. One with no spaces stays on one line and is cut in the middle so its extension shows; one with
+/// spaces may wrap, between words, up to `wrapLines` lines.
+struct FileName: View {
+    let name: String
+    var query: String?
+    let wrapLines: Int
+
+    var body: some View {
+        let spaced = name.contains(" ")
+        Text(Format.name(name, query: query)).lineLimit(spaced ? wrapLines : 1).truncationMode(spaced ? .tail : .middle)
+    }
+}
+
 /// A row that opens its file, with Find similar and Share in its menu and VoiceOver actions.
 struct FileButton: View {
     let file: SourceFile
@@ -291,12 +310,13 @@ struct FileButton: View {
     var snippet: String?
     var query: String?
     var subtitle: String?
+    var extent: ReadExtent?
     let onOpen: () -> Void
     var onFindSimilar: ((SourceFile) -> Void)?
 
     var body: some View {
         Button(action: onOpen) {
-            FileRowView(file: file, locator: locator, snippet: snippet, query: query, subtitle: subtitle)
+            FileRowView(file: file, locator: locator, snippet: snippet, query: query, subtitle: subtitle, extent: extent)
         }
         .buttonStyle(.plain)
         .resultActions(file, onFindSimilar)

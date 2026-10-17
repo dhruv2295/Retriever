@@ -19,13 +19,11 @@ package app.retriever
 import android.Manifest
 import android.app.DownloadManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import android.util.Log
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -109,7 +107,10 @@ sealed interface TuneState {
 
 data class SetupUi(
     val started: Boolean = false,
-    val files: Boolean = false,
+    val access: Access = Access.NONE,
+    /** Too little memory for the model: no download, no tuning, names and words only. */
+    val textOnly: Boolean = false,
+    val ramGb: Double = 0.0,
     val notificationAsk: Boolean = false,
     val build: ModelBuild? = null,
     /** The chip-specific model failed here; the screen explains the second download. */
@@ -126,6 +127,7 @@ data class SetupUi(
     /** The user stopped the download; it waits for them to start it again. */
     val downloadStopped: Boolean = false,
 ) {
+    val files get() = access.ready
     val canSearch get() = started && files
 }
 
@@ -137,6 +139,7 @@ fun nextStep(ui: SetupUi, hasSpace: Boolean, metered: Boolean, profileExists: Bo
     !ui.files -> SetupStep.ASK_FILES
     ui.ready -> if (ui.scheduled) SetupStep.NONE else SetupStep.SCHEDULE
     !ui.namesSynced -> SetupStep.SYNC_NAMES
+    ui.textOnly -> SetupStep.NONE
     ui.model == ModelState.Missing && !ui.downloadStopped -> when {
         !hasSpace -> SetupStep.NEEDS_SPACE
         metered && ui.allowMetered == null -> SetupStep.ASK_MOBILE_DATA
@@ -173,7 +176,14 @@ class SetupFlow(private val graph: AppGraph) {
     private val prefs = app.getSharedPreferences("setup", Context.MODE_PRIVATE)
 
     // Seeded synchronously: AppNav reads canSearch once to pick the first screen.
-    private val _ui = MutableStateFlow(SetupUi(started = prefs.getBoolean(STARTED, false), files = graph.platformReady()))
+    private val _ui = MutableStateFlow(
+        SetupUi(
+            started = prefs.getBoolean(STARTED, false),
+            access = graph.access(),
+            textOnly = retriever.textOnly,
+            ramGb = retriever.probe.ramGb,
+        ),
+    )
     val ui: StateFlow<SetupUi> = _ui
     private val mutex = Mutex()
 
@@ -274,7 +284,7 @@ class SetupFlow(private val graph: AppGraph) {
         }
         _ui.update { s ->
             s.copy(
-                files = graph.platformReady(),
+                access = graph.access(),
                 notificationAsk = notificationAsk(),
                 build = b,
                 fellBack = fellBack,
@@ -312,7 +322,7 @@ class SetupFlow(private val graph: AppGraph) {
     private suspend fun decide(): SetupStep {
         val ui = _ui.value
         val b = retriever.requiredBuild.value
-        val missing = ui.started && ui.files && !ui.ready && ui.model == ModelState.Missing && !ui.downloadStopped
+        val missing = ui.started && ui.files && !ui.ready && !ui.textOnly && ui.model == ModelState.Missing && !ui.downloadStopped
         val hasSpace = !missing || withContext(Dispatchers.IO) {
             // A failed NPU build is useless now: free its space before checking for the generic one.
             if (!b.isNpu) download.prune(b)
@@ -473,6 +483,8 @@ class SetupFlow(private val graph: AppGraph) {
 class SetupActions(
     val getStarted: () -> Unit = {},
     val allowFiles: () -> Unit = {},
+    val allowMedia: () -> Unit = {},
+    val addFolder: () -> Unit = {},
     val allowNotifications: () -> Unit = {},
     val dismissNotifications: () -> Unit = {},
     val useMobileData: () -> Unit = {},
@@ -485,27 +497,45 @@ class SetupActions(
 @Composable
 fun SetupScreen(onDone: () -> Unit) {
     val context = LocalContext.current
-    val flow = (context.applicationContext as RetrieverApp).graph.setup
+    val graph = (context.applicationContext as RetrieverApp).graph
+    val flow = graph.setup
     val ui by flow.ui.collectAsStateWithLifecycle()
-    // Set when the user leaves for the settings page, so coming back without granting can say why it matters.
+    // Set when the user leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }
+    var folderError by rememberSaveable { mutableStateOf<String?>(null) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { flow.refresh() }
     LaunchedEffect(ui.ready) { if (ui.ready) onDone() }
     val notificationLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { flow.refresh() }
+    val activity = LocalActivity.current
+    val mediaLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            openSettingsIfBlocked(activity, it)
+            graph.accessChanged()
+            flow.refresh()
+        }
+    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) folderError = graph.addFolder(uri)
+        flow.refresh()
+    }
     SetupContent(
         ui,
         filesDenied = askedFiles && !ui.files,
+        folderError = folderError,
         actions = SetupActions(
             getStarted = flow::getStarted,
             allowFiles = {
                 askedFiles = true
-                context.startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        Uri.fromParts("package", context.packageName, null),
-                    ),
-                )
+                openAllFilesSettings(context)
+            },
+            allowMedia = {
+                askedFiles = true
+                mediaLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray())
+            },
+            addFolder = {
+                askedFiles = true
+                folderError = null
+                folderLauncher.launch(null)
             },
             allowNotifications = {
                 if (Build.VERSION.SDK_INT >= 33) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -521,7 +551,7 @@ fun SetupScreen(onDone: () -> Unit) {
 }
 
 @Composable
-fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupActions = SetupActions()) {
+fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupActions = SetupActions(), folderError: String? = null) {
     val size = ui.build?.let { Format.bytes(it.sizeBytes) }
     Surface(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -547,10 +577,14 @@ fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupAction
                 if (!ui.started) {
                     Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text("Get started") }
                     Muted(
-                        if (size != null) "Needs a one-time download of $size. Best on Wi-Fi." else "Needs a one-time download. Best on Wi-Fi.",
+                        when {
+                            ui.textOnly -> textOnlyNote(ui.ramGb)
+                            size != null -> "Needs a one-time download of $size. Best on Wi-Fi."
+                            else -> "Needs a one-time download. Best on Wi-Fi."
+                        },
                     )
                 } else {
-                    Steps(ui, size, filesDenied, actions)
+                    Steps(ui, size, filesDenied, folderError, actions)
                 }
             }
         }
@@ -560,7 +594,7 @@ fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupAction
         AlertDialog(
             onDismissRequest = actions.waitForWifi,
             title = { Text("Download over mobile data?") },
-            text = { Text(if (size != null) "The search model is $size. On Wi-Fi it won't use your data." else "On Wi-Fi it won't use your data.") },
+            text = { Text(if (size != null) "The download is $size. On Wi-Fi it won't use your data." else "On Wi-Fi it won't use your data.") },
             confirmButton = { TextButton(onClick = actions.useMobileData) { Text("Use mobile data") } },
             dismissButton = { TextButton(onClick = actions.waitForWifi) { Text("Wait for Wi-Fi") } },
         )
@@ -569,19 +603,55 @@ fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupAction
 
 /** Emits into the caller's Column, so its spacing applies. */
 @Composable
-private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, actions: SetupActions) {
+private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, folderError: String?, actions: SetupActions) {
     Step("Allow access to your files", ui.files) {
         if (!ui.files) {
-            Muted("Retriever needs this to look inside your files.")
-            if (filesDenied) ErrorText("Retriever can't search your files without access.")
-            Button(onClick = actions.allowFiles) { Text("Allow access") }
+            Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth()) { Text("Allow access to all files") }
+            Muted("Recommended: Retriever can then search your documents, downloads and everything else.")
+            OutlinedButton(onClick = actions.allowMedia, modifier = Modifier.fillMaxWidth()) { Text("Only photos, videos and audio") }
+            OutlinedButton(onClick = actions.addFolder, modifier = Modifier.fillMaxWidth()) { Text("Add a folder of documents") }
+            if (filesDenied) Muted("Nothing is allowed yet. Any one of these is enough to start.")
+        } else if (!ui.access.allFiles) {
+            val lines = ui.access.coverage()
+            val covered = lines.filter { !it.gap }.map { it.text } + ui.access.folders.map { it.name }
+            Muted("Retriever can search: " + covered.joinToString(" · "))
+            if (lines.any { it.fix == Fix.ALLOW_MEDIA }) {
+                OutlinedButton(onClick = actions.allowMedia) { Text("Allow photos, videos and music") }
+            }
+            OutlinedButton(onClick = actions.addFolder) { Text("Add a folder of documents") }
+        }
+        folderError?.let { ErrorText(it) }
+    }
+
+    if (ui.textOnly) {
+        Muted(textOnlyNote(ui.ramGb))
+    } else {
+        ModelSteps(ui, size, actions)
+    }
+
+    if (ui.notificationAsk) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Show reading progress in a notification?", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = actions.allowNotifications) { Text("Allow") }
+                TextButton(onClick = actions.dismissNotifications) { Text("Not now") }
+            }
         }
     }
 
-    Step(if (size != null) "Download the search model · $size" else "Download the search model", ui.model == ModelState.Done) {
+    when {
+        ui.ready -> Button(onClick = actions.search, modifier = Modifier.fillMaxWidth()) { Text("Start searching") }
+        ui.files -> Button(onClick = actions.search, modifier = Modifier.fillMaxWidth()) { Text("Search while this finishes") }
+    }
+}
+
+/** The download and tuning steps, which a text-only phone skips. */
+@Composable
+private fun ModelSteps(ui: SetupUi, size: String?, actions: SetupActions) {
+    Step(if (size != null) "Download what Retriever needs · $size" else "Download what Retriever needs", ui.model == ModelState.Done) {
         if (ui.fellBack && ui.model != ModelState.Done && size != null) {
             Muted(
-                "This phone's AI chip couldn't run the model, so Retriever will use the graphics chip instead. " +
+                "This phone's AI chip couldn't run it, so Retriever will use the graphics chip instead. " +
                     "That needs one more download ($size).",
             )
         }
@@ -608,7 +678,7 @@ private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, actions: Set
         }
     }
 
-    Step("Get to know this phone · about a minute", ui.tune is TuneState.Done) {
+    Step("Get to know this phone · a few minutes at most", ui.tune is TuneState.Done) {
         when (val t = ui.tune) {
             TuneState.Idle -> if (ui.model != ModelState.Done) Muted("Starts after the download.")
             TuneState.Running -> Busy("Testing how fast this phone reads photos…")
@@ -618,21 +688,6 @@ private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, actions: Set
                 OutlinedButton(onClick = actions.retry) { Text("Try again") }
             }
         }
-    }
-
-    if (ui.notificationAsk) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Show reading progress in a notification?", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = actions.allowNotifications) { Text("Allow") }
-                TextButton(onClick = actions.dismissNotifications) { Text("Not now") }
-            }
-        }
-    }
-
-    when {
-        ui.ready -> Button(onClick = actions.search, modifier = Modifier.fillMaxWidth()) { Text("Start searching") }
-        ui.files -> Button(onClick = actions.search, modifier = Modifier.fillMaxWidth()) { Text("Search while this finishes") }
     }
 }
 
@@ -677,7 +732,7 @@ private fun Step(title: String, done: Boolean, content: @Composable () -> Unit) 
 @Composable
 private fun DownloadProgress(state: ModelState.Downloading, onStop: () -> Unit) {
     val percent = (state.progress * 100).toInt()
-    val description = if (state.indeterminate) "Starting the download" else "Downloading the search model, $percent percent"
+    val description = if (state.indeterminate) "Starting the download" else "Downloading, $percent percent"
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         if (!state.indeterminate) {
             Text(

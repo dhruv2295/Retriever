@@ -10,6 +10,8 @@ class SearchEngine(
     private val store: Store,
     @Volatile var embedder: Embedder,
     private val tuning: SearchTuning = SearchTuning(),
+    /** The floor for the index's model; null counts every hit strong. */
+    private val floorFor: (Signature) -> RelevanceFloor? = RelevanceFloor::measuredFor,
 ) {
     enum class Mode { VECTOR, KEYWORD, MERGED }
 
@@ -24,8 +26,11 @@ class SearchEngine(
         val score: Double,
     )
 
-    /** [vectorLane] is false when results are keyword-only (other model's index, closed or failed embedder). */
-    data class SearchResult(val hits: List<Hit>, val vectorLane: Boolean)
+    /**
+     * [vectorLane] is false when results are keyword-only (other model's index, closed or failed embedder).
+     * hits[0 until strongCount] match well; the rest are weak, listed after them.
+     */
+    data class SearchResult(val hits: List<Hit>, val vectorLane: Boolean, val strongCount: Int = hits.size)
 
     /**
      * [backing] grows in place under [loadLock]; searches scan [view], whose arrays and size were fixed when it
@@ -87,13 +92,17 @@ class SearchEngine(
             lanes += store.fileKeywordSearch(q, CANDIDATES, kinds).map { Candidate(it, 0L, "", null) }
             weights += listOf(tuning.keywordWeight, tuning.keywordWeight)
         }
-        return SearchResult(toHits(lanes, weights, limit, kinds), vectorLane != null)
+        val (hits, strong) = toHits(lanes, weights, limit, kinds, if (vectorLane == null) null else floorFor(embedder.signature))
+        return SearchResult(hits, vectorLane != null, strong)
     }
 
-    /** Search by example: the photo is the query, passed raw (no task prefix), vector lane only. */
+    /**
+     * Search by example: the photo is the query, passed raw (no task prefix), vector lane only. Every hit counts as
+     * strong: the floor was measured for text queries and there is no image-to-image data yet.
+     */
     suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null): SearchResult {
         val lane = vectorLane(listOf(Part.Image(jpeg)), kinds) ?: return SearchResult(emptyList(), false)
-        return SearchResult(toHits(listOf(lane), listOf(1.0), limit, kinds), true)
+        return SearchResult(toHits(listOf(lane), listOf(1.0), limit, kinds, null).first, true)
     }
 
     /**
@@ -118,7 +127,7 @@ class SearchEngine(
         val allowed = kinds?.let { k -> BooleanArray(Kind.entries.size) { Kind.entries[it] in k } }
         val top = scanTop(q, CANDIDATES, l.view, allowed)
         val rows = store.chunks(top.map { it.first })
-        return top.mapNotNull { (id, _) -> rows[id]?.let { Candidate(it.fileId, it.id, it.locator, it.text?.take(160)) } }
+        return top.mapNotNull { (id, cos) -> rows[id]?.let { Candidate(it.fileId, it.id, it.locator, it.text?.take(160), cos) } }
     }
 
     /**
@@ -168,17 +177,23 @@ class SearchEngine(
         return (0 until filled).sortedByDescending { heapScore[it] }.map { ids[heapRow[it]] to heapScore[it] }
     }
 
-    private class Candidate(val fileId: Long, val chunkId: Long, val locator: String, val snippet: String?)
+    /** [cos] is the vector lane's cosine for this chunk; NaN for a keyword lane's candidate. */
+    private class Candidate(val fileId: Long, val chunkId: Long, val locator: String, val snippet: String?, val cos: Float = Float.NaN)
 
     /**
      * Fuses the lanes per file with reciprocal rank fusion. A file shows its best-ranked chunk; a name-only
-     * match shows no chunk and opens the file at the start.
+     * match shows no chunk and opens the file at the start. The first [limit] fused files are then split by
+     * [floor] (null: all strong): strong first, then weak, each in fused order. Returns the hits and the strong count.
      */
-    private fun toHits(lanes: List<List<Candidate>>, weights: List<Double>, limit: Int, kinds: Set<Kind>?): List<Hit> {
+    private fun toHits(lanes: List<List<Candidate>>, weights: List<Double>, limit: Int, kinds: Set<Kind>?, floor: RelevanceFloor?): Pair<List<Hit>, Int> {
         val best = HashMap<Long, Pair<Int, Candidate>>()
+        // A file's first vector candidate is its best chunk: the lane is sorted by cosine.
+        val cos = HashMap<Long, Float>()
+        val byKeyword = HashSet<Long>()
         val perLane = lanes.map { lane ->
             val seen = LinkedHashSet<Long>()
             for (c in lane) {
+                if (c.cos.isNaN()) byKeyword += c.fileId else if (c.fileId !in cos) cos[c.fileId] = c.cos
                 if (!seen.add(c.fileId)) continue
                 val rank = seen.size - 1
                 val prev = best[c.fileId]
@@ -193,13 +208,50 @@ class SearchEngine(
             val file = store.file(fileId) ?: continue
             if (kinds != null && file.kind !in kinds) continue
             val c = best.getValue(fileId).second
-            hits += Hit(file, fileId, c.chunkId, c.locator, c.snippet, score)
+            // A PDF page wins on its page image, which has no words: show that page's text instead.
+            val snippet = c.snippet ?: if (file.kind == Kind.PDF && c.chunkId != 0L) store.firstTextAt(fileId, c.locator)?.take(160) else null
+            hits += Hit(file, fileId, c.chunkId, c.locator, snippet, score)
         }
-        return hits
+        if (floor == null) return hits to hits.size
+        val (strong, weak) = hits.partition { it.fileId in byKeyword || floor.passes(it.file.kind, cos.getValue(it.fileId)) }
+        return (strong + weak) to strong.size
     }
 
     internal companion object {
         /** Rows each lane hands to fusion; RetrievalEval cuts its lanes the same way. */
         const val CANDIDATES = 100
+    }
+}
+
+/**
+ * When a file found only by meaning (no keyword match) counts as a strong match: its best chunk's int8 cosine is at
+ * least its kind's floor. Absolute, per kind: a no-match query's top file always passes a cut relative to the top, and
+ * one flat floor would have a 0.004 window. Each default sits between the lowest right file found by meaning and the
+ * highest no-match file of its kind (eval/REPORT.md, "Relevance floor (wave 4)"). Measured for M440, 70 vision tokens,
+ * 256 int8 dims, CPU on the iOS simulator: re-measure when the model, dims or vision tokens change.
+ */
+data class RelevanceFloor(
+    /**
+     * PHOTO and VIDEO, text against an image: lowest right 0.707 (0.697 on the same photo at 1024 px), highest no-match
+     * 0.691. Set under the lower right cosine, so a right photo stays strong at the cost of that one no-match photo.
+     */
+    val photo: Float = 0.69f,
+    /** SCREENSHOT, an image with its OCR text: lowest right 0.754, highest no-match 0.703. */
+    val screenshot: Float = 0.73f,
+    /** PDF, DOC and the rest: lowest right 0.703, highest no-match 0.675. An English query for a Hindi letter (0.620) is left weak. */
+    val text: Float = 0.69f,
+) {
+    fun of(kind: Kind): Float = when (kind) {
+        Kind.PHOTO, Kind.VIDEO -> photo
+        Kind.SCREENSHOT -> screenshot
+        else -> text
+    }
+
+    fun passes(kind: Kind, cos: Float): Boolean = cos >= of(kind)
+
+    companion object {
+        /** The floor measured for [signature]'s model and vision tokens; null where none was, so no hit is called weak. */
+        fun measuredFor(signature: Signature): RelevanceFloor? =
+            RelevanceFloor().takeIf { signature.value.startsWith("${ModelVariant.M440.name}/") && "/vt70/" in signature.value }
     }
 }

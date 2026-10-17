@@ -23,8 +23,14 @@ class RetrieverApp : Application() {
         Notifications.createChannel(this)
         MediaObserver.register(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            /** What the app could see when it was last in front; Settings may have changed it since. */
+            private var seen: Access? = null
+
             override fun onStart(owner: LifecycleOwner) {
                 retriever.uiVisible = true
+                val access = graph.access()
+                if (seen != null && seen != access) graph.accessChanged()
+                seen = access
                 if (retriever.setUp.value == true) graph.scope.launch { retriever.warmSearch() }
                 // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
                 val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }

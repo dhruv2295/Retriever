@@ -1,7 +1,8 @@
-// The PHCachingImageManager setup (no network, cache off for high quality) is adapted from Queryable
-// Queryable/Queryable/PhotoHelper/CachedImageManager.swift (MIT, itself from Apple sample code). Modified for
-// Retriever: one async load per cell through an NSCache, the matched PDF page or video moment instead of the
-// first frame, and QLThumbnailGenerator for files in folders.
+// Adapted from mazzzystar/Queryable Queryable/Queryable/PhotoHelper/CachedImageManager.swift
+// (Apple Sample Code License; Queryable took it from Apple sample code).
+// Modified for Retriever: one async load per cell through an NSCache, the PHCachingImageManager setup (no network,
+// cache off for high quality), the matched PDF page or video moment instead of the first frame, and
+// QLThumbnailGenerator for files in folders.
 
 import Photos
 import PDFKit

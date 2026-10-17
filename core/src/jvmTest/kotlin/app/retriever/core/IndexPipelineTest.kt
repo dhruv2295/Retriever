@@ -84,7 +84,7 @@ class IndexPipelineTest {
         assertEquals(20L, store.chunkCount())
         assertEquals(12L, store.tailChunkCount())
         assertEquals(IndexEngine.HEAD_TEXT_CHUNKS, embedder.received.size)
-        assertEquals(Store.Counts(mapOf(FileState.INDEXED to 1L), mapOf(Kind.DOC to 1L), 12L), store.counts().first())
+        assertEquals(Store.Counts(mapOf(FileState.INDEXED to 1L), mapOf(Kind.DOC to 1L), tailChunks = 12L, tailFiles = 1L), store.counts().first())
         val keyword = search.search("zebra", SearchEngine.Mode.KEYWORD).hits.single()
         assertEquals("p. 16", keyword.locator, "a tail chunk is keyword-searchable before it has a vector")
         val before = search.search("zebra", SearchEngine.Mode.VECTOR).hits.single()

@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.ReadExtent
 import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
@@ -39,8 +40,16 @@ data class SearchUi(
     val similar: Similar? = null,
     /** null: nothing searched. */
     val hits: List<SearchEngine.Hit>? = null,
+    /** Counts the searches that set [hits], so the screen can start each new answer at its top. */
+    val answer: Int = 0,
     /** The trimmed query [hits] answer; a search by photo answers "". */
     val hitsFor: String = "",
+    /** hits[0 until strongCount] are strong matches, the rest less likely. The default makes every hit strong. */
+    val strongCount: Int = Int.MAX_VALUE,
+    /** Files in [hits] that were not read whole. */
+    val extents: Map<Long, ReadExtent> = emptyMap(),
+    /** This phone finds files by their names and words only. */
+    val textOnly: Boolean = false,
     val searching: Boolean = false,
     val failed: Boolean = false,
     val vectorLane: Boolean = true,
@@ -59,7 +68,7 @@ class SearchViewModel(
     private val retriever: Retriever,
     private val jpegOf: (String) -> ByteArray?,
 ) : ViewModel() {
-    private val _ui = MutableStateFlow(SearchUi())
+    private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly))
     val ui: StateFlow<SearchUi> = _ui.asStateFlow()
     val indexState: StateFlow<IndexState> = retriever.state
     private val retries = MutableStateFlow(0)
@@ -109,7 +118,11 @@ class SearchViewModel(
         val kinds = chip?.let(::setOf)
         try {
             val r = if (similar != null) retriever.searchImage(similar.jpeg, kinds, limit = 60) else retriever.search(q, kinds, limit = 60)
-            _ui.update { it.copy(hits = r.hits, hitsFor = q, vectorLane = r.vectorLane, searching = false) }
+            // Fetched before the update, in this job: a cancelled search leaves the old hits and their extents alone.
+            val extents = retriever.readExtents(r.hits.map { it.fileId })
+            // A search by photo has no weak tail.
+            val strong = if (similar != null) r.hits.size else r.strongCount
+            _ui.update { it.copy(hits = r.hits, answer = it.answer + 1, hitsFor = q,strongCount = strong, extents = extents, vectorLane = r.vectorLane, searching = false) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

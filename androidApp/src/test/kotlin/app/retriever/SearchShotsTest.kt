@@ -2,10 +2,14 @@ package app.retriever
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertContentDescriptionContains
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
@@ -42,6 +46,7 @@ class SearchShotsTest {
             file("Screenshot_wifi.png", Kind.SCREENSHOT),
             file("Meeting notes.docx", Kind.DOC),
             file("Voice memo 12.m4a", Kind.AUDIO),
+            file("Electricity_bill_March_2026_final.pdf", Kind.PDF),
         ),
     )
 
@@ -66,6 +71,17 @@ class SearchShotsTest {
             "recent" -> SearchPane(ready.copy(recent = listOf("wifi password", "electricity bill", "passport photo")), none)
             "examples" -> SearchPane(ready, none)
             "results" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits), none)
+            "results_less_likely" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, strongCount = 2), none)
+            "results_nothing_well" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, strongCount = 0), none)
+            "results_first_part" -> SearchPane(
+                ready.copy(
+                    query = "bill",
+                    hitsFor = "bill",
+                    hits = mixedHits,
+                    extents = mapOf(1L to ReadExtent.FIRST_PART, 4L to ReadExtent.DEEPENING, 6L to ReadExtent.FIRST_PART),
+                ),
+                none,
+            )
             "results_searching" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, searching = true, vectorLane = false), none)
             "chip_pdf" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", chip = Kind.PDF, hits = mixedHits.filter { it.file.kind == Kind.PDF }), none)
             "similar" -> SearchPane(ready.copy(similar = Similar("IMG_2041.jpg", ByteArray(1)), hits = mixedHits.filter { it.file.kind == Kind.PHOTO }), none)
@@ -144,6 +160,41 @@ class SearchShotsTest {
     }
 
     @Test fun resultsDark() = shot("results", true)
+    @Test fun resultsLessLikelyLight() {
+        shot("results_less_likely", false)
+        rule.onNodeWithText("Less likely matches").assertExists()
+        rule.onNodeWithText("Nothing matches", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun resultsLessLikelyDark() = shot("results_less_likely", true)
+    @Test fun resultsNothingWellLight() {
+        shot("results_nothing_well", false)
+        rule.onNodeWithText("Nothing matches “bill” well").assertExists()
+        rule.onNodeWithText("These are the closest files, but they may not be what you're looking for.").assertExists()
+        rule.onNodeWithText("Less likely matches").assertExists()
+    }
+
+    @Test fun resultsNothingWellDark() = shot("results_nothing_well", true)
+    @Test fun resultsFirstPartLight() {
+        shot("results_first_part", false)
+        rule.onAllNodesWithText("Only the first part of this file was read").assertCountEquals(1)
+        rule.onNodeWithText("Still reading the rest of this file").assertExists()
+        rule.onNodeWithContentDescription("Video, Birthday.mp4", substring = true).assertContentDescriptionContains("Only the first part of this file was read", substring = true)
+    }
+
+    @Test fun resultsFirstPartDark() = shot("results_first_part", true)
+    @Test fun allStrongHasNoLessLikelyHeader() {
+        shot("results", false)
+        rule.onNodeWithText("Less likely matches").assertDoesNotExist()
+    }
+
+    @Test fun wordsOnlyPhoneSaysSo() {
+        rule.setContent {
+            ShotTheme(false, 1f) { SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, vectorLane = false, textOnly = true), SearchActions()) }
+        }
+        rule.onNodeWithText("Retriever finds files here by their names and the words inside them.").assertExists()
+        rule.onNodeWithText("back shortly", substring = true).assertDoesNotExist()
+    }
     @Test fun resultsBigText() = shot("results", false, 1.5f)
     @Test fun resultsSearchingLight() = shot("results_searching", false)
     @Test fun chipPdfLight() = shot("chip_pdf", false)

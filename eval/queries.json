@@ -29,5 +29,16 @@
 {"q":"what to pack for the trek","file":"Notes_C.txt","kind":"DOC","tests":"content"},
 {"q":"डॉक्टर की अपॉइंटमेंट कब है","file":"Screenshot 2026-10-05 at 10.15.05.png","kind":"SCREENSHOT","tests":"hindi"},
 {"q":"स्कूल में दाखिले के लिए चिट्ठी","file":"Document_04.pdf","kind":"PDF","tests":"hindi"},
-{"q":"आलू पराठा बनाने की विधि","file":"Doc_B.docx","kind":"DOC","tests":"hindi"}
+{"q":"आलू पराठा बनाने की विधि","file":"Doc_B.docx","kind":"DOC","tests":"hindi"},
+{"q":"passport renewal form","tests":"no-match"},
+{"q":"car insurance policy","tests":"no-match"},
+{"q":"train ticket to Mumbai","tests":"no-match"},
+{"q":"guitar lessons on Saturday","tests":"no-match"},
+{"q":"chess tournament results","tests":"no-match"},
+{"q":"an elephant at the zoo","tests":"no-match"},
+{"q":"kids swimming in a pool","tests":"no-match"},
+{"q":"पासपोर्ट नवीनीकरण का फॉर्म","tests":"no-match hindi"},
+{"q":"मुंबई की ट्रेन का टिकट","tests":"no-match hindi"},
+{"q":"कार बीमा पॉलिसी","tests":"no-match hindi"},
+{"q":"शतरंज प्रतियोगिता के नतीजे","tests":"no-match hindi"}
 ]

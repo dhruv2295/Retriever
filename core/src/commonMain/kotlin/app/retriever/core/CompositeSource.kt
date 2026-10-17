@@ -4,8 +4,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * Several sources as one, keyed by the URI prefix each owns ("ph://", "folder://"). The token holds each
- * child's own token. Presence and scope are reported only for children that listed everything they see, so
+ * Several sources as one, keyed by the URI prefix each owns: "ph://" and "folder://" on iOS; "content://media/"
+ * (MediaStore) and "content://com.android.externalstorage.documents/" (picked folders) on Android. The token holds
+ * each child's own token. Presence and scope are reported only for children that listed everything they see, so
  * LibrarySync removes vanished files only there: an incremental Photos sync never deletes folder files.
  */
 class CompositeSource(private val sources: Map<String, FileSource>) : FileSource {

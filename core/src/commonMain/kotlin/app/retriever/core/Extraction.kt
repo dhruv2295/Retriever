@@ -1,10 +1,22 @@
 package app.retriever.core
 
 /** Text rules shared by the Android and iOS extractors. */
-const val PDF_PAGES = 30
-const val TEXT_BYTES = 300 * 1024
+/** Pages read through their text layer: cheap, and the head-first embed keeps the model cost per file fixed. */
+const val PDF_TEXT_PAGES = 1000
+
+/** Pages with no text layer, each a render plus OCR (about a second apiece); later ones are skipped. */
+const val PDF_OCR_PAGES = 30
+
+/** Whole text and HTML files up to this; a zip entry (docx, pptx, epub chapter) gets 4x. */
+const val TEXT_BYTES = 2 * 1024 * 1024
 const val MIN_TEXT_CHARS = 40
 const val MIN_AUDIO_WINDOW_SEC = 2
+
+/** Locator of the [cutShort] marker; it has no parts, so draftChunks never stores it. */
+const val CUT_SHORT = "\u0000cut-short"
+
+/** Appended by an extractor that stopped at one of the caps above, so the file is recorded as read in part. */
+fun cutShort() = Piece(CUT_SHORT, emptyList(), null)
 
 private val TAG = Regex("<[^>]+>")
 private val BLANKS = Regex("[ \t]+")
@@ -33,7 +45,122 @@ fun stripHtml(html: String): String = stripXml(
 /** pptx slide number for ordering, null for every other entry. */
 fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
 
-enum class DocFormat { DOCX, PPTX, XLSX, ODF, EPUB, HTML, TEXT }
+// Windows-1252 0x80-0x9F; the rest of the code page is Latin-1, which maps 1:1 to Unicode.
+private const val CP1252_HIGH = "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ"
+
+private val RTF_SKIPPED = setOf(
+    "fonttbl", "colortbl", "stylesheet", "info", "pict", "object",
+    "header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf",
+)
+
+private val RTF_CHARS = mapOf(
+    "par" to "\n", "line" to "\n", "sect" to "\n", "page" to "\n", "row" to "\n", "tab" to "\t", "cell" to "\t",
+    "emdash" to "—", "endash" to "–", "bullet" to "•", "lquote" to "‘", "rquote" to "’", "ldblquote" to "“", "rdblquote" to "”",
+)
+
+/**
+ * The text of an RTF document, after the RTF 1.9.1 specification: skipped and `{\*` destinations drop their
+ * group, `\'hh` is Windows-1252, `\uN` drops the next `\ucN` fallback characters. A head cut mid-file
+ * (unbalanced braces, a half control word) reads up to the cut.
+ */
+fun stripRtf(rtf: String): String {
+    val out = StringBuilder()
+    val groups = ArrayList<Pair<Boolean, Int>>() // the enclosing groups' (skip, uc)
+    var skip = false
+    var uc = 1
+    var fallback = 0 // fallback characters still to drop after a \uN
+    var i = 0
+    fun text(s: String) {
+        if (fallback > 0) fallback-- else if (!skip) out.append(s)
+    }
+    while (i < rtf.length) {
+        val c = rtf[i++]
+        when (c) {
+            '{' -> {
+                groups += skip to uc
+                fallback = 0
+            }
+            '}' -> {
+                groups.removeLastOrNull()?.let { (s, u) -> skip = s; uc = u }
+                fallback = 0
+            }
+            '\r', '\n' -> {}
+            '\\' -> {
+                if (i >= rtf.length) break
+                val next = rtf[i]
+                if (!next.isAsciiLetter()) {
+                    i++
+                    when (next) {
+                        '\'' -> {
+                            val code = rtf.substring(i, minOf(i + 2, rtf.length)).toIntOrNull(16)
+                            i += 2
+                            if (code != null) text((if (code in 0x80..0x9F) CP1252_HIGH[code - 0x80] else code.toChar()).toString())
+                        }
+                        '*' -> skip = true
+                        '~' -> text(" ")
+                        '_' -> text("-")
+                        '\\', '{', '}' -> text(next.toString())
+                        '\r', '\n' -> { fallback = 0; if (!skip) out.append('\n') }
+                        else -> fallback = 0 // \- optional hyphen, \| and the rest: nothing to show
+                    }
+                    continue
+                }
+                val start = i
+                while (i < rtf.length && rtf[i].isAsciiLetter()) i++
+                val word = rtf.substring(start, i)
+                val numStart = i
+                if (i < rtf.length && rtf[i] == '-') i++
+                while (i < rtf.length && rtf[i].isDigit()) i++
+                val param = rtf.substring(numStart, i).toIntOrNull()
+                if (i < rtf.length && rtf[i] == ' ') i++
+                when {
+                    word == "u" && param != null -> {
+                        fallback = 0
+                        text((if (param < 0) param + 65536 else param).toChar().toString())
+                        fallback = uc
+                    }
+                    word == "uc" && param != null -> uc = param
+                    word == "bin" && param != null -> i += param
+                    word in RTF_SKIPPED -> skip = true
+                    else -> {
+                        fallback = 0
+                        RTF_CHARS[word]?.let { if (!skip) out.append(it) }
+                    }
+                }
+            }
+            else -> text(c.toString())
+        }
+    }
+    return out.toString()
+}
+
+private fun Char.isAsciiLetter() = this in 'a'..'z' || this in 'A'..'Z'
+
+private val SPLIT_MATRA = Regex("(^|\\s)[\\u0915-\\u0939\\u0958-\\u095F][\\u0941\\u0943]\\s+[\\u0900-\\u097F]")
+
+private fun Char.isMissingGlyph() = code == 0 || code == 0xFFFD || code in 0xE000..0xF8FF
+
+// Devanagari vowel signs, virama and other marks that only ever follow a letter.
+private fun Char.isDevanagariMark() =
+    code in 0x900..0x903 || (code in 0x93A..0x94F && code != 0x93D) || code in 0x951..0x957 || code in 0x962..0x963
+
+/**
+ * True when a PDF text layer came out garbled, so the page is worth OCR: missing-glyph characters (NUL,
+ * U+FFFD, private use), a Devanagari mark with no letter before it, or a conjunct split at its vowel sign
+ * ("कु मार" for "कुमार"), which is how Type 3 fonts from Chrome's PDF export read back.
+ */
+fun looksBroken(text: String): Boolean {
+    val missing = text.count { it.isMissingGlyph() }
+    if (missing > 0 && missing * 100 >= text.length) return true
+    if (text.indices.any { text[it].isDevanagariMark() && (it == 0 || text[it - 1].code !in 0x900..0x97F) }) return true
+    return SPLIT_MATRA.containsMatchIn(text)
+}
+
+/** After OCR of a page whose text layer was thin or broken: the longer clean one, else the longer of the two. */
+fun betterPageText(layer: String, ocr: String): String =
+    listOf(ocr, layer).maxWith(compareBy({ it.isNotBlank() && !looksBroken(it) }, { it.trim().length }))
+
+enum class DocFormat { DOCX, PPTX, XLSX, ODF, EPUB, HTML, RTF, TEXT }
 
 /** How a document's text is read, by extension or MIME type; null when it has no readable text. */
 fun docFormat(name: String, mime: String): DocFormat? {
@@ -46,6 +173,7 @@ fun docFormat(name: String, mime: String): DocFormat? {
         ext in setOf("odt", "ods", "odp") || "opendocument" in m -> DocFormat.ODF
         ext == "epub" || m == "application/epub+zip" -> DocFormat.EPUB
         ext == "html" || ext == "htm" || m == "text/html" -> DocFormat.HTML
+        ext == "rtf" || "rtf" in m -> DocFormat.RTF
         ext in FileRules.DOC_TEXT_EXTENSIONS || m.startsWith("text/") || m == "application/json" -> DocFormat.TEXT
         else -> null
     }
