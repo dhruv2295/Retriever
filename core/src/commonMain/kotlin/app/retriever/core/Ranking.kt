@@ -26,15 +26,17 @@ fun rrfMerge(lists: List<List<Long>>, k: Int = 60, weights: List<Double>? = null
 }
 
 /**
- * The one switch for the relevance rule. Off: every hit found by meaning counts as strong, on every model. It stays off
- * until [RELEVANCE_MARGIN] is fitted on public data (relevance-method.md section 4).
+ * The one switch for the relevance rule. Off: every hit found by meaning counts as strong, on every model. Fitted on
+ * public data on 2026-10-17 and kept off, for every group: no margin passed (eval/REPORT.md, "Relevance rule fit").
  */
 const val RELEVANCE_RULE_ENABLED = false
 
 /**
- * m, the rule's margin in standard deviations above the expected noise maximum. UNSET: 0 is a placeholder, not a
- * measurement. Fit it on public calibration data only, never on the files in eval/. At 0, about 9% of queries that
- * match nothing in a 5,000-row group still show one strong hit (RelevanceRuleTest).
+ * m, the rule's margin in standard deviations above the expected noise maximum. 0 is a placeholder, not a measurement.
+ * The conformal fit (alpha 0.10, M440/92dcbea1/vt70, 2,478 public calibration queries) gave m = -1.74, which calls 78% of
+ * text and 54% of photo no-match queries strong on the test split; no single m reaches strong recall 0.80 at
+ * false-strong 0.12 in any modality group, and leave-one-dataset-out fits range from -2.14 to -0.64. So -1.74 is not shipped.
+ * At 0, about 9% of queries that match nothing in a 5,000-row group still show one strong hit (RelevanceRuleTest).
  */
 const val RELEVANCE_MARGIN = 0.0
 
@@ -49,16 +51,30 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
     /** A fresh histogram for one scan: [BINS] counts per modality. */
     fun histogram() = IntArray(Modality.entries.size * BINS)
 
-    /** Per modality ordinal, the lowest cosine that is strong; -Infinity for a group too thin to judge. */
-    fun minStrong(histogram: IntArray): FloatArray = FloatArray(Modality.entries.size) { g ->
+    /** One group's noise in one query's histogram: [n] rows, robust centre and spread. */
+    class Noise(val n: Int, val median: Double, val sigma: Double) {
+        /** sqrt(2 ln n): where the largest of n Gaussian noise draws lands, in standard deviations. */
+        val expectedMax: Double get() = sqrt(2 * ln(n.toDouble()))
+
+        /** How many standard deviations [cos] sits above that expected maximum; strong when >= the margin. */
+        fun excess(cos: Float): Double = (cos - median) / sigma - expectedMax
+    }
+
+    /** Per modality ordinal, that group's [Noise]; null for a group under [minRows]. */
+    fun noise(histogram: IntArray): Array<Noise?> = Array(Modality.entries.size) { g ->
         val off = g * BINS
         var n = 0
         for (i in off until off + BINS) n += histogram[i]
-        if (n < minRows) return@FloatArray Float.NEGATIVE_INFINITY
+        if (n < minRows) return@Array null
         val q1 = quantile(histogram, off, n, 0.25)
         val median = quantile(histogram, off, n, 0.5)
-        val sigma = maxOf(quantile(histogram, off, n, 0.75) - q1, BIN_WIDTH) / 1.349
-        (median + sigma * (sqrt(2 * ln(n.toDouble())) + margin)).toFloat()
+        Noise(n, median, maxOf(quantile(histogram, off, n, 0.75) - q1, BIN_WIDTH) / 1.349)
+    }
+
+    /** Per modality ordinal, the lowest cosine that is strong; -Infinity for a group too thin to judge. */
+    fun minStrong(histogram: IntArray): FloatArray {
+        val noise = noise(histogram)
+        return FloatArray(noise.size) { g -> noise[g]?.let { (it.median + it.sigma * (it.expectedMax + margin)).toFloat() } ?: Float.NEGATIVE_INFINITY }
     }
 
     /** The [p] quantile of one group's counts, interpolated inside its bin. */

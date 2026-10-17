@@ -117,9 +117,23 @@ class RelevanceRuleTest {
         assertTrue(pooled.hits.any { it.file.name == "outlier page.pdf" })
     }
 
+    /**
+     * Provenance (eval/REPORT.md, "Relevance rule fit"; eval/relevance-fit.py over the replays of the public XM3600 +
+     * SciFact + MIRACL-hi library): conformal risk control at alpha 0.10 on M440/92dcbea1/vt70's calibration split (2,478
+     * listed right files) gave m = -1.74. On the test split it calls 78% of text and 54% of photo no-match queries
+     * strong (gate: at most 12%), and no m, even one picked on the test split, reaches strong recall 0.80 at 12%
+     * false-strong in any modality group pooled over languages; method 4.4's own gate fails too. So the rule ships off
+     * and the margin stays the unfitted placeholder. Re-fit with a new method before changing either; never hand-pick m.
+     */
+    @Test
+    fun theFitFailedItsGateSoTheRuleShipsOff() {
+        assertEquals(false, RELEVANCE_RULE_ENABLED)
+        assertEquals(0.0, RELEVANCE_MARGIN)
+    }
+
     @Test
     fun theShippedSettingCallsEveryHitStrong() = runTest {
-        // RELEVANCE_RULE_ENABLED stays false until the margin is fitted on public data; this test changes with it.
+        // RELEVANCE_RULE_ENABLED is false (theFitFailedItsGateSoTheRuleShipsOff); this test changes with it.
         assertEquals(null, RelevanceRule.shipped)
         val (store, _) = store(background(5_000, 0.5, 0.02) + F("outlier.pdf", 0.62f))
         val r = SearchEngine(store, AxisEmbedder(sig)).search("anything", vector)

@@ -13,7 +13,9 @@ import kotlin.time.measureTimedValue
 @Serializable
 data class EvalQuery(val q: String, val file: String? = null, val kind: Kind? = null)
 
-fun parseEvalQueries(json: String): List<EvalQuery> = Json { ignoreUnknownKeys = true }.decodeFromString(json)
+private val evalJson = Json { ignoreUnknownKeys = true }
+
+fun parseEvalQueries(json: String): List<EvalQuery> = evalJson.decodeFromString(json)
 
 /** One way to rank. The defaults are production's, except [visionTokens], which comes from the device's tier. */
 data class EvalSetting(

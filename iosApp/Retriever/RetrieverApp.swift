@@ -22,6 +22,7 @@ struct RetrieverApp: App {
                 return
             }
             if CommandLine.arguments.contains("-eval") { EvalMode.run(); _model = State(initialValue: AppModel(fixture: .caughtUp)); return }
+            if CommandLine.arguments.contains("-dump") { DumpMode.run(); _model = State(initialValue: AppModel(fixture: .caughtUp)); return }
             if let route = DebugRoute.current {
                 _model = State(initialValue: AppModel(fixture: route.fixture))
                 return
