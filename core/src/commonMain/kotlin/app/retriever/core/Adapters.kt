@@ -13,7 +13,10 @@ data class Changes(
     val removed: List<String>,
     val nextToken: String,
     val isFullScan: Boolean = false,
-    /** On incremental scans: every URI the source currently sees, so deletions can be diffed out. */
+    /**
+     * On incremental scans: every URI the source currently sees, so deletions can be diffed out. On full scans:
+     * URIs seen but left out of [upserted] (an iCloud placeholder), which keep what is already indexed.
+     */
     val present: Set<String>? = null,
     /**
      * URI prefixes this scan covered (null: everything). Known files outside them, such as those on an
@@ -52,9 +55,10 @@ class InputTooLongException(message: String, cause: Throwable? = null) : Illegal
 
 /**
  * The embedder can't embed anything any more: it was closed, or its backend broke (a known-good input fails
- * too). The caller must open a new one. Not the file's fault.
+ * too). The caller must open a new one. Not the file's fault. [broken] false: the backend is fine but can't run
+ * right now (iOS refuses GPU work from a backgrounded app), so the caller reopens it later without falling back.
  */
-class EmbedderClosedException(message: String = "embedder closed", cause: Throwable? = null) :
+class EmbedderClosedException(message: String = "embedder closed", cause: Throwable? = null, val broken: Boolean = true) :
     IllegalStateException(message, cause)
 
 suspend fun Embedder.embed(parts: List<Part>): Vector = Vector.of(embedRaw(parts), signature)

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingCoordinator.kt (Apache-2.0). Modified for Retriever: the visible and busy flags gate a shared single-flight index batch, its charging policy and the model while a search runs; model selection, fallback, search and browse are added around them.
+// The visible/busy gating pattern is adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingCoordinator.kt (Apache-2.0). Modified for Retriever: the visible and busy flags gate a shared single-flight index batch, its charging policy and the model while a search runs; model selection, fallback, search and browse are added around them.
 
 package app.retriever.core
 
@@ -129,6 +129,7 @@ class Retriever(
         }
     }
 
+    @Throws(Throwable::class)
     suspend fun refreshSetUp() = withContext(Dispatchers.Default) { reload() }
 
     private fun reload() {
@@ -151,16 +152,20 @@ class Retriever(
         batchJob?.cancel()
     }
 
+    @Throws(Throwable::class)
     suspend fun pause() = updatePrefs { it.copy(paused = true) }
 
+    @Throws(Throwable::class)
     suspend fun resume() = updatePrefs { it.copy(paused = false) }
 
+    @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
         withContext(Dispatchers.Default) { _prefs.value = store.updatePrefs(t) }
     }
 
     fun counts(): Flow<Store.Counts> = store.counts()
 
+    @Throws(Throwable::class)
     suspend fun indexBatch(budget: Duration): NextRun {
         if (!indexLock.tryLock()) {
             changedSinceSync = true
@@ -339,6 +344,10 @@ class Retriever(
     private suspend fun embedderBroke(used: Embedder?, build: ModelBuild?, cause: Throwable): Boolean = embedderLock.withLock {
         if (used == null || build == null || embedder !== used) return@withLock false
         closeLocked()
+        if ((cause as? EmbedderClosedException)?.broken == false) {
+            log("The model can't run right now; it reopens on the next batch", cause)
+            return@withLock false
+        }
         if (build.isNpu) {
             markNpuFailed(build, cause)
         } else {
@@ -377,18 +386,21 @@ class Retriever(
     }
 
     /** Frees the model's memory; the next search or batch opens it again. */
+    @Throws(Throwable::class)
     suspend fun release() {
         embedderLock.withLock { withContext(Dispatchers.Default) { closeLocked() } }
     }
 
     // --- Search ---
 
-    suspend fun search(q: String, kinds: Set<Kind>? = null): SearchEngine.SearchResult =
-        searchWith { it.search(q, kinds = kinds) }
+    @Throws(Throwable::class)
+    suspend fun search(q: String, kinds: Set<Kind>? = null, limit: Int = 20): SearchEngine.SearchResult =
+        searchWith { it.search(q, limit = limit, kinds = kinds) }
 
     /** [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. */
-    suspend fun searchImage(jpeg: ByteArray, kinds: Set<Kind>? = null): SearchEngine.SearchResult =
-        searchWith { it.searchImage(jpeg, kinds = kinds) }
+    @Throws(Throwable::class)
+    suspend fun searchImage(jpeg: ByteArray, kinds: Set<Kind>? = null, limit: Int = 20): SearchEngine.SearchResult =
+        searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds) }
 
     private suspend fun <T> searchWith(run: suspend (SearchEngine) -> T): T {
         searching.update { it + 1 }
@@ -429,35 +441,49 @@ class Retriever(
     }
 
     /** Loads the vector table off the search path, e.g. when the app comes to the front. */
+    @Throws(Throwable::class)
     suspend fun warmSearch() {
         io { embedderLock.withLock { engine ?: SearchEngine(store, embedder ?: NoModel).also { engine = it } }.refresh() }
     }
 
+    @Throws(Throwable::class)
     suspend fun recordQuery(q: String) = io { store.addRecentQuery(q, now()) }
 
+    @Throws(Throwable::class)
     suspend fun recentQueries(): List<String> = io { store.recentQueries() }
 
+    @Throws(Throwable::class)
+    suspend fun removeRecentQuery(q: String) = io { store.removeRecentQuery(q) }
+
+    @Throws(Throwable::class)
     suspend fun clearRecentQueries() = io { store.clearRecentQueries() }
 
     // --- Browse ---
 
+    @Throws(Throwable::class)
     suspend fun files(kind: Kind?, folder: String?, sort: Store.Sort, limit: Int, offset: Int): List<Store.StoredFile> =
         io { store.files(kind, folder, sort, limit, offset) }
 
+    @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }
 
+    @Throws(Throwable::class)
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }
 
+    @Throws(Throwable::class)
     suspend fun skipped(limit: Int): List<Store.StoredFile> = io { store.skipped(limit) }
 
+    @Throws(Throwable::class)
     suspend fun retrySkipped() = io { store.retrySkipped() }
 
+    @Throws(Throwable::class)
     suspend fun requeue(kinds: Set<Kind>) = io { store.requeue(kinds) }
 
     private suspend fun <T> io(block: suspend () -> T): T = withContext(Dispatchers.Default) { block() }
 
     // --- Calibration ---
 
+    @Throws(Throwable::class)
     suspend fun calibrate(samples: Samples, tuneAgain: Boolean): CalibrationResult {
         cancelBatch()
         // Holding the model lock keeps searches keyword-only meanwhile, so two copies of the model never load.

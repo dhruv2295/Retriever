@@ -6,6 +6,7 @@ serialization = "1.11.0"
 sqldelight = "2.4.0"
 composeBom = "2026.08.00"
 activity = "1.13.0"
+splashscreen = "1.2.0"
 lifecycle = "2.11.0"
 mediapipe = "1.1.1"
 # tasks-retrieval 1.1.1 declares 0.17.0-alpha1 but calls classes added later (ActivationDataType).
@@ -18,6 +19,8 @@ iconsExtended = "1.7.6"
 compileSdk = "37"
 minSdk = "30"
 litertNpu = "2.3.0"
+junit = "4.13.2"
+robolectric = "4.17"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -29,6 +32,7 @@ compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeB
 compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
 lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
 work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
@@ -45,6 +49,10 @@ sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", 
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litertNpu" }
 litert-npu-mediatek = { module = "com.google.ai.edge.litert:litert-npu-runtime-mediatek", version.ref = "litertNpu" }
 litert-npu-qualcomm = { module = "com.google.ai.edge.litert:litert-npu-runtime-qualcomm", version.ref = "litertNpu" }
+junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
 
 [plugins]

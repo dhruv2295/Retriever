@@ -33,6 +33,32 @@ fun stripHtml(html: String): String = stripXml(
 /** pptx slide number for ordering, null for every other entry. */
 fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
 
+enum class DocFormat { DOCX, PPTX, XLSX, ODF, EPUB, HTML, TEXT }
+
+/** How a document's text is read, by extension or MIME type; null when it has no readable text. */
+fun docFormat(name: String, mime: String): DocFormat? {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    val m = mime.lowercase()
+    return when {
+        ext == "docx" || "wordprocessingml" in m -> DocFormat.DOCX
+        ext == "pptx" || "presentationml" in m -> DocFormat.PPTX
+        ext == "xlsx" || "spreadsheetml" in m -> DocFormat.XLSX
+        ext in setOf("odt", "ods", "odp") || "opendocument" in m -> DocFormat.ODF
+        ext == "epub" || m == "application/epub+zip" -> DocFormat.EPUB
+        ext == "html" || ext == "htm" || m == "text/html" -> DocFormat.HTML
+        ext in FileRules.DOC_TEXT_EXTENSIONS || m.startsWith("text/") || m == "application/json" -> DocFormat.TEXT
+        else -> null
+    }
+}
+
+/** Zip entry holding a format's text, for the formats read from a single entry. */
+val DocFormat.textEntry: String? get() = when (this) {
+    DocFormat.DOCX -> "word/document.xml"
+    DocFormat.XLSX -> "xl/sharedStrings.xml"
+    DocFormat.ODF -> "content.xml"
+    else -> null
+}
+
 /** Text chunks for a page or image; empty when there is too little text to be worth embedding. */
 fun textPieces(locator: String, text: String, maxChars: Int): List<Piece> =
     if (text.trim().length < MIN_TEXT_CHARS) emptyList()

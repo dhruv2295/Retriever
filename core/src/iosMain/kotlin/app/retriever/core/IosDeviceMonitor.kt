@@ -1,0 +1,41 @@
+package app.retriever.core
+
+import kotlin.concurrent.Volatile
+import platform.Foundation.NSProcessInfo
+import platform.Foundation.NSProcessInfoThermalState
+import platform.Foundation.lowPowerModeEnabled
+import platform.Foundation.thermalState
+
+/** Swift sets the battery fields and [active] on the main thread; thermal state and Low Power Mode are read here. */
+class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
+    @Volatile
+    var charging: Boolean = false
+
+    @Volatile
+    var batteryPct: Int = 100
+
+    /** The app is in the foreground. */
+    @Volatile
+    var active: Boolean = false
+
+    override fun state(): DeviceState {
+        val info = NSProcessInfo.processInfo
+        val thermal = when (info.thermalState) {
+            NSProcessInfoThermalState.NSProcessInfoThermalStateNominal -> Thermal.NONE
+            NSProcessInfoThermalState.NSProcessInfoThermalStateFair -> Thermal.LIGHT
+            NSProcessInfoThermalState.NSProcessInfoThermalStateSerious -> Thermal.SEVERE
+            else -> Thermal.CRITICAL
+        }
+        return DeviceState(
+            ramGb = ramGb,
+            charging = charging,
+            batteryPct = batteryPct,
+            // Low Power Mode asks apps to cut background work: count it as hot, which pauses indexing, but only in
+            // the background. An open app reads its files regardless (and iOS runs no BGProcessingTask in it anyway).
+            thermal = if (info.lowPowerModeEnabled && !active) maxOf(thermal, Thermal.MODERATE) else thermal,
+            // iOS can't tell whether the screen is on. With screenOn == visible, Retriever's busy() never trips
+            // while the app is open, and the batch policy stays visibility-based.
+            screenOn = active,
+        )
+    }
+}

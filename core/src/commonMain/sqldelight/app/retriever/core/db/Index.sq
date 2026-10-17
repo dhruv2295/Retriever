@@ -236,5 +236,8 @@ addRecentQuery {
 recentQueries:
 SELECT phrase FROM recent_queries ORDER BY at DESC;
 
+removeRecentQuery:
+DELETE FROM recent_queries WHERE phrase = :phrase;
+
 clearRecentQueries:
 DELETE FROM recent_queries;

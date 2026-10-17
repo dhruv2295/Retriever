@@ -31,6 +31,8 @@ android {
     // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
     lint { checkDependencies = true }
 
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -43,6 +45,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     implementation(libs.activity.compose)
+    implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
@@ -57,4 +60,12 @@ dependencies {
     implementation(libs.litert.npu.google.tensor)
     implementation(libs.litert.npu.mediatek)
     implementation(libs.litert.npu.qualcomm)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.sqldelight.sqlite.driver)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

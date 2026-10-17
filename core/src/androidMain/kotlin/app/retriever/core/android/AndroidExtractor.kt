@@ -11,7 +11,9 @@ import android.util.Size
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
 import app.retriever.core.Extractor
-import app.retriever.core.FileRules
+import app.retriever.core.DocFormat
+import app.retriever.core.docFormat
+import app.retriever.core.textEntry
 import app.retriever.core.Kind
 import app.retriever.core.MIN_TEXT_CHARS
 import app.retriever.core.PDF_PAGES
@@ -155,17 +157,13 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
     }
 
     private fun doc(file: SourceFile, uri: Uri, maxChars: Int): List<Piece> {
-        val ext = file.name.substringAfterLast('.', "").lowercase()
-        val mime = file.mime.lowercase()
-        val text = when {
-            ext == "docx" || "wordprocessingml" in mime -> zipEntry(uri, "word/document.xml")
-            ext == "pptx" || "presentationml" in mime -> zipText(uri, ::slideOrder)
-            ext == "xlsx" || "spreadsheetml" in mime -> zipEntry(uri, "xl/sharedStrings.xml")
-            ext in setOf("odt", "ods", "odp") || "opendocument" in mime -> zipEntry(uri, "content.xml")
-            ext == "epub" || mime == "application/epub+zip" -> epub(uri)
-            ext == "html" || ext == "htm" || mime == "text/html" -> stripHtml(plainText(uri))
-            ext in FileRules.DOC_TEXT_EXTENSIONS || mime.startsWith("text/") || mime == "application/json" -> plainText(uri)
-            else -> return emptyList()
+        val format = docFormat(file.name, file.mime) ?: return emptyList()
+        val text = when (format) {
+            DocFormat.DOCX, DocFormat.XLSX, DocFormat.ODF -> zipEntry(uri, format.textEntry!!)
+            DocFormat.PPTX -> zipText(uri, ::slideOrder)
+            DocFormat.EPUB -> epub(uri)
+            DocFormat.HTML -> stripHtml(plainText(uri))
+            DocFormat.TEXT -> plainText(uri)
         }
         return Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it) }
     }
@@ -239,7 +237,7 @@ object ImageBytes {
             }
         }
     } catch (e: Exception) {
-        // Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt (Apache-2.0). Modified for Retriever: thumbnail first for embed JPEGs, and the fallback for any image ImageDecoder can't read.
+        // ImageBytes.bitmap's loadThumbnail fallback adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt (Apache-2.0).
         runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull()
     }
 

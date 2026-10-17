@@ -29,6 +29,8 @@ class RetrieverApp : Application() {
                 // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
                 val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
                 if (retriever.setUp.value == true && held) IndexScheduler.indexNow(this@RetrieverApp)
+                // Picks the setup chain up where it stopped, whichever screen the user comes back to.
+                if (graph.setup.ui.value.started) graph.setup.refresh()
             }
 
             override fun onStop(owner: LifecycleOwner) {

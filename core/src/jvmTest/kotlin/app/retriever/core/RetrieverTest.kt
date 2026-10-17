@@ -263,6 +263,19 @@ class RetrieverTest {
     }
 
     @Test
+    fun aGpuThatCantRunRightNowIsReopenedNotDemoted() = test {
+        val f = fx(files = 3)
+        f.store.setProfile(PROFILE.copy(backend = Backend.GPU))
+        var embeds = 0
+        f.factory.beforeEmbed = { if (++embeds == 2) throw EmbedderClosedException("GPU refused in the background", broken = false) }
+        assertEquals(NextRun.SOON, f.r.indexBatch(1.minutes))
+        assertEquals(Backend.GPU, f.store.profile()!!.backend)
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(Backend.GPU, f.factory.opened.last().first.backend)
+        assertEquals(3L, f.store.countsByState()[FileState.INDEXED])
+    }
+
+    @Test
     fun anNpuReleasedUnderABatchIsNotMarkedFailed() = test {
         val g5 = DeviceProbe(Platform.ANDROID, 35, "Google", "Tensor G5", 8.0, false, npuDispatch = true)
         val factory = FakeFactory { if (it.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU) }

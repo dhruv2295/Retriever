@@ -47,36 +47,40 @@ object Thumbnails {
     @OptIn(ExperimentalCoroutinesApi::class)
     private val renderDispatcher = Dispatchers.IO.limitedParallelism(4)
 
-    suspend fun load(context: Context, file: SourceFile, sizePx: Int): ImageBitmap? {
-        val key = "${file.uri}@$sizePx"
+    /** [locator] picks the PDF page or video moment that matched; "" shows the first page or the poster frame. */
+    suspend fun load(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? {
+        val key = "${file.uri}@$sizePx#$locator"
         cache.get(key)?.let { return it.asImageBitmap() }
         if (misses.get(key) != null) return null
-        val bitmap = withContext(renderDispatcher) { runCatching { render(context, file, sizePx) }.getOrNull() }
+        val bitmap = withContext(renderDispatcher) { runCatching { render(context, file, sizePx, locator) }.getOrNull() }
         if (bitmap == null) misses.put(key, true)
         return bitmap?.also { cache.put(key, it) }?.asImageBitmap()
     }
 
-    private fun render(context: Context, file: SourceFile, n: Int): Bitmap? {
+    private fun render(context: Context, file: SourceFile, n: Int, locator: String): Bitmap? {
         val uri = Uri.parse(file.uri)
         return when (file.kind) {
             Kind.PHOTO, Kind.SCREENSHOT ->
                 runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
                     ?: ImageBytes.bitmap(context, uri, n)
-            Kind.VIDEO ->
-                runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
+            Kind.VIDEO -> {
+                val ms = Opener.locatorToMs(locator)
+                // loadThumbnail ignores the time, so a moment is always cut from the video itself.
+                (if (ms == null) runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull() else null)
                     ?: MediaMetadataRetriever().use {
                         it.setDataSource(context, uri)
-                        it.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, n, n)
+                        it.getScaledFrameAtTime((ms ?: 0) * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, n, n)
                     }
-            Kind.PDF -> pdfFirstPage(context, uri, n)
+            }
+            Kind.PDF -> pdfPage(context, uri, (Opener.locatorToPage(locator) ?: 1) - 1, n)
             else -> null
         }
     }
 
-    private fun pdfFirstPage(context: Context, uri: Uri, n: Int): Bitmap? =
+    private fun pdfPage(context: Context, uri: Uri, index: Int, n: Int): Bitmap? =
         context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
             PdfRenderer(fd).use { renderer ->
-                renderer.openPage(0).use { page ->
+                renderer.openPage(index.coerceIn(0, renderer.pageCount - 1)).use { page ->
                     val scale = n.toFloat() / maxOf(page.width, page.height)
                     val bitmap = Bitmap.createBitmap(
                         (page.width * scale).toInt().coerceAtLeast(1),

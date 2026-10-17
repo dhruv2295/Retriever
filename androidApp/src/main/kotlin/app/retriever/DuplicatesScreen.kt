@@ -13,11 +13,16 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -144,6 +149,7 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
     val vm = appViewModel { DuplicatesViewModel(it) }
     val s by vm.state.collectAsStateWithLifecycle()
     var confirming by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val reclaimable = s.groups.sumOf { it.wastedBytes }
     val selectedCount = s.selected.size
 
@@ -187,7 +193,7 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
             when {
                 s.scanning -> Column(
                     Modifier.fillMaxWidth().padding(24.dp),
@@ -206,20 +212,19 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                     Button(onClick = vm::scan) { Text("Try again") }
                 }
 
-                s.groups.isEmpty() -> Column(
-                    Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text("No duplicates found", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Retriever compared ${"%,d".format(s.scannedFiles)} files.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                s.groups.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(
+                        title = "No duplicates found",
+                        description = "Retriever compared ${"%,d".format(s.scannedFiles)} files.",
+                        icon = Icons.Outlined.ContentCopy,
+                        art = R.drawable.illus_empty,
                     )
                 }
 
-                else -> LazyColumn(Modifier.fillMaxSize()) {
+                else -> LazyColumn(
+                    contentPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding())),
+                    modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize(),
+                ) {
                     item {
                         Text(
                             "${Format.bytes(reclaimable)} could be freed",
@@ -247,6 +252,13 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                                 },
                                 subtitle = file.folder + " · " + Format.date(file.modifiedAt),
                                 leading = { Checkbox(checked = checked, onCheckedChange = null) },
+                                // Look before deleting: copies often have identical thumbnails.
+                                trailing = {
+                                    IconButton(onClick = { Opener.open(context, file, "", onNavigate) }) {
+                                        Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open ${file.name}")
+                                    }
+                                },
+                                onClickLabel = if (checked) "Deselect" else "Select",
                                 onClick = { vm.toggle(file.uri) },
                             )
                         }

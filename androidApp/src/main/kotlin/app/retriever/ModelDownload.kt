@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt (Apache-2.0). Modified for Retriever: DownloadManager request and polling pulled out of the UI into one class, with a free-space check, sha256 verification against the pinned build, and pruning of other builds.
+// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt (Apache-2.0). Modified for Retriever: DownloadManager request and polling pulled out of the UI into one class, with a free-space check, sha256 verification against the pinned build, pruning of other builds, and Wi-Fi only unless the user allows mobile data.
 package app.retriever
 
 import android.app.DownloadManager
@@ -31,7 +31,20 @@ import java.io.File
 import java.security.MessageDigest
 
 class ModelDownload(private val context: Context, private val modelDir: File) {
-    data class Progress(val bytes: Long, val total: Long, val done: Boolean, val failed: Boolean)
+    data class Progress(
+        val bytes: Long,
+        val total: Long,
+        val done: Boolean,
+        val failed: Boolean,
+        val waitingForWifi: Boolean = false,
+    )
+
+    companion object {
+        /** Covers the index DB's first growth. */
+        const val MARGIN_BYTES = 300L * 1024 * 1024
+
+        fun neededBytes(b: ModelBuild): Long = b.sizeBytes + MARGIN_BYTES
+    }
 
     private val downloads = context.getSystemService(DownloadManager::class.java)
 
@@ -48,10 +61,10 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
         return StatFs(modelDir.path).availableBytes
     }
 
-    /** The margin covers the index DB's first growth. */
-    fun hasSpaceFor(b: ModelBuild): Boolean = freeBytes() >= b.sizeBytes + 300L * 1024 * 1024
+    fun hasSpaceFor(b: ModelBuild): Boolean = freeBytes() >= neededBytes(b)
 
-    fun start(b: ModelBuild): Long {
+    /** With [allowMetered] false, DownloadManager holds the download until Wi-Fi (reported as [Progress.waitingForWifi]). */
+    fun start(b: ModelBuild, allowMetered: Boolean): Long {
         check(hasSpaceFor(b)) { "Not enough free space for ${b.fileName}" }
         file(b).let { if (it.exists() && it.length() != b.sizeBytes) it.delete() }
         marker(b).delete()
@@ -59,6 +72,7 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
             .setTitle("Retriever search model")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, "models", b.fileName)
+            .setAllowedOverMetered(allowMetered)
         return downloads.enqueue(request)
     }
 
@@ -71,11 +85,14 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
                     Progress(0, 0, done = false, failed = true)
                 } else {
                     val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                    val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
                     Progress(
                         c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
                         c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
                         done = status == DownloadManager.STATUS_SUCCESSFUL,
                         failed = status == DownloadManager.STATUS_FAILED,
+                        waitingForWifi = status == DownloadManager.STATUS_PAUSED &&
+                            reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI,
                     )
                 }
             }

@@ -45,7 +45,7 @@ class AppGraph(val app: Context) {
     val source: FileSource = demo?.source ?: MediaStoreSource(app)
     val extractor: Extractor = demo?.extractor ?: AndroidExtractor(app)
 
-    /** For work that must outlive a screen (Tune again, the Pause action) and stay off the main thread. */
+    /** For work that must outlive a screen (setup, Tune again, the Pause action) and stay off the main thread. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // The driver opens the file on first query, so building it here touches no disk.
@@ -59,6 +59,9 @@ class AppGraph(val app: Context) {
         Store(AndroidSqliteDriver(IndexDb.Schema, app, demo?.dbName ?: Store.DB_NAME, callback = callback), ::log)
     }
 
+    /** All-files access; the worker reads it too, since names are synced before the model arrives. */
+    val platformReady: () -> Boolean = if (demo != null) ({ true }) else Environment::isExternalStorageManager
+
     val retriever = Retriever(
         store = store,
         source = source,
@@ -68,15 +71,16 @@ class AppGraph(val app: Context) {
         hasher = AndroidContentHasher(app),
         probe = probe,
         modelReady = demo?.modelReady ?: download::ready,
-        platformReady = if (demo != null) ({ true }) else Environment::isExternalStorageManager,
+        platformReady = platformReady,
         log = ::log,
         now = System::currentTimeMillis,
     )
 
+    val setup by lazy { SetupFlow(this) }
+
     /** Off the main thread, once per process: opens the database and settles [Retriever.setUp]. */
     suspend fun start() {
         withContext(Dispatchers.IO) {
-            Store.OLD_DB_NAMES.forEach { app.deleteDatabase(it) }
             if (demo != null && store.profile() == null) {
                 store.setProfile(DeviceProfile(Tier.BALANCED, ModelBuilds.variantFor(probe), Backend.CPU, 70, 5, false, false))
             }

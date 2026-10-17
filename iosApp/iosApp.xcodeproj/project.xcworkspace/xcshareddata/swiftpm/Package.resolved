@@ -1,5 +1,5 @@
 {
-  "originHash" : "5e8e193f5064eb53206a8488bd473929c5ab1bdedfe8fc49f936a5387a901856",
+  "originHash" : "b159ae49e33d178e789d87ad4b282db93393f0e8a3936f8bd0c6b4531c8c76c4",
   "pins" : [
     {
       "identity" : "mediapipe",
@@ -7,6 +7,15 @@
       "location" : "https://github.com/google-ai-edge/mediapipe",
       "state" : {
         "revision" : "50505c8312c7eacb1bd411cecdc4cc9fd08d53cb"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
       }
     }
   ],

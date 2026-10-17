@@ -1,19 +1,28 @@
 package app.retriever
 
+import android.content.Intent
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.BatteryAlert
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,19 +33,29 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.retriever.core.FileState
@@ -65,13 +84,19 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     val index: StateFlow<IndexState> = retriever.state
     private val _tune = MutableStateFlow<TuneState>(TuneState.Idle)
     val tune: StateFlow<TuneState> = _tune
+    private val _skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
+    val skipped: StateFlow<List<Store.StoredFile>> = _skipped
 
-    fun indexNow() {
+    fun resume() {
         viewModelScope.launch { IndexScheduler.resumeByUser(app) }
     }
 
     fun pause() {
         viewModelScope.launch { IndexScheduler.pauseByUser(app) }
+    }
+
+    fun loadSkipped() {
+        viewModelScope.launch { _skipped.value = retriever.skipped(50) }
     }
 
     fun setSearchInside(kind: Kind, on: Boolean) {
@@ -88,7 +113,8 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     fun retrySkipped() {
         viewModelScope.launch {
             retriever.retrySkipped()
-            IndexScheduler.resumeByUser(app)
+            IndexScheduler.indexNow(app)
+            _skipped.value = emptyList()
         }
     }
 
@@ -140,103 +166,194 @@ internal fun stopCopy(stop: StopReason?): String? = when (stop) {
     StopReason.HOT -> "Resting while the phone cools down"
     StopReason.UNPLUGGED -> "Waiting for the charger"
     StopReason.BUDGET -> "Taking a short break"
-    StopReason.BUSY -> "Waiting until you put the phone down"
+    StopReason.BUSY -> "Paused while you use your phone"
     StopReason.PAUSED -> "Paused"
     null -> null
 }
 
-private fun n(v: Long) = "%,d".format(v)
+/** Why files are still waiting. A batch that ended DONE finished before the newer files arrived. */
+internal fun waitingCopy(stop: StopReason?): String? = if (stop == StopReason.DONE) "Will read the new files soon" else stopCopy(stop)
 
-@OptIn(ExperimentalMaterial3Api::class)
+class StatusActions(
+    val back: () -> Unit = {},
+    val pause: () -> Unit = {},
+    val resume: () -> Unit = {},
+    val toggleSkipped: () -> Unit = {},
+    val retrySkipped: () -> Unit = {},
+    val setSearchInside: (Kind, Boolean) -> Unit = { _, _ -> },
+    val setOnlyWhileCharging: (Boolean) -> Unit = {},
+    val removeExcluded: (String) -> Unit = {},
+    val openBatterySettings: () -> Unit = {},
+    val setSampleMode: (Boolean) -> Unit = {},
+    val tuneAgain: () -> Unit = {},
+)
+
 @Composable
 fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { StatusViewModel(it) }) {
+    val context = LocalContext.current
     val counts by vm.counts.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val tune by vm.tune.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
+    val skippedFiles by vm.skipped.collectAsStateWithLifecycle()
+    var skippedOpen by rememberSaveable { mutableStateOf(false) }
+    val power = remember { context.getSystemService(PowerManager::class.java) }
+    var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        unrestricted = power.isIgnoringBatteryOptimizations(context.packageName)
+        if (skippedOpen) vm.loadSkipped()
+    }
+    StatusContent(
+        counts = counts,
+        prefs = prefs,
+        index = index,
+        tune = tune,
+        skippedFiles = skippedFiles,
+        skippedOpen = skippedOpen,
+        batteryHint = !unrestricted,
+        actions = StatusActions(
+            back = onBack,
+            pause = vm::pause,
+            resume = vm::resume,
+            toggleSkipped = {
+                skippedOpen = !skippedOpen
+                if (skippedOpen) vm.loadSkipped()
+            },
+            retrySkipped = vm::retrySkipped,
+            setSearchInside = vm::setSearchInside,
+            setOnlyWhileCharging = vm::setOnlyWhileCharging,
+            removeExcluded = vm::removeExcluded,
+            openBatterySettings = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+            setSampleMode = vm::setSampleMode,
+            tuneAgain = vm::tuneAgain,
+        ),
+    )
+}
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StatusContent(
+    counts: Store.Counts,
+    prefs: Prefs,
+    index: IndexState,
+    tune: TuneState,
+    skippedFiles: List<Store.StoredFile>,
+    skippedOpen: Boolean,
+    batteryHint: Boolean,
+    actions: StatusActions = StatusActions(),
+) {
     val searchable = counts.byState[FileState.INDEXED] ?: 0
     val waiting = counts.byState[FileState.PENDING] ?: 0
     val skipped = counts.byState[FileState.SKIPPED] ?: 0
-    val summary = buildString {
-        append("${n(searchable)} searchable · ${n(waiting)} waiting")
-        if (skipped > 0) append(" · ${n(skipped)} skipped")
-    }
-    val kinds = counts.byKind.entries.sortedByDescending { it.value }
-        .joinToString(" · ") { (kind, count) -> "${n(count)} ${Format.kindLabelPlural(kind).lowercase()}" }
+    val total = searchable + waiting + skipped
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Status") },
+                title = {
+                    Text(
+                        when {
+                            index.running && index.pendingAtStart == 0L -> "Looking for your files"
+                            prefs.paused -> "Paused"
+                            waiting > 0 -> "Reading your files"
+                            else -> "All caught up"
+                        },
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = actions.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
             )
         },
     ) { padding ->
-        Column(
-            Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-        ) {
+        Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(summary, style = MaterialTheme.typography.titleMedium.tabular(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (kinds.isNotEmpty()) {
-                    Text(kinds, style = MaterialTheme.typography.bodyMedium.tabular(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (index.running) {
+                    Image(
+                        painterResource(R.drawable.illus_reading),
+                        contentDescription = null,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 160.dp).fillMaxWidth(),
+                    )
                 }
-                // The bar and the line below it stay in place whether or not a batch is running, so nothing
-                // under them jumps each time indexing pauses between batches.
-                val total = index.pendingAtStart
-                val fraction = if (index.running && total > 0) (index.processed.toFloat() / total).coerceIn(0f, 1f) else 0f
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().alpha(if (index.running) 1f else 0f),
-                )
                 Text(
-                    when {
-                        index.running && total == 0L -> "Looking for your files…"
-                        index.running -> "${n(index.processed.toLong())} of ${n(total)}" + (index.current?.let { " · $it" } ?: "")
-                        else -> stopCopy(if (prefs.paused) StopReason.PAUSED else index.lastStop) ?: " "
-                    },
-                    style = MaterialTheme.typography.bodyMedium.tabular(),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    "${Format.count(searchable)} of ${Format.count(total)} files searchable",
+                    style = MaterialTheme.typography.titleMedium.tabular(),
                 )
-                if (index.failed > 0) {
-                    Text("${n(index.failed.toLong())} couldn't be read", style = MaterialTheme.typography.bodySmall)
+                LinearProgressIndicator(
+                    progress = { if (total > 0) searchable.toFloat() / total else 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                when {
+                    index.running && index.pendingAtStart == 0L -> Muted("Looking for your files…")
+                    index.running -> {
+                        index.etaMinutes?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
+                        index.current?.let { Muted("Now: $it", maxLines = 1) }
+                    }
+                    // The title already says paused or all caught up.
+                    waiting > 0 && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
                 }
                 index.lastError?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = vm::indexNow) { Text("Index now") }
-                    OutlinedButton(onClick = vm::pause) { Text("Pause") }
-                }
-                if (skipped > 0) {
-                    TextButton(onClick = vm::retrySkipped) { Text("Try skipped files again") }
+                when {
+                    prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
+                    waiting > 0 -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
                 }
             }
 
+            if (skipped > 0) {
+                ListItem(
+                    headlineContent = {
+                        Text(if (skipped == 1L) "1 file couldn't be read" else "${Format.count(skipped)} files couldn't be read")
+                    },
+                    trailingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(if (skippedOpen) "Hide" else "See which", color = MaterialTheme.colorScheme.primary)
+                            Icon(if (skippedOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                        }
+                    },
+                    modifier = Modifier
+                        .clickable(onClick = actions.toggleSkipped)
+                        .semantics { stateDescription = if (skippedOpen) "Expanded" else "Collapsed" },
+                )
+                AnimatedVisibility(skippedOpen) {
+                    Column {
+                        for (f in skippedFiles) {
+                            ListItem(
+                                headlineContent = { Text(f.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                        TextButton(onClick = actions.retrySkipped, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Try again") }
+                    }
+                }
+            }
+
+            if (counts.tailChunks > 0) {
+                Muted(
+                    "Some long documents are only partly read. Retriever reads the rest while your phone charges.",
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            if (batteryHint && waiting > 0) {
+                ListItem(
+                    headlineContent = { Text("Let Retriever keep reading in the background") },
+                    supportingContent = { Text("Some phones stop apps working in the background.") },
+                    leadingContent = { Icon(Icons.Outlined.BatteryAlert, contentDescription = null) },
+                    modifier = Modifier.clickable(onClick = actions.openBatterySettings),
+                )
+            }
+
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Header("Search inside")
+            Header("Read inside")
             for (kind in SEARCH_INSIDE) {
-                SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { vm.setSearchInside(kind, it) }
+                SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
             }
-            Text(
-                "Everything else is found by name only.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            SwitchRow("Only index while charging", prefs.onlyWhileCharging, vm::setOnlyWhileCharging)
-            SwitchRow("Sample mode: newest $SAMPLE_PER_KIND of each type", prefs.sampleSize != null, vm::setSampleMode)
-            Text(
-                "For testing. Indexes a few hundred files in minutes. Turn it off to bring in the whole phone.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+            SwitchRow("Only read while charging", prefs.onlyWhileCharging, actions.setOnlyWhileCharging)
 
             if (prefs.excludedFolders.isNotEmpty()) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -245,7 +362,7 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
                     ListItem(
                         headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingContent = {
-                            IconButton(onClick = { vm.removeExcluded(folder) }) {
+                            IconButton(onClick = { actions.removeExcluded(folder) }) {
                                 Icon(Icons.Filled.Close, contentDescription = "Search $folder again")
                             }
                         },
@@ -253,33 +370,46 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
                 }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Header("This phone")
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                index.backend?.let { b ->
-                    Text(tuneSummary(b, null), style = MaterialTheme.typography.bodyMedium)
+            // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
+            if (BuildConfig.DEBUG) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Header("For testing")
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    index.backend?.let { Text(tuneSummary(it, null), style = MaterialTheme.typography.bodyMedium) }
+                    index.detail?.let { Muted(it.replaceFirstChar(Char::uppercase)) }
+                    index.build?.let { Muted("Model file: ${it.fileName}") }
                 }
-                index.detail?.let { Text(it.replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodySmall) }
-                when (val t = tune) {
-                    TuneState.Running -> Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                        Text("Tuning… this takes about a minute", style = MaterialTheme.typography.bodyMedium)
+                SwitchRow("Sample mode: newest $SAMPLE_PER_KIND of each type", prefs.sampleSize != null, actions.setSampleMode)
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (tune) {
+                        TuneState.Running -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
+                            Text("Tuning… about a minute", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        is TuneState.Failed -> Text("Tune failed: ${tune.message}", color = MaterialTheme.colorScheme.error)
+                        is TuneState.Done -> Muted(tune.summary)
+                        TuneState.Idle -> Unit
                     }
-                    is TuneState.Failed -> {
-                        Text("Couldn't tune Retriever for this phone", color = MaterialTheme.colorScheme.error)
-                        OutlinedButton(onClick = vm::tuneAgain) { Text("Try again") }
-                    }
-                    else -> {
-                        (t as? TuneState.Done)?.let { Text(it.summary, style = MaterialTheme.typography.bodyMedium) }
-                        OutlinedButton(onClick = vm::tuneAgain) { Text("Tune again") }
-                    }
+                    OutlinedButton(onClick = actions.tuneAgain, enabled = tune != TuneState.Running) { Text("Tune again") }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun Muted(text: String, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
 }
 
 @Composable

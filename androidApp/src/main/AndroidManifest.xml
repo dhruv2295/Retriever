@@ -25,7 +25,8 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="Retriever"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:theme="@style/Theme.Retriever.Starting"
+        android:enableOnBackInvokedCallback="true"
         android:largeHeap="true">
         <!-- Same as Google AI Edge Gallery: without these, Android hides OpenCL from the app and LiteRT
              falls back to WebGPU, which can't load EmbeddingGemma 2 ("weights manager" error). -->

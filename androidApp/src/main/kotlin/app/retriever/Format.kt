@@ -20,6 +20,7 @@ package app.retriever
 import androidx.compose.ui.text.TextStyle
 import app.retriever.core.Kind
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.ln
@@ -43,6 +44,40 @@ object Format {
         Kind.AUDIO -> "Audio"
         Kind.VIDEO -> "Video"
         Kind.OTHER -> "File"
+    }
+
+    /** "p. 12" becomes "Page 12", a time stays as it is, anything else has no label. */
+    fun locatorLabel(locator: String): String? = when {
+        Opener.locatorToPage(locator) != null -> "Page ${Opener.locatorToPage(locator)}"
+        Opener.locatorToMs(locator) != null -> locator
+        else -> null
+    }
+
+    /** Milliseconds as "m:ss" or "h:mm:ss", the same shape as a time locator. */
+    fun clock(ms: Long): String {
+        val s = ms / 1000
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+    }
+
+    /** The locator as a screen reader should say it. */
+    fun locatorSpoken(locator: String): String? {
+        Opener.locatorToPage(locator)?.let { return "page $it" }
+        val total = (Opener.locatorToMs(locator) ?: return null) / 1000
+        val parts = listOf(total / 3600 to "hour", total % 3600 / 60 to "minute", total % 60 to "second")
+            .filter { it.first > 0 }
+            .map { (n, unit) -> "$n $unit${if (n == 1L) "" else "s"}" }
+        return parts.joinToString(" ").ifEmpty { "0 seconds" }
+    }
+
+    fun count(n: Long): String = NumberFormat.getIntegerInstance().format(n)
+
+    fun eta(minutes: Int): String = when {
+        minutes < 1 -> "less than a minute left"
+        minutes == 1 -> "about a minute left"
+        minutes < 60 -> "about $minutes minutes left"
+        minutes < 90 -> "about an hour left"
+        minutes < 48 * 60 -> "about ${(minutes + 30) / 60} hours left"
+        else -> "about ${(minutes + 12 * 60) / (24 * 60)} days left"
     }
 
     fun kindLabelPlural(kind: Kind): String = when (kind) {

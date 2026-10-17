@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.DropdownMenu
@@ -98,19 +101,22 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                     title = "No folders yet",
                     description = "Folders appear once Retriever has looked through your phone.",
                     icon = Icons.Outlined.FolderOpen,
+                    art = R.drawable.illus_empty,
                 )
             }
         } else {
-            LazyColumn(Modifier.padding(padding)) {
-                items(folders, key = { it.first }) { (path, count) ->
-                    FolderRow(
-                        path = path,
-                        count = count,
-                        onOpen = {
-                            onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { "Top level" }))
-                        },
-                        onExclude = { confirming = path to count },
-                    )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                LazyColumn(contentPadding = contentPaddingFor(padding), modifier = Modifier.widthIn(max = 840.dp).fillMaxSize()) {
+                    items(folders, key = { it.first }) { (path, count) ->
+                        FolderRow(
+                            path = path,
+                            count = count,
+                            onOpen = {
+                                onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { "Top level" }))
+                            },
+                            onExclude = { confirming = path to count },
+                        )
+                    }
                 }
             }
         }
@@ -121,7 +127,7 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
         val name = path.substringAfterLast('/').ifEmpty { "Top level" }
         ConfirmDialog(
             title = "Stop searching $name?",
-            message = "Retriever will forget the ${countLabel(count)} in $name. You can bring the folder back in Status.",
+            message = "Retriever will forget the ${countLabel(count)} in $name. You can bring it back from the status line at the top of Home.",
             confirmLabel = "Stop searching",
             onConfirm = {
                 confirming = null
@@ -135,13 +141,12 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
 @Composable
 private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
+    val name = path.substringAfterLast('/').ifEmpty { "Top level" }
 
     Box {
         ListItem(
             // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
-            headlineContent = {
-                Text(path.substringAfterLast('/').ifEmpty { "Top level" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            },
+            headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             supportingContent = {
                 val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
                 Text(
@@ -151,19 +156,30 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
                 )
             },
             leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-            modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = { showMenu = true }),
+            trailingContent = {
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More options for $name")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(EXCLUDE_LABEL) },
+                            onClick = {
+                                showMenu = false
+                                onExclude()
+                            },
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .heightIn(min = 56.dp)
+                .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),
         )
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(
-                text = { Text("Don't search this folder") },
-                onClick = {
-                    showMenu = false
-                    onExclude()
-                },
-            )
-        }
     }
 }
+
+private const val EXCLUDE_LABEL = "Stop searching this folder"
 
 private fun countLabel(count: Long): String =
     if (count == 1L) "1 file" else "%,d files".format(count)

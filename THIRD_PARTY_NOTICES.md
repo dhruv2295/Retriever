@@ -1,9 +1,9 @@
 # Third-party notices
 
-Retriever includes code adapted from the open-source projects below. Each is licensed under the
-Apache License, Version 2.0; the full text is reproduced at the end of this file. Adapted files keep
-the upstream license header (where the upstream file had one) and carry an "Adapted from" line
-describing what was changed.
+Retriever includes code adapted from the open-source projects below. Each section names its license.
+The Apache License, Version 2.0 text is reproduced at the end of this file, followed by the MIT text
+for the one dependency under another license. Adapted files keep the upstream license header (where
+the upstream file had one) and carry an "Adapted from" line describing what was changed.
 
 ## google-ai-edge/gallery
 
@@ -23,16 +23,33 @@ describing what was changed.
 - Copyright its contributors (the upstream file carries no header)
 - License: Apache License 2.0
 
+## androidx compose material3 samples
+
+- Source: https://github.com/androidx/androidx
+- Copyright The Android Open Source Project (see the upstream file header)
+- License: Apache License 2.0
+
+## google-ai-edge/mediapipe-samples
+
+- Source: https://github.com/google-ai-edge/mediapipe-samples
+- Copyright 2026 The MediaPipe Authors
+- License: Apache License 2.0
+
+## Dependencies under other licenses
+
+- ZIPFoundation — https://github.com/weichsel/ZIPFoundation — Copyright (c) 2017-2025 Thomas Zoechling — MIT License (iOS, via Swift Package Manager; not adapted code). Its MIT text is at the end of this file.
+
 ## Files containing adapted code
 
 - androidApp/src/main/kotlin/app/retriever/IndexWorker.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/Notifications.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/Thumbnails.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0); platform-samples `samples/graphics/pdf/src/main/java/com/example/platform/graphics/pdf/PdfRendererViewModel.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/PdfPageScreen.kt — platform-samples `samples/graphics/pdf/src/main/java/com/example/platform/graphics/pdf/PdfRenderer.kt` and `PdfRendererViewModel.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/FileRow.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt` BackgroundAssetGridTile (ThumbCell) and `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/DuplicatesScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/ConfirmDeleteDialog.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/SetupScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` and `ui/common/Utils.kt` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/Format.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/Utils.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/retriever/FileRow.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt` (Apache-2.0)
-- androidApp/src/main/kotlin/app/retriever/SearchScreen.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/home/SquareDrawerItem.kt` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/SearchScreen.kt — androidx compose material3 1.4.0 samples `SearchBarSamples.kt` (SimpleSearchBarSample) and gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt` results grid (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/PlayerScreen.kt — TikTokCompose `app/src/main/java/com/example/tiktokcompose/ui/composables/TikTokScreen.kt` (Apache-2.0)
 - androidApp/src/main/AndroidManifest.xml — gallery `Android/src/app/src/main/AndroidManifest.xml` (uses-native-library block, npu uses-feature, foreground service type) (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/ModelDownload.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt` (Apache-2.0)
@@ -42,9 +59,11 @@ describing what was changed.
 - core/src/androidMain/kotlin/app/retriever/core/android/MediaStoreSource.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0); platform-samples `samples/storage/src/main/java/com/example/platform/storage/mediastore/MediaStoreQuery.kt` (Apache-2.0)
 - core/src/androidMain/kotlin/app/retriever/core/android/Device.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/common/HardwareUtils.kt` (Apache-2.0)
 - core/src/commonMain/kotlin/app/retriever/core/VideoMoments.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/AudioInterleaving.kt` and `Common.kt` (Apache-2.0)
-- core/src/androidMain/kotlin/app/retriever/core/android/MediaPipeEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/MediaPipeEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt` and `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/GemmaEmbeddingModelStore.kt` (old-Mali rule) (Apache-2.0)
 - core/src/androidMain/kotlin/app/retriever/core/android/MediaDecoding.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/VideoAudioExtractor.kt`, `Common.kt`, `VideoDecoderSupport.kt`, `VideoThumbnails.kt`, and `services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
-- core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
+- core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — ImageBytes.bitmap's loadThumbnail fallback, gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
+- core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt`, by way of MediaPipeEmbedder.kt (Apache-2.0)
+- iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
 
 ## Apache License 2.0
 
@@ -250,4 +269,32 @@ describing what was changed.
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+```
+
+## MIT License (ZIPFoundation)
+
+Source: https://github.com/weichsel/ZIPFoundation (text from the package's LICENSE file)
+
+```
+MIT License
+
+Copyright (c) 2017-2025 Thomas Zoechling (https://www.peakstep.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```

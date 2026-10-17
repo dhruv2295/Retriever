@@ -39,7 +39,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    private val retriever = (applicationContext as RetrieverApp).graph.retriever
+    private val graph = (applicationContext as RetrieverApp).graph
+    private val retriever = graph.retriever
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val notificationId: Int = params.id.hashCode()
     private val pauseIntent by lazy {
@@ -54,12 +55,16 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     // A stop (constraints, time limit, Pause) cancels doWork, and with it the batch inside indexBatch:
     // the cancelBatch() the platform's onStopped would call (it is final in CoroutineWorker).
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        // No Process.setThreadPriority: it would demote a pooled IO thread for good, and the heavy work runs on Dispatchers.Default and MediaPipe's own threads.
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
-        if (retriever.setUp.value != true || retriever.prefs.value.paused) return@withContext Result.success()
+        // Before setup finishes a batch only syncs the file list, so names are searchable while the model downloads.
+        if (retriever.prefs.value.paused || !graph.platformReady()) return@withContext Result.success()
         try {
             val next = coroutineScope {
-                val foreground = retriever.uiVisible && safeSetForeground(foregroundInfo(retriever.state.value))
+                // A sync-only run takes seconds: no notification for it.
+                val foreground = retriever.setUp.value == true && retriever.uiVisible &&
+                    safeSetForeground(foregroundInfo(retriever.state.value))
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes).also { progress?.cancel() }
             }

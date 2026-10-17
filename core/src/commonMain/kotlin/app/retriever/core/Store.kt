@@ -270,6 +270,10 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     /** The newest ten, newest first. */
     fun recentQueries(): List<String> = q.recentQueries().executeAsList()
 
+    fun removeRecentQuery(query: String) {
+        q.removeRecentQuery(query.trim())
+    }
+
     fun clearRecentQueries() {
         q.clearRecentQueries()
     }
@@ -282,9 +286,6 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
     companion object {
         const val DB_NAME = "retriever.db"
-
-        /** Pre-1.0 database files; platforms delete them instead of migrating. */
-        val OLD_DB_NAMES = listOf("library.db", "index.db")
 
         private const val SIGNATURE_KEY = "model_signature"
         private const val PROFILE_KEY = "profile"

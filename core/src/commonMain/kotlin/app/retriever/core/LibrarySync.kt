@@ -43,7 +43,7 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         }
 
         val removed = if (changes.isFullScan) {
-            knownInScope - keep.map { it.uri }.toSet()
+            knownInScope - keep.map { it.uri }.toSet() - changes.present.orEmpty()
         } else {
             changes.removed.toSet() +
                 changes.upserted.filter { it.uri in known && prefs.excludes(it.folder) }.map { it.uri } +
