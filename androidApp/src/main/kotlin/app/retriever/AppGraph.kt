@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE
+import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO
 import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 import android.util.Log
@@ -56,7 +57,7 @@ class AppGraph(val app: Context) {
     val source: FileSource = demo?.source ?: CompositeSource(
         mapOf(
             "content://media/" to MediaStoreSource(app, ::mediaAccess),
-            SafSource.PREFIX to SafSource(app, { access().trees }, { access().mediaKinds }),
+            SafSource.PREFIX to SafSource(app, { access().trees }, { access().mediaKinds }, ::mediaListed),
         ),
     )
     val extractor: Extractor = demo?.extractor ?: AndroidExtractor(app)
@@ -71,6 +72,12 @@ class AppGraph(val app: Context) {
             override fun onConfigure(db: SupportSQLiteDatabase) {
                 db.enableWriteAheadLogging()
             }
+
+            override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                val start = System.nanoTime()
+                super.onUpgrade(db, oldVersion, newVersion)
+                Log.i("Retriever", "Index upgraded $oldVersion -> $newVersion in ${(System.nanoTime() - start) / 1_000_000} ms")
+            }
         }
         Store(AndroidSqliteDriver(IndexDb.Schema, app, demo?.dbName ?: Store.DB_NAME, callback = callback), ::log)
     }
@@ -81,6 +88,7 @@ class AppGraph(val app: Context) {
         Environment.isExternalStorageManager(),
         { ContextCompat.checkSelfPermission(app, it) == PackageManager.PERMISSION_GRANTED },
         app.contentResolver.persistedUriPermissions.filter { it.isReadPermission }.map { it.uri.toString() },
+        SafSource.volumeDescriber(app),
     )
 
     /** Some access to files; the worker reads it too, since names are synced before the model arrives. */
@@ -141,6 +149,30 @@ class AppGraph(val app: Context) {
         return "${a.fingerprint}-$picked"
     }
 
+    /**
+     * What MediaStore lists beyond the kinds it covers in full ([Access.mediaKinds]), e.g. the photos the person
+     * picked, as [SafSource.mediaKey]s: a picked folder skips them, so one photo never has two rows.
+     */
+    private fun mediaListed(): Set<String> {
+        val a = access()
+        val covered = buildList {
+            if (a.photos == Photos.ALL) add(MEDIA_TYPE_IMAGE)
+            if (a.videos) add(MEDIA_TYPE_VIDEO)
+            if (a.audio) add(MEDIA_TYPE_AUDIO)
+        }
+        val keys = HashSet<String>()
+        app.contentResolver.query(
+            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL),
+            arrayOf(MediaStore.MediaColumns.VOLUME_NAME, MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.DISPLAY_NAME),
+            if (covered.isEmpty()) null else "$MEDIA_TYPE NOT IN (${covered.joinToString()})",
+            null,
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) keys += SafSource.mediaKey(c.getString(0).orEmpty(), c.getString(1).orEmpty(), c.getString(2).orEmpty())
+        }
+        return keys
+    }
+
     val retriever = Retriever(
         store = store,
         source = source,
@@ -153,6 +185,7 @@ class AppGraph(val app: Context) {
         platformReady = platformReady,
         log = ::log,
         now = System::currentTimeMillis,
+        zoneOffsetMs = { java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong() },
     )
 
     val setup by lazy { SetupFlow(this) }

@@ -1,7 +1,11 @@
 package app.retriever
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import app.retriever.core.Backend
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
@@ -11,6 +15,7 @@ import app.retriever.core.Prefs
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.SourceFile
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -97,8 +102,8 @@ class SetupStatusShotsTest {
         tall: Boolean = false,
     ) = shot(name, dark, fontScale, tall) {
         StatusContent(
-            counts, prefs, index, TuneState.Done("Using the graphics chip · about 0.8 s per photo"), skippedFiles, open, batteryHint = true,
-            access = access, textOnly = textOnly, ramGb = 3.0,
+            counts, prefs, index, skippedFiles, open, batteryHint = true,
+            actions = StatusActions(openSettings = {}), access = access, textOnly = textOnly,
         )
     }
 
@@ -129,6 +134,17 @@ class SetupStatusShotsTest {
     private val tail = reading.copy(tailFiles = 7)
     @Test fun statusTailFiles() = status("status_tail_files_light", tail, running.copy(running = false, lastStop = StopReason.BUDGET))
     @Test fun statusTailFilesDark() = status("status_tail_files_dark", tail, running.copy(running = false, lastStop = StopReason.BUDGET), dark = true)
+
+    @Test fun statusHoldsNoPreferenceAndLinksToSettings() {
+        var opened = 0
+        shot("status_links_settings_light", tall = true) {
+            StatusContent(caughtUp, prefs, idle, skippedFiles, false, batteryHint = false, actions = StatusActions(openSettings = { opened++ }))
+        }
+        listOf("Only read while charging", "Screenshots", "PDFs", "Tune again", "Folders Retriever skips", "Read inside", "Sample mode")
+            .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
+        rule.onNodeWithText("Settings").performClick()
+        assertEquals(1, opened)
+    }
 
     @Test fun statusReading() = status("status_reading_light")
     @Test fun statusReadingDark() = status("status_reading_dark", dark = true)

@@ -22,6 +22,8 @@ class TextQualityTest {
         assertTrue(looksBroken(pdfKit))
         assertTrue(looksBroken(pdfToText))
         assertTrue(looksBroken("आरव कु मार"))
+        assertTrue(looksBroken("সরস্ব\nী text"))
+        assertTrue(looksBroken("ั สวัสดี"))
         assertTrue(looksBroken("Invoice ��� total"))
         assertTrue(looksBroken(" "))
     }
@@ -34,6 +36,11 @@ class TextQualityTest {
         assertFalse(looksBroken("तू कहाँ है? इसे मत छू, यह गरम है। मुझे उसकी बातें याद हैं।"))
         assertFalse(looksBroken("A long English page with one stray replacement � character in it, which is not enough to OCR the page again."))
         assertFalse(looksBroken(""))
+        assertFalse(looksBroken("আমি বাংলায় গান গাই। আমার সোনার বাংলা, আমি তোমায় ভালোবাসি।"))
+        assertFalse(looksBroken("தமிழ் மொழி மிகவும் பழமையான மொழி. நான் உங்களை சந்தித்ததில் மகிழ்ச்சி."))
+        assertFalse(looksBroken("สวัสดีครับ ผมอยากจองโต๊ะสำหรับสี่คนที่ร้านอาหารริมน้ำ วันศุกร์นี้"))
+        assertFalse(looksBroken("مَرْحَبًا بِكُمْ في مدينتنا الجميلة، وشكرًا لزيارتكم هذا الأسبوع."))
+        assertFalse(looksBroken("Heart ❤️ and café é are fine."))
     }
 
     @Test

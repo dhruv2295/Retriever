@@ -1,17 +1,48 @@
 package app.retriever.core
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
+
+/**
+ * One search. [from] (inclusive) and [to] (exclusive) are epoch ms, matched against a file's capture time (taken, else
+ * modified); [fileIds] keeps only those files, e.g. the starred ones. Null: no such filter. [onlyStarred] says
+ * [fileIds] are the starred files, so the keyword lane can filter by them in SQL before its cut.
+ */
+data class SearchRequest(
+    val text: String,
+    val kinds: Set<Kind>? = null,
+    val from: Long? = null,
+    val to: Long? = null,
+    val fileIds: Set<Long>? = null,
+    val limit: Int = 20,
+    val mode: SearchEngine.Mode = SearchEngine.Mode.MERGED,
+    val onlyStarred: Boolean = false,
+)
+
+/** Whether sorted [a] holds [x]; common Kotlin has no binarySearch on primitive arrays. */
+private fun sortedHas(a: LongArray, x: Long): Boolean {
+    var lo = 0
+    var hi = a.size - 1
+    while (lo <= hi) {
+        val mid = (lo + hi) ushr 1
+        if (a[mid] < x) lo = mid + 1 else if (a[mid] > x) hi = mid - 1 else return true
+    }
+    return false
+}
 
 /** [embedder] is swapped when the model reopens, so the loaded vector table outlives any one embedder. */
 class SearchEngine(
     private val store: Store,
     @Volatile var embedder: Embedder,
     private val tuning: SearchTuning = SearchTuning(),
-    /** The floor for the index's model; null counts every hit strong. */
-    private val floorFor: (Signature) -> RelevanceFloor? = RelevanceFloor::measuredFor,
+    /** Splits files found only by meaning into strong and weak; null counts them all strong. */
+    private val rule: RelevanceRule? = RelevanceRule.shipped,
+    /** The in-memory name index once it is built; null before, when names come from the file keyword table. */
+    private val nameIndex: () -> NameIndex? = { null },
 ) {
     enum class Mode { VECTOR, KEYWORD, MERGED }
 
@@ -24,20 +55,34 @@ class SearchEngine(
         /** Keyword hits mark matched words with \u0002 and \u0003. */
         val snippet: String?,
         val score: Double,
-    )
+        /** Found by its name or folder, so the matched words are in the name. */
+        val byName: Boolean,
+    ) {
+        // Swift gets no default arguments, so six-argument callers (the iOS fixtures) use this one.
+        constructor(file: SourceFile, fileId: Long, chunkId: Long, locator: String, snippet: String?, score: Double) :
+            this(file, fileId, chunkId, locator, snippet, score, false)
+    }
 
     /**
      * [vectorLane] is false when results are keyword-only (other model's index, closed or failed embedder).
      * hits[0 until strongCount] match well; the rest are weak, listed after them.
      */
-    data class SearchResult(val hits: List<Hit>, val vectorLane: Boolean, val strongCount: Int = hits.size)
+    data class SearchResult(
+        val hits: List<Hit>,
+        val vectorLane: Boolean,
+        val strongCount: Int = hits.size,
+        /** What the query was understood to ask for; the facade fills it. */
+        val parsed: ParsedQuery? = null,
+        /** A filter found nothing, so the facade searched again without it. */
+        val relaxed: Boolean = false,
+    )
 
     /**
      * [backing] grows in place under [loadLock]; searches scan [view], whose arrays and size were fixed when it
      * was published, so later appends (beyond its size) never race with a scan.
      */
     private class Loaded(val backing: VectorTable, val deletedAtLoad: Long) {
-        val view = VectorTable(backing.chunkIds, backing.fileIds, backing.bytes, backing.scales, backing.size, backing.kinds)
+        val view = VectorTable(backing.chunkIds, backing.fileIds, backing.bytes, backing.scales, backing.size, backing.kinds, backing.modalities, backing.days)
     }
 
     private val loadLock = Mutex()
@@ -55,15 +100,17 @@ class SearchEngine(
      */
     suspend fun refresh() {
         loadLock.withLock {
-            val current = loaded
-            val deleted = store.vectorsDeleted()
-            loaded = if (current == null || (deleted - current.deletedAtLoad) * 10 > current.backing.size) {
-                fullLoads++
-                // Drop the old table first and size the new one exactly, so a rebuild never holds three copies.
-                loaded = null
-                Loaded(store.loadVectors(into = VectorTable.withCapacity(store.vectorCount())), deleted)
-            } else {
-                Loaded(store.loadVectors(afterId = current.backing.lastId, into = current.backing), current.deletedAtLoad)
+            traced("vec.refresh") {
+                val current = loaded
+                val deleted = store.vectorsDeleted()
+                loaded = if (current == null || (deleted - current.deletedAtLoad) * 10 > current.backing.size) {
+                    fullLoads++
+                    // Drop the old table first and size the new one exactly, so a rebuild never holds three copies.
+                    loaded = null
+                    Loaded(store.loadVectors(into = VectorTable.withCapacity(store.vectorCount())), deleted)
+                } else {
+                    Loaded(store.loadVectors(afterId = current.backing.lastId, into = current.backing), current.deletedAtLoad)
+                }
             }
         }
     }
@@ -73,127 +120,243 @@ class SearchEngine(
         mode: Mode = Mode.MERGED,
         limit: Int = 20,
         kinds: Set<Kind>? = null,
-    ): SearchResult {
-        val q = query.trim()
+    ): SearchResult = search(SearchRequest(query, kinds, limit = limit, mode = mode))
+
+    /** The keyword and name lanes run beside the query embed; the scan and fusion follow it. */
+    suspend fun search(req: SearchRequest): SearchResult = coroutineScope {
+        val q = req.text.trim()
+        if (q.isEmpty()) return@coroutineScope SearchResult(emptyList(), false)
+        val f = Filter(req)
+        val embedder = embedder.takeIf { req.mode != Mode.KEYWORD && store.signature() == it.signature }
+        val words = if (req.mode == Mode.VECTOR) null else async { wordLanes(q, f) }
+        val qv = embedder?.let { embedQuery(it, q) }
+        // Awaited before the scan, so the two never use the database at once.
+        val wordLanes = words?.await().orEmpty()
+        val lanes = listOfNotNull(qv?.let { meaningLane(it, f) }) + wordLanes
+        val (hits, strong) = toHits(lanes, f, req.limit, folded(q))
+        SearchResult(hits, qv != null, strong)
+    }
+
+    /** Phase one of a search, as the user types: the name lanes alone, no model. */
+    fun names(req: SearchRequest): SearchResult {
+        val q = req.text.trim()
         if (q.isEmpty()) return SearchResult(emptyList(), false)
-        val vectorLane = if (mode == Mode.KEYWORD) null else vectorLane(listOf(Part.Text(Prefix.query(q))), kinds)
-        val lanes = mutableListOf<List<Candidate>>()
-        val weights = mutableListOf<Double>()
-        if (vectorLane != null) {
-            lanes += vectorLane
-            weights += 1.0
-        }
-        if (mode != Mode.VECTOR) {
-            val keyword = store.keywordSearch(q, CANDIDATES, kinds)
-            val rows = store.chunks(keyword.map { it.chunkId })
-            lanes += keyword.mapNotNull { k ->
-                rows[k.chunkId]?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) }
-            }
-            lanes += store.fileKeywordSearch(q, CANDIDATES, kinds).map { Candidate(it, 0L, "", null) }
-            weights += listOf(tuning.keywordWeight, tuning.keywordWeight)
-        }
-        val (hits, strong) = toHits(lanes, weights, limit, kinds, if (vectorLane == null) null else floorFor(embedder.signature))
-        return SearchResult(hits, vectorLane != null, strong)
+        val f = Filter(req)
+        val (hits, strong) = toHits(nameLanes(q, f), f, req.limit, folded(q))
+        return SearchResult(hits, false, strong)
     }
 
-    /**
-     * Search by example: the photo is the query, passed raw (no task prefix), vector lane only. Every hit counts as
-     * strong: the floor was measured for text queries and there is no image-to-image data yet.
-     */
-    suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null): SearchResult {
-        val lane = vectorLane(listOf(Part.Image(jpeg)), kinds) ?: return SearchResult(emptyList(), false)
-        return SearchResult(toHits(listOf(lane), listOf(1.0), limit, kinds, null).first, true)
+    /** Search by example: the photo is the query, passed raw (no task prefix), vector lane only. */
+    suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null, fileIds: Set<Long>? = null): SearchResult {
+        val embedder = embedder.takeIf { store.signature() == it.signature } ?: return SearchResult(emptyList(), false)
+        val qv = embed(embedder, listOf(Part.Image(jpeg))) ?: return SearchResult(emptyList(), false)
+        val f = Filter(SearchRequest("", kinds, fileIds = fileIds))
+        val (hits, strong) = toHits(listOf(meaningLane(qv, f)), f, limit, emptyList())
+        return SearchResult(hits, true, strong)
     }
 
-    /**
-     * Null when the vector lane can't run: no index yet, another model's index, or the embed failed. An
-     * [EmbedderClosedException] propagates, so the caller can retire the broken model.
-     */
-    private suspend fun vectorLane(parts: List<Part>, kinds: Set<Kind>?): List<Candidate>? {
-        val embedder = embedder
-        if (store.signature() != embedder.signature) return null
-        val q = try {
-            embedder.embed(parts)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: EmbedderClosedException) {
-            throw e
-        } catch (e: Exception) {
-            store.log("query embed failed; keyword results only", e)
-            return null
-        }
+    /** The last query's vector, so a search run again without its filters (the relaxed retry) embeds once. */
+    private class LastQuery(val embedder: Embedder, val text: String, val vector: Vector)
+
+    @Volatile
+    private var lastQuery: LastQuery? = null
+
+    private suspend fun embedQuery(embedder: Embedder, q: String): Vector? {
+        lastQuery?.let { if (it.embedder === embedder && it.text == q) return it.vector }
+        return embed(embedder, listOf(Part.Text(Prefix.query(q))))?.also { lastQuery = LastQuery(embedder, q, it) }
+    }
+
+    /** Null when the embed failed. An [EmbedderClosedException] propagates, so the caller can retire the broken model. */
+    private suspend fun embed(embedder: Embedder, parts: List<Part>): Vector? = try {
+        // Not traced: Trace sections must end on the thread that began them, and this call suspends.
+        embedder.embed(parts)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EmbedderClosedException) {
+        throw e
+    } catch (e: Exception) {
+        store.log("query embed failed; keyword results only", e)
+        null
+    }
+
+    private suspend fun meaningLane(q: Vector, f: Filter): Lane {
         refresh()
-        val l = loaded ?: return emptyList()
-        val allowed = kinds?.let { k -> BooleanArray(Kind.entries.size) { Kind.entries[it] in k } }
-        val top = scanTop(q, CANDIDATES, l.view, allowed)
-        val rows = store.chunks(top.map { it.first })
-        return top.mapNotNull { (id, cos) -> rows[id]?.let { Candidate(it.fileId, it.id, it.locator, it.text?.take(160), cos) } }
+        val l = loaded ?: return Lane(emptyList(), Source.MEANING)
+        val rule = rule
+        val histogram = rule?.histogram()
+        val top = traced("vec.scan") { scan(q, CANDIDATES, l.view, f.allowed, f.days, f.ids, histogram) }
+        val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkIds[it] }) }
+        val hits = top.rows.indices.mapNotNull { i ->
+            val row = top.rows[i]
+            rows[l.view.chunkIds[row]]?.let { Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modalities[row].toInt()) }
+        }
+        return Lane(hits, Source.MEANING, if (rule != null && histogram != null) rule.minStrong(histogram) else null)
     }
 
+    private fun wordLanes(q: String, f: Filter): List<Lane> {
+        val words = traced("kw.fts") {
+            val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
+            val rows = store.chunks(hits.map { it.chunkId })
+            hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admits(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+        }
+        return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
+    }
+
+    /** Exact and prefix matches are evidence like a keyword's; substring and typo matches are a lane of their own. */
+    private fun nameLanes(q: String, f: Filter): List<Lane> = traced("kw.names") {
+        val index = nameIndex()
+        if (index == null) {
+            listOf(Lane(store.fileKeywordSearch(q, CANDIDATES, f.kinds, f.dates, f::admits).map { Candidate(it) }, Source.NAME))
+        } else {
+            val dates = f.dates
+            val hits = index.search(q, f.kinds, CANDIDATES) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
+            val (close, loose) = hits.partition { it.match <= MatchClass.PREFIX }
+            listOf(Lane(close.map { Candidate(it.id) }, Source.NAME), Lane(loose.map { Candidate(it.id) }, Source.NAME_LOOSE))
+        }
+    }
+
+    /** Rows [scan] picked, best first, with their cosines. */
+    internal class Scan(val rows: IntArray, val cos: FloatArray)
+
     /**
-     * The [n] best rows by cosine, best first, among rows whose kind [allowed] marks (null: all); a min-heap
-     * over primitive arrays, so no boxing or full sort.
+     * The [n] best rows by cosine, best first, among rows whose kind [allowed] marks, whose day is in [days] and whose
+     * file is in [fileIds] (sorted; null: no such filter); a min-heap over primitive arrays, so no boxing or full sort.
+     * [histogram], when given, counts every admitted row's cosine by modality for [RelevanceRule].
      */
-    fun scanTop(q: Vector, n: Int, table: VectorTable, allowed: BooleanArray? = null): List<Pair<Long, Float>> {
+    internal fun scan(
+        q: Vector,
+        n: Int,
+        table: VectorTable,
+        allowed: BooleanArray? = null,
+        days: IntRange? = null,
+        fileIds: LongArray? = null,
+        histogram: IntArray? = null,
+    ): Scan {
         val size = table.size
         val bytes = table.bytes
         val scales = table.scales
-        val ids = table.chunkIds
         val kinds = table.kinds
+        val rowDays = table.days
+        val rowFiles = table.fileIds
+        val modalities = table.modalities
+        val firstDay = days?.first ?: 0
+        val lastDay = days?.last ?: 0
         val k = minOf(n, size)
-        if (k <= 0) return emptyList()
+        if (k <= 0) return Scan(IntArray(0), FloatArray(0))
         val heapScore = FloatArray(k)
         val heapRow = IntArray(k)
         var filled = 0
-        for (row in 0 until size) {
-            if (allowed != null && !allowed[kinds[row].toInt()]) continue
-            val s = dotInt8(bytes, row * DIMS, q.bytes, q.scale, scales[row])
-            if (filled < k) {
-                var i = filled++
-                while (i > 0) {
-                    val parent = (i - 1) / 2
-                    if (heapScore[parent] <= s) break
-                    heapScore[i] = heapScore[parent]
-                    heapRow[i] = heapRow[parent]
-                    i = parent
-                }
-                heapScore[i] = s
-                heapRow[i] = row
-            } else if (s > heapScore[0]) {
-                var i = 0
-                while (true) {
-                    val l = 2 * i + 1
-                    if (l >= k) break
-                    val c = if (l + 1 < k && heapScore[l + 1] < heapScore[l]) l + 1 else l
-                    if (heapScore[c] >= s) break
-                    heapScore[i] = heapScore[c]
-                    heapRow[i] = heapRow[c]
-                    i = c
-                }
-                heapScore[i] = s
-                heapRow[i] = row
+        if (allowed == null && days == null && fileIds == null && histogram == null) {
+            // The usual search gets a loop with no per-row checks: they cost 2-5% of the scan on the JVM bench.
+            for (row in 0 until size) {
+                filled = offer(heapScore, heapRow, filled, row, dotInt8(bytes, row * DIMS, q.bytes, q.scale, scales[row]))
+            }
+        } else {
+            for (row in 0 until size) {
+                if (allowed != null && !allowed[kinds[row].toInt()]) continue
+                if (days != null && (rowDays[row] < firstDay || rowDays[row] > lastDay)) continue
+                if (fileIds != null && !sortedHas(fileIds, rowFiles[row])) continue
+                val s = dotInt8(bytes, row * DIMS, q.bytes, q.scale, scales[row])
+                if (histogram != null) histogram[modalities[row] * RelevanceRule.BINS + RelevanceRule.bin(s)]++
+                filled = offer(heapScore, heapRow, filled, row, s)
             }
         }
-        return (0 until filled).sortedByDescending { heapScore[it] }.map { ids[heapRow[it]] to heapScore[it] }
+        val order = (0 until filled).sortedByDescending { heapScore[it] }
+        return Scan(IntArray(filled) { heapRow[order[it]] }, FloatArray(filled) { heapScore[order[it]] })
     }
 
-    /** [cos] is the vector lane's cosine for this chunk; NaN for a keyword lane's candidate. */
-    private class Candidate(val fileId: Long, val chunkId: Long, val locator: String, val snippet: String?, val cos: Float = Float.NaN)
+    /** Offers [row] scored [s] to the min-heap of the best [heapScore].size rows, [filled] of them used; returns the new fill. */
+    @Suppress("NOTHING_TO_INLINE") // Inlined into both scan loops, so the heap code is written once and costs no call.
+    private inline fun offer(heapScore: FloatArray, heapRow: IntArray, filled: Int, row: Int, s: Float): Int {
+        val k = heapScore.size
+        if (filled < k) {
+            var i = filled
+            while (i > 0) {
+                val parent = (i - 1) / 2
+                if (heapScore[parent] <= s) break
+                heapScore[i] = heapScore[parent]
+                heapRow[i] = heapRow[parent]
+                i = parent
+            }
+            heapScore[i] = s
+            heapRow[i] = row
+            return filled + 1
+        }
+        if (s > heapScore[0]) {
+            var i = 0
+            while (true) {
+                val l = 2 * i + 1
+                if (l >= k) break
+                val c = if (l + 1 < k && heapScore[l + 1] < heapScore[l]) l + 1 else l
+                if (heapScore[c] >= s) break
+                heapScore[i] = heapScore[c]
+                heapRow[i] = heapRow[c]
+                i = c
+            }
+            heapScore[i] = s
+            heapRow[i] = row
+        }
+        return filled
+    }
+
+    /** [scan] as (chunk id, cosine) pairs, for benches. */
+    fun scanTop(q: Vector, n: Int, table: VectorTable, allowed: BooleanArray? = null): List<Pair<Long, Float>> =
+        scan(q, n, table, allowed).let { s -> List(s.rows.size) { table.chunkIds[s.rows[it]] to s.cos[it] } }
+
+    private enum class Source { MEANING, WORDS, NAME, NAME_LOOSE }
+
+    /** [minStrong]: a meaning lane's per-modality strong line from [RelevanceRule.minStrong]; null calls every hit strong. */
+    private class Lane(val hits: List<Candidate>, val source: Source, val minStrong: FloatArray? = null)
+
+    /** [text] is a vector candidate's chunk text, [snippet] a keyword candidate's; [cos] is NaN outside the vector lane. */
+    private class Candidate(
+        val fileId: Long,
+        val chunkId: Long = 0L,
+        val locator: String = "",
+        val snippet: String? = null,
+        val text: String? = null,
+        val cos: Float = Float.NaN,
+        val modality: Int = 0,
+    )
+
+    /** The request's filters in the forms the lanes check them. */
+    private class Filter(req: SearchRequest) {
+        val kinds = req.kinds
+        val allowed = kinds?.let { k -> BooleanArray(Kind.entries.size) { Kind.entries[it] in k } }
+        val dates = if (req.from == null && req.to == null) null else (req.from ?: Long.MIN_VALUE)..((req.to ?: Long.MAX_VALUE) - 1)
+
+        // The table keeps whole UTC days, so a local day's ends are floored to the UTC days that hold them: the scan may
+        // admit up to a day too much at the edges, never too little, and [admits] then cuts by the exact time.
+        val days = dates?.let { day(it.first)..day(it.last) }
+        val ids = req.fileIds?.toLongArray()?.apply { sort() }
+        val onlyStarred = req.onlyStarred
+
+        fun admits(fileId: Long) = ids == null || sortedHas(ids, fileId)
+
+        fun admits(file: SourceFile) = (kinds == null || file.kind in kinds) && (dates == null || (file.takenAt ?: file.modifiedAt) in dates)
+
+        private fun day(ms: Long) = ms.floorDiv(DAY_MS).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+    }
 
     /**
-     * Fuses the lanes per file with reciprocal rank fusion. A file shows its best-ranked chunk; a name-only
-     * match shows no chunk and opens the file at the start. The first [limit] fused files are then split by
-     * [floor] (null: all strong): strong first, then weak, each in fused order. Returns the hits and the strong count.
+     * Fuses the lanes per file with reciprocal rank fusion. A file shows its best-ranked chunk; a name-only match
+     * shows no chunk and opens the file at the start. The first [limit] fused files that pass [f] are then split:
+     * strong (found by words, an exact or prefix name match, or by meaning with a chunk on or above its group's strong
+     * line), then weak, each in fused order. Returns the hits and the strong count.
      */
-    private fun toHits(lanes: List<List<Candidate>>, weights: List<Double>, limit: Int, kinds: Set<Kind>?, floor: RelevanceFloor?): Pair<List<Hit>, Int> {
+    private fun toHits(lanes: List<Lane>, f: Filter, limit: Int, words: List<String>): Pair<List<Hit>, Int> {
         val best = HashMap<Long, Pair<Int, Candidate>>()
-        // A file's first vector candidate is its best chunk: the lane is sorted by cosine.
-        val cos = HashMap<Long, Float>()
-        val byKeyword = HashSet<Long>()
+        val strong = HashSet<Long>()
+        val byName = HashSet<Long>()
         val perLane = lanes.map { lane ->
             val seen = LinkedHashSet<Long>()
-            for (c in lane) {
-                if (c.cos.isNaN()) byKeyword += c.fileId else if (c.fileId !in cos) cos[c.fileId] = c.cos
+            for (c in lane.hits) {
+                when (lane.source) {
+                    Source.MEANING -> if (lane.minStrong == null || c.cos >= lane.minStrong[c.modality]) strong += c.fileId
+                    Source.WORDS -> strong += c.fileId
+                    Source.NAME -> { strong += c.fileId; byName += c.fileId }
+                    Source.NAME_LOOSE -> byName += c.fileId
+                }
                 if (!seen.add(c.fileId)) continue
                 val rank = seen.size - 1
                 val prev = best[c.fileId]
@@ -201,57 +364,84 @@ class SearchEngine(
             }
             seen.toList()
         }
-        val ranked = if (lanes.size == 1) perLane[0].mapIndexed { i, id -> id to 1.0 / (i + 1) } else rrfMerge(perLane, tuning.rrfK, weights)
-        val hits = ArrayList<Hit>()
-        for ((fileId, score) in ranked) {
-            if (hits.size >= limit) break
-            val file = store.file(fileId) ?: continue
-            if (kinds != null && file.kind !in kinds) continue
-            val c = best.getValue(fileId).second
-            // A PDF page wins on its page image, which has no words: show that page's text instead.
-            val snippet = c.snippet ?: if (file.kind == Kind.PDF && c.chunkId != 0L) store.firstTextAt(fileId, c.locator)?.take(160) else null
-            hits += Hit(file, fileId, c.chunkId, c.locator, snippet, score)
+        val ranked = if (lanes.size == 1) {
+            perLane[0].mapIndexed { i, id -> id to 1.0 / (i + 1) }
+        } else {
+            rrfMerge(perLane, tuning.rrfK, lanes.map { if (it.source == Source.MEANING) 1.0 else tuning.keywordWeight })
         }
-        if (floor == null) return hits to hits.size
-        val (strong, weak) = hits.partition { it.fileId in byKeyword || floor.passes(it.file.kind, cos.getValue(it.fileId)) }
-        return (strong + weak) to strong.size
+        return traced("fuse.lookups") {
+            val picked = ArrayList<Pair<Pair<Long, Double>, SourceFile>>()
+            var at = 0
+            while (picked.size < limit && at < ranked.size) {
+                val window = ranked.subList(at, minOf(ranked.size, at + limit))
+                at += window.size
+                val files = store.files(window.map { it.first })
+                for (r in window) {
+                    if (picked.size >= limit) break
+                    val file = files[r.first] ?: continue
+                    if (f.admits(file)) picked += r to file
+                }
+            }
+            // A PDF page wins on its page image, which has no words: show that page's text instead.
+            val pageText = store.firstTextAt(
+                picked.mapNotNull { (r, file) ->
+                    val c = best.getValue(r.first).second
+                    if (file.kind == Kind.PDF && c.chunkId != 0L && c.snippet == null && c.text == null) r.first to c.locator else null
+                },
+            )
+            val hits = picked.map { (r, file) ->
+                val c = best.getValue(r.first).second
+                val snippet = c.snippet ?: (c.text ?: pageText[r.first to c.locator])?.let { bestSentence(it, words) }
+                Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName)
+            }
+            val (s, weak) = hits.partition { it.fileId in strong }
+            (s + weak) to s.size
+        }
     }
 
     internal companion object {
         /** Rows each lane hands to fusion; RetrievalEval cuts its lanes the same way. */
         const val CANDIDATES = 100
-    }
-}
+        const val SNIPPET = 160
+        private const val DAY_MS = 86_400_000L
 
-/**
- * When a file found only by meaning (no keyword match) counts as a strong match: its best chunk's int8 cosine is at
- * least its kind's floor. Absolute, per kind: a no-match query's top file always passes a cut relative to the top, and
- * one flat floor would have a 0.004 window. Each default sits between the lowest right file found by meaning and the
- * highest no-match file of its kind (eval/REPORT.md, "Relevance floor (wave 4)"). Measured for M440, 70 vision tokens,
- * 256 int8 dims, CPU on the iOS simulator: re-measure when the model, dims or vision tokens change.
- */
-data class RelevanceFloor(
-    /**
-     * PHOTO and VIDEO, text against an image: lowest right 0.707 (0.697 on the same photo at 1024 px), highest no-match
-     * 0.691. Set under the lower right cosine, so a right photo stays strong at the cost of that one no-match photo.
-     */
-    val photo: Float = 0.69f,
-    /** SCREENSHOT, an image with its OCR text: lowest right 0.754, highest no-match 0.703. */
-    val screenshot: Float = 0.73f,
-    /** PDF, DOC and the rest: lowest right 0.703, highest no-match 0.675. An English query for a Hindi letter (0.620) is left weak. */
-    val text: Float = 0.69f,
-) {
-    fun of(kind: Kind): Float = when (kind) {
-        Kind.PHOTO, Kind.VIDEO -> photo
-        Kind.SCREENSHOT -> screenshot
-        else -> text
-    }
+        /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped. */
+        fun folded(q: String): List<String> = Store.ftsTokens(foldLatin(q)).distinct()
 
-    fun passes(kind: Kind, cos: Float): Boolean = cos >= of(kind)
+        /**
+         * The sentence of [text] that holds the most of [words] (a word of 3+ letters also matches as a prefix, as the
+         * keyword lane's last word does), cut to [SNIPPET] characters; the start of [text] when none holds any.
+         */
+        fun bestSentence(text: String, words: List<String>): String {
+            var best: String? = null
+            var bestScore = 0
+            if (words.isNotEmpty()) {
+                for (s in sentences(text)) {
+                    val tokens = Store.ftsTokens(foldLatin(s))
+                    val score = words.count { w -> tokens.any { it == w || (w.length >= 3 && it.startsWith(w)) } }
+                    if (score > bestScore) {
+                        best = s
+                        bestScore = score
+                    }
+                }
+            }
+            return (best ?: text).take(SNIPPET)
+        }
 
-    companion object {
-        /** The floor measured for [signature]'s model and vision tokens; null where none was, so no hit is called weak. */
-        fun measuredFor(signature: Signature): RelevanceFloor? =
-            RelevanceFloor().takeIf { signature.value.startsWith("${ModelVariant.M440.name}/") && "/vt70/" in signature.value }
+        private fun sentences(text: String): List<String> {
+            val out = ArrayList<String>()
+            var start = 0
+            fun cut(end: Int) {
+                val s = text.substring(start, end).trim()
+                if (s.isNotEmpty()) out += s
+                start = end
+            }
+            for (i in text.indices) {
+                val c = text[i]
+                if (c == '\n' || c == '।' || c == '。' || ((c == '.' || c == '!' || c == '?') && (i + 1 == text.length || text[i + 1].isWhitespace()))) cut(i + 1)
+            }
+            cut(text.length)
+            return out
+        }
     }
 }

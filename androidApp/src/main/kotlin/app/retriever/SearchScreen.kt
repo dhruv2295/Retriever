@@ -36,15 +36,16 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -54,28 +55,27 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.ImageSearch
 import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.FilterChip
@@ -85,14 +85,18 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarValue
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSearchBarState
@@ -100,8 +104,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateSetOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -110,20 +118,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
@@ -131,6 +143,7 @@ import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.android.ImageBytes
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** What the search screen can ask for; every default does nothing, so a test passes only what it checks. */
@@ -148,21 +161,31 @@ class SearchActions(
     val onOpenFile: (SourceFile) -> Unit = {},
     val onNavigate: (Any) -> Unit = {},
     val onScrolling: (Boolean) -> Unit = {},
+    val onFocus: (Boolean) -> Unit = {},
+    val onStarredOnly: (Boolean) -> Unit = {},
+    val onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
+    val onWordsAsTyped: () -> Unit = {},
+    val onResume: () -> Unit = {},
+    val onAllowAccess: () -> Unit = {},
 )
 
 private val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
-private val browseKinds = listOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO, Kind.PDF, Kind.DOC, Kind.AUDIO)
-private val examples = listOf("wifi password", "electricity bill", "passport photo", "notes from the meeting")
 
 @Composable
 fun SearchScreen(onNavigate: (Any) -> Unit) {
-    val vm = appViewModel { g -> SearchViewModel(g.retriever) { uri -> ImageBytes.jpeg(g.app, Uri.parse(uri), 1024) } }
+    val vm = appViewModel { g ->
+        SearchViewModel(g.retriever, g.platformReady, onRecent = { pushRecent(g.app, it) }) { uri -> ImageBytes.jpeg(g.app, Uri.parse(uri), 1024) }
+    }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val index by vm.indexState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    SearchContent(
-        ui,
-        index,
+    // All-files access is switched in Settings, so the "can't see your files" card clears on return without a restart.
+    LifecycleResumeEffect(vm) {
+        vm.checkAccess()
+        onPauseOrDispose {}
+    }
+    // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
+    val actions = remember(vm, context, onNavigate) {
         SearchActions(
             onQuery = vm::setQuery,
             onSubmit = { vm.submit(it) },
@@ -179,9 +202,17 @@ fun SearchScreen(onNavigate: (Any) -> Unit) {
             },
             onOpenFile = { Opener.open(context, it, "", onNavigate) },
             onNavigate = onNavigate,
-            onScrolling = vm::setUiBusy,
-        ),
-    )
+            onScrolling = vm::setScrolling,
+            onFocus = vm::setFocused,
+            onStarredOnly = vm::setOnlyStarred,
+            onStar = { file, on -> vm.setStarred(file, on) },
+            onWordsAsTyped = vm::searchWordsAsTyped,
+            // Not the screen's scope: the batch it starts must outlive this screen.
+            onResume = { (context.applicationContext as RetrieverApp).graph.scope.launch { IndexScheduler.resumeByUser(context) } },
+            onAllowAccess = { openAllFilesSettings(context) },
+        )
+    }
+    SearchContent(ui, index, actions)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,7 +221,7 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     val bar = rememberSearchBarState()
     val text = rememberTextFieldState(ui.query)
     val scope = rememberCoroutineScope()
-    val homeList = rememberLazyListState()
+    val homeList = rememberLazyStaggeredGridState()
     val grid = rememberLazyGridState()
     val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -211,10 +242,30 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
             shownAnswer = ui.answer
         }
     }
+    // A search handed in from outside (a shortcut) opens the bar with its words, once. Saveable, so a return from a viewer does not reopen it.
+    var shownLaunch by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(ui.launched) {
+        if (ui.launched > shownLaunch) {
+            shownLaunch = ui.launched
+            text.setTextAndPlaceCursorAtEnd(ui.query)
+            bar.animateToExpanded()
+        }
+    }
     LaunchedEffect(homeList, grid) {
         snapshotFlow { homeList.isScrollInProgress || grid.isScrollInProgress }.collect { actions.onScrolling(it) }
     }
-    DisposableEffect(Unit) { onDispose { actions.onScrolling(false) } }
+    // The collapsed bar and the full-screen one are two fields: busy while either has focus, whichever event comes first.
+    val focusing = remember { mutableStateSetOf<Any>() }
+    LaunchedEffect(Unit) { snapshotFlow { focusing.isNotEmpty() }.collect { actions.onFocus(it) } }
+    // Busy pauses indexing. The collectors above die with this screen before saying "not busy", and a focused field
+    // stays focused in the background, so leaving the screen or the app says it here: else reading stalls until return.
+    LifecycleStartEffect(Unit) {
+        actions.onFocus(focusing.isNotEmpty())
+        onStopOrDispose {
+            actions.onFocus(false)
+            actions.onScrolling(false)
+        }
+    }
 
     val inputField = @Composable {
         // Read here: the expanded bar shows this field in its own dialog window.
@@ -227,7 +278,10 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
                 keyboard?.hide()
             }
         }
+        val me = remember { Any() }
+        DisposableEffect(me) { onDispose { focusing.remove(me) } }
         SearchBarDefaults.InputField(
+            modifier = Modifier.onFocusChanged { if (it.hasFocus) focusing.add(me) else focusing.remove(me) },
             textFieldState = text,
             searchBarState = bar,
             onSearch = {
@@ -262,17 +316,27 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
 
     Scaffold(
         topBar = {
+            // Opaque, as a top app bar is: Home scrolls under it, and its rows must not show through the status bar.
             Box(
-                Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.statusBars).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                // The home column less its rows' 16 dp side padding, so the bar lines up with the cards below it.
-                SearchBar(state = bar, inputField = inputField, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
+                Row(Modifier.widthIn(max = 808.dp + 48.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SearchBar(state = bar, inputField = inputField, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { actions.onNavigate(SettingsRoute) }) { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
+                }
             }
         },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            HomeBody(ui, index, actions, homeList, padding, gutter())
+            val use = { q: String, submit: Boolean ->
+                text.setTextAndPlaceCursorAtEnd(q)
+                if (submit) actions.onSubmit(q)
+                scope.launch { bar.animateToExpanded() }
+                Unit
+            }
+            HomeBody(ui, index, actions, homeList, padding, gutter(1200.dp), use)
         }
     }
 
@@ -280,89 +344,19 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     // results' text colour from it.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
+            LightStatusBarIconsOnDark()
             SearchPane(ui, actions, grid, useText = { text.setTextAndPlaceCursorAtEnd(it) })
         }
     }
 }
 
-// --- Home ---
-
+/** The bar's dialog is its own window: enableEdgeToEdge() set the status bar icons of the activity's only. */
 @Composable
-private fun HomeBody(ui: SearchUi, index: IndexState, actions: SearchActions, state: LazyListState, padding: PaddingValues, side: Dp) {
-    val counts = ui.counts
-    LazyColumn(state = state, contentPadding = contentPaddingFor(padding, side = side), modifier = Modifier.fillMaxSize()) {
-        item(key = "status") { StatusLine(ui, index, actions.onNavigate) }
-        // Not loaded yet: show nothing rather than flash the first-run message over a full index.
-        if (counts == null) return@LazyColumn
-        if (counts.values.sum() == 0L) {
-            item(key = "looking") {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Image(painterResource(R.drawable.illus_reading), contentDescription = null, modifier = Modifier.widthIn(max = 240.dp).fillMaxWidth(0.7f))
-                    Text("Retriever is looking for your files", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-                    Text(
-                        "This takes a minute the first time.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-            return@LazyColumn
-        }
-        item(key = "browse-header") { Header("Browse") }
-        item(key = "browse") {
-            FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (kind in browseKinds) {
-                    val n = counts[kind] ?: 0L
-                    if (n == 0L) continue
-                    AssistChip(
-                        onClick = { actions.onNavigate(BrowseRoute(kind = kind.name, title = Format.kindLabelPlural(kind))) },
-                        label = { Text("${Format.kindLabelPlural(kind)} · ${Format.count(n)}", style = MaterialTheme.typography.labelLarge.tabular()) },
-                        leadingIcon = { Icon(kindIcon(kind), contentDescription = null, Modifier.size(18.dp)) },
-                    )
-                }
-            }
-        }
-        if (ui.recentFiles.isNotEmpty()) {
-            item(key = "recent-header") { Header("Recent files") }
-            item(key = "recent") {
-                // Wider at large text, so a file name keeps its words whole.
-                val tile = 96.dp * LocalDensity.current.fontScale.coerceIn(1f, 1.5f)
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(ui.recentFiles, key = { it.uri }) { file ->
-                        if (file.kind in visualKinds) {
-                            ThumbCell(file, onClick = { actions.onOpenFile(file) }, modifier = Modifier.width(tile))
-                        } else {
-                            FileCard(file, tile) { actions.onOpenFile(file) }
-                        }
-                    }
-                }
-            }
-        }
-        item(key = "tidy-header") { Header("Tidy up") }
-        item(key = "tidy") {
-            FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(
-                    onClick = { actions.onNavigate(FoldersRoute) },
-                    label = { Text("Folders") },
-                    leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null, Modifier.size(18.dp)) },
-                )
-                AssistChip(
-                    onClick = { actions.onNavigate(BrowseRoute(sort = "LARGEST", title = "Large files")) },
-                    label = { Text("Large files") },
-                    leadingIcon = { Icon(Icons.Outlined.Storage, contentDescription = null, Modifier.size(18.dp)) },
-                )
-                AssistChip(
-                    onClick = { actions.onNavigate(DuplicatesRoute) },
-                    label = { Text("Duplicates") },
-                    leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null, Modifier.size(18.dp)) },
-                )
-            }
-        }
+private fun LightStatusBarIconsOnDark() {
+    val view = LocalView.current
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    SideEffect {
+        (view.parent as? DialogWindowProvider)?.window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = !dark }
     }
 }
 
@@ -376,78 +370,6 @@ private fun Header(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A file with no picture: its kind's icon over its name, [width] wide like a picture cell. A name of one word keeps its ending. */
-@Composable
-private fun FileCard(file: SourceFile, width: Dp, onClick: () -> Unit) {
-    val oneWord = ' ' !in file.name.trim()
-    Column(
-        Modifier
-            .width(width)
-            .heightIn(min = width)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(onClickLabel = "Open", onClick = onClick)
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(kindIcon(file.kind), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            file.name,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = if (oneWord) 1 else 2,
-            overflow = if (oneWord) TextOverflow.MiddleEllipsis else TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** One slim row saying how far Retriever has got. Always there once counted: it is the way into the status screen. */
-@Composable
-private fun StatusLine(ui: SearchUi, index: IndexState, onNavigate: (Any) -> Unit) {
-    val total = ui.counts?.values?.sum() ?: 0L
-    val of = "${Format.count(ui.searchable)} of ${Format.count(total)}"
-    val (line, target) = when {
-        !ui.setUp -> "Finishing setup. For now Retriever matches file names." to SetupRoute
-        index.running && index.pendingAtStart == 0L -> "Looking for your files…" to StatusRoute
-        index.running -> "Reading your files · $of" to StatusRoute
-        ui.counts == null -> return
-        ui.waiting > 0 -> "$of files searchable" + (waitingCopy(index.lastStop)?.let { " · $it" } ?: "") to StatusRoute
-        else -> "All caught up · ${Format.count(ui.searchable)} files searchable" to StatusRoute
-    }
-    val reading = ui.setUp && index.running && index.pendingAtStart > 0L
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    ) {
-        Row(
-            Modifier
-                .clickable(role = Role.Button, onClickLabel = if (target == SetupRoute) "Finish setup" else "Show details") { onNavigate(target) }
-                .heightIn(min = 48.dp)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(line, style = MaterialTheme.typography.bodyMedium.tabular())
-                if (reading) {
-                    LinearProgressIndicator(
-                        progress = { if (total > 0) ui.searchable.toFloat() / total else 0f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    index.etaMinutes?.let { eta ->
-                        Text(
-                            Format.eta(eta).replaceFirstChar { it.uppercase() } + "." + if (eta >= 60) " Faster while charging." else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
 // --- Full-screen search ---
 
 /** The full-screen bar's body: suggestions before anything is typed, results after. */
@@ -458,30 +380,38 @@ internal fun SearchPane(
     grid: LazyGridState = rememberLazyGridState(),
     useText: (String) -> Unit = {},
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(4.dp)) {
-            if (ui.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val side = gutter()
-            if (ui.query.isBlank() && ui.similar == null) {
-                Suggestions(ui.recent, actions, useText, side)
-            } else {
-                Column { Results(ui, actions, grid, useText, side) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // Starring says so, with a way back.
+    val star = remember(actions, snackbar, scope) { starWithUndo(actions.onStar, snackbar, scope) }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().height(4.dp)) {
+                if (ui.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val side = gutter()
+                if (ui.query.isBlank() && ui.similar == null) {
+                    Suggestions(ui.recent, ui.suggestions, actions, useText, side)
+                } else {
+                    Column { Results(ui, actions, star, grid, useText, side) }
+                }
             }
         }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)))
     }
 }
 
 @Composable
-private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (String) -> Unit, side: Dp) {
+private fun Suggestions(recent: List<String>, examples: List<String>, actions: SearchActions, useText: (String) -> Unit, side: Dp) {
     val pick = { q: String ->
         useText(q)
         actions.onSubmit(q)
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, bottom = 24.dp)) {
         if (recent.isEmpty()) {
-            item(key = "try-header") { Header("Try") }
+            if (examples.isEmpty()) return@LazyColumn
+            item(key = "try-header") { Header("Try searching") }
             item(key = "try") {
                 FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (q in examples) SuggestionChip(onClick = { pick(q) }, label = { Text(q) })
@@ -499,6 +429,7 @@ private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (
                         Icon(Icons.Filled.Close, contentDescription = "Remove $q from history")
                     }
                 },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 modifier = Modifier.animateItem().clickable(onClickLabel = "Search") { pick(q) },
             )
         }
@@ -509,7 +440,7 @@ private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (
 }
 
 @Composable
-private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, useText: (String) -> Unit, side: Dp) {
+private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boolean) -> Unit, grid: LazyGridState, useText: (String) -> Unit, side: Dp) {
     val q = ui.query.trim()
     val edge = 16.dp + side
     ui.similar?.let { s ->
@@ -531,17 +462,42 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
             modifier = Modifier.padding(horizontal = edge),
         )
     }
+    // The hits were found for these very words; while newer ones wait, what was understood would be of the old ones.
+    val parsed = ui.parsed?.takeIf { ui.similar == null && ui.hits != null && ui.hitsFor == q && it.understood.isNotEmpty() }
+    // Kinds the words asked for show as picked chips too, so the row never says "All" over filtered results.
+    val wordKinds = parsed?.kinds.orEmpty()
     val kinds = Kind.entries.filter { (ui.counts?.get(it) ?: 0L) > 0L }
-    if (kinds.isNotEmpty()) {
+    val canStar = ui.starred > 0 || ui.onlyStarred
+    if (kinds.isNotEmpty() || canStar) {
         LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item(key = "all") { KindChip("All", ui.chip == null) { actions.onChip(null) } }
-            items(kinds, key = { it.name }) { k -> KindChip(Format.kindLabelPlural(k), ui.chip == k) { actions.onChip(k) } }
+            item(key = "all") {
+                KindChip("All", ui.chip == null && !ui.onlyStarred && wordKinds.isEmpty()) {
+                    actions.onChip(null)
+                    actions.onStarredOnly(false)
+                    if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
+                }
+            }
+            if (canStar) item(key = "starred") { KindChip("Starred", ui.onlyStarred) { actions.onStarredOnly(!ui.onlyStarred) } }
+            items(kinds, key = { it.name }) { k -> KindChip(Format.kindLabelPlural(k), ui.chip == k || k in wordKinds) { actions.onChip(k) } }
+        }
+    }
+    parsed?.let {
+        InputChip(
+            selected = true,
+            onClick = actions.onWordsAsTyped,
+            label = { Text(it.understood.joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Search the words as typed instead", Modifier.size(18.dp)) },
+            modifier = Modifier.padding(horizontal = edge),
+        )
+        if (ui.relaxed && ui.hits.orEmpty().isNotEmpty()) {
+            Text(it.relaxedNote(Format.scope(ui.chip, ui.onlyStarred)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = edge, vertical = 8.dp))
         }
     }
     val note = when {
         ui.similar != null && !ui.vectorLane -> "Search by photo works once setup finishes."
         !ui.setUp -> "Matching file names only until setup finishes."
         !ui.vectorLane && ui.textOnly -> "Retriever finds files here by their names and the words inside them."
+        !ui.vectorLane && ui.modelMissing -> "Matching names and words. Download the search model again in Settings to search by meaning."
         !ui.vectorLane -> "Matching exact words for now. Results by meaning will be back shortly."
         else -> null
     }
@@ -552,18 +508,23 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
     // The words changed but haven't been searched yet: the hits still answer the old ones.
     val stale = ui.similar == null && ui.hitsFor != q
     val chip = ui.chip
+    val searchAll = {
+        actions.onChip(null)
+        actions.onStarredOnly(false)
+    }
     when {
         ui.failed -> Message {
             EmptyState("Search hit a snag", "Something went wrong. Try again.", Icons.Outlined.WarningAmber, "Try again" to actions.onRetry)
         }
         hits == null -> Unit
         hits.isEmpty() && stale -> Unit
-        hits.isEmpty() && chip != null -> Message {
+        hits.isEmpty() && (chip != null || ui.onlyStarred) -> Message {
+            val where = Format.scope(chip, ui.onlyStarred)
             EmptyState(
-                "No matches in ${Format.kindLabelPlural(chip)}",
+                "No matches in your $where",
                 if (ui.similar != null) "Nothing like this photo there." else "Nothing for “$q” there.",
                 Icons.Outlined.SearchOff,
-                "Search all files" to { actions.onChip(null) },
+                "Search all files" to searchAll,
                 art = R.drawable.illus_empty,
             )
         }
@@ -585,7 +546,61 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
                 art = R.drawable.illus_empty,
             )
         }
-        else -> ResultGrid(hits, ui.strongCount, ui.extents, ui.hitsFor.ifEmpty { null }, ui.searching || stale, grid, edge, actions.onOpenHit, actions.onFindSimilar.takeUnless { ui.textOnly })
+        else -> {
+            val act = remember(actions, ui.textOnly, ui.starredUris, star) {
+                HitActions(actions.onOpenHit, actions.onFindSimilar.takeUnless { ui.textOnly }, ui.starredUris, star)
+            }
+            // The quick answer from names is complete as far as it goes; only a wait for the first one dims the rows.
+            ResultGrid(hits, ui.strongCount, ui.extents, ui.hitsFor.ifEmpty { null }, (ui.searching && !ui.nameOnly) || stale, grid, edge, act)
+        }
+    }
+}
+
+/** Stars or unstars a file and says so in [snackbar], with Undo. */
+internal fun starWithUndo(onStar: (SourceFile, Boolean) -> Unit, snackbar: SnackbarHostState, scope: CoroutineScope): (SourceFile, Boolean) -> Unit = { file, on ->
+    onStar(file, on)
+    scope.launch {
+        snackbar.currentSnackbarData?.dismiss()
+        val said = snackbar.showSnackbar(if (on) "Starred" else "Star removed", "Undo", duration = SnackbarDuration.Short)
+        if (said == SnackbarResult.ActionPerformed) onStar(file, !on)
+    }
+}
+
+/** What a result can do: open, find similar (null when the phone cannot), and be starred. */
+private class HitActions(
+    val open: (SearchEngine.Hit) -> Unit,
+    val findSimilar: ((SourceFile) -> Unit)?,
+    val starred: Set<String>,
+    val star: (SourceFile, Boolean) -> Unit,
+)
+
+/** [content] is a result; a long press on it opens a menu to star it, and to find similar when [similar]. */
+@Composable
+private fun HitMenu(file: SourceFile, act: HitActions, similar: Boolean, modifier: Modifier = Modifier, content: @Composable (onLongClick: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        content { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val on = file.uri in act.starred
+            DropdownMenuItem(
+                text = { Text(if (on) "Remove star" else "Star") },
+                leadingIcon = { Icon(if (on) Icons.Outlined.StarBorder else Icons.Filled.Star, contentDescription = null) },
+                onClick = {
+                    open = false
+                    act.star(file, !on)
+                },
+            )
+            if (similar) {
+                DropdownMenuItem(
+                    text = { Text("Find similar") },
+                    leadingIcon = { Icon(Icons.Outlined.ImageSearch, contentDescription = null) },
+                    onClick = {
+                        open = false
+                        act.findSimilar?.invoke(file)
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -617,8 +632,7 @@ private fun ResultGrid(
     searching: Boolean,
     grid: LazyGridState,
     edge: Dp,
-    open: (SearchEngine.Hit) -> Unit,
-    findSimilar: ((SourceFile) -> Unit)?,
+    act: HitActions,
 ) {
     val strong = hits.take(strongCount)
     val weak = hits.drop(strongCount)
@@ -642,10 +656,10 @@ private fun ResultGrid(
                 }
             }
         }
-        sections(strong, extents, query, titled = true, open, findSimilar)
+        sections(strong, extents, query, titled = true, act)
         if (weak.isNotEmpty()) {
             sectionHeader("weak", "Less likely matches")
-            sections(weak, extents, query, titled = false, open, findSimilar)
+            sections(weak, extents, query, titled = false, act)
         }
     }
 }
@@ -660,16 +674,15 @@ private fun LazyGridScope.sections(
     extents: Map<Long, ReadExtent>,
     query: String?,
     titled: Boolean,
-    open: (SearchEngine.Hit) -> Unit,
-    findSimilar: ((SourceFile) -> Unit)?,
+    act: HitActions,
 ) {
     val (lead, media, rest) = sectionsOf(hits)
-    docSection(lead, extents, query, titled, open, findSimilar)
-    mediaSection(media, extents, titled, open, findSimilar)
+    docSection(lead, extents, query, titled, act)
+    mediaSection(media, extents, titled, act)
     if (lead.isEmpty()) {
-        docSection(rest, extents, query, titled, open, findSimilar)
+        docSection(rest, extents, query, titled, act)
     } else {
-        docSection(rest, extents, query, titled, open, findSimilar, "docs-more", "More documents")
+        docSection(rest, extents, query, titled, act, "docs-more", "More documents")
     }
 }
 
@@ -699,22 +712,21 @@ private fun LazyGridScope.mediaSection(
     hits: List<SearchEngine.Hit>,
     extents: Map<Long, ReadExtent>,
     titled: Boolean,
-    open: (SearchEngine.Hit) -> Unit,
-    findSimilar: ((SourceFile) -> Unit)?,
+    act: HitActions,
 ) {
     if (hits.isEmpty()) return
     if (titled) sectionHeader("media", "Photos and videos")
     items(hits, key = { it.fileId }) { hit ->
-        val still = hit.file.kind != Kind.VIDEO
-        ThumbCell(
-            hit.file,
-            onClick = { open(hit) },
-            modifier = Modifier.animateItem(),
-            locator = hit.locator,
-            readNote = Format.readNote(extents[hit.fileId]),
-            onLongClick = if (still && findSimilar != null) ({ findSimilar(hit.file) }) else null,
-            onLongClickLabel = if (still && findSimilar != null) "Find similar" else null,
-        )
+        HitMenu(hit.file, act, similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null, Modifier.animateItem()) { menu ->
+            ThumbCell(
+                hit.file,
+                onClick = { act.open(hit) },
+                locator = hit.locator,
+                readNote = Format.readNote(extents[hit.fileId]),
+                onLongClick = menu,
+                onLongClickLabel = "More options",
+            )
+        }
     }
 }
 
@@ -723,26 +735,26 @@ private fun LazyGridScope.docSection(
     extents: Map<Long, ReadExtent>,
     query: String?,
     titled: Boolean,
-    open: (SearchEngine.Hit) -> Unit,
-    findSimilar: ((SourceFile) -> Unit)?,
+    act: HitActions,
     headerKey: String = "docs",
     header: String = "Documents and more",
 ) {
     if (hits.isEmpty()) return
     if (titled) sectionHeader(headerKey, header)
     items(hits, key = { it.fileId }, span = { GridItemSpan(maxLineSpan) }) { hit ->
-        val picture = hit.file.kind == Kind.SCREENSHOT && findSimilar != null
-        FileRow(
-            hit.file,
-            modifier = Modifier.animateItem().bleed(16.dp),
-            snippet = hit.snippet,
-            locator = hit.locator,
-            query = query,
-            readNote = Format.readNote(extents[hit.fileId]),
-            onLongClick = if (picture) ({ findSimilar?.invoke(hit.file) }) else null,
-            onLongClickLabel = if (picture) "Find similar" else null,
-            onClick = { open(hit) },
-        )
+        HitMenu(hit.file, act, similar = hit.file.kind == Kind.SCREENSHOT && act.findSimilar != null, Modifier.animateItem().bleed(16.dp)) { menu ->
+            FileRow(
+                hit.file,
+                snippet = hit.snippet,
+                locator = hit.locator,
+                // Bold the words only where the file was found by its name.
+                query = query.takeIf { hit.byName },
+                readNote = Format.readNote(extents[hit.fileId]),
+                onLongClick = menu,
+                onLongClickLabel = "More options",
+                onClick = { act.open(hit) },
+            )
+        }
     }
 }
 

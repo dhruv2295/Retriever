@@ -147,8 +147,15 @@ data class Access(
         }
 
         @SuppressLint("InlinedApi")
-        fun of(sdk: Int, allFiles: Boolean, granted: (String) -> Boolean, persisted: List<String>): Access {
-            val folders = foldersFrom(persisted)
+        /** [describe] names a memory card by its volume id (SafSource.volumeDescriber); null while it is out. */
+        fun of(
+            sdk: Int,
+            allFiles: Boolean,
+            granted: (String) -> Boolean,
+            persisted: List<String>,
+            describe: (String) -> String? = { null },
+        ): Access {
+            val folders = foldersFrom(persisted, describe)
             if (sdk < 33) {
                 // Up to Android 12L one permission covers every kind of media.
                 val media = granted(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -169,13 +176,13 @@ data class Access(
         }
 
         /** Picked trees on this phone's storage, from the persisted URI grants. */
-        fun foldersFrom(persisted: List<String>): List<PickedFolder> = persisted
+        fun foldersFrom(persisted: List<String>, describe: (String) -> String? = { null }): List<PickedFolder> = persisted
             .filter { it.startsWith(TREE_PREFIX) }
-            .map { PickedFolder(it, folderName(it)) }
+            .map { PickedFolder(it, folderName(it, describe)) }
             .sortedBy { it.name.lowercase() }
 
         /** "Documents/Work" for content://…/tree/primary%3ADocuments%2FWork. */
-        fun folderName(treeUri: String): String = SafSource.treeName(treeId(treeUri))
+        fun folderName(treeUri: String, describe: (String) -> String? = { null }): String = SafSource.treeName(treeId(treeUri), describe)
 
         /** Why a picked tree can't be added, or null when it can: it is, or is inside, a folder already added. */
         fun refusePick(uri: String, existing: List<PickedFolder>): String? {

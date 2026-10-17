@@ -138,6 +138,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
+                    StarButton(route.uri)
                     IconButton(onClick = openElsewhere) {
                         Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open in another app")
                     }

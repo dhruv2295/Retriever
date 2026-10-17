@@ -27,12 +27,12 @@ class BrowseShotsTest {
         attempts = 0,
     )
 
-    private fun content(files: List<Store.StoredFile>, kind: Kind?, dark: Boolean, loading: Boolean = false) {
+    private fun content(files: List<Store.StoredFile>, kind: Kind?, dark: Boolean, loading: Boolean = false, starredOnly: Boolean = false) {
         rule.setContent {
             ShotTheme(dark) {
                 BrowseContent(
                     files = files, sort = "NEWEST", loading = loading, kind = kind,
-                    padding = PaddingValues(), onSort = {}, onLoadMore = {}, onOpen = {},
+                    padding = PaddingValues(), onSort = {}, onLoadMore = {}, onOpen = {}, starredOnly = starredOnly,
                 )
             }
         }
@@ -67,6 +67,26 @@ class BrowseShotsTest {
         content(emptyList(), Kind.PHOTO, dark = false)
         rule.onNodeWithText("Nothing here yet").assertExists()
         rule.shot("browse_empty_light")
+    }
+
+    @Test fun starredListIsRowsWithoutSortChips() {
+        content(List(4) { stored(it, Kind.PDF, "pdf") }, null, dark = false, starredOnly = true)
+        rule.onNodeWithText("Item 0.pdf").assertExists()
+        rule.onNodeWithText("Newest").assertDoesNotExist()
+        rule.shot("browse_starred_light")
+    }
+
+    @Test fun starredEmptyState() {
+        content(emptyList(), null, dark = false, starredOnly = true)
+        rule.onNodeWithText("Nothing starred yet").assertExists()
+        rule.onNodeWithText("Touch and hold a file, or tap the star while viewing it, to keep it here.").assertExists()
+        rule.shot("browse_starred_empty_light")
+    }
+
+    @Test fun titles() {
+        org.junit.Assert.assertEquals("Starred", browseTitle(BrowseRoute(title = "Starred", starredOnly = true), "NEWEST"))
+        org.junit.Assert.assertEquals("All files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "NEWEST"))
+        org.junit.Assert.assertEquals("Large files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "LARGEST"))
     }
 
     @Test fun emptyDark() {

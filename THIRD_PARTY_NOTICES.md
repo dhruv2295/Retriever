@@ -17,6 +17,14 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - Copyright 2023 The Android Open Source Project
 - License: Apache License 2.0
 
+## ML Kit text recognition (dependencies, not adapted code)
+
+- Source: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
+- Artifacts: com.google.mlkit:text-recognition and text-recognition-devanagari (bundled);
+  com.google.android.gms:play-services-mlkit-text-recognition-chinese, -japanese and -korean (unbundled, Google Play services)
+- Copyright Google LLC
+- License: ML Kit SDK terms (https://developers.google.com/ml-kit/terms); binary client libraries, not open source
+
 ## oguzhaneksi/TikTokCompose
 
 - Source: https://github.com/oguzhaneksi/TikTokCompose

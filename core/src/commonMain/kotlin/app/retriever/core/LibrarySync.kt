@@ -1,11 +1,24 @@
 package app.retriever.core
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 
 data class SyncResult(val added: Int, val changed: Int, val removed: Int, val fullScan: Boolean)
 
 class LibrarySync(private val store: Store, private val source: FileSource, private val now: () -> Long) {
+    /** File names in memory once [loadNames] ran; each sync then swaps in a new snapshot, so running searches keep theirs. */
+    @Volatile
+    var names: NameIndex? = null
+        private set
+    private val namesLock = Mutex()
+
+    suspend fun loadNames() = namesLock.withLock {
+        if (names == null) names = NameIndex.build(store.nameEntries())
+    }
+
     suspend fun sync(forceFull: Boolean = false): SyncResult {
         val prefs = store.prefs()
         val token = store.meta(TOKEN)
@@ -31,16 +44,14 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             eligible.groupBy { it.kind }.values.flatMap { group -> group.sortedByDescending { it.modifiedAt }.take(n) }
         } ?: eligible
 
-        var added = 0
-        var changed = 0
+        val touched = ArrayList<SourceFile>()
         for (f in keep) {
             val old = known[f.uri]
-            if (old == null) {
-                added++
-            } else if (old.size != f.size || old.modifiedAt != f.modifiedAt || old.name != f.name || old.folder != f.folder) {
-                changed++
+            if (old == null || old.size != f.size || old.modifiedAt != f.modifiedAt || old.name != f.name || old.folder != f.folder) {
+                touched += f
             }
         }
+        val added = touched.count { it.uri !in known }
 
         val removed = if (changes.isFullScan) {
             knownInScope - keep.map { it.uri }.toSet() - changes.present.orEmpty()
@@ -48,10 +59,23 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             changes.removed.toSet() +
                 changes.upserted.filter { it.uri in known && prefs.excludes(it.folder) }.map { it.uri } +
                 changes.present?.let { knownInScope - it }.orEmpty()
-        }
+        }.toList()
 
-        store.upsertFiles(keep)
-        store.removeFiles(removed.toList())
+        namesLock.withLock {
+            // Ids before the rows go; an incremental sync is small, and a full scan rebuilds the names instead.
+            val removedIds = if (changes.isFullScan || names == null) emptyList() else store.fileIds(removed)
+            store.upsertFiles(keep)
+            // Stars stay: a file restored from the trash, or back from an excluded folder, comes back starred.
+            store.removeFiles(removed)
+            val current = names
+            if (current != null && (touched.isNotEmpty() || removed.isNotEmpty())) {
+                names = if (changes.isFullScan) {
+                    NameIndex.build(store.nameEntries())
+                } else {
+                    current.update(removedIds, store.nameEntries(touched.map { it.uri }))
+                }
+            }
+        }
         store.setMeta(TOKEN, changes.nextToken)
         if (changes.isFullScan) {
             store.setMeta(LAST_FULL, now().toString())
@@ -59,7 +83,7 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             store.setMeta(RULES, source.rulesVersion.toString())
             store.setMeta(SAMPLE, prefs.sampleSize?.toString().orEmpty())
         }
-        return SyncResult(added, changed, removed.size, changes.isFullScan)
+        return SyncResult(added, touched.size - added, removed.size, changes.isFullScan)
     }
 
     private companion object {

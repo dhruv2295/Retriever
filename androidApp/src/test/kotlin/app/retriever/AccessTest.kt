@@ -97,6 +97,10 @@ class AccessTest {
             listOf(work, PickedFolder(card, "SD card/Papers")),
             access(34, persisted = listOf(card, other, tree)).folders,
         )
+        assertEquals(
+            listOf(work, PickedFolder(card, "SanDisk SD card/Papers")),
+            Access.foldersFrom(listOf(card, tree)) { if (it == "1A2B-3C4D") "SanDisk SD card" else null },
+        )
     }
 
     @Test fun picksOutsideStorageOrInsideAnotherFolderAreRefused() {
@@ -150,8 +154,13 @@ class AccessTest {
         assertEquals(Kind.DOC, doc.kind)
         assertEquals("application/vnd.openxmlformats-officedocument.wordprocessingml.document", doc.mime)
         assertEquals(Kind.SCREENSHOT, SafSource.sourceFile("u3", "primary:Pictures/Screenshots", "a.png", "image/png", 10, 0)!!.kind)
+        // A memory card goes by the name the system gives it, as in MediaStore's folders; "SD card" while it is out.
+        val described: (String) -> String? = { if (it == "1A2B-3C4D") "SanDisk SD card" else null }
+        assertEquals("SanDisk SD card/Scans", SafSource.sourceFile("u4", "1A2B-3C4D:Scans", "s.pdf", "application/pdf", 10, 0, described)!!.folder)
+        assertEquals("SanDisk SD card", SafSource.treeName("1A2B-3C4D:", described))
         assertEquals("SD card/Scans", SafSource.sourceFile("u4", "1A2B-3C4D:Scans", "s.pdf", "application/pdf", 10, 0)!!.folder)
-        assertEquals("Phone storage", SafSource.treeName("primary:"))
+        assertEquals("SD card", SafSource.treeName("9F9F-0000:", described))
+        assertEquals("Phone storage", SafSource.treeName("primary:", described))
         assertNull(SafSource.sourceFile("u5", "primary:Documents", ".hidden.txt", "text/plain", 10, 0))
         assertNull(SafSource.sourceFile("u6", "primary:Documents", "empty.txt", "text/plain", 0, 0))
         assertNull(SafSource.sourceFile("u7", "primary:Android/data/com.app", "x.txt", "text/plain", 10, 0))

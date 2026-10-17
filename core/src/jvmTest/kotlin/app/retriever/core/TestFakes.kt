@@ -105,7 +105,8 @@ internal fun testFile(
     modifiedAt: Long = 1L,
     folder: String = "",
     size: Long = 100L,
-) = SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt)
+    takenAt: Long? = null,
+) = SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt, takenAt)
 
 internal fun settingsOf(kinds: Set<Kind> = Kind.entries.toSet(), profile: DeviceProfile = PROFILE): () -> IndexSettings =
     { IndexSettings(profile, kinds) }
@@ -129,5 +130,5 @@ internal fun testRetriever(
         override suspend fun quickHash(uri: String, size: Long): String? = null
         override suspend fun fullHash(uri: String): String? = null
     }
-    return Retriever(store, source, extractor, factory, monitor, noHashes, probe, modelReady, { true }, { _, _ -> }, System::currentTimeMillis)
+    return Retriever(store, source, extractor, factory, monitor, noHashes, probe, modelReady, { true }, { _, _ -> }, System::currentTimeMillis, { 0L })
 }

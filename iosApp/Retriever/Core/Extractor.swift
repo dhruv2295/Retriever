@@ -58,7 +58,7 @@ final class FileExtractor: NSObject, NativeExtractor {
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.resizeMode = .exact
-            options.isNetworkAccessAllowed = wifi || UserDefaults.standard.bool(forKey: "useMobileData")
+            options.isNetworkAccessAllowed = wifi || (AppServices.shared.retriever.prefs.value as? Prefs)?.allowMobileData == true
             let done = DispatchSemaphore(value: 0)
             let box = Box<UIImage>()
             let id = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSide, height: maxSide), contentMode: .aspectFit, options: options) { [self] image, info in

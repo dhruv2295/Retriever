@@ -353,6 +353,19 @@ class PrefsTest {
     }
 
     @Test
+    fun retuneReadsAgainOnlyWhatChanged() {
+        val light = PROFILE.copy(tier = Tier.LIGHT, videoFrameEverySec = 30, audio = false, bulkOnlyWhenCharging = true)
+        val balanced = PROFILE.copy(tier = Tier.BALANCED, videoFrameEverySec = 5)
+        val old = Prefs.defaultFor(light)
+        assertEquals(setOf(Kind.AUDIO, Kind.VIDEO), rereadAfterRetune(old, light, old.retuned(light, balanced), balanced))
+        assertEquals(emptySet(), rereadAfterRetune(old, light, old, light))
+        val audioOn = old.copy(kinds = Kind.entries.toSet())
+        assertEquals(setOf(Kind.VIDEO), rereadAfterRetune(audioOn, light, audioOn.retuned(light, balanced), balanced))
+        val noVideo = old.copy(kinds = old.kinds - Kind.VIDEO)
+        assertEquals(setOf(Kind.AUDIO), rereadAfterRetune(noVideo, light, noVideo.retuned(light, balanced), balanced))
+    }
+
+    @Test
     fun fullTierIndexesEveryKindByDefault() {
         assertEquals(Kind.entries.toSet(), Prefs.defaultFor(PROFILE).kinds)
     }

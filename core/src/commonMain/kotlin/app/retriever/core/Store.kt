@@ -32,16 +32,25 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     data class ChunkRow(val id: Long, val fileId: Long, val ordinal: Int, val locator: String, val text: String?)
     data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0)
     data class KeywordHit(val chunkId: Long, val snippet: String?)
-    /** [tailFiles]: files with a chunk still waiting for the deepen pass. */
-    data class Counts(val byState: Map<FileState, Long>, val byKind: Map<Kind, Long>, val tailChunks: Long, val tailFiles: Long = 0)
+    /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byState] and [byKind] sum [byKindState]. */
+    data class Counts(
+        val byState: Map<FileState, Long>,
+        val byKind: Map<Kind, Long>,
+        val tailChunks: Long,
+        val tailFiles: Long = 0,
+        val byKindState: Map<Pair<Kind, FileState>, Long> = emptyMap(),
+    )
 
     internal fun <R> inTransaction(body: () -> R): R = q.transactionWithResult { body() }
 
     fun upsertFiles(files: List<SourceFile>) {
         q.transaction {
             for (f in files) {
-                q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt)
-                if (q.changes().executeAsOne() == 0L) continue
+                q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
+                val changed = q.changes().executeAsOne() != 0L
+                // Fills rows synced before taken_at existed, and leaves state alone so nothing is read again.
+                f.takenAt?.let { q.setTakenAt(it, f.uri) }
+                if (!changed) continue
                 val id = q.fileIdByUri(f.uri).executeAsOne()
                 q.deleteFileFts(id)
                 q.insertFileFts(id, f.name, f.folder)
@@ -100,6 +109,18 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     fun knownUris(): Set<String> = q.allUris().executeAsList().toHashSet()
 
     fun fileByUri(uri: String): StoredFile? = q.fileByUri(uri, ::storedFile).executeAsOneOrNull()
+
+    /** Ids of the known files among [uris]. */
+    fun fileIds(uris: Collection<String>): List<Long> = inChunks(uris) { q.fileIdsByUris(it).executeAsList() }
+
+    /** Every file as the name index keeps it. */
+    fun nameEntries(): List<NameEntry> = q.nameEntries(::nameEntry).executeAsList()
+
+    fun nameEntries(uris: Collection<String>): List<NameEntry> = inChunks(uris) { q.nameEntriesByUris(it, ::nameEntry).executeAsList() }
+
+    /** Files of [kinds] captured in [[from], [to]), newest capture first; [starredOnly] keeps the starred ones. */
+    fun captured(kinds: Set<Kind>, from: Long, to: Long, starredOnly: Boolean, limit: Int): List<StoredFile> =
+        q.filesCaptured(kinds.map { it.name }, from, to, if (starredOnly) 1L else 0L, limit.toLong(), ::storedFile).executeAsList()
 
     fun fileCount(): Long = q.fileCount().executeAsOne()
 
@@ -208,7 +229,8 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
             if (rows.isEmpty()) return table
             table = table.ensureCapacity(table.size + rows.size)
             for (r in rows) {
-                table.append(r.id, r.file_id, r.vector, (r.scale ?: 0.0).toFloat(), Kind.valueOf(r.kind))
+                val kind = Kind.valueOf(r.kind)
+                table.append(r.id, r.file_id, r.vector, (r.scale ?: 0.0).toFloat(), kind, Modality.of(kind, r.hasText, r.ordinal), r.at.floorDiv(DAY_MS).toInt())
             }
             last = rows.last().id
         }
@@ -217,26 +239,37 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     /** How many vectors were ever deleted; grows monotonically (kept by a trigger). */
     fun vectorsDeleted(): Long = q.vectorsDeleted().executeAsOneOrNull()?.toLongOrNull() ?: 0L
 
-    /** The [limit] best chunks of files of [kinds] (null: any kind), with snippets cut for those only. */
-    fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null): List<KeywordHit> {
+    /**
+     * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
+     * modified; null: any time), with snippets cut for those only.
+     */
+    fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, starredOnly: Boolean = false): List<KeywordHit> {
         val match = matchExpression(query) ?: return emptyList()
         return ftsQuery(query) {
             // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
             // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
             val scored: (Long, ByteArray?) -> Pair<Long, Double> = { id, info -> id to (info?.let(::bm25) ?: 0.0) }
-            val rows = if (kinds == null) q.searchFts(match, FTS_CAP, scored) else q.searchFtsOfKinds(match, kinds.map { it.name }, FTS_CAP, scored)
+            val rows = if (kinds == null && dates == null && !starredOnly) {
+                q.searchFts(match, FTS_CAP, scored)
+            } else {
+                val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
+                q.searchFtsOfKinds(match, (kinds ?: Kind.entries).map { it.name }, range.first, range.last, if (starredOnly) 1L else 0L, FTS_CAP, scored)
+            }
             val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
             val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
             top.map { KeywordHit(it, snippets[it]) }
         }
     }
 
-    /** File ids of [kinds] (null: any kind) whose name or folder matches, best first. */
-    fun fileKeywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null): List<Long> {
+    /**
+     * File ids of [kinds] (null: any kind) captured within [dates] (as [keywordSearch]) that [keep] lets through, whose
+     * name or folder matches, best first.
+     */
+    fun fileKeywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, keep: (Long) -> Boolean = { true }): List<Long> {
         val match = matchExpression(query) ?: return emptyList()
         return ftsQuery(query) {
             q.searchFileFts(match).executeAsList()
-                .filter { kinds == null || Kind.valueOf(it.kind) in kinds }
+                .filter { (kinds == null || Kind.valueOf(it.kind) in kinds) && (dates == null || it.at in dates) && keep(it.fileId) }
                 .sortedByDescending { it.info?.let(::bm25) ?: 0.0 }
                 .take(limit)
                 .map { it.fileId }
@@ -266,19 +299,63 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     /** The text of [fileId]'s first chunk at [locator] that has any, e.g. a PDF page's words beside its page image. */
     fun firstTextAt(fileId: Long, locator: String): String? = q.firstTextAt(fileId, locator).executeAsOneOrNull()
 
+    /** [firstTextAt] for many (file id, locator) places in one query; places with no text are left out. */
+    fun firstTextAt(places: Collection<Pair<Long, String>>): Map<Pair<Long, String>, String> {
+        if (places.isEmpty()) return emptyMap()
+        val wanted = places.toHashSet()
+        return q.firstTextAtMany(places.mapTo(HashSet()) { it.first }, places.mapTo(HashSet()) { it.second }) { fileId, locator, text, _ ->
+            (fileId to locator) to text.orEmpty()
+        }.executeAsList().filter { it.first in wanted }.toMap()
+    }
+
     fun file(id: Long): SourceFile? = q.fileById(id, ::storedFile).executeAsOneOrNull()?.file
+
+    /** The files of [ids] that still exist, by id, in one query. */
+    fun files(ids: Collection<Long>): Map<Long, SourceFile> =
+        if (ids.isEmpty()) emptyMap() else q.filesByIds(ids, ::storedFile).executeAsList().associate { it.id to it.file }
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 
-    fun countsByKind(): Map<Kind, Long> = q.countByKind { kind, count -> Kind.valueOf(kind) to count }.executeAsList().toMap()
-
-    /** Re-emits whenever files or chunks change. */
+    /** Re-emits whenever files or chunks change; one scan of files per change. */
     fun counts(): Flow<Counts> = combine(
-        q.countByState { state, count -> state to count }.asFlow().mapToList(Dispatchers.Default),
-        q.countByKind { kind, count -> Kind.valueOf(kind) to count }.asFlow().mapToList(Dispatchers.Default),
+        q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.asFlow().mapToList(Dispatchers.Default),
         q.tailChunkCount().asFlow().mapToOne(Dispatchers.Default),
         q.tailFileCount().asFlow().mapToOne(Dispatchers.Default),
-    ) { byState, byKind, tail, tailFiles -> Counts(byState.toMap(), byKind.toMap(), tail, tailFiles) }
+    ) { rows, tail, tailFiles ->
+        val byKindState = rows.toMap()
+        Counts(
+            byState = byKindState.entries.groupingBy { it.key.second }.fold(0L) { n, e -> n + e.value },
+            byKind = byKindState.entries.groupingBy { it.key.first }.fold(0L) { n, e -> n + e.value },
+            tailChunks = tail,
+            tailFiles = tailFiles,
+            byKindState = byKindState,
+        )
+    }
+
+    /** The [limit] newest files of [kinds], newest first. */
+    fun newestFiles(kinds: Set<Kind>, limit: Int): List<StoredFile> =
+        q.filesNewestOfKinds(kinds.map { it.name }, limit.toLong(), ::storedFile).executeAsList()
+
+    fun folderCount(): Long = q.folderCount().executeAsOne()
+
+    /** How many files are at least [minSize] bytes, and their total size. */
+    fun largeFiles(minSize: Long): Pair<Long, Long> = q.largeFiles(minSize) { n, bytes -> n to (bytes ?: 0L) }.executeAsOne()
+
+    /** Indexed files of which only the name is searchable: nothing inside them became a chunk. */
+    fun nameOnlyCount(): Long = q.nameOnlyCount().executeAsOne()
+
+    fun setStarred(uri: String, starred: Boolean, at: Long) {
+        if (starred) q.star(at, uri) else q.unstar(uri)
+    }
+
+    /** Every starred URI of a file still in the index, as a HashSet so a row's star is one lookup. */
+    fun starredUris(): Set<String> = q.starredUris().executeAsList().toHashSet()
+
+    /** Starred files that are still in the index, most recently starred first. */
+    fun starredFiles(limit: Int, offset: Int = 0): List<StoredFile> =
+        q.starredFiles(limit.toLong(), offset.toLong(), ::storedFile).executeAsList()
+
+    fun starredCount(): Long = q.starredCount().executeAsOne()
 
     fun chunkCount(): Long = q.chunkCount().executeAsOne()
 
@@ -301,6 +378,13 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
     fun setMeta(key: String, value: String) {
         q.setMeta(key, value)
+    }
+
+    /** Refills the keyword tables once after schema 3's upgrade recreated them empty; true if it ran. */
+    fun rebuildFtsIfPending(): Boolean {
+        if (meta("fts_rebuild") == null) return false
+        q.rebuildFts()
+        return true
     }
 
     companion object {
@@ -349,12 +433,40 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     }
 }
 
+/** Android 11's SQLite binds at most 999 variables, so a long `IN ?` list runs in parts. */
+private inline fun <T> inChunks(items: Collection<String>, run: (Collection<String>) -> List<T>): List<T> =
+    if (items.isEmpty()) emptyList() else items.chunked(500).flatMap(run)
+
+private fun nameEntry(id: Long, name: String, folder: String, kind: String, at: Long): NameEntry = NameEntry(id, name, folder, Kind.valueOf(kind), at)
+
 private fun storedFile(
     id: Long, uri: String, name: String, folder: String, mime: String, kind: String,
-    size: Long, modifiedAt: Long, state: FileState, attempts: Long, partial: Long,
+    size: Long, modifiedAt: Long, state: FileState, attempts: Long, partial: Long, takenAt: Long?,
 ): Store.StoredFile = Store.StoredFile(
-    id, SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt), attempts.toInt(), state, partial != 0L,
+    id, SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt, takenAt), attempts.toInt(), state, partial != 0L,
 )
+
+/**
+ * What a row's vector was made from, so statistics over cosines never mix populations (text-to-image cosines sit in
+ * another band from text-to-text ones). Derived from what the chunk row keeps: the name vector (ordinal 0) and words
+ * are text; with no words, audio files are audio, video moments are a frame with its timestamp text (and sound), and
+ * the rest are images. Known gap: a screenshot or page image with too few words to make text chunks keeps those words
+ * on its image row, so it reads as TEXT here.
+ */
+enum class Modality {
+    TEXT, IMAGE, IMAGE_TEXT, AUDIO;
+
+    companion object {
+        fun of(kind: Kind, hasText: Boolean, ordinal: Long): Modality = when {
+            hasText || ordinal == 0L -> TEXT
+            kind == Kind.AUDIO -> AUDIO
+            kind == Kind.VIDEO -> IMAGE_TEXT
+            else -> IMAGE
+        }
+    }
+}
+
+private const val DAY_MS = 86_400_000L
 
 /** Vectors held in flat arrays for the scan; grows with doubling capacity so appends stay cheap. */
 class VectorTable(
@@ -365,6 +477,10 @@ class VectorTable(
     size: Int = chunkIds.size,
     /** [Kind] ordinal per row, so a kind filter applies inside the scan instead of after the top-k cut. */
     kinds: ByteArray = ByteArray(chunkIds.size),
+    /** [Modality] ordinal per row; its own array, since the scan indexes its kind filter by the raw kind byte. */
+    modalities: ByteArray = ByteArray(chunkIds.size),
+    /** Capture day per row: COALESCE(taken_at, modified_at) as whole UTC days since 1970. */
+    days: IntArray = IntArray(chunkIds.size),
 ) {
     var chunkIds = chunkIds
         private set
@@ -375,6 +491,10 @@ class VectorTable(
     var scales = scales
         private set
     var kinds = kinds
+        private set
+    var modalities = modalities
+        private set
+    var days = days
         private set
     var size = size
         private set
@@ -389,15 +509,19 @@ class VectorTable(
         bytes = bytes.copyOf(cap * DIMS)
         scales = scales.copyOf(cap)
         kinds = kinds.copyOf(cap)
+        modalities = modalities.copyOf(cap)
+        days = days.copyOf(cap)
         return this
     }
 
-    internal fun append(chunkId: Long, fileId: Long, vector: ByteArray, scale: Float, kind: Kind) {
+    internal fun append(chunkId: Long, fileId: Long, vector: ByteArray, scale: Float, kind: Kind, modality: Modality, day: Int) {
         chunkIds[size] = chunkId
         fileIds[size] = fileId
         vector.copyInto(bytes, size * DIMS)
         scales[size] = scale
         kinds[size] = kind.ordinal.toByte()
+        modalities[size] = modality.ordinal.toByte()
+        days[size] = day
         size++
     }
 

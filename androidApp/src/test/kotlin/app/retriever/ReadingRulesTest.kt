@@ -4,6 +4,7 @@ import app.retriever.core.Kind
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.TEXT_BYTES
+import app.retriever.core.android.SafSource
 import app.retriever.core.android.readCapped
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,6 +59,26 @@ class ReadingRulesTest {
         assertEquals(listOf(media, copy), oneEntryPerFile(listOf(media, copy)))
         val later = saf.copy(modifiedAt = 1_800_000_000_000)
         assertEquals(listOf(media, later), oneEntryPerFile(listOf(media, later)))
+    }
+
+    @Test fun aMemoryCardFolderReadsTheSameFromBothSources() {
+        val describe: (String) -> String? = { if (it == "1A2B-3C4D") "SanDisk SD card" else null }
+        val saf = { d: (String) -> String? -> SafSource.sourceFile("u", "1A2B-3C4D:DCIM/Camera", "IMG_1.jpg", "image/jpeg", 300_000, 0, d)!!.folder }
+        assertEquals("SanDisk SD card/DCIM/Camera", saf(describe))
+        assertEquals("SD card/DCIM/Camera", saf { null })
+    }
+
+    @Test fun aPickedPhotoInAPickedFolderIsListedOnce() {
+        // Selected-photos access: MediaStore lists the picked photo, the folder lists every photo in it.
+        val listed = setOf(
+            SafSource.mediaKey("external_primary", "DCIM/Camera/", "IMG_1.jpg"),
+            SafSource.mediaKey("1a2b-3c4d", "DCIM/", "IMG_9.JPG"),
+        )
+        val media = file("content://media/external/images/media/12", "IMG_1.jpg", "DCIM/Camera")
+        fun saf(dir: String, name: String) = SafSource.sourceFile("content://com.android.externalstorage.documents/x/$name", dir, name, "image/jpeg", 300_000, 0, listed = listed)
+        val rows = listOf(media) + listOfNotNull(saf("primary:DCIM/Camera", "IMG_1.jpg"), saf("primary:DCIM/Camera", "IMG_2.jpg"), saf("1A2B-3C4D:DCIM", "img_9.jpg"))
+        assertEquals(listOf("IMG_1.jpg", "IMG_2.jpg"), rows.map { it.name })
+        assertEquals("an unpicked photo still comes from the folder", "content://com.android.externalstorage.documents/x/IMG_2.jpg", rows[1].uri)
     }
 
     private fun hit(name: String, kind: Kind) = SearchEngine.Hit(file("content://x/$name", name, "").copy(kind = kind), name.hashCode().toLong(), 1, "", null, 1.0)

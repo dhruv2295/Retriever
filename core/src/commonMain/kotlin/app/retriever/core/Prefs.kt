@@ -13,6 +13,10 @@ data class Prefs(
     val paused: Boolean = false,
     /** Testing: keep only the newest N files of each kind, so a full index takes minutes, not hours. */
     val sampleSize: Int? = null,
+    val allowMobileData: Boolean = false,
+    val rememberSearches: Boolean = true,
+    /** Android only: colours from the wallpaper. */
+    val dynamicColor: Boolean = true,
 ) {
     companion object {
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(
@@ -31,6 +35,17 @@ data class Prefs(
             onlyWhileCharging = if (onlyWhileCharging == from.onlyWhileCharging) to.onlyWhileCharging else onlyWhileCharging,
         )
     }
+}
+
+/**
+ * Kinds whose stored chunks no longer match what a re-tune from [old] to [new] asks for: kinds just switched on (they
+ * were stored by name only), and videos when their moment spacing or sound changed.
+ */
+fun rereadAfterRetune(old: Prefs, oldProfile: DeviceProfile, new: Prefs, newProfile: DeviceProfile): Set<Kind> {
+    val was = old.effective(oldProfile)
+    val now = new.effective(newProfile)
+    val video = Kind.VIDEO in new.kinds && (was.videoFrameEverySec != now.videoFrameEverySec || was.audio != now.audio)
+    return (new.kinds - old.kinds) + (if (video) setOf(Kind.VIDEO) else emptySet())
 }
 
 fun Prefs.excludes(folder: String): Boolean = excludedFolders.any { folder == it || folder.startsWith(it + "/") }

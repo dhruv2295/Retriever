@@ -54,7 +54,6 @@ suspend fun runEval(
         profile,
         Store(inMemoryDriver(IndexDb.Schema)),
         log,
-        RelevanceFloor.measuredFor(Signature.of(retriever.requiredBuild.value, profile.visionTokens, profile.maxTokens)),
     )
     val run = eval.run(corpus, queries, evalGrid((listOf(70, 140, 280) + profile.visionTokens).distinct()))
     return "## Simulator run\n\nModel ${retriever.requiredBuild.value.fileName}, ${profile.backend}, tier ${profile.tier}, " +

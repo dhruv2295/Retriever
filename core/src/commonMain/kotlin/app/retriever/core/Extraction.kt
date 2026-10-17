@@ -136,23 +136,23 @@ fun stripRtf(rtf: String): String {
 
 private fun Char.isAsciiLetter() = this in 'a'..'z' || this in 'A'..'Z'
 
+// ponytail: Devanagari only; Unicode has no script-neutral signal for a conjunct split at its vowel sign, add a rule per script if another shows up.
 private val SPLIT_MATRA = Regex("(^|\\s)[\\u0915-\\u0939\\u0958-\\u095F][\\u0941\\u0943]\\s+[\\u0900-\\u097F]")
 
 private fun Char.isMissingGlyph() = code == 0 || code == 0xFFFD || code in 0xE000..0xF8FF
 
-// Devanagari vowel signs, virama and other marks that only ever follow a letter.
-private fun Char.isDevanagariMark() =
-    code in 0x900..0x903 || (code in 0x93A..0x94F && code != 0x93D) || code in 0x951..0x957 || code in 0x962..0x963
+private fun Char.isMark() = category == CharCategory.NON_SPACING_MARK || category == CharCategory.COMBINING_SPACING_MARK
 
 /**
  * True when a PDF text layer came out garbled, so the page is worth OCR: missing-glyph characters (NUL,
- * U+FFFD, private use), a Devanagari mark with no letter before it, or a conjunct split at its vowel sign
- * ("कु मार" for "कुमार"), which is how Type 3 fonts from Chrome's PDF export read back.
+ * U+FFFD, private use), a combining mark with no base before it (line break, control character or start of
+ * text), or a Devanagari conjunct split at its vowel sign ("कु मार" for "कुमार"), which is how Type 3 fonts
+ * from Chrome's PDF export read back.
  */
 fun looksBroken(text: String): Boolean {
     val missing = text.count { it.isMissingGlyph() }
     if (missing > 0 && missing * 100 >= text.length) return true
-    if (text.indices.any { text[it].isDevanagariMark() && (it == 0 || text[it - 1].code !in 0x900..0x97F) }) return true
+    if (text.indices.any { text[it].isMark() && (it == 0 || text[it - 1].isWhitespace() || text[it - 1].isISOControl() || text[it - 1].isMissingGlyph()) }) return true
     return SPLIT_MATRA.containsMatchIn(text)
 }
 

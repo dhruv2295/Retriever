@@ -117,14 +117,15 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
     ): List<SourceFile> {
         val collection = MediaStore.Files.getContentUri(volume)
         val volumeLabel = volumeLabel(collection)
-        val projection = buildList {
-            add(MediaStore.MediaColumns._ID)
-            add(MediaStore.MediaColumns.DISPLAY_NAME)
-            add(MediaStore.MediaColumns.RELATIVE_PATH)
-            add(MediaStore.MediaColumns.MIME_TYPE)
-            add(MediaStore.MediaColumns.SIZE)
-            add(MediaStore.MediaColumns.DATE_MODIFIED)
-        }.toTypedArray()
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.DATE_TAKEN,
+        )
         val incremental = sinceGeneration != null
         val selection = (if (incremental) "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?" else "${MediaStore.MediaColumns.SIZE} > 0") +
             " AND $NOT_FOLDER"
@@ -140,6 +141,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
                 val mimeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
                 val sizeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
                 val dateCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                val takenCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN)
                 while (c.moveToNext()) {
                     try {
                         val uri = ContentUris.withAppendedId(collection, c.getLong(idCol)).toString()
@@ -161,7 +163,9 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
                             mime = mime,
                             kind = kind,
                             size = size,
+                            // DATE_MODIFIED is in seconds, DATE_TAKEN in ms.
                             modifiedAt = c.getLong(dateCol) * 1000,
+                            takenAt = if (c.isNull(takenCol)) null else c.getLong(takenCol).takeIf { it > 0 },
                         )
                     } catch (e: Exception) {
                         skips.merge("unreadable", 1, Int::plus)

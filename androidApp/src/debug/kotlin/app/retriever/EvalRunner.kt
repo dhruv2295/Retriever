@@ -2,23 +2,38 @@ package app.retriever
 
 import android.os.Build
 import android.os.Environment
+import android.util.Log
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.core.Backend
+import app.retriever.core.DIMS
+import app.retriever.core.Embedder
 import app.retriever.core.EvalSetting
 import app.retriever.core.Kind
-import app.retriever.core.RelevanceFloor
+import app.retriever.core.Part
 import app.retriever.core.RetrievalEval
+import app.retriever.core.SearchEngine
 import app.retriever.core.Signature
 import app.retriever.core.Store
+import app.retriever.core.Vector
+import app.retriever.core.VectorTable
 import app.retriever.core.android.MediaPipeEmbedderFactory
 import app.retriever.core.db.IndexDb
 import app.retriever.core.evalGrid
 import app.retriever.core.parseEvalQueries
 import app.retriever.core.report
+import app.retriever.core.traced
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.Locale
+import java.util.Random
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.DurationUnit
 import kotlin.time.TimeSource
 
@@ -91,13 +106,177 @@ class EvalRunner(private val graph: AppGraph) {
             build,
             profile,
             Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
-            floor = RelevanceFloor.measuredFor(Signature.of(build, profile.visionTokens, profile.maxTokens)),
         ).run(corpus, queries, evalGrid(listOf(70, 140)))
         val report = "## ${Build.MODEL}: ${build.fileName}, ${profile.backend}\n\n" +
             "Production search (Retriever.search, ${queries.size} queries): ${latency(queryMs)}" +
             (if (results.all { it.vectorLane }) "; every search used the vector lane.\n\n" else "; some searches were keyword-only.\n\n") +
             run.report(EvalSetting(profile.visionTokens), production, results.map { it.strongCount })
         report.also { File(graph.app.getExternalFilesDir("eval"), "eval-corpus.txt").writeText(it) }
+    }
+
+    /**
+     * Entry for `adb shell am start -n app.retriever/.DebugActivity --es run corpus|scan|latency|query|stats [--es q text]`.
+     * The report goes to logcat (tag RetrieverBench, ending in "done <run>") and Download/retriever-eval/report-<run>.txt.
+     */
+    suspend fun runNamed(name: String, q: String?): String {
+        val text = try {
+            when (name) {
+                "corpus" -> runCorpus()
+                "scan" -> scan()
+                "latency" -> searchLatency()
+                "query" -> query(q ?: error("query needs --es q <text>"))
+                "stats" -> stats()
+                else -> "Unknown run '$name'. Use corpus, scan, latency, query or stats."
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Run $name failed: ${e.stackTraceToString()}"
+        }
+        text.lines().forEach { Log.i(TAG, it) }
+        Log.i(TAG, "done $name")
+        runCatching {
+            File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR").apply { mkdirs() }.resolve("report-$name.txt").writeText(text)
+        }.onFailure { Log.w(TAG, "report-$name.txt not written", it) }
+        return text
+    }
+
+    /** The vector scan alone on this CPU: [ROWS] random int8 rows through the engine's own scanTop, one thread. */
+    private suspend fun scan(): String = withContext(Dispatchers.Default) {
+        val rnd = Random(42)
+        val max = ROWS.max()
+        val sig = Signature("bench")
+        val full = VectorTable(LongArray(max) { it + 1L }, LongArray(max) { it.toLong() }, ByteArray(max * DIMS).also(rnd::nextBytes), FloatArray(max) { 1f / 127 })
+        val q = Vector(ByteArray(DIMS).also(rnd::nextBytes), 1f / 127, sig)
+        val engine = SearchEngine(
+            Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
+            object : Embedder {
+                override val signature = sig
+                override val backend = Backend.CPU
+
+                override suspend fun embedRaw(parts: List<Part>): FloatArray = error("scan only")
+
+                override fun close() {}
+            },
+        )
+        val out = StringBuilder("Vector scan, ${Build.MODEL}, 1 thread, top 100, $RUNS runs after $WARMUP warm-ups\n")
+        for (n in ROWS) {
+            val table = VectorTable(full.chunkIds, full.fileIds, full.bytes, full.scales, n, full.kinds, full.modalities, full.days)
+            repeat(WARMUP) { engine.scanTop(q, 100, table) }
+            val ms = List(RUNS) {
+                val mark = TimeSource.Monotonic.markNow()
+                traced("vec.scan") { engine.scanTop(q, 100, table) }
+                mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
+            }
+            out.appendLine("$n rows: ${latency(ms)}")
+        }
+        out.append(
+            """
+            |
+            |Is dotInt8 vectorised (sdot or smull on arm64)? On a userdebug image or rooted device:
+            |  adb root; adb shell cmd package compile -m speed -f app.retriever
+            |  adb shell 'oatdump --oat-file=${'$'}(find /data/app -name base.odex -path "*app.retriever*") --method-filter=dotInt8' | grep -c -E 'sdot|smull'
+            |dotInt8 may be inlined into scanTop, so repeat with --method-filter=scanTop. Zero hits: the loop is scalar.
+            """.trimMargin(),
+        )
+        out.toString()
+    }
+
+    /**
+     * Retriever.search over the eval queries in three states: model closed (released before each query, so the
+     * time includes opening it), open and idle, and open with a foreground batch running (push extra photos first).
+     */
+    private suspend fun searchLatency(): String = withContext(Dispatchers.Default) {
+        val retriever = graph.retriever
+        val queries = parseEvalQueries(File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR/queries.json").readText()).map { it.q }
+        var keywordOnly = 0
+        suspend fun timed(q: String): Double {
+            val mark = TimeSource.Monotonic.markNow()
+            if (!retriever.search(q).vectorLane) keywordOnly++
+            return mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
+        }
+        val out = StringBuilder("Search latency, ${Build.MODEL}, ${queries.size} queries, ${retriever.requiredBuild.value.fileName}\n")
+        fun line(label: String, ms: List<Double>) = out.appendLine("$label (n=${ms.size}): ${latency(ms)}; keyword-only searches so far: $keywordOnly")
+
+        // Paused, newly pushed files stay pending and no background batch disturbs the first two states.
+        retriever.pause()
+        try {
+            Log.i(TAG, "latency: model closed")
+            retriever.warmSearch()
+            line("model closed, opened by each search", queries.filterIndexed { i, _ -> i % 4 == 0 }.map { retriever.release(); timed(it) })
+
+            Log.i(TAG, "latency: model open, idle")
+            timed(queries.first())
+            line("model open, idle", List(3) { queries }.flatten().map { timed(it) })
+        } finally {
+            retriever.resume()
+        }
+
+        Log.i(TAG, "latency: foreground batch")
+        val batch = graph.scope.launch { retriever.indexBatch(10.minutes, deepen = false) }
+        val started = withTimeoutOrNull(60_000) { retriever.state.first { it.running && it.pendingAtStart > 0 } }
+        if (started == null) {
+            out.appendLine("foreground batch: none ran (nothing pending); push extra files to /sdcard/DCIM and rescan")
+        } else {
+            // Searches pause indexing, so back-to-back queries would starve it; space them like a person typing.
+            withTimeoutOrNull(180_000) { retriever.state.first { it.processed > 0 || !it.running } }
+            val processedBefore = retriever.state.value.processed
+            val ms = mutableListOf<Double>()
+            for (q in List(3) { queries }.flatten()) {
+                if (!retriever.state.value.running) break
+                delay(PAUSE_BETWEEN_QUERIES_MS)
+                ms += timed(q)
+            }
+            line("foreground batch running (${started.pendingAtStart} pending)", ms)
+            out.appendLine("  the batch finished ${retriever.state.value.processed - processedBefore} files meanwhile")
+        }
+        retriever.cancelBatch()
+        batch.join()
+        out.toString()
+    }
+
+    /** One search, three times: hits (strong ones first), strong flags and timings. A closed model makes the first one slow. */
+    private suspend fun query(q: String): String = withContext(Dispatchers.Default) {
+        val retriever = graph.retriever
+        val out = StringBuilder("Query \"$q\"\n")
+        val times = mutableListOf<Double>()
+        lateinit var result: SearchEngine.SearchResult
+        repeat(3) {
+            val mark = TimeSource.Monotonic.markNow()
+            result = retriever.search(q)
+            times += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
+        }
+        out.appendLine("${result.hits.size} hits, ${result.strongCount} strong, vector lane ${result.vectorLane}; search ms, 1st to 3rd: ${times.joinToString { it.f1() }}")
+        result.hits.forEachIndexed { i, h ->
+            out.appendLine("${i + 1} ${if (i < result.strongCount) "strong" else "weak  "} ${"%.4f".format(Locale.US, h.score)} ${h.file.kind} ${h.file.name} ${h.locator}${if (h.byName) " [name]" else ""}")
+        }
+        out.toString()
+    }
+
+    /** Counts by kind and state, and how many have a taken_at, straight from the index file. */
+    private suspend fun stats(): String = withContext(Dispatchers.Default) {
+        val driver = AndroidSqliteDriver(IndexDb.Schema, graph.app, Store.DB_NAME)
+        try {
+            fun rows(sql: String, cols: Int) = driver.executeQuery(
+                null,
+                sql,
+                { c ->
+                    val r = mutableListOf<List<String?>>()
+                    while (c.next().value) r += List(cols) { c.getString(it) }
+                    QueryResult.Value(r)
+                },
+                0,
+            ).value
+            val out = StringBuilder("Index stats, ${Build.MODEL}\n")
+            out.appendLine("kind state files with_taken_at")
+            rows("SELECT kind, state, COUNT(*), COUNT(taken_at) FROM files GROUP BY kind, state ORDER BY kind, state", 4).forEach { out.appendLine(it.joinToString(" ")) }
+            val (files, taken, chunks) = rows("SELECT (SELECT COUNT(*) FROM files), (SELECT COUNT(taken_at) FROM files), (SELECT COUNT(*) FROM chunks)", 3).single()
+            out.appendLine("total: $files files, $taken with taken_at, $chunks chunks")
+            rows("SELECT key, substr(value, 1, 200) FROM index_meta WHERE key IN ('prefs', 'model_signature', 'profile')", 2).forEach { out.appendLine("${it[0]}: ${it[1]}") }
+            out.toString()
+        } finally {
+            driver.close()
+        }
     }
 
     private fun median(xs: List<Double>): Double =
@@ -115,6 +294,11 @@ class EvalRunner(private val graph: AppGraph) {
     private companion object {
         const val PER_KIND = 10
         const val CORPUS_DIR = "retriever-eval"
+        const val TAG = "RetrieverBench"
+        val ROWS = listOf(150_000, 300_000)
+        const val WARMUP = 8
+        const val RUNS = 40
+        const val PAUSE_BETWEEN_QUERIES_MS = 400L
 
         /** Query to a substring of the file it should find, in the test phone's library; edit to match yours. */
         val QUERIES = listOf(

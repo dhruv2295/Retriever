@@ -1,5 +1,5 @@
 // Ported from Retriever's Android BrowseScreen.kt (same project): files by kind, size or folder, a page at a time.
-// Modified for iOS: a List hub, a sort menu in the toolbar, and paging when the last file appears.
+// Modified for iOS: a sort menu in the toolbar, and paging when the last file appears.
 
 import RetrieverCore
 import SwiftUI
@@ -30,43 +30,8 @@ struct FileQuery: Hashable {
     var folder: String?
     var sort = Sort.newest
     var title: String
-}
-
-/// The kinds Browse lists, in order; iOS reads no audio.
-private let browseKinds: [Kind] = [.photo, .screenshot, .video, .pdf, .doc, .other]
-
-/// Every way into the files: by size, by kind, by folder, and copies.
-struct BrowseView: View {
-    let snap: AppModel.Snap?
-
-    var body: some View {
-        List {
-            Section {
-                NavigationLink(value: Route.files(FileQuery(sort: .largest, title: "Large files"))) {
-                    Label("Large files", systemImage: "externaldrive")
-                }
-            }
-            let kinds = browseKinds.filter { (snap?.byKind[$0] ?? 0) > 0 }
-            if !kinds.isEmpty {
-                Section("By kind") {
-                    ForEach(kinds, id: \.self) { kind in
-                        NavigationLink(value: Route.files(FileQuery(kind: kind, title: Format.kindPlural(kind)))) {
-                            LabeledContent {
-                                Text(Copy.count(snap?.byKind[kind] ?? 0)).monospacedDigit()
-                            } label: {
-                                Label(Format.kindPlural(kind), systemImage: Format.icon(kind))
-                            }
-                        }
-                    }
-                }
-            }
-            Section("Tidy up") {
-                NavigationLink(value: Route.folders) { Label("Folders", systemImage: "folder") }
-                NavigationLink(value: Route.duplicates) { Label("Duplicates", systemImage: "square.on.square") }
-            }
-        }
-        .navigationTitle("Browse")
-    }
+    /// The files the person starred, newest star first; the sort menu doesn't apply.
+    var starredOnly = false
 }
 
 /// Files a page at a time: pictures as a grid, everything else as rows.
@@ -97,31 +62,42 @@ struct FileListView: View {
 
     /// Large files sorted another way is just every file.
     private var title: String {
-        query.kind == nil && query.folder == nil && sort != .largest ? "All files" : query.title
+        query.kind == nil && query.folder == nil && !query.starredOnly && sort != .largest ? "All files" : query.title
     }
 
     private var grid: Bool {
         query.kind == .photo || query.kind == .screenshot || query.kind == .video
     }
 
+    /// Starred follows the stars as they change (here, in a viewer), without reloading its pages.
+    private var shown: [Store.StoredFile] {
+        guard query.starredOnly, let starred = Stars.model?.starred else { return files }
+        return files.filter { starred.contains($0.file.uri) }
+    }
+
     var body: some View {
+        let visible = shown
         Group {
-            if files.isEmpty && loading {
+            if visible.isEmpty && loading {
                 // Never an empty Group: its modifiers (title, task) would vanish with it.
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if files.isEmpty {
-                StateView(art: "IllusEmpty", title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
+            } else if visible.isEmpty {
+                if query.starredOnly {
+                    StateView(art: "IllusEmpty", title: "Nothing starred yet", message: "Touch and hold any file and choose Star to keep it here.")
+                } else {
+                    StateView(art: "IllusEmpty", title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
+                }
             } else if grid {
                 ScrollView {
                     LazyVGrid(columns: gridColumns(typeSize, spacing: 4), spacing: 4) {
-                        ForEach(files, id: \.id) { stored in
+                        ForEach(visible, id: \.id) { stored in
                             ResultCell(file: stored.file, onOpen: { openFile(stored.file) }).onAppear { more(after: stored) }
                         }
                     }
                     .padding(4)
                 }
             } else {
-                List(files, id: \.id) { stored in
+                List(visible, id: \.id) { stored in
                     let f = stored.file
                     FileButton(file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))", onOpen: { openFile(f) })
                         .onAppear { more(after: stored) }
@@ -131,13 +107,15 @@ struct FileListView: View {
         }
         .navigationTitle(title)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Sort by", selection: $sort) {
-                        ForEach(FileQuery.Sort.allCases, id: \.self) { Text($0.label).tag($0) }
+            if !query.starredOnly {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Sort by", selection: $sort) {
+                            ForEach(FileQuery.Sort.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
                 }
             }
         }
@@ -165,7 +143,9 @@ struct FileListView: View {
         guard let retriever = services?.retriever else { return }
         let gen = generation
         loading = true
-        let page = (try? await retriever.files(kind: query.kind, folder: query.folder, sort: sort.store, limit: Self.page, offset: Int32(files.count))) ?? []
+        let offset = Int32(files.count)
+        let page = (query.starredOnly ? try? await retriever.starredFiles(limit: Self.page, offset: offset)
+            : try? await retriever.files(kind: query.kind, folder: query.folder, sort: sort.store, limit: Self.page, offset: offset)) ?? []
         guard gen == generation else { return }
         // ponytail: offset paging over a table the indexer changes, so rows can shift; drop repeats by id.
         let seen = Set(files.map(\.id))

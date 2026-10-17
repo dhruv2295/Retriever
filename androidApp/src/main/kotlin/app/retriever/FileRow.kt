@@ -104,11 +104,11 @@ fun highlighted(snippet: String, style: SpanStyle): AnnotatedString = buildAnnot
 
 /**
  * The file name with each whole word the query matched shown bold, as keyword search matches: the same words, or
- * words starting with the last one when it has three letters or more. Little words like "on" are left plain.
+ * words starting with the last one when it has three letters or more. Call it for a file found by its name only.
  */
 fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedString {
     val tokens = Store.ftsTokens(query)
-    val words = tokens.filter { it !in STOP_WORDS }.toSet()
+    val words = tokens.toSet()
     val prefix = tokens.lastOrNull()?.takeIf { it.length >= 3 }
     if (words.isEmpty()) return AnnotatedString(name)
     return buildAnnotatedString {
@@ -121,7 +121,6 @@ fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedStr
 }
 
 private val NAME_WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
-private val STOP_WORDS = setOf("a", "an", "and", "at", "by", "for", "in", "is", "my", "of", "on", "or", "the", "to")
 
 private fun clickLabel(locator: String): String =
     Opener.locatorToPage(locator)?.let { "Open at page $it" }

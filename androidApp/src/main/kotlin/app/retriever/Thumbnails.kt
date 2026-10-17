@@ -36,7 +36,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 
 object Thumbnails {
-    private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 32).toInt()) {
+    private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 

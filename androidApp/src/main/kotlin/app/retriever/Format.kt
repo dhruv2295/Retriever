@@ -17,9 +17,11 @@
 
 package app.retriever
 
+import android.text.format.DateUtils
 import androidx.compose.ui.text.TextStyle
 import app.retriever.core.Kind
 import app.retriever.core.ReadExtent
+import app.retriever.core.SourceFile
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Date
@@ -40,6 +42,15 @@ object Format {
         ReadExtent.FIRST_PART -> "Only the first part of this file was read"
         ReadExtent.DEEPENING -> "Still reading the rest of this file"
         else -> null
+    }
+
+    /** What a search kept when the chips narrow it, as a plural noun ("starred PDFs", "photos"); null when it kept everything. */
+    fun scope(chip: Kind?, onlyStarred: Boolean): String? {
+        val kind = chip?.let(::kindLabelPlural)?.let { k -> if (k[1].isUpperCase()) k else k.lowercase() }
+        return when {
+            onlyStarred -> "starred ${kind ?: "files"}"
+            else -> kind
+        }
     }
 
     fun date(ms: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ms))
@@ -86,6 +97,12 @@ object Format {
         minutes < 90 -> "about an hour left"
         minutes < 48 * 60 -> "about ${(minutes + 30) / 60} hours left"
         else -> "about ${(minutes + 12 * 60) / (24 * 60)} days left"
+    }
+
+    /** "Download · Today · 2.1 MB": the last folder, the file's modified day in the system's words, its size. */
+    fun fileLine(file: SourceFile, now: Long = System.currentTimeMillis()): String {
+        val day = DateUtils.getRelativeTimeSpanString(file.modifiedAt, now, DateUtils.DAY_IN_MILLIS, DateUtils.FORMAT_ABBREV_MONTH)
+        return listOf(file.folder.trimEnd('/').substringAfterLast('/'), day.toString(), bytes(file.size)).filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     fun kindLabelPlural(kind: Kind): String = when (kind) {

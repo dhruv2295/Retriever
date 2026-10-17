@@ -11,25 +11,25 @@ struct SplitRoot<Home: View>: View {
     private let home: Home
 
     enum Item: Hashable, CaseIterable {
-        case home, browse, folders, duplicates, status
+        case home, folders, duplicates, status, settings
 
         var title: String {
             switch self {
             case .home: "Search"
-            case .browse: "Browse"
             case .folders: "Folders"
             case .duplicates: "Duplicates"
             case .status: "Status"
+            case .settings: "Settings"
             }
         }
 
         var icon: String {
             switch self {
             case .home: "magnifyingglass"
-            case .browse: "square.grid.2x2"
             case .folders: "folder"
             case .duplicates: "square.on.square"
             case .status: "clock.arrow.circlepath"
+            case .settings: "gearshape"
             }
         }
 
@@ -37,10 +37,10 @@ struct SplitRoot<Home: View>: View {
         var route: Route? {
             switch self {
             case .home: nil
-            case .browse: .browse
             case .folders: .folders
             case .duplicates: .duplicates
             case .status: .status
+            case .settings: .settings
             }
         }
 
@@ -87,10 +87,10 @@ struct SplitRoot<Home: View>: View {
     @ViewBuilder private var root: some View {
         switch selection {
         case .home: home
-        case .browse: BrowseView(snap: model.snap)
         case .folders: FoldersView(model: model)
         case .duplicates: DuplicatesView(model: model)
         case .status: StatusView(model: model)
+        case .settings: SettingsView(model: model)
         }
     }
 }

@@ -182,6 +182,7 @@ class SetupFlow(private val graph: AppGraph) {
             access = graph.access(),
             textOnly = retriever.textOnly,
             ramGb = retriever.probe.ramGb,
+            allowMetered = if (retriever.prefs.value.allowMobileData) true else null,
         ),
     )
     val ui: StateFlow<SetupUi> = _ui
@@ -229,6 +230,7 @@ class SetupFlow(private val graph: AppGraph) {
     fun useMobileData() {
         _ui.update { it.copy(allowMetered = true, askMobileData = false) }
         graph.scope.launch {
+            retriever.updatePrefs { it.copy(allowMobileData = true) }
             mutex.withLock {
                 // DownloadManager can't lift the Wi-Fi rule from a queued request, so it is queued again.
                 if (_ui.value.model == ModelState.WaitingForWifi) stopDownload()
@@ -239,6 +241,7 @@ class SetupFlow(private val graph: AppGraph) {
 
     fun waitForWifi() {
         _ui.update { it.copy(allowMetered = false, askMobileData = false) }
+        graph.scope.launch { retriever.updatePrefs { it.copy(allowMobileData = false) } }
         advance()
     }
 
@@ -298,7 +301,7 @@ class SetupFlow(private val graph: AppGraph) {
             return
         }
         // A download still running (this process died mid-download) is tracked, never hashed or deleted under it.
-        val active = withContext(Dispatchers.IO) { activeDownload(b) }
+        val active = withContext(Dispatchers.IO) { download.active(b) }
         when {
             active != null -> {
                 // Set before step() runs under the same lock, so it never queues a second download.
@@ -348,8 +351,7 @@ class SetupFlow(private val graph: AppGraph) {
             SetupStep.NEEDS_SPACE -> _ui.update { it.copy(model = ModelState.Failed(spaceMessage(b))) }
             SetupStep.DOWNLOAD -> {
                 _ui.update { it.copy(model = ModelState.Downloading(0f, true)) }
-                val allowMetered = _ui.value.allowMetered == true
-                track(b) { download.start(b, allowMetered) }
+                track(b) { download.start(b, retriever.prefs.value) }
             }
             SetupStep.VERIFY -> if (modelJob?.isActive != true) {
                 modelJob = graph.scope.launch { verifyModel(b, afterDownload = false) }
@@ -400,23 +402,11 @@ class SetupFlow(private val graph: AppGraph) {
         val b = retriever.requiredBuild.value
         withContext(Dispatchers.IO) {
             // A Stop right after enqueue can come before downloadId is set.
-            (downloadId ?: activeDownload(b))?.let { downloads.remove(it) }
+            (downloadId ?: download.active(b))?.let { downloads.remove(it) }
             download.file(b).delete()
         }
         downloadId = null
         _ui.update { it.copy(model = ModelState.Missing) }
-    }
-
-    private fun activeDownload(b: ModelBuild): Long? {
-        val query = DownloadManager.Query().setFilterByStatus(
-            DownloadManager.STATUS_PENDING or DownloadManager.STATUS_RUNNING or DownloadManager.STATUS_PAUSED,
-        )
-        downloads.query(query).use { c ->
-            val uri = c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)
-            val id = c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
-            while (c.moveToNext()) if (c.getString(uri) == b.url) return c.getLong(id)
-        }
-        return null
     }
 
     private fun track(b: ModelBuild, findId: () -> Long) {

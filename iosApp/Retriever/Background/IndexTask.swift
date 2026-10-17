@@ -14,9 +14,12 @@ enum IndexTask {
     /// continued task posts it with `continuedId` as the object.
     static let ended = Notification.Name("app.retriever.backgroundBatchEnded")
     private static let log = Logger(subsystem: "app.retriever", category: "background")
+    /// Written once, at launch, before anything schedules.
+    nonisolated(unsafe) private static var registered = false
 
     /// Call before the app finishes launching.
     static func register() {
+        registered = true
         BGTaskScheduler.shared.register(forTaskWithIdentifier: id, using: nil) { task in
             task.expirationHandler = expire
             runBatch { task.setTaskCompleted(success: $0) }
@@ -30,10 +33,14 @@ enum IndexTask {
         }
     }
 
-    /// Fails on the simulator, which has no BGTaskScheduler.
+    /// Fails on the simulator, which has no BGTaskScheduler. Waits for the charger when Settings says so; submitting
+    /// again replaces the waiting request, so a changed setting takes effect.
     static func schedule() {
+        // Submitting an identifier this process never registered raises an exception `try` can't catch: the unit-test
+        // host skips register(), and a Settings toggle there crashed it.
+        guard registered else { return }
         let request = BGProcessingTaskRequest(identifier: id)
-        request.requiresExternalPower = true
+        request.requiresExternalPower = (AppServices.shared.retriever.prefs.value as? Prefs)?.onlyWhileCharging ?? false
         request.requiresNetworkConnectivity = false
         do {
             try BGTaskScheduler.shared.submit(request)

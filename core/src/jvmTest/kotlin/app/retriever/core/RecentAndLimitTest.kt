@@ -23,6 +23,7 @@ class RecentAndLimitTest {
         { true },
         { _, _ -> },
         System::currentTimeMillis,
+        { 0L },
     )
 
     @Test

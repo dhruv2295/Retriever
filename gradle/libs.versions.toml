@@ -44,6 +44,9 @@ mediapipe-tasks-retrieval = { module = "com.google.mediapipe:tasks-retrieval", v
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 mlkit-text-recognition ={ module = "com.google.mlkit:text-recognition", version.ref = "mlkitText" }
 mlkit-text-recognition-devanagari = { module = "com.google.mlkit:text-recognition-devanagari", version.ref = "mlkitText" }
+mlkit-text-recognition-chinese = { module = "com.google.android.gms:play-services-mlkit-text-recognition-chinese", version.ref = "mlkitText" }
+mlkit-text-recognition-japanese = { module = "com.google.android.gms:play-services-mlkit-text-recognition-japanese", version.ref = "mlkitText" }
+mlkit-text-recognition-korean = { module = "com.google.android.gms:play-services-mlkit-text-recognition-korean", version.ref = "mlkitText" }
 sqldelight-native-driver = { module = "app.cash.sqldelight:native-driver", version.ref = "sqldelight" }
 sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litertNpu" }

@@ -138,6 +138,14 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         return size == build.sizeBytes && verify(file, fileName: build.fileName, sha256: build.sha256)
     }
 
+    /// Removes the model file, its marker and any saved resume data, for Free up space.
+    func deleteModel(_ build: ModelBuild) {
+        cancel()
+        let fm = FileManager.default
+        [dir.appendingPathComponent(build.fileName), marker(build.fileName),
+         resumeFile(build.fileName, true), resumeFile(build.fileName, false)].forEach { try? fm.removeItem(at: $0) }
+    }
+
     // MARK: URLSessionDownloadDelegate
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {

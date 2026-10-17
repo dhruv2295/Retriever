@@ -28,10 +28,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 @OptIn(ExperimentalMaterial3Api::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -54,9 +56,20 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
     }
     // No background playback: leaving the app pauses, and the controls resume.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
-    val playerView = remember { PlayerView(context).apply { useController = true } }
+    // A recording has no picture: its controls stay up, or the screen is black until it is touched.
+    val audio = route.mime.startsWith("audio/")
+    val playerView = remember {
+        PlayerView(context).apply {
+            useController = true
+            if (audio) {
+                controllerShowTimeoutMs = 0
+                controllerHideOnTouch = false
+            }
+        }
+    }
     DisposableEffect(player) {
         playerView.player = player
+        if (audio) playerView.showController()
         onDispose {
             playerView.player = null
             player.release()
@@ -79,6 +92,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = { StarButton(route.uri) },
             )
         },
     ) { padding ->

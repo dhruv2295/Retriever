@@ -9,6 +9,11 @@ struct RetrieverApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        // Hosting the unit tests: no index, no scheduled work, no services.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            _model = State(initialValue: AppModel(fixture: .caughtUp))
+            return
+        }
         #if DEBUG
             if CommandLine.arguments.contains("-selftest") {
                 SelfTest.run()
@@ -22,6 +27,7 @@ struct RetrieverApp: App {
                 return
             }
             BackgroundDrill.armIfAsked()
+            DebugRoute.starIfAsked(AppServices.shared.retriever)
         #endif
         IndexTask.register()
         _model = State(initialValue: AppModel(services: .shared))

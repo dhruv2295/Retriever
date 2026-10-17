@@ -1,5 +1,6 @@
 package app.retriever
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +16,12 @@ class MainActivity : ComponentActivity() {
         splash.setKeepOnScreenCondition { graph.retriever.setUp.value == null }
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        LaunchQuery.from(intent)
         setContent { RetrieverTheme { AppNav() } }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        LaunchQuery.from(intent)
     }
 }

@@ -325,14 +325,59 @@ struct FileButton: View {
 
 extension View {
     func resultActions(_ file: SourceFile, _ onFindSimilar: ((SourceFile) -> Void)?) -> some View {
-        let similar = onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil }
-        return accessibilityActions {
-            if let similar { Button("Find similar") { similar(file) } }
-            ShareButton(file: file)
+        modifier(ResultActions(file: file, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil }))
+    }
+}
+
+/// Star and Find similar and Share, in the long-press menu and for VoiceOver.
+private struct ResultActions: ViewModifier {
+    let file: SourceFile
+    let similar: ((SourceFile) -> Void)?
+
+    func body(content: Content) -> some View {
+        let starred = Stars.isOn(file)
+        content
+            .accessibilityActions {
+                starButton
+                if let similar { Button("Find similar") { similar(file) } }
+                ShareButton(file: file)
+            }
+            .contextMenu {
+                starButton
+                if let similar { Button { similar(file) } label: { Label("Find similar", systemImage: "photo.stack") } }
+                ShareButton(file: file)
+            }
+            .sensoryFeedback(trigger: starred) { _, now in now ? .success : .impact(weight: .light) }
+    }
+
+    @ViewBuilder private var starButton: some View {
+        if let model = Stars.model {
+            let on = model.starred.contains(file.uri)
+            Button { model.setStarred(file.uri, !on) } label: {
+                Label(on ? Copy.removeStar : Copy.star, systemImage: on ? "star.slash" : "star")
+            }
         }
-        .contextMenu {
-            if let similar { Button { similar(file) } label: { Label("Find similar", systemImage: "photo.stack") } }
-            ShareButton(file: file)
+    }
+}
+
+/// The app's starred files, for views that don't take the model (rows, the viewers). SearchView sets it once.
+@MainActor enum Stars {
+    static weak var model: AppModel?
+
+    static func isOn(_ file: SourceFile) -> Bool { model?.starred.contains(file.uri) ?? false }
+}
+
+/// The star in a viewer's toolbar.
+struct StarButton: View {
+    let file: SourceFile
+
+    var body: some View {
+        if let model = Stars.model {
+            let on = model.starred.contains(file.uri)
+            Button { model.setStarred(file.uri, !on) } label: {
+                Label(on ? Copy.removeStar : Copy.star, systemImage: on ? "star.fill" : "star")
+            }
+            .sensoryFeedback(trigger: on) { _, now in now ? .success : .impact(weight: .light) }
         }
     }
 }

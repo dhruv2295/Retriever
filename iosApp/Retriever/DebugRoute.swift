@@ -46,6 +46,7 @@
         case searchLessLikely = "search.lessLikely"
         case searchNothingWell = "search.nothingWell"
         case searchFirstPart = "search.firstPart"
+        case homeCaughtUp = "home.caughtUp"
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
         case searchEmpty = "search.empty"
@@ -58,7 +59,6 @@
         case home
         case search
         case searchPhoto = "search.photo"
-        case browse
         case browseLarge = "browse.large"
         case browseFolders = "browse.folders"
         case browseDuplicates = "browse.duplicates"
@@ -71,7 +71,7 @@
 
         private var isLive: Bool {
             switch self {
-            case .home, .search, .searchPhoto, .browse, .browseLarge, .browseFolders, .browseDuplicates, .viewerPdf, .viewerVideo, .viewerPhoto, .viewerFile: true
+            case .home, .search, .searchPhoto, .browseLarge, .browseFolders, .browseDuplicates, .viewerPdf, .viewerVideo, .viewerPhoto, .viewerFile: true
             default: false
             }
         }
@@ -82,8 +82,21 @@
         /// A live route; the app runs on the real model.
         static let live: DebugRoute? = parsed.flatMap { $0.isLive ? $0 : nil }
 
-        /// `-open status|setup` pushes that page over the live Home, for screenshots of a real run.
-        static let openOnLaunch: Route? = arg("-open").flatMap { ["status": Route.status, "setup": .setup][$0] }
+        /// `-open status|setup|settings|starred` pushes that page over the live Home, for screenshots of a real run.
+        static let openOnLaunch: Route? = arg("-open").flatMap {
+            ["status": Route.status, "setup": .setup, "settings": .settings,
+             "starred": .files(FileQuery(title: "Starred", starredOnly: true))][$0]
+        }
+
+        /// `-star <words>` stars the best hit for the words at launch, so starred screens need no taps.
+        static func starIfAsked(_ retriever: Retriever) {
+            guard let q = arg("-star") else { return }
+            Task {
+                if let hit = try? await retriever.search(q: q, kinds: nil, limit: 1).hits.first {
+                    try? await retriever.setStarred(uri: hit.file.uri, on: true)
+                }
+            }
+        }
 
         static func arg(_ name: String) -> String? {
             let args = CommandLine.arguments
@@ -126,6 +139,8 @@
 
         @MainActor @ViewBuilder private func fixtureSearch(_ model: AppModel) -> some View {
             switch self {
+            case .homeCaughtUp:
+                SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
             case .homeReading:
                 SearchView(model: model, search: .fixture(), snap: AppModel.Snap(setUp: true, running: true))
             case .homeEmpty:
@@ -156,10 +171,9 @@
         /// Pages pushed over Home for a live route.
         var path: [Route] {
             switch self {
-            case .browse: [.browse]
-            case .browseLarge: [.browse, .files(FileQuery(sort: .largest, title: "Large files"))]
-            case .browseFolders: [.browse, .folders]
-            case .browseDuplicates: [.browse, .duplicates]
+            case .browseLarge: [.files(FileQuery(sort: .largest, title: "Large files"))]
+            case .browseFolders: [.folders]
+            case .browseDuplicates: [.duplicates]
             default: []
             }
         }
@@ -228,7 +242,7 @@
     private enum Fixtures {
         static func file(_ name: String, _ kind: Kind, _ folder: String, daysAgo: Double) -> SourceFile {
             SourceFile(uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: 240_000,
-                       modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000))
+                       modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000), takenAt: nil)
         }
 
         static let hits: [SearchEngine.Hit] = [

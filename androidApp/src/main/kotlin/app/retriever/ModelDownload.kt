@@ -21,6 +21,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.StatFs
 import app.retriever.core.ModelBuild
+import app.retriever.core.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -63,8 +64,8 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
 
     fun hasSpaceFor(b: ModelBuild): Boolean = freeBytes() >= neededBytes(b)
 
-    /** With [allowMetered] false, DownloadManager holds the download until Wi-Fi (reported as [Progress.waitingForWifi]). */
-    fun start(b: ModelBuild, allowMetered: Boolean): Long {
+    /** Without [Prefs.allowMobileData], DownloadManager holds the download until Wi-Fi (reported as [Progress.waitingForWifi]). */
+    fun start(b: ModelBuild, prefs: Prefs): Long {
         check(hasSpaceFor(b)) { "Not enough free space for ${b.fileName}" }
         file(b).let { if (it.exists() && it.length() != b.sizeBytes) it.delete() }
         marker(b).delete()
@@ -72,8 +73,21 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
             .setTitle("Retriever search model")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, "models", b.fileName)
-            .setAllowedOverMetered(allowMetered)
+            .setAllowedOverMetered(prefs.allowMobileData)
         return downloads.enqueue(request)
+    }
+
+    /** The download of [b] still queued or running, e.g. one a killed process started; null if there is none. */
+    fun active(b: ModelBuild): Long? {
+        val query = DownloadManager.Query().setFilterByStatus(
+            DownloadManager.STATUS_PENDING or DownloadManager.STATUS_RUNNING or DownloadManager.STATUS_PAUSED,
+        )
+        downloads.query(query).use { c ->
+            val uri = c.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)
+            val id = c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
+            while (c.moveToNext()) if (c.getString(uri) == b.url) return c.getLong(id)
+        }
+        return null
     }
 
     /** Polls once a second; completes after emitting a done or failed value. */
@@ -125,6 +139,14 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
             marker(b).delete()
             false
         }
+    }
+
+    /** Removes the model, its marker and that build's compiled-program caches (named as MediaPipeEmbedder.cache does). */
+    fun deleteModel(b: ModelBuild) {
+        file(b).delete()
+        marker(b).delete()
+        val mine = Regex(Regex.escape(b.fileName.substringBeforeLast('.')) + "-[A-Za-z]+-vt\\d+-t\\d+")
+        File(context.cacheDir, "embed").listFiles()?.filter { mine.matches(it.name) }?.forEach { it.deleteRecursively() }
     }
 
     /** Deletes every other model file, e.g. the NPU build after a fallback or an old unpinned download. */

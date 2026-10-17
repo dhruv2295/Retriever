@@ -12,9 +12,8 @@ import SwiftUI
 
 @Observable @MainActor
 final class SearchModel {
-    /// Four, so every title fits the scope bar on an iPhone.
     enum Scope: String, CaseIterable, Identifiable {
-        case all, photos, videos, documents
+        case all, photos, videos, documents, starred
 
         var id: Self { self }
 
@@ -24,13 +23,14 @@ final class SearchModel {
             case .photos: "Photos"
             case .videos: "Videos"
             case .documents: "Documents"
+            case .starred: "Starred"
             }
         }
 
         /// Filtered inside the engine, so a narrow scope still finds files beyond the mixed top results.
         var kinds: Set<Kind>? {
             switch self {
-            case .all: nil
+            case .all, .starred: nil
             case .photos: [.photo, .screenshot]
             case .videos: [.video]
             case .documents: [.pdf, .doc]
@@ -38,6 +38,15 @@ final class SearchModel {
         }
 
         var needsPhotos: Bool { self == .photos || self == .videos }
+
+        /// What a search in this scope keeps when the words' own filters are dropped, for the relaxed note; nil is everything.
+        var kept: String? {
+            switch self {
+            case .all: nil
+            case .starred: "starred files"
+            default: title.lowercased()
+            }
+        }
 
         /// `-scope photo`, `-scope pdf` and the like.
         init?(arg: String) {
@@ -61,7 +70,14 @@ final class SearchModel {
         var query: String
         var scope: Scope
         var photo: UUID?
+        /// The words searched as typed, without reading kinds and dates out of them.
+        var literal = false
         var retry = 0
+
+        /// The same question as `other`; only a retry differs.
+        func asks(_ other: Key) -> Bool {
+            query == other.query && scope == other.scope && photo == other.photo && literal == other.literal
+        }
     }
 
     struct Answer {
@@ -72,6 +88,9 @@ final class SearchModel {
         let key: Key
         /// Files read only in part, by file id; the rest were read whole.
         var extents: [Int64: ReadExtent] = [:]
+        /// What the words were understood to ask for, and whether a filter left nothing so it was dropped.
+        var parsed: ParsedQuery?
+        var relaxed = false
     }
 
     private(set) var text = ""
@@ -82,7 +101,7 @@ final class SearchModel {
     /// Searching for longer than 300 ms: only then is a spinner worth showing.
     private(set) var slow = false
     private(set) var recent: [String] = []
-    private(set) var recentFiles: [SourceFile] = []
+    private(set) var literal = false
     private var retries = 0
     @ObservationIgnored private var wordsOnlyRetries = 0
     @ObservationIgnored private let services: AppServices?
@@ -93,20 +112,43 @@ final class SearchModel {
 
     var query: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     var active: Bool { !query.isEmpty || photo != nil }
-    var key: Key { Key(query: photo == nil ? query : "", scope: scope, photo: photo?.id, retry: retries) }
+    var key: Key { Key(query: photo == nil ? query : "", scope: scope, photo: photo?.id, literal: literal, retry: retries) }
 
     /// The results on screen answer older words, another scope or another photo.
     var stale: Bool { answer?.key != key }
 
+    /// "Search my exact words": no kind or date is read out of them.
+    func searchAsTyped() {
+        literal = true
+    }
+
     /// Typing ends a search by photo; clearing the words drops the scope with them.
     func setText(_ new: String) {
         let hadWords = !query.isEmpty
+        if new != text {
+            literal = false
+            typed()
+        }
         text = new
         wordsOnlyRetries = 0
         if !query.isEmpty {
             photo = nil
         } else if hadWords {
             scope = .all
+        }
+    }
+
+    @ObservationIgnored private var typing: Task<Void, Never>?
+
+    /// Reading steps aside for a moment after each keystroke, not for as long as the search stays open; a search
+    /// running holds it off in core.
+    private func typed() {
+        guard let retriever = services?.retriever else { return }
+        retriever.setUiBusy(busy: true)
+        typing?.cancel()
+        typing = Task {
+            try? await Task.sleep(for: .milliseconds(1500))
+            if !Task.isCancelled { retriever.setUiBusy(busy: false) }
         }
     }
 
@@ -117,8 +159,7 @@ final class SearchModel {
             failed = false
             return
         }
-        try? await Task.sleep(for: .milliseconds(250))
-        guard !Task.isCancelled else { return }
+        let start = ContinuousClock.now
         let spinner = Task {
             try await Task.sleep(for: .milliseconds(300))
             slow = true
@@ -128,20 +169,38 @@ final class SearchModel {
             slow = false
         }
         do {
+            // Phase one: names, from memory, with no model. Nothing found yet isn't "no matches", so it isn't shown.
+            // A retry of the same question keeps the full answer on screen instead.
+            if key.photo == nil, answer?.key.asks(key) != true {
+                let names = try await retriever.searchNames(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal)
+                guard !Task.isCancelled else { return }
+                if !names.hits.isEmpty {
+                    answer = Answer(hits: names.hits, strongCount: names.hits.count, vectorLane: names.vectorLane, key: key, parsed: names.parsed, relaxed: names.relaxed)
+                    failed = false
+                }
+                // Phase two waits for the words to hold still, so typing never starts a full search.
+                try? await Task.sleep(until: start + .milliseconds(200))
+                guard !Task.isCancelled else { return }
+            }
             let result = if let photo, photo.id == key.photo {
-                try await retriever.searchImageData(jpeg: photo.jpeg, kinds: key.scope.kinds, limit: 60)
+                try await retriever.searchImageData(jpeg: photo.jpeg, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred)
             } else {
-                try await retriever.search(q: key.query, kinds: key.scope.kinds, limit: 60)
+                try await retriever.search(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal)
             }
             // Kotlin doesn't see Swift's cancellation: drop an answer to a search that was replaced.
             guard !Task.isCancelled else { return }
-            answer = Answer(hits: result.hits, strongCount: Int(result.strongCount), vectorLane: result.vectorLane, key: key)
+            let hits = result.hits
+            withAnimation(.easeOut(duration: 0.15)) {
+                answer = Answer(hits: hits, strongCount: Int(result.strongCount), vectorLane: result.vectorLane, key: key,
+                                parsed: result.parsed, relaxed: result.relaxed)
+            }
             failed = false
-            if let found = try? await retriever.readExtents(fileIds: result.hits.map { KotlinLong(value: $0.fileId) }), !Task.isCancelled, answer?.key == key {
+            if let found = try? await retriever.readExtents(fileIds: hits.map { KotlinLong(value: $0.fileId) }), !Task.isCancelled, answer?.key == key {
                 answer?.extents = Dictionary(uniqueKeysWithValues: found.map { ($0.key.int64Value, $0.value) })
             }
             // Words only while the model was busy opening: ask again shortly, a few times, for results by meaning.
-            if result.vectorLane || retriever.textOnly {
+            // Not when it was removed in Settings: asking again can't bring it back.
+            if result.vectorLane || retriever.textOnly || (retriever.modelMissing.value as? KotlinBoolean)?.boolValue == true {
                 wordsOnlyRetries = 0
             } else if wordsOnlyRetries < 5 {
                 wordsOnlyRetries += 1
@@ -183,13 +242,6 @@ final class SearchModel {
         recent = []
         guard let retriever = services?.retriever else { return }
         Task { try? await retriever.clearRecentQueries() }
-    }
-
-    func loadRecentFiles() async {
-        guard let retriever = services?.retriever else { return }
-        if let files = try? await retriever.files(kind: nil, folder: nil, sort: .newest, limit: 12, offset: 0) {
-            recentFiles = files.map(\.file)
-        }
     }
 
     /// "Find similar", or nil on a words-only phone, where there is no model to match a photo with.
@@ -235,8 +287,7 @@ final class SearchModel {
 
     /// Fixed state for screenshots and previews; nothing runs.
     static func fixture(text: String = "", scope: Scope = .all, hits: [SearchEngine.Hit]? = nil, strongCount: Int? = nil, extents: [Int64: ReadExtent] = [:],
-                        vectorLane: Bool = true, failed: Bool = false, slow: Bool = false, photo: UIImage? = nil, recent: [String] = [],
-                        recentFiles: [SourceFile] = []) -> SearchModel {
+                        vectorLane: Bool = true, failed: Bool = false, slow: Bool = false, photo: UIImage? = nil, recent: [String] = []) -> SearchModel {
         let m = SearchModel(services: nil)
         m.text = text
         m.scope = scope
@@ -245,7 +296,6 @@ final class SearchModel {
         m.failed = failed
         m.slow = slow
         m.recent = recent
-        m.recentFiles = recentFiles
         return m
     }
 }
@@ -270,6 +320,7 @@ struct SearchView: View {
         _search = State(initialValue: search ?? SearchModel(services: model.services))
         _presented = State(initialValue: presented)
         fixedSnap = snap
+        Stars.model = model
     }
 
     private var snap: AppModel.Snap? { fixedSnap ?? model.snap }
@@ -288,11 +339,13 @@ struct SearchView: View {
                          addFolder: { addingFolder = true })
             }
         }
+        .modifier(WarmOnSearch(retriever: model.services?.retriever))
         .navigationTitle("Retriever")
         .searchable(text: Binding(get: { search.text }, set: search.setText), isPresented: $presented,
                     placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos, screenshots and files")
         .searchScopes($search.scope, activation: .onSearchPresentation) {
-            ForEach(SearchModel.Scope.allCases) { Text($0.title).tag($0) }
+            // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
+            ForEach(SearchModel.Scope.allCases) { Text($0 == .documents ? "Docs" : $0.title).tag($0) }
         }
         .searchSuggestions { suggestions }
         .onSubmit(of: .search) { search.record() }
@@ -305,16 +358,26 @@ struct SearchView: View {
                     }
                 }
             }
-            // At regular width the sidebar lists Browse.
+            // At regular width the sidebar lists Settings.
             if sizeClass != .regular {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: Route.browse) { Label("Browse", systemImage: "square.grid.2x2") }
+                    NavigationLink(value: Route.settings) { Label("Settings", systemImage: "gearshape") }
                 }
             }
         }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
-        .task(id: snap?.total) { await search.loadRecentFiles() }
+        // The newest files change as reading goes on; the facts after "all caught up" differ too.
+        .task(id: [snap?.total ?? -1, snap?.pending == 0 ? 1 : 0]) { await model.refreshHome() }
         .task { await search.loadRecent() }
+        // A search handed in by Shortcuts or Siri, whether the app was already open or not.
+        .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
+            guard let pending, !pending.isEmpty else { return }
+            LaunchQuery.shared.pending = nil
+            search.scope = .all
+            search.setText(pending)
+            presented = true
+            search.record()
+        }
         .onChange(of: picked) { _, item in
             guard let item else { return }
             picked = nil
@@ -337,9 +400,11 @@ struct SearchView: View {
     @ViewBuilder private var suggestions: some View {
         if search.text.isEmpty && search.photo == nil {
             if search.recent.isEmpty {
-                Section("Try") {
-                    ForEach(["wifi password", "electricity bill", "passport photo", "notes from the meeting"], id: \.self) { q in
-                        Label(q, systemImage: "magnifyingglass").searchCompletion(q)
+                if !model.suggestions.isEmpty {
+                    Section("Try searching") {
+                        ForEach(model.suggestions, id: \.self) { q in
+                            Label(q, systemImage: "magnifyingglass").searchCompletion(q)
+                        }
                     }
                 }
             } else {
@@ -362,165 +427,14 @@ struct SearchView: View {
     }
 }
 
-// MARK: Home
+/// When the search opens, the model loads ahead of the first word, so the search is quick.
+private struct WarmOnSearch: ViewModifier {
+    let retriever: Retriever?
+    @Environment(\.isSearching) private var searching
 
-private struct HomeList: View {
-    let search: SearchModel
-    let snap: AppModel.Snap?
-    let photos: PHAuthorizationStatus
-    let model: AppModel
-    let useRecent: (String) -> Void
-    let addFolder: () -> Void
-    @Environment(\.openFile) private var openFile
-    /// Grows with the text size, so a file's name still fits its card.
-    @ScaledMetric(relativeTo: .caption) private var tile = 96.0
-
-    var body: some View {
-        List {
-            // A header, not a row: a NavigationLink row would get a second chevron.
-            if let snap, snap.total > 0 || snap.running || snap.setUp != true {
-                Section {} header: {
-                    StatusLine(snap: snap, download: model.download, progress: model.downloadProgress).textCase(nil).foregroundStyle(.primary).padding(.horizontal, -4)
-                }
-            }
-            PhotosAccessCard(photos: photos, model: model)
-            if let snap, snap.total == 0 {
-                Section {
-                    if snap.running {
-                        StateView(art: "IllusReading", title: "Retriever is looking for your files", message: "This takes a minute the first time.")
-                    } else {
-                        StateView(art: "IllusEmpty", title: "Nothing to search yet",
-                                  message: "Add a folder, or let Retriever see your photos, and it'll find what's inside them.") {
-                            Button("Add a folder", action: addFolder).buttonStyle(.borderedProminent)
-                            if photos == .notDetermined { Button("Allow Photos access", action: model.requestPhotos) }
-                        }
-                    }
-                }
-                .listRowBackground(Color.clear)
-            }
-            if !search.recent.isEmpty {
-                Section("Recent searches") {
-                    ForEach(search.recent, id: \.self) { q in
-                        Button { useRecent(q) } label: {
-                            Label(q, systemImage: "clock.arrow.circlepath").foregroundStyle(.primary)
-                        }
-                        .accessibilityHint("Searches again")
-                        .swipeActions { Button("Remove", role: .destructive) { search.removeRecent(q) } }
-                        .contextMenu { Button("Remove from recent searches", systemImage: "trash", role: .destructive) { search.removeRecent(q) } }
-                    }
-                    Button("Clear recent searches", role: .destructive) { search.clearRecent() }
-                }
-            }
-            if !search.recentFiles.isEmpty {
-                Section("Recent files") {
-                    ScrollView(.horizontal) {
-                        LazyHStack(alignment: .top, spacing: 8) {
-                            ForEach(search.recentFiles, id: \.uri) { file in
-                                if file.kind == .photo || file.kind == .screenshot || file.kind == .video {
-                                    ResultCell(file: file, onOpen: { openFile(file) }, onFindSimilar: search.similar(snap)).frame(width: tile)
-                                } else {
-                                    FileCard(file: file, side: tile) { openFile(file) }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                    }
-                    .scrollIndicators(.hidden)
-                    .listRowInsets(EdgeInsets())
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-}
-
-/// A file that isn't a picture: its first page or preview, the size of a picture cell, with its name under it.
-private struct FileCard: View {
-    let file: SourceFile
-    let side: CGFloat
-    let open: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 4) {
-                Thumb(file: file, points: side)
-                    .frame(width: side, height: side)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.separator)) // white pages on white
-                FileName(name: file.name, wrapLines: typeSize.isAccessibilitySize ? 3 : 2)
-                    .font(.caption)
-                    .multilineTextAlignment(.leading)
-            }
-            .frame(width: side, alignment: .topLeading)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(Format.kind(file.kind)), \(file.name), \(Format.date(file.modifiedAt))")
-        .resultActions(file, nil)
-    }
-}
-
-/// Photos access is off or limited: say what that means and how to change it.
-private struct PhotosAccessCard: View {
-    let photos: PHAuthorizationStatus
-    let model: AppModel
-
-    var body: some View {
-        switch photos {
-        case .denied, .restricted:
-            card("Photos access is off", "Turn it on in Settings, and Retriever can search your photos and screenshots too.", "Open Settings", model.openSettings)
-        case .limited:
-            card("Retriever sees only some photos", "It can search just the photos you picked.", "Choose more photos", model.chooseMorePhotos)
-        default:
-            EmptyView()
-        }
-    }
-
-    private func card(_ title: String, _ message: String, _ action: String, _ run: @escaping () -> Void) -> some View {
-        Section {
-            HStack(alignment: .top, spacing: 12) {
-                Image("IllusWelcome").resizable().scaledToFit().frame(width: 64).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(.headline)
-                    Text(message).font(.subheadline).foregroundStyle(.secondary)
-                    Button(action, action: run).buttonStyle(.bordered)
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-}
-
-/// One line on how reading is going; opens Status. Shows once the counts load. Pinned for I5.
-struct StatusLine: View {
-    let snap: AppModel.Snap?
-    var download = ModelDownload.State.idle
-    var progress = 0.0
-
-    var body: some View {
-        if let snap, let line = Copy.statusLine(snap, download: download, progress: progress) {
-            NavigationLink(value: Route.status) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(line).font(.subheadline).monospacedDigit().multilineTextAlignment(.leading)
-                        if snap.setUp == true && snap.running && snap.pendingAtStart > 0 {
-                            ProgressView(value: snap.total > 0 ? Double(snap.indexed) / Double(snap.total) : 0)
-                            if let eta = snap.etaMinutes { Text(Copy.eta(eta)).font(.footnote).foregroundStyle(.secondary) }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(minHeight: 44)
-                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityHint("Shows details")
+    func body(content: Content) -> some View {
+        content.onChange(of: searching) { _, on in
+            if on { Task { try? await retriever?.warmSearch() } }
         }
     }
 }
@@ -543,7 +457,11 @@ private struct ResultsView: View {
                 }
             } else if let answer = search.answer, !(answer.hits.isEmpty && search.stale) {
                 if answer.hits.isEmpty {
-                    empty(answer)
+                    // What the words were understood as stays in view, with its way back to the words as typed.
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(answer).padding(.horizontal, 16).padding(.top, 12)
+                        empty(answer)
+                    }
                 } else {
                     list(answer)
                 }
@@ -571,6 +489,15 @@ private struct ResultsView: View {
             }
         } else if search.photo != nil && !answer.vectorLane {
             StateView(art: "IllusReading", title: "Not quite ready", message: "Search by photo works once setup finishes.")
+        } else if let parsed = answer.parsed, !parsed.understood.isEmpty, parsed.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Only filters, and even without them nothing in this scope: say what was looked for.
+            StateView(art: "IllusEmpty", title: parsed.missing(), message: scope == .all ? "Nothing like that on this \(Copy.device) yet." : "Nothing in \(scope.title) fits. Try all your files.") {
+                if scope != .all { Button("Search all files") { search.scope = .all }.buttonStyle(.borderedProminent) }
+            }
+        } else if scope == .starred && search.photo == nil {
+            StateView(art: "IllusEmpty", title: "No starred file matches “\(q)”", message: "Only files you've starred show here. Try all your files.") {
+                Button("Search all files") { search.scope = .all }.buttonStyle(.borderedProminent)
+            }
         } else if scope != .all {
             StateView(art: "IllusEmpty", title: search.photo != nil ? "Nothing like this photo in \(scope.title)" : "No matches for “\(q)”",
                       message: search.photo != nil ? "Try all your files instead." : "Nothing in \(scope.title) matches. Try all your files.") {
@@ -589,7 +516,9 @@ private struct ResultsView: View {
     }
 
     private func list(_ answer: SearchModel.Answer) -> some View {
-        let query = answer.key.query.isEmpty ? nil : answer.key.query
+        // The words left once kinds and dates were read out of them; only a hit found by its name shows them in bold.
+        let words = answer.parsed?.text ?? answer.key.query
+        let query = words.isEmpty ? nil : words
         // A search by photo ranks by likeness alone, so all of it is one list.
         let strong = search.photo == nil ? min(answer.strongCount, answer.hits.count) : answer.hits.count
         let weak = Array(answer.hits.dropFirst(strong))
@@ -614,6 +543,7 @@ private struct ResultsView: View {
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.top, 12)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.immediately)
@@ -634,6 +564,13 @@ private struct ResultsView: View {
             .padding(.vertical, 4)
             .background(.fill.secondary, in: Capsule())
         }
+        if let parsed = answer.parsed, !parsed.understood.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(answer.relaxed ? parsed.relaxedNote(scope: answer.key.scope.kept) : Copy.understood(parsed.understood))
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button(Copy.exactWords, action: search.searchAsTyped).font(.footnote)
+            }
+        }
         if let note = note(answer) {
             HStack(spacing: 10) {
                 Image("IllusReading").resizable().scaledToFit().frame(width: 36).accessibilityHidden(true)
@@ -646,7 +583,8 @@ private struct ResultsView: View {
     }
 
     private func note(_ answer: SearchModel.Answer) -> String? {
-        if snap?.textOnly == true { return Copy.textOnlySearch }
+        // Removed in Settings: meaning comes back only with the download, not "shortly".
+        if snap?.textOnly == true || model.modelMissing { return Copy.textOnlySearch }
         if snap?.setUp != true { return "Matching file names only until setup finishes." }
         if !answer.vectorLane { return "Matching exact words for now. Results by meaning will be back shortly." }
         return nil
@@ -681,7 +619,7 @@ private struct ResultsView: View {
             if titled { SectionTitle(title) }
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(hits, id: \.fileId) { hit in
-                    FileButton(file: hit.file, locator: hit.locator, snippet: hit.snippet, query: query, extent: answer.extents[hit.fileId],
+                    FileButton(file: hit.file, locator: hit.locator, snippet: hit.snippet, query: hit.byName ? query : nil, extent: answer.extents[hit.fileId],
                                onOpen: { open(hit) }, onFindSimilar: search.similar(snap))
                     Divider()
                 }

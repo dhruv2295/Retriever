@@ -15,6 +15,8 @@ final class AppModel {
     struct Snap: Equatable {
         var setUp: Bool?
         var byKind: [Kind: Int] = [:]
+        /// Files of each kind still waiting to be read.
+        var pendingByKind: [Kind: Int] = [:]
         var indexed = 0
         var pending = 0
         var skipped = 0
@@ -35,9 +37,26 @@ final class AppModel {
         var backend: Backend?
         var paused = false
         var excludedFolders: Set<String> = []
+        var allowMobileData = false
+        var onlyWhileCharging = false
+        var rememberSearches = true
+        /// What Retriever reads inside; the rest is found by name. Settings offers `Snap.inside`.
+        var kinds = Set(Snap.inside)
         var downloadBytes: Int64 = 0
 
+        /// The kinds iOS reads inside, in the order Settings lists them. There is no audio source on iOS.
+        static let inside: [Kind] = [.pdf, .doc, .screenshot, .photo, .video]
+        /// Text-only iPhones read the words in documents and screenshots only; which kinds those are is core's.
+        static let insideTextOnly: [Kind] = inside.filter { RetrieverKt.textOnlyKinds.contains($0) }
+
         var total: Int { indexed + pending + skipped }
+    }
+
+    /// Bytes Retriever keeps on this device.
+    struct Storage: Equatable {
+        var index: Int64
+        var model: Int64
+        var cache: Int64
     }
 
     enum Tune: Equatable {
@@ -71,9 +90,21 @@ final class AppModel {
         didSet { UserDefaults.standard.set(setupSeen, forKey: Self.setupSeenKey) }
     }
 
-    var useMobileData: Bool {
-        didSet { UserDefaults.standard.set(useMobileData, forKey: Self.mobileDataKey) }
-    }
+    /// Prefs.allowMobileData, kept here so the toggle answers at once.
+    private(set) var useMobileData: Bool
+    /// Starred files by uri; Retriever.setStarred changes it.
+    private(set) var starred: Set<String> = []
+    /// The model file is gone: files are found by name until it downloads again.
+    private(set) var modelMissing = false
+    /// Nil until Settings has measured it.
+    private(set) var storage: Storage?
+    /// "Try searching" examples for the kinds that are ready.
+    private(set) var suggestions: [String] = []
+    /// Home's newest files, folder count and large files; nil until the first load.
+    private(set) var home: HomeFacts?
+    @ObservationIgnored private var homeLoadedAt = Date.distantPast
+    /// Until the old setting is in Prefs, a snapshot's older value must not overwrite it.
+    @ObservationIgnored private var migratingMobileData = false
 
     /// The foreground loop keeps the screen awake for the batch it's running.
     private(set) var screenKeptOn = false
@@ -108,7 +139,8 @@ final class AppModel {
 
     private static let startedKey = "started"
     private static let setupSeenKey = "setupSeen"
-    private static let mobileDataKey = "useMobileData"
+    /// Where mobile data was kept before it moved into Prefs.
+    private static let legacyMobileDataKey = "useMobileData"
     private static let log = Logger(subsystem: "app.retriever", category: "app")
 
     init(services: AppServices) {
@@ -116,15 +148,18 @@ final class AppModel {
         photos = services.photos.status
         started = UserDefaults.standard.bool(forKey: Self.startedKey) || services.photos.isReady
         setupSeen = UserDefaults.standard.bool(forKey: Self.setupSeenKey)
-        useMobileData = UserDefaults.standard.bool(forKey: Self.mobileDataKey)
+        // The pref is read once the snapshot arrives; until then, and for a download that starts first, the old key answers.
+        useMobileData = UserDefaults.standard.bool(forKey: Self.legacyMobileDataKey)
         fixtureDownload = (.idle, 0)
         folders = Self.pickedFolders(services)
         let textOnly = services.retriever.textOnly
         let ramGb = services.retriever.probe.ramGb
         observation = services.retriever.observeAll { [weak self] snapshot in
             let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
-            Task { @MainActor in self?.apply(snap) }
+            let suggestions = services.retriever.suggestions(byKindState: snapshot.counts.byKindState)
+            Task { @MainActor in self?.apply(snap, starred: snapshot.starred, modelMissing: snapshot.modelMissing, suggestions: suggestions) }
         }
+        migrateMobileData(services)
         services.lifecycle?.onLibraryChange = { [weak self] in self?.wake() }
         services.lifecycle?.keepsReading = { [weak self] in self?.continuing ?? false }
         tokens.append(NotificationCenter.default.addObserver(forName: IndexTask.ended, object: nil, queue: .main) { [weak self] note in
@@ -322,11 +357,130 @@ final class AppModel {
         services.download.start(build, allowCellular: useMobileData)
     }
 
+    /// The old UserDefaults key moves into Prefs once, then goes. A write that fails leaves the key for the next launch.
+    private func migrateMobileData(_ services: AppServices) {
+        guard let legacy = UserDefaults.standard.object(forKey: Self.legacyMobileDataKey) as? Bool else { return }
+        migratingMobileData = true
+        Task {
+            try? await services.retriever.refreshSetUp()
+            if legacy, (services.retriever.prefs.value as? Prefs)?.allowMobileData != true {
+                do { try await edit(mobileData: true) } catch {
+                    migratingMobileData = false
+                    return Self.log.error("mobile data setting not moved: \(error, privacy: .public)")
+                }
+            }
+            UserDefaults.standard.removeObject(forKey: Self.legacyMobileDataKey)
+            migratingMobileData = false
+        }
+    }
+
+    /// Changes the settings given and leaves the rest as they are.
+    private func edit(kinds: Set<Kind>? = nil, charging: Bool? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
+                      excluded: Set<String>? = nil) async throws {
+        guard let services else { return }
+        try await services.retriever.updatePrefs { p in
+            p.doCopy(kinds: kinds ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging, excludedFolders: excluded ?? p.excludedFolders,
+                     paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
+                     rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor)
+        }
+    }
+
     func setUseMobileData(_ on: Bool) {
         useMobileData = on
+        Task { try? await edit(mobileData: on) }
         // The network rule is part of the request, so a download waiting for Wi-Fi starts again under the new one.
         if on, case .waitingForWifi = download { retryDownload() }
     }
+
+    // MARK: Settings actions. Each shows its new value at once; the next snapshot confirms it.
+
+    func setKind(_ kind: Kind, _ on: Bool) {
+        guard var kinds = snap?.kinds else { return }
+        if on { kinds.insert(kind) } else { kinds.remove(kind) }
+        snap?.kinds = kinds
+        Task {
+            try? await edit(kinds: kinds)
+            services?.retriever.notifyChanged()
+            wake()
+        }
+    }
+
+    func setOnlyWhileCharging(_ on: Bool) {
+        snap?.onlyWhileCharging = on
+        Task {
+            try? await edit(charging: on)
+            // The request waiting with iOS keeps the old rule until it is submitted again.
+            if services != nil, let snap, snap.setUp == true, !snap.paused { IndexTask.schedule() }
+        }
+    }
+
+    /// Turning it off also clears what was saved (Retriever.updatePrefs).
+    func setRememberSearches(_ on: Bool) {
+        snap?.rememberSearches = on
+        if !on { recent = [] }
+        Task { try? await edit(remember: on) }
+    }
+
+    func clearRecentSearches() {
+        recent = []
+        guard let services else { return }
+        Task { try? await services.retriever.clearRecentQueries() }
+    }
+
+    /// Settings' "Search again" on a skipped folder; the next reading round reads it.
+    func restoreFolder(_ path: String) {
+        guard let skipped = snap?.excludedFolders else { return }
+        let rest = skipped.subtracting([path])
+        snap?.excludedFolders = rest
+        Task {
+            try? await edit(excluded: rest)
+            services?.retriever.notifyChanged()
+            wake()
+        }
+    }
+
+    // MARK: Storage
+
+    func loadStorage() async {
+        guard let services else { return }
+        let support = services.modelsDir.deletingLastPathComponent()
+        let index = support.appendingPathComponent("Retriever")
+        let models = services.modelsDir
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("embed")
+        storage = await Task.detached { Storage(index: Self.size(index), model: Self.size(models), cache: Self.size(cache)) }.value
+    }
+
+    nonisolated private static func size(_ dir: URL) -> Int64 {
+        let files = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])
+        var total: Int64 = 0
+        while let file = files?.nextObject() as? URL {
+            total += Int64((try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+        }
+        return total
+    }
+
+    /// Settings' Free up space: the model and what was built from it go, the index stays. Search then runs on names
+    /// and words (modelMissing) until downloadAgain().
+    func freeUpSpace() {
+        guard let services, let build = services.retriever.requiredBuild.value as? ModelBuild else { return }
+        // The reading loop stands aside, so no batch reopens the model between its unloading and the file going.
+        let wasActive = active
+        if wasActive { stopLoop() }
+        Task {
+            try? await services.retriever.release()
+            services.download.deleteModel(build)
+            let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("embed")
+            (try? FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil))?.forEach { try? FileManager.default.removeItem(at: $0) }
+            try? await services.retriever.refreshSetUp()
+            await loadStorage()
+            if wasActive {
+                active = true
+                startLoop()
+            }
+        }
+    }
+
+    func downloadAgain() { retryDownload() }
 
     func retryTune() {
         tune = .idle
@@ -472,7 +626,28 @@ final class AppModel {
         }
     }
 
-    private func apply(_ new: Snap) {
+    /// Starring a file that isn't in the index does nothing; the next snapshot settles it either way.
+    func setStarred(_ uri: String, _ on: Bool) {
+        guard let services else { return }
+        if on { starred.insert(uri) } else { starred.remove(uri) }
+        Task { try? await services.retriever.setStarred(uri: uri, on: on) }
+    }
+
+    /// Home's facts, at most once every two seconds while the counts change.
+    func refreshHome() async {
+        guard let services else { return }
+        let wait = 2 - Date.now.timeIntervalSince(homeLoadedAt)
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        guard !Task.isCancelled, let facts = try? await services.retriever.home() else { return }
+        homeLoadedAt = .now
+        home = facts
+    }
+
+    private func apply(_ new: Snap, starred: Set<String>, modelMissing: Bool, suggestions: [String]) {
+        if self.starred != starred { self.starred = starred }
+        if self.modelMissing != modelMissing { self.modelMissing = modelMissing }
+        if self.suggestions != suggestions { self.suggestions = suggestions }
+        if !migratingMobileData { useMobileData = new.allowMobileData }
         let becameSetUp = new.setUp == true && snap?.setUp != true
         // Files waiting or not decides the screen, so re-decide when that flips (the first counts included).
         let waitingChanged = (new.pending > 0) != ((snap?.pending ?? 0) > 0)
@@ -492,6 +667,13 @@ extension AppModel.Snap {
         let state = s.counts.byState
         setUp = s.setUp?.boolValue
         byKind = s.counts.byKind.mapValues { $0.intValue }
+        for (key, n) in s.counts.byKindState where key.second == FileState.pending {
+            if let kind = key.first { pendingByKind[kind] = n.intValue }
+        }
+        allowMobileData = s.prefs.allowMobileData
+        onlyWhileCharging = s.prefs.onlyWhileCharging
+        rememberSearches = s.prefs.rememberSearches
+        kinds = s.prefs.kinds
         indexed = state[FileState.indexed]?.intValue ?? 0
         pending = state[FileState.pending]?.intValue ?? 0
         skipped = state[FileState.skipped]?.intValue ?? 0
@@ -570,6 +752,7 @@ extension AppModel {
             (snap.indexed, snap.pending, snap.running, snap.lastStop) = (done, total - done, true, nil)
             (snap.processed, snap.pendingAtStart, snap.filesPerMinute) = (120, total - done + 120, 38)
             snap.etaMinutes = Int((Double(total - done) / 38).rounded(.up))
+            snap.pendingByKind = [.photo: total - done]
             snap.current = "Photo 2026-09-14 at 18.42.07"
             snap.tailFiles = 3
         case .caughtUp:
@@ -581,6 +764,7 @@ extension AppModel {
             (download, tune) = ((.idle, 0), .idle)
         case .paused:
             (snap.indexed, snap.pending, snap.paused, snap.lastStop) = (1_904, 1_238, true, .paused)
+            snap.pendingByKind = [.photo: 1_238]
         case let .skipped(n):
             (snap.indexed, snap.skipped) = (3_142 - n, n)
             skipped = (0..<min(n, 6)).map { i in
@@ -591,5 +775,18 @@ extension AppModel {
             (photos, snap.byKind, snap.indexed) = (.denied, [.pdf: 12, .doc: 9], 21)
         }
         self.init(snap: snap, photos: photos, download: download, tune: tune, started: started, skipped: skipped)
+        func file(_ name: String, _ kind: Kind, _ folder: String, size: Int64, daysAgo: Double) -> SourceFile {
+            SourceFile(uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: size,
+                       modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000), takenAt: nil)
+        }
+        home = HomeFacts(
+            newDocs: [file("Lease agreement 2026.pdf", .pdf, "Retriever/Download", size: 2_100_000, daysAgo: 0),
+                      file("Electricity bill October.pdf", .pdf, "Retriever/Download", size: 340_000, daysAgo: 1),
+                      file("Trip itinerary.docx", .doc, "Retriever/Documents", size: 88_000, daysAgo: 14)],
+            newShots: (1...6).map { file("Screenshot \($0).png", .screenshot, "Photos/Screenshots", size: 400_000, daysAgo: Double($0)) },
+            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, nameOnly: 0)
+        storage = Storage(index: 412_000_000, model: ModelVariant.m440.generic.sizeBytes, cache: 38_000_000)
+        starred = ["folder://fixture/Lease agreement 2026.pdf", "folder://fixture/Trip itinerary.docx"]
+        suggestions = ["wifi password", "boarding pass", "electricity bill"]
     }
 }

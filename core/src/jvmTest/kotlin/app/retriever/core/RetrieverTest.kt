@@ -47,7 +47,7 @@ class RetrieverTest {
 
         fun retriever() = Retriever(
             store, source, extractor, factory, monitor, NoHasher, probe, { ready }, { true },
-            { m, _ -> logs += m }, System::currentTimeMillis,
+            { m, _ -> logs += m }, System::currentTimeMillis, { 0L },
         )
 
         val r = retriever()
@@ -104,6 +104,49 @@ class RetrieverTest {
         assertTrue(f.r.calibrate(samples, tuneAgain = false).profile.visionTokens != 99)
     }
 
+    private val light = PROFILE.copy(tier = Tier.LIGHT, videoFrameEverySec = 30, audio = false, bulkOnlyWhenCharging = true)
+    private val image = listOf(Piece("", listOf(Part.Image(ByteArray(4))), null))
+
+    // Emulator, wave 5: tuned LIGHT under host load (Audio off), Tune again gave BALANCED, yet the voice notes stayed
+    // name-only and the video kept its one 30 s moment.
+    @Test
+    fun aTuneThatRaisesTheTierReadsAgainWhatTheOldTierLeftOut() = test {
+        val f = Fx(newStore(), pixel, profile = light)
+        f.store.updatePrefs { Prefs.defaultFor(light) }
+        f.source.next = Changes(
+            listOf(testFile("memo.m4a", Kind.AUDIO), testFile("clip.mp4", Kind.VIDEO), testFile("a.txt")), emptyList(), "tok", isFullScan = true,
+        )
+        f.r.indexBatch(1.minutes)
+        assertEquals(3L, f.store.countsByState()[FileState.INDEXED])
+        f.r.calibrate(Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList()), tuneAgain = true)
+        assertEquals(Tier.FULL, f.store.profile()!!.tier)
+        assertEquals(setOf("memo.m4a", "clip.mp4"), f.store.pending(10).map { it.file.name }.toSet())
+    }
+
+    @Test
+    fun photosReadFasterThanTuningMeasuredMoveTheTierUp() = test {
+        val photos = (1..Retriever.RETIER_WINDOW).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = 10L + it) }
+        val f = Fx(newStore(), pixel, profile = light.copy(visionTokens = 99), extractor = FakeExtractor(photos.associate { it.name to image }))
+        f.store.updatePrefs { Prefs.defaultFor(light) }
+        f.source.next = Changes(photos + testFile("memo.m4a", Kind.AUDIO), emptyList(), "tok", isFullScan = true)
+        f.r.indexBatch(1.minutes)
+        val now = f.store.profile()!!
+        assertEquals(Tier.FULL, now.tier)
+        assertEquals(99, now.visionTokens, "vision tokens stay, so no vector goes stale")
+        assertTrue(Kind.AUDIO in f.store.prefs().kinds)
+        assertFalse(f.store.prefs().onlyWhileCharging)
+    }
+
+    @Test
+    fun fastPhotosNeverMoveTheTierDown() = test {
+        val photos = (1..Retriever.RETIER_WINDOW).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+        // 6.5 GB: fast photos still mean BALANCED, below the stored FULL.
+        val f = Fx(newStore(), pixel.copy(ramGb = 6.5), extractor = FakeExtractor(photos.associate { it.name to image }))
+        f.source.next = Changes(photos, emptyList(), "tok", isFullScan = true)
+        f.r.indexBatch(1.minutes)
+        assertEquals(PROFILE, f.store.profile())
+    }
+
     @Test
     fun signatureChangeResetsOnceAndLogs() = test {
         val f = fx()
@@ -130,15 +173,20 @@ class RetrieverTest {
     }
 
     @Test
-    fun setUpNeedsTheModel() = test {
-        val f = fx()
+    fun setUpNeedsATunedModelAndOutlivesItsFile() = test {
+        val f = Fx(newStore(), pixel, profile = null)
         assertEquals(null, f.r.setUp.value)
+        f.r.refreshSetUp()
+        assertEquals(false, f.r.setUp.value, "downloaded but never tuned")
+        f.store.setProfile(PROFILE)
         f.ready = false
         f.r.refreshSetUp()
-        assertEquals(false, f.r.setUp.value)
+        assertEquals(true, f.r.setUp.value, "the file went away after setup")
+        assertTrue(f.r.modelMissing.value)
         f.ready = true
         f.r.refreshSetUp()
         assertEquals(true, f.r.setUp.value)
+        assertFalse(f.r.modelMissing.value)
     }
 
     @Test

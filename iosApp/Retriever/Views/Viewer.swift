@@ -74,7 +74,10 @@ struct PDFViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) { Title(name: file.name, detail: "Page \(page)") }
-            ToolbarItem(placement: .topBarTrailing) { ShareButton(file: file) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                StarButton(file: file)
+                ShareButton(file: file)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -144,7 +147,10 @@ struct VideoViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) { Title(name: file.name, detail: ms > 0 ? "From \(Self.clock(ms))" : nil) }
-            ToolbarItem(placement: .topBarTrailing) { ShareButton(file: file) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                StarButton(file: file)
+                ShareButton(file: file)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -219,7 +225,10 @@ struct PhotoViewer: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) { Title(name: file.name, detail: Format.date(file.modifiedAt)) }
-            ToolbarItem(placement: .topBarTrailing) { ShareButton(file: file) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                StarButton(file: file)
+                ShareButton(file: file)
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)

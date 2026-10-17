@@ -10,6 +10,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.retriever.core.StopReason
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
@@ -31,7 +32,8 @@ class RetrieverApp : Application() {
                 val access = graph.access()
                 if (seen != null && seen != access) graph.accessChanged()
                 seen = access
-                if (retriever.setUp.value == true) graph.scope.launch { retriever.warmSearch() }
+                // setUp is null until AppGraph.start() settles it, which a cold start's first onStart beats.
+                graph.scope.launch { if (retriever.setUp.first { it != null } == true) retriever.warmSearch() }
                 // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
                 val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
                 if (retriever.setUp.value == true && held) IndexScheduler.indexNow(this@RetrieverApp)

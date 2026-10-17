@@ -7,6 +7,7 @@ import android.graphics.ImageDecoder
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
+import android.os.LocaleList
 import android.util.Size
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
@@ -15,6 +16,11 @@ import app.retriever.core.DocFormat
 import app.retriever.core.docFormat
 import app.retriever.core.textEntry
 import app.retriever.core.Kind
+import app.retriever.core.OcrReading
+import app.retriever.core.OcrScript
+import app.retriever.core.ocrOrder
+import app.retriever.core.ocrScripts
+import app.retriever.core.readScripts
 import app.retriever.core.MIN_TEXT_CHARS
 import app.retriever.core.PDF_OCR_PAGES
 import app.retriever.core.PDF_TEXT_PAGES
@@ -37,11 +43,17 @@ import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
 import app.retriever.core.textPieces
 import app.retriever.core.timeLocator
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.util.concurrent.ConcurrentHashMap
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
@@ -54,12 +66,23 @@ private const val AUDIO_FILE_SECONDS = 300
 private const val MAX_PAGE_PX = 4096
 
 class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable {
-    private val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-    private val devanagari = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    private val recognizers = ConcurrentHashMap<OcrScript, TextRecognizer>()
+
+    private fun recognizer(script: OcrScript): TextRecognizer = recognizers.computeIfAbsent(script) {
+        TextRecognition.getClient(
+            when (it) {
+                OcrScript.LATIN -> TextRecognizerOptions.DEFAULT_OPTIONS
+                OcrScript.DEVANAGARI -> DevanagariTextRecognizerOptions.Builder().build()
+                OcrScript.CHINESE -> ChineseTextRecognizerOptions.Builder().build()
+                OcrScript.JAPANESE -> JapaneseTextRecognizerOptions.Builder().build()
+                OcrScript.KOREAN -> KoreanTextRecognizerOptions.Builder().build()
+            },
+        )
+    }
 
     override fun close() {
-        latin.close()
-        devanagari.close()
+        recognizers.values.forEach { it.close() }
+        recognizers.clear()
     }
 
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = withContext(Dispatchers.IO) {
@@ -95,23 +118,43 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
         return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword)) + text
     }
 
-    private suspend fun ocr(bitmap: Bitmap): String {
-        val image = InputImage.fromBitmap(bitmap, 0)
-        val first = recognize(latin, image)
-        if (first.length >= MIN_TEXT_CHARS) return first
-        val second = recognize(devanagari, image)
-        return if (second.length > first.length) second else first
+    private val languageTags get() = LocaleList.getDefault().let { list -> List(list.size()) { list[it].toLanguageTag() } }
+
+    /**
+     * Chinese, Japanese and Korean recognizers come through Play services, which fetches each on its first use. Asking
+     * for the phone's own ones up front, once, means the first screenshots are read with them instead of without.
+     */
+    private val unbundledRequested by lazy {
+        val wanted = ocrScripts(languageTags) - OcrScript.LATIN - OcrScript.DEVANAGARI
+        if (wanted.isNotEmpty()) {
+            val request = ModuleInstallRequest.newBuilder().apply { wanted.forEach { addApi(recognizer(it)) } }.build()
+            ModuleInstall.getClient(context).installModules(request)
+        }
     }
 
-    private suspend fun recognize(client: TextRecognizer, image: InputImage): String = try {
+    // ponytail: an image read while its script's recognizer is still downloading keeps the other scripts' text and is
+    // not read again; failing it instead would skip every screenshot on a phone without Play services.
+    private suspend fun ocr(bitmap: Bitmap): String {
+        unbundledRequested
+        val image = InputImage.fromBitmap(bitmap, 0)
+        return readScripts(ocrOrder(languageTags)) { recognize(recognizer(it), image) }
+    }
+
+    /** The text and the recognizer's own confidence in it, averaged over its lines by length. */
+    private suspend fun recognize(client: TextRecognizer, image: InputImage): OcrReading = try {
         suspendCancellableCoroutine { cont ->
             client.process(image)
-                .addOnSuccessListener { cont.resume(it.text.trim()) }
-                .addOnFailureListener { cont.resume("") }
+                .addOnSuccessListener { text ->
+                    val lines = text.textBlocks.flatMap { it.lines }
+                    val chars = lines.sumOf { it.text.length }
+                    val confidence = if (chars == 0) 0f else lines.sumOf { it.confidence.toDouble() * it.text.length }.toFloat() / chars
+                    cont.resume(OcrReading(text.text.trim(), confidence))
+                }
+                .addOnFailureListener { cont.resume(OcrReading.NONE) }
         }
     } catch (e: Exception) {
         if (e is kotlin.coroutines.cancellation.CancellationException) throw e
-        ""
+        OcrReading.NONE
     }
 
     private suspend fun pdf(uri: Uri, maxChars: Int): List<Piece> {

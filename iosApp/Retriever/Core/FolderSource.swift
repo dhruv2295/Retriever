@@ -150,7 +150,8 @@ final class FolderSource: NSObject, NativeFileSource {
                     mime: mime,
                     kind: FileRules.shared.classify(mime: mime, relativePath: dir, name: name),
                     size: size,
-                    modifiedAt: Int64((v.contentModificationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000)
+                    modifiedAt: Int64((v.contentModificationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000),
+                    takenAt: nil
                 ))
             }
         }

@@ -113,7 +113,8 @@ final class PhotosSource: NSObject, NativeFileSource {
             size = current.map(Self.fileSize) ?? 0
             mime = current.flatMap { UTType($0.uniformTypeIdentifier)?.preferredMIMEType } ?? (kind == .video ? "video/quicktime" : "image/jpeg")
         }
-        return SourceFile(uri: uri, name: name, folder: folder, mime: mime, kind: kind, size: size, modifiedAt: stamp)
+        let taken = asset.creationDate.map { KotlinLong(value: Int64($0.timeIntervalSince1970 * 1000)) }
+        return SourceFile(uri: uri, name: name, folder: folder, mime: mime, kind: kind, size: size, modifiedAt: stamp, takenAt: taken)
     }
 
     /// The camera's file, and what the person sees now: the edited rendition when there is one.

@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.util.Log
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,11 +18,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,8 +31,8 @@ import androidx.compose.material.icons.outlined.BatteryAlert
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,7 +42,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,23 +67,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
-import app.retriever.core.Kind
 import app.retriever.core.Prefs
 import app.retriever.core.StopReason
 import app.retriever.core.Store
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-private const val SAMPLE_PER_KIND = 50
-
-private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.AUDIO, Kind.VIDEO)
-
-/** What a text-only phone still reads inside: the words in documents and screenshots. */
-private val TEXT_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)
 
 class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     private val app = graph.app
@@ -96,8 +83,6 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
         retriever.counts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Store.Counts(emptyMap(), emptyMap(), 0))
     val prefs: StateFlow<Prefs> = retriever.prefs
     val index: StateFlow<IndexState> = retriever.state
-    private val _tune = MutableStateFlow<TuneState>(TuneState.Idle)
-    val tune: StateFlow<TuneState> = _tune
     private val _skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
     val skipped: StateFlow<List<Store.StoredFile>> = _skipped
     private val _access = MutableStateFlow(graph.access())
@@ -105,7 +90,6 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
     private val _folderError = MutableStateFlow<String?>(null)
     val folderError: StateFlow<String?> = _folderError
     val textOnly = retriever.textOnly
-    val ramGb = retriever.probe.ramGb
 
     /** Permissions can change in Settings while Status is in the background; RetrieverApp syncs for that. */
     fun refreshAccess() {
@@ -140,64 +124,11 @@ class StatusViewModel(private val graph: AppGraph) : ViewModel() {
         viewModelScope.launch { _skipped.value = retriever.skipped(50) }
     }
 
-    fun setSearchInside(kind: Kind, on: Boolean) {
-        viewModelScope.launch {
-            val wasOn = kind in retriever.prefs.value.kinds
-            retriever.updatePrefs { p -> p.copy(kinds = if (on) p.kinds + kind else p.kinds - kind) }
-            if (on && !wasOn) {
-                retriever.requeue(setOf(kind))
-                IndexScheduler.indexNow(app)
-            }
-        }
-    }
-
     fun retrySkipped() {
         viewModelScope.launch {
             retriever.retrySkipped()
             IndexScheduler.indexNow(app)
             _skipped.value = emptyList()
-        }
-    }
-
-    fun setOnlyWhileCharging(on: Boolean) {
-        viewModelScope.launch {
-            retriever.updatePrefs { it.copy(onlyWhileCharging = on) }
-            IndexScheduler.schedulePeriodic(app, on)
-        }
-    }
-
-    // Restarts indexing so the next sync trims to (or grows back from) the sample right away.
-    fun setSampleMode(on: Boolean) {
-        viewModelScope.launch {
-            retriever.updatePrefs { it.copy(sampleSize = if (on) SAMPLE_PER_KIND else null) }
-            IndexScheduler.pause(app)
-            IndexScheduler.indexNow(app)
-            IndexScheduler.schedulePeriodic(app, retriever.prefs.value.onlyWhileCharging)
-        }
-    }
-
-    // The next sync sees the changed exclude list and does a full scan, which brings the folder back.
-    fun removeExcluded(folder: String) {
-        viewModelScope.launch {
-            retriever.updatePrefs { it.copy(excludedFolders = it.excludedFolders - folder) }
-            IndexScheduler.indexNow(app)
-        }
-    }
-
-    fun tuneAgain() {
-        if (_tune.value is TuneState.Running) return
-        _tune.value = TuneState.Running
-        // The app scope: leaving Status must not cancel a tune halfway (indexing waits meanwhile).
-        graph.scope.launch {
-            _tune.value = try {
-                val r = calibrate(graph, app, tuneAgain = true)
-                TuneState.Done(tuneSummary(r.chosen, r.backends.firstOrNull { it.backend == r.chosen }?.imageMs))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                Log.e("Retriever", "calibration failed", e)
-                TuneState.Failed(e.message ?: e.toString())
-            }
         }
     }
 }
@@ -221,16 +152,13 @@ class StatusActions(
     val resume: () -> Unit = {},
     val toggleSkipped: () -> Unit = {},
     val retrySkipped: () -> Unit = {},
-    val setSearchInside: (Kind, Boolean) -> Unit = { _, _ -> },
-    val setOnlyWhileCharging: (Boolean) -> Unit = {},
-    val removeExcluded: (String) -> Unit = {},
     val openBatterySettings: () -> Unit = {},
-    val setSampleMode: (Boolean) -> Unit = {},
-    val tuneAgain: () -> Unit = {},
     val chooseMorePhotos: () -> Unit = {},
     val allowAllFiles: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val removeFolder: (String) -> Unit = {},
+    /** Null hides the link, for a host that has nowhere to go. */
+    val openSettings: (() -> Unit)? = null,
 )
 
 /** Why a text-only phone reads less, in its own numbers. */
@@ -238,11 +166,14 @@ internal fun textOnlyNote(ramGb: Double): String =
     "This phone has %.0f GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.".format(ramGb)
 
 @Composable
-fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { StatusViewModel(it) }) {
+fun StatusScreen(
+    onBack: () -> Unit,
+    onOpenSettings: (() -> Unit)? = null,
+    vm: StatusViewModel = appViewModel { StatusViewModel(it) },
+) {
     val context = LocalContext.current
     val counts by vm.counts.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
-    val tune by vm.tune.collectAsStateWithLifecycle()
     val index by vm.index.collectAsStateWithLifecycle()
     val skippedFiles by vm.skipped.collectAsStateWithLifecycle()
     val access by vm.access.collectAsStateWithLifecycle()
@@ -267,7 +198,6 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
         counts = counts,
         prefs = prefs,
         index = index,
-        tune = tune,
         skippedFiles = skippedFiles,
         skippedOpen = skippedOpen,
         batteryHint = !unrestricted,
@@ -280,20 +210,15 @@ fun StatusScreen(onBack: () -> Unit, vm: StatusViewModel = appViewModel { Status
                 if (skippedOpen) vm.loadSkipped()
             },
             retrySkipped = vm::retrySkipped,
-            setSearchInside = vm::setSearchInside,
-            setOnlyWhileCharging = vm::setOnlyWhileCharging,
-            removeExcluded = vm::removeExcluded,
             openBatterySettings = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
-            setSampleMode = vm::setSampleMode,
-            tuneAgain = vm::tuneAgain,
             chooseMorePhotos = { photosLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray()) },
             allowAllFiles = { openAllFilesSettings(context) },
             addFolder = { folderLauncher.launch(null) },
             removeFolder = vm::removeFolder,
+            openSettings = onOpenSettings,
         ),
         access = access,
         textOnly = vm.textOnly,
-        ramGb = vm.ramGb,
         folderError = folderError,
     )
 }
@@ -304,14 +229,12 @@ fun StatusContent(
     counts: Store.Counts,
     prefs: Prefs,
     index: IndexState,
-    tune: TuneState,
     skippedFiles: List<Store.StoredFile>,
     skippedOpen: Boolean,
     batteryHint: Boolean,
     actions: StatusActions = StatusActions(),
     access: Access = Access.ALL,
     textOnly: Boolean = false,
-    ramGb: Double = 0.0,
     folderError: String? = null,
 ) {
     val searchable = counts.byState[FileState.INDEXED] ?: 0
@@ -423,57 +346,14 @@ fun StatusContent(
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Coverage(access, folderError, actions)
 
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Read inside")
-                if (textOnly) Muted(textOnlyNote(ramGb), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                for (kind in if (textOnly) TEXT_INSIDE else SEARCH_INSIDE) {
-                    SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
-                }
-                Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
-
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                SwitchRow("Only read while charging", prefs.onlyWhileCharging, actions.setOnlyWhileCharging)
-
-                if (prefs.excludedFolders.isNotEmpty()) {
+                actions.openSettings?.let { open ->
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Header("Folders Retriever skips")
-                    for (folder in prefs.excludedFolders.sorted()) {
-                        ListItem(
-                            headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            trailingContent = {
-                                IconButton(onClick = { actions.removeExcluded(folder) }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Search $folder again")
-                                }
-                            },
-                        )
-                    }
-                }
-
-                // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
-                if (BuildConfig.DEBUG) {
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Header("For testing")
-                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        index.backend?.let { Text(tuneSummary(it, null), style = MaterialTheme.typography.bodyMedium) }
-                        index.detail?.let { Muted(it.replaceFirstChar(Char::uppercase)) }
-                        index.build?.let { Muted("Model file: ${it.fileName}") }
-                    }
-                    SwitchRow("Sample mode: newest $SAMPLE_PER_KIND of each type", prefs.sampleSize != null, actions.setSampleMode)
-                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        when (tune) {
-                            TuneState.Running -> Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                                Text("Tuning… a few minutes at most", style = MaterialTheme.typography.bodyMedium)
-                            }
-                            is TuneState.Failed -> Text("Tune failed: ${tune.message}", color = MaterialTheme.colorScheme.error)
-                            is TuneState.Done -> Muted(tune.summary)
-                            TuneState.Idle -> Unit
-                        }
-                        OutlinedButton(onClick = actions.tuneAgain, enabled = tune != TuneState.Running) { Text("Tune again") }
-                    }
+                    ListItem(
+                        headlineContent = { Text("Settings") },
+                        supportingContent = { Text("What to read, storage and more") },
+                        leadingContent = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        modifier = Modifier.clickable(role = Role.Button, onClick = open),
+                    )
                 }
             }
         }
@@ -540,7 +420,7 @@ private fun Coverage(access: Access, folderError: String?, actions: StatusAction
 }
 
 @Composable
-private fun Muted(text: String, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
+internal fun Muted(text: String, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) {
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,
@@ -552,21 +432,11 @@ private fun Muted(text: String, modifier: Modifier = Modifier, maxLines: Int = I
 }
 
 @Composable
-private fun Header(text: String) {
+internal fun Header(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-    )
-}
-
-@Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    // One toggleable row, so TalkBack reads the label with the switch state.
-    ListItem(
-        headlineContent = { Text(label) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
-        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
     )
 }

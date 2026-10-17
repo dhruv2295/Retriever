@@ -1,18 +1,27 @@
 package app.retriever
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.ParsedQuery
 import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,14 +49,7 @@ class SearchShotsTest {
         counts = counts,
         searchable = 3_100,
         waiting = 2_230,
-        recentFiles = listOf(
-            file("IMG_2041.jpg", Kind.PHOTO),
-            file("Electricity bill March.pdf", Kind.PDF),
-            file("Screenshot_wifi.png", Kind.SCREENSHOT),
-            file("Meeting notes.docx", Kind.DOC),
-            file("Voice memo 12.m4a", Kind.AUDIO),
-            file("Electricity_bill_March_2026_final.pdf", Kind.PDF),
-        ),
+        suggestions = listOf("wifi password", "electricity bill", "notes from the meeting"),
     )
 
     private val mixedHits = listOf(
@@ -59,6 +61,8 @@ class SearchShotsTest {
         hit(5, file("Old bill.docx", Kind.DOC)),
         hit(6, file("Birthday.mp4", Kind.VIDEO), chunkId = 60, locator = "3:41"),
     )
+
+    private val understood = ParsedQuery("bill", setOf(Kind.SCREENSHOT), 1, 2, listOf("Screenshots", "last week"), dateLabel = "last week")
 
     @Composable
     private fun State(state: String) {
@@ -83,6 +87,11 @@ class SearchShotsTest {
                 none,
             )
             "results_searching" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, searching = true, vectorLane = false), none)
+            "results_understood" -> SearchPane(ready.copy(query = "bill screenshots last week", hitsFor = "bill screenshots last week", hits = mixedHits, parsed = understood, starred = 2), none)
+            "results_relaxed" -> SearchPane(
+                ready.copy(query = "bill screenshots last week", hitsFor = "bill screenshots last week", hits = mixedHits, parsed = understood, relaxed = true, onlyStarred = true, starred = 2),
+                none,
+            )
             "chip_pdf" -> SearchPane(ready.copy(query = "bill", hitsFor = "bill", chip = Kind.PDF, hits = mixedHits.filter { it.file.kind == Kind.PDF }), none)
             "similar" -> SearchPane(ready.copy(similar = Similar("IMG_2041.jpg", ByteArray(1)), hits = mixedHits.filter { it.file.kind == Kind.PHOTO }), none)
             "empty" -> SearchPane(ready.copy(query = "blue passport", hitsFor = "blue passport", hits = emptyList()), none)
@@ -103,7 +112,8 @@ class SearchShotsTest {
     @Test fun homeLight() {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
-        rule.onNodeWithText("Reading your files · 3,100 of 5,330").assertExists()
+        rule.onNodeWithText("Reading your files").assertExists()
+        rule.onNodeWithText("· 3,100 of 5,330").assertExists()
     }
 
     @Test fun homeDark() = shot("home", true)
@@ -111,24 +121,59 @@ class SearchShotsTest {
     @Test fun homeStoppedLight() = shot("home_stopped", false)
     @Test fun homeBeforeSetupLight() {
         shot("home_before_setup", false)
-        rule.onNodeWithText("Retriever is looking for your files").assertExists()
+        rule.onNodeWithText("Looking for your files").assertExists()
     }
 
     @Test fun homeBeforeSetupDark() = shot("home_before_setup", true)
     @Test fun homeCaughtUpKeepsAWayToStatus() {
         shot("home_caught_up", false)
-        rule.onNodeWithText("All caught up · 5,330 files searchable").assertExists()
+        rule.onNodeWithText("All caught up").assertExists()
+        rule.onNodeWithText("· 5,330 files searchable").assertExists()
     }
 
     @Test fun homeBeforeCountsShowsNoFirstRunMessage() {
         rule.setContent { ShotTheme(false, 1f) { SearchContent(SearchUi(setUp = true), IndexState(), SearchActions()) } }
-        rule.onNodeWithText("Retriever is looking for your files").assertDoesNotExist()
+        rule.onNodeWithText("Looking for your files").assertDoesNotExist()
+        rule.onNodeWithText("Nothing to search yet").assertDoesNotExist()
+    }
+
+    /**
+     * The expanded bar is a dialog window Robolectric can't capture, so its body is drawn on the bar's own container
+     * colour: a recent row with an opaque container shows as a band there.
+     */
+    @Test fun expandedBarDarkWithRecents() {
+        rule.setContent {
+            ShotTheme(true) {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    SearchPane(ready.copy(recent = listOf("wifi password", "electricity bill")), SearchActions())
+                }
+            }
+        }
+        rule.onNodeWithContentDescription("Remove electricity bill from history").assertExists()
+        rule.shot("search_expanded_recent_dark")
     }
 
     @Test fun emptyInChipOffersAllFiles() {
         shot("empty_in_chip", false)
-        rule.onNodeWithText("No matches in PDFs").assertExists()
+        rule.onNodeWithText("No matches in your PDFs").assertExists()
         rule.onNodeWithText("Search all files").assertExists()
+    }
+
+    @Test fun emptyInStarredSaysSoAndSearchAllClearsBoth() {
+        var chip: Kind? = Kind.PDF
+        var starredOnly: Boolean? = null
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                SearchPane(
+                    ready.copy(query = "beach", hitsFor = "beach", hits = emptyList(), onlyStarred = true, starred = 2),
+                    SearchActions(onChip = { chip = it }, onStarredOnly = { starredOnly = it }),
+                )
+            }
+        }
+        rule.onNodeWithText("No matches in your starred files").assertExists()
+        rule.onNodeWithText("Search all files").performClick()
+        assertEquals(null, chip)
+        assertEquals(false, starredOnly)
     }
 
     @Test fun staleEmptyNamesNoUnsearchedWords() {
@@ -160,6 +205,54 @@ class SearchShotsTest {
     }
 
     @Test fun resultsDark() = shot("results", true)
+
+    @Test fun understoodFiltersCanBeDroppedAndStarredIsAChip() {
+        var asTyped = 0
+        var starredOnly: Boolean? = null
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                SearchPane(
+                    ready.copy(query = "bill screenshots last week", hitsFor = "bill screenshots last week", hits = mixedHits, parsed = understood, starred = 2),
+                    SearchActions(onWordsAsTyped = { asTyped++ }, onStarredOnly = { starredOnly = it }),
+                )
+            }
+        }
+        rule.onNodeWithText("Screenshots · last week").assertExists()
+        // The kind the words asked for shows as the picked chip, not "All".
+        rule.onNode(hasText("Screenshots") and isSelected()).assertExists()
+        rule.onNode(hasText("All") and isSelected()).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Search the words as typed instead").performClick()
+        assertEquals(1, asTyped)
+        rule.onNodeWithText("Starred").performClick()
+        assertEquals(true, starredOnly)
+        rule.onNodeWithText("so here is everything", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun understoodLight() = shot("results_understood", false)
+    @Test fun relaxedSaysWhatWasDropped() {
+        shot("results_relaxed", false)
+        // The starred chip stayed on, so the note says the search kept to starred files.
+        rule.onNodeWithText("No screenshots from last week, so here are all your starred files.").assertExists()
+    }
+
+    @Test fun longPressOffersAStarAndUndoTakesItBack() {
+        val stars = mutableListOf<Boolean>()
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = mixedHits, starredUris = setOf("demo:Old bill.docx")), SearchActions(onStar = { _, on -> stars += on }))
+            }
+        }
+        rule.onNodeWithText("Water bill.pdf", substring = true).performTouchInput { longClick() }
+        rule.onNodeWithText("Remove star").assertDoesNotExist()
+        rule.onNodeWithText("Star").performClick()
+        assertEquals(listOf(true), stars)
+        rule.onNodeWithText("Starred").assertExists()
+        rule.onNodeWithText("Undo").performClick()
+        assertEquals(listOf(true, false), stars)
+        // A starred file offers to remove it.
+        rule.onNodeWithText("Old bill.docx", substring = true).performTouchInput { longClick() }
+        rule.onNodeWithText("Remove star").assertExists()
+    }
     @Test fun resultsLessLikelyLight() {
         shot("results_less_likely", false)
         rule.onNodeWithText("Less likely matches").assertExists()

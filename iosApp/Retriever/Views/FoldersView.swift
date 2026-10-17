@@ -132,7 +132,8 @@ struct FoldersView: View {
             try? await services.retriever.updatePrefs { p in
                 p.doCopy(kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging,
                          excludedFolders: on ? p.excludedFolders.union([path]) : p.excludedFolders.subtracting([path]),
-                         paused: p.paused, sampleSize: p.sampleSize)
+                         paused: p.paused, sampleSize: p.sampleSize, allowMobileData: p.allowMobileData,
+                         rememberSearches: p.rememberSearches, dynamicColor: p.dynamicColor)
             }
             services.retriever.notifyChanged()
             model.wake()

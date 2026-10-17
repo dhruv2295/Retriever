@@ -58,6 +58,25 @@ android {
     }
 }
 
+// About shows the repo's notices file; it is copied into the assets at build time, so the repo holds one copy.
+abstract class CopyNotices : DefaultTask() {
+    @get:InputFile abstract val source: RegularFileProperty
+    @get:OutputDirectory abstract val out: DirectoryProperty
+
+    @TaskAction fun copy() {
+        source.get().asFile.copyTo(out.get().file("THIRD_PARTY_NOTICES.md").asFile, overwrite = true)
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val copyNotices = tasks.register<CopyNotices>("copyNotices${variant.name.replaceFirstChar(Char::uppercase)}") {
+            source.set(rootProject.layout.projectDirectory.file("THIRD_PARTY_NOTICES.md"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copyNotices, CopyNotices::out)
+    }
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))

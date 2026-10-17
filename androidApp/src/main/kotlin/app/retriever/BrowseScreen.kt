@@ -18,13 +18,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -32,6 +38,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -68,18 +76,20 @@ class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
     private var kind: Kind? = null
     private var folder: String? = null
     private var sort = Store.Sort.NEWEST
+    private var starredOnly = false
     private var generation = 0
     private var busy = false
     private var exhausted = false
 
-    fun load(kind: String?, folder: String?, sort: String) {
+    fun load(kind: String?, folder: String?, sort: String, starredOnly: Boolean = false) {
         val k = Kind.entries.firstOrNull { it.name == kind }
         val s = Store.Sort.entries.firstOrNull { it.name == sort } ?: Store.Sort.NEWEST
         // A rotation re-runs the screen's LaunchedEffect; keep the pages already loaded.
-        if (generation > 0 && k == this.kind && folder == this.folder && s == this.sort) return
+        if (generation > 0 && k == this.kind && folder == this.folder && s == this.sort && starredOnly == this.starredOnly) return
         this.kind = k
         this.folder = folder
         this.sort = s
+        this.starredOnly = starredOnly
         generation++
         _loading.value = true
         busy = false
@@ -94,7 +104,7 @@ class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
         val gen = generation
         val offset = _files.value.size
         viewModelScope.launch {
-            val page = retriever.files(kind, folder, sort, PAGE, offset)
+            val page = if (starredOnly) retriever.starredFiles(PAGE, offset) else retriever.files(kind, folder, sort, PAGE, offset)
             if (gen != generation) return@launch
             // ponytail: OFFSET paging over a table the indexer changes; rows can shift between pages.
             // Dedupe so a shifted row never repeats a lazy-list key; keyset paging if skips matter.
@@ -106,22 +116,34 @@ class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
     }
 }
 
+/** The Large files entry is every file by size; sorted another way it is just all files. Starred keeps its name. */
+internal fun browseTitle(route: BrowseRoute, sort: String): String =
+    if (route.kind == null && route.folder == null && !route.starredOnly && sort != "LARGEST") "All files" else route.title
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(route: BrowseRoute, onNavigate: (Any) -> Unit, onBack: () -> Unit) {
     val vm = appViewModel(key = "browse:$route") { BrowseViewModel(it.retriever) }
-    val files by vm.files.collectAsState()
+    val loaded by vm.files.collectAsState()
+    val star = appViewModel(key = "star") { StarViewModel(it.retriever) }
+    val starred by star.starred.collectAsState()
+    // A file unstarred here leaves the Starred list at once, without reloading its pages.
+    val files = if (route.starredOnly) loaded.filter { it.file.uri in starred } else loaded
     val loading by vm.loading.collectAsState()
     var sort by rememberSaveable { mutableStateOf(route.sort) }
     val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // As on a search result: starring says so, with Undo, which also brings an unstarred file back to this list.
+    val onStar = remember(star, snackbar, scope) { starWithUndo({ file, on -> star.set(file.uri, on) }, snackbar, scope) }
 
-    LaunchedEffect(route, sort) { vm.load(route.kind, route.folder, sort) }
+    LaunchedEffect(route, sort) { vm.load(route.kind, route.folder, sort, route.starredOnly) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                // The Large files entry is every file by size; sorted another way it is just all files.
-                title = { Text(if (route.kind == null && route.folder == null && sort != "LARGEST") "All files" else route.title) },
+                title = { Text(browseTitle(route, sort)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -135,10 +157,13 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Any) -> Unit, onBack: () -> Un
             sort = sort,
             loading = loading,
             kind = Kind.entries.firstOrNull { it.name == route.kind },
+            starredOnly = route.starredOnly,
             padding = padding,
             onSort = { sort = it },
             onLoadMore = vm::loadMore,
             onOpen = { Opener.open(context, it, navigate = onNavigate) },
+            starred = starred,
+            onStar = onStar,
         )
     }
 }
@@ -154,9 +179,13 @@ fun BrowseContent(
     onSort: (String) -> Unit,
     onLoadMore: () -> Unit,
     onOpen: (SourceFile) -> Unit,
+    starredOnly: Boolean = false,
+    starred: Set<String> = emptySet(),
+    onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
 ) {
     Column(Modifier.padding(top = padding.calculateTopPadding())) {
-        Row(
+        // Starred is ordered by when you starred, so the sort chips would not apply.
+        if (!starredOnly) Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -173,12 +202,21 @@ fun BrowseContent(
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         } else if (files.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(
-                    title = "Nothing here yet",
-                    description = "Files show up here once Retriever finds them on your phone.",
-                    icon = Icons.Outlined.FolderOpen,
-                    art = R.drawable.illus_empty,
-                )
+                if (starredOnly) {
+                    EmptyState(
+                        title = "Nothing starred yet",
+                        description = "Touch and hold a file, or tap the star while viewing it, to keep it here.",
+                        icon = Icons.Outlined.StarBorder,
+                        art = R.drawable.illus_empty,
+                    )
+                } else {
+                    EmptyState(
+                        title = "Nothing here yet",
+                        description = "Files show up here once Retriever finds them on your phone.",
+                        icon = Icons.Outlined.FolderOpen,
+                        art = R.drawable.illus_empty,
+                    )
+                }
             }
         } else {
             val listPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding()))
@@ -194,7 +232,10 @@ fun BrowseContent(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
                 ) {
                     items(files, key = { it.id }) { stored ->
-                        ThumbCell(file = stored.file, onClick = { onOpen(stored.file) })
+                        val on = stored.file.uri in starred
+                        StarMenu(on, { onStar(stored.file, !on) }) { menu ->
+                            ThumbCell(file = stored.file, onClick = { onOpen(stored.file) }, onLongClick = menu, onLongClickLabel = "More options")
+                        }
                     }
                 }
             } else {
@@ -207,7 +248,10 @@ fun BrowseContent(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(files, key = { it.id }) { stored ->
-                            FileRow(file = stored.file, onClick = { onOpen(stored.file) })
+                            val on = stored.file.uri in starred
+                            StarMenu(on, { onStar(stored.file, !on) }) { menu ->
+                                FileRow(file = stored.file, onClick = { onOpen(stored.file) }, onLongClick = menu, onLongClickLabel = "More options")
+                            }
                         }
                     }
                 }
@@ -222,6 +266,48 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
         snapshotFlow(lastVisible).distinctUntilChanged().collect { last ->
             if (last != null && last >= count - LOAD_AHEAD) onLoadMore()
         }
+    }
+}
+
+class StarViewModel(private val retriever: Retriever) : ViewModel() {
+    val starred: StateFlow<Set<String>> = retriever.starred
+    fun toggle(uri: String) = set(uri, uri !in starred.value)
+
+    fun set(uri: String, on: Boolean) {
+        viewModelScope.launch { retriever.setStarred(uri, on) }
+    }
+}
+
+/** A file list's long-press menu: Star or Remove star, as on a search result, so a photo can be unstarred from a list. */
+@Composable
+private fun StarMenu(on: Boolean, toggle: () -> Unit, content: @Composable (onLongClick: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        content { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(if (on) "Remove star" else "Star") },
+                leadingIcon = { Icon(if (on) Icons.Outlined.StarBorder else Icons.Filled.Star, contentDescription = null) },
+                onClick = {
+                    open = false
+                    toggle()
+                },
+            )
+        }
+    }
+}
+
+/** The viewers' top-bar star: reflects and toggles whether [uri] is starred. */
+@Composable
+fun StarButton(uri: String) {
+    val vm = appViewModel(key = "star") { StarViewModel(it.retriever) }
+    val starred by vm.starred.collectAsState()
+    val on = uri in starred
+    IconButton(onClick = { vm.toggle(uri) }) {
+        Icon(
+            if (on) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            contentDescription = if (on) "Remove star" else "Star this file",
+        )
     }
 }
 

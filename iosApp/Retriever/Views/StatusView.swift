@@ -1,7 +1,7 @@
 import Photos
 import SwiftUI
 
-/// How reading is going, what couldn't be read, and the few switches that steer it.
+/// How reading is going and what couldn't be read. The switches that steer it are in Settings.
 struct StatusView: View {
     let model: AppModel
 
@@ -15,7 +15,6 @@ struct StatusView: View {
             skippedFiles: model.skippedFiles,
             screenKeptOn: model.screenKeptOn,
             canKeepReading: model.canKeepReading,
-            tune: model.tune,
             actions: actions
         )
         .onChange(of: snap.skipped, initial: true) { _, n in
@@ -24,7 +23,7 @@ struct StatusView: View {
     }
 
     private var actions: StatusActions {
-        var actions = StatusActions(
+        StatusActions(
             pause: model.pause,
             resume: model.resume,
             retrySkipped: model.retrySkipped,
@@ -33,10 +32,6 @@ struct StatusView: View {
             openSettings: model.openSettings,
             keepReading: model.keepReading
         )
-        #if DEBUG
-            actions.tuneAgain = model.tuneAgain
-        #endif
-        return actions
     }
 }
 
@@ -48,7 +43,6 @@ struct StatusActions {
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
     var keepReading: () -> Void = {}
-    var tuneAgain: () -> Void = {}
 }
 
 struct StatusContent: View {
@@ -59,7 +53,6 @@ struct StatusContent: View {
     let skippedFiles: [AppModel.SkippedFile]
     var screenKeptOn = false
     var canKeepReading = false
-    var tune = AppModel.Tune.idle
     var actions = StatusActions()
 
     var body: some View {
@@ -73,26 +66,12 @@ struct StatusContent: View {
             if snap.skipped > 0 { Section { skipped } }
             if snap.tailFiles > 0 && !snap.textOnly { Section { Note(Copy.deepReading(snap.tailFiles)) } }
             photosSection
-            Section {} footer: { Text(Copy.backgroundNote) }
-            #if DEBUG
-                // Debug-only, as Android keeps it behind BuildConfig.DEBUG.
-                if !snap.textOnly { Section("For testing") { testing } }
-            #endif
+            Section {
+                NavigationLink("Settings", value: Route.settings)
+            } footer: { Text(Copy.backgroundNote) }
         }
         .navigationTitle(Copy.statusTitle(snap))
     }
-
-    #if DEBUG
-        @ViewBuilder private var testing: some View {
-            switch tune {
-            case .running: Busy("Tuning… about a minute")
-            case let .done(summary): Note(summary)
-            case .failed: Failure("Tune failed")
-            case .idle: EmptyView()
-            }
-            Button("Tune again", action: actions.tuneAgain).disabled(tune == .running)
-        }
-    #endif
 
     @ViewBuilder private var progressSection: some View {
         if snap.running {

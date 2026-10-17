@@ -112,16 +112,17 @@ class EvalTest {
 
     /**
      * The eval reproduces production fusion and its strong/weak split: each row's file order and strong count are
-     * SearchEngine.search's, query by query, under the default floor and under a low one that lets vector-only files through.
+     * SearchEngine.search's (with the name index), query by query, under the shipped rule (off) and under an enabled
+     * rule. The corpus is far under [RelevanceRule.MIN_ROWS] per group, so the enabled one judges groups of any size.
      */
     @Test
     fun defaultRowMatchesSearchEngine() = runTest {
         val factory = Factory()
         val default = EvalSetting(profile.visionTokens)
         val tweaked = EvalSetting(profile.visionTokens, tuning = SearchTuning(rrfK = 10, keywordWeight = 2.0))
-        val low = RelevanceFloor(0.2f, 0.2f, 0.2f)
+        val enabled = RelevanceRule(margin = 0.0, minRows = 1)
         val run = RetrievalEval(extractor, factory, build, profile, Store(testDriver())).run(corpus, queries, listOf(default, tweaked))
-        val lowRun = RetrievalEval(extractor, factory, build, profile, Store(testDriver()), floor = low).run(corpus, queries, listOf(default))
+        val ruleRun = RetrievalEval(extractor, factory, build, profile, Store(testDriver()), rule = enabled).run(corpus, queries, listOf(default))
 
         val embedder = factory.open(profile, build)
         val store = Store(testDriver())
@@ -133,16 +134,17 @@ class EvalTest {
         val batch = IndexEngine(store, extractor, embedder, monitor, { IndexSettings(profile, Kind.entries.toSet()) }).runBatch(1.hours, false)
         assertEquals(corpus.size, batch.processed)
 
-        for ((floor, row) in listOf(RelevanceFloor() to run.rows[0], RelevanceFloor() to run.rows[1], low to lowRun.rows[0])) {
-            val engine = SearchEngine(store, embedder, row.setting.tuning) { floor }
+        val names = NameIndex.build(store.files(limit = 100).map { NameEntry(it.id, it.file.name, it.file.folder, it.file.kind) })
+        for ((rule, row) in listOf(RelevanceRule.shipped to run.rows[0], RelevanceRule.shipped to run.rows[1], enabled to ruleRun.rows[0])) {
+            val engine = SearchEngine(store, embedder, row.setting.tuning, rule) { names }
             queries.forEachIndexed { i, q ->
                 val production = engine.search(q.q)
-                assertEquals(production.hits.map { it.file.name }, row.top[i].map { corpus[it].name }, "${row.setting.label} $floor: \"${q.q}\"")
-                assertEquals(production.strongCount, row.strong[i], "${row.setting.label} $floor: \"${q.q}\" strong")
+                assertEquals(production.hits.map { it.file.name }, row.top[i].map { corpus[it].name }, "${row.setting.label} rule $rule: \"${q.q}\"")
+                assertEquals(production.strongCount, row.strong[i], "${row.setting.label} rule $rule: \"${q.q}\" strong")
             }
         }
-        // The low floor lets vector-only files through, so the strong counts above exercise the floor, not only the keyword rule.
-        assertTrue(lowRun.rows[0].strong.sum() > run.rows[0].strong.sum(), "${lowRun.rows[0].strong} vs ${run.rows[0].strong}")
+        // The enabled rule calls some files found by meaning weak, so the strong counts above exercise it, not only the keyword rule.
+        assertTrue(ruleRun.rows[0].strong.sum() < run.rows[0].strong.sum(), "${ruleRun.rows[0].strong} vs ${run.rows[0].strong}")
         // A no-match query has no rank and leaves the metrics alone.
         assertEquals(null, run.rows[0].ranks.last())
         assertEquals(null, run.kinds.last())

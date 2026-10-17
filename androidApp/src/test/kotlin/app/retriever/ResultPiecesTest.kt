@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -13,7 +14,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.retriever.core.Kind
+import app.retriever.core.ParsedQuery
 import app.retriever.core.ReadExtent
+import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -75,12 +78,20 @@ class ResultPiecesTest {
     }
 
     @Test fun nameHighlightedMatchesWholeWordsAsKeywordSearchDoes() {
-        // "on" inside "json" is no match, and a little word is never bold on its own.
+        // "on" inside "json" is no match; a file found by its name is bold wherever the words are in it, little words too.
         assertEquals(0, nameHighlighted("queries.json", "dinner on friday", style).spanStyles.size)
-        assertEquals(0, nameHighlighted("Notes on tax.txt", "on", style).spanStyles.size)
+        assertEquals(listOf(6 to 8), nameHighlighted("Notes on tax.txt", "on", style).spanStyles.map { it.start to it.end })
         // The last word is a prefix, as in the search itself; earlier ones must match whole.
         assertEquals(listOf(0 to 7), nameHighlighted("Invoice_2024.pdf", "invo", style).spanStyles.map { it.start to it.end })
         assertEquals(0, nameHighlighted("Invoice_2024.pdf", "invo bill", style).spanStyles.size)
+    }
+
+    @Test fun relaxedNoteNamesWhatWasDroppedAndWhatWasKept() {
+        val parsed = ParsedQuery("", emptySet(), 1, 2, listOf("PDFs", "last week"), dateLabel = "last week")
+        assertEquals("No PDFs from last week, so here is everything.", parsed.relaxedNote(Format.scope(null, false)))
+        assertEquals("No PDFs from last week, so here are all your starred files.", parsed.relaxedNote(Format.scope(null, true)))
+        assertEquals("No PDFs from last week, so here are all your starred photos.", parsed.relaxedNote(Format.scope(Kind.PHOTO, true)))
+        assertEquals("No PDFs from last week, so here are all your PDFs.", parsed.relaxedNote(Format.scope(Kind.PDF, false)))
     }
 
     @Test fun locatorLabels() {
@@ -183,6 +194,15 @@ class ResultPiecesTest {
     @Test fun fileRowShowsItsReadNote() {
         rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Format.readNote(ReadExtent.DEEPENING), onClick = {}) } }
         rule.onNodeWithText("Still reading the rest of this file").assertExists()
+    }
+
+    @Test fun onlyAFileFoundByItsNameIsBold() {
+        fun hit(id: Long, name: String, byName: Boolean) = SearchEngine.Hit(file(name, Kind.DOC), id, 0, "", null, 1.0, byName)
+        val ui = SearchUi(query = "invoice", hitsFor = "invoice", hits = listOf(hit(1, "Invoice March.docx", true), hit(2, "Invoice April.docx", false)))
+        rule.setContent { ShotTheme(dark = false) { SearchPane(ui, SearchActions()) } }
+        fun bold(name: String) = rule.onNodeWithText(name).fetchSemanticsNode().config[SemanticsProperties.Text].first().spanStyles
+        assertEquals(listOf(0 to 7), bold("Invoice March.docx").map { it.start to it.end })
+        assertEquals(0, bold("Invoice April.docx").size)
     }
 
     @Test fun fileRowLight() = fileRows("fileRow_light", dark = false)

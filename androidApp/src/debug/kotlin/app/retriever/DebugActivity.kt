@@ -1,5 +1,6 @@
 package app.retriever
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,21 +33,52 @@ import kotlinx.coroutines.launch
 
 /** Debug builds only: demo mode and the search eval, from a second launcher entry. */
 class DebugActivity : ComponentActivity() {
+    /** No equals, so asking for the same run twice starts it twice. */
+    class Request(val run: String, val q: String?)
+
+    private var request by mutableStateOf<Request?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { RetrieverTheme { DebugScreen() } }
+        request = requestOf(intent)
+        setContent { RetrieverTheme { DebugScreen(request) } }
     }
+
+    // `am start` hands a repeat launch to the live instance. Wait for "done <run>" in logcat before the next one.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        request = requestOf(intent)
+    }
+
+    // adb shell "am start -n app.retriever/.DebugActivity --es run corpus|scan|latency|query|stats [--es q 'some text']"
+    private fun requestOf(intent: Intent) = intent.getStringExtra("run")?.let { Request(it, intent.getStringExtra("q")) }
 }
 
 @Composable
-private fun DebugScreen() {
+private fun DebugScreen(request: DebugActivity.Request?) {
     val context = LocalContext.current
     val graph = (context.applicationContext as RetrieverApp).graph
     val scope = rememberCoroutineScope()
     val demoOn = remember { Demo.isOn(context) }
     var report by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(false) }
+    fun launchEval(eval: suspend EvalRunner.() -> String) {
+        running = true
+        report = "Running…"
+        scope.launch {
+            report = try {
+                EvalRunner(graph).eval()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "Eval failed: $e"
+            } finally {
+                running = false
+            }
+        }
+    }
+    LaunchedEffect(request) { request?.let { r -> launchEval { runNamed(r.run, r.q) } } }
     Surface(Modifier.fillMaxSize()) {
         Column(
             Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -55,23 +88,8 @@ private fun DebugScreen() {
             OutlinedButton(onClick = { Demo.toggle(context) }) {
                 Text(if (demoOn) "Demo off (restarts the app)" else "Demo on (restarts the app)")
             }
-            fun launchEval(eval: suspend EvalRunner.() -> String) {
-                running = true
-                report = "Running…"
-                scope.launch {
-                    report = try {
-                        EvalRunner(graph).eval()
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        "Eval failed: $e"
-                    } finally {
-                        running = false
-                    }
-                }
-            }
             Button(enabled = !running, onClick = { launchEval { run() } }) { Text("Run eval") }
-            Button(enabled = !running, onClick = { launchEval { runCorpus() } }) { Text("Run corpus eval (Download/retriever-eval)") }
+            Button(enabled = !running, onClick = { launchEval { runNamed("corpus", null) } }) { Text("Run corpus eval (Download/retriever-eval)") }
             Text(report, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
         }
     }

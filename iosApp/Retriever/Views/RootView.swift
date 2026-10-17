@@ -4,8 +4,7 @@ import SwiftUI
 
 /// Pages pushed on Home's stack.
 enum Route: Hashable {
-    case status, setup
-    case browse
+    case status, setup, settings
     case files(FileQuery)
     case folders, duplicates
     case view(Viewing)
@@ -50,6 +49,11 @@ struct RootView: View {
     @ViewBuilder private var main: some View {
         if model.started && model.setupSeen {
             home { SearchView(model: model, search: search) }
+                // A search from Shortcuts or Siri shows over whatever page was open: back to Search first (on iPad
+                // the empty path selects it), where SearchView takes the words.
+                .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
+                    if pending?.isEmpty == false { path = [] }
+                }
         } else {
             SetupView(model: model, onDone: model.finishSetup).readableSetup(true)
         }
@@ -66,7 +70,7 @@ struct RootView: View {
 
     private static var initialPath: [Route] {
         #if DEBUG
-            if let route = DebugRoute.live { return route.path }
+            if let route = DebugRoute.live, !route.path.isEmpty { return route.path }
             if let route = DebugRoute.openOnLaunch { return [route] }
         #endif
         return []
@@ -125,8 +129,8 @@ struct AppStack<Root: View>: View {
             SetupView(model: model, asked: true) { path = [] }
                 .navigationTitle("Setup")
                 .navigationBarTitleDisplayMode(.inline)
-        case .browse:
-            BrowseView(snap: model.snap)
+        case .settings:
+            SettingsView(model: model)
         case let .files(query):
             FileListView(query: query, services: model.services)
         case .folders:

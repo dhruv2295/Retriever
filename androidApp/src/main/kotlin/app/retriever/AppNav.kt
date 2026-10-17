@@ -28,7 +28,10 @@ import kotlinx.serialization.Serializable
     val folder: String? = null,
     val sort: String = "NEWEST",
     val title: String,
+    val starredOnly: Boolean = false,
 )
+
+@Serializable data object SettingsRoute
 
 @Serializable data object FoldersRoute
 
@@ -75,6 +78,7 @@ fun AppNav() {
             },
         ) { SearchScreen(onNavigate = go) }
         composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
+        composable<SettingsRoute> { SettingsScreen(back) }
         composable<FoldersRoute> { FoldersScreen(go, back) }
         composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
         composable<StatusRoute> { StatusScreen(back) }

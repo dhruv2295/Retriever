@@ -12,6 +12,8 @@ data class SourceFile(
     val kind: Kind,
     val size: Long,
     val modifiedAt: Long,
+    /** When a photo or video was taken, in ms; null when the source doesn't say. Last, so positional calls stay. */
+    val takenAt: Long? = null,
 )
 
 sealed interface Part {

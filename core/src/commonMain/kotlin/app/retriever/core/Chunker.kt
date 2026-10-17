@@ -16,9 +16,7 @@ object Chunker {
         val current = StringBuilder()
         var words = 0
         for (paragraph in text.split(Regex("\\n\\s*\\n"))) {
-            for (rawWord in paragraph.split(Regex("\\s+"))) {
-                if (rawWord.isEmpty()) continue
-                val word = rawWord.take(maxChars)
+            for (word in paragraph.split(Regex("\\s+")).flatMap { it.pieces(maxChars) }) {
                 if (current.isNotEmpty() && (words == maxWords || current.length + 1 + word.length > maxChars)) {
                     out += current.toString()
                     current.clear()
@@ -37,6 +35,26 @@ object Chunker {
         if (current.isNotBlank()) out += current.toString()
         return out
     }
+
+    /** An unspaced run (CJK, Thai, a long URL) in pieces of at most [max] characters, cut between grapheme-safe units. */
+    private fun String.pieces(max: Int): List<String> {
+        val out = mutableListOf<String>()
+        var start = 0
+        while (start < length) {
+            var end = minOf(start + max, length)
+            if (end < length) {
+                var safe = end
+                while (safe > start && (this[safe - 1].isHighSurrogate() || this[safe].isContinuation())) safe--
+                end = if (safe > start) safe else if (this[end - 1].isHighSurrogate()) end - 1 else end
+            }
+            out += substring(start, end)
+            start = end
+        }
+        return out
+    }
+
+    private fun Char.isContinuation() =
+        isLowSurrogate() || category == CharCategory.NON_SPACING_MARK || category == CharCategory.COMBINING_SPACING_MARK
 }
 
 /**

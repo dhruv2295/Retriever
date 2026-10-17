@@ -28,7 +28,7 @@ class BackendNowTest {
     }
     private val r = Retriever(
         store, source, FakeExtractor(), factory, FakeMonitor(), NoHasher,
-        DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 8.0, false), { true }, { true }, { _, _ -> }, System::currentTimeMillis,
+        DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 8.0, false), { true }, { true }, { _, _ -> }, System::currentTimeMillis, { 0L },
     )
 
     private fun test(body: suspend () -> Unit) = runBlocking { withTimeout(20.seconds) { body() } }

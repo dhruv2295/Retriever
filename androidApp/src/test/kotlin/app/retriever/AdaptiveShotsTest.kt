@@ -37,13 +37,6 @@ abstract class AdaptiveShotsTest(private val size: String) {
         counts = counts,
         searchable = 3_100,
         waiting = 2_230,
-        recentFiles = listOf(
-            file("IMG_2041.jpg", Kind.PHOTO),
-            file("Electricity bill March.pdf", Kind.PDF),
-            file("Screenshot_wifi.png", Kind.SCREENSHOT),
-            file("Meeting notes.docx", Kind.DOC),
-            file("Voice memo 12.m4a", Kind.AUDIO),
-        ),
     )
 
     private val photoHits = (1..12).map { i ->
@@ -98,7 +91,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
     }
 
     @Test fun statusReading() = shot("adaptive_status_reading_$size") {
-        StatusContent(reading, prefs, running, TuneState.Idle, skippedFiles, skippedOpen = false, batteryHint = true)
+        StatusContent(reading, prefs, running, skippedFiles, skippedOpen = false, batteryHint = true)
     }
 }
 

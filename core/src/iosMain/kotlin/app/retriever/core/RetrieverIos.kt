@@ -14,6 +14,9 @@ import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSNumber
+import platform.Foundation.NSTimeZone
+import platform.Foundation.localTimeZone
+import platform.Foundation.secondsFromGMT
 import platform.Foundation.dataWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
 import kotlin.time.Duration.Companion.seconds
@@ -48,6 +51,7 @@ fun createRetriever(
         platformReady = platformReady,
         log = logged,
         now = { (NSDate().timeIntervalSince1970 * 1000).toLong() },
+        zoneOffsetMs = { NSTimeZone.localTimeZone.secondsFromGMT * 1000L },
     )
 }
 
@@ -72,8 +76,8 @@ suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seco
 suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, deepen = false, waitForLock = true)
 
 @Throws(Throwable::class)
-suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?, limit: Int): SearchEngine.SearchResult =
-    searchImage(jpeg.toByteArray(), kinds, limit)
+suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?, limit: Int, onlyStarred: Boolean): SearchEngine.SearchResult =
+    searchImage(jpeg.toByteArray(), kinds, limit, onlyStarred)
 
 /** Calibration samples from Swift; iOS ships no audio model. */
 fun samples(images: List<NSData>, texts: List<String>): Samples = Samples(images.map { it.toByteArray() }, texts, emptyList())
@@ -84,14 +88,17 @@ data class RetrieverSnapshot(
     val requiredBuild: ModelBuild,
     val counts: Store.Counts,
     val state: IndexState,
+    val starred: Set<String>,
+    val modelMissing: Boolean,
 )
 
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     scope.launch {
-        combine(setUp, prefs, requiredBuild, counts(), state) { s, p, b, c, i -> RetrieverSnapshot(s, p, b, c, i) }
-            .collect { cb(it) }
+        combine(setUp, prefs, requiredBuild, counts(), combine(state, starred, modelMissing, ::Triple)) { s, p, b, c, (i, st, m) ->
+            RetrieverSnapshot(s, p, b, c, i, st, m)
+        }.collect { cb(it) }
     }
     return object : AutoCloseable {
         override fun close() = scope.cancel()

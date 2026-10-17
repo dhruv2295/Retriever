@@ -32,7 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -62,6 +61,19 @@ data class IndexState(
     val detail: String? = null,
 )
 
+/** Home's facts besides the counts: the newest documents and screenshots, folders, large files, files read by name only. */
+data class HomeFacts(
+    val newDocs: List<SourceFile>,
+    val newShots: List<SourceFile>,
+    val folders: Long,
+    val largeCount: Long,
+    val largeBytes: Long,
+    val nameOnly: Long,
+)
+
+/** What a phone with too little memory for the model reads inside: the words in screenshots, PDFs and documents. */
+val textOnlyKinds: Set<Kind> = setOf(Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
+
 /** When the platform should run the next [Retriever.indexBatch]: in 10 s, in 15 min, on power, when idle, or not until something changes. */
 enum class NextRun { SOON, AFTER_COOLDOWN, WHEN_CHARGING, WHEN_IDLE, DONE }
 
@@ -78,6 +90,8 @@ class Retriever(
     private val platformReady: () -> Boolean,
     private val log: (String, Throwable?) -> Unit,
     private val now: () -> Long,
+    /** The local zone's offset from UTC now, so "yesterday" means the person's yesterday. No default: a platform must pass it. */
+    private val zoneOffsetMs: () -> Long,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -102,6 +116,19 @@ class Retriever(
 
     private val _prefs = MutableStateFlow(Prefs())
     val prefs: StateFlow<Prefs> = _prefs.asStateFlow()
+
+    private val _modelMissing = MutableStateFlow(false)
+
+    /** Set up, but the model file is gone (freed, or a fallback build not downloaded yet): names and words search only. */
+    val modelMissing: StateFlow<Boolean> = _modelMissing.asStateFlow()
+
+    private val _starred = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Starred URIs, so a row's star is one lookup. */
+    val starred: StateFlow<Set<String>> = _starred.asStateFlow()
+
+    @Volatile
+    private var lastNameOnly = 0L
 
     /** A visible app indexes now, on battery too; the user is watching it happen. */
     @Volatile
@@ -137,13 +164,21 @@ class Retriever(
     }
 
     @Throws(Throwable::class)
-    suspend fun refreshSetUp() = withContext(Dispatchers.Default) { reload() }
+    suspend fun refreshSetUp() = withContext(Dispatchers.Default) {
+        reload()
+        _starred.value = store.starredUris()
+    }
 
     private fun reload() {
         _prefs.value = store.prefs()
         _requiredBuild.value = ModelBuilds.buildFor(variant, probe, npuFailed())
-        _setUp.value = platformReady() && (textOnly || (modelReady(_requiredBuild.value) && store.profile() != null))
+        // Tune writes the profile with the model present, so it marks a finished setup; losing the file later keeps it.
+        val tuned = store.profile() != null
+        _modelMissing.value = !textOnly && tuned && !modelReady(_requiredBuild.value)
+        _setUp.value = platformReady() && (textOnly || tuned)
     }
+
+    private fun noModel() = textOnly || _modelMissing.value
 
     fun setUiBusy(busy: Boolean) {
         uiBusy.value = busy
@@ -167,17 +202,22 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
-        withContext(Dispatchers.Default) { _prefs.value = store.updatePrefs(t) }
+        withContext(Dispatchers.Default) {
+            _prefs.value = store.updatePrefs { old ->
+                t(old).also { if (old.rememberSearches && !it.rememberSearches) store.clearRecentQueries() }
+            }
+        }
     }
 
-    /** In text-only mode nothing waits for a vector, so the deepen counts read zero. */
-    fun counts(): Flow<Store.Counts> =
-        if (textOnly) store.counts().map { it.copy(tailChunks = 0, tailFiles = 0) } else store.counts()
+    /** Without the model nothing waits for a vector, so the deepen counts read zero. */
+    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing) { c, missing ->
+        if (textOnly || missing) c.copy(tailChunks = 0, tailFiles = 0) else c
+    }
 
     /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
     @Throws(Throwable::class)
     suspend fun readExtents(fileIds: List<Long>): Map<Long, ReadExtent> = io {
-        store.readExtents(fileIds).let { m -> if (textOnly) m.filterValues { it != ReadExtent.DEEPENING } else m }
+        store.readExtents(fileIds).let { m -> if (noModel()) m.filterValues { it != ReadExtent.DEEPENING } else m }
     }
 
     /**
@@ -218,10 +258,12 @@ class Retriever(
         var used: Embedder? = null
         var build: ModelBuild? = null
         try {
-            sync.sync()
+            // Stars follow their files: hidden while a file is gone, back when it returns.
+            sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
             val e = if (textOnly) {
                 null
             } else {
+                // A missing model file returns here: the sync kept names current, and files wait to be read in full.
                 val (opened, b) = embedder() ?: return NextRun.DONE
                 used = opened
                 build = b
@@ -272,9 +314,10 @@ class Retriever(
     }
 
     /** Text-only mode reads screenshots, PDFs and documents; photos, video and audio stay findable by name. */
-    private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect TEXT_ONLY_KINDS) else it }
+    private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect textOnlyKinds) else it }
 
     private fun onFile(m: FileMetric) {
+        retierFrom(m)
         if (!m.ok) log("Couldn't index ${m.file.kind} ${m.file.name} (${m.file.mime}, ${m.file.size} B): ${m.error}", m.cause)
         val t = now()
         val rate = 60_000.0 / (t - lastFileAt).coerceAtLeast(1)
@@ -310,7 +353,10 @@ class Retriever(
         checkUnfinishedOpens()
         val build = requiredBuild.value
         val stored = store.profile()
-        if (!modelReady(build) || stored == null) return null
+        if (!modelReady(build) || stored == null) {
+            closeLocked() // the file went away under an open model: stop answering by meaning, as a reopen would
+            return null
+        }
         val backend = factory.backendNow(stored)
         val key = EmbedderKey(build, backend, stored.visionTokens, stored.maxTokens)
         embedder?.let { if (embedderKey == key) return it }
@@ -429,14 +475,84 @@ class Retriever(
 
     // --- Search ---
 
+    // Swift sees no default arguments, so its three-argument calls keep this overload.
     @Throws(Throwable::class)
-    suspend fun search(q: String, kinds: Set<Kind>? = null, limit: Int = 20): SearchEngine.SearchResult =
-        searchWith { it.search(q, limit = limit, kinds = kinds) }
+    suspend fun search(q: String, kinds: Set<Kind>?, limit: Int): SearchEngine.SearchResult = search(q, kinds, limit, false)
 
-    /** [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. */
+    /**
+     * [q] is parsed: kind words and dates become filters on top of the UI's [kinds]. [literal] searches the words as typed.
+     * [onlyStarred] keeps starred files only.
+     */
     @Throws(Throwable::class)
-    suspend fun searchImage(jpeg: ByteArray, kinds: Set<Kind>? = null, limit: Int = 20): SearchEngine.SearchResult =
-        searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds) }
+    suspend fun search(
+        q: String,
+        kinds: Set<Kind>? = null,
+        limit: Int = 20,
+        onlyStarred: Boolean = false,
+        literal: Boolean = false,
+    ): SearchEngine.SearchResult = searchWith { s -> parsedSearch(q, kinds, limit, onlyStarred, literal, relax = true) { s.search(it) } }
+
+    /**
+     * Phase one, as the user types: names only, from memory once [warmSearch] built the name index; no model. Never
+     * relaxed: names alone finding nothing under a filter says nothing about what the full search will find.
+     */
+    @Throws(Throwable::class)
+    suspend fun searchNames(
+        q: String,
+        kinds: Set<Kind>? = null,
+        limit: Int = 20,
+        onlyStarred: Boolean = false,
+        literal: Boolean = false,
+    ): SearchEngine.SearchResult = io { parsedSearch(q, kinds, limit, onlyStarred, literal, relax = false) { newEngine(NoModel).names(it) } }
+
+    /**
+     * Searches with the filters [q] was understood to ask for. When they leave nothing and [relax], searches once more
+     * without them, keeping the UI's kinds and the starred scope, and marks the result relaxed.
+     */
+    private suspend fun parsedSearch(
+        q: String,
+        uiKinds: Set<Kind>?,
+        limit: Int,
+        onlyStarred: Boolean,
+        literal: Boolean,
+        relax: Boolean,
+        run: suspend (SearchRequest) -> SearchEngine.SearchResult,
+    ): SearchEngine.SearchResult {
+        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs())
+        val ids = starredIds(onlyStarred)
+        // Nothing to search, so nothing by meaning is missing.
+        if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
+        val parsedKinds = p.kinds.ifEmpty { null }
+        val kinds = if (parsedKinds == null) uiKinds else uiKinds?.intersect(parsedKinds) ?: parsedKinds
+        val req = SearchRequest(p.text, kinds, p.from, p.to, ids, limit, onlyStarred = onlyStarred)
+        val filtered = parsedKinds != null || p.from != null
+        val search: suspend (SearchRequest) -> SearchEngine.SearchResult = if (p.text.isBlank()) ::browse else run
+        if (p.text.isBlank() && !filtered) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
+        val first = search(req)
+        if (first.hits.isNotEmpty() || !filtered || !relax) return first.copy(parsed = p)
+        return search(req.copy(kinds = uiKinds, from = null, to = null)).copy(parsed = p, relaxed = true)
+    }
+
+    private fun starredIds(onlyStarred: Boolean): Set<Long>? =
+        if (onlyStarred) store.starredFiles(Int.MAX_VALUE).mapTo(HashSet()) { it.id } else null
+
+    /** A query that was all filters ("screenshots last week"): the newest files that pass them, filtered in SQL. */
+    private fun browse(req: SearchRequest): SearchEngine.SearchResult {
+        val hits = store.captured(req.kinds ?: Kind.entries.toSet(), req.from ?: Long.MIN_VALUE, req.to ?: Long.MAX_VALUE, req.onlyStarred, req.limit)
+            .map { SearchEngine.Hit(it.file, it.id, 0L, "", null, 0.0, false) }
+        // No words were left to match by meaning, so nothing is missing: the screen must not say meaning results are on the way.
+        return SearchEngine.SearchResult(hits, vectorLane = true)
+    }
+
+    private fun newEngine(e: Embedder) = SearchEngine(store, e, nameIndex = { sync.names })
+
+    /** [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. [onlyStarred] keeps starred files only. */
+    @Throws(Throwable::class)
+    suspend fun searchImage(jpeg: ByteArray, kinds: Set<Kind>? = null, limit: Int = 20, onlyStarred: Boolean = false): SearchEngine.SearchResult {
+        val ids = io { starredIds(onlyStarred) }
+        if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true)
+        return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids) }
+    }
 
     private suspend fun <T> searchWith(run: suspend (SearchEngine) -> T): T {
         searching.update { it + 1 }
@@ -448,7 +564,7 @@ class Retriever(
                 } catch (e: EmbedderClosedException) {
                     log("The model closed during a search; keyword results only", e)
                     embedderBroke(used, build, e)
-                    run(SearchEngine(store, NoModel))
+                    run(newEngine(NoModel))
                 }
             }
         } finally {
@@ -459,7 +575,7 @@ class Retriever(
     /** The search engine with the embedder it uses and that embedder's build (both null: keyword-only). */
     private suspend fun engine(): Triple<SearchEngine, Embedder?, ModelBuild?> {
         // The model is opening (seconds) or Tune is measuring: answer from keywords now instead of waiting.
-        if (!embedderLock.tryLock()) return Triple(SearchEngine(store, NoModel), null, null)
+        if (!embedderLock.tryLock()) return Triple(newEngine(NoModel), null, null)
         try {
             val e = try {
                 openLocked()
@@ -469,21 +585,52 @@ class Retriever(
                 log("Couldn't open the model; keyword results only", t)
                 null
             }
-            val s = engine ?: SearchEngine(store, e ?: NoModel).also { engine = it }
+            val s = engine ?: newEngine(e ?: NoModel).also { engine = it }
             return Triple(s, e, e?.let { embedderKey?.build })
         } finally {
             embedderLock.unlock()
         }
     }
 
-    /** Loads the vector table off the search path, e.g. when the app comes to the front. */
+    /**
+     * Readies search off its path, e.g. when the app comes to the front or the search bar takes focus: the name index,
+     * the vector table and, once set up, the model. Searches meanwhile answer from keywords instead of waiting.
+     * The first warm-up after the schema 3 upgrade also refills the keyword tables, last, so names and the model are
+     * ready first; one warm-up refills them however many run at once.
+     */
     @Throws(Throwable::class)
-    suspend fun warmSearch() {
-        io { embedderLock.withLock { engine ?: SearchEngine(store, embedder ?: NoModel).also { engine = it } }.refresh() }
+    suspend fun warmSearch() = io {
+        // Reads only `files`, which the upgrade left whole, so names answer while the keyword tables are still empty.
+        sync.loadNames()
+        val s = embedderLock.withLock { engine ?: newEngine(embedder ?: NoModel).also { engine = it } }
+        coroutineScope {
+            launch { s.refresh() }
+            if (_setUp.value == true && !textOnly) {
+                embedderLock.withLock {
+                    try {
+                        openLocked()
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (t: Exception) {
+                        log("Couldn't open the model ahead of a search", t)
+                    }
+                }
+            }
+        }
+        if (ftsRefill.tryLock()) {
+            try {
+                store.rebuildFtsIfPending()
+            } finally {
+                ftsRefill.unlock()
+            }
+        }
     }
 
+    private val ftsRefill = Mutex()
+
+    /** Does nothing while the person has turned remembering searches off. */
     @Throws(Throwable::class)
-    suspend fun recordQuery(q: String) = io { store.addRecentQuery(q, now()) }
+    suspend fun recordQuery(q: String) = io { if (store.prefs().rememberSearches) store.addRecentQuery(q, now()) }
 
     @Throws(Throwable::class)
     suspend fun recentQueries(): List<String> = io { store.recentQueries() }
@@ -493,6 +640,53 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun clearRecentQueries() = io { store.clearRecentQueries() }
+
+    // --- Starred ---
+
+    /** Starring a file that isn't in the index does nothing. */
+    @Throws(Throwable::class)
+    suspend fun setStarred(uri: String, on: Boolean) = io {
+        store.setStarred(uri, on, now())
+        _starred.value = store.starredUris()
+    }
+
+    /** Starred files still in the index, most recently starred first. */
+    @Throws(Throwable::class)
+    suspend fun starredFiles(limit: Int = 200, offset: Int = 0): List<Store.StoredFile> = io { store.starredFiles(limit, offset) }
+
+    // --- Home ---
+
+    @Throws(Throwable::class)
+    suspend fun home(): HomeFacts = io {
+        val (largeCount, largeBytes) = store.largeFiles(LARGE_FILE)
+        // Reads every file's chunks, and only the caught-up line shows it: counted once nothing waits, else the last count.
+        if ((store.countsByState()[FileState.PENDING] ?: 0L) == 0L) lastNameOnly = store.nameOnlyCount()
+        HomeFacts(
+            newDocs = store.newestFiles(setOf(Kind.PDF, Kind.DOC), 3).map { it.file },
+            newShots = store.files(Kind.SCREENSHOT, limit = 10).map { it.file },
+            folders = store.folderCount(),
+            largeCount = largeCount,
+            largeBytes = largeBytes,
+            nameOnly = lastNameOnly,
+        )
+    }
+
+    /**
+     * Up to three "Try searching" examples, each shown once a kind it would find is read in full (some files, none
+     * waiting) and read inside at all ([readInside]). The photo one needs the model, as photos are found by what they show.
+     */
+    fun suggestions(byKindState: Map<Pair<Kind, FileState>, Long>): List<String> {
+        val inside = readInside()
+        fun ready(k: Kind) = k in inside && (k != Kind.PHOTO || !noModel()) && (byKindState[k to FileState.PENDING] ?: 0L) == 0L &&
+            byKindState.any { (key, n) -> key.first == k && n > 0 }
+        return EXAMPLES.filter { (_, kinds) -> kinds.any(::ready) }.take(3).map { it.first }
+    }
+
+    /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
+    fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds
+
+    /** The kinds this phone can read inside, and so the switches Settings shows. */
+    val readableKinds: Set<Kind> get() = if (textOnly) textOnlyKinds else Kind.entries.toSet() - Kind.OTHER
 
     // --- Browse ---
 
@@ -556,14 +750,42 @@ class Retriever(
             throw e
         }
         val profile = if (tuneAgain && stored != null) result.profile.copy(visionTokens = stored.visionTokens) else result.profile
+        applyProfile(stored, profile)
+        return result.copy(profile = profile)
+    }
+
+    /** Stores [profile]; settings still at [stored]'s defaults take its defaults, and files read under the old ones are read again. */
+    private fun applyProfile(stored: DeviceProfile?, profile: DeviceProfile) {
         store.setProfile(profile)
         if (!store.hasPrefs()) {
             store.updatePrefs { Prefs.defaultFor(profile) }
         } else if (stored != null && stored.tier != profile.tier) {
-            store.updatePrefs { it.retuned(stored, profile) }
+            val old = store.prefs()
+            val new = store.updatePrefs { it.retuned(stored, profile) }
+            rereadAfterRetune(old, stored, new, profile).takeIf { it.isNotEmpty() }?.let(store::requeue)
         }
         reload()
-        return result.copy(profile = profile)
+    }
+
+    private val photoMs = ArrayDeque<Double>()
+
+    /**
+     * Calibration times one moment, and whatever else runs then (an install, a sync) only ever slows the model down.
+     * So when photos read while indexing are fast enough for a higher tier, the phone moves up. Never down: Tune again
+     * does that. Vision tokens stay, or every vector would be stale.
+     */
+    private fun retierFrom(m: FileMetric) {
+        if (textOnly || !m.ok || m.file.kind != Kind.PHOTO || m.pieces != 1 || m.embedMs <= 0) return
+        photoMs.addLast(m.embedMs)
+        if (photoMs.size > RETIER_WINDOW) photoMs.removeFirst()
+        if (photoMs.size < RETIER_WINDOW) return
+        val stored = store.profile() ?: return
+        val ms = photoMs.sorted()[RETIER_WINDOW / 2]
+        val seen = Tiers.profileFor(ms, probe.ramGb, stored.backend, stored.model, stored.maxTokens)
+        if (seen.tier >= stored.tier) return
+        log("Photos read in ${ms.toInt()} ms each, faster than tuning measured: ${stored.tier} to ${seen.tier}", null)
+        photoMs.clear()
+        applyProfile(stored, seen.copy(visionTokens = stored.visionTokens))
     }
 
     /** Stands in when no model can open, so search still answers from keywords (its signature never matches). */
@@ -580,7 +802,18 @@ class Retriever(
         const val NPU_FAILED = "npu_failed"
         const val UNFINISHED_OPENS = "unfinished_opens"
         const val GPU_UNSAFE = "gpu_unsafe"
-        val TEXT_ONLY_KINDS = setOf(Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
+        const val LARGE_FILE = 100L * 1024 * 1024
+
+        /** Photos whose median read time can move the tier up; an odd quick one alone can't. */
+        const val RETIER_WINDOW = 5
+
+        val EXAMPLES = listOf(
+            "wifi password" to setOf(Kind.SCREENSHOT),
+            "boarding pass" to setOf(Kind.PDF, Kind.SCREENSHOT),
+            "electricity bill" to setOf(Kind.PDF),
+            "notes from the meeting" to setOf(Kind.DOC),
+            "dog on the beach" to setOf(Kind.PHOTO),
+        )
 
         fun nextRunFor(reason: StopReason, changedSinceSync: Boolean): NextRun = when (reason) {
             StopReason.BUDGET -> NextRun.SOON
