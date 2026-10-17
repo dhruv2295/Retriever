@@ -26,6 +26,7 @@ import android.os.PowerManager
 import app.retriever.core.DeviceMonitor
 import app.retriever.core.DeviceProbe
 import app.retriever.core.DeviceState
+import app.retriever.core.ModelBuilds
 import app.retriever.core.Platform
 import app.retriever.core.Thermal
 import app.retriever.core.nominalRamGb
@@ -65,8 +66,8 @@ class AndroidDeviceMonitor(context: Context) : DeviceMonitor {
 class AndroidDeviceProbe(private val context: Context) {
     fun probe(): DeviceProbe {
         val sdk = Build.VERSION.SDK_INT
-        val manufacturer = if (sdk >= 31) Build.SOC_MANUFACTURER else ""
-        val socModel = if (sdk >= 31) Build.SOC_MODEL else ""
+        val manufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MANUFACTURER else ""
+        val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else ""
         return DeviceProbe(
             platform = Platform.ANDROID,
             sdkInt = sdk,
@@ -74,20 +75,11 @@ class AndroidDeviceProbe(private val context: Context) {
             socModel = tensorName(socModel) ?: socModel,
             ramGb = nominalRamGb(memoryBytes(context)),
             oldMaliGpu = isOldMaliGpu(socModel),
-            npuDispatch = npuDispatch(manufacturer),
+            // ponytail: file presence, not a dlopen; a wrong yes costs one download and K2's fallback recovers
+            npuDispatch = ModelBuilds.npuRuntimeReady(manufacturer) {
+                File(context.applicationInfo.nativeLibraryDir, it).exists()
+            },
         )
-    }
-
-    // ponytail: file presence, not a dlopen; a wrong yes costs one download and K2's fallback recovers
-    private fun npuDispatch(manufacturer: String): Boolean {
-        val m = manufacturer.lowercase(Locale.ROOT)
-        val vendor = when {
-            "google" in m -> "GoogleTensor"
-            "mediatek" in m -> "MediaTek"
-            "qti" in m || "qualcomm" in m -> "Qualcomm"
-            else -> return false
-        }
-        return File(context.applicationInfo.nativeLibraryDir, "libLiteRtDispatch_$vendor.so").exists()
     }
 
     private fun tensorName(socModel: String): String? {

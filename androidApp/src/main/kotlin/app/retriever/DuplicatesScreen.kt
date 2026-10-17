@@ -15,7 +15,7 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -193,7 +193,7 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
             when {
                 s.scanning -> Column(
                     Modifier.fillMaxWidth().padding(24.dp),
@@ -222,8 +222,8 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                 }
 
                 else -> LazyColumn(
-                    contentPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding())),
-                    modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize(),
+                    contentPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding()), side = gutter()),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     item {
                         Text(

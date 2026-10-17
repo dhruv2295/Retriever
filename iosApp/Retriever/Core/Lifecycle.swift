@@ -1,15 +1,21 @@
+import Photos
 import RetrieverCore
 import UIKit
 
-/// Feeds foreground and battery state to the Kotlin monitor and facade. Create on the main thread.
-final class Lifecycle {
+/// Feeds foreground, battery and photo-library changes to the Kotlin monitor and facade. Create on the main thread.
+final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
     private let monitor: IosDeviceMonitor
     private let retriever: Retriever
     private var tokens: [NSObjectProtocol] = []
+    private var observingPhotos = false
+
+    /// Called on the main thread after the photo library changes, so the reading loop can wake.
+    var onLibraryChange: (() -> Void)?
 
     init(monitor: IosDeviceMonitor, retriever: Retriever) {
         self.monitor = monitor
         self.retriever = retriever
+        super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
         let center = NotificationCenter.default
         let observe: (Notification.Name, @escaping () -> Void) -> Void = { name, action in
@@ -22,10 +28,26 @@ final class Lifecycle {
         observe(UIDevice.batteryLevelDidChangeNotification) { [weak self] in self?.readBattery() }
         setActive(UIApplication.shared.applicationState == .active)
         readBattery()
+        observePhotos()
     }
 
     deinit {
         tokens.forEach(NotificationCenter.default.removeObserver)
+        if observingPhotos { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
+    }
+
+    /// Registers once access is granted; before that, touching the library could ask for access.
+    func observePhotos() {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard !observingPhotos, status == .authorized || status == .limited else { return }
+        observingPhotos = true
+        PHPhotoLibrary.shared().register(self)
+    }
+
+    /// Off the main thread. The running batch syncs again when it ends; an idle loop wakes.
+    func photoLibraryDidChange(_ changeInstance: PHChange) {
+        retriever.notifyChanged()
+        DispatchQueue.main.async { self.onLibraryChange?() }
     }
 
     private func setActive(_ active: Bool) {

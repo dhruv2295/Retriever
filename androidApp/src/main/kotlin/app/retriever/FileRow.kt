@@ -25,6 +25,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -44,11 +45,11 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Screenshot
 import androidx.compose.material.icons.outlined.VideoFile
@@ -275,7 +276,7 @@ fun kindIcon(kind: Kind): ImageVector = when (kind) {
     Kind.DOC -> Icons.Outlined.Description
     Kind.AUDIO -> Icons.Outlined.AudioFile
     Kind.VIDEO -> Icons.Outlined.VideoFile
-    Kind.OTHER -> Icons.Outlined.InsertDriveFile
+    Kind.OTHER -> Icons.AutoMirrored.Outlined.InsertDriveFile
 }
 
 @Composable
@@ -302,15 +303,24 @@ fun EmptyState(
     }
 }
 
-/** A list's contentPadding: the Scaffold's, with the bottom cleared of the navigation bar and keyboard. Never pad the list itself, or it clips instead of scrolling under the bars. */
+/**
+ * A list's contentPadding: the Scaffold's, with the bottom cleared of the navigation bar and keyboard, and [side] added
+ * at both sides (see [gutter]). Never pad the list itself, or it clips instead of scrolling under the bars.
+ */
 @Composable
-fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp): PaddingValues {
+fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, side: Dp = 0.dp): PaddingValues {
     val direction = LocalLayoutDirection.current
     val bars = WindowInsets.navigationBars.union(WindowInsets.ime).asPaddingValues().calculateBottomPadding()
     return PaddingValues(
-        start = scaffold.calculateStartPadding(direction),
+        start = scaffold.calculateStartPadding(direction) + side,
         top = scaffold.calculateTopPadding(),
-        end = scaffold.calculateEndPadding(direction),
+        end = scaffold.calculateEndPadding(direction) + side,
         bottom = maxOf(scaffold.calculateBottomPadding(), bars) + extraBottom,
     )
 }
+
+/**
+ * Side padding that centres a full-width list's content in a column at most [max] wide. Capping the list's own width
+ * instead would leave the gutters dead to drags and wheel scrolls.
+ */
+fun BoxWithConstraintsScope.gutter(max: Dp = 840.dp): Dp = ((maxWidth - max) / 2).coerceAtLeast(0.dp)

@@ -34,6 +34,9 @@ interface EmbedderFactory {
     /** An NPU build lists only [Backend.NPU]: it is compiled for one chip and can't run elsewhere. */
     fun backends(build: ModelBuild): List<Backend>
 
+    /** The backend to open [profile] on right now; iOS answers CPU for a GPU profile while the app is in the background. */
+    fun backendNow(profile: DeviceProfile): Backend = profile.backend
+
     /** [build].variant must equal [profile].model. Throws when the model can't load; Swift implements it as `throws`. */
     @Throws(Throwable::class)
     fun open(profile: DeviceProfile, build: ModelBuild): Embedder

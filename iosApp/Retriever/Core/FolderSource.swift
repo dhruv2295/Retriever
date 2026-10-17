@@ -12,6 +12,7 @@ final class FolderSource: NSObject, NativeFileSource {
 
     static let documentsId = "documents"
     private static let bookmarksKey = "folderBookmarks"
+    private static let removedKey = "removedFolders"
     private static let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .contentTypeKey, .ubiquitousItemDownloadingStatusKey]
 
     private let documents: URL
@@ -37,10 +38,20 @@ final class FolderSource: NSObject, NativeFileSource {
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    /// Picked folders whose bookmark no longer resolves; the person needs to pick them again.
-    var staleIds: Set<String> {
+    /// Picked folders whose bookmark no longer resolves; the person needs to remove them and pick them again.
+    var unreachable: [Folder] {
         _ = folders
-        return lock.withLock { stale }
+        let saved = bookmarks
+        return lock.withLock { stale }.compactMap { id in
+            saved[id].map { Folder(id: id, name: URL.resourceValues(forKeys: [.nameKey], fromBookmarkData: $0)?.name ?? "A folder") }
+        }
+    }
+
+    /// Removed folders, kept in scan scope so their files are forgotten even while another folder can't be reached.
+    // ponytail: never pruned; one short id per removed folder.
+    private var removed: [String] {
+        get { defaults.stringArray(forKey: Self.removedKey) ?? [] }
+        set { defaults.set(newValue, forKey: Self.removedKey) }
     }
 
     enum AddResult: Equatable {
@@ -74,6 +85,7 @@ final class FolderSource: NSObject, NativeFileSource {
 
     func removeFolder(_ id: String) {
         bookmarks[id] = nil
+        removed.append(id)
         lock.withLock {
             if let url = resolved.removeValue(forKey: id) { url.stopAccessingSecurityScopedResource() }
             stale.remove(id)
@@ -92,7 +104,7 @@ final class FolderSource: NSObject, NativeFileSource {
 
     /// A full scan of every folder that can be reached now. Only those are in scope, so a folder whose bookmark
     /// fails or whose provider is offline keeps its index; iCloud placeholders are reported as present, not read.
-    func changes(since: String?) -> Changes {
+    func changes(since: String?, known: KnownFiles) -> Changes {
         var files: [SourceFile] = []
         var placeholders = Set<String>()
         var scanned: [String] = []
@@ -103,8 +115,8 @@ final class FolderSource: NSObject, NativeFileSource {
             placeholders.formUnion(evicted)
             scanned.append(folder.id)
         }
-        // All reachable: the whole prefix is in scope, which also forgets the files of removed folders.
-        let scope: Set<String> = scanned.count == bookmarks.count + 1 ? ["folder://"] : Set(scanned.map { "folder://\($0)/" })
+        // All reachable: the whole prefix is in scope. Otherwise the reachable folders and the removed ones.
+        let scope: Set<String> = scanned.count == bookmarks.count + 1 ? ["folder://"] : Set((scanned + removed).map { "folder://\($0)/" })
         // ponytail: always a full scan; fine for user-picked folders, add an mtime index if folders get huge.
         return Changes(upserted: files, removed: [], nextToken: "", isFullScan: true, present: placeholders, scope: scope)
     }

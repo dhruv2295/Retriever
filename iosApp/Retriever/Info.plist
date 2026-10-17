@@ -8,6 +8,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Retriever reads your photos on this iPhone to make them searchable. Nothing leaves the device.</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>processing</string>

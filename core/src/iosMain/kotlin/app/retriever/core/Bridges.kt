@@ -61,17 +61,22 @@ interface NativeExtractor {
 
     fun zipEntryText(uri: String, name: String, maxBytes: Int): String?
 
-    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable and for ph:// URIs. */
+    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable. ph:// URIs read their exported current version. */
     fun readBytes(uri: String, offset: Long, length: Int): NSData?
+}
+
+/** What the index already holds for a URI, so a source can skip lookups for files that haven't changed. */
+fun interface KnownFiles {
+    fun file(uri: String): SourceFile?
 }
 
 /** Swift builds [Changes] and [SourceFile] itself. */
 interface NativeFileSource {
-    fun changes(since: String?): Changes
+    fun changes(since: String?, known: KnownFiles): Changes
 }
 
-fun NativeFileSource.asFileSource(): FileSource = object : FileSource {
-    override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) { this@asFileSource.changes(since) }
+fun NativeFileSource.asFileSource(known: KnownFiles): FileSource = object : FileSource {
+    override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) { this@asFileSource.changes(since, known) }
 }
 
 internal fun ByteArray.toNSData(): NSData =

@@ -6,7 +6,11 @@ import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 
 /** [embedder] is swapped when the model reopens, so the loaded vector table outlives any one embedder. */
-class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
+class SearchEngine(
+    private val store: Store,
+    @Volatile var embedder: Embedder,
+    private val tuning: SearchTuning = SearchTuning(),
+) {
     enum class Mode { VECTOR, KEYWORD, MERGED }
 
     data class Hit(
@@ -69,7 +73,11 @@ class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
         if (q.isEmpty()) return SearchResult(emptyList(), false)
         val vectorLane = if (mode == Mode.KEYWORD) null else vectorLane(listOf(Part.Text(Prefix.query(q))), kinds)
         val lanes = mutableListOf<List<Candidate>>()
-        if (vectorLane != null) lanes += vectorLane
+        val weights = mutableListOf<Double>()
+        if (vectorLane != null) {
+            lanes += vectorLane
+            weights += 1.0
+        }
         if (mode != Mode.VECTOR) {
             val keyword = store.keywordSearch(q, CANDIDATES, kinds)
             val rows = store.chunks(keyword.map { it.chunkId })
@@ -77,14 +85,15 @@ class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
                 rows[k.chunkId]?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) }
             }
             lanes += store.fileKeywordSearch(q, CANDIDATES, kinds).map { Candidate(it, 0L, "", null) }
+            weights += listOf(tuning.keywordWeight, tuning.keywordWeight)
         }
-        return SearchResult(toHits(lanes, limit, kinds), vectorLane != null)
+        return SearchResult(toHits(lanes, weights, limit, kinds), vectorLane != null)
     }
 
     /** Search by example: the photo is the query, passed raw (no task prefix), vector lane only. */
     suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null): SearchResult {
         val lane = vectorLane(listOf(Part.Image(jpeg)), kinds) ?: return SearchResult(emptyList(), false)
-        return SearchResult(toHits(listOf(lane), limit, kinds), true)
+        return SearchResult(toHits(listOf(lane), listOf(1.0), limit, kinds), true)
     }
 
     /**
@@ -165,7 +174,7 @@ class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
      * Fuses the lanes per file with reciprocal rank fusion. A file shows its best-ranked chunk; a name-only
      * match shows no chunk and opens the file at the start.
      */
-    private fun toHits(lanes: List<List<Candidate>>, limit: Int, kinds: Set<Kind>?): List<Hit> {
+    private fun toHits(lanes: List<List<Candidate>>, weights: List<Double>, limit: Int, kinds: Set<Kind>?): List<Hit> {
         val best = HashMap<Long, Pair<Int, Candidate>>()
         val perLane = lanes.map { lane ->
             val seen = LinkedHashSet<Long>()
@@ -177,7 +186,7 @@ class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
             }
             seen.toList()
         }
-        val ranked = if (lanes.size == 1) perLane[0].mapIndexed { i, id -> id to 1.0 / (i + 1) } else rrfMerge(perLane)
+        val ranked = if (lanes.size == 1) perLane[0].mapIndexed { i, id -> id to 1.0 / (i + 1) } else rrfMerge(perLane, tuning.rrfK, weights)
         val hits = ArrayList<Hit>()
         for ((fileId, score) in ranked) {
             if (hits.size >= limit) break
@@ -189,7 +198,8 @@ class SearchEngine(private val store: Store, @Volatile var embedder: Embedder) {
         return hits
     }
 
-    private companion object {
+    internal companion object {
+        /** Rows each lane hands to fusion; RetrievalEval cuts its lanes the same way. */
         const val CANDIDATES = 100
     }
 }

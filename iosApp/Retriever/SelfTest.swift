@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import Photos
 import RetrieverCore
 import UIKit
 import ZIPFoundation
@@ -70,7 +71,7 @@ enum SelfTest {
         let pdfName = "Invoice-48213.pdf", docxName = "Lighthouse-notes.docx"
         try makePdf(docs.appendingPathComponent(pdfName), "Invoice 48213. Total due 1250 rupees for garden supplies, payable within thirty days.")
         try makeDocx(docs.appendingPathComponent(docxName), "Meeting notes on the lighthouse renovation budget and the new paint schedule.")
-        let folderFiles = s.folders.changes(since: nil).upserted
+        let folderFiles = s.folders.changes(since: nil, known: KnownMap([:])).upserted
         let pdf = folderFiles.first { $0.name == pdfName }
         let docx = folderFiles.first { $0.name == docxName }
         check("(c) folder scan", pdf?.kind == Kind.pdf && docx?.kind == Kind.doc,
@@ -82,9 +83,14 @@ enum SelfTest {
 
         // (d) Photos.
         let wanted = max(1, UserDefaults.standard.integer(forKey: "selftestPhotos"))
-        let photos = s.photos.changes(since: nil)
+        let photos = s.photos.changes(since: nil, known: KnownMap([:]))
         check("(d) Photos scan", photos.upserted.count >= wanted,
-              "status \(s.photos.status.rawValue), \(photos.upserted.count) assets (expected >= \(wanted)), token \(photos.nextToken.isEmpty ? "none" : "\(photos.nextToken.count) chars"), first \(photos.upserted.first.map { "\($0.name) [\($0.kind.name)] \($0.folder) \($0.size) B" } ?? "-")")
+              "status \(s.photos.status.rawValue), \(photos.upserted.count) assets (expected >= \(wanted)), token \(photos.nextToken.isEmpty ? "none" : "\(photos.nextToken.count) chars")")
+        say("first scan: looked up \(s.photos.lastLookups) of \(s.photos.lastAssets) assets")
+        for f in photos.upserted { say("  photo \(f.name) \(f.size) B \(f.mime) [\(f.kind.name)]") }
+        let synthetic = photos.upserted.filter { $0.size <= 0 || $0.name.range(of: #"^(Photo|Screenshot|Video) \d{4}-"#, options: .regularExpression) != nil }
+        check("(d) real names and sizes", synthetic.isEmpty && s.photos.lastLookups == s.photos.lastAssets,
+              "\(photos.upserted.count - synthetic.count) of \(photos.upserted.count) photos have an original name and size > 0")
 
         // (e) Calibrate, index, search through the facade.
         let images = photos.upserted.prefix(2).compactMap { s.extractor.imageJpeg(uri: $0.uri, maxSide: 512) } + [dogJpeg]
@@ -102,8 +108,81 @@ enum SelfTest {
                   "\(pieces.count) pieces, locators \(pieces.map(\.locator)), text \"\(head(text))\"")
         }
 
+        // The made-up invoice would outrank the seeded one for "invoice total", so it leaves before indexing.
+        for name in [pdfName, docxName] { try? FileManager.default.removeItem(at: docs.appendingPathComponent(name)) }
+
         s.monitor.active = true
         s.retriever.uiVisible = true
+        let next = try await indexAll(s)
+        let snap = await snapshot(s.retriever)
+        let byKind = snap.counts.byKind.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
+        let byState = snap.counts.byState.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
+        check("(e) indexed", next == .done, "next \(next.name); by kind \(byKind); by state \(byState)")
+
+        // (f) A second full scan finds every photo already known: no resource lookups.
+        let known = KnownMap(try await storedFiles(s.retriever))
+        _ = s.photos.changes(since: nil, known: known)
+        say("second scan: looked up \(s.photos.lastLookups) of \(s.photos.lastAssets) assets")
+        check("(f) second scan", s.photos.lastLookups == 0 && s.photos.lastAssets >= wanted, "\(s.photos.lastLookups) lookups for \(s.photos.lastAssets) assets")
+
+        // (g) Ranking: the right file first, not just somewhere in the list.
+        let labelled: [(query: String, file: String, locator: String?)] = [
+            ("dog playing on grass", "IMG_1001", nil),
+            ("sunset by the sea", "IMG_1003", nil),
+            ("solar panels cut our power bill", "Document_03.pdf", "p. 3"),
+            ("invoice total", "Document_01.pdf", nil),
+            ("IMG_1007", "IMG_1007", nil),
+        ]
+        for l in labelled {
+            let r = try await s.retriever.search(q: l.query, kinds: nil, limit: 20)
+            let rank = r.hits.firstIndex { rightFile($0, l.file) && (l.locator == nil || $0.locator == l.locator) }
+            let first = r.hits.first
+            check("(g) rank \"\(l.query)\"", rank == 0,
+                  "want \(l.file)\(l.locator.map { " at \($0)" } ?? ""): hits[0] \(first?.file.name ?? "-") \(first?.locator ?? "") rank \(rank.map { "\($0 + 1)" } ?? "none") score \(rank.map { fmt3(r.hits[$0].score) } ?? "-") vector=\(r.vectorLane)")
+        }
+
+        // (h) Largest first, with real sizes.
+        let largest = try await s.retriever.files(kind: nil, folder: nil, sort: .largest, limit: 100, offset: 0)
+        let sizes = largest.map(\.file.size)
+        let shots = largest.filter { $0.file.kind == .photo }
+        say("largest: " + largest.prefix(4).map { "\($0.file.name) \($0.file.size)" }.joined(separator: "; "))
+        check("(h) largest first", sizes == sizes.sorted(by: >) && shots.count >= 6 && shots.allSatisfy { $0.file.size > 0 },
+              "\(largest.count) files descending, \(shots.count) photos with sizes > 0")
+
+        // (i) The same photo twice is one group.
+        let groups = try await s.retriever.duplicates(minSize: 64 * 1024)
+        say("duplicates: " + groups.map { "[\($0.files.map(\.name).joined(separator: ", ")) @ \($0.size) B]" }.joined(separator: " "))
+        check("(i) duplicates", groups.count == 1 && groups[0].files.count == 2 && groups[0].files.allSatisfy { rightFile($0, "IMG_1001") },
+              "\(groups.count) group(s)")
+
+        // (j) An edit puts one photo back in the queue and nothing else.
+        guard let target = largest.first(where: { rightFile($0.file, "IMG_1006") }) else {
+            return check("(j) edit", false, "IMG_1006 is not indexed")
+        }
+        let before = try await state(of: target.file.uri, s.retriever)
+        try await edit(localId: String(target.file.uri.dropFirst("ph://".count)))
+        try await s.retriever.pause()
+        _ = try await s.retriever.indexBatchSeconds(seconds: 60) // syncs, indexes nothing
+        let editLookups = s.photos.lastLookups
+        let afterEdit = try await state(of: target.file.uri, s.retriever)
+        let others = try await storedFiles(s.retriever).values.filter { $0.kind == .photo && $0.uri != target.file.uri }
+        var untouched = 0
+        for f in others {
+            if try await state(of: f.uri, s.retriever) == .indexed { untouched += 1 }
+        }
+        say("edit: \(target.file.name) \(before.name) -> \(afterEdit.name), \(editLookups) lookup(s), \(untouched) of \(others.count) other photos still indexed")
+        check("(j) edit detected", before == .indexed && afterEdit == .pending && editLookups == 1 && untouched == others.count,
+              "\(target.file.name) \(before.name) -> \(afterEdit.name); others untouched \(untouched)/\(others.count)")
+        try await s.retriever.resume()
+        _ = try await indexAll(s)
+        let reindexed = (s.retriever.state.value as? IndexState)?.processed ?? -1
+        let finalState = try await state(of: target.file.uri, s.retriever)
+        check("(j) edit re-indexed", finalState == .indexed && reindexed == 1, "\(target.file.name) \(finalState.name), last batch indexed \(reindexed) file(s)")
+    }
+
+    // MARK: Steps
+
+    private static func indexAll(_ s: AppServices) async throws -> NextRun {
         var next = NextRun.soon
         for round in 1...5 where next != .done {
             next = try await s.retriever.indexBatchSeconds(seconds: 180)
@@ -111,17 +190,43 @@ enum SelfTest {
             say("batch \(round): next \(next.name), processed \(st?.processed ?? -1), failed \(st?.failed ?? -1), backend \(st?.backend?.name ?? "-"), stop \(st?.lastStop?.name ?? "-") \(st?.lastError ?? "")")
             if next == .whenCharging || next == .whenIdle { break }
         }
-        let snap = await snapshot(s.retriever)
-        let byKind = snap.counts.byKind.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
-        let byState = snap.counts.byState.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
-        check("(e) indexed", next == .done, "next \(next.name); by kind \(byKind); by state \(byState)")
+        return next
+    }
 
-        let invoice = try await s.retriever.search(q: "invoice 48213", kinds: nil, limit: 20)
-        say("search \"invoice 48213\" vector=\(invoice.vectorLane): " + top(invoice))
-        check("(e) search invoice", invoice.hits.contains { $0.file.name == pdfName && $0.locator == "p. 1" }, "pdf at p. 1 among \(invoice.hits.count) hits")
-        let dog = try await s.retriever.search(q: "a dog", kinds: nil, limit: 20)
-        say("search \"a dog\" vector=\(dog.vectorLane): " + top(dog))
-        check("(e) search dog", dog.vectorLane && dog.hits.contains { $0.file.kind == .photo || $0.file.kind == .screenshot }, "\(dog.hits.count) hits")
+    private static func storedFiles(_ retriever: Retriever) async throws -> [String: SourceFile] {
+        let all = try await retriever.files(kind: nil, folder: nil, sort: .newest, limit: 100_000, offset: 0)
+        return Dictionary(all.map { ($0.file.uri, $0.file) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private static func state(of uri: String, _ retriever: Retriever) async throws -> FileState {
+        let all = try await retriever.files(kind: nil, folder: nil, sort: .newest, limit: 100_000, offset: 0)
+        return all.first { $0.file.uri == uri }?.state ?? .skipped
+    }
+
+    private static func rightFile(_ hit: SearchEngine.Hit, _ name: String) -> Bool { rightFile(hit.file, name) }
+
+    /// "IMG_1001" matches IMG_1001.jpg and IMG_1001.JPG; a full file name must match exactly.
+    private static func rightFile(_ file: SourceFile, _ name: String) -> Bool {
+        name.contains(".") ? file.name == name : file.name.uppercased().hasPrefix(name)
+    }
+
+    private enum EditError: Error { case noInput }
+
+    /// A real adjustment through PhotoKit, the way an editing extension makes one: the photo gets a new rendition.
+    private static func edit(localId: String) async throws {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localId], options: nil).firstObject else { throw EditError.noInput }
+        let input: PHContentEditingInput = try await withCheckedThrowingContinuation { cont in
+            asset.requestContentEditingInput(with: nil) { input, _ in
+                if let input { cont.resume(returning: input) } else { cont.resume(throwing: EditError.noInput) }
+            }
+        }
+        guard let url = input.fullSizeImageURL, let image = UIImage(contentsOfFile: url.path), let jpeg = image.jpegData(compressionQuality: 0.4) else { throw EditError.noInput }
+        let output = PHContentEditingOutput(contentEditingInput: input)
+        output.adjustmentData = PHAdjustmentData(formatIdentifier: "app.retriever.selftest", formatVersion: "1", data: Data("selftest".utf8))
+        try jpeg.write(to: output.renderedContentURL)
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest(for: asset).contentEditingOutput = output
+        }
     }
 
     // MARK: Helpers
@@ -142,6 +247,16 @@ enum SelfTest {
     }
 
     private static func fmt(_ x: Float) -> String { String(format: "%.4f", x) }
+
+    private static func fmt3(_ x: Double) -> String { String(format: "%.3f", x) }
+
+    private final class KnownMap: NSObject, KnownFiles {
+        let files: [String: SourceFile]
+
+        init(_ files: [String: SourceFile]) { self.files = files }
+
+        func file(uri: String) -> SourceFile? { files[uri] }
+    }
 
     private static func head(_ s: String) -> String {
         String(s.replacingOccurrences(of: "\n", with: " ").prefix(80))

@@ -40,6 +40,11 @@ class IosEmbedderFactory(
     override fun backends(build: ModelBuild): List<Backend> =
         if (isSimulator) listOf(Backend.CPU) else listOf(Backend.GPU, Backend.CPU)
 
+    // A background task gets CPU: iOS refuses GPU work from a backgrounded app. The key differs, so the
+    // foreground reopens on the GPU; the signature has no backend in it, so nothing is read again.
+    override fun backendNow(profile: DeviceProfile): Backend =
+        if (profile.backend == Backend.GPU && !isActive()) Backend.CPU else profile.backend
+
     @Throws(Throwable::class)
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }

@@ -1,7 +1,18 @@
 package app.retriever
 
+import android.os.Build
+import android.os.Environment
+import app.cash.sqldelight.driver.android.AndroidSqliteDriver
+import app.retriever.core.Backend
+import app.retriever.core.EvalSetting
 import app.retriever.core.Kind
+import app.retriever.core.RetrievalEval
 import app.retriever.core.Store
+import app.retriever.core.android.MediaPipeEmbedderFactory
+import app.retriever.core.db.IndexDb
+import app.retriever.core.evalGrid
+import app.retriever.core.parseEvalQueries
+import app.retriever.core.report
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -44,6 +55,36 @@ class EvalRunner(private val graph: AppGraph) {
         out.toString().also { File(graph.app.getExternalFilesDir("eval"), "eval.txt").writeText(it) }
     }
 
+    /**
+     * Corpus mode: core's RetrievalEval, the iOS simulator eval's grid, over the eval corpus and queries.json pushed
+     * to Download/retriever-eval. The app must have synced since the push, so the files are found in the store by folder.
+     * Writes eval-corpus.txt next to eval.txt.
+     */
+    suspend fun runCorpus(): String = withContext(Dispatchers.Default) {
+        val retriever = graph.retriever
+        val dir = File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR")
+        val queries = parseEvalQueries(File(dir, "queries.json").readText())
+        val corpus = retriever.folders().map { it.first }.filter { CORPUS_DIR in it.split('/') }
+            .flatMap { retriever.files(null, it, Store.Sort.NAME, 10_000, 0) }
+            .map { it.file }
+            .filter { it.name != "queries.json" && it.name != "report.md" }
+            .sortedBy { it.uri }
+        // One copy of the model in memory: the eval opens its own per vision-token count.
+        retriever.release()
+        val build = retriever.requiredBuild.value
+        // The facade doesn't expose the stored profile; this phone's tier may use 140 vision tokens, and the grid has both.
+        val profile = CalibrationSamples.readingProfile(build.variant).copy(backend = retriever.state.value.backend ?: Backend.CPU, videoFrameEverySec = 0)
+        val run = RetrievalEval(
+            graph.extractor,
+            MediaPipeEmbedderFactory(graph.app, graph.modelDir, retriever.probe),
+            build,
+            profile,
+            Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
+        ).run(corpus, queries, evalGrid(listOf(70, 140)))
+        val report = "## ${Build.MODEL}: ${build.fileName}, ${profile.backend}\n\n" + run.report(EvalSetting(profile.visionTokens))
+        report.also { File(graph.app.getExternalFilesDir("eval"), "eval-corpus.txt").writeText(it) }
+    }
+
     private fun median(xs: List<Double>): Double =
         if (xs.isEmpty()) 0.0 else xs.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
 
@@ -51,6 +92,7 @@ class EvalRunner(private val graph: AppGraph) {
 
     private companion object {
         const val PER_KIND = 10
+        const val CORPUS_DIR = "retriever-eval"
 
         /** Query to a substring of the file it should find, in the test phone's library; edit to match yours. */
         val QUERIES = listOf(

@@ -60,11 +60,14 @@ private val WarmDark = darkColorScheme(
 )
 
 @Composable
-fun RetrieverTheme(content: @Composable () -> Unit) {
+fun RetrieverTheme(
+    dark: Boolean = isSystemInDarkTheme(),
+    dynamic: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     val context = LocalContext.current
-    val dark = isSystemInDarkTheme()
     val colors: ColorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         dark -> WarmDark
         else -> WarmLight

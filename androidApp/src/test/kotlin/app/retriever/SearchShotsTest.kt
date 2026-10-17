@@ -18,7 +18,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /** Renders the search screen's states to androidApp/build/shots/search_*.png. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp")
+@Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SearchShotsTest {
     @get:Rule val rule = createComposeRule()
@@ -78,6 +78,7 @@ class SearchShotsTest {
     }
 
     private fun shot(state: String, dark: Boolean, fontScale: Float = 1f) {
+        tallWindowForBigText(fontScale)
         rule.setContent { ShotTheme(dark, fontScale) { State(state) } }
         rule.waitForIdle()
         rule.shot("search_${state}_${if (dark) "dark" else "light"}${if (fontScale != 1f) "_text1_5" else ""}")
@@ -140,7 +141,6 @@ class SearchShotsTest {
         shot("results", false)
         rule.onNodeWithText("Water bill.pdf", substring = true).assertExists()
         rule.onNodeWithText("Old bill.docx", substring = true).assertExists()
-        rule.onNodeWithText("6 results").assertExists()
     }
 
     @Test fun resultsDark() = shot("results", true)

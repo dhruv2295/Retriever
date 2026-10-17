@@ -108,53 +108,13 @@ class IndexEngine(
             extractMs = extracted.duration.inWholeNanoseconds / 1e6
             val pieces = extracted.value
 
-            val chunks = mutableListOf<Store.NewChunk>()
-            var headText = 0
-
-            suspend fun embedTimed(parts: List<Part>): Vector {
+            val chunks = draftChunks(file, pieces) { parts ->
                 awaitUi()
                 val timed = measureTimedValue { embedder.embed(parts) }
                 embedMs += timed.duration.inWholeNanoseconds / 1e6
-                return timed.value
+                timed.value
             }
-
-            suspend fun add(piece: Piece, depth: Int = 0) {
-                // EmbeddingGemma 2 model card: task prefixes apply to text only; image, video and audio
-                // inputs (with their timestamp text) go in raw.
-                val textOnly = piece.parts.all { it is Part.Text }
-                // A mixed piece's text parts are model input (a video moment's timestamps), not words to search.
-                val text = piece.keywordText ?: if (textOnly) piece.parts.joinToString("\n") { (it as Part.Text).text } else null
-                if (textOnly && headText >= HEAD_TEXT_CHUNKS) {
-                    chunks += Store.NewChunk(chunks.size + 1, piece.locator, text, null)
-                    return
-                }
-                val parts = if (textOnly) piece.parts.map { Part.Text(Prefix.document(file.name, (it as Part.Text).text)) } else piece.parts
-                val vector = try {
-                    embedTimed(parts)
-                } catch (e: InputTooLongException) {
-                    // Dense text (numbers, non-Latin scripts) can exceed the token window even under the
-                    // character cap. Split a text-only piece in half and embed the halves instead.
-                    val only = piece.parts.singleOrNull() as? Part.Text
-                    if (only == null || depth >= 3) throw e
-                    for (half in Chunker.chunks(only.text, maxChars = only.text.length / 2 + 1)) {
-                        add(Piece(piece.locator, listOf(Part.Text(half)), half), depth + 1)
-                    }
-                    return
-                }
-                if (textOnly) headText++
-                chunks += Store.NewChunk(chunks.size + 1, piece.locator, text, vector)
-            }
-            for (piece in pieces) if (piece.parts.isNotEmpty()) add(piece)
-
-            // Names reach keyword search through file_fts, so a name vector is only worth a model call when
-            // nothing else of the file could be embedded (as Gallery's SmartAlbumIndexingWorker keeps one
-            // image-only record per photo).
-            if (chunks.none { it.vector != null }) {
-                val nameText = file.name + "\n" + file.folder + "\n" + file.kind.name.lowercase() + " " + file.mime
-                chunks.add(0, Store.NewChunk(0, "", null, embedTimed(listOf(Part.Text(Prefix.document(file.name, nameText))))))
-            }
-
-            store.replaceChunks(stored.id, chunks)
+            store.replaceChunks(stored.id, chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector) })
             return FileMetric(file, pieces.size, chunks.size, extractMs, embedMs, true, null, state)
         } catch (e: CancellationException) {
             // A stop (unplugged, time limit, Pause) is not the file's fault: give the attempt back.
@@ -178,3 +138,58 @@ class IndexEngine(
         private const val PAGE = 64
     }
 }
+
+/** One chunk as [draftChunks] decides it; [vector] null leaves it keyword-only. */
+internal class ChunkDraft<V : Any>(val ordinal: Int, val locator: String, val text: String?, val vector: V?)
+
+/**
+ * What a file stores, shared by IndexEngine and RetrievalEval so the eval measures production's rules: the first
+ * [IndexEngine.HEAD_TEXT_CHUNKS] text pieces get vectors (the rest wait for the deepen pass), an over-long text
+ * piece is split in half, and the name gets a vector only when nothing else could be embedded. [embed] returns
+ * what the caller keeps: a stored [Vector], or raw floats in the eval.
+ */
+internal suspend fun <V : Any> draftChunks(
+    file: SourceFile,
+    pieces: List<Piece>,
+    prefixes: Boolean = true,
+    embed: suspend (List<Part>) -> V,
+): List<ChunkDraft<V>> {
+    val chunks = mutableListOf<ChunkDraft<V>>()
+    var headText = 0
+
+    suspend fun add(piece: Piece, depth: Int = 0) {
+        val textOnly = piece.parts.all { it is Part.Text }
+        // A mixed piece's text parts are model input (a video moment's timestamps), not words to search.
+        val text = piece.keywordText ?: if (textOnly) piece.parts.joinToString("\n") { (it as Part.Text).text } else null
+        if (textOnly && headText >= IndexEngine.HEAD_TEXT_CHUNKS) {
+            chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null)
+            return
+        }
+        val vector = try {
+            embed(piece.modelParts(file.name, prefixes))
+        } catch (e: InputTooLongException) {
+            // Dense text (numbers, non-Latin scripts) can exceed the token window even under the
+            // character cap. Split a text-only piece in half and embed the halves instead.
+            val only = piece.parts.singleOrNull() as? Part.Text
+            if (only == null || depth >= 3) throw e
+            for (half in Chunker.chunks(only.text, maxChars = only.text.length / 2 + 1)) {
+                add(Piece(piece.locator, listOf(Part.Text(half)), half), depth + 1)
+            }
+            return
+        }
+        if (textOnly) headText++
+        chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector)
+    }
+    for (piece in pieces) if (piece.parts.isNotEmpty()) add(piece)
+
+    // Names reach keyword search through file_fts, so a name vector is only worth a model call when
+    // nothing else of the file could be embedded (as Gallery's SmartAlbumIndexingWorker keeps one
+    // image-only record per photo).
+    if (chunks.none { it.vector != null }) {
+        chunks.add(0, ChunkDraft(0, "", null, embed(file.namePiece().modelParts(file.name, prefixes))))
+    }
+    return chunks
+}
+
+/** The text a name vector embeds. */
+internal fun SourceFile.namePiece() = Piece("", listOf(Part.Text(name + "\n" + folder + "\n" + kind.name.lowercase() + " " + mime)), null)

@@ -20,7 +20,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /** Renders Setup and Status states to androidApp/build/shots for a visual check without a device. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h1300dp")
+@Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class SetupStatusShotsTest {
     @get:Rule val rule = createComposeRule()
@@ -29,6 +29,7 @@ class SetupStatusShotsTest {
     private val going = SetupUi(started = true, files = true, namesSynced = true, build = build)
 
     private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, content: @Composable () -> Unit) {
+        tallWindowForBigText(fontScale)
         rule.setContent { ShotTheme(dark, fontScale, content) }
         rule.shot(name)
     }

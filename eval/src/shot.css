@@ -1,0 +1,6 @@
+html,body{margin:0;width:1179px;height:2556px;overflow:hidden}
+body{font:46px/1.35 -apple-system,"Helvetica Neue","Kohinoor Devanagari",sans-serif;color:#111;background:#f4f5f7;position:relative}
+.status{height:130px;display:flex;justify-content:space-between;align-items:flex-end;padding:0 80px 18px;font-weight:600;font-size:42px}
+.bar{height:130px;display:flex;align-items:center;padding:0 48px;background:#fff;border-bottom:2px solid #e3e5e8;font-size:52px;font-weight:600}
+.card{background:#fff;border-radius:40px;margin:40px 48px;padding:56px}
+.muted{color:#6b7280}

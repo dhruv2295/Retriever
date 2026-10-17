@@ -8,12 +8,15 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -266,134 +269,137 @@ fun StatusContent(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (index.running) {
-                    Image(
-                        painterResource(R.drawable.illus_reading),
-                        contentDescription = null,
-                        modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 160.dp).fillMaxWidth(),
+        Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            // Capped inside the scroll, so the gutters scroll too.
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(bottom = 24.dp)) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (index.running) {
+                        Image(
+                            painterResource(R.drawable.illus_reading),
+                            contentDescription = null,
+                            modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 160.dp).fillMaxWidth(),
+                        )
+                    }
+                    Text(
+                        "${Format.count(searchable)} of ${Format.count(total)} files searchable",
+                        style = MaterialTheme.typography.titleMedium.tabular(),
                     )
-                }
-                Text(
-                    "${Format.count(searchable)} of ${Format.count(total)} files searchable",
-                    style = MaterialTheme.typography.titleMedium.tabular(),
-                )
-                LinearProgressIndicator(
-                    progress = { if (total > 0) searchable.toFloat() / total else 0f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                when {
-                    index.running && index.pendingAtStart == 0L -> Muted("Looking for your files…")
-                    index.running -> {
-                        index.etaMinutes?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
-                        index.current?.let { Muted("Now: $it", maxLines = 1) }
+                    LinearProgressIndicator(
+                        progress = { if (total > 0) searchable.toFloat() / total else 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    when {
+                        index.running && index.pendingAtStart == 0L -> Muted("Looking for your files…")
+                        index.running -> {
+                            index.etaMinutes?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
+                            index.current?.let { Muted("Now: $it", maxLines = 1) }
+                        }
+                        // The title already says paused or all caught up.
+                        waiting > 0 && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
                     }
-                    // The title already says paused or all caught up.
-                    waiting > 0 && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
-                }
-                index.lastError?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                }
-                when {
-                    prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
-                    waiting > 0 -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
-                }
-            }
-
-            if (skipped > 0) {
-                ListItem(
-                    headlineContent = {
-                        Text(if (skipped == 1L) "1 file couldn't be read" else "${Format.count(skipped)} files couldn't be read")
-                    },
-                    trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(if (skippedOpen) "Hide" else "See which", color = MaterialTheme.colorScheme.primary)
-                            Icon(if (skippedOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
-                        }
-                    },
-                    modifier = Modifier
-                        .clickable(onClick = actions.toggleSkipped)
-                        .semantics { stateDescription = if (skippedOpen) "Expanded" else "Collapsed" },
-                )
-                AnimatedVisibility(skippedOpen) {
-                    Column {
-                        for (f in skippedFiles) {
-                            ListItem(
-                                headlineContent = { Text(f.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            )
-                        }
-                        TextButton(onClick = actions.retrySkipped, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Try again") }
+                    index.lastError?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    }
+                    when {
+                        prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
+                        waiting > 0 -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
                     }
                 }
-            }
 
-            if (counts.tailChunks > 0) {
-                Muted(
-                    "Some long documents are only partly read. Retriever reads the rest while your phone charges.",
-                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-
-            if (batteryHint && waiting > 0) {
-                ListItem(
-                    headlineContent = { Text("Let Retriever keep reading in the background") },
-                    supportingContent = { Text("Some phones stop apps working in the background.") },
-                    leadingContent = { Icon(Icons.Outlined.BatteryAlert, contentDescription = null) },
-                    modifier = Modifier.clickable(onClick = actions.openBatterySettings),
-                )
-            }
-
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            Header("Read inside")
-            for (kind in SEARCH_INSIDE) {
-                SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
-            }
-            Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
-
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            SwitchRow("Only read while charging", prefs.onlyWhileCharging, actions.setOnlyWhileCharging)
-
-            if (prefs.excludedFolders.isNotEmpty()) {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Folders Retriever skips")
-                for (folder in prefs.excludedFolders.sorted()) {
+                if (skipped > 0) {
                     ListItem(
-                        headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        headlineContent = {
+                            Text(if (skipped == 1L) "1 file couldn't be read" else "${Format.count(skipped)} files couldn't be read")
+                        },
                         trailingContent = {
-                            IconButton(onClick = { actions.removeExcluded(folder) }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Search $folder again")
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(if (skippedOpen) "Hide" else "See which", color = MaterialTheme.colorScheme.primary)
+                                Icon(if (skippedOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
                             }
                         },
+                        modifier = Modifier
+                            .clickable(onClick = actions.toggleSkipped)
+                            .semantics { stateDescription = if (skippedOpen) "Expanded" else "Collapsed" },
+                    )
+                    AnimatedVisibility(skippedOpen) {
+                        Column {
+                            for (f in skippedFiles) {
+                                ListItem(
+                                    headlineContent = { Text(f.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                )
+                            }
+                            TextButton(onClick = actions.retrySkipped, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Try again") }
+                        }
+                    }
+                }
+
+                if (counts.tailChunks > 0) {
+                    Muted(
+                        "Some long documents are only partly read. Retriever reads the rest while your phone charges.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
-            }
 
-            // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
-            if (BuildConfig.DEBUG) {
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("For testing")
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    index.backend?.let { Text(tuneSummary(it, null), style = MaterialTheme.typography.bodyMedium) }
-                    index.detail?.let { Muted(it.replaceFirstChar(Char::uppercase)) }
-                    index.build?.let { Muted("Model file: ${it.fileName}") }
+                if (batteryHint && waiting > 0) {
+                    ListItem(
+                        headlineContent = { Text("Let Retriever keep reading in the background") },
+                        supportingContent = { Text("Some phones stop apps working in the background.") },
+                        leadingContent = { Icon(Icons.Outlined.BatteryAlert, contentDescription = null) },
+                        modifier = Modifier.clickable(onClick = actions.openBatterySettings),
+                    )
                 }
-                SwitchRow("Sample mode: newest $SAMPLE_PER_KIND of each type", prefs.sampleSize != null, actions.setSampleMode)
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    when (tune) {
-                        TuneState.Running -> Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
-                            Text("Tuning… about a minute", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        is TuneState.Failed -> Text("Tune failed: ${tune.message}", color = MaterialTheme.colorScheme.error)
-                        is TuneState.Done -> Muted(tune.summary)
-                        TuneState.Idle -> Unit
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Header("Read inside")
+                for (kind in SEARCH_INSIDE) {
+                    SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
+                }
+                Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                SwitchRow("Only read while charging", prefs.onlyWhileCharging, actions.setOnlyWhileCharging)
+
+                if (prefs.excludedFolders.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Header("Folders Retriever skips")
+                    for (folder in prefs.excludedFolders.sorted()) {
+                        ListItem(
+                            headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            trailingContent = {
+                                IconButton(onClick = { actions.removeExcluded(folder) }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Search $folder again")
+                                }
+                            },
+                        )
                     }
-                    OutlinedButton(onClick = actions.tuneAgain, enabled = tune != TuneState.Running) { Text("Tune again") }
+                }
+
+                // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
+                if (BuildConfig.DEBUG) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Header("For testing")
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        index.backend?.let { Text(tuneSummary(it, null), style = MaterialTheme.typography.bodyMedium) }
+                        index.detail?.let { Muted(it.replaceFirstChar(Char::uppercase)) }
+                        index.build?.let { Muted("Model file: ${it.fileName}") }
+                    }
+                    SwitchRow("Sample mode: newest $SAMPLE_PER_KIND of each type", prefs.sampleSize != null, actions.setSampleMode)
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        when (tune) {
+                            TuneState.Running -> Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
+                                Text("Tuning… about a minute", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            is TuneState.Failed -> Text("Tune failed: ${tune.message}", color = MaterialTheme.colorScheme.error)
+                            is TuneState.Done -> Muted(tune.summary)
+                            TuneState.Idle -> Unit
+                        }
+                        OutlinedButton(onClick = actions.tuneAgain, enabled = tune != TuneState.Running) { Text("Tune again") }
+                    }
                 }
             }
         }

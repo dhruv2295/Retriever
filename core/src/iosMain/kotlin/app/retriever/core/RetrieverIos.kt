@@ -34,9 +34,11 @@ fun createRetriever(
     log: (String) -> Unit,
 ): Retriever {
     val logged: (String, Throwable?) -> Unit = { m, t -> log(if (t == null) m else "$m: $t") }
+    val store = iosStore(logged)
+    val known = KnownFiles { store.fileByUri(it)?.file }
     return Retriever(
-        store = iosStore(logged),
-        source = CompositeSource(mapOf("ph://" to photos.asFileSource(), "folder://" to folders.asFileSource())),
+        store = store,
+        source = CompositeSource(mapOf("ph://" to photos.asFileSource(known), "folder://" to folders.asFileSource(known))),
         extractor = IosExtractor(extractor),
         factory = IosEmbedderFactory(opener, modelDir, cacheDir, isSimulator) { monitor.active },
         monitor = monitor,
@@ -63,8 +65,8 @@ fun modelReady(modelDir: String, build: ModelBuild): Boolean {
 suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds)
 
 @Throws(Throwable::class)
-suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?): SearchEngine.SearchResult =
-    searchImage(jpeg.toByteArray(), kinds)
+suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?, limit: Int): SearchEngine.SearchResult =
+    searchImage(jpeg.toByteArray(), kinds, limit)
 
 /** Calibration samples from Swift; iOS ships no audio model. */
 fun samples(images: List<NSData>, texts: List<String>): Samples = Samples(images.map { it.toByteArray() }, texts, emptyList())

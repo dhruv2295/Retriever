@@ -8,7 +8,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -105,8 +105,8 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                 )
             }
         } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                LazyColumn(contentPadding = contentPaddingFor(padding), modifier = Modifier.widthIn(max = 840.dp).fillMaxSize()) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                LazyColumn(contentPadding = contentPaddingFor(padding, side = gutter()), modifier = Modifier.fillMaxSize()) {
                     items(folders, key = { it.first }) { (path, count) ->
                         FolderRow(
                             path = path,

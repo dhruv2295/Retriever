@@ -1,8 +1,8 @@
 # Third-party notices
 
 Retriever includes code adapted from the open-source projects below. Each section names its license.
-The Apache License, Version 2.0 text is reproduced at the end of this file, followed by the MIT text
-for the one dependency under another license. Adapted files keep the upstream license header (where
+The Apache License, Version 2.0 text is reproduced at the end of this file, followed by the MIT texts
+for the code and dependency under that license. Adapted files keep the upstream license header (where
 the upstream file had one) and carry an "Adapted from" line describing what was changed.
 
 ## google-ai-edge/gallery
@@ -35,6 +35,16 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - Copyright 2026 The MediaPipe Authors
 - License: Apache License 2.0
 
+## mazzzystar/Queryable
+
+- Source: https://github.com/mazzzystar/Queryable
+- Copyright (c) 2023 Ke Fang
+- License: MIT License (text at the end of this file). Its PhotoHelper files are themselves from Apple sample code.
+
+## Apple sample code
+
+- "Adding a search interface to your app" (https://developer.apple.com/documentation/swiftui/adding-a-search-interface-to-your-app), Apple Sample Code License. Used as a layout reference for the iOS search screen; no code copied.
+
 ## Dependencies under other licenses
 
 - ZIPFoundation — https://github.com/weichsel/ZIPFoundation — Copyright (c) 2017-2025 Thomas Zoechling — MIT License (iOS, via Swift Package Manager; not adapted code). Its MIT text is at the end of this file.
@@ -64,6 +74,8 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — ImageBytes.bitmap's loadThumbnail fallback, gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
 - core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt`, by way of MediaPipeEmbedder.kt (Apache-2.0)
 - iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
+- iosApp/Retriever/Thumbnail.swift — Queryable `Queryable/Queryable/PhotoHelper/CachedImageManager.swift` (PHCachingImageManager setup) (MIT)
+- iosApp/Retriever/Views/ResultViews.swift — Queryable `Queryable/Queryable/View/PhotoResult` (grid layout reference) (MIT)
 
 ## Apache License 2.0
 
@@ -279,6 +291,34 @@ Source: https://github.com/weichsel/ZIPFoundation (text from the package's LICEN
 MIT License
 
 Copyright (c) 2017-2025 Thomas Zoechling (https://www.peakstep.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## MIT License (Queryable)
+
+Source: https://github.com/mazzzystar/Queryable (text from the repository's LICENSE file)
+
+```
+MIT License
+
+Copyright (c) 2023 Ke Fang
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

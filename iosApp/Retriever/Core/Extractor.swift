@@ -160,7 +160,7 @@ final class FileExtractor: NSObject, NativeExtractor {
 
     func readBytes(uri: String, offset: Int64, length: Int32) -> Data? {
         autoreleasepool {
-            guard let url = folders.resolve(uri), let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            guard let url = uri.hasPrefix("ph://") ? exported(uri) : folders.resolve(uri), let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
             guard (try? handle.seek(toOffset: UInt64(max(offset, 0)))) != nil else { return nil }
             do {
@@ -168,6 +168,37 @@ final class FileExtractor: NSObject, NativeExtractor {
             } catch {
                 return nil
             }
+        }
+    }
+
+    /// A photo or video as a temp file, for the content hash. ponytail: a one-entry export cache (the hasher reads
+    /// one file at a time) and nothing over 1 GB; a streaming hash if big videos matter.
+    private let exportLock = NSLock()
+    private var export: (uri: String, url: URL)?
+
+    private func exported(_ uri: String) -> URL? {
+        exportLock.withLock {
+            if let export, export.uri == uri { return export.url }
+            if let old = export?.url { try? FileManager.default.removeItem(at: old) }
+            export = nil
+            guard let asset = asset(uri), let current = PhotosSource.renditions(asset).current,
+                  PhotosSource.fileSize(current) <= 1 << 30 else { return nil }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("export-\(UUID().uuidString)")
+            let options = PHAssetResourceRequestOptions()
+            options.isNetworkAccessAllowed = false
+            let done = DispatchSemaphore(value: 0)
+            let box = Box<Bool>()
+            PHAssetResourceManager.default().writeData(for: current, toFile: url, options: options) { error in
+                box.value = error == nil
+                done.signal()
+            }
+            done.wait()
+            guard box.value == true else {
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+            export = (uri, url)
+            return url
         }
     }
 

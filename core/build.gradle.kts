@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.sqldelight)
+    id("com.android.lint")
 }
 
 kotlin {

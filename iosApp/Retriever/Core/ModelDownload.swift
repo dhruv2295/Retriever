@@ -66,6 +66,19 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     /// [allowCellular] false waits for Wi-Fi, as Android's "wait for Wi-Fi" does: the model is about 390 MB.
     func start(_ build: ModelBuild, allowCellular: Bool) {
         if RetrieverIosKt.modelReady(modelDir: dir.path, build: build) { return set(.ready) }
+        // A whole file with no marker (the app closed while checking a finished download): check it, don't fetch it again.
+        let size = (try? dir.appendingPathComponent(build.fileName).resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        if size.map(Int64.init) == build.sizeBytes {
+            set(.verifying)
+            DispatchQueue.global(qos: .utility).async {
+                if self.verifyInPlace(build) { self.set(.ready) } else { self.download(build, allowCellular: allowCellular) }
+            }
+            return
+        }
+        download(build, allowCellular: allowCellular)
+    }
+
+    private func download(_ build: ModelBuild, allowCellular: Bool) {
         let free = (try? dir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage ?? 0
         if free < build.sizeBytes + Self.headroom {
             let needed = ByteCountFormatter.string(fromByteCount: build.sizeBytes + Self.headroom, countStyle: .file)

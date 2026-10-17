@@ -55,12 +55,12 @@ private fun DebugScreen() {
             OutlinedButton(onClick = { Demo.toggle(context) }) {
                 Text(if (demoOn) "Demo off (restarts the app)" else "Demo on (restarts the app)")
             }
-            Button(enabled = !running, onClick = {
+            fun launchEval(eval: suspend EvalRunner.() -> String) {
                 running = true
                 report = "Running…"
                 scope.launch {
                     report = try {
-                        EvalRunner(graph).run()
+                        EvalRunner(graph).eval()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -69,7 +69,9 @@ private fun DebugScreen() {
                         running = false
                     }
                 }
-            }) { Text("Run eval") }
+            }
+            Button(enabled = !running, onClick = { launchEval { run() } }) { Text("Run eval") }
+            Button(enabled = !running, onClick = { launchEval { runCorpus() } }) { Text("Run corpus eval (Download/retriever-eval)") }
             Text(report, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
         }
     }

@@ -30,6 +30,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -522,30 +524,34 @@ fun SetupScreen(onDone: () -> Unit) {
 fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupActions = SetupActions()) {
     val size = ui.build?.let { Format.bytes(it.sizeBytes) }
     Surface(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            Image(
-                painterResource(R.drawable.illus_welcome),
-                contentDescription = null,
-                modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 240.dp).fillMaxWidth(),
-            )
-            Text("Find anything by what's inside it", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "Retriever reads your photos, screenshots, PDFs and documents on this phone, so you can search them " +
-                    "in your own words. Nothing leaves your phone.",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Muted("Files inside other apps' private folders can't be searched.")
-
-            if (!ui.started) {
-                Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text("Get started") }
-                Muted(
-                    if (size != null) "Needs a one-time download of $size. Best on Wi-Fi." else "Needs a one-time download. Best on Wi-Fi.",
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(
+                // Capped inside the scroll, so the gutters scroll too.
+                Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState())
+                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                Image(
+                    painterResource(R.drawable.illus_welcome),
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = 240.dp).fillMaxWidth(),
                 )
-            } else {
-                Steps(ui, size, filesDenied, actions)
+                Text("Find anything by what's inside it", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "Retriever reads your photos, screenshots, PDFs and documents on this phone, so you can search them " +
+                        "in your own words. Nothing leaves your phone.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Muted("Files inside other apps' private folders can't be searched.")
+
+                if (!ui.started) {
+                    Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text("Get started") }
+                    Muted(
+                        if (size != null) "Needs a one-time download of $size. Best on Wi-Fi." else "Needs a one-time download. Best on Wi-Fi.",
+                    )
+                } else {
+                    Steps(ui, size, filesDenied, actions)
+                }
             }
         }
     }

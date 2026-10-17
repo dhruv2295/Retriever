@@ -59,6 +59,22 @@ object ModelBuilds {
         } ?: variant.generic
     }
 
+    /**
+     * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present.
+     * Qualcomm also needs the QNN HTP libraries, which no LiteRT AAR ships, so it fails closed until they are bundled.
+     * The QNN names are INFERRED from the LiteRT Qualcomm docs, not read from a working build.
+     */
+    fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean {
+        val m = socManufacturer.lowercase()
+        return when {
+            "google" in m -> hasLib("libLiteRtDispatch_GoogleTensor.so")
+            "mediatek" in m -> hasLib("libLiteRtDispatch_MediaTek.so")
+            "qti" in m || "qualcomm" in m ->
+                listOf("libLiteRtDispatch_Qualcomm.so", "libQnnHtp.so", "libQnnSystem.so").all(hasLib)
+            else -> false
+        }
+    }
+
     fun fallback(build: ModelBuild): ModelBuild = build.variant.generic
 
     fun shouldFallBack(unfinishedOpens: Int): Boolean = unfinishedOpens >= MAX_UNFINISHED_OPENS

@@ -281,12 +281,13 @@ class Retriever(
         val build = requiredBuild.value
         val stored = store.profile()
         if (!modelReady(build) || stored == null) return null
-        val key = EmbedderKey(build, stored.backend, stored.visionTokens, stored.maxTokens)
+        val backend = factory.backendNow(stored)
+        val key = EmbedderKey(build, backend, stored.visionTokens, stored.maxTokens)
         embedder?.let { if (embedderKey == key) return it }
         closeLocked()
         val e = try {
             countedOpen {
-                factory.open(stored, build).also { opened ->
+                factory.open(stored.copy(backend = backend), build).also { opened ->
                     try {
                         opened.embedRaw(listOf(Part.Text(Prefix.query("warm up"))))
                     } catch (t: Throwable) {
@@ -323,6 +324,8 @@ class Retriever(
     }
 
     /** Opens that never came back crashed the process: stop using that build, or the GPU. */
+    // ponytail: the counter doesn't record the backend, so a native crash during a background CPU open (iOS) is
+    // blamed on the GPU too; store the backend with the count if that ever shows up in the field.
     private fun checkUnfinishedOpens() {
         if (!ModelBuilds.shouldFallBack(unfinishedOpens())) return
         store.setMeta(UNFINISHED_OPENS, "0")
@@ -343,6 +346,8 @@ class Retriever(
      */
     private suspend fun embedderBroke(used: Embedder?, build: ModelBuild?, cause: Throwable): Boolean = embedderLock.withLock {
         if (used == null || build == null || embedder !== used) return@withLock false
+        // The backend [used] was opened on: a CPU embedder from a background task failing says nothing about the GPU.
+        val onGpu = embedderKey?.backend == Backend.GPU
         closeLocked()
         if ((cause as? EmbedderClosedException)?.broken == false) {
             log("The model can't run right now; it reopens on the next batch", cause)
@@ -350,7 +355,7 @@ class Retriever(
         }
         if (build.isNpu) {
             markNpuFailed(build, cause)
-        } else {
+        } else if (onGpu) {
             store.profile()?.takeIf { it.backend == Backend.GPU }?.let {
                 log("GPU inference failed; using CPU from now on", cause)
                 store.setProfile(it.copy(backend = Backend.CPU))

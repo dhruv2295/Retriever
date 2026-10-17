@@ -36,8 +36,7 @@ final class AppServices {
         folders = FolderSource(documents: documents)
         extractor = FileExtractor(folders: folders)
         let logger = Logger(subsystem: "app.retriever", category: "core")
-        let photos = PhotosSource()
-        self.photos = photos
+        photos = PhotosSource()
         retriever = RetrieverIosKt.createRetriever(
             opener: MediaPipeOpener(),
             extractor: extractor,
@@ -47,7 +46,8 @@ final class AppServices {
             modelDir: modelsDir.path,
             cacheDir: caches.path,
             isSimulator: Self.isSimulator,
-            platformReady: { KotlinBoolean(bool: photos.isReady) },
+            // Retriever's own folder in Files is always readable, so a person who keeps Photos off is set up too.
+            platformReady: { KotlinBoolean(bool: true) },
             log: { logger.info("\($0, privacy: .public)") }
         )
         if Thread.isMainThread {

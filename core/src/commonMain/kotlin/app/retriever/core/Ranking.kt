@@ -1,14 +1,22 @@
 package app.retriever.core
 
+/** How search fuses its lanes. RetrievalEval measures alternatives; DefaultsTest pins these. */
+data class SearchTuning(
+    val rrfK: Int = 60,
+    /** Weight of each keyword lane (chunk text, file name) against the vector lane's 1.0. */
+    val keywordWeight: Double = 1.0,
+)
+
 /**
- * Reciprocal rank fusion. Ties keep first-appearance order: LinkedHashMap preserves insertion
- * order and sortedByDescending is stable.
+ * Reciprocal rank fusion: a lane adds weight / (k + rank + 1), weights default to 1. Ties keep first-appearance
+ * order: LinkedHashMap preserves insertion order and sortedByDescending is stable.
  */
-fun rrfMerge(lists: List<List<Long>>, k: Int = 60): List<Pair<Long, Double>> {
+fun rrfMerge(lists: List<List<Long>>, k: Int = 60, weights: List<Double>? = null): List<Pair<Long, Double>> {
     val scores = LinkedHashMap<Long, Double>()
-    for (list in lists) {
+    lists.forEachIndexed { lane, list ->
+        val w = weights?.get(lane) ?: 1.0
         list.forEachIndexed { i, id ->
-            scores[id] = (scores[id] ?: 0.0) + 1.0 / (k + i + 1)
+            scores[id] = (scores[id] ?: 0.0) + w / (k + i + 1)
         }
     }
     return scores.entries.map { it.key to it.value }.sortedByDescending { it.second }

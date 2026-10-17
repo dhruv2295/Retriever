@@ -14,8 +14,21 @@ android {
         targetSdk = libs.versions.compileSdk.get().toInt()
         versionCode = 1
         versionName = "0.2"
-        // litertlm ships only these two ABIs, so a 32-bit device must not install the app.
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    }
+
+    // litertlm ships only arm64-v8a and x86_64, so a 32-bit device must not install the app. x86_64 is for emulators.
+    buildTypes {
+        debug {
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
+        release {
+            ndk { abiFilters += listOf("arm64-v8a") }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Placeholder: the debug key, so local release installs work. Use a real upload key before any store release.
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     buildFeatures {
@@ -25,7 +38,13 @@ android {
 
     packaging {
         // LiteRT loads NPU dispatch libraries from applicationInfo.nativeLibraryDir, so they must be extracted.
-        jniLibs { useLegacyPackaging = true }
+        jniLibs {
+            useLegacyPackaging = true
+            // Nothing in the app loads these: their loaders are mediapipe vision tasks (JniConfig), SemanticRetriever's
+            // SqliteVectorStore and DefaultTextChunker, and AppSearch. UniversalEmbedder runs on liblitertlm_jni.
+            // Using any of those APIs means deleting this line.
+            excludes += listOf("**/libmediapipe_tasks_jni.so", "**/libsqlite_vector_store_jni.so", "**/libicing.so")
+        }
     }
 
     // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
@@ -59,7 +78,6 @@ dependencies {
     implementation(libs.lifecycle.process)
     implementation(libs.litert.npu.google.tensor)
     implementation(libs.litert.npu.mediatek)
-    implementation(libs.litert.npu.qualcomm)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

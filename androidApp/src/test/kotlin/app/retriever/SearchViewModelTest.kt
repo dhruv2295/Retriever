@@ -26,6 +26,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -104,6 +105,41 @@ class SearchViewModelTest {
         vm.setChip(Kind.PHOTO)
         vm.setQuery("")
         assertEquals(Kind.PHOTO, vm.ui.value.chip)
+    }
+
+    @Test fun openingAHitAfterTypingRecordsTheQueryOnce() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = SearchViewModel(retriever) { null }
+        vm.setQuery("bill")
+        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
+        vm.opened(hit)
+        assertEquals(listOf("bill"), vm.ui.first { it.recent.isNotEmpty() }.recent)
+        vm.opened(hit)
+        advanceUntilIdle()
+        assertEquals(listOf("bill"), retriever.recentQueries())
+    }
+
+    @Test fun openingAHitDuringAPhotoSearchRecordsNothing() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = SearchViewModel(retriever) { ByteArray(1) }
+        vm.setQuery("bill")
+        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
+        vm.findSimilar(photos.first()).join()
+        assertTrue(vm.ui.value.similar != null)
+        vm.opened(hit)
+        advanceUntilIdle()
+        assertEquals(emptyList<String>(), retriever.recentQueries())
+    }
+
+    @Test fun openingAHitWithABlankQueryRecordsNothing() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = SearchViewModel(retriever) { null }
+        vm.setQuery("bill")
+        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
+        vm.setQuery("   ")
+        vm.opened(hit)
+        advanceUntilIdle()
+        assertEquals(emptyList<String>(), retriever.recentQueries())
     }
 
     @Test fun recordsOnlyOnSubmitAndKeepsHistoryInTheStore() = runTest {

@@ -27,6 +27,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -109,10 +110,8 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -241,11 +240,14 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
                 Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                SearchBar(state = bar, inputField = inputField, modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp))
+                // The home column less its rows' 16 dp side padding, so the bar lines up with the cards below it.
+                SearchBar(state = bar, inputField = inputField, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
             }
         },
     ) { padding ->
-        HomeBody(ui, index, actions, homeList, padding)
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            HomeBody(ui, index, actions, homeList, padding, gutter())
+        }
     }
 
     ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
@@ -256,9 +258,9 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
 // --- Home ---
 
 @Composable
-private fun HomeBody(ui: SearchUi, index: IndexState, actions: SearchActions, state: LazyListState, padding: PaddingValues) {
+private fun HomeBody(ui: SearchUi, index: IndexState, actions: SearchActions, state: LazyListState, padding: PaddingValues, side: Dp) {
     val counts = ui.counts
-    LazyColumn(state = state, contentPadding = contentPaddingFor(padding), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(state = state, contentPadding = contentPaddingFor(padding, side = side), modifier = Modifier.fillMaxSize()) {
         item(key = "status") { StatusLine(ui, index, actions.onNavigate) }
         // Not loaded yet: show nothing rather than flash the first-run message over a full index.
         if (counts == null) return@LazyColumn
@@ -422,21 +424,24 @@ internal fun SearchPane(
         Box(Modifier.fillMaxWidth().height(4.dp)) {
             if (ui.searching) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        if (ui.query.isBlank() && ui.similar == null) {
-            Suggestions(ui.recent, actions, useText)
-        } else {
-            Results(ui, actions, grid, useText)
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val side = gutter()
+            if (ui.query.isBlank() && ui.similar == null) {
+                Suggestions(ui.recent, actions, useText, side)
+            } else {
+                Column { Results(ui, actions, grid, useText, side) }
+            }
         }
     }
 }
 
 @Composable
-private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (String) -> Unit) {
+private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (String) -> Unit, side: Dp) {
     val pick = { q: String ->
         useText(q)
         actions.onSubmit(q)
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, bottom = 24.dp)) {
         if (recent.isEmpty()) {
             item(key = "try-header") { Header("Try") }
             item(key = "try") {
@@ -466,8 +471,9 @@ private fun Suggestions(recent: List<String>, actions: SearchActions, useText: (
 }
 
 @Composable
-private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, useText: (String) -> Unit) {
+private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, useText: (String) -> Unit, side: Dp) {
     val q = ui.query.trim()
+    val edge = 16.dp + side
     ui.similar?.let { s ->
         InputChip(
             selected = true,
@@ -484,12 +490,12 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
                 }
             },
             trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Stop searching by photo", Modifier.size(18.dp)) },
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = edge),
         )
     }
     val kinds = Kind.entries.filter { (ui.counts?.get(it) ?: 0L) > 0L }
     if (kinds.isNotEmpty()) {
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "all") { KindChip("All", ui.chip == null) { actions.onChip(null) } }
             items(kinds, key = { it.name }) { k -> KindChip(Format.kindLabelPlural(k), ui.chip == k) { actions.onChip(k) } }
         }
@@ -501,7 +507,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
         else -> null
     }
     note?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = edge, vertical = 8.dp))
     }
     val hits = ui.hits
     // The words changed but haven't been searched yet: the hits still answer the old ones.
@@ -540,7 +546,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, grid: LazyGridState, u
                 art = R.drawable.illus_empty,
             )
         }
-        else -> ResultGrid(hits, ui.hitsFor.ifEmpty { null }, ui.searching || stale, grid, actions.onOpenHit, actions.onFindSimilar)
+        else -> ResultGrid(hits, ui.hitsFor.ifEmpty { null }, ui.searching || stale, grid, edge, actions.onOpenHit, actions.onFindSimilar)
     }
 }
 
@@ -569,6 +575,7 @@ private fun ResultGrid(
     query: String?,
     searching: Boolean,
     grid: LazyGridState,
+    edge: Dp,
     open: (SearchEngine.Hit) -> Unit,
     findSimilar: (SourceFile) -> Unit,
 ) {
@@ -577,19 +584,11 @@ private fun ResultGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(110.dp),
         state = grid,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = edge, end = edge, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize().alpha(if (searching) 0.6f else 1f),
     ) {
-        item(key = "count", span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                if (hits.size == 1) "1 result" else "${Format.count(hits.size.toLong())} results",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
-            )
-        }
         if (mediaFirst) {
             mediaSection(media, open, findSimilar)
             docSection(docs, query, open, findSimilar)

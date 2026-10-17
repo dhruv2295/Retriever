@@ -39,6 +39,13 @@ object Chunker {
     }
 }
 
+/**
+ * What the model is fed for a piece. EmbeddingGemma 2 model card: task prefixes apply to text only; image, video
+ * and audio inputs (with their timestamp text) go in raw. [prefixes] false is for RetrievalEval's comparison.
+ */
+fun Piece.modelParts(fileName: String, prefixes: Boolean = true): List<Part> =
+    if (prefixes && parts.all { it is Part.Text }) parts.map { Part.Text(Prefix.document(fileName, (it as Part.Text).text)) } else parts
+
 /** Prompt prefixes from the EmbeddingGemma 2 model card. Images and audio take none. */
 object Prefix {
     fun document(title: String, text: String) = "title: ${title.ifBlank { "none" }} | text: $text"

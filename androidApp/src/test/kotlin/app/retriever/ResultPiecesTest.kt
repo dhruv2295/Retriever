@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = android.app.Application::class)
+@Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ResultPiecesTest {
     @get:Rule val rule = createComposeRule()
@@ -163,6 +163,7 @@ class ResultPiecesTest {
     @Test fun thumbCellBigText() = thumbCells("thumbCell_text1_5", dark = false, fontScale = 1.5f)
 
     private fun fileRows(name: String, dark: Boolean, fontScale: Float = 1f) {
+        tallWindowForBigText(fontScale)
         rule.setContent {
             ShotTheme(dark, fontScale) {
                 Column {
@@ -184,6 +185,7 @@ class ResultPiecesTest {
     }
 
     private fun thumbCells(name: String, dark: Boolean, fontScale: Float = 1f) {
+        tallWindowForBigText(fontScale)
         rule.setContent {
             ShotTheme(dark, fontScale) {
                 Row(Modifier.padding(8.dp)) {

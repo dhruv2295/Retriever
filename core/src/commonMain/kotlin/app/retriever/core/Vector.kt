@@ -43,12 +43,12 @@ fun normalized(v: FloatArray): FloatArray {
     return FloatArray(v.size) { v[it] / norm }
 }
 
-/** Cosine between two raw model outputs, compared on their first [DIMS] dimensions. */
-fun cosine(a: FloatArray, b: FloatArray): Float {
-    val x = normalized(a.copyOf(DIMS))
-    val y = normalized(b.copyOf(DIMS))
+/** Cosine between two raw model outputs, compared on their first [dims] (Matryoshka) dimensions. */
+fun cosine(a: FloatArray, b: FloatArray, dims: Int = DIMS): Float {
+    val x = normalized(a.copyOf(dims))
+    val y = normalized(b.copyOf(dims))
     var dot = 0f
-    for (i in 0 until DIMS) dot += x[i] * y[i]
+    for (i in 0 until dims) dot += x[i] * y[i]
     return dot
 }
 
