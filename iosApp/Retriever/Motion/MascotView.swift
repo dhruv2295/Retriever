@@ -59,6 +59,9 @@ private struct MascotPlayerView: UIViewRepresentable {
     private var waiter: (id: Int, resume: CheckedContinuation<Void, Never>)?
     private var waits = 0
     private var endLoop = false
+    /// Bumped whenever motion starts or stops, so an ImageIO animation from an earlier run stops at its next frame
+    /// instead of drawing beside the new one (hidden and shown again within a frame).
+    private var generation = 0
 
     init(mood: MascotMood) {
         self.mood = mood
@@ -70,6 +73,7 @@ private struct MascotPlayerView: UIViewRepresentable {
         self.mood = mood
         if animate != self.animate {
             self.animate = animate
+            generation += 1
             task?.cancel()
             resume()
             task = animate ? Task { await run() } : nil
@@ -79,6 +83,7 @@ private struct MascotPlayerView: UIViewRepresentable {
     }
 
     private func run() async {
+        let gen = generation
         while !Task.isCancelled {
             let now = mood
             guard Self.motionAllowed else {
@@ -95,14 +100,14 @@ private struct MascotPlayerView: UIViewRepresentable {
                 view.image = MascotFrames.still(step.clip)
                 await wait(seconds: step.seconds?.doubleValue)
             case .once:
-                await play(step.clip, loops: false)
+                await play(step.clip, loops: false, gen: gen)
             default:
                 // Ask half a loop early: the request lands inside the last wanted loop, which then finishes.
                 let end = Date().addingTimeInterval((step.seconds?.doubleValue ?? 0) - step.clip.seconds / 2)
                 endLoop = false
                 // A child Task inherits this actor, so the Kotlin clip never crosses isolation (async let would send it).
                 let clip = step.clip
-                let played = Task { await play(clip, loops: true) }
+                let played = Task { await play(clip, loops: true, gen: gen) }
                 while !endLoop, !Task.isCancelled, mood == now, Self.motionAllowed, Date() < end {
                     await wait(seconds: min(10, max(0, end.timeIntervalSinceNow)))
                 }
@@ -115,7 +120,7 @@ private struct MascotPlayerView: UIViewRepresentable {
     }
 
     /// Plays the clip from its first frame; a loop runs until `endLoop`, then finishes the loop it is in.
-    private func play(_ clip: MascotClip, loops: Bool) async {
+    private func play(_ clip: MascotClip, loops: Bool, gen: Int) async {
         guard let url = MascotFrames.url(clip.file) else { return }
         let count = MascotFrames.frameCount(clip)
         let delay = clip.seconds / Double(count)
@@ -134,7 +139,7 @@ private struct MascotPlayerView: UIViewRepresentable {
             let options = (loops ? [:] : [kCGImageAnimationLoopCount: 1]) as CFDictionary
             let status = CGAnimateImageAtURLWithBlock(url as CFURL, options) { [weak self] index, image, stop in
                 guard let self, !finished else { stop.pointee = true; return }
-                if Task.isCancelled || (self.task?.isCancelled ?? true) {
+                if self.generation != gen {
                     finished = true; stop.pointee = true; done.resume(); return
                 }
                 if shown || index != 0 { self.view.image = UIImage(cgImage: image) }
