@@ -56,6 +56,7 @@
         case searchLoading = "search.loading"
         case searchNoAccess = "search.noAccess"
         case searchReading = "search.reading"
+        case mascotGallery = "mascot.gallery"
         // Live.
         case home
         case search
@@ -133,6 +134,8 @@
                 SetupView(model: model, asked: true, onDone: {})
             case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
+            case .mascotGallery:
+                MascotGallery()
             default:
                 AppStack(model: model, path: path) { fixtureSearch(model).task { await Self.hideKeyboard() } }
             }

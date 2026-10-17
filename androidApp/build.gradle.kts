@@ -63,6 +63,9 @@ android {
 
     testOptions { unitTests { isIncludeAndroidResources = true } }
 
+    // The mascot's animated WebPs live once in the repo, in the iOS app's synced folder; Android packages the same files.
+    sourceSets["main"].assets.directories.add("../iosApp/Retriever/Motion/Frames")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
