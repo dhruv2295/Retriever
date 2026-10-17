@@ -1,5 +1,241 @@
 # Retrieval eval: EmbeddingGemma 2 M440 on the iOS simulator
 
+# Relevance rule fit (wave 5): fitted on public data, kept off
+
+**Decision: `RELEVANCE_RULE_ENABLED` stays false for every group, and `RELEVANCE_MARGIN` stays the 0.0 placeholder.**
+The rule's margin m was fitted as relevance-method.md sections 3-4 prescribe and failed the gate everywhere: on the
+held-out test split it calls 78% of text and 54% of photo no-match queries strong (gate: at most 12%). No single m
+passes in any group, even one picked on the test split itself (the "best m on test" table). The scan with the rule's
+histograms is also 24.9% slower than the plain scan (budget: 5%). The fitted value (-1.74) is recorded here and in
+`Ranking.kt`'s KDoc, not shipped. `RelevanceRuleTest.theFitFailedItsGateSoTheRuleShipsOff` pins both constants with
+this provenance.
+
+## Data, dumps and definitions
+
+- **Library** (`retriever-eval-data/prepared`, seed 17, approved for local evaluation only): 1,800 XM3600 photos (a
+  seeded half) + 5,183 SciFact abstracts + 5,000 MIRACL-hi passages = 11,983 files, 20,200 chunks (each photo has an
+  image chunk and a file-name chunk). 11,880 queries: XM3600 en + hi captions, SciFact claims (en), MIRACL-hi questions.
+  Splits are by query: SciFact train / MIRACL train / half the XM3600 images = calibration; the rest = test.
+- **Dumps** (scripts/ios-dump.sh, iOS simulator, CPU, production extractor and `draftChunks`, int8 d256): M440 vt70
+  (`M440/92dcbea1/vt70/d256/t512`), M440 vt140 (`M440/92dcbea1/vt140/d256/t512`), M740 vt70
+  (`M740/e7a8a220/vt70/d256/t512`). 11,983/11,983 files, 0 failed, 11,880/11,880 queries each. 8.9 MB each.
+- **M740 is not an independent transfer test.** VERIFIED: the M440 vt70 and M740 vt70 dumps differ in 9 bytes, all in
+  the header's signature; every vector is identical. INFERRED: the 740m file adds the audio tower to the same text and
+  vision weights. So the M740 rows below duplicate M440 vt70. This is the iOS CPU path only; it says nothing about the
+  Android emulator M740 run at the top of this file (other backend).
+- **Replay**: `RelevanceReplayTest.replayDump` runs every query through `SearchEngine.scan` and `RelevanceRule.noise`
+  over every admitted row, keyword lanes off (the rule only judges files found by meaning), and writes per query and
+  modality group the right file's and the best wrong file's excess and file rank. Groups present: TEXT (doc chunks and
+  photo file names) and IMAGE (photo chunks); no screenshots, so IMAGE_TEXT and AUDIO are unexercised.
+- **Listed** = file rank <= 20 in the vector lane (search shows 20 files; the rule never judges the rest).
+- **Strong recall, group g**: match queries whose right file is in g and listed, with excess >= m. "All" divides by every
+  match query instead (a right file past rank 20 is the model's miss, not the rule's).
+- **False-strong, group g**: no-match queries whose best wrong file in g is listed and has excess >= m. "Any group" is
+  the query-level rate: the app would show at least one strong hit for a query that matches nothing.
+- **Clean no-match** = `heldout_target` (the query's judged files removed) + `absent_domain` (its whole dataset
+  removed); these drive the gate. Clean no-match queries are all SciFact or MIRACL text, so the photo group's clean rate
+  is "text claims and questions against photos". **Noisy** = `heldout_image`: captions of the 1,800 photos never
+  indexed, which can genuinely match another photo; reported beside, never pooled. ~ho/~ab twins reuse their match
+  query's text (and vector) and are never counted as match queries.
+- **Fit**: conformal risk control with loss 1{right excess < m} at alpha = 0.10 over the listed right files of the
+  M440 vt70 calibration split, pooled over groups (one m is the method): m = the floor(alpha (n + 1))-th smallest excess.
+- **Gate** (per group, every config): test false-strong (clean) <= 0.12 and strong recall (listed) >= 0.80.
+
+## Why it fails (VERIFIED from the replay TSVs unless marked)
+
+1. **A modality group is not one noise population.** For SciFact queries the TEXT group's robust sigma is 0.074; for
+   every other (dataset, group) it is 0.026-0.035. The TEXT group mixes English abstracts, Hindi passages and photo
+   file names, and the IQR spans the sub-bands, so z shrinks: the right SciFact abstract's excess has median -1.47,
+   *below* the best wrong file's excess when SciFact is absent from the library (median +0.16). The rule's output
+   depends on what else is in the library (languages, domains), not on how well the file matches.
+2. **Judged near-misses sit on the positives.** MIRACL-hi held-out-target negatives (other passages judged for the same
+   question) have median excess 2.19 against 2.43 for the right passage. No per-query statistic separates them. That is
+   partly the construction, but `absent_domain`, the clean case, fails too.
+3. **Photos separate only for English and only against unrelated text.** Photo-group AUROC is 0.92 for English against
+   text-dataset no-match queries, 0.68 against held-out captions, and about 0.5 for Hindi captions (Hindi captions' right
+   photo has median excess 0.17 vs 1.57 for English).
+4. **m does not transfer across datasets.** Leave-one-dataset-out fits range from -2.14 to -0.64; fitted without SciFact,
+   SciFact's strong recall is 0.13. This directly fails the "generic across libraries and languages" requirement.
+5. **CRC held only pooled.** Pooled test FNR is 110/2,154 = 0.051 (<= alpha), but per group it is 0.178 for text and
+   0.000 for photo: photos outnumber docs in calibration, so the pooled m serves them and leaves text at -1.74, where
+   almost everything is strong.
+6. **Thin groups**: at 1,000 files the photo group has about 150 rows (< `MIN_ROWS` = 200), so the rule abstains there
+   (every photo hit strong). Forcing `minRows = 1` does not rescue it (photo clean false-strong 0.63).
+
+## Scan cost (SearchBenchTest, 50,000 files, 150,000 chunks, JVM, M4 Max, load average about 5)
+
+| Scan | p50 ms | p95 ms | p95 vs wave 4 |
+|---|---|---|---|
+| wave 4 scan (baseline) | 8.42 | 8.50 | - |
+| `vector` (rule off, what ships) | 8.41 | 8.48 | -0.2% |
+| `vector+rule` (histograms filled, `minStrong`) | 10.55 | 10.61 | **+24.9%** (budget 5%) |
+
+The histogram forces the per-row-check loop and adds a float-to-bin conversion and an increment per row; the
+method's "under 1%" estimate (INFERRED there) was wrong. Moot while the rule is off, and a reason to measure any
+successor's cost before fitting it.
+
+## What would have to change before another fit (INFERRED)
+
+- Noise statistics per (modality, language/script) or per nearest-neighbour cluster rather than per modality, or an
+  item-side correction (the query bank of method section 3.3), since the failure is mixture noise, not the margin.
+- A query-level "nothing matches" signal judged on clean absent-domain queries only, separately from per-file strength.
+- A cheaper statistic than a full histogram, or filling it from a row sample, to fit the 5% scan budget.
+
+## Reproduce
+
+```bash
+# 1. Dumps (hours each, on a Retriever-Fit-* simulator; delete it after)
+SIM_NAME=Retriever-Fit-m440-vt70 OUT=build/fit/m440-vt70 scripts/ios-dump.sh M440 70
+# 2. Replay (seconds to minutes each); absolute paths
+./gradlew :core:jvmTest --tests '*RelevanceReplayTest.replayDump' --rerun \
+  -Drelevance.dump=$PWD/build/fit/m440-vt70/dump-M440-vt70.bin \
+  -Drelevance.data=<retriever-eval-data>/prepared -Drelevance.out=$PWD/build/fit/m440-vt70.tsv
+#    the same for m740-vt70 and m440-vt140; the size sweep adds -Drelevance.sample=1000 or 5000
+#    (outputs m440-vt70-s1000.tsv, m440-vt70-s5000.tsv) and -Drelevance.minRows=1 (m440-vt70-s1000-minrows1.tsv)
+# 3. Fit and tables
+python3 -I eval/relevance-fit.py build/fit
+```
+
+## Tables (output of eval/relevance-fit.py)
+
+### Fit
+
+m = -1.7392 (CRC, alpha = 0.1, k = floor(alpha (n + 1)) = 247-th smallest of n = 2478 listed calibration match excesses, M440/92dcbea1/vt70)
+
+| calibration diagnostic | group | lang | FNR (right file listed but weak) |
+|---|---|---|---|
+| m440-vt70 calibration | text | en | 0.304 (246/809) |
+| m440-vt70 calibration | text | hi | 0.000 (0/99) |
+| m440-vt70 calibration | text | all | 0.271 (246/908) |
+| m440-vt70 calibration | photo | en | 0.000 (0/871) |
+| m440-vt70 calibration | photo | hi | 0.000 (0/699) |
+| m440-vt70 calibration | photo | all | 0.000 (0/1570) |
+
+#### Held-out test split and transfer (m fitted on m440-vt70 calibration, unchanged)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| M440 vt70 (fit) | text | -1.739 | 0.822 (508/618) | 0.782 (508/650) | 0.781 (1015/1300) | 0.604 (1088/1800) | 0.00 | FAIL |
+| M440 vt70 (fit) | photo | -1.739 | 1.000 (1536/1536) | 0.853 (1536/1800) | 0.538 (700/1300) | 0.991 (1783/1800) | 0.00 | FAIL |
+| M440 vt70 (fit) | any group (query level) | -1.739 | | | 0.845 (1099/1300) | 0.999 (1799/1800) | | |
+| M740 vt70 | text | -1.739 | 0.822 (508/618) | 0.782 (508/650) | 0.781 (1015/1300) | 0.604 (1088/1800) | 0.00 | FAIL |
+| M740 vt70 | photo | -1.739 | 1.000 (1536/1536) | 0.853 (1536/1800) | 0.538 (700/1300) | 0.991 (1783/1800) | 0.00 | FAIL |
+| M740 vt70 | any group (query level) | -1.739 | | | 0.845 (1099/1300) | 0.999 (1799/1800) | | |
+| M440 vt140 | text | -1.739 | 0.822 (508/618) | 0.782 (508/650) | 0.805 (1046/1300) | 0.732 (1318/1800) | 0.00 | FAIL |
+| M440 vt140 | photo | -1.739 | 1.000 (1502/1502) | 0.834 (1502/1800) | 0.505 (657/1300) | 0.978 (1761/1800) | 0.00 | FAIL |
+| M440 vt140 | any group (query level) | -1.739 | | | 0.845 (1099/1300) | 0.999 (1799/1800) | | |
+
+#### Per language: en (test split)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| M440 vt70 | text | -1.739 | 0.601 (166/276) | 0.553 (166/300) | 0.622 (373/600) | 0.414 (373/900) | 0.00 | FAIL |
+| M440 vt70 | photo | -1.739 | 1.000 (862/862) | 0.958 (862/900) | 0.500 (300/600) | 0.996 (896/900) | 0.00 | FAIL |
+| M440 vt70 | any group (query level) | -1.739 | | | 0.667 (400/600) | 0.999 (899/900) | | |
+| M440 vt140 | text | -1.739 | 0.601 (166/276) | 0.553 (166/300) | 0.640 (384/600) | 0.562 (506/900) | 0.00 | FAIL |
+| M440 vt140 | photo | -1.739 | 1.000 (854/854) | 0.949 (854/900) | 0.490 (294/600) | 0.994 (895/900) | 0.00 | FAIL |
+| M440 vt140 | any group (query level) | -1.739 | | | 0.667 (400/600) | 0.999 (899/900) | | |
+
+#### Per language: hi (test split)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| M440 vt70 | text | -1.739 | 1.000 (342/342) | 0.977 (342/350) | 0.917 (642/700) | 0.794 (715/900) | 0.00 | FAIL |
+| M440 vt70 | photo | -1.739 | 1.000 (674/674) | 0.749 (674/900) | 0.571 (400/700) | 0.986 (887/900) | 0.00 | FAIL |
+| M440 vt70 | any group (query level) | -1.739 | | | 0.999 (699/700) | 1.000 (900/900) | | |
+| M440 vt140 | text | -1.739 | 1.000 (342/342) | 0.977 (342/350) | 0.946 (662/700) | 0.902 (812/900) | 0.00 | FAIL |
+| M440 vt140 | photo | -1.739 | 1.000 (648/648) | 0.720 (648/900) | 0.519 (363/700) | 0.962 (866/900) | 0.00 | FAIL |
+| M440 vt140 | any group (query level) | -1.739 | | | 0.999 (699/700) | 1.000 (900/900) | | |
+
+LODO without xm3600: m = -2.1412 from n = 908
+
+LODO without scifact: m = -0.6449 from n = 1669
+
+LODO without miracl-hi: m = -1.7694 from n = 2379
+
+#### Leave one dataset out (M440 vt70; test split of the left-out dataset only)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| without xm3600 | text | -2.141 | - | - | - | 0.609 (1096/1800) | 0.00 | no data |
+| without xm3600 | photo | -2.141 | 1.000 (1536/1536) | 0.853 (1536/1800) | - | 0.991 (1783/1800) | 0.00 | no data |
+| without xm3600 | any group (query level) | -2.141 | | | - | 1.000 (1800/1800) | | |
+| without scifact | text | -0.645 | 0.130 (36/276) | 0.120 (36/300) | 0.472 (283/600) | - | 0.00 | FAIL |
+| without scifact | photo | -0.645 | - | - | 0.400 (240/600) | - | 0.00 | no data |
+| without scifact | any group (query level) | -0.645 | | | 0.520 (312/600) | - | | |
+| without miracl-hi | text | -1.769 | 1.000 (342/342) | 0.977 (342/350) | 0.917 (642/700) | - | 0.00 | FAIL |
+| without miracl-hi | photo | -1.769 | - | - | 0.571 (400/700) | - | 0.00 | no data |
+| without miracl-hi | any group (query level) | -1.769 | | | 0.999 (699/700) | - | | |
+
+#### Library-size sweep (M440 vt70, test split, same m)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| 1k files | text | -1.739 | 0.945 (86/91) | 0.945 (86/91) | 0.853 (1109/1300) | 0.990 (1782/1800) | 0.00 | FAIL |
+| 1k files | photo | -1.739 | 1.000 (142/142) | 0.986 (142/144) | 0.632 (821/1300) | 0.992 (1786/1800) | 1.00 | abstains (n < minRows) |
+| 1k files | any group (query level) | -1.739 | | | 0.880 (1144/1300) | 0.999 (1799/1800) | | |
+| 5k files | text | -1.739 | 0.888 (293/330) | 0.864 (293/339) | 0.798 (1038/1300) | 0.744 (1340/1800) | 0.00 | FAIL |
+| 5k files | photo | -1.739 | 1.000 (659/659) | 0.893 (659/738) | 0.571 (742/1300) | 0.992 (1786/1800) | 0.00 | FAIL |
+| 5k files | any group (query level) | -1.739 | | | 0.850 (1105/1300) | 0.999 (1799/1800) | | |
+| full 11,983 files | text | -1.739 | 0.822 (508/618) | 0.782 (508/650) | 0.781 (1015/1300) | 0.604 (1088/1800) | 0.00 | FAIL |
+| full 11,983 files | photo | -1.739 | 1.000 (1536/1536) | 0.853 (1536/1800) | 0.538 (700/1300) | 0.991 (1783/1800) | 0.00 | FAIL |
+| full 11,983 files | any group (query level) | -1.739 | | | 0.845 (1099/1300) | 0.999 (1799/1800) | | |
+
+#### 1k library with minRows = 1 (diagnostic only: would the rule hold on a ~150-row photo group?)
+
+| config | group | m | strong recall, listed | strong recall, all | false-strong, clean no-match | false-strong, noisy (held-out-photo captions) | thin-group share | gate |
+|---|---|---|---|---|---|---|---|---|
+| 1k files, minRows 1 | text | -1.739 | 0.945 (86/91) | 0.945 (86/91) | 0.853 (1109/1300) | 0.990 (1782/1800) | 0.00 | FAIL |
+| 1k files, minRows 1 | photo | -1.739 | 0.986 (140/142) | 0.972 (140/144) | 0.632 (821/1300) | 0.992 (1786/1800) | 0.00 | FAIL |
+| 1k files, minRows 1 | any group (query level) | -1.739 | | | 0.880 (1144/1300) | 0.999 (1799/1800) | | |
+
+#### Transfer: test FNR against the 95% interval of alpha
+
+| config | group | FNR | interval | inside |
+|---|---|---|---|---|
+| m440-vt70 | text | 0.178 (n 618) | 0.076-0.124 | no |
+| m440-vt70 | photo | 0.000 (n 1536) | 0.085-0.115 | no |
+| m740-vt70 | text | 0.178 (n 618) | 0.076-0.124 | no |
+| m740-vt70 | photo | 0.000 (n 1536) | 0.085-0.115 | no |
+| m440-vt140 | text | 0.178 (n 618) | 0.076-0.124 | no |
+| m440-vt140 | photo | 0.000 (n 1502) | 0.085-0.115 | no |
+
+#### Gate per group
+
+- text: M440 vt70 (fit): FAIL, M740 vt70: FAIL, M440 vt140: FAIL, without xm3600: no data, without scifact: FAIL, without miracl-hi: FAIL, 1k files: FAIL, 5k files: FAIL, full 11,983 files: FAIL
+- photo: M440 vt70 (fit): FAIL, M740 vt70: FAIL, M440 vt140: FAIL, without xm3600: no data, without scifact: no data, without miracl-hi: no data, 1k files: abstains (n < minRows), 5k files: FAIL, full 11,983 files: FAIL
+
+#### Separation on the test split, threshold-free, and the best any single m could do
+
+AUROC: right file (listed match) excess vs best listed wrong file (no-match) excess, per hit group. "Best m on test": the m that maximises strong recall subject to false-strong <= 0.12, chosen on the test split itself (an upper bound, not a fit).
+
+| config | group | no-match set | AUROC | best m on test | recall there | false-strong there |
+|---|---|---|---|---|---|---|
+| m440-vt70 | text | all, clean (1300) | 0.549 | 2.30 | 0.299 | 0.120 |
+| m440-vt70 | text | all, noisy (1800) | 0.533 | 0.88 | 0.487 | 0.112 |
+| m440-vt70 | text | en, clean (600) | 0.367 | 1.35 | 0.018 | 0.037 |
+| m440-vt70 | text | en, noisy (900) | 0.132 | 0.35 | 0.036 | 0.097 |
+| m440-vt70 | text | hi, clean (700) | 0.726 | 2.96 | 0.333 | 0.120 |
+| m440-vt70 | text | hi, noisy (900) | 0.887 | 1.16 | 0.804 | 0.113 |
+| m440-vt70 | photo | all, clean (1300) | 0.739 | 0.43 | 0.639 | 0.118 |
+| m440-vt70 | photo | all, noisy (1800) | 0.614 | 1.59 | 0.327 | 0.120 |
+| m440-vt70 | photo | en, clean (600) | 0.924 | 0.02 | 0.906 | 0.117 |
+| m440-vt70 | photo | en, noisy (900) | 0.675 | 2.00 | 0.386 | 0.120 |
+| m440-vt70 | photo | hi, clean (700) | 0.496 | 0.74 | 0.301 | 0.120 |
+| m440-vt70 | photo | hi, noisy (900) | 0.537 | 0.97 | 0.231 | 0.117 |
+| m440-vt140 | text | all, clean (1300) | 0.549 | 2.30 | 0.299 | 0.120 |
+| m440-vt140 | text | all, noisy (1800) | 0.537 | 0.88 | 0.487 | 0.118 |
+| m440-vt140 | photo | all, clean (1300) | 0.756 | 0.29 | 0.666 | 0.118 |
+| m440-vt140 | photo | all, noisy (1800) | 0.635 | 1.48 | 0.360 | 0.120 |
+| m440-vt70-s5000 | text | all, clean (1300) | 0.647 | 1.97 | 0.421 | 0.119 |
+| m440-vt70-s5000 | text | all, noisy (1800) | 0.637 | 0.88 | 0.573 | 0.114 |
+| m440-vt70-s5000 | photo | all, clean (1300) | 0.752 | 0.40 | 0.654 | 0.117 |
+| m440-vt70-s5000 | photo | all, noisy (1800) | 0.658 | 1.38 | 0.399 | 0.119 |
+| m440-vt70-s1000-minrows1 | text | all, clean (1300) | 0.744 | 1.43 | 0.582 | 0.117 |
+| m440-vt70-s1000-minrows1 | text | all, noisy (1800) | 0.722 | 0.97 | 0.659 | 0.083 |
+| m440-vt70-s1000-minrows1 | photo | all, clean (1300) | 0.774 | 0.43 | 0.669 | 0.115 |
+| m440-vt70-s1000-minrows1 | photo | all, noisy (1800) | 0.727 | 1.09 | 0.514 | 0.118 |
+
 # Android: M740 on the emulator (wave 4)
 
 The debug screen's "Run corpus eval" on emulator-5580 (Android 16, arm64, 8 GB, so `ModelBuilds.variantFor` picks
@@ -38,10 +274,11 @@ eval's on all 42 queries.
 for one model (M440, vt70) and did not carry to M740, which already had no floor. Their replacement is a per-query rule
 in `Ranking.kt` (`RelevanceRule`, method in the wave 5 research `relevance-method.md` section 3.1): a file found only
 by meaning is strong when its cosine clears the noise maximum of its own modality's cosines for that query by a margin
-m. It has no cosine constants, but m must be fitted on public data, never on this corpus, and that fit has not run. So
-the rule ships switched off (`RELEVANCE_RULE_ENABLED = false`): on every model and both platforms, every hit found by
-meaning, words or an exact or prefix name match is strong, and only a loose name match (substring or typo) on its own is
-weak. iOS M440 loses its "Less likely" split and "Nothing matches well" until m is fitted; that was accepted.
+m. It has no cosine constants, but m must be fitted on public data, never on this corpus. That fit ran and failed its
+gate ("Relevance rule fit" at the top of this file), so the rule ships switched off (`RELEVANCE_RULE_ENABLED = false`):
+on every model and both platforms, every hit found by meaning, words or an exact or prefix name match is strong, and
+only a loose name match (substring or typo) on its own is weak. iOS M440 has no "Less likely" split and no "Nothing
+matches well"; that was accepted.
 
 This also settles the 0.69 vs 0.70 mismatch in this section: run 2 measured with a 0.70 photo floor (the per-group
 table below still shows 0.70), and the code shipped 0.69. Neither number is in the code any more.

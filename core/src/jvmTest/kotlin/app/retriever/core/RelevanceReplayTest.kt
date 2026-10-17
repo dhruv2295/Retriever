@@ -15,7 +15,8 @@ import kotlin.test.assertTrue
  * Replays a relevance-fit dump (RelevanceDump, made on a simulator by scripts/ios-dump.sh) through SearchEngine's own
  * scan and RelevanceRule's own histogram statistics. [replayDump] runs only with -Drelevance.dump=<dump.bin> and
  * -Drelevance.data=<prepared dir>; it writes one TSV row per query and modality group to -Drelevance.out (default:
- * the dump's path + .tsv). The other tests run in the default gate on a small synthetic dump.
+ * the dump's path + .tsv); -Drelevance.sample=N replays a seeded N-file library instead,
+ * and -Drelevance.minRows overrides the rule's thin-group cut. The other tests run in the default gate on a small synthetic dump.
  */
 class RelevanceReplayTest {
     /** One query in one modality group: the group's noise, the right file's best chunk and the best wrong file's. */
@@ -30,6 +31,7 @@ class RelevanceReplayTest {
         val rightChunkRank: Int?,
         val wrongFile: String?,
         val wrongCos: Float,
+        val wrongFileRank: Int?,
     ) {
         val rightExcess get() = if (rightFile == null) Double.NaN else noise?.excess(rightCos) ?: Double.NaN
         val wrongExcess get() = if (wrongFile == null) Double.NaN else noise?.excess(wrongCos) ?: Double.NaN
@@ -72,6 +74,7 @@ class RelevanceReplayTest {
             val seen = HashSet<Long>()
             var right: Triple<Int, Int, Int>? = null // row index, file rank, chunk rank
             val wrong = arrayOfNulls<Int>(Modality.entries.size)
+            val wrongRank = arrayOfNulls<Int>(Modality.entries.size)
             for (i in s.rows.indices) {
                 val file = table.fileIds[s.rows[i]]
                 seen += file
@@ -80,6 +83,7 @@ class RelevanceReplayTest {
                     if (right == null) right = Triple(i, seen.size, i + 1)
                 } else if (wrong[g] == null) {
                     wrong[g] = i
+                    wrongRank[g] = seen.size
                 }
             }
             Modality.entries.mapNotNull { g ->
@@ -90,7 +94,7 @@ class RelevanceReplayTest {
                 Row(
                     q, g, n, noise[g.ordinal],
                     r?.let { names[table.fileIds[s.rows[it.first]].toInt() - 1] }, r?.let { s.cos[it.first] } ?: Float.NaN, r?.second, r?.third,
-                    w?.let { names[table.fileIds[s.rows[it]].toInt() - 1] }, w?.let { s.cos[it] } ?: Float.NaN,
+                    w?.let { names[table.fileIds[s.rows[it]].toInt() - 1] }, w?.let { s.cos[it] } ?: Float.NaN, wrongRank[g.ordinal],
                 )
             }
         }.toList().flatten()
@@ -101,17 +105,28 @@ class RelevanceReplayTest {
         val dumpPath = System.getProperty("relevance.dump")
         assumeTrue("set -Drelevance.dump=<dump.bin> -Drelevance.data=<prepared dir> to replay a dump", dumpPath != null)
         val data = File(checkNotNull(System.getProperty("relevance.data")) { "-Drelevance.data is required" })
-        val dump = RelevanceDump.read(File(dumpPath).readBytes())
+        val full = RelevanceDump.read(File(dumpPath).readBytes())
         val manifest = parseDumpManifest(File(data, "manifest.json").readText())
-        val inDump = dump.queries.map { it.id }.toSet()
-        val queries = parseDumpQueries(File(data, "queries.json").readText()).filter { it.id in inDump }
+        val inDump = full.queries.map { it.id }.toSet()
+        // -Drelevance.sample=N: a seeded library of about N files with the same kind mix (the library-size sweep);
+        // match queries whose right files all fell out are dropped.
+        val sample = System.getProperty("relevance.sample")?.toInt()
+        val dump = if (sample == null) full else {
+            val kept = full.files.groupBy { it.kind }.values.flatMap { fs ->
+                fs.shuffled(Random(17)).take(Math.round(sample.toDouble() * fs.size / full.files.size).toInt())
+            }.map { it.id }.toSet()
+            RelevanceDump.Dump(full.signature, full.visionTokens, full.files.filter { it.id in kept }, full.queries, full.validBytes)
+        }
+        val inLibrary = dump.files.map { it.id }.toSet()
+        val queries = parseDumpQueries(File(data, "queries.json").readText())
+            .filter { it.id in inDump && (it.kind != "match" || it.relevant.any { r -> r in inLibrary }) }
         println("RelevanceReplay: ${dump.signature}, ${dump.files.size} files, ${dump.files.sumOf { it.chunks.size }} chunks, ${queries.size} queries")
-        val rows = replay(dump, manifest, queries)
+        val rows = replay(dump, manifest, queries, RelevanceRule(minRows = System.getProperty("relevance.minRows")?.toInt() ?: RelevanceRule.MIN_ROWS))
         val out = File(System.getProperty("relevance.out") ?: "$dumpPath.tsv")
         out.printWriter().use { w ->
             w.println(
                 "signature\tquery\tdataset\tlang\tsplit\tkind\tconstruction\tnoisy\tgroup\tn\tmedian\tsigma\texpected_max\t" +
-                    "right_file\tright_cos\tright_excess\tright_file_rank\tright_chunk_rank\twrong_file\twrong_cos\twrong_excess",
+                    "right_file\tright_cos\tright_excess\tright_file_rank\tright_chunk_rank\twrong_file\twrong_cos\twrong_excess\twrong_file_rank",
             )
             for (r in rows) {
                 val q = r.query
@@ -120,7 +135,7 @@ class RelevanceReplayTest {
                         dump.signature, q.id, q.dataset, q.lang, q.split, q.kind, q.construction.orEmpty(), q.noisy, r.group, r.n,
                         r.noise?.median ?: "", r.noise?.sigma ?: "", r.noise?.expectedMax ?: "",
                         r.rightFile.orEmpty(), r.rightCos.orBlank(), r.rightExcess.orBlank(), r.rightFileRank ?: "", r.rightChunkRank ?: "",
-                        r.wrongFile.orEmpty(), r.wrongCos.orBlank(), r.wrongExcess.orBlank(),
+                        r.wrongFile.orEmpty(), r.wrongCos.orBlank(), r.wrongExcess.orBlank(), r.wrongFileRank ?: "",
                     ).joinToString("\t"),
                 )
             }
