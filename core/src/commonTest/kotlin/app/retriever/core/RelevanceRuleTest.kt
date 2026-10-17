@@ -122,8 +122,8 @@ class RelevanceRuleTest {
      * SciFact + MIRACL-hi library): conformal risk control at alpha 0.10 on M440/92dcbea1/vt70's calibration split (2,478
      * listed right files) gave m = -1.74. On the test split it calls 78% of text and 54% of photo no-match queries
      * strong (gate: at most 12%), and no m, even one picked on the test split, reaches strong recall 0.80 at 12%
-     * false-strong in any group. So the rule ships off and the margin stays the unfitted placeholder. Re-fit with a new
-     * method before changing either; never hand-pick m.
+     * false-strong in any modality group pooled over languages; method 4.4's own gate fails too. So the rule ships off
+     * and the margin stays the unfitted placeholder. Re-fit with a new method before changing either; never hand-pick m.
      */
     @Test
     fun theFitFailedItsGateSoTheRuleShipsOff() {

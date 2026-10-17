@@ -3,30 +3,59 @@
 # Relevance rule fit (wave 5): fitted on public data, kept off
 
 **Decision: `RELEVANCE_RULE_ENABLED` stays false for every group, and `RELEVANCE_MARGIN` stays the 0.0 placeholder.**
-The rule's margin m was fitted as relevance-method.md sections 3-4 prescribe and failed the gate everywhere: on the
-held-out test split it calls 78% of text and 54% of photo no-match queries strong (gate: at most 12%). No single m
-passes in any group, even one picked on the test split itself (the "best m on test" table). The scan with the rule's
-histograms is also 24.9% slower than the plain scan (budget: 5%). The fitted value (-1.74) is recorded here and in
-`Ranking.kt`'s KDoc, not shipped. `RelevanceRuleTest.theFitFailedItsGateSoTheRuleShipsOff` pins both constants with
-this provenance.
+The rule's margin m was fitted by the method's conformal step (relevance-method.md 3.1 and 4.2) and failed the gate
+everywhere: on the held-out test split it calls 78% of text and 54% of photo no-match queries strong (gate: at most
+12%). No single m passes in any modality group pooled over languages, even one picked on the test split itself (the
+"best m on test" table; English photos alone do pass there, at m = 0.02, which Hindi photos fail). The scan with the
+rule's histograms is also 25-26% slower than the plain scan in two bench runs (budget: 5%). The fitted value (-1.74) is
+recorded here and in `Ranking.kt`'s KDoc, not shipped. `RelevanceRuleTest.theFitFailedItsGateSoTheRuleShipsOff` pins
+both constants with this provenance.
+
+**What ran, against what the method asked for.** Only arm 3 of method 4.3 (histogram median and IQR per modality) was
+fitted; arms 1-2 and 4-8 did not run, and the AUROC comparison between arms was not made. The 0.12 / 0.80 gate below is
+an absolute gate set for this fit, not the method's 4.4 rule. The method's own rule fails too (VERIFIED from the M440
+vt70 test TSV; its baseline is what ships, no floor, since wave 5 removed `RelevanceFloor`):
+
+| method 4.4 condition | text | photo |
+|---|---|---|
+| strong recall (listed) no more than 2 points under baseline (1.000) | 0.822: 17.8 points under, FAIL | 1.000, pass |
+| clean no-match false-strong at least 5 points under baseline | 0.781 vs 0.935, pass | 0.538 vs 0.538: unchanged, FAIL |
+| noisy no-match false-strong (reported beside) | 0.604 vs 0.610 | 0.991 vs 0.991: unchanged |
+| test FNR inside the 95% interval of alpha | 0.178, FAIL | 0.000, FAIL |
+| vector p95 within 5% | +24.9% and +26.2%, FAIL | same |
+
+At the fitted m every listed photo is strong, so for photos the rule changes nothing.
 
 ## Data, dumps and definitions
 
 - **Library** (`retriever-eval-data/prepared`, seed 17, approved for local evaluation only): 1,800 XM3600 photos (a
-  seeded half) + 5,183 SciFact abstracts + 5,000 MIRACL-hi passages = 11,983 files, 20,200 chunks (each photo has an
-  image chunk and a file-name chunk). 11,880 queries: XM3600 en + hi captions, SciFact claims (en), MIRACL-hi questions.
-  Splits are by query: SciFact train / MIRACL train / half the XM3600 images = calibration; the rest = test.
+  seeded half) + 5,183 SciFact abstracts + 5,000 MIRACL-hi passages = 11,983 files, 20,200 vector chunks: 1,800 photo
+  chunks (one IMAGE chunk per photo; `draftChunks` embeds a name only when nothing else could be), 12,387 SciFact and
+  6,013 MIRACL-hi TEXT chunks (VERIFIED by parsing the dump). 11,880 queries: XM3600 en + hi captions, SciFact claims
+  (en), MIRACL-hi questions. Splits are by query: SciFact train / MIRACL train / half the XM3600 images = calibration;
+  the rest = test.
+- **Split hygiene** (VERIFIED from queries.json and relevance-fit.py): `fit()` reads calibration rows only; nothing in
+  the fit reads `eval/queries.json` or the eval corpus. Cross-split overlap is small and comes from the datasets: 16
+  identical caption texts across the XM3600 halves, two SciFact claims that BEIR lists in both train and test, and 187
+  abstracts relevant to both a calibration and a test claim (the shared BEIR corpus; splits are by query, as the method
+  says). None can move the 247th of 2,478 calibration excesses by more than a few ranks.
 - **Dumps** (scripts/ios-dump.sh, iOS simulator, CPU, production extractor and `draftChunks`, int8 d256): M440 vt70
   (`M440/92dcbea1/vt70/d256/t512`), M440 vt140 (`M440/92dcbea1/vt140/d256/t512`), M740 vt70
   (`M740/e7a8a220/vt70/d256/t512`). 11,983/11,983 files, 0 failed, 11,880/11,880 queries each. 8.9 MB each.
 - **M740 is not an independent transfer test.** VERIFIED: the M440 vt70 and M740 vt70 dumps differ in 9 bytes, all in
-  the header's signature; every vector is identical. INFERRED: the 740m file adds the audio tower to the same text and
-  vision weights. So the M740 rows below duplicate M440 vt70. This is the iOS CPU path only; it says nothing about the
-  Android emulator M740 run at the top of this file (other backend).
+  the header's signature; every vector is identical. VERIFIED that a different file was loaded: the M740 run's log
+  loads an audio encoder (mel filterbank) and skips `tf_lite_per_layer_embedder`, while the M440 run's log skips
+  `tf_lite_audio_encoder_hw` (the signature's sha prefix comes from `Model.kt` by variant, so it alone proves nothing).
+  INFERRED: the 740m file adds the audio tower to the same text and vision weights. So the M740 rows below duplicate
+  M440 vt70, and the only real transfer test is vt140, which changes the image side only; no cross-model text transfer
+  was tested. This is the iOS CPU path only; it says nothing about the Android emulator M740 run below (other backend).
 - **Replay**: `RelevanceReplayTest.replayDump` runs every query through `SearchEngine.scan` and `RelevanceRule.noise`
   over every admitted row, keyword lanes off (the rule only judges files found by meaning), and writes per query and
-  modality group the right file's and the best wrong file's excess and file rank. Groups present: TEXT (doc chunks and
-  photo file names) and IMAGE (photo chunks); no screenshots, so IMAGE_TEXT and AUDIO are unexercised.
+  modality group the right file's and the best wrong file's excess and file rank. Groups present: TEXT (doc chunks) and
+  IMAGE (photo chunks); no screenshots, so IMAGE_TEXT and AUDIO are unexercised. Same statistic as search (VERIFIED by
+  reading both paths): both call `SearchEngine.scan` with the histogram and `RelevanceRule.noise`, and search's
+  `cos >= minStrong` is `excess >= m` rearranged. The replay ranks files over every row where search keeps the top 100
+  chunks, but no listed right file's best chunk ranks past 25 (VERIFIED, all three full TSVs), so the cut changes nothing.
 - **Listed** = file rank <= 20 in the vector lane (search shows 20 files; the rule never judges the rest).
 - **Strong recall, group g**: match queries whose right file is in g and listed, with excess >= m. "All" divides by every
   match query instead (a right file past rank 20 is the model's miss, not the rule's).
@@ -39,13 +68,14 @@ this provenance.
   query's text (and vector) and are never counted as match queries.
 - **Fit**: conformal risk control with loss 1{right excess < m} at alpha = 0.10 over the listed right files of the
   M440 vt70 calibration split, pooled over groups (one m is the method): m = the floor(alpha (n + 1))-th smallest excess.
-- **Gate** (per group, every config): test false-strong (clean) <= 0.12 and strong recall (listed) >= 0.80.
+- **Gate** (per group, every config): test false-strong (clean) <= 0.12 and strong recall (listed) >= 0.80. Set for
+  this fit, not taken from the method (see the method 4.4 table above).
 
 ## Why it fails (VERIFIED from the replay TSVs unless marked)
 
 1. **A modality group is not one noise population.** For SciFact queries the TEXT group's robust sigma is 0.074; for
-   every other (dataset, group) it is 0.026-0.035. The TEXT group mixes English abstracts, Hindi passages and photo
-   file names, and the IQR spans the sub-bands, so z shrinks: the right SciFact abstract's excess has median -1.47,
+   every other (dataset, group) it is 0.026-0.036. The TEXT group mixes English abstracts and Hindi passages, and for
+   an English claim the IQR spans both bands, so z shrinks: the right SciFact abstract's excess has median -1.47,
    *below* the best wrong file's excess when SciFact is absent from the library (median +0.16). The rule's output
    depends on what else is in the library (languages, domains), not on how well the file matches.
 2. **Judged near-misses sit on the positives.** MIRACL-hi held-out-target negatives (other passages judged for the same
@@ -70,7 +100,7 @@ this provenance.
 | `vector` (rule off, what ships) | 8.41 | 8.48 | -0.2% |
 | `vector+rule` (histograms filled, `minStrong`) | 10.55 | 10.61 | **+24.9%** (budget 5%) |
 
-The histogram forces the per-row-check loop and adds a float-to-bin conversion and an increment per row; the
+An earlier run in this wave measured +26.2% (the Gate table further down). The histogram forces the per-row-check loop and adds a float-to-bin conversion and an increment per row; the
 method's "under 1%" estimate (INFERRED there) was wrong. Moot while the rule is off, and a reason to measure any
 successor's cost before fitting it.
 
