@@ -62,3 +62,10 @@ sqldelight {
         }
     }
 }
+
+// RelevanceReplayTest runs only when -Drelevance.dump=<dump.bin> is given; forward its properties to the test JVM.
+tasks.named<Test>("jvmTest") {
+    listOf("relevance.dump", "relevance.data", "relevance.out").forEach { key ->
+        providers.systemProperty(key).orNull?.let { systemProperty(key, it) }
+    }
+}

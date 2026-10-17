@@ -49,16 +49,30 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
     /** A fresh histogram for one scan: [BINS] counts per modality. */
     fun histogram() = IntArray(Modality.entries.size * BINS)
 
-    /** Per modality ordinal, the lowest cosine that is strong; -Infinity for a group too thin to judge. */
-    fun minStrong(histogram: IntArray): FloatArray = FloatArray(Modality.entries.size) { g ->
+    /** One group's noise in one query's histogram: [n] rows, robust centre and spread. */
+    class Noise(val n: Int, val median: Double, val sigma: Double) {
+        /** sqrt(2 ln n): where the largest of n Gaussian noise draws lands, in standard deviations. */
+        val expectedMax: Double get() = sqrt(2 * ln(n.toDouble()))
+
+        /** How many standard deviations [cos] sits above that expected maximum; strong when >= the margin. */
+        fun excess(cos: Float): Double = (cos - median) / sigma - expectedMax
+    }
+
+    /** Per modality ordinal, that group's [Noise]; null for a group under [minRows]. */
+    fun noise(histogram: IntArray): Array<Noise?> = Array(Modality.entries.size) { g ->
         val off = g * BINS
         var n = 0
         for (i in off until off + BINS) n += histogram[i]
-        if (n < minRows) return@FloatArray Float.NEGATIVE_INFINITY
+        if (n < minRows) return@Array null
         val q1 = quantile(histogram, off, n, 0.25)
         val median = quantile(histogram, off, n, 0.5)
-        val sigma = maxOf(quantile(histogram, off, n, 0.75) - q1, BIN_WIDTH) / 1.349
-        (median + sigma * (sqrt(2 * ln(n.toDouble())) + margin)).toFloat()
+        Noise(n, median, maxOf(quantile(histogram, off, n, 0.75) - q1, BIN_WIDTH) / 1.349)
+    }
+
+    /** Per modality ordinal, the lowest cosine that is strong; -Infinity for a group too thin to judge. */
+    fun minStrong(histogram: IntArray): FloatArray {
+        val noise = noise(histogram)
+        return FloatArray(noise.size) { g -> noise[g]?.let { (it.median + it.sigma * (it.expectedMax + margin)).toFloat() } ?: Float.NEGATIVE_INFINITY }
     }
 
     /** The [p] quantile of one group's counts, interpolated inside its bin. */
