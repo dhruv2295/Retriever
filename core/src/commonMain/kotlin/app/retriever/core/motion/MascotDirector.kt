@@ -27,15 +27,18 @@ enum class MascotMood {
     CAUGHT_UP,
 }
 
-/** One animated WebP in the shared Frames folder (2x the slot width, 12 drawings a second), and its resting pose. */
+/**
+ * One animated WebP in the shared Frames folder, and its resting pose. 2x the slot width; 12 drawings a second for quick
+ * motion, fewer for slow motion (sit 8, welcome 10, doze 5).
+ */
 enum class MascotClip(val file: String, val still: String, val seconds: Double) {
     WALK("mascot_walk.webp", "mascot_walk_still.webp", 1.41),
-    SIT("mascot_sit.webp", "mascot_doze_still.webp", 4.23),
+    SIT("mascot_sit.webp", "mascot_doze_still.webp", 4.25),
     DOZE("mascot_doze.webp", "mascot_doze_still.webp", 3.2),
     WAKE("mascot_wake.webp", "mascot_walk_still.webp", 3.32),
-    SNIFF("mascot_sniff.webp", "mascot_sniff_still.webp", 1.91),
-    HUH("mascot_huh.webp", "mascot_huh_still.webp", 2.16),
-    WELCOME("mascot_welcome.webp", "mascot_welcome_still.webp", 2.57),
+    SNIFF("mascot_sniff.webp", "mascot_sniff_still.webp", 1.49),
+    HUH("mascot_huh.webp", "mascot_huh_still.webp", 2.24),
+    WELCOME("mascot_welcome.webp", "mascot_welcome_still.webp", 2.6),
     CAUGHT_UP("mascot_caughtup.webp", "mascot_caughtup_still.webp", 1.33),
 }
 

@@ -19,8 +19,8 @@ text carries the state, as today.
 |---|---|---|
 | `WALKING` | Walks with its paper, 1.4 s stride. After 2 min on one screen: walk 10 s, stand 50 s, repeat | Reading or downloading is running: Home first run while the file count is 0 (`HomeScreen.EmptyHome` / `HomeView`), onboarding download, tune and "Reading a few of your files", the Status header while reading runs, Duplicates "Looking for copies" |
 | `RESTING` | From walking: sits, dozes for three breaths, then holds the doze. Opened while already paused: shows the doze, no sit | The same slots when reading is paused (charger wait, phone in use, cooling down, Pause, waiting for Wi-Fi) |
-| `SEARCHING` | Sniffs the ground twice, then holds | Search: meaning results still pending **after 400 ms** and nothing has matched yet. Below any keyword hits, never in front of them; none if there are hits |
-| `NO_MATCH` | Lifts its head into a happy "huh?" tilt, once, then holds | "No matches", "Nothing like this yet", "No matches in Photos", empty Browse and Duplicates (`EmptyState` in FileRow.kt, `StateView` in ResultViews.swift) |
+| `SEARCHING` | Sniffs along the ground, tail up, twice (1.5 s loop), then holds | Search: meaning results still pending **after 400 ms** and nothing has matched yet. Below any keyword hits, never in front of them; none if there are hits |
+| `NO_MATCH` | Lifts its head, looks at you with a happy tongue-out smile, once (2.2 s), then holds | Empty states: "No matches", "Nothing like this yet", "No matches in Photos", no starred match, Nothing starred yet, No folders yet, No duplicates found, empty Browse and Home (`EmptyState` in FileRow.kt, `StateView` in ResultViews.swift). **Not** on errors ("Search hit a snag", "Couldn't open this file", "Couldn't play this video"…): those keep the still `illus_empty` art, so a failure never gets a grin |
 | `NO_MATCH_QUIET` | The end pose of `NO_MATCH`, no motion | The same places once the person has seen "No matches" 3 times (keep the count in Prefs) |
 | `WELCOME` | One hello: dip, head tilt, three tail wags. 2.6 s, then holds | First-run welcome only, at 260 dp |
 | `CAUGHT_UP` | One happy bounce: squint, wag, ears up. 1.3 s, then holds | Home status or Status header, the first time either is on screen after the first full read; then never again (Store meta `celebrated`). Haptic on the pop, 0.2 s after it appears: Android `HapticFeedbackType.Confirm`, iOS `.sensoryFeedback(.success, trigger:)` |
@@ -63,12 +63,14 @@ Battery Saver / Low Power Mode; thermal status moderate or worse (iOS `.serious`
 
 ## Files and cost
 
-- Frames: `iosApp/Retriever/Motion/Frames/` (14 files, 2.9 MB): one animated WebP per clip at twice the slot width
-  (320 px for 160 dp, 480 px for the 260 dp welcome), 12 drawings a second, plus a still per pose. iOS bundles the folder (synced group); Android packages the same folder as assets
+- Frames: `iosApp/Retriever/Motion/Frames/` (14 files, 2.0 MB): one lossy animated WebP per clip at twice the slot
+  width (320 px for 160 dp, 400 px for the 260 dp welcome), plus a still per pose. Drawings per second follow the
+  motion: 12 for walking, sniffing, the "huh?", waking and caught-up; 8 for the sit, 10 for the welcome, 5 for the
+  doze. The "huh?" ends once the smile lands; the still holds the pose after that. iOS bundles the folder (synced group); Android packages the same folder as assets
   (`sourceSets["main"].assets.srcDir(...)` in androidApp/build.gradle.kts). The release APK is 24 MB today, so this is
-  about +2.9 MB.
+  about +2.0 MB.
 - Players: Android `AnimatedImageDrawable`, iOS `CGAnimateImageAtURLWithBlock`. Both decode frames off the main thread,
-  at 15 fps. Nothing allocates per frame in our code.
+  at 5 to 12 drawings a second. Nothing allocates per frame in our code.
 - CPU: about 0.85 ms to decode one 480 px frame on an M-series Mac (measured); INFERRED 1 to 2 ms for a 320 px frame on
   a phone's worker thread, 12 times a second while walking, and nothing while holding. Not measured on a device yet: the WP-A1 Perfetto
   gate (embed time over 40 files, dog on and off) should include it. Over 3 % slower: show `RESTING`'s still while
@@ -76,6 +78,14 @@ Battery Saver / Low Power Mode; thermal status moderate or worse (iOS `.serious`
 - Logic: `core/src/commonMain/kotlin/app/retriever/core/motion/MascotDirector.kt`, tested in `MascotDirectorTest`
   (cadence, pause, resume, search, one-shots, stills). Android: `MascotTest` (every file ships, clip lengths match the
   director, the motion-allowed rule).
+
+## Art changed on this branch (merge these with it)
+
+- The app icon is redrawn in the illustrations' style (Android adaptive foreground and monochrome in every
+  `mipmap-*`, iOS light, dark and tinted in `AppIcon.appiconset`), so the icon dog and the in-app dog are one character.
+- `illus_empty` (Android `drawable-nodpi/illus_empty.webp`, iOS `IllusEmpty.imageset/empty.png`) is the new on-model
+  sniffing dog, without the paper. It is also the still behind error states, and iOS `SelfTest` embeds it as its sample
+  dog photo: still a dog, so the check holds, but its expected neighbours may shift.
 
 ## Sources
 
