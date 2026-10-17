@@ -29,7 +29,6 @@ import android.mtp.MtpConstants
 import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.MediaStore
-import android.util.Log
 import android.webkit.MimeTypeMap
 import app.retriever.core.Changes
 import app.retriever.core.FileRules
@@ -41,7 +40,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** [access] names what the app may see (all files, or which media permissions); the token records it. */
-class MediaStoreSource(private val context: Context, private val access: () -> String = { "" }) : FileSource {
+class MediaStoreSource(private val context: Context, private val access: () -> String = { "" },
+    private val log: (String, Throwable?) -> Unit = { _, _ -> },
+) : FileSource {
     // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER). 4: folders left out.
     override val rulesVersion = 4
 
@@ -67,7 +68,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
             upserted += query(volume, sinceGeneration, skips, removed)
         }
         val isFull = fullVolumes == volumes.size
-        Log.i("Retriever", "MediaStore scan: ${upserted.size} files, skipped $skips, full=$isFull")
+        log("MediaStore scan: ${upserted.size} files, skipped $skips, full=$isFull", null)
         Changes(
             upserted = upserted,
             removed = removed,
@@ -169,12 +170,12 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
                         )
                     } catch (e: Exception) {
                         skips.merge("unreadable", 1, Int::plus)
-                        Log.w("Retriever", "Skipping unreadable MediaStore row: ${e.message}")
+                        log("Skipping unreadable MediaStore row", e)
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("Retriever", "MediaStore.Files query failed on $volume: ${e.message}")
+            log("MediaStore.Files query failed", e)
             throw IllegalStateException("MediaStore query failed", e)
         }
         return out
@@ -192,6 +193,6 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
     /** Null for the primary volume; "SD card" and the like otherwise. */
     private fun volumeLabel(collection: Uri): String? = runCatching {
         context.getSystemService(StorageManager::class.java).getStorageVolume(collection)
-            ?.takeIf { !it.isPrimary }?.getDescription(context)
+            .takeIf { !it.isPrimary }?.getDescription(context)
     }.getOrNull()
 }

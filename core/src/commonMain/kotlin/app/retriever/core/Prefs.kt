@@ -17,6 +17,10 @@ data class Prefs(
     val rememberSearches: Boolean = true,
     /** Android only: colours from the wallpaper. */
     val dynamicColor: Boolean = true,
+    /** Setup has begun, so a relaunch resumes it instead of starting over. */
+    val setupStarted: Boolean = false,
+    /** The person dismissed the ask for notification access. */
+    val notificationsDismissed: Boolean = false,
 ) {
     companion object {
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(

@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import ImageIO
 import Network
 import os
@@ -10,8 +10,9 @@ import Vision
 import ZIPFoundation
 
 /// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from background threads, so the
-/// blocking waits here are fine. Every failure is nil (or -1 / empty), never a throw.
-final class FileExtractor: NSObject, NativeExtractor {
+/// blocking waits here are fine. Every failure is nil (or -1 / empty), never a throw. Unchecked Sendable: each
+/// mutable field sits behind its own lock.
+final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private let folders: FolderSource
     private static let ocrSide: CGFloat = 1600
     private static let log = Logger(subsystem: "app.retriever", category: "extractor")
@@ -19,8 +20,11 @@ final class FileExtractor: NSObject, NativeExtractor {
     private let cloudLock = NSLock()
     private var cloudOnly = 0
 
-    init(folders: FolderSource) {
+    private let allowMobileData: @Sendable () -> Bool
+
+    init(folders: FolderSource, allowMobileData: @escaping @Sendable () -> Bool) {
         self.folders = folders
+        self.allowMobileData = allowMobileData
         super.init()
         pathMonitor.start(queue: DispatchQueue(label: "app.retriever.extractor.network"))
     }
@@ -38,6 +42,7 @@ final class FileExtractor: NSObject, NativeExtractor {
         autoreleasepool {
             let source = page >= 0 ? pdfPage(uri, Int(page)).flatMap { render($0, maxSide: Self.ocrSide) } : image(uri, maxSide: Self.ocrSide)
             guard let cg = source?.cgImage else { return nil }
+            _ = Self.logLanguages
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
@@ -46,6 +51,17 @@ final class FileExtractor: NSObject, NativeExtractor {
             return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
         }
     }
+
+    /// What Vision can read on this OS, logged once per OS version (no user data), so a missing script shows up.
+    private static let logLanguages: Void = {
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        guard UserDefaults.standard.string(forKey: "ocrLanguagesLoggedOS") != os else { return }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        let languages = (try? request.supportedRecognitionLanguages()) ?? []
+        log.info("OCR languages on \(os, privacy: .public): \(languages.joined(separator: ","), privacy: .public)")
+        UserDefaults.standard.set(os, forKey: "ocrLanguagesLoggedOS")
+    }()
 
     /// An iCloud-only photo fetches its small derivative on Wi-Fi, or on any network when the person allows mobile
     /// data; otherwise it keeps only its name. Async so a stalled download can be cancelled; the handler may come
@@ -58,7 +74,7 @@ final class FileExtractor: NSObject, NativeExtractor {
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.resizeMode = .exact
-            options.isNetworkAccessAllowed = wifi || (AppServices.shared.retriever.prefs.value as? Prefs)?.allowMobileData == true
+            options.isNetworkAccessAllowed = wifi || allowMobileData()
             let done = DispatchSemaphore(value: 0)
             let box = Box<UIImage>()
             let id = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSide, height: maxSide), contentMode: .aspectFit, options: options) { [self] image, info in
@@ -195,7 +211,8 @@ final class FileExtractor: NSObject, NativeExtractor {
     }
 
     /// A photo or video as a temp file, for the content hash. ponytail: a one-entry export cache (the hasher reads
-    /// one file at a time) and nothing over 1 GB; a streaming hash if big videos matter.
+    /// one file at a time) and nothing over 1 GB; a streaming hash if big videos matter. PhotoKit has no public byte
+    /// size, so the cap is counted while copying and the copy is cancelled past it.
     private let exportLock = NSLock()
     private var export: (uri: String, url: URL)?
 
@@ -204,19 +221,30 @@ final class FileExtractor: NSObject, NativeExtractor {
             if let export, export.uri == uri { return export.url }
             if let old = export?.url { try? FileManager.default.removeItem(at: old) }
             export = nil
-            guard let asset = asset(uri), let current = PhotosSource.renditions(asset).current,
-                  PhotosSource.fileSize(current) <= 1 << 30 else { return nil }
+            guard let asset = asset(uri), let current = PhotosSource.renditions(asset).current else { return nil }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("export-\(UUID().uuidString)")
+            guard FileManager.default.createFile(atPath: url.path, contents: nil), let handle = try? FileHandle(forWritingTo: url) else { return nil }
             let options = PHAssetResourceRequestOptions()
             options.isNetworkAccessAllowed = false
+            let copy = OSAllocatedUnfairLock(initialState: (bytes: Int64(0), failed: false, id: PHAssetResourceDataRequestID?.none))
             let done = DispatchSemaphore(value: 0)
-            let box = Box<Bool>()
-            PHAssetResourceManager.default().writeData(for: current, toFile: url, options: options) { error in
-                box.value = error == nil
+            let id = PHAssetResourceManager.default().requestData(for: current, options: options, dataReceivedHandler: { chunk in
+                let cancel: PHAssetResourceDataRequestID? = copy.withLock { s in
+                    if !s.failed {
+                        s.bytes += Int64(chunk.count)
+                        s.failed = s.bytes > 1 << 30 || (try? handle.write(contentsOf: chunk)) == nil
+                    }
+                    return s.failed ? s.id : nil // nil id: the request hasn't returned yet; a later chunk cancels
+                }
+                if let cancel { PHAssetResourceManager.default().cancelDataRequest(cancel) }
+            }, completionHandler: { error in
+                if error != nil { copy.withLock { $0.failed = true } }
                 done.signal()
-            }
+            })
+            copy.withLock { $0.id = id }
             done.wait()
-            guard box.value == true else {
+            try? handle.close()
+            guard !copy.withLock({ $0.failed }) else {
                 try? FileManager.default.removeItem(at: url)
                 return nil
             }

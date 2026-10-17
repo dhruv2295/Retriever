@@ -5,7 +5,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -135,6 +135,12 @@ class HomeShotsTest {
 
     @Test fun readingDark() = shot("reading", true)
 
+    @Test fun readingOnTheChargerDoesNotAdviseCharging() {
+        rule.setContent { ShotTheme(false) { SearchContent(reading.copy(charging = true), readingIndex, SearchActions()) } }
+        rule.onNodeWithText("About 3 hours left.").assertExists()
+        rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
+    }
+
     @Test fun pausedLight() {
         shot("paused", false)
         rule.onNodeWithText("Paused").assertExists()
@@ -187,22 +193,22 @@ class HomeShotsTest {
     }
 
     @Test fun starredIsTheFirstRowAndOpensTheStarredList() {
-        val went = mutableListOf<Any>()
+        val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { SearchContent(caughtUp, IndexState(), SearchActions(onNavigate = { went += it })) } }
         rule.onNodeWithContentDescription("Starred, 4 files").performClick()
-        assertEquals(listOf<Any>(BrowseRoute(title = "Starred", starredOnly = true)), went)
+        assertEquals(listOf<Route>(BrowseRoute(title = "Starred", starredOnly = true)), went)
     }
 
     @Test fun gearOpensSettings() {
-        val went = mutableListOf<Any>()
+        val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { SearchContent(caughtUp, IndexState(), SearchActions(onNavigate = { went += it })) } }
         rule.onNodeWithContentDescription("Settings").performClick()
-        assertEquals(listOf<Any>(SettingsRoute), went)
+        assertEquals(listOf<Route>(SettingsRoute), went)
     }
 
     @Test fun resumeResumesWithoutOpeningStatus() {
         var resumed = 0
-        val went = mutableListOf<Any>()
+        val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { SearchContent(reading.copy(paused = true), IndexState(), SearchActions(onResume = { resumed++ }, onNavigate = { went += it })) } }
         rule.onNodeWithText("Resume").performClick()
         assertEquals(1, resumed)

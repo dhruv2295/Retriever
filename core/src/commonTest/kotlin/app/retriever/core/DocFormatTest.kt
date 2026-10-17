@@ -46,7 +46,7 @@ class DocFormatTest {
     @Test
     fun singleEntryFormatsNameTheirEntry() {
         assertEquals("word/document.xml", DocFormat.DOCX.textEntry)
-        assertEquals("xl/sharedStrings.xml", DocFormat.XLSX.textEntry)
+        assertNull(DocFormat.XLSX.textEntry)
         assertEquals("content.xml", DocFormat.ODF.textEntry)
         assertNull(DocFormat.PPTX.textEntry)
     }

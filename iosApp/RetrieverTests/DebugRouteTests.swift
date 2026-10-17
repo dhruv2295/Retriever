@@ -2,6 +2,7 @@
     import XCTest
     @testable import Retriever
 
+    @MainActor
     final class DebugRouteTests: XCTestCase {
         private static let fixtureRoutes: [(raw: String, fixture: String)] = [
             ("setup.welcome", "firstRun"), ("setup.photos", "firstRun"), ("setup.limited", "photosLimited"),
@@ -38,6 +39,22 @@
                 let route = try XCTUnwrap(DebugRoute(rawValue: raw), raw)
                 XCTAssertEqual(route.path, path, raw)
             }
+        }
+
+        /// The locator and snippet parsing the results and viewers depend on (was `-selfcheck`).
+        func testLocatorAndSnippetParsing() {
+            XCTAssertEqual(Format.page("p. 12"), 12)
+            XCTAssertNil(Format.page("p. 0"))
+            XCTAssertNil(Format.page("12"))
+            XCTAssertEqual(Format.ms("0:37"), 37_000)
+            XCTAssertEqual(Format.ms("1:02:03"), 3_723_000)
+            XCTAssertNil(Format.ms("p. 3"))
+            XCTAssertNil(Format.ms("1:"))
+            XCTAssertEqual(Format.badge("p. 3"), "Page 3")
+            XCTAssertEqual(Format.badge("0:37"), "0:37")
+            XCTAssertNil(Format.badge(""))
+            XCTAssertEqual(Set(Format.markedWords("a \u{2}rent\u{3} and \u{2}deposit\u{3} b")), ["rent", "deposit"])
+            XCTAssertEqual(String(Format.highlighted("x \u{2}y\u{3} z").characters), "x y z")
         }
 
         func testUnknownRouteDoesNotParse() {

@@ -2,7 +2,7 @@ package app.retriever
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import app.retriever.core.Kind

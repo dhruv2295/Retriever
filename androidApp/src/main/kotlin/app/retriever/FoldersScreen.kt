@@ -1,5 +1,6 @@
 package app.retriever
 
+import android.util.Log
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,11 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,47 +23,57 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import app.retriever.core.excludes
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.retriever.core.Retriever
+import app.retriever.data.IndexService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
 
-class FoldersViewModel(private val graph: AppGraph) : ViewModel() {
-    private val retriever = graph.retriever
-
+class FoldersViewModel(
+    private val retriever: Retriever,
+    private val indexer: IndexService,
+) : ViewModel() {
     private val _folders = MutableStateFlow<List<Pair<String, Long>>>(emptyList())
     val folders: StateFlow<List<Pair<String, Long>>> = _folders.asStateFlow()
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     init {
         refresh()
     }
 
     private fun refresh() {
-        viewModelScope.launch {
-            // Excluded folders stay in the index until the next sync drops them; hide them now.
-            _folders.value = retriever.folders().filterNot { retriever.prefs.value.excludes(it.first) }
+        launchCatching(onError = ::fail) {
+            _folders.value = retriever.folders()
+            _error.value = null
             _loading.value = false
         }
     }
 
+    private fun fail(e: Exception) {
+        Log.e("Retriever", "FoldersViewModel", e)
+        _error.value = "Couldn't load your folders. Try again in a moment."
+        _loading.value = false
+    }
+
     /** The changed exclude list makes the next sync a full scan, which forgets the folder's files. */
     fun exclude(folder: String) {
-        viewModelScope.launch {
+        launchCatching(onError = ::fail) {
             retriever.updatePrefs { it.copy(excludedFolders = it.excludedFolders + folder) }
-            IndexScheduler.indexNow(graph.app)
+            indexer.indexNow()
             refresh()
         }
     }
@@ -75,19 +81,20 @@ class FoldersViewModel(private val graph: AppGraph) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
-    val vm = appViewModel { FoldersViewModel(it) }
-    val folders by vm.folders.collectAsState()
-    val loading by vm.loading.collectAsState()
+fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, vm: FoldersViewModel = koinViewModel()) {
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val loading by vm.loading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
     var confirming by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Folders") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 },
             )
@@ -98,9 +105,9 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
         } else if (folders.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    title = "No folders yet",
-                    description = "Folders appear once Retriever has looked through your phone.",
-                    icon = Icons.Outlined.FolderOpen,
+                    title = if (error != null) "Folders didn't load" else "No folders yet",
+                    description = error ?: "Folders appear once Retriever has looked through your phone.",
+                    icon = R.drawable.ic_folder_open,
                     art = R.drawable.illus_empty,
                 )
             }
@@ -122,12 +129,11 @@ fun FoldersScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
         }
     }
 
-    // Excluding drops everything Retriever already read there; bringing it back means reading it all again.
     confirming?.let { (path, count) ->
         val name = path.substringAfterLast('/').ifEmpty { "Top level" }
         ConfirmDialog(
             title = "Stop searching $name?",
-            message = "Retriever will forget the ${countLabel(count)} in $name. You can bring it back from the status line at the top of Home.",
+            message = "The ${countLabel(count)} in $name are removed from search now, and bringing them back means reading them all again. You can bring it back from the status line at the top of Home.",
             confirmLabel = "Stop searching",
             onConfirm = {
                 confirming = null
@@ -155,11 +161,11 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
                     overflow = TextOverflow.MiddleEllipsis,
                 )
             },
-            leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+            leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
             trailingContent = {
                 Box {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More options for $name")
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options for $name")
                     }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                         DropdownMenuItem(

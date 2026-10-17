@@ -58,7 +58,7 @@ class IndexEngine(
             val state = monitor.state()
             if (state.hot && pauseWhenHot) return stop(StopReason.HOT)
             if (requireCharging && !state.charging) return stop(StopReason.UNPLUGGED)
-            if (files.isEmpty()) files += store.pending(PAGE)
+            if (files.isEmpty()) files += store.pending(PAGE, store.prefs().sampleSize)
             val next = files.removeFirstOrNull()
             if (next != null) {
                 val metric = index(next, now, state)

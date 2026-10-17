@@ -9,12 +9,19 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import app.retriever.core.Retriever
+import app.retriever.di.AppScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
-object IndexScheduler {
+object IndexScheduler : KoinComponent {
+    private val retriever: Retriever by inject()
+
     private const val NOW = "index-now"
     private const val CONTINUE = "index-continue"
     private const val PERIODIC = "index-periodic"
@@ -62,25 +69,26 @@ object IndexScheduler {
      * per file and stops within one; every later run returns early until [resumeByUser].
      */
     suspend fun pauseByUser(context: Context) {
-        (context.applicationContext as RetrieverApp).graph.retriever.pause()
+        retriever.pause()
         pause(context)
     }
 
     /** "Index now": lifts a user pause and starts a batch. */
     suspend fun resumeByUser(context: Context) {
-        (context.applicationContext as RetrieverApp).graph.retriever.resume()
+        retriever.resume()
         indexNow(context)
     }
 }
 
 /** The notification's "Pause" action. A cancel-by-id intent would cancel the periodic request for good. */
-class PauseReceiver : BroadcastReceiver() {
+class PauseReceiver : BroadcastReceiver(), KoinComponent {
+    private val scope: CoroutineScope by inject(AppScope)
+
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
-        val app = context.applicationContext as RetrieverApp
-        app.graph.scope.launch {
+        scope.launch {
             try {
-                IndexScheduler.pauseByUser(app)
+                IndexScheduler.pauseByUser(context.applicationContext)
             } finally {
                 pending.finish()
             }

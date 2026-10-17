@@ -23,11 +23,8 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         val prefs = store.prefs()
         val token = store.meta(TOKEN)
         val lastFull = store.meta(LAST_FULL)?.toLongOrNull()
-        val scannedExcludes = store.meta(EXCLUDES)
-            ?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
         val wantFull = forceFull || token == null || lastFull == null || now() - lastFull > DAY_MS ||
-            prefs.excludedFolders != scannedExcludes || store.meta(RULES) != source.rulesVersion.toString() ||
-            store.meta(SAMPLE) != prefs.sampleSize?.toString().orEmpty()
+            prefs.excludedFolders != scannedExcludes() || store.meta(RULES) != source.rulesVersion.toString()
 
         val changes = source.changes(if (wantFull) null else token)
         // A full scan compares every file; an incremental one only looks up what changed.
@@ -38,11 +35,8 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         }
         // Only files this scan could see may be removed: an unmounted volume's files wait for it to come back.
         val knownInScope = store.knownUris().filterTo(HashSet()) { uri -> changes.scope?.any { uri.startsWith(it) } ?: true }
-        val eligible = changes.upserted.filter { !prefs.excludes(it.folder) }
-        // Sample mode trims on full scans only; files arriving later are the newest, so they belong anyway.
-        val keep = prefs.sampleSize?.takeIf { changes.isFullScan }?.let { n ->
-            eligible.groupBy { it.kind }.values.flatMap { group -> group.sortedByDescending { it.modifiedAt }.take(n) }
-        } ?: eligible
+        // Sample mode never trims here: it only limits what IndexEngine reads (Store.pending), so nothing read is lost.
+        val keep = changes.upserted.filter { !prefs.excludes(it.folder) }
 
         val touched = ArrayList<SourceFile>()
         for (f in keep) {
@@ -61,12 +55,14 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
                 changes.present?.let { knownInScope - it }.orEmpty()
         }.toList()
 
-        namesLock.withLock {
-            // Ids before the rows go; an incremental sync is small, and a full scan rebuilds the names instead.
-            val removedIds = if (changes.isFullScan || names == null) emptyList() else store.fileIds(removed)
+        val excludedMeanwhile = namesLock.withLock {
+            // A folder excluded during the scan was dropped already (dropExcluded): this scan would bring it back.
+            if (store.prefs().excludedFolders != prefs.excludedFolders) return@withLock true
             store.upsertFiles(keep)
-            // Stars stay: a file restored from the trash, or back from an excluded folder, comes back starred.
-            store.removeFiles(removed)
+            // An incremental sync is small, and a full scan rebuilds the names instead.
+            val removedIds = removeLocked(removed, needIds = !changes.isFullScan)
+            // A starred file can only come back under a new uri, so syncs that add nothing skip the search.
+            if (added > 0) store.relinkStars()
             val current = names
             if (current != null && (touched.isNotEmpty() || removed.isNotEmpty())) {
                 names = if (changes.isFullScan) {
@@ -75,23 +71,53 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
                     current.update(removedIds, store.nameEntries(touched.map { it.uri }))
                 }
             }
+            false
         }
+        // The token was not advanced, so the scan runs again under the new folders.
+        if (excludedMeanwhile) return sync(forceFull)
         store.setMeta(TOKEN, changes.nextToken)
         if (changes.isFullScan) {
             store.setMeta(LAST_FULL, now().toString())
             store.setMeta(EXCLUDES, Json.encodeToString(prefs.excludedFolders))
             store.setMeta(RULES, source.rulesVersion.toString())
-            store.setMeta(SAMPLE, prefs.sampleSize?.toString().orEmpty())
         }
         return SyncResult(added, touched.size - added, removed.size, changes.isFullScan)
     }
+
+    /** Removes the files in folders [prefs] excludes at once, with no scan, so it works while paused. Returns how many. */
+    suspend fun dropExcluded(prefs: Prefs): Int {
+        val gone = namesLock.withLock {
+            val uris = store.knownFiles().values.filter { prefs.excludes(it.folder) }.map { it.uri }
+            // Not inside `names?.update(...)`: a safe call skips its arguments, so nothing was removed before names loaded.
+            val ids = removeLocked(uris)
+            names = names?.update(ids, emptyList())
+            uris.size
+        }
+        // The store now holds what a scan under both sets would, so only a folder put back later forces a full scan.
+        store.setMeta(EXCLUDES, Json.encodeToString(scannedExcludes() + prefs.excludedFolders))
+        return gone
+    }
+
+    /**
+     * The one way files leave, under [namesLock]. Returns their ids, read before the rows go, for patching [names].
+     * Stars stay: a file restored from the trash, or back from an excluded folder, comes back starred.
+     */
+    private fun removeLocked(uris: List<String>, needIds: Boolean = true): List<Long> {
+        if (uris.isEmpty()) return emptyList()
+        val ids = if (needIds && names != null) store.fileIds(uris) else emptyList()
+        store.removeFiles(uris)
+        return ids
+    }
+
+    /** The excluded folders the store reflects: the last full scan's, plus any dropped since. */
+    private fun scannedExcludes(): Set<String> =
+        store.meta(EXCLUDES)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
 
     private companion object {
         const val TOKEN = "source_token"
         const val LAST_FULL = "last_full_scan_ms"
         const val EXCLUDES = "scan_excludes"
         const val RULES = "scan_rules_version"
-        const val SAMPLE = "scan_sample_size"
         const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }

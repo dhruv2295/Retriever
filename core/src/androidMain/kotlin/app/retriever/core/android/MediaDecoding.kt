@@ -9,7 +9,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.util.Log
+import androidx.core.graphics.scale
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.Moment
 import app.retriever.core.moments
@@ -17,7 +17,9 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
 
 object MediaDecoding {
-    private const val TAG = "Retriever"
+    /** Set once by the app to the core log; messages carry the failure's class, never a URI. */
+    @Volatile var log: (String, Throwable?) -> Unit = { _, _ -> }
+
     private const val TIMEOUT_US = 10_000L
     private const val MAX_POST_EOS_OUTPUT_TIMEOUTS = 100
 
@@ -31,7 +33,7 @@ object MediaDecoding {
             retriever.setDataSource(context, uri)
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
         } catch (e: Exception) {
-            Log.w(TAG, "couldn't read the duration of $uri", e)
+            log("couldn't read the duration", e)
             0L
         } finally {
             runCatching { retriever.release() }
@@ -88,7 +90,7 @@ object MediaDecoding {
                 when {
                     // A decoder that never emits output EOS would otherwise spin here forever.
                     o == MediaCodec.INFO_TRY_AGAIN_LATER -> if (inputDone && ++postEosTimeouts >= MAX_POST_EOS_OUTPUT_TIMEOUTS) {
-                        Log.w(TAG, "audio decoder gave no EOS for $uri; stopping")
+                        log("audio decoder gave no EOS; stopping", null)
                         outputDone = true
                     }
                     o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
@@ -131,7 +133,7 @@ object MediaDecoding {
             }
             return resample(mono, count, rate)
         } catch (e: Exception) {
-            Log.w(TAG, "audio decode failed for $uri", e)
+            log("audio decode failed", e)
             return ShortArray(0)
         } finally {
             runCatching { codec?.stop() }
@@ -172,7 +174,7 @@ object MediaDecoding {
                     ?.let { m to it }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "video frames failed for $uri", e)
+            log("video frames failed", e)
             emptyList()
         } finally {
             runCatching { retriever.release() }
@@ -196,11 +198,9 @@ object MediaDecoding {
                 val longer = maxOf(full.width, full.height)
                 if (longer <= maxSide) return@let full
                 val scale = maxSide.toFloat() / longer
-                Bitmap.createScaledBitmap(
-                    full,
+                full.scale(
                     (full.width * scale).toInt().coerceAtLeast(1),
                     (full.height * scale).toInt().coerceAtLeast(1),
-                    true,
                 ).also { if (it !== full) full.recycle() }
             }
 
@@ -221,10 +221,10 @@ object MediaDecoding {
                 track.getInteger(MediaFormat.KEY_HEIGHT),
             )
             val unsupported = MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format) == null
-            if (unsupported) Log.w(TAG, "no decoder on this phone for $format ($uri)")
+            if (unsupported) log("no decoder on this phone for ${format.getString(MediaFormat.KEY_MIME)}", null)
             unsupported
         } catch (e: Exception) {
-            Log.w(TAG, "couldn't inspect video track of $uri", e)
+            log("couldn't inspect video track", e)
             false
         } finally {
             runCatching { extractor.release() }

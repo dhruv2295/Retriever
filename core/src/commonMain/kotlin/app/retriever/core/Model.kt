@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration.Companion.minutes
 
 enum class Kind { PHOTO, SCREENSHOT, PDF, DOC, AUDIO, VIDEO, OTHER }
 
@@ -108,6 +109,12 @@ data class DeviceProfile(
 
 enum class Thermal { NONE, LIGHT, MODERATE, SEVERE, CRITICAL }
 
+/** Indexing stops at MODERATE and a rest check resumes it at LIGHT or lower, so a brief spike costs minutes, not a fixed quarter hour. */
+object ThermalRest {
+    val RECHECK = 2.minutes
+    val STOP_AT = Thermal.MODERATE
+}
+
 data class DeviceState(
     val ramGb: Double,
     val charging: Boolean,
@@ -115,7 +122,7 @@ data class DeviceState(
     val thermal: Thermal,
     val screenOn: Boolean = false,
 ) {
-    val hot: Boolean get() = thermal >= Thermal.MODERATE
+    val hot: Boolean get() = thermal >= ThermalRest.STOP_AT
 }
 
 enum class Platform { ANDROID, IOS }

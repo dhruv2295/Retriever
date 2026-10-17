@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SIM_NAME="${SIM_NAME:-Retriever-I6}"
 DEVICE_TYPE="${DEVICE_TYPE:-iPhone 18 Pro}"
-MODELS="${MODELS:-$HOME/rummage-models}"
+MODELS="${MODELS:?set MODELS to the folder holding the .litertlm model}"
 MODEL_FILE=embeddinggemma-2-text-vision-440m.litertlm
 CORPUS="$ROOT/eval/corpus"
 DERIVED="$ROOT/build/ios-selftest"

@@ -16,13 +16,25 @@
 
 import Foundation
 import MediaPipeTasksRetrieval
+import os
 import RetrieverCore
 import UIKit
 
 final class MediaPipeOpener: NSObject, NativeEmbedderOpener {
     private(set) var lastMessage: String?
 
+    /// The model maps about 390 MB (M440); below this the system would sooner kill the app than let it load.
+    private static let minAvailableBytes = 390 * 1024 * 1024
+    private static let log = Logger(subsystem: "app.retriever", category: "model")
+
     func open(modelPath: String, gpu: Bool, visionTokens: Int32, maxTokens: Int32, cacheDir: String) -> NativeEmbedder? {
+        let available = os_proc_available_memory()
+        // 0 on the simulator and macOS, where there is no per-process limit to check.
+        if available > 0, available < Self.minAvailableBytes {
+            lastMessage = "not enough memory to open the model"
+            Self.log.notice("model open refused: \(available / 1_048_576) MB available, \(Self.minAvailableBytes / 1_048_576) MB needed")
+            return nil
+        }
         let options = UniversalEmbedderOptions()
         options.baseOptions.modelAssetPath = modelPath
         // Delegates are per-modality: the text tower encodes strings, the vision tower images.

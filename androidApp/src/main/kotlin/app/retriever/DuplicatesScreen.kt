@@ -2,9 +2,6 @@ package app.retriever
 
 import android.app.Activity
 import android.content.IntentSender
-import android.net.Uri
-import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -27,11 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -56,16 +50,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
 import app.retriever.core.DuplicateGroup
+import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
-import kotlinx.coroutines.Dispatchers
+import app.retriever.data.AccessService
+import app.retriever.data.IndexService
+import app.retriever.data.MediaDeleter
+import org.koin.androidx.compose.koinViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.coroutines.cancellation.CancellationException
 
 private const val MIN_SIZE = 64L * 1024
 
@@ -96,31 +92,31 @@ data class DuplicatesState(
     val confirm: IntentSender? = null,
 )
 
-class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
-    private val retriever = graph.retriever
+class DuplicatesViewModel(
+    private val retriever: Retriever,
+    private val indexer: IndexService,
+    private val accessService: AccessService,
+    private val deleter: MediaDeleter,
+) : ViewModel() {
     private val _state = MutableStateFlow(DuplicatesState())
-    val state = _state
+    val state: StateFlow<DuplicatesState> = _state.asStateFlow()
 
     init { scan() }
 
     fun scan() {
         _state.value = DuplicatesState()
-        viewModelScope.launch {
-            try {
-                val groups = retriever.duplicates(MIN_SIZE)
-                    .map { g -> g.copy(files = oneEntryPerFile(g.files)) }
-                    .filter { it.files.size >= 2 }
-                // Keep the oldest copy of each group (files arrive oldest first).
-                val selected = groups.flatMap { g -> g.files.drop(1).map { it.uri } }.toSet()
-                val scanned = retriever.counts().first().byState.values.sum()
-                _state.update {
-                    it.copy(scanning = false, groups = groups, selected = selected, scannedFiles = scanned)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("Retriever", "duplicate scan failed", e)
-                _state.update { it.copy(scanning = false, error = "Couldn't look for duplicates") }
+        launchCatching(onError = {
+            Log.e("Retriever", "duplicate scan failed", it)
+            _state.update { s -> s.copy(scanning = false, error = "Couldn't look for duplicates") }
+        }) {
+            val groups = retriever.duplicates(MIN_SIZE)
+                .map { g -> g.copy(files = oneEntryPerFile(g.files)) }
+                .filter { it.files.size >= 2 }
+            // Keep the oldest copy of each group (files arrive oldest first).
+            val selected = groups.flatMap { g -> g.files.drop(1).map { it.uri } }.toSet()
+            val scanned = retriever.counts().first().byState.values.sum()
+            _state.update {
+                it.copy(scanning = false, groups = groups, selected = selected, scannedFiles = scanned)
             }
         }
     }
@@ -145,33 +141,22 @@ class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
         val uris = _state.value.selected.toList()
         if (uris.isEmpty() || _state.value.deleting) return
         _state.update { it.copy(deleting = true, failed = 0) }
-        viewModelScope.launch {
-            val resolver = graph.app.contentResolver
+        launchCatching(onError = {
+            Log.e("Retriever", "delete failed", it)
+            _state.update { s -> s.copy(deleting = false, error = null, failed = uris.size) }
+        }) {
             // Without all-files access, Android itself asks the person before others' photos and videos go.
-            val (saf, media) = uris.partition { it.startsWith(SafSource.PREFIX) }
-            val ask = if (graph.access().allFiles) emptyList() else media
-            val deleted = withContext(Dispatchers.IO) {
-                (uris - ask.toSet()).filter { uri ->
-                    try {
-                        if (uri in saf) DocumentsContract.deleteDocument(resolver, Uri.parse(uri))
-                        else resolver.delete(Uri.parse(uri), null, null) > 0
-                    } catch (e: Exception) {
-                        Log.w("Retriever", "delete failed: $uri", e)
-                        false
-                    }
-                }
-            }
-            val request = if (ask.isEmpty()) null else try {
-                MediaStore.createDeleteRequest(resolver, ask.map(Uri::parse)).intentSender
-            } catch (e: Exception) {
-                Log.w("Retriever", "delete request failed", e)
-                null
-            }
+            accessService.refresh()
+            val media = uris.filterNot { it.startsWith(SafSource.PREFIX) }
+            val ask = if (accessService.state.value.allFiles) emptyList() else media
+            val tried = uris - ask.toSet()
+            val deleted = deleter.delete(tried)
+            val request = if (ask.isEmpty()) null else deleter.request(ask)
             if (request == null) {
                 finishDelete(uris, deleted)
             } else {
                 asked = ask
-                triedDirectly = uris - ask.toSet()
+                triedDirectly = tried
                 deletedDirectly = deleted
                 _state.update { it.copy(confirm = request) }
             }
@@ -188,7 +173,7 @@ class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
     private fun finishDelete(uris: List<String>, deleted: List<String>) {
         // The next sync drops the deleted files from the index.
         retriever.notifyChanged()
-        IndexScheduler.indexNow(graph.app)
+        indexer.indexNow()
         val gone = deleted.toSet()
         _state.update { s ->
             val groups = s.groups
@@ -206,8 +191,7 @@ class DuplicatesViewModel(private val graph: AppGraph) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
-    val vm = appViewModel { DuplicatesViewModel(it) }
+fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, vm: DuplicatesViewModel = koinViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     var confirming by rememberSaveable { mutableStateOf(false) }
     val confirmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -225,12 +209,13 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
     val selectedCount = s.selected.size
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Duplicates") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 },
             )
@@ -287,7 +272,7 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                     EmptyState(
                         title = "No duplicates found",
                         description = "Retriever compared ${"%,d".format(s.scannedFiles)} files.",
-                        icon = Icons.Outlined.ContentCopy,
+                        icon = R.drawable.ic_content_copy,
                         art = R.drawable.illus_empty,
                     )
                 }
@@ -326,7 +311,7 @@ fun DuplicatesScreen(onNavigate: (Any) -> Unit, onBack: () -> Unit) {
                                 // Look before deleting: copies often have identical thumbnails.
                                 trailing = {
                                     IconButton(onClick = { Opener.open(context, file, "", onNavigate) }) {
-                                        Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open ${file.name}")
+                                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = "Open ${file.name}")
                                     }
                                 },
                                 onClickLabel = if (checked) "Deselect" else "Select",

@@ -8,6 +8,10 @@ import XCTest
 /// labels to UIKit outside VoiceOver, but a section that is hidden has no rows and no header.
 @MainActor
 final class HomeModelTests: XCTestCase {
+    private var services: AppServices!
+
+    override func setUp() async throws { services = AppServices.temporary() }
+
     func testFixtureFactsAreWhatHomeShows() throws {
         let home = try XCTUnwrap(AppModel(fixture: .caughtUp).home)
         XCTAssertEqual(home.newDocs.count, 3)
@@ -19,7 +23,7 @@ final class HomeModelTests: XCTestCase {
     }
 
     func testRefreshHomeMapsTheFacadeFactsOntoTheModel() async throws {
-        let model = AppModel(services: AppServices.shared)
+        let model = AppModel(services: services)
         XCTAssertNil(model.home, "nothing until the first load")
         await model.refreshHome()
         let home = try XCTUnwrap(model.home)
@@ -58,7 +62,7 @@ final class HomeModelTests: XCTestCase {
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
         // The real model before its first load: no facts, no stars, no suggestions.
-        let model = AppModel(services: AppServices.shared)
+        let model = AppModel(services: services)
         XCTAssertNil(model.home)
         let loaded = await eventually { model.snap != nil }
         XCTAssertTrue(loaded)
@@ -92,7 +96,7 @@ final class HomeModelTests: XCTestCase {
 
     // MARK: Rendering
 
-    private struct Layout {
+    private struct Layout: Equatable {
         var headers: Int
         var items: [Int]
     }
@@ -109,11 +113,19 @@ final class HomeModelTests: XCTestCase {
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
-        try await Task.sleep(for: .milliseconds(600))
-        host.view.layoutIfNeeded()
-        let collection = try XCTUnwrap(Self.collectionView(in: host.view), "Home is not a list")
-        return Layout(headers: collection.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).count,
-                      items: (0..<collection.numberOfSections).map { collection.numberOfItems(inSection: $0) })
+        // A fixed sleep raced SwiftUI's first layout pass on a loaded machine (the flake). Poll until the list has
+        // sections and the same answer twice running, or give up after 15 s and let the assertions report it.
+        var last: Layout?
+        for _ in 0..<150 {
+            try await Task.sleep(for: .milliseconds(100))
+            host.view.layoutIfNeeded()
+            guard let collection = Self.collectionView(in: host.view), collection.numberOfSections > 0 else { continue }
+            let now = Layout(headers: collection.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).count,
+                             items: (0..<collection.numberOfSections).map { collection.numberOfItems(inSection: $0) })
+            if now == last { return now }
+            last = now
+        }
+        return try XCTUnwrap(last, "Home is not a list")
     }
 
     private static func collectionView(in view: UIView) -> UICollectionView? {

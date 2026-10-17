@@ -86,6 +86,41 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
 - iosApp/Retriever/Views/ResultViews.swift — Queryable `Queryable/Queryable/View/PhotoResult` (grid layout reference) (MIT)
 
+## Runtime libraries
+
+Every group in the `:androidApp` `releaseRuntimeClasspath` (from `./gradlew :androidApp:dependencies --configuration releaseRuntimeClasspath`),
+and every pin in the iOS `Package.resolved`. Licences are read from each artifact's POM in the Gradle cache. Groups marked
+"upstream" had no POM cached, so the licence is the upstream project's. `scripts/verify.sh` fails when a group is missing from this list.
+
+| Group | Licence |
+|---|---|
+| androidx.activity, androidx.annotation, androidx.appcompat, androidx.arch.core, androidx.autofill, androidx.collection, androidx.compose, androidx.compose.animation, androidx.compose.foundation, androidx.compose.material, androidx.compose.material3, androidx.compose.runtime, androidx.compose.ui, androidx.concurrent, androidx.core, androidx.cursoradapter, androidx.customview, androidx.drawerlayout, androidx.emoji2, androidx.exifinterface, androidx.fragment, androidx.graphics, androidx.interpolator, androidx.lifecycle, androidx.loader, androidx.media3, androidx.navigation, androidx.navigationevent, androidx.profileinstaller, androidx.recyclerview, androidx.resourceinspection, androidx.room, androidx.savedstate, androidx.sqlite, androidx.startup, androidx.tracing, androidx.vectordrawable, androidx.versionedparcelable, androidx.viewpager, androidx.window, androidx.work | Apache-2.0 |
+| app.cash.sqldelight | Apache-2.0 |
+| co.touchlab | Apache-2.0 |
+| com.google.ai.edge.litert, com.google.ai.edge.litertlm | Apache-2.0 |
+| com.google.android.datatransport | Apache-2.0 |
+| com.google.android.gms | Android Software Development Kit License and ML Kit Terms of Service (Google Play services binaries, not open source) |
+| com.google.android.odml | Android Software Development Kit License |
+| com.google.code.findbugs | Apache-2.0 |
+| com.google.code.gson | Apache-2.0 |
+| com.google.errorprone | Apache-2.0 |
+| com.google.firebase | Apache-2.0 |
+| com.google.flogger | Apache-2.0 |
+| com.google.guava | Apache-2.0 (upstream) |
+| com.google.j2objc | Apache-2.0 |
+| com.google.mediapipe | Apache-2.0 (also the iOS pin `mediapipe`) |
+| com.google.mlkit | ML Kit Terms of Service (binary client libraries, not open source) |
+| com.google.protobuf | BSD-3-Clause (upstream) |
+| io.insert-koin | Apache-2.0 |
+| javax.inject | Apache-2.0 |
+| org.checkerframework | MIT (checker-qual) and GPL-2.0 with the Classpath Exception (checker-compat-qual); used at compile time only |
+| org.jetbrains | Apache-2.0 |
+| org.jetbrains.androidx.lifecycle, org.jetbrains.androidx.savedstate | Apache-2.0 |
+| org.jetbrains.compose.animation, org.jetbrains.compose.annotation-internal, org.jetbrains.compose.collection-internal, org.jetbrains.compose.foundation, org.jetbrains.compose.runtime, org.jetbrains.compose.ui | Apache-2.0 |
+| org.jetbrains.kotlin, org.jetbrains.kotlinx | Apache-2.0 |
+| org.jspecify | Apache-2.0 |
+| iOS: zipfoundation | MIT (see the MIT License (ZIPFoundation) section) |
+
 ## Apache License 2.0
 
 ```

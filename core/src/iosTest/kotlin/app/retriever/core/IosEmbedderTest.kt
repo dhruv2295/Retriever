@@ -1,0 +1,105 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
+package app.retriever.core
+
+import kotlinx.coroutines.runBlocking
+import platform.Foundation.NSData
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.NSUUID
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIsNot
+import kotlin.test.assertTrue
+
+/** IosEmbedder's fallbacks, through IosEmbedderFactory with a scripted NativeEmbedder. */
+class IosEmbedderTest {
+    private val cacheDir = NSTemporaryDirectory() + "retriever-embedder-" + NSUUID().UUIDString
+    private val good = FloatArray(DIMS) { it.toFloat() }
+    private val ok = good.toLeBytes().toNSData() to 0
+    private val tooLong = null to 1
+    private val failed = null to 2
+
+    @AfterTest
+    fun cleanUp() {
+        NSFileManager.defaultManager.removeItemAtPath(cacheDir, null)
+    }
+
+    /** Each embed call takes the next (output, lastError) pair. */
+    private class ScriptedNative(private val script: List<Pair<NSData?, Int>>) : NativeEmbedder {
+        val calls = mutableListOf<List<Any>>()
+        var closed = false
+        override var lastError = 0
+        override var lastMessage: String? = null
+
+        override fun embed(parts: List<Any>): NSData? {
+            val (out, error) = script[calls.size]
+            calls += parts
+            lastError = error
+            lastMessage = if (out == null) "error $error" else null
+            return out
+        }
+
+        override fun close() {
+            closed = true
+        }
+    }
+
+    private fun open(native: NativeEmbedder, backend: Backend = Backend.CPU, active: Boolean = true): Embedder {
+        val opener = object : NativeEmbedderOpener {
+            override fun open(modelPath: String, gpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String) = native
+            override val lastMessage: String? = null
+        }
+        val variant = ModelVariant.M440
+        val build = ModelBuild(variant, "model.litertlm", 1L, "0123456789abcdef")
+        return IosEmbedderFactory(opener, "/nowhere", cacheDir, isSimulator = false) { active }
+            .open(DeviceProfile(Tier.FULL, variant, backend, 70, 0, false, false), build)
+    }
+
+    private fun embed(e: Embedder) = runBlocking { e.embedRaw(listOf(Part.Text("hello"))) }
+
+    @Test
+    fun goodOutputDecodesAsFloats() {
+        val native = ScriptedNative(listOf(ok))
+        assertContentEquals(good, embed(open(native)))
+        assertEquals(listOf<List<Any>>(listOf("hello")), native.calls)
+    }
+
+    @Test
+    fun tooLongInputIsReportedAndKeepsTheModel() {
+        val native = ScriptedNative(listOf(tooLong))
+        assertFailsWith<InputTooLongException> { embed(open(native)) }
+        assertFalse(native.closed)
+        assertEquals(1, native.calls.size)
+    }
+
+    @Test
+    fun gpuInTheBackgroundClosesWithoutBlamingTheBackend() {
+        val native = ScriptedNative(listOf(failed))
+        val e = assertFailsWith<EmbedderClosedException> { embed(open(native, Backend.GPU, active = false)) }
+        assertFalse(e.broken)
+        assertTrue(native.closed)
+        assertEquals(1, native.calls.size) // no probe
+    }
+
+    @Test
+    fun aPassingProbeFailsOnlyTheInput() {
+        val native = ScriptedNative(listOf(failed, ok))
+        val e = assertFailsWith<IllegalArgumentException> { embed(open(native)) }
+        assertIsNot<InputTooLongException>(e)
+        assertFalse(native.closed)
+        assertEquals(listOf<Any>(Prefix.query("warm up")), native.calls[1])
+    }
+
+    @Test
+    fun aFailingProbeClosesTheBrokenBackend() {
+        val native = ScriptedNative(listOf(failed, failed))
+        val e = assertFailsWith<EmbedderClosedException> { embed(open(native)) }
+        assertTrue(e.broken)
+        assertTrue(native.closed)
+    }
+}

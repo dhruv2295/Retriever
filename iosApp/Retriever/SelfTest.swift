@@ -1,7 +1,7 @@
 #if DEBUG
 import Foundation
 import Photos
-import RetrieverCore
+@preconcurrency import RetrieverCore
 import UIKit
 import ZIPFoundation
 
@@ -202,9 +202,9 @@ enum SelfTest {
         var total = 0
         for round in 1...5 where next != .done {
             next = try await s.retriever.indexBatchSeconds(seconds: 180)
-            let st = s.retriever.state.value as? IndexState
-            total += Int(st?.processed ?? 0)
-            say("batch \(round): next \(next.name), processed \(st?.processed ?? -1), failed \(st?.failed ?? -1), backend \(st?.backend?.name ?? "-"), stop \(st?.lastStop?.name ?? "-") \(st?.lastError ?? "")")
+            let st = s.retriever.stateNow
+            total += Int(st.processed)
+            say("batch \(round): next \(next.name), processed \(st.processed), failed \(st.failed), backend \(st.backend?.name ?? "-"), stop \(st.lastStop?.name ?? "-") \(st.lastError ?? "")")
             if next == .whenCharging || next == .whenIdle { break }
         }
         return (next, total)
@@ -232,17 +232,20 @@ enum SelfTest {
     /// A real adjustment through PhotoKit, the way an editing extension makes one: the photo gets a new rendition.
     private static func edit(localId: String) async throws {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localId], options: nil).firstObject else { throw EditError.noInput }
-        let input: PHContentEditingInput = try await withCheckedThrowingContinuation { cont in
+        // The editing input and output never leave this callback; only the outcome crosses back.
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             asset.requestContentEditingInput(with: nil) { input, _ in
-                if let input { cont.resume(returning: input) } else { cont.resume(throwing: EditError.noInput) }
+                guard let input, let url = input.fullSizeImageURL, let image = UIImage(contentsOfFile: url.path),
+                      let jpeg = image.jpegData(compressionQuality: 0.4) else { return cont.resume(throwing: EditError.noInput) }
+                let output = PHContentEditingOutput(contentEditingInput: input)
+                output.adjustmentData = PHAdjustmentData(formatIdentifier: "app.retriever.selftest", formatVersion: "1", data: Data("selftest".utf8))
+                do { try jpeg.write(to: output.renderedContentURL) } catch { return cont.resume(throwing: error) }
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest(for: asset).contentEditingOutput = output
+                }, completionHandler: { ok, error in
+                    if ok { cont.resume() } else { cont.resume(throwing: error ?? EditError.noInput) }
+                })
             }
-        }
-        guard let url = input.fullSizeImageURL, let image = UIImage(contentsOfFile: url.path), let jpeg = image.jpegData(compressionQuality: 0.4) else { throw EditError.noInput }
-        let output = PHContentEditingOutput(contentEditingInput: input)
-        output.adjustmentData = PHAdjustmentData(formatIdentifier: "app.retriever.selftest", formatVersion: "1", data: Data("selftest".utf8))
-        try jpeg.write(to: output.renderedContentURL)
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest(for: asset).contentEditingOutput = output
         }
     }
 
@@ -292,7 +295,7 @@ enum SelfTest {
         let once = Once()
         return await withCheckedContinuation { cont in
             once.cont = cont
-            once.handle = retriever.observeAll { snap in
+            once.handle = retriever.observeAll { @Sendable snap in
                 once.lock.lock()
                 let c = once.cont
                 once.cont = nil

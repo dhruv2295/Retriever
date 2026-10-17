@@ -27,9 +27,6 @@ struct RootView: View {
 
     var body: some View {
         content
-        #if DEBUG
-            .onAppear { AccessibilityDump.armIfAsked() }
-        #endif
     }
 
     @ViewBuilder private var content: some View {

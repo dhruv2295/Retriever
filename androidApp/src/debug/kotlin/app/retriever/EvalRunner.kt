@@ -1,5 +1,6 @@
 package app.retriever
 
+import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.util.Log
@@ -8,10 +9,12 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.core.Backend
 import app.retriever.core.DIMS
 import app.retriever.core.Embedder
+import app.retriever.core.Extractor
 import app.retriever.core.EvalSetting
 import app.retriever.core.Kind
 import app.retriever.core.Part
 import app.retriever.core.RetrievalEval
+import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
 import app.retriever.core.Signature
 import app.retriever.core.Store
@@ -23,13 +26,18 @@ import app.retriever.core.evalGrid
 import app.retriever.core.parseEvalQueries
 import app.retriever.core.report
 import app.retriever.core.traced
+import app.retriever.di.AppScope
+import app.retriever.di.ModelDir
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import java.io.File
 import java.util.Locale
 import java.util.Random
@@ -41,9 +49,14 @@ import kotlin.time.TimeSource
  * The 13-query eval (a target file in the top 5) plus per-kind median extract times, over the app's own
  * Retriever and database. Embed time per kind needs a per-file hook the facade doesn't expose.
  */
-class EvalRunner(private val graph: AppGraph) {
+class EvalRunner : KoinComponent {
+    private val app: Context by inject()
+    private val retriever: Retriever by inject()
+    private val extractor: Extractor by inject()
+    private val modelDir: File by inject(ModelDir)
+    private val scope: CoroutineScope by inject(AppScope)
+
     suspend fun run(): String = withContext(Dispatchers.Default) {
-        val retriever = graph.retriever
         val out = StringBuilder()
         var found = 0
         val queryMs = mutableListOf<Double>()
@@ -51,7 +64,7 @@ class EvalRunner(private val graph: AppGraph) {
             val mark = TimeSource.Monotonic.markNow()
             val result = retriever.search(q)
             queryMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
-            val top = result.hits.take(5)
+            val top = result.hits.filterNot { it.file.name.isHarnessFile() }.take(5)
             val hit = top.any { it.file.name.contains(target, ignoreCase = true) }
             if (hit) found++
             out.append(if (hit) "hit  " else "miss ").append(q).append(" -> ").append(top.joinToString(" | ") { it.file.name })
@@ -64,12 +77,12 @@ class EvalRunner(private val graph: AppGraph) {
         for (kind in Kind.entries) {
             val ms = retriever.files(kind, null, Store.Sort.NEWEST, PER_KIND, 0).map { stored ->
                 val mark = TimeSource.Monotonic.markNow()
-                runCatching { graph.extractor.extract(stored.file, profile) }
+                runCatching { extractor.extract(stored.file, profile) }
                 mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
             }
             if (ms.isNotEmpty()) out.appendLine("$kind n=${ms.size} extract=${median(ms).f1()}")
         }
-        out.toString().also { File(graph.app.getExternalFilesDir("eval"), "eval.txt").writeText(it) }
+        out.toString().also { File(app.getExternalFilesDir("eval"), "eval.txt").writeText(it) }
     }
 
     /**
@@ -78,13 +91,12 @@ class EvalRunner(private val graph: AppGraph) {
      * Writes eval-corpus.txt next to eval.txt.
      */
     suspend fun runCorpus(): String = withContext(Dispatchers.Default) {
-        val retriever = graph.retriever
         val dir = File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR")
         val queries = parseEvalQueries(File(dir, "queries.json").readText())
         val corpus = retriever.folders().map { it.first }.filter { CORPUS_DIR in it.split('/') }
             .flatMap { retriever.files(null, it, Store.Sort.NAME, 10_000, 0) }
             .map { it.file }
-            .filter { it.name != "queries.json" && it.name != "report.md" }
+            .filterNot { it.name.isHarnessFile() }
             .sortedBy { it.uri }
         // The production path first, as a person meets it: the app's index, ranks, strong counts and latency.
         val queryMs = mutableListOf<Double>()
@@ -92,26 +104,29 @@ class EvalRunner(private val graph: AppGraph) {
             val mark = TimeSource.Monotonic.markNow()
             retriever.search(q.q).also { queryMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS) }
         }
-        val production = queries.zip(results) { q, r ->
-            q.file?.let { f -> r.hits.indexOfFirst { it.file.folder.split('/').contains(CORPUS_DIR) && it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
+        // The eval's own manifest and reports sit in the corpus folder and their chunks contain every query: they never take a rank.
+        val ranked = results.map { r -> r.hits.filterNot { it.file.name.isHarnessFile() } }
+        val production = queries.zip(ranked) { q, hits ->
+            q.file?.let { f -> hits.indexOfFirst { it.file.folder.split('/').contains(CORPUS_DIR) && it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
         }
+        val strong = results.map { r -> r.hits.take(r.strongCount).count { !it.file.name.isHarnessFile() } }
         // One copy of the model in memory: the eval opens its own per vision-token count.
         retriever.release()
         val build = retriever.requiredBuild.value
         // The facade doesn't expose the stored profile; this phone's tier may use 140 vision tokens, and the grid has both.
         val profile = CalibrationSamples.readingProfile(build.variant).copy(backend = retriever.state.value.backend ?: Backend.CPU, videoFrameEverySec = 0)
         val run = RetrievalEval(
-            graph.extractor,
-            MediaPipeEmbedderFactory(graph.app, graph.modelDir, retriever.probe),
+            extractor,
+            MediaPipeEmbedderFactory(app, modelDir, retriever.probe),
             build,
             profile,
-            Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
+            Store(AndroidSqliteDriver(IndexDb.Schema, app, null)),
         ).run(corpus, queries, evalGrid(listOf(70, 140)))
         val report = "## ${Build.MODEL}: ${build.fileName}, ${profile.backend}\n\n" +
             "Production search (Retriever.search, ${queries.size} queries): ${latency(queryMs)}" +
             (if (results.all { it.vectorLane }) "; every search used the vector lane.\n\n" else "; some searches were keyword-only.\n\n") +
-            run.report(EvalSetting(profile.visionTokens), production, results.map { it.strongCount })
-        report.also { File(graph.app.getExternalFilesDir("eval"), "eval-corpus.txt").writeText(it) }
+            run.report(EvalSetting(profile.visionTokens), production, strong)
+        report.also { File(app.getExternalFilesDir("eval"), "eval-corpus.txt").writeText(it) }
     }
 
     /**
@@ -149,7 +164,7 @@ class EvalRunner(private val graph: AppGraph) {
         val full = VectorTable(LongArray(max) { it + 1L }, LongArray(max) { it.toLong() }, ByteArray(max * DIMS).also(rnd::nextBytes), FloatArray(max) { 1f / 127 })
         val q = Vector(ByteArray(DIMS).also(rnd::nextBytes), 1f / 127, sig)
         val engine = SearchEngine(
-            Store(AndroidSqliteDriver(IndexDb.Schema, graph.app, null)),
+            Store(AndroidSqliteDriver(IndexDb.Schema, app, null)),
             object : Embedder {
                 override val signature = sig
                 override val backend = Backend.CPU
@@ -183,16 +198,21 @@ class EvalRunner(private val graph: AppGraph) {
     }
 
     /**
-     * Retriever.search over the eval queries in three states: model closed (released before each query, so the
-     * time includes opening it), open and idle, and open with a foreground batch running (push extra photos first).
+     * Retriever.search over the eval queries: model closed and cold (released before each query, so the time includes
+     * opening it), closed then warmSearch (as a focused search bar does), the names lane, open and idle, open with a
+     * foreground batch running, and the focus-busy window with the batch standing by (push extra photos first).
      */
     private suspend fun searchLatency(): String = withContext(Dispatchers.Default) {
-        val retriever = graph.retriever
         val queries = parseEvalQueries(File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR/queries.json").readText()).map { it.q }
         var keywordOnly = 0
         suspend fun timed(q: String): Double {
             val mark = TimeSource.Monotonic.markNow()
             if (!retriever.search(q).vectorLane) keywordOnly++
+            return mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
+        }
+        suspend fun timedNames(q: String): Double {
+            val mark = TimeSource.Monotonic.markNow()
+            retriever.searchNames(q)
             return mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
         }
         val out = StringBuilder("Search latency, ${Build.MODEL}, ${queries.size} queries, ${retriever.requiredBuild.value.fileName}\n")
@@ -201,9 +221,28 @@ class EvalRunner(private val graph: AppGraph) {
         // Paused, newly pushed files stay pending and no background batch disturbs the first two states.
         retriever.pause()
         try {
-            Log.i(TAG, "latency: model closed")
+            val sample = queries.filterIndexed { i, _ -> i % 4 == 0 }
+
+            Log.i(TAG, "latency: model closed, cold")
             retriever.warmSearch()
-            line("model closed, opened by each search", queries.filterIndexed { i, _ -> i % 4 == 0 }.map { retriever.release(); timed(it) })
+            line("model closed, opened by each search (no warm-up)", sample.map { retriever.release(); timed(it) })
+
+            // What a person meets: the search bar takes focus, warmSearch runs, then they type.
+            Log.i(TAG, "latency: model closed, then warmSearch")
+            val warmMs = mutableListOf<Double>()
+            val afterWarm = sample.map {
+                retriever.release()
+                val mark = TimeSource.Monotonic.markNow()
+                retriever.warmSearch()
+                warmMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
+                timed(it)
+            }
+            line("model closed, after warmSearch", afterWarm)
+            line("  warmSearch itself", warmMs)
+
+            Log.i(TAG, "latency: names lane")
+            retriever.warmSearch()
+            line("names lane (searchNames, no model)", List(3) { queries }.flatten().map { timedNames(it) })
 
             Log.i(TAG, "latency: model open, idle")
             timed(queries.first())
@@ -213,7 +252,7 @@ class EvalRunner(private val graph: AppGraph) {
         }
 
         Log.i(TAG, "latency: foreground batch")
-        val batch = graph.scope.launch { retriever.indexBatch(10.minutes, deepen = false) }
+        val batch = scope.launch { retriever.indexBatch(10.minutes, deepen = false) }
         val started = withTimeoutOrNull(60_000) { retriever.state.first { it.running && it.pendingAtStart > 0 } }
         if (started == null) {
             out.appendLine("foreground batch: none ran (nothing pending); push extra files to /sdcard/DCIM and rescan")
@@ -229,6 +268,20 @@ class EvalRunner(private val graph: AppGraph) {
             }
             line("foreground batch running (${started.pendingAtStart} pending)", ms)
             out.appendLine("  the batch finished ${retriever.state.value.processed - processedBefore} files meanwhile")
+
+            // Focus-busy window: the search UI holds uiBusy while the person types, so the batch stands by. Names and full search, back to back.
+            if (retriever.state.value.running) {
+                Log.i(TAG, "latency: focus-busy window")
+                retriever.setUiBusy(true)
+                try {
+                    line("busy window, names lane", List(3) { queries }.flatten().map { timedNames(it) })
+                    line("busy window, full search", List(3) { queries }.flatten().map { timed(it) })
+                } finally {
+                    retriever.setUiBusy(false)
+                }
+            } else {
+                out.appendLine("busy window: the batch ended before it; push more files to /sdcard/DCIM and rescan")
+            }
         }
         retriever.cancelBatch()
         batch.join()
@@ -237,7 +290,6 @@ class EvalRunner(private val graph: AppGraph) {
 
     /** One search, three times: hits (strong ones first), strong flags and timings. A closed model makes the first one slow. */
     private suspend fun query(q: String): String = withContext(Dispatchers.Default) {
-        val retriever = graph.retriever
         val out = StringBuilder("Query \"$q\"\n")
         val times = mutableListOf<Double>()
         lateinit var result: SearchEngine.SearchResult
@@ -255,7 +307,7 @@ class EvalRunner(private val graph: AppGraph) {
 
     /** Counts by kind and state, and how many have a taken_at, straight from the index file. */
     private suspend fun stats(): String = withContext(Dispatchers.Default) {
-        val driver = AndroidSqliteDriver(IndexDb.Schema, graph.app, Store.DB_NAME)
+        val driver = AndroidSqliteDriver(IndexDb.Schema, app, Store.DB_NAME)
         try {
             fun rows(sql: String, cols: Int) = driver.executeQuery(
                 null,
@@ -290,6 +342,9 @@ class EvalRunner(private val graph: AppGraph) {
     }
 
     private fun Double.f1() = "%.1f".format(Locale.US, this)
+
+    /** The eval's own files in the corpus folder: the query manifest and the reports this runner writes. */
+    private fun String.isHarnessFile() = this == "queries.json" || this == "report.md" || (startsWith("report-") && endsWith(".txt"))
 
     private companion object {
         const val PER_KIND = 10

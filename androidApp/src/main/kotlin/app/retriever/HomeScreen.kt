@@ -23,17 +23,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.NorthWest
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.outlined.Storage
+import androidx.annotation.DrawableRes
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -119,9 +108,9 @@ internal fun HomeBody(
                     for (q in recent) {
                         ListItem(
                             headlineContent = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            leadingContent = { Icon(Icons.Outlined.History, contentDescription = null) },
+                            leadingContent = { Icon(painterResource(R.drawable.ic_history), contentDescription = null) },
                             trailingContent = {
-                                IconButton(onClick = { fill(q, false) }) { Icon(Icons.Outlined.NorthWest, contentDescription = "Edit “$q”") }
+                                IconButton(onClick = { fill(q, false) }) { Icon(painterResource(R.drawable.ic_north_west), contentDescription = "Edit “$q”") }
                             },
                             colors = transparent,
                             modifier = Modifier.clickable(onClickLabel = "Search again") { fill(q, true) },
@@ -174,7 +163,7 @@ internal fun HomeBody(
 private fun ShotTile(file: SourceFile, onClick: () -> Unit) {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { 192.dp.roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, file.uri) { value = Thumbnails.load(context, file, px) }
+    val bitmap by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt) { value = Thumbnails.load(context, file, px) }
     Box(
         Modifier
             .size(96.dp, 171.dp)
@@ -186,7 +175,7 @@ private fun ShotTile(file: SourceFile, onClick: () -> Unit) {
     ) {
         val shown = bitmap
         if (shown != null) Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        else Icon(kindIcon(file.kind), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        else Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -225,7 +214,7 @@ private fun Status(ui: SearchUi, index: IndexState, total: Long, actions: Search
             colors.onSurface,
             "Reading your files",
             count = of,
-            body = index.etaMinutes?.let { Format.eta(it).replaceFirstChar { c -> c.uppercase() } + "." + if (it >= 60) " Faster while charging." else "" },
+            body = index.etaMinutes?.let { Format.eta(it).replaceFirstChar { c -> c.uppercase() } + "." + if (it >= 60 && !ui.charging) " Faster while charging." else "" },
             progress = if (total > 0) ui.searchable.toFloat() / total else 0f,
             onClick = { go(StatusRoute) },
         )
@@ -236,7 +225,7 @@ private fun Status(ui: SearchUi, index: IndexState, total: Long, actions: Search
             "Paused",
             count = "$of searchable",
             body = "Search works on everything read so far.",
-            icon = Icons.Filled.Pause,
+            icon = R.drawable.ic_pause,
             onClick = { go(StatusRoute) },
             action = "Resume" to actions.onResume,
         )
@@ -246,7 +235,7 @@ private fun Status(ui: SearchUi, index: IndexState, total: Long, actions: Search
             waitingCopy(index.lastStop) ?: "Waiting",
             count = "$of searchable",
             body = "Search works on everything read so far.",
-            icon = Icons.Filled.Schedule,
+            icon = R.drawable.ic_schedule,
             onClick = { go(StatusRoute) },
         )
         else -> QuietRow(
@@ -279,7 +268,7 @@ private fun StatusCard(
     title: String,
     count: String? = null,
     body: String? = null,
-    icon: ImageVector? = null,
+    @DrawableRes icon: Int? = null,
     progress: Float? = null,
     onClick: (() -> Unit)? = null,
     clickLabel: String = "Show reading details",
@@ -296,13 +285,13 @@ private fun StatusCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (icon != null) Icon(icon, contentDescription = null)
+                if (icon != null) Icon(painterResource(icon), contentDescription = null)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TitleWithCount(title, count, MaterialTheme.typography.bodyLarge)
                     if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     if (body != null) Text(body, style = MaterialTheme.typography.bodyMedium)
                 }
-                if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                if (onClick != null) Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null)
             }
             // Filled, not tonal: a tonal button is the same colour as these cards and would vanish.
             if (action != null) Button(onClick = action.second, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) { Text(action.first) }
@@ -312,16 +301,16 @@ private fun StatusCard(
 
 /** Nothing to act on: one line, no card. */
 @Composable
-private fun QuietRow(title: String, count: String?, second: String?, done: Boolean, go: (Any) -> Unit) {
+private fun QuietRow(title: String, count: String?, second: String?, done: Boolean, go: (Route) -> Unit) {
     ListItem(
         leadingContent = if (!done) null else ({
             Box(Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                Icon(painterResource(R.drawable.ic_check), contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
             }
         }),
         headlineContent = { TitleWithCount(title, count, LocalTextStyle.current) },
         supportingContent = second?.let { { Text(it) } },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = transparent,
         modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) },
     )
@@ -348,12 +337,12 @@ private fun EmptyHome(looking: Boolean) {
 // --- Your files, Tidy up ---
 
 @Composable
-private fun YourFiles(ui: SearchUi, counts: Map<Kind, Long>, go: (Any) -> Unit) {
+private fun YourFiles(ui: SearchUi, counts: Map<Kind, Long>, go: (Route) -> Unit) {
     Column {
         SectionHeader("Your files")
         Card {
             if (ui.starred > 0) {
-                CountRow(Icons.Outlined.StarBorder, "Starred", ui.starred.toLong(), null) { go(BrowseRoute(title = "Starred", starredOnly = true)) }
+                CountRow(R.drawable.ic_star_border, "Starred", ui.starred.toLong(), null) { go(BrowseRoute(title = "Starred", starredOnly = true)) }
             }
             for (kind in FILE_KINDS) {
                 val n = counts[kind] ?: 0L
@@ -369,23 +358,23 @@ private fun YourFiles(ui: SearchUi, counts: Map<Kind, Long>, go: (Any) -> Unit) 
                 CountRow(kindIcon(kind), Format.kindLabelPlural(kind), n, line) { go(BrowseRoute(kind = kind.name, title = Format.kindLabelPlural(kind))) }
             }
             val folders = ui.home?.folders ?: 0L
-            if (folders > 0) CountRow(Icons.Outlined.FolderOpen, "Folders", folders, null, ofFiles = false) { go(FoldersRoute) }
+            if (folders > 0) CountRow(R.drawable.ic_folder_open, "Folders", folders, null, ofFiles = false) { go(FoldersRoute) }
         }
     }
 }
 
 @Composable
-private fun TidyUp(ui: SearchUi, go: (Any) -> Unit) {
+private fun TidyUp(ui: SearchUi, go: (Route) -> Unit) {
     Column {
         SectionHeader("Tidy up")
         Card {
             val home = ui.home
             if (home != null && home.largeCount > 0) {
-                TidyRow(Icons.Outlined.Storage, "${Format.count(home.largeCount)} files over 100 MB · ${Format.bytes(home.largeBytes)}") {
+                TidyRow(R.drawable.ic_storage, "${Format.count(home.largeCount)} files over 100 MB · ${Format.bytes(home.largeBytes)}") {
                     go(BrowseRoute(sort = "LARGEST", title = "Large files"))
                 }
             }
-            TidyRow(Icons.Outlined.ContentCopy, "Check for exact copies") { go(DuplicatesRoute) }
+            TidyRow(R.drawable.ic_content_copy, "Check for exact copies") { go(DuplicatesRoute) }
         }
     }
 }
@@ -398,13 +387,13 @@ private fun Card(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun CountRow(icon: ImageVector, label: String, count: Long, line: String?, ofFiles: Boolean = true, onClick: () -> Unit) {
+private fun CountRow(@DrawableRes icon: Int, label: String, count: Long, line: String?, ofFiles: Boolean = true, onClick: () -> Unit) {
     // At large text the count drops under the label, so a long name keeps its words whole.
     val big = LocalDensity.current.fontScale >= 1.5f
     val n = Format.count(count)
     val second = listOfNotNull(line, n.takeIf { big }).joinToString(" · ").ifEmpty { null }
     ListItem(
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         headlineContent = { Text(label) },
         supportingContent = second?.let { { Text(it) } },
         trailingContent = if (big) null else ({ Text(n, style = MaterialTheme.typography.bodyMedium.tabular(), color = MaterialTheme.colorScheme.onSurfaceVariant) }),
@@ -419,11 +408,11 @@ private fun CountRow(icon: ImageVector, label: String, count: Long, line: String
 }
 
 @Composable
-private fun TidyRow(icon: ImageVector, text: String, onClick: () -> Unit) {
+private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
     ListItem(
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
         headlineContent = { Text(text) },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = transparent,
         modifier = Modifier.clickable(onClickLabel = "Open", onClick = onClick),
     )

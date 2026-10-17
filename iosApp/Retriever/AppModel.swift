@@ -2,7 +2,7 @@ import Observation
 import os
 import Photos
 import PhotosUI
-import RetrieverCore
+@preconcurrency import RetrieverCore
 import SwiftUI
 import UIKit
 
@@ -154,7 +154,7 @@ final class AppModel {
         folders = Self.pickedFolders(services)
         let textOnly = services.retriever.textOnly
         let ramGb = services.retriever.probe.ramGb
-        observation = services.retriever.observeAll { [weak self] snapshot in
+        observation = services.retriever.observeAll { @Sendable [weak self] snapshot in
             let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
             let suggestions = services.retriever.suggestions(byKindState: snapshot.counts.byKindState)
             Task { @MainActor in self?.apply(snap, starred: snapshot.starred, modelMissing: snapshot.modelMissing, suggestions: suggestions) }
@@ -283,7 +283,7 @@ final class AppModel {
             try IndexTask.submitContinued(snap)
             Self.log.info("continued reading submitted")
         } catch {
-            Self.log.error("couldn't keep reading after leaving: \(error, privacy: .public)")
+            Self.log.error("couldn't keep reading after leaving: \(error, privacy: .private)")
             return
         }
         continuing = true
@@ -339,8 +339,8 @@ final class AppModel {
         Task {
             try? await services.retriever.refreshSetUp()
             if tuneLeft, active, tune != .running { return await runTune() }
-            guard (services.retriever.setUp.value as? KotlinBoolean)?.boolValue != true,
-                  let build = services.retriever.requiredBuild.value as? ModelBuild else { return }
+            guard services.retriever.setUpNow?.boolValue != true else { return }
+            let build = services.retriever.requiredBuildNow
             Self.log.info("setup: download \(String(describing: services.download.state), privacy: .public), tune \(String(describing: self.tune), privacy: .public)")
             switch services.download.state {
             case .idle: services.download.start(build, allowCellular: useMobileData)
@@ -353,8 +353,8 @@ final class AppModel {
     }
 
     func retryDownload() {
-        guard let services, let build = services.retriever.requiredBuild.value as? ModelBuild else { return }
-        services.download.start(build, allowCellular: useMobileData)
+        guard let services else { return }
+        services.download.start(services.retriever.requiredBuildNow, allowCellular: useMobileData)
     }
 
     /// The old UserDefaults key moves into Prefs once, then goes. A write that fails leaves the key for the next launch.
@@ -363,10 +363,10 @@ final class AppModel {
         migratingMobileData = true
         Task {
             try? await services.retriever.refreshSetUp()
-            if legacy, (services.retriever.prefs.value as? Prefs)?.allowMobileData != true {
+            if legacy, !services.retriever.prefsNow.allowMobileData {
                 do { try await edit(mobileData: true) } catch {
                     migratingMobileData = false
-                    return Self.log.error("mobile data setting not moved: \(error, privacy: .public)")
+                    return Self.log.error("mobile data setting not moved: \(error, privacy: .private)")
                 }
             }
             UserDefaults.standard.removeObject(forKey: Self.legacyMobileDataKey)
@@ -378,10 +378,11 @@ final class AppModel {
     private func edit(kinds: Set<Kind>? = nil, charging: Bool? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
                       excluded: Set<String>? = nil) async throws {
         guard let services else { return }
-        try await services.retriever.updatePrefs { p in
+        try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(kinds: kinds ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging, excludedFolders: excluded ?? p.excludedFolders,
                      paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
-                     rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor)
+                     rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
+                     setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed)
         }
     }
 
@@ -398,11 +399,8 @@ final class AppModel {
         guard var kinds = snap?.kinds else { return }
         if on { kinds.insert(kind) } else { kinds.remove(kind) }
         snap?.kinds = kinds
-        Task {
-            try? await edit(kinds: kinds)
-            services?.retriever.notifyChanged()
-            wake()
-        }
+        // Core clears a kind turned off and queues one turned on.
+        Task { try? await edit(kinds: kinds) }
     }
 
     func setOnlyWhileCharging(_ on: Bool) {
@@ -443,10 +441,7 @@ final class AppModel {
 
     func loadStorage() async {
         guard let services else { return }
-        let support = services.modelsDir.deletingLastPathComponent()
-        let index = support.appendingPathComponent("Retriever")
-        let models = services.modelsDir
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("embed")
+        let index = services.dataDir, models = services.modelsDir, cache = services.cacheDir
         storage = await Task.detached { Storage(index: Self.size(index), model: Self.size(models), cache: Self.size(cache)) }.value
     }
 
@@ -462,14 +457,15 @@ final class AppModel {
     /// Settings' Free up space: the model and what was built from it go, the index stays. Search then runs on names
     /// and words (modelMissing) until downloadAgain().
     func freeUpSpace() {
-        guard let services, let build = services.retriever.requiredBuild.value as? ModelBuild else { return }
+        guard let services else { return }
+        let build = services.retriever.requiredBuildNow
         // The reading loop stands aside, so no batch reopens the model between its unloading and the file going.
         let wasActive = active
         if wasActive { stopLoop() }
         Task {
             try? await services.retriever.release()
             services.download.deleteModel(build)
-            let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("embed")
+            let cache = services.cacheDir
             (try? FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil))?.forEach { try? FileManager.default.removeItem(at: $0) }
             try? await services.retriever.refreshSetUp()
             await loadStorage()
@@ -511,7 +507,7 @@ final class AppModel {
             if tuneLeft, active { return await runTune() }
             tuningAgain = false
         } catch {
-            Self.log.error("tune failed: \(error, privacy: .public)")
+            Self.log.error("tune failed: \(error, privacy: .private)")
             tune = .failed
             tuningAgain = false
         }

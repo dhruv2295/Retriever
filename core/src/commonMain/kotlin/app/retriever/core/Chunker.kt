@@ -64,7 +64,10 @@ object Chunker {
 fun Piece.modelParts(fileName: String, prefixes: Boolean = true): List<Part> =
     if (prefixes && parts.all { it is Part.Text }) parts.map { Part.Text(Prefix.document(fileName, (it as Part.Text).text)) } else parts
 
-/** Prompt prefixes from the EmbeddingGemma 2 model card. Images and audio take none. */
+/**
+ * Prompt prefixes, sourced from the HF config_sentence_transformers.json and the EmbeddingGemma 2 model card.
+ * The LiteRT-LM page's prefixes differ from these. Images and audio take none.
+ */
 object Prefix {
     fun document(title: String, text: String) = "title: ${title.ifBlank { "none" }} | text: $text"
 

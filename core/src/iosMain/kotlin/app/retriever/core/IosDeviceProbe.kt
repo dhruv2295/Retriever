@@ -9,7 +9,10 @@ import platform.Foundation.NSProcessInfo
 import platform.posix.uname
 import platform.posix.utsname
 
-/** iOS has no NPU dispatch for litertlm; [ModelBuilds.variantFor] maps it to M440, which has no audio. */
+/**
+ * iOS reports no NPU dispatch, and SDK 1.1.1 does expose embed(audio:), so neither fact rules out audio.
+ * [ModelBuilds.variantFor] forces M440 on iOS pending an 8 GB iPhone memory measurement.
+ */
 @OptIn(ExperimentalForeignApi::class)
 fun iosDeviceProbe(): DeviceProbe = DeviceProbe(
     platform = Platform.IOS,

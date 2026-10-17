@@ -57,4 +57,10 @@ Body only.}"""
         assertTrue("text" in stripRtf("}}}{\\rtf1 text"))
         assertFalse("rtf1" in stripRtf("{\\rtf1 {{{ unclosed"))
     }
+
+    @Test
+    fun negativeBinaryCountDoesNotLoop() {
+        val text = stripRtf("{\\rtf1 a\\bin-10 b}")
+        assertTrue("a" in text, text)
+    }
 }

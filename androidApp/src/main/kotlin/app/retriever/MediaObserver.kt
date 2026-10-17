@@ -5,8 +5,14 @@ import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
 import android.provider.MediaStore
+import app.retriever.core.Retriever
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-object MediaObserver {
+object MediaObserver : KoinComponent {
+    private val retriever: Retriever by inject()
+    private val platformReady: () -> Boolean by inject(PlatformReady)
+
     /** One scan this long after the first change, however many follow: a file that keeps changing can't put it off. */
     private const val DELAY_MS = 60_000L
 
@@ -14,8 +20,7 @@ object MediaObserver {
         val handler = Handler(HandlerThread("retriever-media").apply { start() }.looper)
         val run = Runnable {
             // Before the model too: the worker's sync-only batch makes new files searchable by name.
-            if (!app.graph.platformReady()) return@Runnable
-            val retriever = app.graph.retriever
+            if (!platformReady()) return@Runnable
             // index-now is dropped while a batch runs; the flag makes that batch sync again at the end.
             retriever.notifyChanged()
             IndexScheduler.indexNow(app)

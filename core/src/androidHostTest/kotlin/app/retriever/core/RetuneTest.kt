@@ -1,0 +1,86 @@
+package app.retriever.core
+
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+
+/** Free up space, then Download again: the same model and profile must not read the library again (critic #5). */
+class RetuneTest {
+    private val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+    private val docs = (1..4).map { testFile("d$it.txt", modifiedAt = it.toLong()) }
+    private val videos = (1..2).map { testFile("v$it.mp4", Kind.VIDEO, modifiedAt = it.toLong()) }
+    private val pieces = photos.associate { it.name to listOf(Piece("", listOf(Part.Image(ByteArray(it.name.length))), null)) } +
+        (docs + videos).associate { it.name to listOf(textPiece("words of ${it.name}")) }
+
+    private inner class Fx(profile: DeviceProfile) {
+        val store = newStore(Signature.of(ModelVariant.M740.generic, profile.visionTokens, profile.maxTokens)).also { it.setProfile(profile) }
+
+        @Volatile
+        var ready = true
+
+        @Volatile
+        var cancelOn: String? = null
+        val r: Retriever
+        val extractor = FakeExtractor(pieces) { f -> if (f.name == cancelOn) r.cancelBatch() }
+
+        init {
+            r = testRetriever(store, photos + docs + videos, extractor, modelReady = { ready })
+        }
+
+        suspend fun state(kind: Kind, s: FileState) = store.counts().first().byKindState[kind to s] ?: 0L
+
+        /** What Services.freeUpSpace does mid-batch, a batch (sync) with the file gone, then Download again. */
+        suspend fun freeUpAndRestore() {
+            cancelOn = "v1.mp4"
+            r.indexBatch(1.minutes)
+            cancelOn = null
+            r.release()
+            ready = false
+            r.refreshSetUp()
+            r.indexBatch(1.minutes)
+            ready = true
+            r.refreshSetUp()
+        }
+    }
+
+    private fun test(body: suspend () -> Unit) = runBlocking { withTimeout(20.seconds) { body() } }
+
+    @Test
+    fun removingAndRestoringTheModelKeepsEveryReadFile() = test {
+        val f = Fx(PROFILE)
+        f.r.refreshSetUp()
+        f.r.indexBatch(1.minutes)
+        assertEquals(photos.size.toLong(), f.state(Kind.PHOTO, FileState.INDEXED))
+        // P11's settings round trips before Free up space: videos off and on, sample mode on and off.
+        f.r.updatePrefs { it.copy(kinds = it.kinds - Kind.VIDEO, sampleSize = 2) }
+        f.r.updatePrefs { it.copy(kinds = it.kinds + Kind.VIDEO, sampleSize = null) }
+        f.r.requeue(setOf(Kind.VIDEO))
+        val profile = f.store.profile()
+        val read = f.extractor.names.size
+
+        f.freeUpAndRestore() // the videos' batch is running when Free up space cancels it
+        assertEquals(photos.size.toLong(), f.state(Kind.PHOTO, FileState.INDEXED))
+        f.r.indexBatch(1.minutes)
+
+        assertEquals(profile, f.store.profile())
+        assertEquals(emptyList(), f.extractor.names.drop(read).filterNot { it.startsWith("v") }, "no photo or doc read again")
+        assertEquals(0L, f.store.countsByState()[FileState.PENDING] ?: 0L, "nothing left queued")
+    }
+
+    /** A tier up while photos read (retierFrom) requeues videos as designed, and never a photo. */
+    @Test
+    fun aTierUpRequeuesVideosNotPhotos() = test {
+        val f = Fx(PROFILE.copy(tier = Tier.BALANCED, videoFrameEverySec = 5))
+        f.r.refreshSetUp()
+        f.r.indexBatch(1.minutes)
+        assertEquals(Tier.FULL, f.store.profile()!!.tier, "five fast photos move the phone up")
+        assertEquals(photos.size.toLong(), f.state(Kind.PHOTO, FileState.INDEXED))
+        assertEquals(0L, f.state(Kind.PHOTO, FileState.PENDING))
+        assertTrue(f.extractor.names.count { it.startsWith("v") } >= videos.size)
+    }
+}

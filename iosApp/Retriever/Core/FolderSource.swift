@@ -3,8 +3,9 @@ import RetrieverCore
 import UniformTypeIdentifiers
 
 /// The app's Documents folder (people drop files there through the Files app) plus folders picked in the Files
-/// app, kept as bookmarks. URIs are folder://<folderId>/<path inside the folder>.
-final class FolderSource: NSObject, NativeFileSource {
+/// app, kept as bookmarks. URIs are folder://<folderId>/<path inside the folder>. Unchecked Sendable: the mutable
+/// caches are behind `lock`, and the bookmarks live in UserDefaults, which is thread-safe.
+final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
     struct Folder: Identifiable {
         let id: String
         let name: String

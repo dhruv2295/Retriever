@@ -16,12 +16,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -35,30 +29,33 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
+import androidx.navigation.toRoute
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
 
 private const val PAGE = 200
 
@@ -67,29 +64,63 @@ private const val LOAD_AHEAD = 20
 
 private val GRID_KINDS = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
-class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
+/** A screen's star state: the shared set from Retriever, and toggles that report a failure instead of dropping it. */
+class Starring(
+    val starred: StateFlow<Set<String>>,
+    private val write: suspend (uri: String, on: Boolean) -> Unit,
+    private val scope: CoroutineScope,
+) {
+    constructor(retriever: Retriever, scope: CoroutineScope) : this(retriever.starred, retriever::setStarred, scope)
+
+    private val _failed = MutableStateFlow(false)
+    val failed: StateFlow<Boolean> = _failed.asStateFlow()
+
+    fun set(uri: String, on: Boolean) {
+        scope.launch {
+            try {
+                write(uri, on)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _failed.value = true
+            }
+        }
+    }
+
+    fun toggle(uri: String) = set(uri, uri !in starred.value)
+    fun failureShown() { _failed.value = false }
+}
+
+/** The PDF and player screens' star state; Browse has its own in [BrowseViewModel]. */
+class StarHolder(retriever: Retriever) : ViewModel() {
+    val stars = Starring(retriever, viewModelScope)
+}
+
+/** Arguments and sort come from [saved], so they survive rotation and process death; the first page loads at once. */
+class BrowseViewModel(private val retriever: Retriever, private val saved: SavedStateHandle) : ViewModel() {
+    val route = saved.toRoute<BrowseRoute>()
+    val stars = Starring(retriever, viewModelScope)
+    val sort: StateFlow<String> = saved.getStateFlow(SORT, route.sort)
+
     private val _files = MutableStateFlow<List<Store.StoredFile>>(emptyList())
     val files: StateFlow<List<Store.StoredFile>> = _files.asStateFlow()
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    private var kind: Kind? = null
-    private var folder: String? = null
-    private var sort = Store.Sort.NEWEST
-    private var starredOnly = false
+    private val kind = Kind.entries.firstOrNull { it.name == route.kind }
     private var generation = 0
     private var busy = false
     private var exhausted = false
 
-    fun load(kind: String?, folder: String?, sort: String, starredOnly: Boolean = false) {
-        val k = Kind.entries.firstOrNull { it.name == kind }
-        val s = Store.Sort.entries.firstOrNull { it.name == sort } ?: Store.Sort.NEWEST
-        // A rotation re-runs the screen's LaunchedEffect; keep the pages already loaded.
-        if (generation > 0 && k == this.kind && folder == this.folder && s == this.sort && starredOnly == this.starredOnly) return
-        this.kind = k
-        this.folder = folder
-        this.sort = s
-        this.starredOnly = starredOnly
+    init { reload() }
+
+    fun setSort(value: String) {
+        if (value == sort.value) return
+        saved[SORT] = value
+        reload()
+    }
+
+    private fun reload() {
         generation++
         _loading.value = true
         busy = false
@@ -103,8 +134,9 @@ class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
         busy = true
         val gen = generation
         val offset = _files.value.size
+        val order = Store.Sort.entries.firstOrNull { it.name == sort.value } ?: Store.Sort.NEWEST
         viewModelScope.launch {
-            val page = if (starredOnly) retriever.starredFiles(PAGE, offset) else retriever.files(kind, folder, sort, PAGE, offset)
+            val page = if (route.starredOnly) retriever.starredFiles(PAGE, offset) else retriever.files(kind, route.folder, order, PAGE, offset)
             if (gen != generation) return@launch
             // ponytail: OFFSET paging over a table the indexer changes; rows can shift between pages.
             // Dedupe so a shifted row never repeats a lazy-list key; keyset paging if skips matter.
@@ -112,6 +144,22 @@ class BrowseViewModel(private val retriever: Retriever) : ViewModel() {
             _loading.value = false
             exhausted = page.size < PAGE
             busy = false
+        }
+    }
+
+    private companion object {
+        const val SORT = "browse.sort" // not "sort": that key already holds the route's argument
+    }
+}
+
+/** Shows a star failure once, then clears it. */
+@Composable
+internal fun StarFailureEffect(stars: Starring, snackbar: SnackbarHostState) {
+    val failed by stars.failed.collectAsStateWithLifecycle()
+    LaunchedEffect(failed) {
+        if (failed) {
+            snackbar.showSnackbar("Couldn't change the star. Try again.")
+            stars.failureShown()
         }
     }
 }
@@ -122,31 +170,30 @@ internal fun browseTitle(route: BrowseRoute, sort: String): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(route: BrowseRoute, onNavigate: (Any) -> Unit, onBack: () -> Unit) {
-    val vm = appViewModel(key = "browse:$route") { BrowseViewModel(it.retriever) }
-    val loaded by vm.files.collectAsState()
-    val star = appViewModel(key = "star") { StarViewModel(it.retriever) }
-    val starred by star.starred.collectAsState()
+fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    val vm = koinViewModel<BrowseViewModel>()
+    val loaded by vm.files.collectAsStateWithLifecycle()
+    val starred by vm.stars.starred.collectAsStateWithLifecycle()
     // A file unstarred here leaves the Starred list at once, without reloading its pages.
     val files = if (route.starredOnly) loaded.filter { it.file.uri in starred } else loaded
-    val loading by vm.loading.collectAsState()
-    var sort by rememberSaveable { mutableStateOf(route.sort) }
+    val loading by vm.loading.collectAsStateWithLifecycle()
+    val sort by vm.sort.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // As on a search result: starring says so, with Undo, which also brings an unstarred file back to this list.
-    val onStar = remember(star, snackbar, scope) { starWithUndo({ file, on -> star.set(file.uri, on) }, snackbar, scope) }
-
-    LaunchedEffect(route, sort) { vm.load(route.kind, route.folder, sort, route.starredOnly) }
+    val onStar = remember(vm, snackbar, scope) { starWithUndo({ file, on -> vm.stars.set(file.uri, on) }, snackbar, scope) }
+    StarFailureEffect(vm.stars, snackbar)
 
     Scaffold(
+        modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(browseTitle(route, sort)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 },
             )
@@ -159,7 +206,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Any) -> Unit, onBack: () -> Un
             kind = Kind.entries.firstOrNull { it.name == route.kind },
             starredOnly = route.starredOnly,
             padding = padding,
-            onSort = { sort = it },
+            onSort = vm::setSort,
             onLoadMore = vm::loadMore,
             onOpen = { Opener.open(context, it, navigate = onNavigate) },
             starred = starred,
@@ -179,11 +226,12 @@ fun BrowseContent(
     onSort: (String) -> Unit,
     onLoadMore: () -> Unit,
     onOpen: (SourceFile) -> Unit,
+    modifier: Modifier = Modifier,
     starredOnly: Boolean = false,
     starred: Set<String> = emptySet(),
     onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
 ) {
-    Column(Modifier.padding(top = padding.calculateTopPadding())) {
+    Column(modifier.padding(top = padding.calculateTopPadding())) {
         // Starred is ordered by when you starred, so the sort chips would not apply.
         if (!starredOnly) Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -206,14 +254,14 @@ fun BrowseContent(
                     EmptyState(
                         title = "Nothing starred yet",
                         description = "Touch and hold a file, or tap the star while viewing it, to keep it here.",
-                        icon = Icons.Outlined.StarBorder,
+                        icon = R.drawable.ic_star_border,
                         art = R.drawable.illus_empty,
                     )
                 } else {
                     EmptyState(
                         title = "Nothing here yet",
                         description = "Files show up here once Retriever finds them on your phone.",
-                        icon = Icons.Outlined.FolderOpen,
+                        icon = R.drawable.ic_folder_open,
                         art = R.drawable.illus_empty,
                     )
                 }
@@ -269,43 +317,27 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
     }
 }
 
-class StarViewModel(private val retriever: Retriever) : ViewModel() {
-    val starred: StateFlow<Set<String>> = retriever.starred
-    fun toggle(uri: String) = set(uri, uri !in starred.value)
-
-    fun set(uri: String, on: Boolean) {
-        viewModelScope.launch { retriever.setStarred(uri, on) }
-    }
-}
-
 /** A file list's long-press menu: Star or Remove star, as on a search result, so a photo can be unstarred from a list. */
 @Composable
 private fun StarMenu(on: Boolean, toggle: () -> Unit, content: @Composable (onLongClick: () -> Unit) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        content { open = true }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(
-                text = { Text(if (on) "Remove star" else "Star") },
-                leadingIcon = { Icon(if (on) Icons.Outlined.StarBorder else Icons.Filled.Star, contentDescription = null) },
-                onClick = {
-                    open = false
-                    toggle()
-                },
-            )
-        }
+    PressMenu(content = content) { dismiss ->
+        DropdownMenuItem(
+            text = { Text(if (on) "Remove star" else "Star") },
+            leadingIcon = { Icon(painterResource(if (on) R.drawable.ic_star_border else R.drawable.ic_star), contentDescription = null) },
+            onClick = {
+                dismiss()
+                toggle()
+            },
+        )
     }
 }
 
-/** The viewers' top-bar star: reflects and toggles whether [uri] is starred. */
+/** The viewers' top-bar star. */
 @Composable
-fun StarButton(uri: String) {
-    val vm = appViewModel(key = "star") { StarViewModel(it.retriever) }
-    val starred by vm.starred.collectAsState()
-    val on = uri in starred
-    IconButton(onClick = { vm.toggle(uri) }) {
+fun StarButton(on: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit) {
+    IconButton(onClick = onToggle, modifier = modifier) {
         Icon(
-            if (on) Icons.Filled.Star else Icons.Outlined.StarBorder,
+            painterResource(if (on) R.drawable.ic_star else R.drawable.ic_star_border),
             contentDescription = if (on) "Remove star" else "Star this file",
         )
     }

@@ -72,6 +72,7 @@ private class IosEmbedder(
             when (it) {
                 is Part.Text -> it.text
                 is Part.Image -> it.jpeg.toNSData()
+                // Audio is unwired, not unsupported: SDK 1.1.1 exposes embed(audio:). Only image and text reach the model today.
                 else -> throw IllegalArgumentException("no audio on iOS")
             }
         }

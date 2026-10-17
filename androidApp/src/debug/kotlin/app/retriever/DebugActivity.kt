@@ -58,7 +58,6 @@ class DebugActivity : ComponentActivity() {
 @Composable
 private fun DebugScreen(request: DebugActivity.Request?) {
     val context = LocalContext.current
-    val graph = (context.applicationContext as RetrieverApp).graph
     val scope = rememberCoroutineScope()
     val demoOn = remember { Demo.isOn(context) }
     var report by remember { mutableStateOf("") }
@@ -68,7 +67,7 @@ private fun DebugScreen(request: DebugActivity.Request?) {
         report = "Running…"
         scope.launch {
             report = try {
-                EvalRunner(graph).eval()
+                EvalRunner().eval()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

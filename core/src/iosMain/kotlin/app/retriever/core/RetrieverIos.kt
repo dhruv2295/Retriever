@@ -5,7 +5,9 @@ package app.retriever.core
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -24,6 +26,7 @@ import kotlin.time.Duration.Companion.seconds
 // Swift entry points. Swift can't implement suspend members, pass a Duration or collect a Flow, so the app goes
 // through these.
 
+/** [dataDir] holds the index database: [appDataDir] in the app, a temporary directory in tests. */
 fun createRetriever(
     opener: NativeEmbedderOpener,
     extractor: NativeExtractor,
@@ -32,12 +35,13 @@ fun createRetriever(
     monitor: IosDeviceMonitor,
     modelDir: String,
     cacheDir: String,
+    dataDir: String,
     isSimulator: Boolean,
     platformReady: () -> Boolean,
     log: (String) -> Unit,
 ): Retriever {
     val logged: (String, Throwable?) -> Unit = { m, t -> log(if (t == null) m else "$m: $t") }
-    val store = iosStore(logged)
+    val store = iosStore(dataDir, logged)
     val known = KnownFiles { store.fileByUri(it)?.file }
     return Retriever(
         store = store,
@@ -75,9 +79,52 @@ suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seco
 @Throws(Throwable::class)
 suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, deepen = false, waitForLock = true)
 
-@Throws(Throwable::class)
-suspend fun Retriever.searchImageData(jpeg: NSData, kinds: Set<Kind>?, limit: Int, onlyStarred: Boolean): SearchEngine.SearchResult =
-    searchImage(jpeg.toByteArray(), kinds, limit, onlyStarred)
+// Swift's async import of a suspend function doesn't cancel the Kotlin call, so a superseded search kept running and
+// held the embedder mutex. These hand Swift a handle whose close() cancels the job; done runs exactly once, with a
+// CancellationException when closed.
+
+fun Retriever.searchCancellable(
+    q: String,
+    kinds: Set<Kind>?,
+    limit: Int,
+    onlyStarred: Boolean,
+    literal: Boolean,
+    done: (SearchEngine.SearchResult?, Throwable?) -> Unit,
+): AutoCloseable = cancellable({ search(q, kinds, limit, onlyStarred, literal) }, done)
+
+fun Retriever.searchNamesCancellable(
+    q: String,
+    kinds: Set<Kind>?,
+    limit: Int,
+    onlyStarred: Boolean,
+    literal: Boolean,
+    done: (SearchEngine.SearchResult?, Throwable?) -> Unit,
+): AutoCloseable = cancellable({ searchNames(q, kinds, limit, onlyStarred, literal) }, done)
+
+fun Retriever.searchImageDataCancellable(
+    jpeg: NSData,
+    kinds: Set<Kind>?,
+    limit: Int,
+    onlyStarred: Boolean,
+    done: (SearchEngine.SearchResult?, Throwable?) -> Unit,
+): AutoCloseable = cancellable({ searchImage(jpeg.toByteArray(), kinds, limit, onlyStarred) }, done)
+
+/** Internal: a generic T reaches Swift as id, and Swift can't build a Kotlin suspend lambda. */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun <T> cancellable(block: suspend () -> T, done: (T?, Throwable?) -> Unit): AutoCloseable {
+    // async keeps a failure in the Deferred instead of the uncaught handler; the completion handler runs even when
+    // close() comes before the block starts.
+    val job = CoroutineScope(Dispatchers.Default).async { block() }
+    job.invokeOnCompletion { cause -> if (cause == null) done(job.getCompleted(), null) else done(null, cause) }
+    return AutoCloseable { job.cancel() }
+}
+
+// Typed reads: StateFlow is an interface, so its value reaches Swift as Any?.
+val Retriever.prefsNow: Prefs get() = prefs.value
+val Retriever.requiredBuildNow: ModelBuild get() = requiredBuild.value
+val Retriever.stateNow: IndexState get() = state.value
+val Retriever.setUpNow: Boolean? get() = setUp.value
+val Retriever.modelMissingNow: Boolean get() = modelMissing.value
 
 /** Calibration samples from Swift; iOS ships no audio model. */
 fun samples(images: List<NSData>, texts: List<String>): Samples = Samples(images.map { it.toByteArray() }, texts, emptyList())
@@ -100,7 +147,5 @@ fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
             RetrieverSnapshot(s, p, b, c, i, st, m)
         }.collect { cb(it) }
     }
-    return object : AutoCloseable {
-        override fun close() = scope.cancel()
-    }
+    return AutoCloseable { scope.cancel() }
 }

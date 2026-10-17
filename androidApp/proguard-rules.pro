@@ -16,5 +16,15 @@
 # then throws in Application.onCreate.
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
 
+# kotlin-reflect is excluded in androidApp/build.gradle.kts (size); its kotlin.reflect.full call sites are never reached.
+-dontwarn kotlin.reflect.full.**
+
+# Release builds carry no verbose/debug/info logs; w and e stay.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
 # protobuf-javalite (via mediapipe tasks-core) ships no rules; its message schema looks fields up by their source name.
 -keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite { <fields>; }

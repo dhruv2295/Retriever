@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,16 +24,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.outlined.BatteryAlert
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -68,68 +60,80 @@ import androidx.lifecycle.viewModelScope
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
+import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.Store
+import app.retriever.data.AccessService
+import app.retriever.data.IndexService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
 
-class StatusViewModel(private val graph: AppGraph) : ViewModel() {
-    private val app = graph.app
-    private val retriever = graph.retriever
-    val counts: StateFlow<Store.Counts> =
-        retriever.counts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Store.Counts(emptyMap(), emptyMap(), 0))
-    val prefs: StateFlow<Prefs> = retriever.prefs
-    val index: StateFlow<IndexState> = retriever.state
-    private val _skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
-    val skipped: StateFlow<List<Store.StoredFile>> = _skipped
-    private val _access = MutableStateFlow(graph.access())
-    val access: StateFlow<Access> = _access
-    private val _folderError = MutableStateFlow<String?>(null)
-    val folderError: StateFlow<String?> = _folderError
-    val textOnly = retriever.textOnly
+/** Everything Status draws, as one value. */
+data class StatusUi(
+    val counts: Store.Counts,
+    val prefs: Prefs,
+    val index: IndexState,
+    val access: Access,
+    val textOnly: Boolean,
+    val skipped: List<Store.StoredFile> = emptyList(),
+    val folderError: String? = null,
+    val error: String? = null,
+)
 
-    /** Permissions can change in Settings while Status is in the background; RetrieverApp syncs for that. */
-    fun refreshAccess() {
-        _access.value = graph.access()
-    }
+class StatusViewModel(
+    private val retriever: Retriever,
+    private val indexer: IndexService,
+    private val accessService: AccessService,
+) : ViewModel() {
+    private val skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
+    private val folderError = MutableStateFlow<String?>(null)
+    private val error = MutableStateFlow<String?>(null)
+
+    val uiState: StateFlow<StatusUi> = combine(
+        retriever.counts(), retriever.prefs, retriever.state, accessService.state,
+        combine(skipped, folderError, error, ::Triple),
+    ) { counts, prefs, index, access, (skipped, folderError, error) ->
+        StatusUi(counts, prefs, index, access, retriever.textOnly, skipped, folderError, error)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        StatusUi(Store.Counts(emptyMap(), emptyMap(), 0), retriever.prefs.value, retriever.state.value, accessService.state.value, retriever.textOnly),
+    )
+
+    /** Permissions can change in Settings while Status is in the background; the screen syncs on resume. */
+    fun refreshAccess() = accessService.refresh()
 
     /** The picker can reveal more photos without changing any permission, so this always syncs. */
-    fun photosPicked() {
-        graph.accessChanged()
-        refreshAccess()
-    }
+    fun photosPicked() = accessService.changed()
 
     fun addFolder(uri: Uri) {
-        _folderError.value = graph.addFolder(uri)
-        _access.value = graph.access()
+        folderError.value = accessService.addFolder(uri)
     }
 
-    fun removeFolder(uri: String) {
-        graph.removeFolder(uri)
-        _access.value = graph.access()
+    fun removeFolder(uri: String) = accessService.removeFolder(uri)
+
+    fun resume() = attempt { indexer.resume() }
+
+    fun pause() = attempt { indexer.pause() }
+
+    fun loadSkipped() = attempt { skipped.value = retriever.skipped(50) }
+
+    fun retrySkipped() = attempt {
+        retriever.retrySkipped()
+        indexer.indexNow()
+        skipped.value = emptyList()
     }
 
-    fun resume() {
-        viewModelScope.launch { IndexScheduler.resumeByUser(app) }
-    }
-
-    fun pause() {
-        viewModelScope.launch { IndexScheduler.pauseByUser(app) }
-    }
-
-    fun loadSkipped() {
-        viewModelScope.launch { _skipped.value = retriever.skipped(50) }
-    }
-
-    fun retrySkipped() {
-        viewModelScope.launch {
-            retriever.retrySkipped()
-            IndexScheduler.indexNow(app)
-            _skipped.value = emptyList()
-        }
+    private fun attempt(block: suspend () -> Unit) {
+        error.value = null
+        launchCatching(onError = {
+            Log.e("Retriever", "StatusViewModel", it)
+            error.value = "That didn't work. Try again."
+        }) { block() }
     }
 }
 
@@ -169,15 +173,10 @@ internal fun textOnlyNote(ramGb: Double): String =
 fun StatusScreen(
     onBack: () -> Unit,
     onOpenSettings: (() -> Unit)? = null,
-    vm: StatusViewModel = appViewModel { StatusViewModel(it) },
+    vm: StatusViewModel = koinViewModel(),
 ) {
     val context = LocalContext.current
-    val counts by vm.counts.collectAsStateWithLifecycle()
-    val prefs by vm.prefs.collectAsStateWithLifecycle()
-    val index by vm.index.collectAsStateWithLifecycle()
-    val skippedFiles by vm.skipped.collectAsStateWithLifecycle()
-    val access by vm.access.collectAsStateWithLifecycle()
-    val folderError by vm.folderError.collectAsStateWithLifecycle()
+    val ui by vm.uiState.collectAsStateWithLifecycle()
     var skippedOpen by rememberSaveable { mutableStateOf(false) }
     val power = remember { context.getSystemService(PowerManager::class.java) }
     var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
@@ -195,10 +194,10 @@ fun StatusScreen(
     val folderLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(vm::addFolder) }
     StatusContent(
-        counts = counts,
-        prefs = prefs,
-        index = index,
-        skippedFiles = skippedFiles,
+        counts = ui.counts,
+        prefs = ui.prefs,
+        index = ui.index,
+        skippedFiles = ui.skipped,
         skippedOpen = skippedOpen,
         batteryHint = !unrestricted,
         actions = StatusActions(
@@ -217,9 +216,10 @@ fun StatusScreen(
             removeFolder = vm::removeFolder,
             openSettings = onOpenSettings,
         ),
-        access = access,
-        textOnly = vm.textOnly,
-        folderError = folderError,
+        access = ui.access,
+        textOnly = ui.textOnly,
+        folderError = ui.folderError,
+        error = ui.error,
     )
 }
 
@@ -232,10 +232,12 @@ fun StatusContent(
     skippedFiles: List<Store.StoredFile>,
     skippedOpen: Boolean,
     batteryHint: Boolean,
+    modifier: Modifier = Modifier,
     actions: StatusActions = StatusActions(),
     access: Access = Access.ALL,
     textOnly: Boolean = false,
     folderError: String? = null,
+    error: String? = null,
 ) {
     val searchable = counts.byState[FileState.INDEXED] ?: 0
     val waiting = counts.byState[FileState.PENDING] ?: 0
@@ -243,6 +245,7 @@ fun StatusContent(
     val total = searchable + waiting + skipped
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
@@ -256,7 +259,7 @@ fun StatusContent(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = actions.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
                 },
             )
         },
@@ -292,6 +295,9 @@ fun StatusContent(
                     index.lastError?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     }
+                    error?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    }
                     when {
                         prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
                         waiting > 0 -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
@@ -306,7 +312,7 @@ fun StatusContent(
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(if (skippedOpen) "Hide" else "See which", color = MaterialTheme.colorScheme.primary)
-                                Icon(if (skippedOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                                Icon(painterResource(if (skippedOpen) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null)
                             }
                         },
                         modifier = Modifier
@@ -338,7 +344,7 @@ fun StatusContent(
                     ListItem(
                         headlineContent = { Text("Let Retriever keep reading in the background") },
                         supportingContent = { Text("Some phones stop apps working in the background.") },
-                        leadingContent = { Icon(Icons.Outlined.BatteryAlert, contentDescription = null) },
+                        leadingContent = { Icon(painterResource(R.drawable.ic_battery_alert), contentDescription = null) },
                         modifier = Modifier.clickable(onClick = actions.openBatterySettings),
                     )
                 }
@@ -351,7 +357,7 @@ fun StatusContent(
                     ListItem(
                         headlineContent = { Text("Settings") },
                         supportingContent = { Text("What to read, storage and more") },
-                        leadingContent = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        leadingContent = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
                         modifier = Modifier.clickable(role = Role.Button, onClick = open),
                     )
                 }
@@ -362,13 +368,13 @@ fun StatusContent(
 
 /** What Retriever can see, folders the person added, and what it can't see with a way to fix it. */
 @Composable
-private fun Coverage(access: Access, folderError: String?, actions: StatusActions) {
+private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: StatusActions) {
     Header("What Retriever can see")
     val (gaps, covered) = access.coverage().partition { it.gap }
     for (line in covered) {
         ListItem(
             headlineContent = { Text(line.text) },
-            leadingContent = { Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            leadingContent = { Icon(painterResource(R.drawable.ic_check_circle_outlined), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             trailingContent = if (line.fix == Fix.CHOOSE_PHOTOS) {
                 { TextButton(onClick = actions.chooseMorePhotos) { Text("Choose more photos") } }
             } else {
@@ -386,10 +392,10 @@ private fun Coverage(access: Access, folderError: String?, actions: StatusAction
         for (folder in access.folders) {
             ListItem(
                 headlineContent = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingContent = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                 trailingContent = {
                     IconButton(onClick = { actions.removeFolder(folder.uri) }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Remove ${folder.name}")
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Remove ${folder.name}")
                     }
                 },
             )
@@ -407,7 +413,7 @@ private fun Coverage(access: Access, folderError: String?, actions: StatusAction
     for (line in gaps) {
         ListItem(
             headlineContent = { Text(line.text) },
-            leadingContent = { Icon(Icons.Outlined.Block, contentDescription = null) },
+            leadingContent = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
             // The same request as Choose more photos; Settings when Android no longer asks.
             trailingContent = if (line.fix == Fix.ALLOW_MEDIA) {
                 { TextButton(onClick = actions.chooseMorePhotos) { Text("Allow") } }

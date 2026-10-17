@@ -174,6 +174,17 @@ ORDER BY size DESC, modified_at ASC;
 requeue:
 UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'INDEXED' AND kind IN ?;
 
+-- A kind no longer read inside: its text goes, FTS rows first, and its files stay, found by name. Ordinal 0 is a name
+-- vector (no text), which extraction keeps for such a file too.
+deleteFtsOfKinds:
+DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN files f ON f.id = c.file_id WHERE f.kind IN ?);
+
+deleteChunksOfKinds:
+DELETE FROM chunks WHERE ordinal > 0 AND file_id IN (SELECT id FROM files WHERE kind IN ?);
+
+clearPartialOfKinds:
+UPDATE files SET partial = 0 WHERE kind IN ?;
+
 retrySkipped:
 UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'SKIPPED';
 
@@ -188,6 +199,12 @@ pendingFiles:
 SELECT * FROM files WHERE state = 'PENDING'
 ORDER BY CASE kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, modified_at DESC
 LIMIT ?;
+
+-- Sample mode: the pending files among the newest :n of one kind, read or not, so the sample never grows past n.
+pendingNewestOfKind:
+SELECT * FROM files WHERE state = 'PENDING'
+AND id IN (SELECT id FROM files WHERE kind = :kind ORDER BY modified_at DESC, id LIMIT :n)
+ORDER BY modified_at DESC;
 
 setState:
 UPDATE files SET state = ?, attempts = ? WHERE id = ?;
@@ -316,6 +333,10 @@ SELECT value FROM index_meta WHERE key = ?;
 setMeta:
 INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?);
 
+bumpMeta:
+INSERT OR REPLACE INTO index_meta (key, value)
+VALUES (:key, CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = :key), 0) + 1 AS TEXT));
+
 -- After 2.sqm recreated the keyword tables empty. Rows the indexer wrote since then are skipped, not doubled.
 rebuildFts {
   INSERT INTO chunk_fts (rowid, text) SELECT id, text FROM chunks
@@ -351,6 +372,25 @@ SELECT uri, :at, name, size, modified_at FROM files WHERE uri = :uri;
 
 unstar:
 DELETE FROM starred WHERE uri = ?;
+
+-- From the user-state snapshot into a database that has no settings yet.
+restoreStar:
+INSERT OR IGNORE INTO starred (uri, starred_at, name, size, modified_at) VALUES (?, ?, ?, ?, ?);
+
+allStars:
+SELECT uri, starred_at, name, size, modified_at FROM starred;
+
+-- A star whose file is gone moves to an unstarred file with the same name, size and modified_at: the same file under a
+-- new uri (a renamed picked folder, a new phone's MediaStore ids). OR IGNORE: two stars never take one file.
+-- ponytail: scans files once per orphaned star; index (name, size, modified_at) if orphans pile up.
+relinkStars:
+UPDATE OR IGNORE starred SET uri = COALESCE((
+  SELECT f.uri FROM files f
+  WHERE f.name = starred.name AND f.size = starred.size AND f.modified_at = starred.modified_at
+    AND f.uri NOT IN (SELECT uri FROM starred)
+  ORDER BY f.id LIMIT 1
+), uri)
+WHERE uri NOT IN (SELECT uri FROM files);
 
 -- Stars of files that are gone stay, hidden by the JOIN, so a file restored from the trash or a card put back keeps its star.
 starredUris:

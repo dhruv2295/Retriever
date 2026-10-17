@@ -22,6 +22,12 @@ class NameIndexTest {
 
     @Test fun typoFindsTheFile() = assertEquals(MatchClass.TYPO, classOf("screnshot", 2))
 
+    @Test fun adjacentSwapIsOneTypo() {
+        val talk = NameIndex.build(listOf(NameEntry(1, "talk notes.txt", "Documents", Kind.DOC)))
+        assertEquals(MatchClass.TYPO, talk.search("tlak").single().match)
+        assertTrue(NameIndex.withinEdits("tlak", "talk", 1))
+    }
+
     @Test fun prefixWhileTyping() = assertEquals(MatchClass.PREFIX, classOf("scr", 2))
 
     @Test fun exactTokenInAnyScript() {

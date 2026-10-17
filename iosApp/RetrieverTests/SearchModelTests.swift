@@ -1,3 +1,4 @@
+@preconcurrency import RetrieverCore
 import UIKit
 import XCTest
 @testable import Retriever
@@ -145,6 +146,44 @@ final class SearchModelTests: XCTestCase {
         await model.search(model.key)
         XCTAssertFalse(model.failed)
         XCTAssertNotNil(model.answer, "no services: the answer on screen is untouched")
+    }
+
+    /// A replaced search closes its core handle at once instead of running on with the model, and the next search
+    /// isn't queued behind it. Without a model the embedder mutex isn't held; the self-test covers that path.
+    func testACancelledSearchStopsAtOnceAndTheNextRuns() async throws {
+        let stuck = Stuck()
+        let first = Task { try await awaitSearch { stuck.done = $0; return stuck } }
+        try await Task.sleep(for: .milliseconds(50))
+        let clock = ContinuousClock()
+        let cancelled = clock.now
+        first.cancel()
+        let outcome = await first.result
+        XCTAssertLessThan(clock.now - cancelled, .milliseconds(500))
+        XCTAssertTrue(stuck.closed)
+        XCTAssertThrowsError(try outcome.get())
+
+        let retriever = AppServices.temporary().retriever
+        let replaced = Task {
+            try await awaitSearch { retriever.searchCancellable(q: "rent", kinds: nil, limit: 20, onlyStarred: false, literal: false, done: $0) }
+        }
+        replaced.cancel()
+        _ = await replaced.result
+        let next = try await awaitSearch {
+            retriever.searchCancellable(q: "rent", kinds: nil, limit: 20, onlyStarred: false, literal: false, done: $0)
+        }
+        XCTAssertTrue(next.hits.isEmpty, "an empty index answers, not waits")
+    }
+
+    /// A core handle whose search never finishes until closed; closing answers the way core does.
+    private final class Stuck: NSObject, KotlinAutoCloseable, @unchecked Sendable {
+        var done: ((SearchEngine.SearchResult?, KotlinThrowable?) -> Void)?
+        private(set) var closed = false
+
+        func close() {
+            closed = true
+            done?(nil, nil)
+            done = nil
+        }
     }
 
     private static let pixel: UIImage = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in

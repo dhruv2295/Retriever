@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
+
 android {
     namespace = "app.retriever"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -47,8 +49,17 @@ android {
         }
     }
 
-    // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
-    lint { checkDependencies = true }
+    lint {
+        // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
+        checkDependencies = true
+        warningsAsErrors = true
+        abortOnError = true
+        checkReleaseBuilds = true
+        // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
+        disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+        // Only documented false positives and recorded decisions, each with its reason.
+        baseline = file("lint-baseline.xml")
+    }
 
     testOptions { unitTests { isIncludeAndroidResources = true } }
 
@@ -57,6 +68,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
+// litertlm-android (also pulled in by mediapipe tasks-retrieval) drags in kotlin-reflect (~2 MB), reached only from
+// kotlin.reflect.full call sites Retriever never takes. A per-dependency exclude misses the mediapipe path, and
+// excluding it everywhere would break the Kotlin compiler classpath.
+configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach { exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect") }
+
+// Warnings are defects on the app's main compilations; test compilations may carry a dependency-forced deprecation.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    if (!name.contains("Test")) compilerOptions.allWarningsAsErrors.set(true)
+}
+
+// Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning.
+tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }
 
 // About shows the repo's notices file; it is copied into the assets at build time, so the repo holds one copy.
 abstract class CopyNotices : DefaultTask() {
@@ -93,10 +117,13 @@ dependencies {
     implementation(libs.work.runtime)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
-    implementation(libs.compose.icons.extended)
     implementation(libs.lifecycle.process)
     implementation(libs.litert.npu.google.tensor)
     implementation(libs.litert.npu.mediatek)
+    implementation(platform(libs.koin.bom))
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+    lintChecks(libs.compose.lint.checks)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
@@ -104,5 +131,10 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.sqldelight.sqlite.driver)
+    testImplementation(libs.koin.test)
+    testImplementation(libs.koin.test.junit4)
+    testImplementation(libs.work.testing)
+    testImplementation(libs.compose.ui.test.junit4.accessibility)
     debugImplementation(libs.compose.ui.test.manifest)
+    debugImplementation(libs.leakcanary.android)
 }

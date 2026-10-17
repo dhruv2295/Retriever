@@ -3,6 +3,7 @@ import XCTest
 import RetrieverCore
 @testable import Retriever
 
+@MainActor
 final class CopyTests: XCTestCase {
     func testEtaRoundsToPlainUnits() {
         XCTAssertEqual(Copy.eta(0), "Less than a minute left")

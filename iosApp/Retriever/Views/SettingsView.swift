@@ -6,6 +6,7 @@ struct SettingsView: View {
     let model: AppModel
     @State private var confirmingFree = false
     @State private var searchesCleared = false
+    var diagnostics: Diagnostics = AppServices.shared.diagnostics
 
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
@@ -143,6 +144,9 @@ struct SettingsView: View {
         Section("About") {
             LabeledContent("Version", value: Self.version)
             NavigationLink("Open-source notices") { Notices() }
+            if let url = diagnostics.exportURL() {
+                ShareLink(item: url) { Text("Recent problems (\(diagnostics.entries.count))") }
+            }
             NavigationLink("Privacy") {
                 ScrollView {
                     Text("Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only network use is downloading the search model.")
@@ -197,4 +201,10 @@ private struct Notices: View {
 
 #Preview("Settings") {
     NavigationStack { SettingsView(model: AppModel(fixture: .caughtUp)) }
+}
+
+#Preview("Settings with problems") {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("problems-fixture.json")
+    try? JSONEncoder().encode(["{\"crashDiagnostics\":[]}", "{\"hangDiagnostics\":[]}"]).write(to: file)
+    return NavigationStack { SettingsView(model: AppModel(fixture: .caughtUp), diagnostics: Diagnostics(file: file)) }
 }

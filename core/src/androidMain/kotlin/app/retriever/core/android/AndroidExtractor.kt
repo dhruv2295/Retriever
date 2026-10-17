@@ -5,9 +5,16 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.PdfRendererPreV
+import android.graphics.pdf.RenderParams
 import android.net.Uri
 import android.os.Build
 import android.os.LocaleList
+import android.os.ParcelFileDescriptor
+import android.os.ext.SdkExtensions
+import androidx.annotation.RequiresExtension
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 import android.util.Size
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
@@ -26,6 +33,7 @@ import app.retriever.core.PDF_OCR_PAGES
 import app.retriever.core.PDF_TEXT_PAGES
 import app.retriever.core.Part
 import app.retriever.core.Piece
+import app.retriever.core.ZipBudget
 import app.retriever.core.SourceFile
 import app.retriever.core.TEXT_BYTES
 import app.retriever.core.audioWindowSec
@@ -38,6 +46,8 @@ import app.retriever.core.momentAudioSec
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.slideOrder
+import app.retriever.core.xlsxOrder
+import app.retriever.core.xlsxText
 import app.retriever.core.stripHtml
 import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
@@ -59,11 +69,58 @@ import java.io.InputStream
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 private const val AUDIO_FILE_SECONDS = 300
 private const val MAX_PAGE_PX = 4096
+private const val PDF_PREV_EXTENSION = 13
+
+private class PdfPg(val width: Int, val height: Int, val text: String, val render: (Bitmap) -> Unit, page: AutoCloseable) :
+    AutoCloseable by page
+
+private class PdfDoc(val pageCount: Int, val hasTextLayer: Boolean, doc: AutoCloseable, val page: (Int) -> PdfPg) :
+    AutoCloseable by doc
+
+private fun pdfPage(page: AutoCloseable, width: Int, height: Int, text: () -> String, render: (Bitmap) -> Unit): PdfPg =
+    try {
+        PdfPg(width, height, text(), render, page)
+    } catch (e: Throwable) {
+        page.close()
+        throw e
+    }
+
+/** Android 15 reads the text layer with PdfRenderer; 11-14 with PdfRendererPreV where the S extension 13 is present; else none. */
+private fun openPdf(fd: ParcelFileDescriptor): PdfDoc = when {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> PdfRenderer(fd).let { r ->
+        PdfDoc(r.pageCount, true, r) { i ->
+            val p = r.openPage(i)
+            pdfPage(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
+                p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            }
+        }
+    }
+    SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= PDF_PREV_EXTENSION -> openPdfPreV(fd)
+    else -> PdfRenderer(fd).let { r ->
+        PdfDoc(r.pageCount, false, r) { i ->
+            val p = r.openPage(i)
+            pdfPage(p, p.width, p.height, { "" }) { p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+        }
+    }
+}
+
+// ponytail: on Android 16 textContents drops 1-2 trailing characters of some runs (platform issue); the gate stays open.
+@RequiresExtension(extension = Build.VERSION_CODES.S, version = PDF_PREV_EXTENSION)
+private fun openPdfPreV(fd: ParcelFileDescriptor): PdfDoc = PdfRendererPreV(fd).let { r ->
+    PdfDoc(r.pageCount, true, r) { i ->
+        val p = r.openPage(i)
+        pdfPage(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
+            p.render(it, null, null, RenderParams.Builder(RenderParams.RENDER_MODE_FOR_DISPLAY).build())
+        }
+    }
+}
 
 class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable {
     private val recognizers = ConcurrentHashMap<OcrScript, TextRecognizer>()
@@ -86,7 +143,7 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
     }
 
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(file.uri)
+        val uri = file.uri.toUri()
         val maxChars = chunkChars(profile.maxTokens)
         when (file.kind) {
             Kind.PHOTO -> photo(uri)
@@ -164,26 +221,25 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
             // Password-protected PDFs (bank statements, policies) can't be read without the password; leave
             // them to the name chunk instead of failing the file three times.
             val opened = try {
-                PdfRenderer(fd)
+                openPdf(fd)
             } catch (_: SecurityException) {
                 return emptyList()
             }
             opened.use { renderer ->
-                // Below Android 15 there is no text layer, so every page is an OCR page and the OCR cap is the ceiling.
+                // Without a text layer every page is an OCR page and the OCR cap is the ceiling.
                 var ocrPages = 0
                 var skipped = false
                 for (i in 0 until minOf(renderer.pageCount, PDF_TEXT_PAGES)) {
+                    currentCoroutineContext().ensureActive()
                     // With no text layer, a page past the OCR cap has nothing to give: don't open the rest.
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM && ocrPages >= PDF_OCR_PAGES) {
+                    if (!renderer.hasTextLayer && ocrPages >= PDF_OCR_PAGES) {
                         skipped = true
                         break
                     }
                     val locator = "p. ${i + 1}"
                     try {
-                        renderer.openPage(i).use { page ->
-                            val text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                                page.textContents.joinToString("\n") { it.text }
-                            } else ""
+                        renderer.page(i).use { page ->
+                            val text = page.text
                             val hasText = text.trim().length >= MIN_TEXT_CHARS
                             pieces += when {
                                 hasText && !looksBroken(text) -> textPieces(locator, text, maxChars)
@@ -207,14 +263,14 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
         return pieces
     }
 
-    private suspend fun scannedPage(page: PdfRenderer.Page, locator: String, layer: String, maxChars: Int): List<Piece> {
+    private suspend fun scannedPage(page: PdfPg, locator: String, layer: String, maxChars: Int): List<Piece> {
         // 1024 px wide, but a receipt-shaped page (1:40) would be a 168 MB bitmap: cap the height and narrow it.
         val height = (1024L * page.height / page.width).coerceIn(1, MAX_PAGE_PX.toLong()).toInt()
         val width = (height.toLong() * page.width / page.height).coerceIn(1, 1024).toInt()
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height)
         try {
             bitmap.eraseColor(Color.WHITE)
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+            page.render(bitmap)
             val out = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
             return imageWithText(locator, out.toByteArray(), betterPageText(layer, ocr(bitmap)), maxChars)
@@ -223,13 +279,14 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
         }
     }
 
-    private fun doc(file: SourceFile, uri: Uri, maxChars: Int): List<Piece> {
+    private suspend fun doc(file: SourceFile, uri: Uri, maxChars: Int): List<Piece> {
         val format = docFormat(file.name, file.mime) ?: return emptyList()
         var cut = false
         val onCut = { cut = true }
         val text = when (format) {
-            DocFormat.DOCX, DocFormat.XLSX, DocFormat.ODF -> zipText(uri, { if (it == format.textEntry) 0 else null }, onCut)
+            DocFormat.DOCX, DocFormat.ODF -> zipText(uri, { if (it == format.textEntry) 0 else null }, onCut)
             DocFormat.PPTX -> zipText(uri, ::slideOrder, onCut)
+            DocFormat.XLSX -> xlsxText(zipText(uri, ::xlsxOrder, onCut, strip = { it }))
             DocFormat.EPUB -> epub(uri, onCut)
             DocFormat.HTML -> stripHtml(plainText(uri, onCut))
             DocFormat.RTF -> stripRtf(plainText(uri, onCut))
@@ -239,7 +296,7 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
         return if (cut) pieces + cutShort() else pieces
     }
 
-    private fun epub(uri: Uri, onCut: () -> Unit): String {
+    private suspend fun epub(uri: Uri, onCut: () -> Unit): String {
         var n = 0
         val chapter = Regex(".*\\.(xhtml|html?)", RegexOption.IGNORE_CASE)
         return zipText(uri, { if (chapter.matches(it)) n++ else null }, onCut, ::stripHtml)
@@ -249,14 +306,16 @@ class AndroidExtractor(private val context: Context) : Extractor, AutoCloseable 
         context.contentResolver.openInputStream(uri)?.use { it.readCapped(TEXT_BYTES, onCut) }.orEmpty()
 
     // Entries whose [order] is non-null are read and concatenated sorted by it.
-    private fun zipText(uri: Uri, order: (String) -> Int?, onCut: () -> Unit, strip: (String) -> String = ::stripXml): String {
+    private suspend fun zipText(uri: Uri, order: (String) -> Int?, onCut: () -> Unit, strip: (String) -> String = ::stripXml): String {
         val entries = mutableListOf<Pair<Int, String>>()
+        val budget = ZipBudget(onCut = onCut)
         context.contentResolver.openInputStream(uri)?.use { input ->
             ZipInputStream(input).use { zip ->
                 while (true) {
+                    currentCoroutineContext().ensureActive()
                     val entry = zip.nextEntry ?: break
                     val n = order(entry.name) ?: continue
-                    entries += n to strip(zip.readCapped(4 * TEXT_BYTES, onCut))
+                    entries += n to strip(budget.entry { zip.readCapped(it, onCut) } ?: break)
                 }
             }
         }

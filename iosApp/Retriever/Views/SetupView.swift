@@ -118,7 +118,7 @@ struct SetupContent: View {
             Text("Find anything on your \(Copy.device) by what's in it.")
                 .font(.title.bold())
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Search your photos, screenshots, PDFs and documents in your own words. Everything stays on this \(Copy.device).")
+            Text("Search your photos, screenshots, PDFs, documents, videos and recordings in your own words. Everything stays on this \(Copy.device).")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -170,7 +170,7 @@ struct SetupContent: View {
                 if !state.downloaded {
                     Note(Copy.downloadNote)
                     download
-                    Toggle("Use mobile data", isOn: Binding(get: { state.useMobileData }, set: actions.setUseMobileData))
+                    Toggle("Use mobile data", isOn: Binding(get: { state.useMobileData }, set: { actions.setUseMobileData($0) }))
                     Note(state.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Waits for Wi-Fi, so it won't use your data.")
                 }
             }

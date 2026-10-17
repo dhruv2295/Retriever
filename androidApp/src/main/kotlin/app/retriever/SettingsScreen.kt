@@ -1,13 +1,15 @@
 package app.retriever
 
-import android.app.DownloadManager
+import android.content.Intent
 import android.os.Build
+import android.text.format.DateUtils
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,9 +19,6 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,15 +36,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,18 +55,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.retriever.core.CalibrationResult
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
+import app.retriever.core.Retriever
+import app.retriever.data.ExitProblem
+import app.retriever.data.ExitReasons
+import app.retriever.data.IndexService
+import app.retriever.data.ModelRepository
+import app.retriever.data.StorageService
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.androidx.compose.koinViewModel
 
 private const val SAMPLE_PER_KIND = 50
 
@@ -74,95 +87,122 @@ private const val SAMPLE_PER_KIND = 50
 private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.AUDIO, Kind.VIDEO)
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
-private const val STOPPED = "The download stopped. Check your connection and try again."
 
-/** The model coming back after Free up space. Outlives the screen, like [SetupFlow]'s chain: leaving must not drop a download. */
-private object Refetch {
-    val state = MutableStateFlow<ModelState>(ModelState.Missing)
-    var job: Job? = null
-    var id: Long? = null
-}
+/**
+ * [appScope] runs what must outlive the screen (a tune, a model removal, a download cancel); [tuner] is one
+ * calibration run, passed in because it needs the app's file sources.
+ */
+class SettingsViewModel(
+    private val retriever: Retriever,
+    private val models: ModelRepository,
+    private val storage: StorageService,
+    private val indexer: IndexService,
+    private val appScope: CoroutineScope,
+    private val tuner: suspend () -> CalibrationResult,
+) : ViewModel() {
+    private data class Local(val tune: TuneState = TuneState.Idle, val storage: StorageUsage? = null, val message: String? = null)
 
-class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
-    private val app = graph.app
-    private val retriever = graph.retriever
-    val prefs: StateFlow<Prefs> = retriever.prefs
-    val index: StateFlow<IndexState> = retriever.state
-    val modelMissing: StateFlow<Boolean> = retriever.modelMissing
-    val build: StateFlow<ModelBuild> = retriever.requiredBuild
-    val download: StateFlow<ModelState> = Refetch.state
-    val textOnly = retriever.textOnly
-    val readable = retriever.readableKinds
-    val ramGb = retriever.probe.ramGb
-    private val _tune = MutableStateFlow<TuneState>(TuneState.Idle)
-    val tune: StateFlow<TuneState> = _tune
-    private val _storage = MutableStateFlow<StorageUsage?>(null)
-    val storage: StateFlow<StorageUsage?> = _storage
+    private val local = MutableStateFlow(Local())
+
+    val uiState: StateFlow<SettingsUi> = combine(
+        combine(retriever.prefs, retriever.state, models.state, ::Triple),
+        combine(retriever.modelMissing, retriever.requiredBuild, local, ::Triple),
+    ) { (prefs, index, download), (missing, build, l) -> ui(prefs, index, download, missing, build, l) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            ui(retriever.prefs.value, retriever.state.value, models.state.value, retriever.modelMissing.value, retriever.requiredBuild.value, local.value),
+        )
+
+    private fun ui(prefs: Prefs, index: IndexState, download: ModelState, missing: Boolean, build: ModelBuild, l: Local) = SettingsUi(
+        prefs, index, l.tune, l.storage, download, missing, build, retriever.textOnly, retriever.probe.ramGb,
+        readable = retriever.readableKinds, message = l.message,
+    )
+
+    private fun fail(e: Exception) {
+        // A full disk (SQLiteFullException) lands here too: the person sees it, the app keeps running.
+        Log.e("Retriever", "settings action failed", e)
+        local.update { it.copy(message = "Couldn't save that. Check that the phone has free space, then try again.") }
+    }
+
+    /** Like [launchCatching], for work that must outlive the screen. */
+    private fun inApp(block: suspend () -> Unit) {
+        appScope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail(e)
+            }
+        }
+    }
 
     private suspend fun loadStorage() {
-        _storage.value = withContext(Dispatchers.IO) { storageUsage(app, graph.modelDir, retriever.requiredBuild.value) }
+        val usage = storage.usage()
+        local.update { it.copy(storage = usage) }
     }
 
     fun refreshStorage() {
-        viewModelScope.launch { loadStorage() }
+        launchCatching(::fail) { loadStorage() }
     }
 
+    fun messageShown() = local.update { it.copy(message = null) }
+
     fun setSearchInside(kind: Kind, on: Boolean) {
-        viewModelScope.launch {
+        launchCatching(::fail) {
             val wasOn = kind in retriever.prefs.value.kinds
             retriever.updatePrefs { p -> p.copy(kinds = if (on) p.kinds + kind else p.kinds - kind) }
             if (on && !wasOn) {
                 retriever.requeue(setOf(kind))
-                IndexScheduler.indexNow(app)
+                indexer.indexNow()
             }
         }
     }
 
     fun setOnlyWhileCharging(on: Boolean) {
-        viewModelScope.launch {
+        launchCatching(::fail) {
             retriever.updatePrefs { it.copy(onlyWhileCharging = on) }
-            IndexScheduler.schedulePeriodic(app, on)
+            indexer.schedulePeriodic(on)
         }
     }
 
     // Turning it off clears the saved searches; Retriever.updatePrefs does that.
     fun setRememberSearches(on: Boolean) {
-        viewModelScope.launch { retriever.updatePrefs { it.copy(rememberSearches = on) } }
+        launchCatching(::fail) { retriever.updatePrefs { it.copy(rememberSearches = on) } }
     }
 
     fun setMobileData(on: Boolean) {
-        viewModelScope.launch { retriever.updatePrefs { it.copy(allowMobileData = on) } }
+        launchCatching(::fail) { retriever.updatePrefs { it.copy(allowMobileData = on) } }
     }
 
     fun setDynamicColor(on: Boolean) {
-        viewModelScope.launch { retriever.updatePrefs { it.copy(dynamicColor = on) } }
+        launchCatching(::fail) { retriever.updatePrefs { it.copy(dynamicColor = on) } }
     }
 
     // Restarts indexing so the next sync trims to (or grows back from) the sample right away.
     fun setSampleMode(on: Boolean) {
-        viewModelScope.launch {
+        launchCatching(::fail) {
             retriever.updatePrefs { it.copy(sampleSize = if (on) SAMPLE_PER_KIND else null) }
-            IndexScheduler.pause(app)
-            IndexScheduler.indexNow(app)
-            IndexScheduler.schedulePeriodic(app, retriever.prefs.value.onlyWhileCharging)
+            indexer.restart(retriever.prefs.value.onlyWhileCharging)
         }
     }
 
     // The next sync sees the changed exclude list and does a full scan, which brings the folder back.
     fun removeExcluded(folder: String) {
-        viewModelScope.launch {
+        launchCatching(::fail) {
             retriever.updatePrefs { it.copy(excludedFolders = it.excludedFolders - folder) }
-            IndexScheduler.indexNow(app)
+            indexer.indexNow()
         }
     }
 
     fun tuneAgain() {
-        if (_tune.value is TuneState.Running) return
-        _tune.value = TuneState.Running
+        if (local.value.tune is TuneState.Running) return
+        local.update { it.copy(tune = TuneState.Running) }
         // The app scope: leaving Settings must not cancel a tune halfway (indexing waits meanwhile).
-        graph.scope.launch {
-            _tune.value = try {
-                val r = calibrate(graph, app, tuneAgain = true)
+        appScope.launch {
+            val next = try {
+                val r = tuner()
                 TuneState.Done(tuneSummary(r.chosen, r.backends.firstOrNull { it.backend == r.chosen }?.imageMs))
             } catch (e: CancellationException) {
                 throw e
@@ -170,82 +210,26 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
                 Log.e("Retriever", "calibration failed", e)
                 TuneState.Failed(e.message ?: e.toString())
             }
+            local.update { it.copy(tune = next) }
         }
     }
 
-    /** Stops the running batch and frees the model, then deletes it; names and words keep searching. */
-    fun freeUpSpace(done: () -> Unit) {
-        graph.scope.launch {
-            retriever.cancelBatch()
-            retriever.release()
-            withContext(Dispatchers.IO) { graph.download.deleteModel(retriever.requiredBuild.value) }
-            retriever.refreshSetUp()
-            loadStorage()
-            done()
-        }
+    /** Removes the model; names and words keep searching. The message clears with [messageShown]. */
+    fun freeUpSpace() = inApp {
+        storage.freeUpSpace()
+        loadStorage()
+        local.update { it.copy(message = "Model removed") }
     }
 
     init {
-        // A download this screen started before the process was killed carries on in DownloadManager: show and finish it.
-        if (Refetch.job?.isActive != true && retriever.modelMissing.value) {
-            viewModelScope.launch { if (withContext(Dispatchers.IO) { graph.download.active(retriever.requiredBuild.value) } != null) downloadAgain() }
-        }
+        // A download started before the process was killed carries on in DownloadManager: show and finish it.
+        launchCatching(::fail) { models.sync(retriever.requiredBuild.value) }
+        launchCatching(::fail) { models.state.drop(1).filter { it == ModelState.Done }.collect { loadStorage() } }
     }
 
-    fun downloadAgain() {
-        if (Refetch.job?.isActive == true) return
-        Refetch.job = graph.scope.launch {
-            val b = retriever.requiredBuild.value
-            val download = graph.download
-            val running = withContext(Dispatchers.IO) { download.active(b) }
-            if (running == null && !download.hasSpaceFor(b)) {
-                Refetch.state.value = ModelState.Failed(spaceMessage(b))
-                return@launch
-            }
-            Refetch.state.value = ModelState.Downloading(0f, true)
-            val id = try {
-                running ?: download.start(b, retriever.prefs.value)
-            } catch (e: Exception) {
-                Log.e("Retriever", "download could not start", e)
-                Refetch.state.value = ModelState.Failed(STOPPED)
-                return@launch
-            }
-            Refetch.id = id
-            var finished = false
-            download.progress(id).collect { p ->
-                finished = p.done
-                if (!p.done && !p.failed) {
-                    val fraction = if (p.total > 0) (p.bytes.toFloat() / p.total).coerceIn(0f, 1f) else 0f
-                    Refetch.state.value = if (p.waitingForWifi) ModelState.WaitingForWifi else ModelState.Downloading(fraction, p.total <= 0)
-                }
-            }
-            Refetch.id = null
-            Refetch.state.value = ModelState.Checking
-            if (finished && download.verify(b)) {
-                withContext(Dispatchers.IO) { download.prune(keep = b) }
-                retriever.refreshSetUp()
-                Refetch.state.value = ModelState.Missing
-                loadStorage()
-                // Files read by name alone while the model was gone get their meaning now.
-                IndexScheduler.indexNow(app)
-            } else {
-                app.getSystemService(DownloadManager::class.java).remove(id)
-                withContext(Dispatchers.IO) { download.file(b).delete() }
-                Refetch.state.value = ModelState.Failed(if (finished) "The download was damaged. Try again." else STOPPED)
-            }
-        }
-    }
+    fun downloadAgain() = models.start(retriever.requiredBuild.value)
 
-    fun cancelDownload() {
-        graph.scope.launch {
-            Refetch.job?.cancelAndJoin()
-            val b = retriever.requiredBuild.value
-            Refetch.id?.let { app.getSystemService(DownloadManager::class.java).remove(it) }
-            Refetch.id = null
-            withContext(Dispatchers.IO) { graph.download.file(b).delete() }
-            Refetch.state.value = ModelState.Missing
-        }
-    }
+    fun cancelDownload() = inApp { models.cancel(retriever.requiredBuild.value) }
 }
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
@@ -262,6 +246,10 @@ data class SettingsUi(
     val confirmFree: Boolean = false,
     /** The kinds this phone can read inside, so the switches it may show. */
     val readable: Set<Kind> = Kind.entries.toSet(),
+    /** One line for the snackbar: a result or an error. The screen calls messageShown() after showing it. */
+    val message: String? = null,
+    /** Crashes and ANRs the system recorded; read when Settings opens, so the screen sets it. */
+    val problems: List<ExitProblem> = emptyList(),
 )
 
 class SettingsActions(
@@ -280,34 +268,36 @@ class SettingsActions(
     val downloadAgain: () -> Unit = {},
     val cancelDownload: () -> Unit = {},
     val openNotices: () -> Unit = {},
+    val shareProblems: () -> Unit = {},
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = appViewModel { SettingsViewModel(it) }) {
-    val prefs by vm.prefs.collectAsStateWithLifecycle()
-    val index by vm.index.collectAsStateWithLifecycle()
-    val tune by vm.tune.collectAsStateWithLifecycle()
-    val storage by vm.storage.collectAsStateWithLifecycle()
-    val download by vm.download.collectAsStateWithLifecycle()
-    val modelMissing by vm.modelMissing.collectAsStateWithLifecycle()
-    val build by vm.build.collectAsStateWithLifecycle()
+fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = koinViewModel()) {
+    val state by vm.uiState.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    // Shown first, cleared after: clearing first would change the key and dismiss the snackbar at once.
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbar.showSnackbar(it)
+            vm.messageShown()
+        }
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStorage() }
     // Read from the assets only when asked for: 22 KB nobody opens on most visits.
     val context = LocalContext.current
     val notices by produceState<String?>(null, showNotices) {
         if (showNotices) value = withContext(Dispatchers.IO) { context.assets.open(NOTICES_ASSET).bufferedReader().use { it.readText() } }
     }
+    val problems by produceState(emptyList()) { value = withContext(Dispatchers.IO) { ExitReasons.read(context) } }
     if (showNotices) {
         BackHandler { showNotices = false }
         NoticesContent(notices) { showNotices = false }
         return
     }
     SettingsContent(
-        ui = SettingsUi(prefs, index, tune, storage, download, modelMissing, build, vm.textOnly, vm.ramGb, confirmFree, vm.readable),
+        ui = state.copy(confirmFree = confirmFree, problems = problems),
         actions = SettingsActions(
             back = onBack,
             setSearchInside = vm::setSearchInside,
@@ -322,11 +312,16 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = appViewModel { Se
             dismissFreeUpSpace = { confirmFree = false },
             freeUpSpace = {
                 confirmFree = false
-                vm.freeUpSpace { scope.launch { snackbar.showSnackbar("Model removed") } }
+                vm.freeUpSpace()
             },
             downloadAgain = vm::downloadAgain,
             cancelDownload = vm::cancelDownload,
             openNotices = { showNotices = true },
+            // Only the system share sheet: the person picks where it goes.
+            shareProblems = {
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, ExitReasons.shareText(problems))
+                context.startActivity(Intent.createChooser(send, null))
+            },
         ),
         snackbar = snackbar,
     )
@@ -334,14 +329,20 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = appViewModel { Se
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsContent(ui: SettingsUi, actions: SettingsActions = SettingsActions(), snackbar: SnackbarHostState = remember { SnackbarHostState() }) {
+fun SettingsContent(
+    ui: SettingsUi,
+    modifier: Modifier = Modifier,
+    actions: SettingsActions = SettingsActions(),
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
+) {
     val prefs = ui.prefs
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
-                    IconButton(onClick = actions.back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
                 },
             )
         },
@@ -375,7 +376,7 @@ fun SettingsContent(ui: SettingsUi, actions: SettingsActions = SettingsActions()
                             headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             trailingContent = {
                                 IconButton(onClick = { actions.removeExcluded(folder) }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Search $folder again")
+                                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Search $folder again")
                                 }
                             },
                         )
@@ -412,6 +413,20 @@ fun SettingsContent(ui: SettingsUi, actions: SettingsActions = SettingsActions()
                     "Retriever reads your files on this phone. Search, indexing and stars never leave it. The only network use is downloading the search model.",
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+                if (ui.problems.isNotEmpty()) {
+                    Header("Recent problems (${ui.problems.size})")
+                    for (p in ui.problems) {
+                        ListItem(
+                            headlineContent = { Text(p.kind) },
+                            supportingContent = { Text("${DateUtils.getRelativeTimeSpanString(p.atMillis)}. ${p.description}") },
+                        )
+                    }
+                    ListItem(
+                        headlineContent = { Text("Share", color = MaterialTheme.colorScheme.primary) },
+                        supportingContent = { Text("Nothing is sent unless you pick an app.") },
+                        modifier = Modifier.clickable(role = Role.Button, onClick = actions.shareProblems),
+                    )
+                }
 
                 // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
                 if (BuildConfig.DEBUG) {
@@ -466,7 +481,7 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
 }
 
 @Composable
-private fun Storage(ui: SettingsUi, actions: SettingsActions) {
+private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
     ValueRow("Search index", ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…")
     if (ui.textOnly) return
     ValueRow("Search model", ui.storage?.let { if (it.modelBytes > 0) Format.bytes(it.modelBytes) else "Not downloaded" } ?: "…")
@@ -515,13 +530,14 @@ private fun Storage(ui: SettingsUi, actions: SettingsActions) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoticesContent(text: String?, onBack: () -> Unit) {
+fun NoticesContent(text: String?, modifier: Modifier = Modifier, onBack: () -> Unit) {
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Open-source notices") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
                 },
             )
         },

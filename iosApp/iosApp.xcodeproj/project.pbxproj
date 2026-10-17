@@ -20,12 +20,20 @@
 			remoteGlobalIDString = 7419598121944259B394AAA2;
 			remoteInfo = Retriever;
 		};
+		C2000002A0000000000000F1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B230199D1B4F47B703EDB7BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7419598121944259B394AAA2;
+			remoteInfo = Retriever;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		62FD2B4FDD2FDA301D6E81E6 /* Retriever.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Retriever.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1000001A0000000000000F1 /* RetrieverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RetrieverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1000001A0000000000000D1 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = THIRD_PARTY_NOTICES.md; path = ../THIRD_PARTY_NOTICES.md; sourceTree = SOURCE_ROOT; };
+		C2000001A0000000000000F1 /* RetrieverUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RetrieverUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -60,6 +68,15 @@
 			path = RetrieverTests;
 			sourceTree = "<group>";
 		};
+		C2000003A0000000000000F1 /* RetrieverUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = RetrieverUITests;
+			sourceTree = "<group>";
+		};
 		D1886E99A536D6ADBC5B0D2B /* Configuration */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			explicitFileTypes = {
@@ -88,6 +105,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C2000004A0000000000000F1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -96,6 +120,7 @@
 			children = (
 				62FD2B4FDD2FDA301D6E81E6 /* Retriever.app */,
 				C1000001A0000000000000F1 /* RetrieverTests.xctest */,
+				C2000001A0000000000000F1 /* RetrieverUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -106,6 +131,7 @@
 				D1886E99A536D6ADBC5B0D2B /* Configuration */,
 				1A77955499A75E32F8D85CE3 /* Retriever */,
 				C1000003A0000000000000F1 /* RetrieverTests */,
+				C2000003A0000000000000F1 /* RetrieverUITests */,
 				E1000001A0000000000000D1 /* THIRD_PARTY_NOTICES.md */,
 				0C87A4C7D0FCF67D4F8E4716 /* Products */,
 			);
@@ -159,6 +185,26 @@
 			productReference = C1000001A0000000000000F1 /* RetrieverTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		C2000005A0000000000000F1 /* RetrieverUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C2000006A0000000000000F1 /* Build configuration list for PBXNativeTarget "RetrieverUITests" */;
+			buildPhases = (
+				C2000007A0000000000000F1 /* Sources */,
+				C2000004A0000000000000F1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C2000008A0000000000000F1 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C2000003A0000000000000F1 /* RetrieverUITests */,
+			);
+			name = RetrieverUITests;
+			productName = RetrieverUITests;
+			productReference = C2000001A0000000000000F1 /* RetrieverUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -166,13 +212,17 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1620;
-				LastUpgradeCheck = 1620;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					7419598121944259B394AAA2 = {
 						CreatedOnToolsVersion = 16.2;
 					};
 					C1000005A0000000000000F1 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 7419598121944259B394AAA2;
+					};
+					C2000005A0000000000000F1 = {
 						CreatedOnToolsVersion = 16.2;
 						TestTargetID = 7419598121944259B394AAA2;
 					};
@@ -198,6 +248,7 @@
 			targets = (
 				7419598121944259B394AAA2 /* Retriever */,
 				C1000005A0000000000000F1 /* RetrieverTests */,
+				C2000005A0000000000000F1 /* RetrieverUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -250,6 +301,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C2000007A0000000000000F1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -257,6 +315,11 @@
 			isa = PBXTargetDependency;
 			target = 7419598121944259B394AAA2 /* Retriever */;
 			targetProxy = C1000002A0000000000000F1 /* PBXContainerItemProxy */;
+		};
+		C2000008A0000000000000F1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7419598121944259B394AAA2 /* Retriever */;
+			targetProxy = C2000002A0000000000000F1 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -297,6 +360,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -321,6 +385,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -362,6 +427,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -379,6 +445,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -411,7 +478,6 @@
 					"-lsqlite3",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -443,7 +509,6 @@
 					"-lsqlite3",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -464,7 +529,6 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.tests;
 				PRODUCT_NAME = RetrieverTests;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Retriever.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Retriever";
 			};
@@ -486,9 +550,34 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.tests;
 				PRODUCT_NAME = RetrieverTests;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Retriever.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Retriever";
+			};
+			name = Release;
+		};
+		C2000009A0000000000000F1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.uitests;
+				PRODUCT_NAME = RetrieverUITests;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Retriever;
+			};
+			name = Debug;
+		};
+		C200000AA0000000000000F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.retriever.uitests;
+				PRODUCT_NAME = RetrieverUITests;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Retriever;
 			};
 			name = Release;
 		};
@@ -518,6 +607,15 @@
 			buildConfigurations = (
 				C1000009A0000000000000F1 /* Debug */,
 				C100000AA0000000000000F1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C2000006A0000000000000F1 /* Build configuration list for PBXNativeTarget "RetrieverUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C2000009A0000000000000F1 /* Debug */,
+				C200000AA0000000000000F1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

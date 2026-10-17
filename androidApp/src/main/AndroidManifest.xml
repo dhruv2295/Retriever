@@ -36,6 +36,7 @@
         android:label="Retriever"
         android:theme="@style/Theme.Retriever.Starting"
         android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
         android:largeHeap="true">
         <!-- Same as Google AI Edge Gallery: without these, Android hides OpenCL from the app and LiteRT
              falls back to WebGPU, which can't load EmbeddingGemma 2 ("weights manager" error). -->
@@ -71,6 +72,18 @@
             android:exported="false"
             tools:node="merge">
         </service>
+
+        <!-- WorkManager starts on demand: RetrieverApp is its Configuration.Provider, so it isn't built at launch. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
 
         <!-- ML Kit (OCR) reports usage events to Google through Firebase's "cct" transport. Removing the
              backend leaves those events nowhere to go, so nothing about the user's files leaves the phone.

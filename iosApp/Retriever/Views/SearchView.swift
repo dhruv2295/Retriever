@@ -5,10 +5,33 @@
 // engine, results mix a photo grid with document rows, and every state has an illustration.
 
 import ImageIO
+import os
 import Photos
 import PhotosUI
-import RetrieverCore
+@preconcurrency import RetrieverCore
 import SwiftUI
+
+/// Awaits a core search handle (RetrieverIos.kt `searchCancellable` and its twins). Cancelling the task closes the
+/// handle, which cancels the Kotlin job, so a replaced search stops and frees the model for the next one.
+/// Runs on the caller's actor, so `start` (which captures the caller's state) never crosses an isolation boundary.
+func awaitSearch(
+    isolation: isolated (any Actor)? = #isolation,
+    _ start: (@escaping @Sendable (SearchEngine.SearchResult?, KotlinThrowable?) -> Void) -> KotlinAutoCloseable
+) async throws -> SearchEngine.SearchResult {
+    let handle = OSAllocatedUnfairLock<KotlinAutoCloseable?>(initialState: nil)
+    return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { done in
+            // Core calls this exactly once, also when closed before the search starts.
+            let started = start { result, error in
+                if let result { done.resume(returning: result) } else { done.resume(throwing: error?.asError() ?? CancellationError()) }
+            }
+            handle.withLock { $0 = started }
+            if Task.isCancelled { started.close() }
+        }
+    } onCancel: {
+        handle.withLock { $0 }?.close()
+    }
+}
 
 @Observable @MainActor
 final class SearchModel {
@@ -172,7 +195,9 @@ final class SearchModel {
             // Phase one: names, from memory, with no model. Nothing found yet isn't "no matches", so it isn't shown.
             // A retry of the same question keeps the full answer on screen instead.
             if key.photo == nil, answer?.key.asks(key) != true {
-                let names = try await retriever.searchNames(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal)
+                let names = try await awaitSearch {
+                    retriever.searchNamesCancellable(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal, done: $0)
+                }
                 guard !Task.isCancelled else { return }
                 if !names.hits.isEmpty {
                     answer = Answer(hits: names.hits, strongCount: names.hits.count, vectorLane: names.vectorLane, key: key, parsed: names.parsed, relaxed: names.relaxed)
@@ -182,12 +207,14 @@ final class SearchModel {
                 try? await Task.sleep(until: start + .milliseconds(200))
                 guard !Task.isCancelled else { return }
             }
-            let result = if let photo, photo.id == key.photo {
-                try await retriever.searchImageData(jpeg: photo.jpeg, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred)
-            } else {
-                try await retriever.search(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal)
+            let jpeg = photo.flatMap { $0.id == key.photo ? $0.jpeg : nil }
+            let result = try await awaitSearch {
+                if let jpeg {
+                    retriever.searchImageDataCancellable(jpeg: jpeg, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, done: $0)
+                } else {
+                    retriever.searchCancellable(q: key.query, kinds: key.scope.kinds, limit: 60, onlyStarred: key.scope == .starred, literal: key.literal, done: $0)
+                }
             }
-            // Kotlin doesn't see Swift's cancellation: drop an answer to a search that was replaced.
             guard !Task.isCancelled else { return }
             let hits = result.hits
             withAnimation(.easeOut(duration: 0.15)) {
@@ -200,7 +227,7 @@ final class SearchModel {
             }
             // Words only while the model was busy opening: ask again shortly, a few times, for results by meaning.
             // Not when it was removed in Settings: asking again can't bring it back.
-            if result.vectorLane || retriever.textOnly || (retriever.modelMissing.value as? KotlinBoolean)?.boolValue == true {
+            if result.vectorLane || retriever.textOnly || retriever.modelMissingNow {
                 wordsOnlyRetries = 0
             } else if wordsOnlyRetries < 5 {
                 wordsOnlyRetries += 1
@@ -593,13 +620,16 @@ private struct ResultsView: View {
     /// Pictures and documents in rank order as far as a grid allows: the documents ranked above the best picture, then
     /// the pictures, then the other documents, so neither one strong document nor one strong photo buries the rest.
     /// `titled: false` under a heading that already says what they are.
+    /// Recordings go last, under their own heading, as on Android.
     @ViewBuilder private func sections(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, query: String?, titled: Bool = true) -> some View {
-        let lead = Array(hits.prefix { !inGrid($0) })
-        let after = hits.dropFirst(lead.count)
+        let others = hits.filter { $0.file.kind != .audio }
+        let lead = Array(others.prefix { !inGrid($0) })
+        let after = others.dropFirst(lead.count)
         docSection(lead, answer: answer, query: query, titled: titled)
         mediaSection(after.filter(inGrid), answer: answer, titled: titled)
         docSection(after.filter { !inGrid($0) }, answer: answer, query: query, titled: titled,
                    title: lead.isEmpty ? "Documents and more" : "More documents")
+        docSection(hits.filter { $0.file.kind == .audio }, answer: answer, query: query, titled: titled, title: "Recordings")
     }
 
     @ViewBuilder private func mediaSection(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, titled: Bool) -> some View {

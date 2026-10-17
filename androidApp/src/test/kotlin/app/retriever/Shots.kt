@@ -28,7 +28,7 @@ fun ComposeContentTestRule.shot(name: String) {
 
 /** The app's own warm palette (not wallpaper colours) in light or dark with text scaled by [fontScale], so a shot shows how a piece reads at large text. */
 @Composable
-fun ShotTheme(dark: Boolean, fontScale: Float = 1f, content: @Composable () -> Unit) {
+internal fun ShotTheme(dark: Boolean, fontScale: Float = 1f, content: @Composable () -> Unit) {
     val density = LocalDensity.current
     RetrieverTheme(dark = dark, dynamic = false) {
         CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * fontScale)) {

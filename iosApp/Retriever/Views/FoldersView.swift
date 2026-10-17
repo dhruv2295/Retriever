@@ -129,11 +129,12 @@ struct FoldersView: View {
     private func setExcluded(_ path: String, _ on: Bool) {
         guard let services else { return }
         Task {
-            try? await services.retriever.updatePrefs { p in
+            try? await services.retriever.updatePrefs { @Sendable p in
                 p.doCopy(kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging,
                          excludedFolders: on ? p.excludedFolders.union([path]) : p.excludedFolders.subtracting([path]),
                          paused: p.paused, sampleSize: p.sampleSize, allowMobileData: p.allowMobileData,
-                         rememberSearches: p.rememberSearches, dynamicColor: p.dynamicColor)
+                         rememberSearches: p.rememberSearches, dynamicColor: p.dynamicColor,
+                         setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed)
             }
             services.retriever.notifyChanged()
             model.wake()

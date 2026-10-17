@@ -2,7 +2,7 @@ package app.retriever
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import app.retriever.core.Backend
 import app.retriever.core.Changes
 import app.retriever.core.DIMS
@@ -19,6 +19,7 @@ import app.retriever.core.Signature
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
 import app.retriever.core.android.ImageBytes
+import app.retriever.di.DemoParts
 import java.io.File
 
 /**
@@ -37,7 +38,7 @@ object Demo {
         return DemoParts(DemoSource, DemoExtractor(context.applicationContext), FakeEmbedderFactory, DB_NAME) { true }
     }
 
-    /** Flips the flag and restarts the process, since AppGraph reads it once. */
+    /** Flips the flag and restarts the process, since the app reads it once at start. */
     fun toggle(context: Context) {
         flag(context).let { if (it.exists()) it.delete() else it.createNewFile() }
         context.startActivity(Intent.makeRestartActivityTask(Intent(context, MainActivity::class.java).component))
@@ -81,7 +82,7 @@ private class DemoExtractor(private val context: Context) : Extractor {
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
         val d = FILES.first { it.file.uri == file.uri }
         if (file.kind != Kind.PHOTO) return listOf(Piece(d.locator, listOf(Part.Text(d.text)), d.text))
-        val jpeg = ImageBytes.jpeg(context, Uri.parse(file.uri), 512) ?: return emptyList()
+        val jpeg = ImageBytes.jpeg(context, file.uri.toUri(), 512) ?: return emptyList()
         return listOf(Piece("", listOf(Part.Image(jpeg)), d.text))
     }
 }

@@ -17,10 +17,6 @@
 package app.retriever
 
 import android.Manifest
-import android.app.DownloadManager
-import android.content.Context
-import android.content.pm.PackageManager
-import android.net.ConnectivityManager
 import android.os.Build
 import android.util.Log
 import androidx.activity.compose.LocalActivity
@@ -30,6 +26,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,10 +37,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,23 +64,28 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Backend
+import app.retriever.core.CalibrationResult
 import app.retriever.core.ModelBuild
+import app.retriever.core.Retriever
+import app.retriever.data.AccessService
+import app.retriever.data.IndexService
+import app.retriever.data.ModelRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 
 sealed interface ModelState {
     data object Missing : ModelState
@@ -167,19 +165,23 @@ fun spaceMessage(b: ModelBuild): String =
  * Setup as one chain in the app's scope: leaving the screen or the app never stops it, and [refresh]
  * picks it up again when the user comes back.
  */
-class SetupFlow(private val graph: AppGraph) {
-    private val app = graph.app
-    private val retriever = graph.retriever
-    private val download = graph.download
-    private val downloads = app.getSystemService(DownloadManager::class.java)
-    private val connectivity = app.getSystemService(ConnectivityManager::class.java)
-    private val prefs = app.getSharedPreferences("setup", Context.MODE_PRIVATE)
-
-    // Seeded synchronously: AppNav reads canSearch once to pick the first screen.
+class SetupFlow(
+    private val retriever: Retriever,
+    private val models: ModelRepository,
+    private val access: AccessService,
+    private val index: IndexService,
+    private val download: ModelDownload,
+    private val scope: CoroutineScope,
+    private val onMeteredNetwork: () -> Boolean,
+    private val notificationsGranted: () -> Boolean,
+    private val calibrate: suspend () -> CalibrationResult,
+) {
+    // Seeded synchronously: AppNav reads canSearch once to pick the first screen. Built only after setUp settles, so
+    // the prefs are read; a finished setup counts as started for installs from before Prefs.setupStarted.
     private val _ui = MutableStateFlow(
         SetupUi(
-            started = prefs.getBoolean(STARTED, false),
-            access = graph.access(),
+            started = retriever.prefs.value.setupStarted || retriever.setUp.value == true,
+            access = access.state.value,
             textOnly = retriever.textOnly,
             ramGb = retriever.probe.ramGb,
             allowMetered = if (retriever.prefs.value.allowMobileData) true else null,
@@ -188,33 +190,52 @@ class SetupFlow(private val graph: AppGraph) {
     val ui: StateFlow<SetupUi> = _ui
     private val mutex = Mutex()
 
-    @Volatile private var downloadId: Long? = null
-
-    /** A download being tracked or a file being hashed. */
-    @Volatile private var modelJob: Job? = null
+    /** Set up with the model gone, as last seen; guarded by [mutex]. */
+    private var wasMissing = false
 
     init {
-        graph.scope.launch {
-            var was: Boolean? = null
-            retriever.setUp.collect { now ->
-                _ui.update { it.copy(ready = now == true) }
-                if (was == true && now == false) {
-                    // The AI chip failed mid-session: carry on with the download for the new required build.
-                    markStarted()
-                    _ui.update { it.copy(scheduled = false) }
-                    refresh()
-                } else if (now == true) {
-                    // Only a ready flip acts here: before the first reload the model state is still a guess.
-                    advance()
+        scope.launch { retriever.prefs.collect { p -> _ui.update { it.copy(started = it.started || p.setupStarted) } } }
+        scope.launch {
+            models.state.collect { model ->
+                val done = model == ModelState.Done
+                _ui.update {
+                    it.copy(
+                        model = model,
+                        fellBack = it.fellBack && !done,
+                        tune = if (done) tuneAfterRefresh(it.tune, it.fellBack) else it.tune,
+                    )
                 }
-                was = now
+                if (done || model is ModelState.Failed || model == ModelState.Missing) advance()
+            }
+        }
+        scope.launch {
+            combine(retriever.setUp, retriever.modelMissing, ::Pair).collect { (setUp, missing) ->
+                mutex.withLock {
+                    // Only a ready flip acts here: before the first reload the model state is still a guess.
+                    if (applyReady(setUp == true, missing)) step()
+                }
             }
         }
     }
 
+    /**
+     * Ready is set up with the model in place. When the model goes after setup (an AI-chip fallback needs a new
+     * build, or Free up space) the download is offered, never fetched unasked: the two look the same from here.
+     * Returns whether setup is ready.
+     */
+    private fun applyReady(setUp: Boolean, missing: Boolean): Boolean {
+        val gone = setUp && missing
+        val ready = setUp && !missing
+        _ui.update {
+            it.copy(ready = ready, scheduled = it.scheduled && ready, downloadStopped = it.downloadStopped || (gone && !wasMissing))
+        }
+        wasMissing = gone
+        return ready
+    }
+
     /** Permissions, the model file and the required build can all change while the user is away. */
     fun refresh() {
-        graph.scope.launch {
+        scope.launch {
             mutex.withLock {
                 reload()
                 step()
@@ -229,11 +250,11 @@ class SetupFlow(private val graph: AppGraph) {
 
     fun useMobileData() {
         _ui.update { it.copy(allowMetered = true, askMobileData = false) }
-        graph.scope.launch {
+        scope.launch {
             retriever.updatePrefs { it.copy(allowMobileData = true) }
             mutex.withLock {
                 // DownloadManager can't lift the Wi-Fi rule from a queued request, so it is queued again.
-                if (_ui.value.model == ModelState.WaitingForWifi) stopDownload()
+                if (models.state.value == ModelState.WaitingForWifi) models.cancel(retriever.requiredBuild.value)
                 step()
             }
         }
@@ -241,14 +262,16 @@ class SetupFlow(private val graph: AppGraph) {
 
     fun waitForWifi() {
         _ui.update { it.copy(allowMetered = false, askMobileData = false) }
-        graph.scope.launch { retriever.updatePrefs { it.copy(allowMobileData = false) } }
+        scope.launch { retriever.updatePrefs { it.copy(allowMobileData = false) } }
         advance()
     }
 
     fun retry() {
+        val modelFailed = models.state.value is ModelState.Failed
+        models.clearFailure()
         _ui.update {
             when {
-                it.model is ModelState.Failed || it.downloadStopped -> it.copy(model = ModelState.Missing, downloadStopped = false)
+                modelFailed || it.downloadStopped -> it.copy(downloadStopped = false)
                 it.tune is TuneState.Failed -> it.copy(tune = TuneState.Idle)
                 else -> it
             }
@@ -257,73 +280,50 @@ class SetupFlow(private val graph: AppGraph) {
     }
 
     fun cancelDownload() {
-        graph.scope.launch {
+        scope.launch {
             mutex.withLock {
-                stopDownload()
+                models.cancel(retriever.requiredBuild.value)
                 _ui.update { it.copy(downloadStopped = true) }
             }
         }
     }
 
     fun dismissNotificationAsk() {
-        prefs.edit { putBoolean(NOTIFICATIONS_DISMISSED, true) }
         _ui.update { it.copy(notificationAsk = false) }
+        scope.launch { retriever.updatePrefs { it.copy(notificationsDismissed = true) } }
     }
 
     private fun markStarted() {
-        prefs.edit { putBoolean(STARTED, true) }
         _ui.update { it.copy(started = true) }
+        scope.launch { retriever.updatePrefs { it.copy(setupStarted = true) } }
     }
 
     private fun advance() {
-        graph.scope.launch { mutex.withLock { step() } }
+        scope.launch { mutex.withLock { step() } }
     }
 
     private suspend fun reload() {
         retriever.refreshSetUp()
         val b = retriever.requiredBuild.value
-        val (ready, inPlace, fellBack) = withContext(Dispatchers.IO) {
-            Triple(download.ready(b), download.file(b).length() == b.sizeBytes, retriever.fellBack())
-        }
+        val fellBack = withContext(Dispatchers.IO) { retriever.fellBack() }
+        access.refresh()
+        applyReady(retriever.setUp.value == true, retriever.modelMissing.value)
         _ui.update { s ->
             s.copy(
-                access = graph.access(),
-                notificationAsk = notificationAsk(),
+                access = access.state.value,
+                notificationAsk = !notificationsGranted() && !retriever.prefs.value.notificationsDismissed,
                 build = b,
                 fellBack = fellBack,
-                ready = retriever.setUp.value == true,
                 tune = tuneAfterRefresh(s.tune, fellBack),
             )
         }
-        if (modelJob?.isActive == true) return
-        if (ready) {
-            _ui.update { it.copy(model = ModelState.Done) }
-            return
-        }
-        // A download still running (this process died mid-download) is tracked, never hashed or deleted under it.
-        val active = withContext(Dispatchers.IO) { download.active(b) }
-        when {
-            active != null -> {
-                // Set before step() runs under the same lock, so it never queues a second download.
-                _ui.update { it.copy(model = ModelState.Downloading(0f, true)) }
-                track(b) { active }
-            }
-            // A file from before hashes were pinned (or one downloaded before a crash): check it, never fetch it twice.
-            inPlace -> _ui.update { it.copy(model = ModelState.Checking) }
-            else -> _ui.update { it.copy(model = if (it.model is ModelState.Failed) it.model else ModelState.Missing) }
-        }
-    }
-
-    private fun notificationAsk(): Boolean {
-        // Below Android 13 notifications need no permission, so there is nothing to ask.
-        if (Build.VERSION.SDK_INT < 33) return false
-        val granted = ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        return !granted && !prefs.getBoolean(NOTIFICATIONS_DISMISSED, false)
+        // A file from before hashes were pinned (or one downloaded before a crash) is checked, never fetched twice.
+        models.sync(b)
     }
 
     private suspend fun decide(): SetupStep {
-        val ui = _ui.value
+        // The repository's state, not the mirrored copy, so a download just queued is never queued again.
+        val ui = _ui.value.copy(model = models.state.value)
         val b = retriever.requiredBuild.value
         val missing = ui.started && ui.files && !ui.ready && !ui.textOnly && ui.model == ModelState.Missing && !ui.downloadStopped
         val hasSpace = !missing || withContext(Dispatchers.IO) {
@@ -331,7 +331,7 @@ class SetupFlow(private val graph: AppGraph) {
             if (!b.isNpu) download.prune(b)
             download.hasSpaceFor(b)
         }
-        val metered = missing && connectivity.isActiveNetworkMetered
+        val metered = missing && onMeteredNetwork()
         // With the model in place and access granted, set-up is exactly "a profile exists".
         return nextStep(ui, hasSpace, metered, profileExists = retriever.setUp.value == true)
     }
@@ -340,28 +340,23 @@ class SetupFlow(private val graph: AppGraph) {
         var s = decide()
         if (s == SetupStep.SYNC_NAMES) {
             // A batch without a model still syncs the file list, so names are searchable while the model downloads.
-            IndexScheduler.indexNow(app)
+            index.indexNow()
             _ui.update { it.copy(namesSynced = true) }
             s = decide()
         }
         val b = retriever.requiredBuild.value
         when (s) {
-            SetupStep.NONE, SetupStep.ASK_FILES, SetupStep.SYNC_NAMES -> Unit
+            // VERIFY: the hash check reload started is still running.
+            SetupStep.NONE, SetupStep.ASK_FILES, SetupStep.SYNC_NAMES, SetupStep.VERIFY -> Unit
             SetupStep.ASK_MOBILE_DATA -> _ui.update { it.copy(askMobileData = true) }
-            SetupStep.NEEDS_SPACE -> _ui.update { it.copy(model = ModelState.Failed(spaceMessage(b))) }
-            SetupStep.DOWNLOAD -> {
-                _ui.update { it.copy(model = ModelState.Downloading(0f, true)) }
-                track(b) { download.start(b, retriever.prefs.value) }
-            }
-            SetupStep.VERIFY -> if (modelJob?.isActive != true) {
-                modelJob = graph.scope.launch { verifyModel(b, afterDownload = false) }
-            }
+            // The repository checks the space again and says why it can't start.
+            SetupStep.NEEDS_SPACE, SetupStep.DOWNLOAD -> models.start(b)
             SetupStep.TUNE -> tune()
             SetupStep.SCHEDULE -> {
                 // Runs once per process, so opening the app reads files even on battery: by design, a visible app
                 // indexes now (Retriever.indexBatch). "Only read while charging" governs background reading.
-                IndexScheduler.indexNow(app)
-                IndexScheduler.schedulePeriodic(app, retriever.prefs.value.onlyWhileCharging)
+                index.indexNow()
+                index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
                 _ui.update { it.copy(scheduled = true) }
             }
         }
@@ -380,9 +375,9 @@ class SetupFlow(private val graph: AppGraph) {
     private fun tune() {
         _ui.update { it.copy(tune = TuneState.Running) }
         val before = retriever.requiredBuild.value
-        graph.scope.launch {
+        scope.launch {
             val next = try {
-                val r = calibrate(graph, app, tuneAgain = false)
+                val r = calibrate()
                 TuneState.Done(tuneSummary(r.chosen, r.backends.firstOrNull { it.backend == r.chosen }?.imageMs))
             } catch (e: CancellationException) {
                 throw e
@@ -395,78 +390,6 @@ class SetupFlow(private val graph: AppGraph) {
             _ui.update { it.copy(tune = next) }
             refresh()
         }
-    }
-
-    private suspend fun stopDownload() {
-        modelJob?.cancel()
-        val b = retriever.requiredBuild.value
-        withContext(Dispatchers.IO) {
-            // A Stop right after enqueue can come before downloadId is set.
-            (downloadId ?: download.active(b))?.let { downloads.remove(it) }
-            download.file(b).delete()
-        }
-        downloadId = null
-        _ui.update { it.copy(model = ModelState.Missing) }
-    }
-
-    private fun track(b: ModelBuild, findId: () -> Long) {
-        modelJob?.cancel()
-        modelJob = graph.scope.launch {
-            val id = try {
-                findId()
-            } catch (e: Exception) {
-                Log.e("Retriever", "download could not start", e)
-                _ui.update { it.copy(model = ModelState.Failed(STOPPED)) }
-                return@launch
-            }
-            downloadId = id
-            var last: ModelDownload.Progress? = null
-            download.progress(id).collect { p ->
-                last = p
-                if (!p.done && !p.failed) {
-                    val fraction = if (p.total > 0) (p.bytes.toFloat() / p.total).coerceIn(0f, 1f) else 0f
-                    val model = if (p.waitingForWifi) ModelState.WaitingForWifi else ModelState.Downloading(fraction, p.total <= 0)
-                    _ui.update { it.copy(model = model) }
-                }
-            }
-            downloadId = null
-            if (last?.done == true) {
-                verifyModel(b, afterDownload = true)
-            } else {
-                downloads.remove(id)
-                download.file(b).delete()
-                Log.w("Retriever", "model download failed")
-                _ui.update { it.copy(model = ModelState.Failed(STOPPED)) }
-            }
-        }
-    }
-
-    /** Hashes [b]; on a match the model is ready, every other model file goes, and set-up is read again. */
-    private suspend fun verifyModel(b: ModelBuild, afterDownload: Boolean) {
-        _ui.update { it.copy(model = ModelState.Checking) }
-        val ok = download.verify(b)
-        if (ok) {
-            withContext(Dispatchers.IO) { download.prune(keep = b) }
-            retriever.refreshSetUp()
-        }
-        _ui.update {
-            it.copy(
-                model = when {
-                    ok -> ModelState.Done
-                    afterDownload -> ModelState.Failed("The download was damaged. Try again.")
-                    else -> ModelState.Missing
-                },
-                fellBack = it.fellBack && !ok,
-                tune = if (ok) tuneAfterRefresh(it.tune, it.fellBack) else it.tune,
-            )
-        }
-        advance()
-    }
-
-    private companion object {
-        const val STARTED = "started"
-        const val NOTIFICATIONS_DISMISSED = "notificationsDismissed"
-        const val STOPPED = "The download stopped. Check your connection and try again."
     }
 }
 
@@ -485,10 +408,8 @@ class SetupActions(
 )
 
 @Composable
-fun SetupScreen(onDone: () -> Unit) {
+fun SetupScreen(onDone: () -> Unit, flow: SetupFlow = koinInject(), access: AccessService = koinInject()) {
     val context = LocalContext.current
-    val graph = (context.applicationContext as RetrieverApp).graph
-    val flow = graph.setup
     val ui by flow.ui.collectAsStateWithLifecycle()
     // Set when the user leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }
@@ -501,11 +422,11 @@ fun SetupScreen(onDone: () -> Unit) {
     val mediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             openSettingsIfBlocked(activity, it)
-            graph.accessChanged()
+            access.changed()
             flow.refresh()
         }
     val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) folderError = graph.addFolder(uri)
+        if (uri != null) folderError = access.addFolder(uri)
         flow.refresh()
     }
     SetupContent(
@@ -541,9 +462,15 @@ fun SetupScreen(onDone: () -> Unit) {
 }
 
 @Composable
-fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupActions = SetupActions(), folderError: String? = null) {
+fun SetupContent(
+    ui: SetupUi,
+    modifier: Modifier = Modifier,
+    filesDenied: Boolean = false,
+    actions: SetupActions = SetupActions(),
+    folderError: String? = null,
+) {
     val size = ui.build?.let { Format.bytes(it.sizeBytes) }
-    Surface(Modifier.fillMaxSize()) {
+    Surface(modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             Column(
                 // Capped inside the scroll, so the gutters scroll too.
@@ -558,8 +485,8 @@ fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupAction
                 )
                 Text("Find anything by what's inside it", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "Retriever reads your photos, screenshots, PDFs and documents on this phone, so you can search them " +
-                        "in your own words. Nothing leaves your phone.",
+                    "Retriever reads your photos, screenshots, videos, recordings, PDFs and documents on this phone, " +
+                        "so you can search them in your own words. Nothing leaves your phone.",
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Muted("Files inside other apps' private folders can't be searched.")
@@ -593,7 +520,7 @@ fun SetupContent(ui: SetupUi, filesDenied: Boolean = false, actions: SetupAction
 
 /** Emits into the caller's Column, so its spacing applies. */
 @Composable
-private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, folderError: String?, actions: SetupActions) {
+private fun ColumnScope.Steps(ui: SetupUi, size: String?, filesDenied: Boolean, folderError: String?, actions: SetupActions) {
     Step("Allow access to your files", ui.files) {
         if (!ui.files) {
             Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth()) { Text("Allow access to all files") }
@@ -637,7 +564,7 @@ private fun Steps(ui: SetupUi, size: String?, filesDenied: Boolean, folderError:
 
 /** The download and tuning steps, which a text-only phone skips. */
 @Composable
-private fun ModelSteps(ui: SetupUi, size: String?, actions: SetupActions) {
+private fun ColumnScope.ModelSteps(ui: SetupUi, size: String?, actions: SetupActions) {
     Step(if (size != null) "Download what Retriever needs · $size" else "Download what Retriever needs", ui.model == ModelState.Done) {
         if (ui.fellBack && ui.model != ModelState.Done && size != null) {
             Muted(
@@ -709,7 +636,7 @@ private fun Step(title: String, done: Boolean, content: @Composable () -> Unit) 
             modifier = Modifier.semantics(mergeDescendants = true) {},
         ) {
             Icon(
-                if (done) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                painterResource(if (done) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked),
                 contentDescription = if (done) "Done" else "Not done yet",
                 tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
             )
@@ -748,6 +675,6 @@ private fun DownloadProgress(state: ModelState.Downloading, onStop: () -> Unit) 
             onClick = onStop,
             colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             modifier = Modifier.padding(start = 4.dp),
-        ) { Icon(Icons.Filled.Close, contentDescription = "Stop the download") }
+        ) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Stop the download") }
     }
 }

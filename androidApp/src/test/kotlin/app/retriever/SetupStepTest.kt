@@ -9,10 +9,85 @@ import app.retriever.SetupStep.SCHEDULE
 import app.retriever.SetupStep.SYNC_NAMES
 import app.retriever.SetupStep.TUNE
 import app.retriever.SetupStep.VERIFY
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
+import androidx.work.testing.WorkManagerTestInitHelper
+import app.retriever.core.Backend
+import app.retriever.core.CoreDispatchers
+import app.retriever.core.DeviceProfile
+import app.retriever.core.ModelVariant
+import app.retriever.core.Retriever
+import app.retriever.core.Tier
+import app.retriever.data.AccessService
+import app.retriever.data.IndexService
+import app.retriever.data.ModelRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowEnvironment
+import java.io.File
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class SetupStepTest {
+    private val app = ApplicationProvider.getApplicationContext<Application>()
+    private val download = ModelDownload(app, File(app.filesDir, "models"))
+
+    @Before fun setUp() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(app)
+        // Environment.isExternalStorageManager() reads the primary external volume, which Robolectric starts without.
+        ShadowEnvironment.addExternalDir("sdcard")
+    }
+
+    private fun TestScope.core() = CoreDispatchers(StandardTestDispatcher(testScheduler))
+
+    private fun flow(r: Retriever, scope: CoroutineScope) = SetupFlow(
+        r, ModelRepository(app, download, r, scope), AccessService(app), IndexService(app, r), download, scope,
+        onMeteredNetwork = { false }, notificationsGranted = { false }, calibrate = { error("no tuning in this test") },
+    )
+
+    @Test fun setupStartedPersistsThroughPrefs() = runTest {
+        val r = testRetriever(dispatchers = core())
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        assertFalse(f.ui.value.started)
+        f.getStarted()
+        f.dismissNotificationAsk()
+        r.prefs.first { it.setupStarted && it.notificationsDismissed }
+        // A new process reads both back from the store.
+        r.refreshSetUp()
+        assertTrue(flow(r, backgroundScope).ui.value.started)
+    }
+
+    /** An NPU-build fallback after setup leaves setUp true with the model missing: Setup offers the download. */
+    @Test fun modelGoneAfterSetupOffersTheDownload() = runTest {
+        shadowOf(app).grantPermissions(*Access.mediaPermissions(35).toTypedArray())
+        val r = testRetriever(profile = DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.CPU, 70, 5, false, false), dispatchers = core())
+        r.refreshSetUp()
+        assertEquals(true, r.setUp.value)
+        assertTrue(r.modelMissing.value)
+        val f = flow(r, backgroundScope)
+        f.refresh()
+        val ui = f.ui.first { it.namesSynced }
+        assertTrue(ui.started)
+        assertFalse("Setup stays open instead of handing off to Home", ui.ready)
+        assertTrue("the Download button is offered", ui.downloadStopped)
+        // Offered, not fetched unasked: Free up space looks the same from here.
+        assertEquals(NONE, nextStep(ui, hasSpace = true, metered = false, profileExists = true))
+        assertEquals(DOWNLOAD, nextStep(ui.copy(downloadStopped = false), hasSpace = true, metered = false, profileExists = true))
+    }
+
     /** Get started tapped, files allowed, names synced: the model is next. */
     private val going = SetupUi(started = true, access = Access.ALL, namesSynced = true)
 

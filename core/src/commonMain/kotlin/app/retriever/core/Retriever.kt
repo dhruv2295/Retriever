@@ -18,10 +18,7 @@
 
 package app.retriever.core
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -92,6 +89,7 @@ class Retriever(
     private val now: () -> Long,
     /** The local zone's offset from UTC now, so "yesterday" means the person's yesterday. No default: a platform must pass it. */
     private val zoneOffsetMs: () -> Long,
+    private val dispatchers: CoreDispatchers = CoreDispatchers(),
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -101,7 +99,6 @@ class Retriever(
     /** What text-only mode reads with: no model, no video frames, no audio. */
     private val textOnlyProfile = DeviceProfile(Tier.LIGHT, variant, Backend.CPU, 70, 0, false, false)
     private val sync = LibrarySync(store, source, now)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _requiredBuild = MutableStateFlow(ModelBuilds.buildFor(variant, probe, emptySet()))
 
@@ -143,6 +140,8 @@ class Retriever(
     @Volatile
     private var batchJob: Job? = null
     private var lastFileAt = 0L
+    private var leftByKind = mutableMapOf<Kind, Long>()
+    private val msByKind = mutableMapOf<Kind, Double>()
 
     private val indexLock = Mutex()
     private val embedderLock = Mutex()
@@ -155,16 +154,8 @@ class Retriever(
     /** Only what the model loads with: a prefs switch (kinds, charging) must not reopen it under a running batch. */
     private data class EmbedderKey(val build: ModelBuild, val backend: Backend, val visionTokens: Int, val maxTokens: Int)
 
-    /** [cb] runs on a background thread; Swift hops to the main actor itself. */
-    fun observeState(cb: (IndexState) -> Unit): AutoCloseable {
-        val job = scope.launch { state.collect { cb(it) } }
-        return object : AutoCloseable {
-            override fun close() = job.cancel()
-        }
-    }
-
     @Throws(Throwable::class)
-    suspend fun refreshSetUp() = withContext(Dispatchers.Default) {
+    suspend fun refreshSetUp() = withContext(dispatchers.default) {
         reload()
         _starred.value = store.starredUris()
     }
@@ -202,9 +193,21 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
-        withContext(Dispatchers.Default) {
-            _prefs.value = store.updatePrefs { old ->
-                t(old).also { if (old.rememberSearches && !it.rememberSearches) store.clearRecentQueries() }
+        withContext(dispatchers.default) {
+            // "Stop searching" acts here, paused or not: every platform's switch lands in this one place.
+            var before = Prefs()
+            val new = store.updatePrefs { old ->
+                before = old
+                t(old).also {
+                    if (old.rememberSearches && !it.rememberSearches) store.clearRecentQueries()
+                    (old.kinds - it.kinds).takeIf { k -> k.isNotEmpty() }?.let(store::deleteChunksOfKinds)
+                    (it.kinds - old.kinds).takeIf { k -> k.isNotEmpty() }?.let(store::requeue)
+                }
+            }
+            _prefs.value = new
+            // Stars of dropped files stay, hidden until the folder is put back.
+            if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
+                _starred.value = store.starredUris()
             }
         }
     }
@@ -234,7 +237,7 @@ class Retriever(
         }
         try {
             return coroutineScope {
-                val work = async(Dispatchers.Default) { runBatch(budget, deepen) }
+                val work = async(dispatchers.default) { runBatch(budget, deepen) }
                 batchJob = work
                 try {
                     work.await()
@@ -275,7 +278,10 @@ class Retriever(
             }
             val stored = if (textOnly) textOnlyProfile else store.profile() ?: return NextRun.DONE
             val device = monitor.state()
-            _state.update { it.copy(pendingAtStart = store.countsByState()[FileState.PENDING] ?: 0L) }
+            val pending = store.pendingByKind()
+            leftByKind = pending.toMutableMap()
+            msByKind.clear()
+            _state.update { it.copy(pendingAtStart = pending.values.sum()) }
             lastFileAt = now()
             val result = IndexEngine(
                 store,
@@ -318,19 +324,24 @@ class Retriever(
 
     private fun onFile(m: FileMetric) {
         retierFrom(m)
-        if (!m.ok) log("Couldn't index ${m.file.kind} ${m.file.name} (${m.file.mime}, ${m.file.size} B): ${m.error}", m.cause)
+        if (!m.ok) log("Couldn't index ${m.file.kind} (${m.file.mime}, ${m.file.size} B): ${m.cause?.let { it::class.simpleName }}", m.cause)
+        else log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
         val t = now()
-        val rate = 60_000.0 / (t - lastFileAt).coerceAtLeast(1)
+        val gapMs = (t - lastFileAt).coerceAtLeast(1)
         lastFileAt = t
+        val kind = m.file.kind
+        // A kind's own pace: photos run fast and video slow, so one overall rate misjudges the video still to come.
+        msByKind[kind] = msByKind[kind]?.let { 0.8 * it + 0.2 * gapMs } ?: gapMs.toDouble()
+        leftByKind[kind] = ((leftByKind[kind] ?: 0L) - 1).coerceAtLeast(0)
         _state.update {
+            val rate = 60_000.0 / gapMs
             val fpm = if (it.filesPerMinute == 0.0) rate else 0.8 * it.filesPerMinute + 0.2 * rate
-            val left = (it.pendingAtStart - it.processed - it.failed - 1).coerceAtLeast(0)
             it.copy(
                 processed = it.processed + if (m.ok) 1 else 0,
                 failed = it.failed + if (m.ok) 0 else 1,
                 current = m.file.name,
                 filesPerMinute = fpm,
-                etaMinutes = ceil(left / fpm).toInt(),
+                etaMinutes = etaMinutes(leftByKind, msByKind, 60_000.0 / fpm),
             )
         }
     }
@@ -344,7 +355,7 @@ class Retriever(
 
     /** One embedder for indexing and search: two copies of the model would double memory. Null when not set up. */
     private suspend fun embedder(): Pair<Embedder, ModelBuild>? = embedderLock.withLock {
-        withContext(Dispatchers.Default) { openLocked()?.let { it to embedderKey!!.build } }
+        withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
     }
 
     private suspend fun openLocked(): Embedder? {
@@ -470,7 +481,7 @@ class Retriever(
     /** Frees the model's memory; the next search or batch opens it again. */
     @Throws(Throwable::class)
     suspend fun release() {
-        embedderLock.withLock { withContext(Dispatchers.Default) { closeLocked() } }
+        embedderLock.withLock { withContext(dispatchers.default) { closeLocked() } }
     }
 
     // --- Search ---
@@ -557,7 +568,7 @@ class Retriever(
     private suspend fun <T> searchWith(run: suspend (SearchEngine) -> T): T {
         searching.update { it + 1 }
         try {
-            return withContext(Dispatchers.Default) {
+            return withContext(dispatchers.default) {
                 val (engine, used, build) = engine()
                 try {
                     run(engine)
@@ -709,7 +720,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun requeue(kinds: Set<Kind>) = io { store.requeue(kinds) }
 
-    private suspend fun <T> io(block: suspend () -> T): T = withContext(Dispatchers.Default) { block() }
+    private suspend fun <T> io(block: suspend () -> T): T = withContext(dispatchers.default) { block() }
 
     // --- Calibration ---
 
@@ -803,6 +814,10 @@ class Retriever(
         const val UNFINISHED_OPENS = "unfinished_opens"
         const val GPU_UNSAFE = "gpu_unsafe"
         const val LARGE_FILE = 100L * 1024 * 1024
+
+        /** Remaining files per kind at that kind's measured pace; a kind not yet seen uses [fallbackMs]. */
+        fun etaMinutes(left: Map<Kind, Long>, msPerFile: Map<Kind, Double>, fallbackMs: Double): Int =
+            ceil(left.entries.sumOf { (k, n) -> n * (msPerFile[k] ?: fallbackMs) } / 60_000).toInt()
 
         /** Photos whose median read time can move the tier up; an odd quick one alone can't. */
         const val RETIER_WINDOW = 5

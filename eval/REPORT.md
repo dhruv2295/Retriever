@@ -27,7 +27,7 @@ from the int8 cosine table (VERIFIED, scratchpad w4fix/eval-corpus-m740.txt):
 | text -> screenshot | 0.758 ("my flight seat") | 0.700 ("train ticket to Mumbai") | 0.058 |
 | text -> text | 0.748 ("solar panels cut our power bill") | 0.675 (Hindi "chess tournament results") | 0.073 |
 
-So M740 keeps no floor (`RelevanceFloor.measuredFor` returns null): no photo floor can keep every right photo strong
+So M740 keeps no floor (`RelevanceFloor.measuredFor` returned null; superseded in wave 5, where the class was removed): no photo floor can keep every right photo strong
 without calling the red car strong for "car insurance policy", and a floor for screenshots and text alone is a
 decision for a run on more than one corpus. With no floor every hit is strong, and the app's strong counts match the
 eval's on all 42 queries.
@@ -307,7 +307,7 @@ screenshots, disassembly, JVM log) is in `scratchpad/p17-shots/`.
 | First search after returning to the app: no wait for the model to open | Harness "model closed" (the harness forces an open): p50 246.4, p95 727.0 (n=11) | Harness: run A p50 246.4, p95 253.3; run B p50 253.1, p95 408.9. The harness still includes the open on purpose, so it cannot show the gain. Real return path, Perfetto, force-stop then launch then type "invo": `kw.names` 0.3 ms at t0, keyword-only `kw.fts` at +111 ms with no `vec.scan`, first `vec.scan` at +270 ms once the model was open | PASS (VERIFIED, one capture) |
 | Search while indexing, search bar focused: no wait for a new embed | Harness "batch running" p50 292.8, p95 418.8 (290 pending) | Harness: run A p50 276.1, p95 301.8 (232 pending); run B p50 292.0, p95 324.9 (401 pending). Unchanged, because the core harness never sets the UI-busy flag. In the app: with the bar unfocused indexing did 3 files/s (12 per 4 s, index file counts); on focus it stopped after one more file and stayed at 370 pending for 15 s; it resumed within 5 s of leaving the screen | PASS by mechanism (VERIFIED by counts). The harness row is informational only |
 | Vector lane p95 within 5% of wave 4 | Same-run wave-4 scan: p95 8.50 ms | JVM vector p95 8.66 ms (+1.8%). With the relevance histograms on ("vector+rule", rule ships disabled): 10.73 ms (+26.2%). Emulator scan p50, 150k / 300k: 13.5 / 27.1 before; 14.1 / 27.8, 17.2 / 35.2 (loaded), 15.8 / 30.7 (loaded), 14.4 / 28.4, 14.3 / 28.2 after (quiet host: +6% / +4%) | PASS on the gated path (JVM). FAIL if the histogram path is switched on: +26% needs a look before P16 enables the rule. Emulator +4-6% is inside host noise (INFERRED) |
-| APK within +0.5 MB for the whole wave | 24,228,413 B (`build/w5-apk-baseline.txt`); `unzip -l` 45,339,031 B, 375 files | 24,409,023 B, `unzip -l` 45,535,379 B, 380 files: **+180,610 B (+0.17 MiB)** | PASS (VERIFIED, release APK built 17:41, current) |
+| APK within +0.5 MB for the whole wave | 24,228,413 B (`build/w5-apk-baseline.txt`); `unzip -l` 45,339,031 B, 375 files | 24,428,467 B, `unzip -l` 45,535,379 B, 380 files: **+200,054 B (+0.19 MiB)** | PASS (VERIFIED, release APK built 17:41, current) |
 
 JVM bench (`SearchBenchTest`, `NameIndexBenchTest`, both passed, BUILD SUCCESSFUL in 39 s): keyword tables rebuilt in 2,769 ms
 (limit 3,000); 50,000 files, 150,000 chunks built in 13.5 s; "50 ms embed beside 30 ms of keyword work" took 53.5 ms (the

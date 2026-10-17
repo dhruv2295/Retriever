@@ -1,7 +1,7 @@
-import BackgroundTasks
+@preconcurrency import BackgroundTasks
 import Foundation
 import os
-import RetrieverCore
+@preconcurrency import RetrieverCore
 
 /// Reads files while the app is in the background: iOS runs it when it sees fit, mostly overnight on the charger.
 /// The model runs on the CPU there (IosEmbedderFactory.backendNow), since iOS refuses GPU work in the background.
@@ -14,12 +14,12 @@ enum IndexTask {
     /// continued task posts it with `continuedId` as the object.
     static let ended = Notification.Name("app.retriever.backgroundBatchEnded")
     private static let log = Logger(subsystem: "app.retriever", category: "background")
-    /// Written once, at launch, before anything schedules.
-    nonisolated(unsafe) private static var registered = false
+    /// Set once, at launch, before anything schedules; nil in the unit-test host, which never registers.
+    nonisolated(unsafe) private static var services: AppServices?
 
     /// Call before the app finishes launching.
-    static func register() {
-        registered = true
+    static func register(services: AppServices) {
+        self.services = services
         BGTaskScheduler.shared.register(forTaskWithIdentifier: id, using: nil) { task in
             task.expirationHandler = expire
             runBatch { task.setTaskCompleted(success: $0) }
@@ -38,15 +38,15 @@ enum IndexTask {
     static func schedule() {
         // Submitting an identifier this process never registered raises an exception `try` can't catch: the unit-test
         // host skips register(), and a Settings toggle there crashed it.
-        guard registered else { return }
+        guard let services else { return }
         let request = BGProcessingTaskRequest(identifier: id)
-        request.requiresExternalPower = (AppServices.shared.retriever.prefs.value as? Prefs)?.onlyWhileCharging ?? false
+        request.requiresExternalPower = services.retriever.prefsNow.onlyWhileCharging
         request.requiresNetworkConnectivity = false
         do {
             try BGTaskScheduler.shared.submit(request)
             log.info("background reading scheduled")
         } catch {
-            log.error("couldn't schedule background reading: \(error, privacy: .public)")
+            log.error("couldn't schedule background reading: \(error, privacy: .private)")
         }
     }
 
@@ -66,7 +66,7 @@ enum IndexTask {
     static func expire() {
         log.info("background time is up; stopping the batch")
         expired.withLock { $0 = true }
-        AppServices.shared.retriever.cancelBatch()
+        services?.retriever.cancelBatch()
     }
 
     /// Set by `expire()`: cancelBatch() reaches only a batch already running, so one about to start must not.
@@ -74,8 +74,8 @@ enum IndexTask {
     private static let expired = OSAllocatedUnfairLock(initialState: false)
 
     /// The task's work, apart from BGTask so the debug drill can run it where BGTaskScheduler can't.
-    static func runBatch(complete: @escaping (Bool) -> Void) {
-        let retriever = AppServices.shared.retriever
+    static func runBatch(complete: @escaping @Sendable (Bool) -> Void) {
+        guard let retriever = services?.retriever else { return complete(false) }
         expired.withLock { $0 = false }
         Task {
             var next: NextRun?
@@ -87,13 +87,13 @@ enum IndexTask {
                     next = try await retriever.indexBatchSeconds(seconds: 1500)
                 }
             } catch {
-                log.error("background batch failed: \(error, privacy: .public)")
+                log.error("background batch failed: \(error, privacy: .private)")
             }
-            let state = retriever.state.value as? IndexState
-            log.info("background batch: \(next?.name ?? "failed", privacy: .public), backend \(state?.backend?.name ?? "none", privacy: .public), processed \(state?.processed ?? 0)")
+            let state = retriever.stateNow
+            log.info("background batch: \(next?.name ?? "failed", privacy: .public), backend \(state.backend?.name ?? "none", privacy: .public), processed \(state.processed)")
             try? await retriever.release()
             // Even when caught up: the next run reads photos taken meanwhile.
-            if (retriever.prefs.value as? Prefs)?.paused != true { schedule() }
+            if !retriever.prefsNow.paused { schedule() }
             complete(next != nil)
             log.info("background task completed, success \(next != nil)")
             DispatchQueue.main.async { NotificationCenter.default.post(name: ended, object: nil) }
@@ -104,16 +104,18 @@ enum IndexTask {
     /// stalls, so the counts drive it per file.
     @available(iOS 26.0, *)
     private static func runContinued(_ task: BGContinuedProcessingTask) {
-        let retriever = AppServices.shared.retriever
-        let monitor = AppServices.shared.monitor
+        guard let services else { return task.setTaskCompleted(success: false) }
+        let retriever = services.retriever
+        let monitor = services.monitor
         expired.withLock { $0 = false }
         task.expirationHandler = expire
         task.progress.totalUnitCount = 1
         monitor.continued = true
         let pending = OSAllocatedUnfairLock(initialState: 1)
-        let progress = retriever.observeAll { snapshot in
+        let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
-            pending.withLock { $0 = snap.pending }
+            let waiting = snap.pending
+            pending.withLock { $0 = waiting }
             task.progress.totalUnitCount = Int64(max(snap.total, 1))
             task.progress.completedUnitCount = Int64(snap.indexed + snap.skipped)
             task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(snap))

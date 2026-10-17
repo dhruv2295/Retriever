@@ -5,38 +5,46 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
+fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val stars = koinViewModel<StarHolder>().stars
+    val starred by stars.starred.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    StarFailureEffect(stars, snackbar)
     // Survives rotation, so the rebuilt player resumes where it was rather than at route.startMs.
     // A plain array, not state: updating it must not recompose the screen twice a second.
     val position = rememberSaveable(route.uri) { longArrayOf(route.startMs) }
@@ -77,6 +85,8 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
     }
 
     Scaffold(
+        modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {
@@ -89,10 +99,10 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 },
-                actions = { StarButton(route.uri) },
+                actions = { StarButton(route.uri in starred) { stars.toggle(route.uri) } },
             )
         },
     ) { padding ->

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// EmptyState adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt (Apache-2.0). Modified for Retriever: plain strings, ImageVector icon, one optional action, optional artwork.
+// EmptyState adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/EmptyState.kt (Apache-2.0). Modified for Retriever: plain strings, drawable icon, one optional action, optional artwork.
 // ThumbCell adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt BackgroundAssetGridTile (Apache-2.0). Modified for Retriever: loads through Thumbnails at the match, a page or time badge instead of selection and analysed states, 12 dp corners, merged TalkBack description.
 
 package app.retriever
@@ -41,18 +41,10 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.AudioFile
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material.icons.outlined.Screenshot
-import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -66,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -161,7 +152,7 @@ fun FileRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         leading?.invoke()
-        Thumb(file, 48.dp, locator)
+        Thumb(file, 48.dp, locator = locator)
         Column(Modifier.weight(1f)) {
             val title = if (query != null) nameHighlighted(file.name, query, SpanStyle(fontWeight = FontWeight.Bold)) else AnnotatedString(file.name)
             Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -192,7 +183,7 @@ fun FileRow(
             Surface(shape = MaterialTheme.shapes.small, color = colors.secondaryContainer, contentColor = colors.onSecondaryContainer) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (Opener.locatorToMs(locator) != null) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(painterResource(R.drawable.ic_play_arrow), contentDescription = null, modifier = Modifier.size(14.dp))
                     }
                     Text(badge, style = MaterialTheme.typography.labelMedium.tabular(), maxLines = 1)
                 }
@@ -202,21 +193,21 @@ fun FileRow(
 }
 
 @Composable
-fun Thumb(file: SourceFile, size: Dp, locator: String = "") {
+fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "") {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, px, locator) {
+    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, px, locator) {
         value = Thumbnails.load(context, file, px, locator)
     }
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer),
+        modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer),
         contentAlignment = Alignment.Center,
     ) {
         val shown = bitmap
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
         } else {
-            Icon(kindIcon(file.kind), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -255,14 +246,14 @@ fun ThumbCell(
         contentAlignment = Alignment.Center,
     ) {
         val px = with(LocalDensity.current) { maxWidth.roundToPx() }
-        val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, px, locator) {
+        val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, px, locator) {
             value = Thumbnails.load(context, file, px, locator)
         }
         val shown = bitmap
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else {
-            Icon(kindIcon(file.kind), contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(painterResource(kindIcon(file.kind)), contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (badge != null) {
             Row(
@@ -276,7 +267,7 @@ fun ThumbCell(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (file.kind == Kind.VIDEO) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                    Icon(painterResource(R.drawable.ic_play_arrow), contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
                 }
                 Text(badge, style = MaterialTheme.typography.labelMedium.tabular(), color = Color.White, maxLines = 1)
             }
@@ -284,33 +275,35 @@ fun ThumbCell(
     }
 }
 
-fun kindIcon(kind: Kind): ImageVector = when (kind) {
-    Kind.PHOTO -> Icons.Outlined.Image
-    Kind.SCREENSHOT -> Icons.Outlined.Screenshot
-    Kind.PDF -> Icons.Outlined.PictureAsPdf
-    Kind.DOC -> Icons.Outlined.Description
-    Kind.AUDIO -> Icons.Outlined.AudioFile
-    Kind.VIDEO -> Icons.Outlined.VideoFile
-    Kind.OTHER -> Icons.AutoMirrored.Outlined.InsertDriveFile
+@DrawableRes
+fun kindIcon(kind: Kind): Int = when (kind) {
+    Kind.PHOTO -> R.drawable.ic_image
+    Kind.SCREENSHOT -> R.drawable.ic_screenshot
+    Kind.PDF -> R.drawable.ic_picture_as_pdf
+    Kind.DOC -> R.drawable.ic_description
+    Kind.AUDIO -> R.drawable.ic_audio_file
+    Kind.VIDEO -> R.drawable.ic_video_file
+    Kind.OTHER -> R.drawable.ic_insert_drive_file
 }
 
 @Composable
 fun EmptyState(
     title: String,
     description: String,
-    icon: ImageVector,
+    @DrawableRes icon: Int,
+    modifier: Modifier = Modifier,
     action: Pair<String, () -> Unit>? = null,
     art: Int? = null,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = Modifier.padding(horizontal = 48.dp),
+        modifier = modifier.padding(horizontal = 48.dp),
     ) {
         if (art != null) {
             Image(painterResource(art), contentDescription = null, modifier = Modifier.widthIn(max = 220.dp).fillMaxWidth(0.6f))
         } else {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
         Text(description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

@@ -1,5 +1,5 @@
 package app.retriever.core
 
-actual fun traceBegin(name: String) {}
+actual inline fun <T> traced(name: String, block: () -> T): T = block()
 
-actual fun traceEnd() {}
+actual suspend inline fun <T> tracedAsync(name: String, block: suspend () -> T): T = block()

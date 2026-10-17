@@ -14,7 +14,9 @@ struct HomeStatus: Equatable {
 }
 
 /// Every sentence the shell shows, in plain words from the person's side. Ported from Android's StatusScreen and
-/// SetupScreen copy; "phone" reads "iPhone" or "iPad" here.
+/// SetupScreen copy; "phone" reads "iPhone" or "iPad" here. Main-actor, as UIDevice is; the background task's
+/// lines are nonisolated.
+@MainActor
 enum Copy {
     /// What the person holds, as they'd call it.
     static let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
@@ -113,11 +115,11 @@ enum Copy {
         n == 1 ? "1 file over 100 MB" : "\(count(Int(n))) files over 100 MB"
     }
 
-    static func count(_ n: Int) -> String {
+    nonisolated static func count(_ n: Int) -> String {
         n.formatted(.number)
     }
 
-    static func bytes(_ n: Int64) -> String {
+    nonisolated static func bytes(_ n: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
     }
 
@@ -198,9 +200,9 @@ enum Copy {
     static let keepReadingNote = "Your \(device) shows how it's going and lets you stop it any time."
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
-    static let continuedTitle = "Reading your files"
+    nonisolated static let continuedTitle = "Reading your files"
 
-    static func continuedSubtitle(_ s: AppModel.Snap) -> String {
+    nonisolated static func continuedSubtitle(_ s: AppModel.Snap) -> String {
         "\(count(s.indexed)) of \(count(s.total))"
     }
 

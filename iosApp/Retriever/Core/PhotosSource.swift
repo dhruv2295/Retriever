@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// The photo library as ph://<localIdentifier> files. Incremental syncs come from PhotoKit's persistent change
 /// history, which also reports deletions. Nothing here downloads from iCloud.
-final class PhotosSource: NSObject, NativeFileSource {
+final class PhotosSource: NSObject, NativeFileSource, Sendable {
     var status: PHAuthorizationStatus { PHPhotoLibrary.authorizationStatus(for: .readWrite) }
 
     /// Authorized, or limited to the photos the person picked.
@@ -18,8 +18,9 @@ final class PhotosSource: NSObject, NativeFileSource {
     }
 
     /// Assets seen and resource lookups made by the last [changes] call, for the log line and the self-test.
-    private(set) var lastAssets = 0
-    private(set) var lastLookups = 0
+    var lastAssets: Int { counts.withLock { $0.assets } }
+    var lastLookups: Int { counts.withLock { $0.lookups } }
+    private let counts = OSAllocatedUnfairLock(initialState: (assets: 0, lookups: 0))
 
     func changes(since: String?, known: KnownFiles) -> Changes {
         switch status {
@@ -34,8 +35,7 @@ final class PhotosSource: NSObject, NativeFileSource {
             break
         }
         let started = Date()
-        lastLookups = 0
-        lastAssets = 0
+        counts.withLock { $0 = (0, 0) }
         // Taken before reading, so changes made during the scan show up next time.
         let next = Self.encode(PHPhotoLibrary.shared().currentChangeToken)
         let result: Changes
@@ -84,9 +84,9 @@ final class PhotosSource: NSObject, NativeFileSource {
         return Changes(upserted: files, removed: removed.map { "ph://\($0)" }, nextToken: next, isFullScan: false, present: nil, scope: nil)
     }
 
-    /// `recheck`: PhotoKit reported a change, which may be an edit or its undo: look up the current rendition's size.
+    /// `recheck`: PhotoKit reported a change, which may be an edit or its undo: look up the current rendition.
     private func file(_ asset: PHAsset, _ known: KnownFiles, recheck: Bool) -> SourceFile? {
-        lastAssets += 1
+        counts.withLock { $0.assets += 1 }
         let kind: Kind
         let folder: String
         switch asset.mediaType {
@@ -99,22 +99,24 @@ final class PhotosSource: NSObject, NativeFileSource {
         default:
             return nil
         }
-        // Not modificationDate: iOS also bumps it on favoriting, album changes and its own analysis, none of which
-        // change what the photo shows. An edit shows as a new size of the current rendition instead.
-        let stamp = Int64((asset.creationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000)
+        // Identity is the creation date, or the modification date once edited. iOS also bumps modificationDate on
+        // favoriting, album changes and its own analysis, so only an edited photo follows it: an edit or its undo
+        // flips hasAdjustments, a re-edit moves the date. ponytail: favoriting an edited photo re-reads it once.
+        // Size stays 0: PhotoKit has no public byte size without reading the file.
+        let date = asset.hasAdjustments ? asset.modificationDate ?? asset.creationDate : asset.creationDate
+        let stamp = Int64((date ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000)
         let uri = "ph://\(asset.localIdentifier)"
-        var name: String, size: Int64, mime: String
-        if !recheck, let old = known.file(uri: uri), old.modifiedAt == stamp, old.size > 0 {
-            (name, size, mime) = (old.name, old.size, old.mime)
+        let name: String, mime: String
+        if !recheck, let old = known.file(uri: uri), old.modifiedAt == stamp {
+            (name, mime) = (old.name, old.mime)
         } else {
-            lastLookups += 1
+            counts.withLock { $0.lookups += 1 }
             let (original, current) = Self.renditions(asset)
             name = original?.originalFilename ?? String(asset.localIdentifier.prefix(36))
-            size = current.map(Self.fileSize) ?? 0
             mime = current.flatMap { UTType($0.uniformTypeIdentifier)?.preferredMIMEType } ?? (kind == .video ? "video/quicktime" : "image/jpeg")
         }
         let taken = asset.creationDate.map { KotlinLong(value: Int64($0.timeIntervalSince1970 * 1000)) }
-        return SourceFile(uri: uri, name: name, folder: folder, mime: mime, kind: kind, size: size, modifiedAt: stamp, takenAt: taken)
+        return SourceFile(uri: uri, name: name, folder: folder, mime: mime, kind: kind, size: 0, modifiedAt: stamp, takenAt: taken)
     }
 
     /// The camera's file, and what the person sees now: the edited rendition when there is one.
@@ -123,12 +125,6 @@ final class PhotosSource: NSObject, NativeFileSource {
         let original = resources.first { $0.type == .photo || $0.type == .video } ?? resources.first
         guard asset.hasAdjustments else { return (original, original) }
         return (original, resources.first { $0.type == .fullSizePhoto || $0.type == .fullSizeVideo } ?? original)
-    }
-
-    /// Private key, the only size source that doesn't read the file; an unknown KVC key raises, hence the guard.
-    static func fileSize(_ resource: PHAssetResource) -> Int64 {
-        guard resource.responds(to: NSSelectorFromString("fileSize")) else { return 0 }
-        return (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0
     }
 
     private static func encode(_ token: PHPersistentChangeToken) -> String {

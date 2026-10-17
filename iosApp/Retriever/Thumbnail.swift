@@ -25,7 +25,7 @@ enum Thumbnails {
     }()
 
     static func load(_ file: SourceFile, locator: String, pixels: CGFloat) async -> UIImage? {
-        let key = "\(file.uri)|\(locator)|\(Int(pixels))" as NSString
+        let key = "\(file.uri)|\(file.modifiedAt)|\(file.size)|\(locator)|\(Int(pixels))" as NSString
         if let hit = cache.object(forKey: key) { return hit }
         guard let services else { return nil }
         let uri = file.uri
@@ -69,7 +69,27 @@ enum Thumbnails {
 
     private static func quickLook(_ url: URL, pixels: CGFloat) async -> UIImage? {
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: pixels, height: pixels), scale: 1, representationTypes: .thumbnail)
-        return try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
+        guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage else { return nil }
+        // A mostly-white page (docx, short pdf) fills the tile with white; nil shows the kind's icon instead.
+        return isBlank(image) ? nil : image
+    }
+
+    /// True when the picture is near-white everywhere once shrunk to 16x16, i.e. a page with no visible content.
+    // ponytail: fixed 0.93 cut-off; a very pale genuine image would show the icon too.
+    nonisolated private static func isBlank(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        let n = 16
+        var px = [UInt8](repeating: 0, count: n * n * 4)
+        let drew = px.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: n, height: n))
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: n, height: n))
+            return true
+        }
+        guard drew else { return false }
+        return stride(from: 0, to: px.count, by: 4).allSatisfy { min(px[$0], px[$0 + 1], px[$0 + 2]) > 237 }
     }
 }
 

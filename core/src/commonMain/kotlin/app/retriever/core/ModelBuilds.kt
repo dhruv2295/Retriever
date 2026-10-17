@@ -19,7 +19,7 @@
 package app.retriever.core
 
 object ModelBuilds {
-    /** litert-community NPU builds per SoC, fetched from the HF API 2026-10-17. Intel PTL and QCS8275 are not phone SoCs; the Qualcomm builds are left out because their QNN runtime is not bundled. */
+    /** litert-community NPU builds per SoC, fetched from the HF API 2026-10-17. Intel PTL and QCS8275 are not phone SoCs; the Qualcomm builds are left out because the Maven AAR has the dispatch library and compiler plugin but no QNN libraries, so Snapdragon stays on GPU. */
     val npu: List<ModelBuild> = listOf(
         npuBuild(ModelVariant.M740, "Google_Tensor_G5", 657_656_500, "5b53d76c2c7c66d2dc6230ff158ea0033ac5939ac7cfcf827c3a22cdfc742a5e"),
         npuBuild(ModelVariant.M740, "Google_Tensor_G6", 615_713_460, "ed0e4f413e705946eda544078d8bf5acf10fe5aee2946451c81919a1f59665e7"),
@@ -53,7 +53,7 @@ object ModelBuilds {
 
     /**
      * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present.
-     * Qualcomm has no build here (its QNN libraries ship in no LiteRT AAR), so it and any other vendor use the generic build.
+     * Qualcomm has no build here: the Maven AAR has the dispatch library and compiler plugin but no QNN libraries, so Snapdragon stays on GPU with the generic build.
      */
     fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean {
         val m = socManufacturer.lowercase()

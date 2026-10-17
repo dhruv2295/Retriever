@@ -48,7 +48,7 @@ class NameIndex private constructor(
         for (word in words) {
             val cur = classify(word)
             val prev = acc
-            if (prev != null) for (s in cur.indices) cur[s] = if (prev[s] == NONE || cur[s] == NONE) NONE else maxOf(prev[s], cur[s]).toByte()
+            if (prev != null) for (s in cur.indices) cur[s] = if (prev[s] == NONE || cur[s] == NONE) NONE else maxOf(prev[s], cur[s])
             acc = cur
         }
         val rank = acc!!
@@ -88,7 +88,10 @@ class NameIndex private constructor(
         if (!found && edits > 0) {
             val need = maxOf(1, q.length - 2 - 3 * edits) // each edit spoils at most 3 trigrams
             val shared = IntArray(tokens.size)
-            for (g in 0..q.length - 3) {
+            if (q.length - 2 - 3 * edits < 1) {
+                // A short word can lose every trigram to one edit ('tlak' vs 'talk'), so compare by length instead.
+                for (t in tokens.indices) if (kotlin.math.abs(tokens[t].length - q.length) <= edits && withinEdits(q, tokens[t], edits)) mark(t, MatchClass.TYPO)
+            } else for (g in 0..q.length - 3) {
                 for (t in grams[gram(q, g)] ?: continue) {
                     if (++shared[t] == need && kotlin.math.abs(tokens[t].length - q.length) <= edits &&
                         withinEdits(q, tokens[t], edits)
@@ -183,21 +186,29 @@ class NameIndex private constructor(
         // A hash, not a pack: a collision only adds a candidate that the contains/edit check then rejects.
         private fun gram(s: String, at: Int) = (s[at].code * 31 + s[at + 1].code) * 31 + s[at + 2].code
 
-        /** Levenshtein distance of [a] and [b] is at most [max] (row by row, stopping once a whole row exceeds it). */
+        /**
+         * Optimal string alignment distance of [a] and [b] is at most [max]: Levenshtein where swapping two adjacent
+         * letters costs 1. It stops once two whole rows exceed [max] (a swap reaches back two rows).
+         */
         fun withinEdits(a: String, b: String, max: Int): Boolean {
             if (kotlin.math.abs(a.length - b.length) > max) return false
+            var prev2 = IntArray(b.length + 1)
             var prev = IntArray(b.length + 1) { it }
             var cur = IntArray(b.length + 1)
+            var prevMin = 0
             for (i in 1..a.length) {
                 cur[0] = i
                 var rowMin = i
                 for (j in 1..b.length) {
                     val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                    cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-                    if (cur[j] < rowMin) rowMin = cur[j]
+                    var d = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+                    if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) d = minOf(d, prev2[j - 2] + 1)
+                    cur[j] = d
+                    if (d < rowMin) rowMin = d
                 }
-                if (rowMin > max) return false
-                val t = prev; prev = cur; cur = t
+                if (rowMin > max && prevMin > max) return false
+                prevMin = rowMin
+                val t = prev2; prev2 = prev; prev = cur; cur = t
             }
             return prev[b.length] <= max
         }

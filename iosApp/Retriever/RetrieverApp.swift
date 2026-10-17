@@ -29,7 +29,7 @@ struct RetrieverApp: App {
             BackgroundDrill.armIfAsked()
             DebugRoute.starIfAsked(AppServices.shared.retriever)
         #endif
-        IndexTask.register()
+        IndexTask.register(services: .shared)
         _model = State(initialValue: AppModel(services: .shared))
     }
 

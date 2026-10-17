@@ -12,6 +12,18 @@ const val TEXT_BYTES = 2 * 1024 * 1024
 const val MIN_TEXT_CHARS = 40
 const val MIN_AUDIO_WINDOW_SEC = 2
 
+/**
+ * One running byte budget (4 x [TEXT_BYTES]) for all the entries of a zip (epub chapters, pptx slides), so a zip
+ * bomb of many in-cap entries cannot add up to gigabytes. [onCut] runs once, when an entry is wanted past the budget.
+ */
+class ZipBudget(private var left: Int = 4 * TEXT_BYTES, private val onCut: () -> Unit) {
+    /** The text of the next entry, read through [read] with the bytes still left; null once the budget is spent. */
+    fun entry(read: (cap: Int) -> String): String? {
+        if (left <= 0) { onCut(); return null }
+        return read(left).also { left -= it.encodeToByteArray().size }
+    }
+}
+
 /** Locator of the [cutShort] marker; it has no parts, so draftChunks never stores it. */
 const val CUT_SHORT = "\u0000cut-short"
 
@@ -22,7 +34,13 @@ private val TAG = Regex("<[^>]+>")
 private val BLANKS = Regex("[ \t]+")
 private val SLIDE = Regex("ppt/slides/slide(\\d+)\\.xml")
 private val SCRIPT_STYLE = Regex("<(script|style)\\b[\\s\\S]*?</\\1\\s*>", RegexOption.IGNORE_CASE)
-private val HTML_BREAK = Regex("</(p|div|li|tr|h[1-6])\\s*>|<br\\s*/?>", RegexOption.IGNORE_CASE)
+private val XML_SPACE = Regex("<(w:tab|w:br|a:br|text:tab|text:line-break|text:s)\\b[^>]*>")
+private val NUM_ENTITY = Regex("&#(x[0-9a-fA-F]+|[0-9]+);")
+private val HTML_ENTITIES = mapOf(
+    "&nbsp;" to " ", "&copy;" to "©", "&mdash;" to "—", "&ndash;" to "–", "&hellip;" to "…",
+    "&lsquo;" to "‘", "&rsquo;" to "’", "&ldquo;" to "“", "&rdquo;" to "”",
+)
+private val HTML_BREAK = Regex("</(p|div|li|tr|td|section|blockquote|h[1-6])\\s*>|<(br|hr)\\s*/?>", RegexOption.IGNORE_CASE)
 
 /** 800 characters at a 512-token window; the embedder's InputTooLong split stays the backstop. */
 fun chunkChars(maxTokens: Int): Int = 800 * maxTokens / 512
@@ -31,7 +49,17 @@ fun chunkChars(maxTokens: Int): Int = 800 * maxTokens / 512
 fun stripXml(xml: String): String = xml
     .replace("</w:p>", "\n").replace("</a:p>", "\n").replace("</si>", "\n")
     .replace("</text:p>", "\n").replace("</text:h>", "\n")
+    .replace(XML_SPACE) { if (it.groupValues[1].let { n -> n.endsWith("tab") || n == "text:s" }) " " else "\n" }
     .replace(TAG, "")
+    .replace(NUM_ENTITY) {
+        val d = it.groupValues[1]
+        val cp = if (d[0] == 'x') d.drop(1).toIntOrNull(16) else d.toIntOrNull()
+        when {
+            cp == null || cp == 0 || cp > 0x10FFFF || cp in 0xD800..0xDFFF -> ""
+            cp <= 0xFFFF -> cp.toChar().toString()
+            else -> (cp - 0x10000).let { c -> "${(0xD800 + (c shr 10)).toChar()}${(0xDC00 + (c and 0x3FF)).toChar()}" }
+        }
+    }
     .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'")
     .replace("&amp;", "&")
     .replace(BLANKS, " ")
@@ -39,8 +67,41 @@ fun stripXml(xml: String): String = xml
 fun stripHtml(html: String): String = stripXml(
     html.replace(SCRIPT_STYLE, "")
         .replace(HTML_BREAK, "\n")
-        .replace("&nbsp;", " ").replace("&#39;", "'"),
+        .let { h -> HTML_ENTITIES.entries.fold(h) { acc, (k, v) -> acc.replace(k, v) } },
 )
+
+private val XLSX_PART = Regex("xl/worksheets/sheet(\\d+)\\.xml")
+private val SI = Regex("<si\\b[\\s\\S]*?</si>")
+private val ROW = Regex("<row\\b[^>]*>([\\s\\S]*?)</row>")
+private val CELL = Regex("<c\\b([^>]*?)(?:/>|>([\\s\\S]*?)</c>)")
+private val CELL_TYPE = Regex("\\bt=\"(\\w+)\"")
+private val CELL_V = Regex("<v>([\\s\\S]*?)</v>")
+private val CELL_IS = Regex("<is>([\\s\\S]*?)</is>")
+
+/** Order of the xlsx entries [xlsxText] reads: the shared strings first, then the sheets by number; null for the rest. */
+fun xlsxOrder(entryName: String): Int? =
+    if (entryName == "xl/sharedStrings.xml") 0 else XLSX_PART.matchEntire(entryName)?.groupValues?.get(1)?.toInt()?.plus(1)
+
+/**
+ * The text of an xlsx read as the raw XML of sharedStrings.xml followed by the sheets (see [xlsxOrder]): one line
+ * per row, cells tab-separated; shared strings resolved, inline strings and numbers kept. With no sheet, the shared strings alone.
+ */
+fun xlsxText(raw: String): String {
+    val at = raw.indexOf("<worksheet")
+    if (at < 0) return stripXml(raw)
+    val shared = SI.findAll(raw.substring(0, at)).map { stripXml(it.value).trim() }.toList()
+    return ROW.findAll(raw.substring(at)).mapNotNull { row ->
+        CELL.findAll(row.groupValues[1]).mapNotNull { cell ->
+            val body = cell.groupValues[2]
+            val v = CELL_V.find(body)?.groupValues?.get(1)?.let { stripXml(it).trim() }
+            when (CELL_TYPE.find(cell.groupValues[1])?.groupValues?.get(1)) {
+                "s" -> v?.toIntOrNull()?.let { shared.getOrNull(it) }
+                "inlineStr" -> CELL_IS.find(body)?.groupValues?.get(1)?.let { stripXml(it).trim() }
+                else -> v
+            }?.takeIf { it.isNotEmpty() }
+        }.joinToString("\t").ifEmpty { null }
+    }.joinToString("\n")
+}
 
 /** pptx slide number for ordering, null for every other entry. */
 fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
@@ -120,7 +181,7 @@ fun stripRtf(rtf: String): String {
                         fallback = uc
                     }
                     word == "uc" && param != null -> uc = param
-                    word == "bin" && param != null -> i += param
+                    word == "bin" && param != null -> if (param > 0) i = minOf(i + param, rtf.length) // a negative count would rewind the cursor for ever
                     word in RTF_SKIPPED -> skip = true
                     else -> {
                         fallback = 0
@@ -179,10 +240,9 @@ fun docFormat(name: String, mime: String): DocFormat? {
     }
 }
 
-/** Zip entry holding a format's text, for the formats read from a single entry. */
+/** Zip entry holding a format's text, for the formats read from a single entry (xlsx reads several: [xlsxOrder]). */
 val DocFormat.textEntry: String? get() = when (this) {
     DocFormat.DOCX -> "word/document.xml"
-    DocFormat.XLSX -> "xl/sharedStrings.xml"
     DocFormat.ODF -> "content.xml"
     else -> null
 }

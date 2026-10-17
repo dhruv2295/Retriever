@@ -2,7 +2,7 @@ package app.retriever
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -61,6 +61,9 @@ class SetupStatusShotsTest {
         shot("setup_files_denied_light") { SetupContent(SetupUi(started = true, build = build), filesDenied = true) }
     @Test fun setupFellBack() =
         setup("setup_fellback_dark", going.copy(fellBack = true, model = ModelState.Downloading(0.1f, false)), dark = true)
+
+    @Test fun setupFallbackOffer() =
+        setup("setup_fallback_offer_light", going.copy(fellBack = true, downloadStopped = true))
 
     private val choosing = SetupUi(started = true, build = build)
     @Test fun setupAccessChoice() = setup("setup_access_choice_light", choosing)

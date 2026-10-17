@@ -2,11 +2,11 @@ import CryptoKit
 import Foundation
 import Network
 import Observation
-import RetrieverCore
+@preconcurrency import RetrieverCore
 
 /// Downloads the model in a background URLSession, so it keeps going after the app leaves the screen, then checks
 /// its SHA-256 and writes "<fileName>.sha256": the marker RetrieverIosKt.modelReady reads.
-@Observable
+@Observable @MainActor
 final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     enum State: Equatable {
         case idle
@@ -22,7 +22,6 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     static let sessionId = "app.retriever.model"
     private static let headroom: Int64 = 300 * 1024 * 1024
 
-    /// Main thread only.
     private(set) var state: State = .idle
     /// 0...1 while downloading.
     private(set) var progress: Double = 0
@@ -33,7 +32,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         didSet { _ = session }
     }
 
-    let dir: URL
+    nonisolated let dir: URL
     @ObservationIgnored private lazy var session: URLSession = {
         let config = URLSessionConfiguration.background(withIdentifier: Self.sessionId)
         config.sessionSendsLaunchEvents = true
@@ -42,9 +41,10 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     }()
 
     /// Read when a Wi-Fi-only download starts, to say it is waiting rather than stuck.
-    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+    @ObservationIgnored nonisolated private let pathMonitor = NWPathMonitor()
 
-    init(dir: URL) {
+    /// Nonisolated, so AppServices can build it on any thread; restore() runs on main.
+    nonisolated init(dir: URL) {
         self.dir = dir
         super.init()
         pathMonitor.start(queue: DispatchQueue(label: "app.retriever.network"))
@@ -71,7 +71,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         if size.map(Int64.init) == build.sizeBytes {
             set(.verifying)
             DispatchQueue.global(qos: .utility).async {
-                if self.verifyInPlace(build) { self.set(.ready) } else { self.download(build, allowCellular: allowCellular) }
+                if self.verifyInPlace(build) { self.set(.ready) } else { DispatchQueue.main.async { self.download(build, allowCellular: allowCellular) } }
             }
             return
         }
@@ -87,6 +87,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         guard let url = URL(string: build.url) else { return set(.failed("The download link is not valid.")) }
         try? FileManager.default.removeItem(at: marker(build.fileName))
         let description = [build.fileName, build.sha256, allowCellular ? "1" : "0"].joined(separator: "|")
+        let session = session
         session.getAllTasks { tasks in
             // Already going, from this launch or an earlier one: adopt it rather than download it twice.
             let live = tasks.first { ($0.state == .running || $0.state == .suspended) && $0.taskDescription == description }
@@ -104,7 +105,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
                 request.allowsExpensiveNetworkAccess = allowCellular
                 request.allowsConstrainedNetworkAccess = allowCellular
                 fresh = resume == nil
-                task = resume.map { self.session.downloadTask(withResumeData: $0) } ?? self.session.downloadTask(with: request)
+                task = resume.map { session.downloadTask(withResumeData: $0) } ?? session.downloadTask(with: request)
                 task.taskDescription = description
                 task.countOfBytesClientExpectsToReceive = build.sizeBytes
             }
@@ -118,7 +119,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     }
 
     /// A Wi-Fi-only download on mobile data (or offline): it won't move until Wi-Fi is back.
-    private func waiting(_ task: URLSessionTask) -> Bool {
+    nonisolated private func waiting(_ task: URLSessionTask) -> Bool {
         guard task.taskDescription?.hasSuffix("|0") == true else { return false }
         let path = pathMonitor.currentPath
         return path.status != .satisfied || path.isExpensive || path.isConstrained
@@ -131,7 +132,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
 
     /// For a file already in place (copied in, or an earlier run that stopped before checking). Slow: call off main.
     @discardableResult
-    func verifyInPlace(_ build: ModelBuild) -> Bool {
+    nonisolated func verifyInPlace(_ build: ModelBuild) -> Bool {
         if RetrieverIosKt.modelReady(modelDir: dir.path, build: build) { return true }
         let file = dir.appendingPathComponent(build.fileName)
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
@@ -148,7 +149,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
 
     // MARK: URLSessionDownloadDelegate
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : downloadTask.countOfBytesClientExpectsToReceive
         guard total > 0 else { return }
         let fraction = min(1, Double(totalBytesWritten) / Double(total))
@@ -158,7 +159,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         }
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let parts = (downloadTask.taskDescription ?? "").split(separator: "|").map(String.init)
         guard parts.count >= 2 else { return }
         if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
@@ -180,7 +181,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error = error as? URLError, error.code != .cancelled else { return }
         let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
         // Kept so the next start() carries on from here instead of fetching all of it again.
@@ -191,7 +192,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
             (kept ? "It picks up where it left off when you try again." : "Try again to start it over.")))
     }
 
-    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         DispatchQueue.main.async {
             self.backgroundCompletion?()
             self.backgroundCompletion = nil
@@ -200,16 +201,16 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
 
     // MARK: Helpers
 
-    private func marker(_ fileName: String) -> URL {
+    nonisolated private func marker(_ fileName: String) -> URL {
         dir.appendingPathComponent(fileName + ".sha256")
     }
 
-    private func resumeFile(_ fileName: String, _ allowCellular: Bool) -> URL {
+    nonisolated private func resumeFile(_ fileName: String, _ allowCellular: Bool) -> URL {
         dir.appendingPathComponent(fileName + (allowCellular ? ".resume-any" : ".resume-wifi"))
     }
 
     /// Streams the file through SHA-256; writes the marker on a match and deletes the file otherwise.
-    private func verify(_ file: URL, fileName: String, sha256: String) -> Bool {
+    nonisolated private func verify(_ file: URL, fileName: String, sha256: String) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
         var hasher = SHA256()
         while true {
@@ -229,7 +230,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         return (try? Data(hex.utf8).write(to: marker(fileName), options: .atomic)) != nil
     }
 
-    private func set(_ state: State) {
+    nonisolated private func set(_ state: State) {
         DispatchQueue.main.async { self.state = state }
     }
 }

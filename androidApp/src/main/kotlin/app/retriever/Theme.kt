@@ -12,6 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.retriever.core.Retriever
+import org.koin.compose.koinInject
 
 // Android 12+ follows the wallpaper. Android 11 (minSdk 30) gets these, picked from the icon: golden amber
 // on cream, and the same amber on warm charcoal. Contrast (WCAG): light onPrimary/primary 6.9, onSurface/surface
@@ -60,13 +62,10 @@ private val WarmDark = darkColorScheme(
     outlineVariant = Color(0xFF4C4639),
 )
 
-/** The Wallpaper colours switch in Settings; on until the app graph says otherwise (tests and previews have none). */
+/** The Wallpaper colours switch in Settings. Shots pass `dynamic` themselves, since they run without Koin. */
 @Composable
-private fun wallpaperColorsOn(): Boolean {
-    val graph = (LocalContext.current.applicationContext as? RetrieverApp)?.graph
-    val prefs = graph?.retriever?.prefs?.collectAsStateWithLifecycle()
-    return prefs?.value?.dynamicColor ?: true
-}
+private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean =
+    retriever.prefs.collectAsStateWithLifecycle().value.dynamicColor
 
 @Composable
 fun RetrieverTheme(

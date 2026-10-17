@@ -7,15 +7,23 @@ import app.cash.sqldelight.coroutines.mapToOne
 import app.cash.sqldelight.db.SqlDriver
 import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.serialization.json.Json
 
 enum class FileState { PENDING, INDEXED, SKIPPED }
 
-class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }) {
+/** [userState]: where settings and stars outlive this database; see [UserState]. */
+class Store(
+    driver: SqlDriver,
+    internal val log: (String, Throwable?) -> Unit = { _, _ -> },
+    private val dispatchers: CoreDispatchers = CoreDispatchers(),
+    private val userState: UserStateFile? = null,
+) {
     private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
+
+    /** Runs once, on the first read of settings or the first save, so a save never overwrites what is still to come back. */
+    private val restored = lazy { restoreUserState() }
 
     /** [partial]: the extractor stopped at a cap, so only the first part of the file is searchable. */
     data class StoredFile(
@@ -45,16 +53,25 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
     fun upsertFiles(files: List<SourceFile>) {
         q.transaction {
+            var backfilled = false
             for (f in files) {
                 q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
                 val changed = q.changes().executeAsOne() != 0L
                 // Fills rows synced before taken_at existed, and leaves state alone so nothing is read again.
-                f.takenAt?.let { q.setTakenAt(it, f.uri) }
+                f.takenAt?.let {
+                    q.setTakenAt(it, f.uri)
+                    if (q.changes().executeAsOne() != 0L) backfilled = true
+                }
                 if (!changed) continue
                 val id = q.fileIdByUri(f.uri).executeAsOne()
+                // The old text must not outlive the change, even if the re-read fails; the file is found by name till then.
+                q.chunkIdsForFile(id).executeAsList().forEach { q.deleteFts(it) }
+                q.deleteChunksForFile(id)
                 q.deleteFileFts(id)
                 q.insertFileFts(id, f.name, f.folder)
             }
+            // Loaded vectors keep their capture day; the bump tells a warm SearchEngine to load them again.
+            if (backfilled) q.bumpMeta(TAKEN_AT_KEY)
         }
     }
 
@@ -70,14 +87,29 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         }
     }
 
-    fun pending(limit: Int): List<StoredFile> =
-        q.pendingFiles(limit.toLong(), ::storedFile).executeAsList()
+    /** [sample]: only the newest [sample] files of each kind are work; the rest stay pending, found by name. */
+    fun pending(limit: Int, sample: Int? = null): List<StoredFile> =
+        if (sample == null) {
+            q.pendingFiles(limit.toLong(), ::storedFile).executeAsList()
+        } else {
+            Kind.entries.flatMap { q.pendingNewestOfKind(it.name, sample.toLong(), ::storedFile).executeAsList() }.take(limit)
+        }
 
     fun skipped(limit: Int): List<StoredFile> =
         q.skippedFiles(limit.toLong(), ::storedFile).executeAsList()
 
     fun requeue(kinds: Set<Kind>) {
         q.requeue(kinds.map { it.name })
+    }
+
+    /** Drops what was read inside files of [kinds] and keeps the files: what extraction gives a kind that is off. */
+    fun deleteChunksOfKinds(kinds: Set<Kind>) {
+        val k = kinds.map { it.name }
+        q.transaction {
+            q.deleteFtsOfKinds(k)
+            q.deleteChunksOfKinds(k)
+            q.clearPartialOfKinds(k)
+        }
     }
 
     /** Gives every skipped file three fresh attempts, e.g. after a fix for whatever made them fail. */
@@ -239,13 +271,16 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
     /** How many vectors were ever deleted; grows monotonically (kept by a trigger). */
     fun vectorsDeleted(): Long = q.vectorsDeleted().executeAsOneOrNull()?.toLongOrNull() ?: 0L
 
+    /** How many syncs backfilled a capture day; grows monotonically. */
+    fun takenAtBackfills(): Long = q.getMeta(TAKEN_AT_KEY).executeAsOneOrNull()?.toLongOrNull() ?: 0L
+
     /**
      * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
      * modified; null: any time), with snippets cut for those only.
      */
     fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, starredOnly: Boolean = false): List<KeywordHit> {
         val match = matchExpression(query) ?: return emptyList()
-        return ftsQuery(query) {
+        return ftsQuery {
             // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
             // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
             val scored: (Long, ByteArray?) -> Pair<Long, Double> = { id, info -> id to (info?.let(::bm25) ?: 0.0) }
@@ -267,7 +302,7 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
      */
     fun fileKeywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, keep: (Long) -> Boolean = { true }): List<Long> {
         val match = matchExpression(query) ?: return emptyList()
-        return ftsQuery(query) {
+        return ftsQuery {
             q.searchFileFts(match).executeAsList()
                 .filter { (kinds == null || Kind.valueOf(it.kind) in kinds) && (dates == null || it.at in dates) && keep(it.fileId) }
                 .sortedByDescending { it.info?.let(::bm25) ?: 0.0 }
@@ -276,11 +311,11 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         }
     }
 
-    private inline fun <T> ftsQuery(query: String, run: () -> List<T>): List<T> = try {
+    private inline fun <T> ftsQuery(run: () -> List<T>): List<T> = try {
         run()
     } catch (e: Exception) {
         // Tokens can't carry FTS operators, so a malformed MATCH is rare and harmless; anything else is a real failure.
-        if (e.message?.contains("MATCH") != true) log("keyword search failed for \"$query\"", e)
+        if (e.message?.contains("MATCH") != true) log("keyword search failed", e)
         emptyList()
     }
 
@@ -316,11 +351,16 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 
+    /** Pending files per kind, read once on the caller's thread (unlike [counts], which emits on its own dispatcher). */
+    fun pendingByKind(): Map<Kind, Long> =
+        q.countByKindState { kind, state, count -> Triple(Kind.valueOf(kind), state, count) }.executeAsList()
+            .filter { it.second == FileState.PENDING }.associate { it.first to it.third }
+
     /** Re-emits whenever files or chunks change; one scan of files per change. */
     fun counts(): Flow<Counts> = combine(
-        q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.asFlow().mapToList(Dispatchers.Default),
-        q.tailChunkCount().asFlow().mapToOne(Dispatchers.Default),
-        q.tailFileCount().asFlow().mapToOne(Dispatchers.Default),
+        q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.asFlow().mapToList(dispatchers.default),
+        q.tailChunkCount().asFlow().mapToOne(dispatchers.default),
+        q.tailFileCount().asFlow().mapToOne(dispatchers.default),
     ) { rows, tail, tailFiles ->
         val byKindState = rows.toMap()
         Counts(
@@ -346,6 +386,17 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
     fun setStarred(uri: String, starred: Boolean, at: Long) {
         if (starred) q.star(at, uri) else q.unstar(uri)
+        saveUserState()
+    }
+
+    /** Moves stars of files that are gone to the same file under a new uri; see Index.sq. */
+    internal fun relinkStars() {
+        // Counts every orphaned star, moved or not: a spare save at worst.
+        val orphans = q.transactionWithResult {
+            q.relinkStars()
+            q.changes().executeAsOne()
+        }
+        if (orphans > 0) saveUserState()
     }
 
     /** Every starred URI of a file still in the index, as a HashSet so a row's star is one lookup. */
@@ -374,10 +425,43 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
         q.clearRecentQueries()
     }
 
-    fun meta(key: String): String? = q.getMeta(key).executeAsOneOrNull()
+    fun meta(key: String): String? {
+        restored.value
+        return q.getMeta(key).executeAsOneOrNull()
+    }
 
     fun setMeta(key: String, value: String) {
         q.setMeta(key, value)
+        if (key == PREFS_KEY) saveUserState()
+    }
+
+    /** Into a database with no settings yet (new, or deleted and made again); never through [meta] or [setMeta]. */
+    private fun restoreUserState() {
+        val file = userState ?: return
+        if (q.getMeta(PREFS_KEY).executeAsOneOrNull() != null) return
+        val state = try {
+            file.read()?.let { JSON.decodeFromString<UserState>(it) } ?: return
+        } catch (e: Exception) {
+            // The class only: a parse error quotes the file, and the file holds file names.
+            log("user state is unreadable (${e::class.simpleName}); starting without it", null)
+            return
+        }
+        q.transaction {
+            state.prefs?.let { q.setMeta(PREFS_KEY, JSON.encodeToString(it)) }
+            state.starred.forEach { q.restoreStar(it.uri, it.starredAt, it.name, it.size, it.modifiedAt) }
+        }
+    }
+
+    private fun saveUserState() {
+        val file = userState ?: return
+        restored.value
+        val prefs = q.getMeta(PREFS_KEY).executeAsOneOrNull()?.let { runCatching { JSON.decodeFromString<Prefs>(it) }.getOrNull() }
+        val starred = q.allStars { uri, at, name, size, modifiedAt -> StarredRow(uri, at, name, size, modifiedAt) }.executeAsList()
+        try {
+            file.write(JSON.encodeToString(UserState(prefs, starred)))
+        } catch (e: Exception) {
+            log("user state not saved (${e::class.simpleName})", null)
+        }
     }
 
     /** Refills the keyword tables once after schema 3's upgrade recreated them empty; true if it ran. */
@@ -392,6 +476,10 @@ class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = 
 
         private const val SIGNATURE_KEY = "model_signature"
         private const val PROFILE_KEY = "profile"
+        private const val TAKEN_AT_KEY = "taken_at_backfills"
+
+        /** The key Prefs.kt keeps settings under. */
+        private const val PREFS_KEY = "prefs"
         private val JSON = Json { ignoreUnknownKeys = true }
         private val NON_WORD = Regex("[^\\p{L}\\p{M}\\p{N}]+")
 

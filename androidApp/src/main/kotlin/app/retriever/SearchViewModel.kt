@@ -1,9 +1,11 @@
 package app.retriever
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.retriever.core.FileState
@@ -15,6 +17,9 @@ import app.retriever.core.ReadExtent
 import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
+import app.retriever.core.android.ImageBytes
+import app.retriever.data.AccessService
+import app.retriever.data.IndexService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -87,6 +92,10 @@ data class SearchUi(
     val nameOnly: Boolean = false,
     /** Counts the searches handed in from outside, so the screen opens each one once. */
     val launched: Int = 0,
+    /** Something the person asked for failed; the screen says so once and calls [SearchViewModel.errorShown]. */
+    val error: String? = null,
+    /** On a charger. Read by the screen from the battery broadcast: a ViewModel holds no Context. */
+    val charging: Boolean = false,
 )
 
 private const val NAMES_MS = 20L
@@ -99,20 +108,17 @@ private const val TYPING_MS = 1_500L
 private const val WORDS_ONLY_WAIT_MS = 2_000L
 private const val WORDS_ONLY_RETRIES = 5
 
-/**
- * [jpegOf] turns a content uri into a JPEG at most 1024 px on its longest side, or null. [onRecent] gets the latest
- * searches after they change. [setBusy] and [warm] default to the retriever's own.
- */
+/** [launchQuery] hands in searches from shortcuts; [recentShortcuts] gets the latest searches after they change. */
 @OptIn(FlowPreview::class)
 class SearchViewModel(
     private val retriever: Retriever,
-    private val hasAccess: () -> Boolean = { true },
-    private val onRecent: (List<String>) -> Unit = {},
-    private val setBusy: (Boolean) -> Unit = retriever::setUiBusy,
-    private val warm: suspend () -> Unit = retriever::warmSearch,
-    private val jpegOf: (String) -> ByteArray?,
+    private val access: AccessService,
+    private val indexer: IndexService,
+    private val launchQuery: LaunchQuery,
+    private val recentShortcuts: RecentShortcuts,
+    private val photos: PhotoReader,
 ) : ViewModel() {
-    private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly, hasAccess = hasAccess()))
+    private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly, hasAccess = access.state.value.ready))
     val ui: StateFlow<SearchUi> = _ui.asStateFlow()
     val indexState: StateFlow<IndexState> = retriever.state
     private val retries = MutableStateFlow(0)
@@ -132,11 +138,13 @@ class SearchViewModel(
         viewModelScope.launch { keys(NAMES_MS).collectLatest { search(it, namesOnly = true) } }
         viewModelScope.launch { keys(FULL_MS).collectLatest { search(it, namesOnly = false) } }
         viewModelScope.launch {
-            LaunchQuery.pending.filterNotNull().collect { q ->
-                LaunchQuery.consume()
+            launchQuery.pending.filterNotNull().collect { q ->
+                launchQuery.consume()
+                recentShortcuts.used(q)
                 _ui.update { it.copy(query = q, chip = null, similar = null, onlyStarred = false, literal = false, launched = it.launched + 1) }
             }
         }
+        viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
         viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
         viewModelScope.launch { retriever.modelMissing.collect { m -> _ui.update { it.copy(modelMissing = m) } } }
         viewModelScope.launch {
@@ -157,11 +165,11 @@ class SearchViewModel(
         // At most one reload every 2 s while files are being counted, and always one after the last change.
         viewModelScope.launch {
             retriever.counts().conflate().collect {
-                quietly { retriever.home().let { h -> _ui.update { it.copy(home = h) } } }
+                launchCatching { retriever.home().let { h -> _ui.update { it.copy(home = h) } } }
                 delay(2_000)
             }
         }
-        viewModelScope.launch { loadRecent() }
+        launchCatching { loadRecent() }
     }
 
     private data class Key(val q: String, val chip: Kind?, val similar: Similar?, val retry: Int, val starred: Boolean, val literal: Boolean) {
@@ -218,8 +226,8 @@ class SearchViewModel(
                 )
             }
             if (namesOnly) return
-            // After the rows are up; the read notes join them a moment later.
-            quietly {
+            // After the rows are up; the read notes join them a moment later. A newer key leaves them unshown.
+            launchCatching {
                 val extents = retriever.readExtents(r.hits.map { it.fileId })
                 if (k == keyNow()) _ui.update { it.copy(extents = extents) }
             }
@@ -265,11 +273,11 @@ class SearchViewModel(
     /** Indexing stays out of the way for a moment after each keystroke; a search running holds it off in core. */
     private fun typed() {
         typing?.cancel()
-        setBusy(true)
+        retriever.setUiBusy(true)
         typing = viewModelScope.launch {
             delay(TYPING_MS)
             typing = null
-            setBusy(scrolling)
+            retriever.setUiBusy(scrolling)
         }
     }
 
@@ -280,16 +288,16 @@ class SearchViewModel(
     /** The X on the understood filters: search the words as typed. */
     fun searchWordsAsTyped() = _ui.update { it.copy(literal = true) }
 
-    fun setStarred(file: SourceFile, on: Boolean) = viewModelScope.launch { quietly { retriever.setStarred(file.uri, on) } }
+    fun setStarred(file: SourceFile, on: Boolean) = attempt { retriever.setStarred(file.uri, on) }
 
     /** The search bar took focus: the first touch is the time to ready search. Focus alone, e.g. browsing results, isn't busy. */
     fun setFocused(on: Boolean) {
-        if (on) viewModelScope.launch { quietly { warm() } }
+        if (on) launchCatching { retriever.warmSearch() }
     }
 
     fun setScrolling(on: Boolean) {
         scrolling = on
-        setBusy(scrolling || typing != null)
+        retriever.setUiBusy(scrolling || typing != null)
     }
 
     fun retry() = retries.update { it + 1 }
@@ -306,51 +314,62 @@ class SearchViewModel(
 
     private fun record(q: String) {
         if (q.isBlank()) return
-        viewModelScope.launch {
-            quietly { retriever.recordQuery(q) }
+        attempt {
+            retriever.recordQuery(q)
             loadRecent()
-            if (retriever.prefs.value.rememberSearches) quietly { onRecent(_ui.value.recent) }
+            if (retriever.prefs.value.rememberSearches) recentShortcuts.push(_ui.value.recent)
         }
     }
 
-    fun removeRecent(q: String) = viewModelScope.launch {
-        quietly { retriever.removeRecentQuery(q) }
+    fun removeRecent(q: String) = attempt {
+        retriever.removeRecentQuery(q)
         loadRecent()
-        quietly { onRecent(_ui.value.recent) }
+        recentShortcuts.push(_ui.value.recent)
     }
 
-    fun clearRecent() = viewModelScope.launch {
-        quietly { retriever.clearRecentQueries() }
+    fun clearRecent() = attempt {
+        retriever.clearRecentQueries()
         loadRecent()
-        quietly { onRecent(_ui.value.recent) }
+        recentShortcuts.push(_ui.value.recent)
     }
 
-    private suspend fun loadRecent() = quietly { _ui.update { it.copy(recent = retriever.recentQueries()) } }
+    private suspend fun loadRecent() = _ui.update { it.copy(recent = retriever.recentQueries()) }
 
     fun findSimilar(file: SourceFile) = showSimilar(file.uri, file.name)
 
     /** A photo from the picker. */
     fun searchPhoto(uri: String) = showSimilar(uri, "your photo")
 
-    private fun showSimilar(uri: String, label: String) = viewModelScope.launch {
-        val jpeg = withContext(Dispatchers.IO) { runCatching { jpegOf(uri) }.getOrNull() } ?: return@launch
-        // Decoded once here, not in composition: the chip shows it as its avatar.
-        val thumb = withContext(Dispatchers.Default) { runCatching { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }.getOrNull() }
-        _ui.update { it.copy(similar = Similar(label, jpeg, thumb), query = "") }
+    private fun showSimilar(uri: String, label: String) = attempt {
+        val similar = photos.read(uri, label) ?: return@attempt
+        _ui.update { it.copy(similar = similar, query = "") }
     }
 
     fun clearSimilar() = _ui.update { it.copy(similar = null) }
 
     /** Access can be taken away in Settings while the app is away, so Home asks again on every return. */
-    fun checkAccess() = _ui.update { it.copy(hasAccess = hasAccess()) }
+    fun checkAccess() = access.refresh()
 
-    private suspend fun quietly(block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e("Retriever", "search screen", e)
-        }
+    /** "Index now": lifts a pause and starts a batch, which WorkManager runs past this screen. */
+    fun resume() = attempt { indexer.resume() }
+
+    fun errorShown() = _ui.update { it.copy(error = null) }
+
+    /** Something the person asked for: a failure is logged and said on screen. */
+    private fun attempt(block: suspend () -> Unit) = launchCatching(onError = {
+        Log.e("Retriever", "SearchViewModel", it)
+        _ui.update { s -> s.copy(error = "That didn't work. Try again.") }
+    }) { block() }
+}
+
+/** A picked photo or a file as the search by photo needs it, or null when it can't be read. */
+fun interface PhotoReader {
+    suspend fun read(uri: String, label: String): Similar?
+}
+
+/** A JPEG at most 1024 px on its longest side, decoded once here, not in composition: the chip shows it as its avatar. */
+fun photoReader(context: Context) = PhotoReader { uri, label ->
+    withContext(Dispatchers.IO) { ImageBytes.jpeg(context, uri.toUri(), 1024) }?.let { jpeg ->
+        Similar(label, jpeg, withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() })
     }
 }

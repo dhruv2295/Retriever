@@ -24,6 +24,8 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 import android.util.LruCache
 import android.util.Size
 import androidx.compose.ui.graphics.ImageBitmap
@@ -47,9 +49,13 @@ object Thumbnails {
     @OptIn(ExperimentalCoroutinesApi::class)
     private val renderDispatcher = Dispatchers.IO.limitedParallelism(4)
 
+    /** An edited file (new modifiedAt or size) is a new key, so neither a stale bitmap nor an old miss is reused. */
+    internal fun key(file: SourceFile, sizePx: Int, locator: String = "") =
+        "${file.uri}@${file.modifiedAt}:${file.size}@$sizePx#$locator"
+
     /** [locator] picks the PDF page or video moment that matched; "" shows the first page or the poster frame. */
     suspend fun load(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? {
-        val key = "${file.uri}@$sizePx#$locator"
+        val key = key(file, sizePx, locator)
         cache.get(key)?.let { return it.asImageBitmap() }
         if (misses.get(key) != null) return null
         val bitmap = withContext(renderDispatcher) { runCatching { render(context, file, sizePx, locator) }.getOrNull() }
@@ -58,7 +64,7 @@ object Thumbnails {
     }
 
     private fun render(context: Context, file: SourceFile, n: Int, locator: String): Bitmap? {
-        val uri = Uri.parse(file.uri)
+        val uri = file.uri.toUri()
         return when (file.kind) {
             Kind.PHOTO, Kind.SCREENSHOT ->
                 runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
@@ -82,10 +88,9 @@ object Thumbnails {
             PdfRenderer(fd).use { renderer ->
                 renderer.openPage(index.coerceIn(0, renderer.pageCount - 1)).use { page ->
                     val scale = n.toFloat() / maxOf(page.width, page.height)
-                    val bitmap = Bitmap.createBitmap(
+                    val bitmap = createBitmap(
                         (page.width * scale).toInt().coerceAtLeast(1),
                         (page.height * scale).toInt().coerceAtLeast(1),
-                        Bitmap.Config.ARGB_8888,
                     )
                     bitmap.eraseColor(Color.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)

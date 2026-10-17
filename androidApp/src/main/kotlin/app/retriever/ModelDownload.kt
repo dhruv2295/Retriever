@@ -18,7 +18,7 @@ package app.retriever
 
 import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import android.os.StatFs
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
@@ -69,12 +69,17 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
         check(hasSpaceFor(b)) { "Not enough free space for ${b.fileName}" }
         file(b).let { if (it.exists() && it.length() != b.sizeBytes) it.delete() }
         marker(b).delete()
-        val request = DownloadManager.Request(Uri.parse(b.url))
+        val request = DownloadManager.Request(b.url.toUri())
             .setTitle("Retriever search model")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, "models", b.fileName)
             .setAllowedOverMetered(prefs.allowMobileData)
         return downloads.enqueue(request)
+    }
+
+    /** Stops download [id] and drops its partial file. */
+    fun remove(id: Long) {
+        downloads.remove(id)
     }
 
     /** The download of [b] still queued or running, e.g. one a killed process started; null if there is none. */

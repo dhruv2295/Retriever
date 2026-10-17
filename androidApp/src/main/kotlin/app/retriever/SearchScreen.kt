@@ -18,11 +18,18 @@
 
 package app.retriever
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
+import android.os.BatteryManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +43,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -62,18 +70,6 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.ImageSearch
-import androidx.compose.material.icons.outlined.SearchOff
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -121,6 +117,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
@@ -131,6 +130,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
@@ -142,9 +143,9 @@ import app.retriever.core.Kind
 import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
-import app.retriever.core.android.ImageBytes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
 
 /** What the search screen can ask for; every default does nothing, so a test passes only what it checks. */
 class SearchActions(
@@ -159,7 +160,7 @@ class SearchActions(
     val onRetry: () -> Unit = {},
     val onOpenHit: (SearchEngine.Hit) -> Unit = {},
     val onOpenFile: (SourceFile) -> Unit = {},
-    val onNavigate: (Any) -> Unit = {},
+    val onNavigate: (Route) -> Unit = {},
     val onScrolling: (Boolean) -> Unit = {},
     val onFocus: (Boolean) -> Unit = {},
     val onStarredOnly: (Boolean) -> Unit = {},
@@ -167,15 +168,13 @@ class SearchActions(
     val onWordsAsTyped: () -> Unit = {},
     val onResume: () -> Unit = {},
     val onAllowAccess: () -> Unit = {},
+    val onErrorShown: () -> Unit = {},
 )
 
 private val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
 @Composable
-fun SearchScreen(onNavigate: (Any) -> Unit) {
-    val vm = appViewModel { g ->
-        SearchViewModel(g.retriever, g.platformReady, onRecent = { pushRecent(g.app, it) }) { uri -> ImageBytes.jpeg(g.app, Uri.parse(uri), 1024) }
-    }
+fun SearchScreen(onNavigate: (Route) -> Unit, vm: SearchViewModel = koinViewModel()) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val index by vm.indexState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -207,22 +206,48 @@ fun SearchScreen(onNavigate: (Any) -> Unit) {
             onStarredOnly = vm::setOnlyStarred,
             onStar = { file, on -> vm.setStarred(file, on) },
             onWordsAsTyped = vm::searchWordsAsTyped,
-            // Not the screen's scope: the batch it starts must outlive this screen.
-            onResume = { (context.applicationContext as RetrieverApp).graph.scope.launch { IndexScheduler.resumeByUser(context) } },
+            onResume = vm::resume,
             onAllowAccess = { openAllFilesSettings(context) },
+            onErrorShown = vm::errorShown,
         )
     }
-    SearchContent(ui, index, actions)
+    SearchContent(ui.copy(charging = rememberCharging()), index, actions)
+}
+
+/** Whether the phone is on a charger, from the sticky battery broadcast, kept current while shown. */
+@Composable
+private fun rememberCharging(): Boolean {
+    val context = LocalContext.current
+    var charging by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: Intent) {
+                charging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+            }
+        }
+        // The sticky value arrives at once through the return value, and again to the receiver.
+        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { receiver.onReceive(context, it) }
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return charging
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
+fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions, modifier: Modifier = Modifier) {
     val bar = rememberSearchBarState()
     val text = rememberTextFieldState(ui.query)
     val scope = rememberCoroutineScope()
     val homeList = rememberLazyStaggeredGridState()
     val grid = rememberLazyGridState()
+    // One host state for Home and the full-screen bar: only the one in front is seen.
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(ui.error) {
+        ui.error?.let {
+            actions.onErrorShown()
+            snackbar.showSnackbar(it)
+        }
+    }
     val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
             actions.onPhoto(uri)
@@ -292,10 +317,10 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
             leadingIcon = {
                 if (bar.currentValue == SearchBarValue.Expanded) {
                     IconButton(onClick = { scope.launch { bar.animateToCollapsed() } }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 } else {
-                    Icon(Icons.Filled.Search, contentDescription = null)
+                    Icon(painterResource(R.drawable.ic_search), contentDescription = null)
                 }
             },
             trailingIcon = {
@@ -303,11 +328,11 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
                     IconButton(onClick = {
                         text.clearText()
                         actions.onClearSimilar()
-                    }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") }
+                    }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search") }
                 } else if (!ui.textOnly) {
                     // Matching a photo needs the model a words-only phone leaves out.
                     IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
-                        Icon(Icons.Outlined.ImageSearch, contentDescription = "Search with a photo")
+                        Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo")
                     }
                 }
             },
@@ -315,6 +340,8 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     }
 
     Scaffold(
+        modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             // Opaque, as a top app bar is: Home scrolls under it, and its rows must not show through the status bar.
             Box(
@@ -324,7 +351,7 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
             ) {
                 Row(Modifier.widthIn(max = 808.dp + 48.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     SearchBar(state = bar, inputField = inputField, modifier = Modifier.weight(1f))
-                    IconButton(onClick = { actions.onNavigate(SettingsRoute) }) { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
+                    IconButton(onClick = { actions.onNavigate(SettingsRoute) }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings") }
                 }
             }
         },
@@ -345,7 +372,7 @@ fun SearchContent(ui: SearchUi, index: IndexState, actions: SearchActions) {
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
             LightStatusBarIconsOnDark()
-            SearchPane(ui, actions, grid, useText = { text.setTextAndPlaceCursorAtEnd(it) })
+            SearchPane(ui, actions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
         }
     }
 }
@@ -378,9 +405,9 @@ internal fun SearchPane(
     ui: SearchUi,
     actions: SearchActions,
     grid: LazyGridState = rememberLazyGridState(),
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
     useText: (String) -> Unit = {},
 ) {
-    val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // Starring says so, with a way back.
     val star = remember(actions, snackbar, scope) { starWithUndo(actions.onStar, snackbar, scope) }
@@ -423,10 +450,10 @@ private fun Suggestions(recent: List<String>, examples: List<String>, actions: S
         items(recent, key = { it }) { q ->
             ListItem(
                 headlineContent = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingContent = { Icon(Icons.Outlined.History, contentDescription = null) },
+                leadingContent = { Icon(painterResource(R.drawable.ic_history), contentDescription = null) },
                 trailingContent = {
                     IconButton(onClick = { actions.onRemoveRecent(q) }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Remove $q from history")
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Remove $q from history")
                     }
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -458,7 +485,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boo
                     )
                 }
             },
-            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Stop searching by photo", Modifier.size(18.dp)) },
+            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = "Stop searching by photo", Modifier.size(18.dp)) },
             modifier = Modifier.padding(horizontal = edge),
         )
     }
@@ -486,7 +513,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boo
             selected = true,
             onClick = actions.onWordsAsTyped,
             label = { Text(it.understood.joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Search the words as typed instead", Modifier.size(18.dp)) },
+            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = "Search the words as typed instead", Modifier.size(18.dp)) },
             modifier = Modifier.padding(horizontal = edge),
         )
         if (ui.relaxed && ui.hits.orEmpty().isNotEmpty()) {
@@ -514,7 +541,7 @@ private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boo
     }
     when {
         ui.failed -> Message {
-            EmptyState("Search hit a snag", "Something went wrong. Try again.", Icons.Outlined.WarningAmber, "Try again" to actions.onRetry)
+            EmptyState("Search hit a snag", "Something went wrong. Try again.", R.drawable.ic_warning_amber, action = "Try again" to actions.onRetry)
         }
         hits == null -> Unit
         hits.isEmpty() && stale -> Unit
@@ -523,13 +550,13 @@ private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boo
             EmptyState(
                 "No matches in your $where",
                 if (ui.similar != null) "Nothing like this photo there." else "Nothing for “$q” there.",
-                Icons.Outlined.SearchOff,
-                "Search all files" to searchAll,
+                R.drawable.ic_search_off,
+                action = "Search all files" to searchAll,
                 art = R.drawable.illus_empty,
             )
         }
         hits.isEmpty() && ui.similar != null -> if (ui.vectorLane) {
-            Message { EmptyState("Nothing like this yet", "Try another photo.", Icons.Outlined.ImageSearch, art = R.drawable.illus_empty) }
+            Message { EmptyState("Nothing like this yet", "Try another photo.", R.drawable.ic_image_search, art = R.drawable.illus_empty) }
         }
         hits.isEmpty() -> Message {
             val words = q.split(Regex("\\s+"))
@@ -541,8 +568,8 @@ private fun Results(ui: SearchUi, actions: SearchActions, star: (SourceFile, Boo
                 } else {
                     "Try other or fewer words."
                 },
-                Icons.Outlined.SearchOff,
-                if (words.size >= 2) "Try fewer words" to { useText(words.dropLast(1).joinToString(" ")) } else null,
+                R.drawable.ic_search_off,
+                action = if (words.size >= 2) "Try fewer words" to { useText(words.dropLast(1).joinToString(" ")) } else null,
                 art = R.drawable.illus_empty,
             )
         }
@@ -577,29 +604,44 @@ private class HitActions(
 /** [content] is a result; a long press on it opens a menu to star it, and to find similar when [similar]. */
 @Composable
 private fun HitMenu(file: SourceFile, act: HitActions, similar: Boolean, modifier: Modifier = Modifier, content: @Composable (onLongClick: () -> Unit) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(modifier) {
-        content { open = true }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            val on = file.uri in act.starred
+    PressMenu(content, modifier) { dismiss ->
+        val on = file.uri in act.starred
+        DropdownMenuItem(
+            text = { Text(if (on) "Remove star" else "Star") },
+            leadingIcon = { Icon(painterResource(if (on) R.drawable.ic_star_border else R.drawable.ic_star), contentDescription = null) },
+            onClick = {
+                dismiss()
+                act.star(file, !on)
+            },
+        )
+        if (similar) {
             DropdownMenuItem(
-                text = { Text(if (on) "Remove star" else "Star") },
-                leadingIcon = { Icon(if (on) Icons.Outlined.StarBorder else Icons.Filled.Star, contentDescription = null) },
+                text = { Text("Find similar") },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_image_search), contentDescription = null) },
                 onClick = {
-                    open = false
-                    act.star(file, !on)
+                    dismiss()
+                    act.findSimilar?.invoke(file)
                 },
             )
-            if (similar) {
-                DropdownMenuItem(
-                    text = { Text("Find similar") },
-                    leadingIcon = { Icon(Icons.Outlined.ImageSearch, contentDescription = null) },
-                    onClick = {
-                        open = false
-                        act.findSimilar?.invoke(file)
-                    },
-                )
-            }
+        }
+    }
+}
+
+/** [content] with a long-press menu that opens where the finger went down, not at the row's left edge. */
+@Composable
+internal fun PressMenu(
+    content: @Composable (onLongClick: () -> Unit) -> Unit,
+    modifier: Modifier = Modifier,
+    menu: @Composable (dismiss: () -> Unit) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var press by remember { mutableStateOf(IntOffset.Zero) }
+    // The Initial pass only watches, so the row's own click and long press still get the touch.
+    Box(modifier.pointerInput(Unit) { awaitEachGesture { press = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).position.round() } }) {
+        content { open = true }
+        // A menu hangs from its anchor's bottom-left corner; an anchor of no size at the press puts that corner there.
+        Box(Modifier.offset { press }) {
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) { menu { open = false } }
         }
     }
 }
@@ -611,7 +653,7 @@ private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         label = { Text(label) },
         leadingIcon = if (selected) {
-            { Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }
+            { Icon(painterResource(R.drawable.ic_check), contentDescription = null, Modifier.size(18.dp)) }
         } else {
             null
         },
@@ -676,7 +718,8 @@ private fun LazyGridScope.sections(
     titled: Boolean,
     act: HitActions,
 ) {
-    val (lead, media, rest) = sectionsOf(hits)
+    val (recordings, others) = hits.partition { it.file.kind == Kind.AUDIO }
+    val (lead, media, rest) = sectionsOf(others)
     docSection(lead, extents, query, titled, act)
     mediaSection(media, extents, titled, act)
     if (lead.isEmpty()) {
@@ -684,6 +727,7 @@ private fun LazyGridScope.sections(
     } else {
         docSection(rest, extents, query, titled, act, "docs-more", "More documents")
     }
+    docSection(recordings, extents, query, titled, act, "recordings", "Recordings")
 }
 
 /** The documents ranked above the first picture, the pictures, and the documents after it. */

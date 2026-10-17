@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12+ (API 31). Same exclusions as backup_rules.xml, for cloud backup and device transfer. -->
+<!-- Android 12+ (API 31). Same exclusions as backup_rules.xml, for cloud backup and device transfer. Settings and stars
+     (files/user-state.json) go along; they name files, so cloud backup runs only when it is end-to-end encrypted. -->
 <data-extraction-rules>
-    <cloud-backup>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
         <exclude domain="database" path="retriever.db" />
         <exclude domain="database" path="retriever.db-wal" />
         <exclude domain="database" path="retriever.db-shm" />

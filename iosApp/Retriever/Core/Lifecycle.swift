@@ -2,16 +2,18 @@ import Photos
 import RetrieverCore
 import UIKit
 
-/// Feeds foreground, battery and photo-library changes to the Kotlin monitor and facade. Create on the main thread.
+/// Feeds foreground, battery and photo-library changes to the Kotlin monitor and facade. Lives as long as the app
+/// (AppServices holds it), so its observers are never removed.
+@MainActor
 final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
     private let monitor: IosDeviceMonitor
     private let retriever: Retriever
-    private var tokens: [NSObjectProtocol] = []
     private var observingPhotos = false
+    private var releaseTask = UIBackgroundTaskIdentifier.invalid
 
-    /// Called on the main thread after the photo library changes, so the reading loop can wake.
+    /// Called after the photo library changes, so the reading loop can wake.
     var onLibraryChange: (() -> Void)?
-    /// Called on the main thread: a read the person started carries on after they leave (IndexTask.continuedId).
+    /// A read the person started carries on after they leave (IndexTask.continuedId).
     var keepsReading: () -> Bool = { false }
 
     init(monitor: IosDeviceMonitor, retriever: Retriever) {
@@ -19,10 +21,6 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         self.retriever = retriever
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
-        let center = NotificationCenter.default
-        let observe: (Notification.Name, @escaping () -> Void) -> Void = { name, action in
-            self.tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in action() })
-        }
         // Inactive (Control Center, a banner, the app switcher) is still in front: reading and the GPU carry on.
         observe(UIApplication.willEnterForegroundNotification) { [weak self] in self?.enterForeground() }
         observe(UIApplication.didBecomeActiveNotification) { [weak self] in self?.enterForeground() }
@@ -30,6 +28,8 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         observe(IndexTask.ended) { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.retriever.uiVisible = false }
         }
+        // The model reopens on the next batch; under pressure the system would sooner kill the app than wait.
+        observe(UIApplication.didReceiveMemoryWarningNotification) { [weak self] in self?.release() }
         observe(UIDevice.batteryStateDidChangeNotification) { [weak self] in self?.readBattery() }
         observe(UIDevice.batteryLevelDidChangeNotification) { [weak self] in self?.readBattery() }
         if UIApplication.shared.applicationState != .background { enterForeground() }
@@ -37,9 +37,10 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         observePhotos()
     }
 
-    deinit {
-        tokens.forEach(NotificationCenter.default.removeObserver)
-        if observingPhotos { PHPhotoLibrary.shared().unregisterChangeObserver(self) }
+    private func observe(_ name: Notification.Name, _ action: @escaping @MainActor () -> Void) {
+        _ = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated(action)
+        }
     }
 
     /// Registers once access is granted; before that, touching the library could ask for access.
@@ -51,9 +52,11 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     /// Off the main thread. The running batch syncs again when it ends; an idle loop wakes.
-    func photoLibraryDidChange(_ changeInstance: PHChange) {
-        retriever.notifyChanged()
-        DispatchQueue.main.async { self.onLibraryChange?() }
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
+        DispatchQueue.main.async {
+            self.retriever.notifyChanged()
+            self.onLibraryChange?()
+        }
     }
 
     private func enterForeground() {
@@ -76,14 +79,17 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
     /// Frees the model's memory once the app is in the background. Under a background task, so the embed still
     /// in flight finishes before the model closes.
     private func release() {
-        var task = UIBackgroundTaskIdentifier.invalid
-        let end = {
-            guard task != .invalid else { return }
-            UIApplication.shared.endBackgroundTask(task)
-            task = .invalid
+        // ponytail: one task covers overlapping releases; the first to finish ends it.
+        if releaseTask == .invalid {
+            releaseTask = UIApplication.shared.beginBackgroundTask(withName: "release-model") { [weak self] in self?.endRelease() }
         }
-        task = UIApplication.shared.beginBackgroundTask(withName: "release-model") { end() }
-        retriever.release { _ in DispatchQueue.main.async { end() } }
+        retriever.release { @Sendable [weak self] _ in DispatchQueue.main.async { self?.endRelease() } }
+    }
+
+    private func endRelease() {
+        guard releaseTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(releaseTask)
+        releaseTask = .invalid
     }
 
     private func readBattery() {

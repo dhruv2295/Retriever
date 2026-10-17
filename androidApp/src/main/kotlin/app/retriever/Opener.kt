@@ -1,15 +1,16 @@
 package app.retriever
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import android.widget.Toast
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 
 object Opener {
-    fun open(context: Context, file: SourceFile, locator: String = "", navigate: (Any) -> Unit) {
+    fun open(context: Context, file: SourceFile, locator: String = "", navigate: (Route) -> Unit) {
         routeFor(file, locator)?.let { navigate(it); return }
         view(context, file.uri, file.mime)
     }
@@ -17,8 +18,10 @@ object Opener {
     /** Hands the file to whichever app opens it. */
     fun view(context: Context, uri: String, mime: String) {
         val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(Uri.parse(uri), mime)
+            .setDataAndType(uri.toUri(), mime)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // FileOpener holds the Application context, which can only start an activity in a task of its own.
+        if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
@@ -27,7 +30,7 @@ object Opener {
     }
 
     /** The in-app screen that shows the match itself, or null when another app should open the file. */
-    fun routeFor(file: SourceFile, locator: String): Any? {
+    fun routeFor(file: SourceFile, locator: String): Route? {
         val page = locatorToPage(locator)
         val ms = locatorToMs(locator)
         return when {

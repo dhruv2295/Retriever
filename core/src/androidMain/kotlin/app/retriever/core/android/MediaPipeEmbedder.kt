@@ -31,6 +31,7 @@ import app.retriever.core.ModelVariant
 import app.retriever.core.Part
 import app.retriever.core.Prefix
 import app.retriever.core.Signature
+import app.retriever.core.tracedAsync
 import com.google.ai.edge.litertlm.ModelInfo
 import com.google.mediapipe.tasks.components.containers.AudioData
 import com.google.mediapipe.tasks.core.BaseOptions
@@ -66,11 +67,33 @@ class MediaPipeEmbedderFactory(
         return MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, probe.oldMaliGpu)
     }
 
+    // Keeps every configuration's cache for models still on disk: a re-tune (vt70 to vt140 on the Pixel) used to
+    // wipe the other dir, so switching back rebuilt ~95 MB of XNNPack weights and the GPU program cache.
     override fun keepOnly(inUse: Embedder) {
-        val keep = (inUse as? MediaPipeEmbedder)?.cache ?: return
-        File(context.cacheDir, "embed").listFiles()?.filter { it != keep }?.forEach { it.deleteRecursively() }
+        if (inUse !is MediaPipeEmbedder) return
+        val root = File(context.cacheDir, "embed")
+        val dirs = root.listFiles()?.associate { d -> d.name to (d.list()?.toList() ?: emptyList()) } ?: return
+        val models = modelDir.listFiles()?.filter { it.isFile }?.associate { it.name to cacheKey(it) } ?: return
+        staleEmbedCaches(dirs, models).forEach { File(root, it).deleteRecursively() }
     }
 }
+
+// The runtime names its cache files "<model file>_<mtime s>_<size>.<part>…", so a re-copied model orphans the old set.
+private fun cacheKey(model: File) = "${model.lastModified() / 1000}_${model.length()}"
+
+/**
+ * Relative paths under the embed cache root to delete. [dirs] maps each config dir to its entries; [models] maps
+ * each model file on disk to its [cacheKey]. A dir is kept while its model exists; inside it, files keyed by an
+ * older copy of the model are stale.
+ */
+// ponytail: keeps every config of a present model (at most a few); prune by last use if configs multiply.
+fun staleEmbedCaches(dirs: Map<String, List<String>>, models: Map<String, String>): List<String> =
+    dirs.flatMap { (dir, entries) ->
+        val model = models.keys.firstOrNull { dir.startsWith(it.substringBeforeLast('.') + "-") }
+            ?: return@flatMap listOf(dir)
+        val current = "${model}_${models.getValue(model)}"
+        entries.filter { it.startsWith("${model}_") && !it.startsWith("$current.") }.map { "$dir/$it" }
+    }
 
 // Recovery, model-limit reading, NPU options, per-configuration cache and close adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt (Apache-2.0); old-Mali vision-on-CPU rule from GemmaEmbeddingModelStore.kt in the same directory. Modified for Retriever: coroutine Mutex instead of synchronized, throws instead of returning null, close waits for an in-flight embed, cache dir passed through setCacheDir, no in-place CPU rebuild (a probe input tells a bad input from a broken backend, and the core records the fallback).
 private class MediaPipeEmbedder(
@@ -162,7 +185,7 @@ private class MediaPipeEmbedder(
         mutex.withLock {
             if (closed) throw EmbedderClosedException()
             val result = try {
-                infer(parts)
+                tracedAsync("embed.run") { infer(parts) }
             } catch (e: Exception) {
                 // An over-long input fails the same way on every backend: report it so the caller splits the text.
                 if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)

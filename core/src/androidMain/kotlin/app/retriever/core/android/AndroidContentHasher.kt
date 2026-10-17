@@ -2,7 +2,7 @@ package app.retriever.core.android
 
 import android.content.Context
 import android.os.ParcelFileDescriptor
-import android.net.Uri
+import androidx.core.net.toUri
 import app.retriever.core.ContentHasher
 import java.io.FileInputStream
 import java.security.MessageDigest
@@ -42,7 +42,7 @@ class AndroidContentHasher(private val context: Context) : ContentHasher {
     override suspend fun fullHash(uri: String): String? = withContext(Dispatchers.IO) {
         try {
             val digest = MessageDigest.getInstance("SHA-256")
-            val stream = context.contentResolver.openInputStream(Uri.parse(uri)) ?: return@withContext null
+            val stream = context.contentResolver.openInputStream(uri.toUri()) ?: return@withContext null
             stream.use {
                 val buf = ByteArray(1 shl 20)
                 while (true) {
@@ -61,7 +61,7 @@ class AndroidContentHasher(private val context: Context) : ContentHasher {
     }
 
     private fun open(uri: String): ParcelFileDescriptor? =
-        context.contentResolver.openFileDescriptor(Uri.parse(uri), "r")
+        context.contentResolver.openFileDescriptor(uri.toUri(), "r")
 
     private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
 

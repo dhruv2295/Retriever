@@ -6,7 +6,7 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
-import android.util.Log
+import androidx.core.net.toUri
 import app.retriever.core.Changes
 import app.retriever.core.FileRules
 import app.retriever.core.FileSource
@@ -29,6 +29,7 @@ class SafSource(
     private val trees: () -> List<String>,
     private val skip: () -> Set<Kind>,
     private val listed: () -> Set<String> = { emptySet() },
+    private val log: (String, Throwable?) -> Unit = { _, _ -> },
 ) : FileSource {
     override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) {
         val trees = trees()
@@ -40,12 +41,12 @@ class SafSource(
         var failed = false
         for (tree in trees) {
             try {
-                walk(Uri.parse(tree), skipped, known, describe, files)
+                walk(tree.toUri(), skipped, known, describe, files)
                 walked += "$tree/document/"
             } catch (e: Exception) {
                 // Revoked in Settings, or on a card that is out: its files keep their index until it is back.
                 failed = true
-                Log.w("Retriever", "Couldn't read a picked folder: ${e.message}")
+                log("Couldn't read a picked folder", e)
             }
         }
         Changes(files, emptyList(), "", isFullScan = true, scope = if (failed) walked else setOf(PREFIX))

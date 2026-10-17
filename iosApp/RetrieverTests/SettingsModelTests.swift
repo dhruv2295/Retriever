@@ -15,24 +15,20 @@ extension XCTestCase {
 }
 
 /// The settings actions on a fixture change what the screen shows; on the real facade they persist through Prefs.
-/// The real-facade tests share AppServices with the host app, and put every setting back as they found it.
+/// The real-facade tests build their own AppServices under a temporary directory, so they never touch the app's index or model.
 @MainActor
 final class SettingsModelTests: XCTestCase {
     private static let legacyKey = "useMobileData"
     private var services: AppServices!
-    private var original: Prefs!
 
     override func setUp() async throws {
         UserDefaults.standard.removeObject(forKey: Self.legacyKey)
-        services = AppServices.shared
+        services = AppServices.temporary()
         try await services.retriever.refreshSetUp()
-        original = try XCTUnwrap(services.retriever.prefs.value as? Prefs)
     }
 
     override func tearDown() async throws {
         UserDefaults.standard.removeObject(forKey: Self.legacyKey)
-        let saved = original!
-        try await services.retriever.updatePrefs { _ in saved }
     }
 
     private var prefs: Prefs { services.retriever.prefs.value as! Prefs }
@@ -105,7 +101,8 @@ final class SettingsModelTests: XCTestCase {
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
         try await services.retriever.updatePrefs { $0.doCopy(kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, excludedFolders: $0.excludedFolders,
                                                               paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
-                                                              rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor) }
+                                                              rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
+                                                              setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed) }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)
 
@@ -138,9 +135,9 @@ final class SettingsModelTests: XCTestCase {
 
     func testFreeUpSpaceRemovesTheModelAndItsTemporaryFiles() async throws {
         let model = try await liveModel()
-        let build = try XCTUnwrap(services.retriever.requiredBuild.value as? ModelBuild)
+        let build = services.retriever.requiredBuildNow
         let file = services.modelsDir.appendingPathComponent(build.fileName)
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("embed/t1-free-up.tmp")
+        let cache = services.cacheDir.appendingPathComponent("t1-free-up.tmp")
         try FileManager.default.createDirectory(at: services.modelsDir, withIntermediateDirectories: true)
         try Data(count: 1_024).write(to: file)
         try Data(count: 1_024).write(to: cache)

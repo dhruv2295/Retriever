@@ -30,17 +30,25 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.retriever.core.IndexState
 import app.retriever.core.NextRun
+import app.retriever.core.Retriever
+import app.retriever.core.ThermalRest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
+import org.koin.core.qualifier.named
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    private val graph = (applicationContext as RetrieverApp).graph
-    private val retriever = graph.retriever
+/** Whether the app can see any files yet; the worker syncs names before the model arrives. */
+val PlatformReady = named("platformReady")
+
+class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), KoinComponent {
+    private val retriever: Retriever by inject()
+    private val platformReady: () -> Boolean by inject(PlatformReady)
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val notificationId: Int = params.id.hashCode()
     private val pauseIntent by lazy {
@@ -59,7 +67,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
         // Before setup finishes a batch only syncs the file list, so names are searchable while the model downloads.
-        if (retriever.prefs.value.paused || !graph.platformReady()) return@withContext Result.success()
+        if (retriever.prefs.value.paused || !platformReady()) return@withContext Result.success()
         try {
             val next = coroutineScope {
                 // A sync-only run takes seconds: no notification for it.
@@ -73,6 +81,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             // DONE also means another worker's batch holds the lock: never close the model under it.
             if (next != NextRun.SOON && !retriever.uiVisible && !retriever.state.value.running) retriever.release()
         } finally {
+            if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
             // Our own notify() posts outlive the worker when there was no foreground service to own them.
             notificationManager.cancel(notificationId)
         }
@@ -81,7 +90,7 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
 
     private fun schedule(next: NextRun) = when (next) {
         NextRun.SOON -> IndexScheduler.continueLater(applicationContext, 10.seconds)
-        NextRun.AFTER_COOLDOWN -> IndexScheduler.continueLater(applicationContext, 15.minutes)
+        NextRun.AFTER_COOLDOWN -> IndexScheduler.continueLater(applicationContext, ThermalRest.RECHECK)
         NextRun.WHEN_CHARGING -> IndexScheduler.continueWhenCharging(applicationContext)
         NextRun.WHEN_IDLE -> IndexScheduler.continueWhenIdle(applicationContext)
         NextRun.DONE -> Unit

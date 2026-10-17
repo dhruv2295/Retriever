@@ -1,0 +1,38 @@
+package app.retriever.core
+
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/** Date and starred scope apply before each lane's 100-hit cap, not after it. */
+class ScopeBeforeCapTest {
+    @Test fun nameLanesScopeBeforeTheCap() {
+        val store = newStore()
+        val recent = List(100) { testFile("invoice-$it.txt", modifiedAt = 2_000_000) }
+        val old = testFile("invoice-old.txt", modifiedAt = 1_000_000)
+        store.upsertFiles(recent + old)
+        val oldId = store.fileByUri(old.uri)!!.id
+        val index = NameIndex.build(
+            store.files(limit = Int.MAX_VALUE).map { NameEntry(it.id, it.file.name, it.file.folder, it.file.kind, it.file.takenAt ?: it.file.modifiedAt) },
+        )
+        val byDate = SearchRequest("invoice", from = 900_000, to = 1_100_000)
+        val byStar = SearchRequest("invoice", fileIds = setOf(oldId))
+        for ((name, engine) in listOf("warm" to SearchEngine(store, FakeEmbedder(), nameIndex = { index }), "cold" to SearchEngine(store, FakeEmbedder()))) {
+            assertEquals(oldId, engine.names(byDate).hits.single().fileId, "$name by date")
+            assertEquals(oldId, engine.names(byStar).hits.single().fileId, "$name by star")
+        }
+    }
+
+    @Test fun keywordLaneScopesStarredBeforeTheCap() = runTest {
+        val store = newStore()
+        val old = testFile("doc-old.txt", modifiedAt = 1_000_000)
+        val recent = List(100) { testFile("doc-$it.txt", modifiedAt = 2_000_000) }
+        store.upsertFiles(recent + old)
+        for (f in recent + old) store.replaceChunks(store.fileByUri(f.uri)!!.id, listOf(Store.NewChunk(1, "", "invoice", null)))
+        store.setStarred(old.uri, true, at = 1)
+        val oldId = store.fileByUri(old.uri)!!.id
+        val hits = SearchEngine(store, FakeEmbedder())
+            .search(SearchRequest("invoice", fileIds = setOf(oldId), onlyStarred = true, mode = SearchEngine.Mode.KEYWORD)).hits
+        assertEquals(oldId, hits.single().fileId)
+    }
+}

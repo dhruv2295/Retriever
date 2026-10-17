@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android 11 (API 30). The index is rebuilt from the files and the model is downloaded again, so
-     neither is worth backing up; restoring a model file without its hash marker would only re-check it. -->
+     neither is worth backing up; restoring a model file without its hash marker would only re-check it. Settings and
+     stars (files/user-state.json) are backed up: Android 11 has no switch for "only when encrypted". -->
 <full-backup-content>
     <exclude domain="database" path="retriever.db" />
     <exclude domain="database" path="retriever.db-wal" />

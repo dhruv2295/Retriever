@@ -6,22 +6,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import app.retriever.core.Retriever
 import kotlinx.serialization.Serializable
+import org.koin.compose.getKoin
+import org.koin.compose.koinInject
 
-@Serializable data object SetupRoute
+/** Every screen the app navigates to; [Opener.open] and screens hand these to the nav host. */
+sealed interface Route
 
-@Serializable data object HomeRoute
+@Serializable data object SetupRoute : Route
+
+@Serializable data object HomeRoute : Route
 
 @Serializable data class BrowseRoute(
     val kind: String? = null,
@@ -29,37 +29,33 @@ import kotlinx.serialization.Serializable
     val sort: String = "NEWEST",
     val title: String,
     val starredOnly: Boolean = false,
-)
+) : Route
 
-@Serializable data object SettingsRoute
+@Serializable data object SettingsRoute : Route
 
-@Serializable data object FoldersRoute
+@Serializable data object FoldersRoute : Route
 
-@Serializable data object DuplicatesRoute
+@Serializable data object DuplicatesRoute : Route
 
-@Serializable data object StatusRoute
+@Serializable data object StatusRoute : Route
 
-@Serializable data class PlayerRoute(val uri: String, val mime: String, val startMs: Long, val title: String)
+@Serializable data class PlayerRoute(val uri: String, val mime: String, val startMs: Long, val title: String) : Route
 
-@Serializable data class PdfRoute(val uri: String, val page: Int, val title: String)
-
-/** A ViewModel built from the app's graph; reading the graph touches neither the database nor the model. */
-@Composable
-inline fun <reified VM : ViewModel> appViewModel(key: String? = null, crossinline create: (AppGraph) -> VM): VM =
-    viewModel(key = key, factory = viewModelFactory { initializer { create((this[APPLICATION_KEY] as RetrieverApp).graph) } })
+@Serializable data class PdfRoute(val uri: String, val page: Int, val title: String) : Route
 
 @Composable
-fun AppNav() {
-    val graph = (LocalContext.current.applicationContext as RetrieverApp).graph
-    val setUp by graph.retriever.setUp.collectAsStateWithLifecycle()
+fun AppNav(retriever: Retriever = koinInject()) {
+    val koin = getKoin()
+    val setUp by retriever.setUp.collectAsStateWithLifecycle()
     val ready = setUp ?: return
     val navController = rememberNavController()
     // Only from a settled screen: a double tap during a transition would push twice or pop Home off the stack.
     val settled = { navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED }
-    val go: (Any) -> Unit = { if (settled()) navController.navigate(it) }
+    val go: (Route) -> Unit = { if (settled()) navController.navigate(it) }
     val back: () -> Unit = { if (settled()) navController.popBackStack() }
     // Names are searchable once files are allowed, so Home opens while the rest of setup carries on.
-    val start: Any = remember { if (ready || graph.setup.ui.value.canSearch) HomeRoute else SetupRoute }
+    // SetupFlow is built here, after setUp settles, so it seeds from the stored prefs.
+    val start: Route = remember { if (ready || koin.get<SetupFlow>().ui.value.canSearch) HomeRoute else SetupRoute }
     NavHost(navController, startDestination = start) {
         composable<SetupRoute> {
             // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
@@ -81,7 +77,7 @@ fun AppNav() {
         composable<SettingsRoute> { SettingsScreen(back) }
         composable<FoldersRoute> { FoldersScreen(go, back) }
         composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
-        composable<StatusRoute> { StatusScreen(back) }
+        composable<StatusRoute> { StatusScreen(back, onOpenSettings = { go(SettingsRoute) }) }
         composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back) }
         composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back) }
     }

@@ -1,5 +1,5 @@
 #if DEBUG
-    import RetrieverCore
+    @preconcurrency import RetrieverCore
     import SwiftUI
 
     /// `-bgdrill <seconds>` (0: when iOS's background time runs out): the simulator has no BGTaskScheduler (submit
@@ -11,15 +11,16 @@
             let args = CommandLine.arguments
             guard let i = args.firstIndex(of: "-bgdrill"), i + 1 < args.count, let expireAfter = Double(args[i + 1]) else { return }
             _ = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
-                var hold = UIBackgroundTaskIdentifier.invalid
-                hold = UIApplication.shared.beginBackgroundTask(withName: "bgdrill") { IndexTask.expire() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    IndexTask.runBatch { ok in
-                        print("BGDRILL setTaskCompleted(success: \(ok))")
-                        DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(hold) }
+                MainActor.assumeIsolated {
+                    let hold = UIApplication.shared.beginBackgroundTask(withName: "bgdrill") { IndexTask.expire() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        IndexTask.runBatch { ok in
+                            print("BGDRILL setTaskCompleted(success: \(ok))")
+                            DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(hold) }
+                        }
                     }
+                    if expireAfter > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 2 + expireAfter) { IndexTask.expire() } }
                 }
-                if expireAfter > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 2 + expireAfter) { IndexTask.expire() } }
             }
         }
     }
@@ -83,7 +84,7 @@
         static let live: DebugRoute? = parsed.flatMap { $0.isLive ? $0 : nil }
 
         /// `-open status|setup|settings|starred` pushes that page over the live Home, for screenshots of a real run.
-        static let openOnLaunch: Route? = arg("-open").flatMap {
+        @MainActor static let openOnLaunch: Route? = arg("-open").flatMap {
             ["status": Route.status, "setup": .setup, "settings": .settings,
              "starred": .files(FileQuery(title: "Starred", starredOnly: true))][$0]
         }
@@ -265,51 +266,5 @@
             SearchEngine.Hit(file: file("Scan_0001_long_file_name_without_spaces_final_copy.pdf", .pdf, "Downloads", daysAgo: 400), fileId: 6, chunkId: 61, locator: "p. 2",
                              snippet: nil, score: 0.2),
         ]
-    }
-
-    /// `-a11ydump <seconds>` prints every accessibility element on screen after that long, for checking labels.
-    enum AccessibilityDump {
-        static func armIfAsked() {
-            if CommandLine.arguments.contains("-selfcheck") { selfCheck() }
-            guard let delay = DebugRoute.arg("-a11ydump").flatMap(Double.init) else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return }
-                var seen = Set<ObjectIdentifier>()
-                var lines: [String] = []
-                walk(window, &seen, &lines)
-                print("A11YDUMP BEGIN\n" + lines.joined(separator: "\n") + "\nA11YDUMP END")
-            }
-        }
-
-        /// `-selfcheck`: the locator and snippet parsing the results and viewers depend on.
-        private static func selfCheck() {
-            let checks: [(String, Bool)] = [
-                ("page", Format.page("p. 12") == 12 && Format.page("p. 0") == nil && Format.page("12") == nil),
-                ("ms", Format.ms("0:37") == 37_000 && Format.ms("1:02:03") == 3_723_000 && Format.ms("p. 3") == nil && Format.ms("1:") == nil),
-                ("badge", Format.badge("p. 3") == "Page 3" && Format.badge("0:37") == "0:37" && Format.badge("") == nil),
-                ("marked", Set(Format.markedWords("a \u{2}rent\u{3} and \u{2}deposit\u{3} b")) == ["rent", "deposit"]),
-                ("highlight", String(Format.highlighted("x \u{2}y\u{3} z").characters) == "x y z"),
-            ]
-            let failed = checks.filter { !$0.1 }.map(\.0)
-            print(failed.isEmpty ? "I5 SELFCHECK PASS" : "I5 SELFCHECK FAIL: \(failed.joined(separator: ", "))")
-        }
-
-        private static func walk(_ node: NSObject, _ seen: inout Set<ObjectIdentifier>, _ lines: inout [String]) {
-            guard seen.insert(ObjectIdentifier(node)).inserted else { return }
-            if node.isAccessibilityElement {
-                var line = "[\(node.accessibilityLabel ?? "")]"
-                if let hint = node.accessibilityHint { line += " hint: \(hint)" }
-                if let actions = node.accessibilityCustomActions, !actions.isEmpty { line += " actions: \(actions.map(\.name).joined(separator: ", "))" }
-                if node.accessibilityTraits.contains(.button) { line += " (button)" }
-                if node.accessibilityTraits.contains(.header) { line += " (heading)" }
-                lines.append(line)
-            }
-            let count = node.accessibilityElementCount()
-            if count != NSNotFound, count > 0 {
-                for i in 0..<count { if let child = node.accessibilityElement(at: i) as? NSObject { walk(child, &seen, &lines) } }
-            } else if let view = node as? UIView {
-                view.subviews.forEach { walk($0, &seen, &lines) }
-            }
-        }
     }
 #endif

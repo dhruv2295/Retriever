@@ -3,7 +3,7 @@ package app.retriever
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasText
@@ -253,6 +253,16 @@ class SearchShotsTest {
         rule.onNodeWithText("Old bill.docx", substring = true).performTouchInput { longClick() }
         rule.onNodeWithText("Remove star").assertExists()
     }
+    @Test fun aRecordingIsNotUnderDocuments() {
+        val note = hit(7, file("Voice note.m4a", Kind.AUDIO), chunkId = 70, locator = "0:12")
+        fun render(hits: List<SearchEngine.Hit>) = rule.setContent {
+            ShotTheme(false, 1f) { SearchPane(ready.copy(query = "bill", hitsFor = "bill", hits = hits), SearchActions()) }
+        }
+        render(listOf(note))
+        rule.onNodeWithText("Recordings").assertExists()
+        rule.onNodeWithText("Documents and more").assertDoesNotExist()
+    }
+
     @Test fun resultsLessLikelyLight() {
         shot("results_less_likely", false)
         rule.onNodeWithText("Less likely matches").assertExists()

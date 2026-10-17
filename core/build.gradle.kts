@@ -1,4 +1,5 @@
 import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
+import com.android.build.api.dsl.Lint
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -6,18 +7,40 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.sqldelight)
-    id("com.android.lint")
+    alias(libs.plugins.android.lint)
 }
 
+tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }
+
+// The benches take minutes; they run only with -Pbench.
+if (!providers.gradleProperty("bench").isPresent) {
+    tasks.withType<Test>().configureEach { filter { excludeTestsMatching("*BenchTest") } }
+}
+
+if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
+
+// One gate for both lint runs here: the KMP Android target's (lintAndroidMain) and the standalone one (lintJvm).
+val lintGate: Lint.() -> Unit = {
+    warningsAsErrors = true
+    abortOnError = true
+    checkReleaseBuilds = true
+    // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
+    disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+}
+lint { lintGate() }
+
+// allWarningsAsErrors stays off for :core main until relevance-fit merges: Eval.kt:16 ("Redundant creation of Json
+// format") sits in a relevance-fit file. Enable it then (see docs/quality.md).
 kotlin {
     targets.withType<KotlinMultiplatformAndroidLibraryTarget>().configureEach {
         namespace = "app.retriever.core"
         compileSdk = libs.versions.compileSdk.get().toInt()
         minSdk = libs.versions.minSdk.get().toInt()
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
+        // commonTest runs on the host JVM against androidMain; android.os stubs (Trace) return defaults.
+        withHostTest { isReturnDefaultValues = true }
+        lint { lintGate() }
     }
-    // Host target so commonTest runs on the JVM.
-    jvm { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
     // iOS targets build the static RetrieverCore framework that the SwiftUI app links.
     listOf(iosArm64(), iosSimulatorArm64()).forEach { t ->
         t.binaries.framework { baseName = "RetrieverCore"; isStatic = true }
@@ -37,7 +60,7 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
-        jvmTest.dependencies {
+        getByName("androidHostTest").dependencies {
             implementation(libs.sqldelight.sqlite.driver)
         }
         androidMain.dependencies {

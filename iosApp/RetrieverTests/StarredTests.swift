@@ -3,12 +3,16 @@ import XCTest
 
 @MainActor
 final class StarredTests: XCTestCase {
+    private var services: AppServices!
+
+    override func setUp() async throws { services = AppServices.temporary() }
+
     func testFixtureHasStars() {
         XCTAssertEqual(AppModel(fixture: .caughtUp).starred.count, 2)
     }
 
     func testSetStarredUpdatesStarredAtOnce() async throws {
-        let model = AppModel(services: AppServices.shared)
+        let model = AppModel(services: services)
         // A snapshot in flight would replace the set, so wait for the first one before acting.
         let loaded = await eventually { model.snap != nil }
         XCTAssertTrue(loaded)

@@ -24,6 +24,12 @@ class ExtractionTest {
     }
 
     @Test
+    fun stripXmlTurnsBreakTagsIntoWhitespaceAndDecodesNumericEntities() {
+        assertEquals("A B\nC \u2019\u2019", stripXml("A<w:tab/>B<w:br/>C &#8217;&#x2019;"))
+        assertEquals("a b\nc d", stripXml("a<text:s/>b<text:line-break/>c<text:tab/>d"))
+    }
+
+    @Test
     fun stripXmlSplitsOdfParagraphs() {
         val text = stripXml("<office:text><text:h>Notes</text:h><text:p>first</text:p><text:p>second</text:p></office:text>")
         assertEquals(listOf("Notes", "first", "second"), text.lines().filter { it.isNotBlank() })
@@ -106,5 +112,31 @@ class ExtractionTest {
     fun slideOrderReadsSlideNumbers() {
         assertEquals(12, slideOrder("ppt/slides/slide12.xml"))
         assertEquals(null, slideOrder("ppt/slides/_rels/slide1.xml.rels"))
+    }
+
+    @Test
+    fun zipBudgetStopsManyEntriesAtFourCaps() {
+        var cuts = 0
+        val budget = ZipBudget(onCut = { cuts++ })
+        var total = 0
+        repeat(20) {
+            val text = budget.entry { cap -> "x".repeat(minOf(cap, TEXT_BYTES)) } ?: return@repeat
+            total += text.length
+        }
+        assertTrue(total <= 4 * TEXT_BYTES, "$total")
+        assertEquals(16, cuts) // every entry after the budget is spent asks once; callers stop at the first
+    }
+
+    @Test
+    fun xlsxRowsJoinSharedInlineAndNumberCells() {
+        val shared = "<?xml version=\"1.0\"?><sst><si><t>Total</t></si><si><r><t>Rich </t></r><r><t>&amp; co</t></r></si></sst>"
+        val sheet = "<?xml version=\"1.0\"?><worksheet><sheetData>" +
+            "<row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"inlineStr\"><is><t>INV-204</t></is></c><c r=\"C1\"><v>1499.00</v></c></row>" +
+            "<row r=\"2\"><c r=\"A2\" s=\"1\"/><c r=\"B2\" t=\"s\"><v>1</v></c></row><row r=\"3\"/></sheetData></worksheet>"
+        assertEquals("Total\tINV-204\t1499.00\nRich & co", xlsxText(shared + "\n" + sheet))
+        assertEquals("Total\nRich & co\n", xlsxText(shared).replace("\n\n", "\n"))
+        assertEquals(0, xlsxOrder("xl/sharedStrings.xml"))
+        assertEquals(3, xlsxOrder("xl/worksheets/sheet2.xml"))
+        assertEquals(null, xlsxOrder("xl/worksheets/_rels/sheet1.xml.rels"))
     }
 }

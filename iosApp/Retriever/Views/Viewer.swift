@@ -43,7 +43,7 @@ func highlightWords(snippet: String?, query: String?) -> [String] {
     return query.map { Store.Companion.shared.ftsTokens(s: $0) } ?? []
 }
 
-@ViewBuilder func viewer(_ v: Viewing) -> some View {
+@MainActor @ViewBuilder func viewer(_ v: Viewing) -> some View {
     switch v {
     case let .pdf(file, page, words): PDFViewer(file: file, page: page, words: words)
     case let .video(file, ms): VideoViewer(file: file, ms: ms)
@@ -82,9 +82,14 @@ struct PDFViewer: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             guard document == nil, let url = Thumbnails.services?.folders.resolve(file.uri) else { return failed = true }
-            let doc = await Task.detached { PDFDocument(url: url) }.value
+            let doc = await Self.open(url)
             if let doc, !doc.isLocked { document = doc } else { failed = true }
         }
+    }
+
+    /// Parses off the main actor; the new document is handed over whole.
+    @concurrent private static func open(_ url: URL) async -> sending PDFDocument? {
+        PDFDocument(url: url)
     }
 }
 
