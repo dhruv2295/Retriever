@@ -13,5 +13,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Debug builds only: every mascot animation, for review. adb shell am start -n app.retriever/.MascotGalleryActivity -->
+        <activity
+            android:name=".MascotGalleryActivity"
+            android:exported="true"
+            android:label="Mascot gallery"
+            android:taskAffinity="app.retriever.mascot" />
     </application>
 </manifest>
