@@ -156,11 +156,7 @@ fun SetupContent(
                     .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                if (stage !=
-                    SetupStage.COMMIT
-                ) {
-                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
-                }
+                if (stage != SetupStage.COMMIT) Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth))
                 val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
                 val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
                 // Shared axis X: the first run only moves forward.
