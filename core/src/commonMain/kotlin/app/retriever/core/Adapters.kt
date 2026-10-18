@@ -26,7 +26,7 @@ data class Changes(
 )
 
 interface Extractor {
-    /** One file in, searchable pieces out. Chunk 0 (name and metadata) is added by the core. */
+    /** One file in, searchable pieces out, on the caller's worker context. Chunk 0 is added by the core. */
     suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece>
 }
 
@@ -52,7 +52,7 @@ interface Embedder : AutoCloseable {
     /** Anything that ran differently from [backend], such as an encoder that fell back to CPU. */
     val detail: String? get() = null
 
-    /** Raw model output for [parts] in order. Use [embed] to get a stored [Vector]. */
+    /** Raw output on the caller's worker context, for [parts] in order. Use [embed] for a stored [Vector]. */
     suspend fun embedRaw(parts: List<Part>): FloatArray
 }
 

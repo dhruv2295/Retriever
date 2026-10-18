@@ -16,7 +16,6 @@ import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
-import app.retriever.core.Extractor
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
@@ -111,6 +110,7 @@ class RetrieverApp :
         retriever.uiVisible = false
         // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
         retriever.setUiBusy(false)
+        scope.launch { retriever.releaseIfIdle() }
     }
 
     /** Once per process, on IO: opens the database and settles [Retriever.setUp]. */
@@ -122,18 +122,6 @@ class RetrieverApp :
             }
         }
         retriever.refreshSetUp()
-    }
-
-    // In the background with no batch running, the model is the biggest thing a low-memory killer sees.
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_BACKGROUND && !retriever.uiVisible && !retriever.state.value.running) {
-            scope.launch {
-                retriever.release()
-                // The OCR recognizers come back on the next read that needs them.
-                (get<Extractor>() as? AutoCloseable)?.close()
-            }
-        }
     }
 
     /** Debug only: logs disk and network work on the main thread, and leaked closeables, receivers and URI grants. */

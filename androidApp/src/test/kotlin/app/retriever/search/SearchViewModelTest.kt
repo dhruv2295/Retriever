@@ -181,7 +181,7 @@ class SearchViewModelTest {
             embedder = embedder,
             profile = DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.CPU, 70, 5, false, false),
             dispatchers = core,
-        )
+        ).also { it.uiVisible = true }
     }
 
     @Test fun resultKeepsTheEnginesStrongCount() = runTest {

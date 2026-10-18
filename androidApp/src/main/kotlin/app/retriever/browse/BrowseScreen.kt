@@ -52,6 +52,7 @@ import app.retriever.nav.BrowseRoute
 import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.starWithUndo
+import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.PressMenu
@@ -112,6 +113,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             onSort = vm::setSort,
             onLoadMore = vm::loadMore,
             onRetry = vm::retry,
+            onScrolling = vm::setScrolling,
             onOpen = onOpen,
             starred = starred,
             onStar = onStar,
@@ -134,6 +136,7 @@ fun BrowseContent(
     starred: Set<String> = emptySet(),
     onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
     onRetry: () -> Unit = {},
+    onScrolling: (Boolean) -> Unit = {},
 ) {
     val files = ui.files
     Column(modifier.padding(top = padding.calculateTopPadding())) {
@@ -187,6 +190,7 @@ fun BrowseContent(
             val listPadding = contentPaddingFor(padding, includeTop = false)
             if (kind in GRID_KINDS) {
                 val state = rememberLazyGridState()
+                ScrollingEffect({ state.isScrollInProgress }, onScrolling)
                 LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(110.dp),
@@ -212,6 +216,7 @@ fun BrowseContent(
                 }
             } else {
                 val state = rememberLazyListState()
+                ScrollingEffect({ state.isScrollInProgress }, onScrolling)
                 LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     LazyColumn(

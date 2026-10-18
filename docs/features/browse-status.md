@@ -26,6 +26,9 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
 - **Coverage on each row, not a global promise.** `coverageNote` gives a list row one honest line: "Found by name only"
   for waiting or name-only files, "Couldn't be read" for skipped ones, and the partial-read note for a file read only
   in part. Search results do the same through their own reason line.
+- **Scrolling yields reading.** Both Browse layouts use the same `ScrollingEffect` as Home/search to call
+  `setUiBusy` through the ViewModel. Gesture end, lifecycle stop/disposal and ViewModel clearing release the gate;
+  `awaitUi` pauses extraction and embedding between native calls.
 - **Thumbnails.** `Thumbnails.kt` keeps one `LruCache` of bitmaps sized to a fraction of the heap and a miss cache, with
   decoding on a dispatcher capped at four. The cache key includes the file's `modifiedAt` and `size` and the requested
   size bucket, so an edited file gets a new key instead of a stale picture; PDF pages are queued on a separate render

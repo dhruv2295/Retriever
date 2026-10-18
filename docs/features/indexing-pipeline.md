@@ -46,6 +46,10 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   order intersected with INDEXED. Both are carried by the existing StateFlow and iOS `observeAll` snapshot;
   `IndexState.pauseReason` supplies setup copy, and Android `SetupUi` exposes it.
 
+Index batches (including the short read) run on `CoreDispatchers.indexing`: an owned Android background-priority
+thread or an iOS utility queue. Extractors and inference preserve that context; shared model creation stays on
+the normal dispatcher for interactive search. See `model-lifecycle.md` for the native-pool trade-off.
+
 ## Owner files
 
 - `core/src/commonMain/kotlin/app/retriever/core/Retriever.kt` (`indexBatch`, `runBatch`, `nextRunFor`, `cancelBatch`, `awaitUi`, `planTaste`, `estimateAll`)

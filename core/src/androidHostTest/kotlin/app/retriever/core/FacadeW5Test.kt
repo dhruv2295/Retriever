@@ -28,6 +28,7 @@ class FacadeW5Test {
         )
 
         suspend fun index() {
+            r.uiVisible = true
             r.refreshSetUp()
             r.indexBatch(1.minutes)
         }
@@ -143,6 +144,7 @@ class FacadeW5Test {
     @Test
     fun warmSearchOpensTheModelSoTheFirstSearchDoesNot() = test {
         val f = Fx(listOf(testFile("a.txt")))
+        f.r.uiVisible = true
         f.r.refreshSetUp()
         f.r.warmSearch()
         assertEquals(1, f.factory.opened.size)

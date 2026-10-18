@@ -115,6 +115,7 @@ import app.retriever.home.HomeViewModel
 import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
+import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.launch
@@ -234,9 +235,7 @@ fun SearchContent(
             bar.animateToExpanded()
         }
     }
-    LaunchedEffect(homeList, grid) {
-        snapshotFlow { homeList.isScrollInProgress || grid.isScrollInProgress }.collect { actions.onScrolling(it) }
-    }
+    ScrollingEffect({ homeList.isScrollInProgress || grid.isScrollInProgress }, actions.onScrolling)
     // The collapsed bar and the full-screen one are two fields: busy while either has focus, whichever event comes first.
     val focusing = remember { mutableStateSetOf<Any>() }
     LaunchedEffect(Unit) { snapshotFlow { focusing.isNotEmpty() }.collect { actions.onFocus(it) } }
@@ -246,7 +245,6 @@ fun SearchContent(
         actions.onFocus(focusing.isNotEmpty())
         onStopOrDispose {
             actions.onFocus(false)
-            actions.onScrolling(false)
         }
     }
 

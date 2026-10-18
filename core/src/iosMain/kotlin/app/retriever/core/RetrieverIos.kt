@@ -63,6 +63,7 @@ fun createRetriever(
         log = logged,
         now = { (NSDate().timeIntervalSince1970 * 1000).toLong() },
         zoneOffsetMs = { NSTimeZone.localTimeZone.secondsFromGMT * 1000L },
+        dispatchers = CoreDispatchers(indexing = indexingDispatcher),
         // iOS keeps no exit reasons the app can read at launch, so every unfinished open counts as a crash.
         lastExitCrashed = { true },
     )

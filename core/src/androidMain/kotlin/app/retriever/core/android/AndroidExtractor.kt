@@ -66,11 +66,9 @@ import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
@@ -146,11 +144,12 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         recognizers.clear()
     }
 
-    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = withContext(Dispatchers.IO) {
+    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
+        currentCoroutineContext().ensureActive()
         val uri = file.uri.toUri()
         val maxChars = chunkChars(profile.maxTokens)
         val ctx = currentCoroutineContext()
-        when (file.kind) {
+        return when (file.kind) {
             Kind.PHOTO -> photo(uri)
             Kind.SCREENSHOT -> screenshot(uri, maxChars)
             Kind.PDF -> pdf(uri, maxChars)
@@ -158,7 +157,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
             Kind.AUDIO -> if (profile.audio && profile.model.audio) audio(uri, profile, ctx) else emptyList()
             Kind.VIDEO -> video(uri, profile, ctx)
             Kind.OTHER -> emptyList()
-        }
+        }.also { currentCoroutineContext().ensureActive() }
     }
 
     private fun photo(uri: Uri): List<Piece> {

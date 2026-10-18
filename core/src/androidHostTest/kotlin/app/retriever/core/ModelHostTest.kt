@@ -33,6 +33,22 @@ class ModelHostTest {
     }
 
     @Test
+    fun idleReleaseDoesNotWaitForAnOpenAndChecksEligibilityUnderTheLock() = runTest {
+        val f = Fx(PIXEL, FakeFactory(), PROFILE)
+        f.host.open()
+        f.host.lock.lock()
+        f.host.releaseIf { error("must not inspect an embedder while its lock is held") }
+        f.host.lock.unlock()
+        f.host.releaseIf { false }
+        assertFalse(f.factory.last!!.closed)
+        f.host.releaseIf {
+            assertTrue(f.host.lock.isLocked)
+            true
+        }
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
     fun aGpuWarmUpFailureDemotesToCpuOnceAndOpensOnCpu() = runTest {
         val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.GPU))
         // The open's only embed is its warm-up.

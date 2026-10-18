@@ -69,6 +69,10 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
 
     fun retry() = fetch()
 
+    fun setScrolling(scrolling: Boolean) = retriever.setUiBusy(scrolling)
+
+    override fun onCleared() = retriever.setUiBusy(false)
+
     private fun fetch() {
         val ui = paged.value
         if (busy || ui.exhausted) return

@@ -4,11 +4,8 @@ package app.retriever.core
 
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.autoreleasepool
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
 
 /**
  * The same pieces and locators as AndroidExtractor, over Swift's file access. A photo with no image to read (an
@@ -16,17 +13,18 @@ import kotlinx.coroutines.withContext
  * skipped with a way to retry, rather than counted as read by its name alone.
  */
 class IosExtractor(private val native: NativeExtractor) : Extractor {
-    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = withContext(Dispatchers.IO) {
+    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
+        currentCoroutineContext().ensureActive()
         val uri = file.uri
         val maxChars = chunkChars(profile.maxTokens)
-        when (file.kind) {
+        return when (file.kind) {
             Kind.PHOTO -> listOf(Piece("", listOf(Part.Image(image(uri))), null))
             Kind.SCREENSHOT -> imageWithText("", image(uri), ocr(uri, -1), maxChars)
             Kind.PDF -> pdf(uri, maxChars)
             Kind.DOC -> doc(file, uri, maxChars)
             Kind.VIDEO -> video(uri, profile)
             else -> emptyList()
-        }
+        }.also { currentCoroutineContext().ensureActive() }
     }
 
     private fun ocr(uri: String, page: Int): String = native.ocr(uri, page).orEmpty().trim()
