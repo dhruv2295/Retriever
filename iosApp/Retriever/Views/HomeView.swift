@@ -50,10 +50,12 @@ struct HomeList: View {
     // MARK: Whole-screen states
 
     /// Until a scan has finished, "nothing yet" would be a guess: the first files turn up while it runs.
-    static func isLooking(_ snap: AppModel.Snap) -> Bool { snap.running || snap.lastStop == nil }
+    static func isLooking(_ snap: AppModel.Snap, started: Bool) -> Bool {
+        snap.running || (started && snap.lastStop == nil && !snap.paused)
+    }
 
     @ViewBuilder private func empty(_ snap: AppModel.Snap) -> some View {
-        let looking = Self.isLooking(snap)
+        let looking = Self.isLooking(snap, started: model.started)
         let photosOff = photos == .notDetermined || photos == .denied || photos == .restricted
         Section {
             StateView(
@@ -115,7 +117,7 @@ struct HomeList: View {
             Section {
                 HomeMosaic(
                     files: media, pending: snap.setUp == true ? snap.pendingByKind[.photo] ?? 0 : 0, total: photoCount, paused: snap.paused,
-                    open: { openFile($0) }
+                    open: { openFile($0, among: media) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -130,7 +132,7 @@ struct HomeList: View {
     @ViewBuilder private func screenshots(_ snap: AppModel.Snap) -> some View {
         if !photosOff, let shots = model.home?.newShots, !shots.isEmpty {
             Section {
-                ShotStrip(files: shots, starred: model.starred, similar: search.similar(textOnly: snap.textOnly), open: { openFile($0) })
+                ShotStrip(files: shots, starred: model.starred, similar: search.similar(textOnly: snap.textOnly), open: { openFile($0, among: shots) })
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } header: {
@@ -145,7 +147,7 @@ struct HomeList: View {
         if let docs = model.home?.newDocs, !docs.isEmpty {
             let pdfs = snap.byKind[.pdf] ?? 0
             Section {
-                DocStrip(files: docs, starred: model.starred, open: { openFile($0) })
+                DocStrip(files: docs, starred: model.starred, open: { openFile($0, among: docs) })
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } header: {
@@ -172,7 +174,7 @@ struct HomeList: View {
     @ViewBuilder private var starred: some View {
         if let home = model.home, home.starredCount > 0, !home.starred.isEmpty {
             Section {
-                StarredStrip(files: home.starred, starred: model.starred, open: { openFile($0) })
+                StarredStrip(files: home.starred, starred: model.starred, open: { openFile($0, among: home.starred) })
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } header: {
@@ -323,7 +325,7 @@ private struct StatusRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title).monospacedDigit().multilineTextAlignment(.leading)
                 if let progress = status.progress { ProgressView(value: progress) }
-                if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+                if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(Color.primary) }
             }
         }
         .padding(.vertical, 2)

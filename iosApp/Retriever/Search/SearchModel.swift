@@ -267,8 +267,8 @@ final class SearchModel {
             return
         }
         let q = key.question
-        // Back on screen with a finished answer to this question: nothing to ask again.
-        if let done = phase as? SearchPhaseResults, done.complete, done.question == q { return }
+        // Reuse a finished meaning answer only for the same request; retries and words-only answers ask again.
+        if let done = phase as? SearchPhaseResults, done.complete, answer?.key == key, done.result.vectorLane { return }
         phase = SearchPhaseKt.onAsk(phase, q: q)
         let start = ContinuousClock.now
         let limit = timing.LIMIT

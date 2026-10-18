@@ -1,7 +1,9 @@
+import Observation
 import Photos
 import RetrieverCore
 import SwiftUI
 import XCTest
+import os
 
 @testable import Retriever
 
@@ -49,9 +51,11 @@ final class HomeModelTests: XCTestCase {
 
     /// No scan has finished (running, or never stopped): "Nothing to search yet" would be a guess.
     func testFirstRunSaysLookingUntilAScanFinishes() {
-        XCTAssertTrue(HomeList.isLooking(AppModel.Snap(setUp: true)), "a scan has not started or ended")
-        XCTAssertTrue(HomeList.isLooking(AppModel.Snap(setUp: true, running: true, lastStop: .done)))
-        XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, lastStop: .done)), "a finished scan that found nothing")
+        XCTAssertTrue(HomeList.isLooking(AppModel.Snap(setUp: true), started: true), "a scan has not started or ended")
+        XCTAssertTrue(HomeList.isLooking(AppModel.Snap(setUp: true, running: true, lastStop: .done), started: true))
+        XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, lastStop: .done), started: true), "a finished scan that found nothing")
+        XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true), started: false), "Photos access has not been decided")
+        XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, paused: true), started: true), "an empty paused library is not looking")
     }
 
     func testSectionSubtitlesDropWhatIsZero() {
@@ -65,6 +69,12 @@ final class HomeModelTests: XCTestCase {
 
     func testThumbnailSizesShareBuckets() {
         XCTAssertEqual([100, 256, 300, 384, 500, 720, 2_000].map(Thumbnails.bucket), [256, 256, 384, 384, 512, 768, 768])
+    }
+
+    func testThumbnailTaskRestartsWhenDynamicTypeNeedsMorePixels() throws {
+        let file = try XCTUnwrap(AppModel(fixture: .caughtUp).home?.newDocs.first)
+        XCTAssertNotEqual(Thumb.requestID(file, locator: "", pixels: 156), Thumb.requestID(file, locator: "", pixels: 312))
+        XCTAssertNotEqual(Thumb.requestID(file, locator: "p. 1", pixels: 156), Thumb.requestID(file, locator: "p. 2", pixels: 156))
     }
 
     func testRefreshHomeMapsTheFacadeFactsOntoTheModel() async throws {
@@ -340,6 +350,29 @@ final class HomeModelTests: XCTestCase {
         snap.indexed += 1
         apply(snap, to: model)
         XCTAssertEqual(model.snapWrites, writes + 1, "a count changed")
+    }
+
+    func testProgressTicksDoNotInvalidateHomeFactsOrSearchFlags() throws {
+        let model = AppModel(fixture: .reading(done: 10, total: 100))
+        let invalidated = OSAllocatedUnfairLock(initialState: false)
+        withObservationTracking {
+            _ = model.snap
+            _ = model.setUp
+            _ = model.textOnly
+            _ = model.useMobileData
+        } onChange: {
+            invalidated.withLock { $0 = true }
+        }
+        var snapshot = try XCTUnwrap(model.live)
+        for n in 1...20 {
+            snapshot.processed = n
+            snapshot.current = "file-\(n)"
+            snapshot.filesPerMinute = Double(n)
+            snapshot.etaMinutes = 21 - n
+            apply(snapshot, to: model)
+        }
+        XCTAssertFalse(invalidated.withLock { $0 })
+        XCTAssertEqual(model.progress.processed, 20)
     }
 
     func testSetUpAndTextOnlyFollowTheSnapshot() throws {

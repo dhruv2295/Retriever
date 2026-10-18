@@ -22,9 +22,9 @@ struct SectionLink: View {
                     Text(title).font(.title3.bold())
                     Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                 }
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                Text(subtitle).font(.subheadline).foregroundStyle(Color.primary).monospacedDigit()
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(Color.primary)
             .textCase(nil)
         }
         .accessibilityElement(children: .ignore)
@@ -55,6 +55,7 @@ struct HomeChips: View {
                         use(q)
                     } label: {
                         Label(q, systemImage: history ? "clock" : "magnifyingglass").lineLimit(1)
+                            .foregroundStyle(Color.primary)
                     }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
@@ -259,8 +260,10 @@ struct DocStrip: View {
                                 .frame(width: width, height: width * 4 / 3)
                                 .clipShape(.rect(cornerRadius: 12, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
-                            Text(file.name).font(.caption).lineLimit(2, reservesSpace: true).truncationMode(.middle).multilineTextAlignment(.leading)
-                            Text(Copy.cardLine(file)).font(.caption2).foregroundStyle(.secondary)
+                            Text(file.name).font(.caption).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("document-name")
+                            Text(Copy.cardLine(file)).font(.caption2).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("document-detail")
                         }
                         .frame(width: width, alignment: .leading)
                     }
@@ -350,7 +353,7 @@ struct DateHeader: View {
             Text(title).font(.title3.bold())
             Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
         }
-        .foregroundStyle(.primary)
+        .foregroundStyle(Color.primary)
         .textCase(nil)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)

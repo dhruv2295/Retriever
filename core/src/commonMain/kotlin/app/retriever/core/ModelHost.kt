@@ -78,10 +78,9 @@ internal class ModelHost(
                 markNpuFailed(build, t)
                 return null
             }
-            // Only a GPU whose warm-up embed broke is demoted (native crashes are the unfinished-open counter's). A CPU open,
-            // a missing or truncated file, low memory or a GPU that can't run right now (broken = false) says nothing
-            // about the GPU: rethrown, the batch rests or retries.
-            if (backend != Backend.GPU || (t as? EmbedderClosedException)?.broken != true) throw t
+            // Open and warm-up can throw untyped backend failures too. A CPU failure or an explicit temporary
+            // refusal says nothing about the GPU: rethrow it so the batch rests or retries.
+            if (backend != Backend.GPU || (t as? EmbedderClosedException)?.broken == false) throw t
             // Demoted, the next open is on CPU: try it now, so a batch carries on instead of ending.
             return if (demoteGpu(t)) openLocked() else null
         }

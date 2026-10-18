@@ -2,6 +2,7 @@ package app.retriever.core
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -61,13 +62,63 @@ class ModelHostTest {
     }
 
     @Test
-    fun aGpuOpenThatFailsForAnotherReasonKeepsTheGpu() = runTest {
+    fun aGpuOpenFailureDemotesAndRetriesOnCpu() = runTest {
         val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.GPU))
-        f.factory.fail = { _, _ -> IllegalStateException("the model file was deleted") }
+        f.factory.fail = { p, _ -> if (p.backend == Backend.GPU) IllegalStateException("GPU delegate failed to initialize") else null }
+
+        assertNotNull(f.host.open())
+        assertEquals(Backend.CPU, f.store.profile()!!.backend)
+        assertEquals(listOf(Backend.GPU, Backend.CPU), f.factory.opened.map { it.first.backend })
+        assertEquals("0", f.store.meta("unfinished_opens"))
+        f.host.release()
+        assertNotNull(f.host.open())
+        assertEquals(Backend.CPU, f.factory.opened.last().first.backend)
+    }
+
+    @Test
+    fun anUntypedGpuWarmUpFailureAlsoDemotes() = runTest {
+        val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.GPU))
+        f.factory.beforeEmbed = {
+            if (f.factory.opened.last().first.backend == Backend.GPU) throw IllegalStateException("GPU warm-up failed")
+        }
+
+        assertNotNull(f.host.open())
+        assertEquals(Backend.CPU, f.store.profile()!!.backend)
+        assertEquals(listOf(Backend.GPU, Backend.CPU), f.factory.opened.map { it.first.backend })
+    }
+
+    @Test
+    fun aGpuWarmUpRefusedForNowKeepsTheGpu() = runTest {
+        val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.GPU))
+        f.factory.beforeEmbed = { throw EmbedderClosedException("GPU unavailable in the background", broken = false) }
+
+        assertFalse(assertFailsWith<EmbedderClosedException> { f.host.open() }.broken)
+        assertEquals(Backend.GPU, f.store.profile()!!.backend)
+        assertEquals("0", f.store.meta("unfinished_opens"))
+    }
+
+    @Test
+    fun aCpuOpenFailureIsRethrownWithoutRetrying() = runTest {
+        val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.CPU))
+        f.factory.fail = { _, _ -> IllegalStateException("CPU open failed") }
 
         assertFailsWith<IllegalStateException> { f.host.open() }
+        assertEquals(Backend.CPU, f.store.profile()!!.backend)
+        assertEquals(1, f.factory.opened.size)
+        assertEquals("0", f.store.meta("unfinished_opens"))
+    }
+
+    @Test
+    fun aCancelledGpuWarmUpDoesNotDemoteAndTheNextOpenRuns() = runTest {
+        val f = Fx(PIXEL, FakeFactory(), PROFILE.copy(backend = Backend.GPU))
+        f.factory.beforeEmbed = { throw CancellationException("search cancelled") }
+
+        assertFailsWith<CancellationException> { f.host.open() }
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
-        assertEquals(listOf(Backend.GPU), f.factory.opened.map { it.first.backend }, "no CPU retry either")
+        assertEquals("0", f.store.meta("unfinished_opens"))
+        f.factory.beforeEmbed = {}
+        assertNotNull(f.host.open())
+        assertEquals(listOf(Backend.GPU, Backend.GPU), f.factory.opened.map { it.first.backend })
     }
 
     @Test

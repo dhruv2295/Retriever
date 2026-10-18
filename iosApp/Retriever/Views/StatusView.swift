@@ -75,15 +75,17 @@ struct StatusContent: View {
             photosSection
             if snap.setUp == true {
                 Section {
-                    Toggle("Show On This Day on Home", isOn: Binding(get: { snap.showOnThisDay }, set: { actions.showOnThisDay($0) }))
+                    Toggle(isOn: Binding(get: { snap.showOnThisDay }, set: { actions.showOnThisDay($0) })) {
+                        Text("Show On This Day on Home").fixedSize(horizontal: false, vertical: true)
+                    }
                 } footer: {
-                    Text("Photos and videos from this date in earlier years.")
+                    Text("Photos and videos from this date in earlier years.").foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Section {
                 NavigationLink("Settings", value: Route.settings)
             } footer: {
-                Text(Copy.backgroundNote)
+                Text(Copy.backgroundNote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .navigationTitle(Copy.statusTitle(snap))
@@ -113,7 +115,9 @@ struct StatusContent: View {
         }
         if canKeepReading {
             VStack(alignment: .leading, spacing: 4) {
-                Button(Copy.keepReading, action: actions.keepReading)
+                Button(action: actions.keepReading) {
+                    Text(Copy.keepReading).fixedSize(horizontal: false, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
+                }
                 Note(Copy.keepReadingNote)
             }
         }

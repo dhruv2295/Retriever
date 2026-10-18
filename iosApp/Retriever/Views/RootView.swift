@@ -112,6 +112,8 @@ struct AppStack<Root: View>: View {
         NavigationStack(path: $path) {
             root.navigationDestination(for: Route.self) { destination($0) }
         }
+        .environment(model)
+        .environment(\.services, model.services)
         .quickLookPreview($quickLook, in: quickLookURLs)
         .environment(
             \.openFile,

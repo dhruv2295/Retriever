@@ -68,6 +68,8 @@ class BridgesTest {
             val embedder = HangingEmbedder()
             val r = retriever(dir, embedder)
             r.refreshSetUp()
+            // A cold search answers from keywords and opens the model for the next search.
+            r.warmSearch()
 
             val first = CompletableDeferred<Throwable?>()
             val handle = r.searchCancellable("beach", null, 20, false, false) { _, t -> first.complete(t) }

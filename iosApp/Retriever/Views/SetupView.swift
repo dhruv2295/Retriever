@@ -304,8 +304,8 @@ struct SetupContent: View {
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Copy.firstRunHeadline).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
-            Text(Copy.firstRunWelcomeBody).foregroundStyle(.secondary)
-            Text(state.textOnly ? Copy.firstRunTextOnlyTime : Copy.firstRunTime(size: state.size)).foregroundStyle(.secondary)
+            Text(Copy.firstRunWelcomeBody).fixedSize(horizontal: false, vertical: true)
+            Text(state.textOnly ? Copy.firstRunTextOnlyTime : Copy.firstRunTime(size: state.size)).fixedSize(horizontal: false, vertical: true)
             Button {
                 actions.begin(false)
             } label: {
@@ -375,12 +375,21 @@ struct SetupContent: View {
         switch state.download {
         case .downloading:
             HStack(spacing: 12) {
-                Text(state.progress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
-                ProgressView(value: state.progress).accessibilityLabel(Copy.firstRunDownloadA11y(state.progress))
-                Button(action: actions.stopDownload) { Image(systemName: "xmark.circle.fill").imageScale(.large) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(Copy.firstRunStopA11y)
+                HStack(spacing: 12) {
+                    Text(state.progress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
+                    ProgressView(value: state.progress)
+                }
+                .frame(minHeight: 44)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Downloading")
+                .accessibilityValue(state.progress.formatted(.percent.precision(.fractionLength(0))))
+                Button(action: actions.stopDownload) {
+                    Image(systemName: "xmark.circle.fill").imageScale(.large)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(Copy.firstRunStopA11y)
             }
         case .waitingForWifi:
             Note(Copy.firstRunWaitingForWifi)
@@ -513,7 +522,7 @@ struct Note: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(text).font(.subheadline).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -522,10 +531,13 @@ struct Failure: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Label(text, systemImage: "exclamationmark.triangle.fill")
-            .font(.subheadline)
-            .foregroundStyle(.red)
-            .fixedSize(horizontal: false, vertical: true)
+        Label {
+            Text(text).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+        }
+        .font(.subheadline)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

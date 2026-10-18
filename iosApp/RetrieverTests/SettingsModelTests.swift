@@ -43,6 +43,23 @@ final class SettingsModelTests: XCTestCase {
 
     // MARK: On screen
 
+    func testProblemExportUsesOneSnapshotForItsFileAndCount() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let log = Diagnostics(file: file)
+        let empty = await SettingsView.exportProblems(log)
+        XCTAssertNil(empty)
+        try JSONEncoder().encode(["{\"crashDiagnostics\":[]}", "{\"hangDiagnostics\":[]}"]).write(to: file)
+        let snapshot = await SettingsView.exportProblems(log)
+        let exported = try XCTUnwrap(snapshot)
+        let entries = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported.url)) as? [[String: Any]])
+        XCTAssertEqual(exported.count, 2)
+        XCTAssertEqual(entries.count, exported.count)
+        XCTAssertNotNil(entries[0]["crashDiagnostics"])
+        XCTAssertNotNil(entries[1]["hangDiagnostics"])
+        XCTAssertNil(SettingsView(model: AppModel(fixture: .caughtUp)).diagnostics)
+    }
+
     func testKindTogglesShowAtOnce() throws {
         let model = AppModel(fixture: .caughtUp)
         XCTAssertEqual(try XCTUnwrap(model.snap).kinds, Set(AppModel.Snap.inside))
@@ -81,6 +98,32 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(AppModel.Snap.inside.contains(.audio), "there is no audio source on iOS")
     }
 
+    func testExcludedEditsMergeAcrossStaleSnapshots() async throws {
+        let first = try await liveModel()
+        let second = try await liveModel()
+        first.setExcluded("DCIM/Old", true)
+        second.setExcluded("DCIM/Private", true)
+        var landed = await eventually { self.prefs.excludedFolders == ["DCIM/Old", "DCIM/Private"] }
+        XCTAssertTrue(landed, "both additions persist even when both screens started with no exclusions")
+
+        first.snap?.excludedFolders = ["DCIM/Old", "DCIM/Private"]
+        second.snap?.excludedFolders = ["DCIM/Old", "DCIM/Private"]
+        first.restoreFolder("DCIM/Old")
+        second.setExcluded("DCIM/New", true)
+        landed = await eventually { self.prefs.excludedFolders == ["DCIM/Private", "DCIM/New"] }
+        XCTAssertTrue(landed, "adding a folder must not undo another screen's restore")
+    }
+
+    func testKindEditsMergeAcrossStaleSnapshots() async throws {
+        let first = try await liveModel()
+        let second = try await liveModel()
+        let expected = prefs.kinds.subtracting([.video, .pdf])
+        first.setKind(.video, false)
+        second.setKind(.pdf, false)
+        let landed = await eventually { self.prefs.kinds == expected }
+        XCTAssertTrue(landed, "each toggle changes only its own kind")
+    }
+
     // MARK: Through Prefs
 
     func testSettingsPersistThroughPrefsAndLeaveTheRestAlone() async throws {
@@ -112,7 +155,7 @@ final class SettingsModelTests: XCTestCase {
     }
 
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
-        try await services.retriever.updatePrefs {
+        try await services.retriever.updatePrefs { @Sendable in
             $0.doCopy(
                 kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, excludedFolders: $0.excludedFolders,
                 paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,

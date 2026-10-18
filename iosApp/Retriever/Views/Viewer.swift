@@ -75,11 +75,13 @@ struct PDFViewer: View {
     let words: [String]
     @State private var document: PDFDocument?
     @State private var failed = false
+    @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
         Group {
             if let document {
                 PDFPageView(document: document, page: page, words: words)
+                    .accessibilityIdentifier("viewer.pdf")
                     .ignoresSafeArea(edges: .bottom)
                     .accessibilityLabel(file.name)
             } else if failed {
@@ -89,16 +91,16 @@ struct PDFViewer: View {
             }
         }
         .toolbar {
-            // No page number: it would stay at the opened page while the person scrolls.
-            ToolbarItem(placement: .principal) { Title(name: file.name, detail: nil) }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: file)
                 ShareButton(file: file)
             }
         }
+        .navigationTitle(file.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            guard document == nil, let url = Thumbnails.services?.folders.resolve(file.uri) else {
+            guard document == nil else { return }
+            guard let url = model?.services?.folders.resolve(file.uri) else {
                 failed = true
                 return
             }
@@ -119,7 +121,7 @@ final class JumpPDFView: PDFView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let destination = pending, !bounds.isEmpty else { return }
+        guard let destination = pending, !bounds.isEmpty, scaleFactor > 0 else { return }
         pending = nil
         go(to: destination)
     }
@@ -170,11 +172,12 @@ struct VideoViewer: View {
     let ms: Int64
     @State private var player: AVPlayer?
     @State private var failed = false
+    @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
         Group {
             if let player {
-                PlayerController(player: player).ignoresSafeArea()
+                PlayerController(player: player).ignoresSafeArea().accessibilityIdentifier("viewer.video")
             } else if failed {
                 StateView(mood: .trouble, title: "Couldn't play this video", message: "It may have moved, or it's only in iCloud and there's no connection.")
             } else {
@@ -182,23 +185,34 @@ struct VideoViewer: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) { Title(name: file.name, detail: ms > 0 ? "From \(Self.clock(ms))" : nil) }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: file)
                 ShareButton(file: file)
             }
         }
+        .navigationTitle(file.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .task {
             guard player == nil else { return }
-            guard let item = await Self.item(file.uri) else {
+            let item: AVPlayerItem?
+            if file.uri.hasPrefix("ph://") {
+                item = await Self.libraryItem(String(file.uri.dropFirst(5)))
+            } else {
+                item = model?.services?.folders.resolve(file.uri).map { AVPlayerItem(url: $0) }
+            }
+            guard !Task.isCancelled else { return }
+            guard let item else {
                 failed = true
                 return
             }
             let player = AVPlayer(playerItem: item)
+            #if DEBUG
+                player.isMuted = CommandLine.arguments.contains("-mutedMedia")
+            #endif
             await player.seek(to: CMTime(value: ms, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+            guard !Task.isCancelled else { return }
             self.player = player
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             player.play()
@@ -207,30 +221,19 @@ struct VideoViewer: View {
     }
 
     /// Off the main actor: Photos calls back on its own queue, and a closure formed here would trap there.
-    @concurrent private static func item(_ uri: String) async -> sending AVPlayerItem? {
-        guard uri.hasPrefix("ph://") else {
-            return await MainActor.run { Thumbnails.services?.folders.resolve(uri) }.map { AVPlayerItem(url: $0) }
-        }
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [String(uri.dropFirst(5))], options: nil).firstObject else { return nil }
-        nonisolated(unsafe) let options = PHVideoRequestOptions()
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .automatic
+    nonisolated static func libraryItem(_ id: String) async -> sending AVPlayerItem? {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return nil }
         let manager = PHImageManager.default()
-        let request = OSAllocatedUnfairLock(initialState: PHInvalidImageRequestID)
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { done in
-                request.withLock { $0 = manager.requestPlayerItem(forVideo: asset, options: options) { item, _ in done.resume(returning: item) } }
-                if Task.isCancelled { manager.cancelImageRequest(request.withLock { $0 }) }
-            }
-        } onCancel: {
-            manager.cancelImageRequest(request.withLock { $0 })
-        }
+        return await awaitPhotoRequest(
+            cancel: { manager.cancelImageRequest($0) },
+            start: { done in
+                let options = PHVideoRequestOptions()
+                options.isNetworkAccessAllowed = true
+                options.deliveryMode = .automatic
+                return manager.requestPlayerItem(forVideo: asset, options: options) { @Sendable item, _ in done(item) }
+            })
     }
 
-    static func clock(_ ms: Int64) -> String {
-        let s = ms / 1000
-        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
-    }
 }
 
 private struct PlayerController: UIViewControllerRepresentable {
@@ -263,12 +266,12 @@ struct PhotoViewer: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .background(Color.black.ignoresSafeArea())
         .toolbar {
-            ToolbarItem(placement: .principal) { Title(name: files[selection].name, detail: Format.date(files[selection].modifiedAt)) }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: files[selection])
                 ShareButton(file: files[selection])
             }
         }
+        .navigationTitle(files[selection].name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
@@ -286,6 +289,7 @@ private struct PhotoPage: View {
             Color.black.ignoresSafeArea()
             if let image {
                 ZoomableImage(image: image)
+                    .accessibilityIdentifier("viewer.photo")
                     .ignoresSafeArea()
                     .accessibilityLabel("\(Format.kind(file.kind)), \(file.name)")
                     .accessibilityAddTraits(.isImage)
@@ -308,27 +312,89 @@ private struct PhotoPage: View {
 
     /// Network is allowed only here: the person asked to see this one photo. Off the main actor, because Photos
     /// calls both handlers on its own queue. Swiping away cancels the request.
-    @concurrent private static func load(_ id: String, onProgress: @escaping @Sendable (Double) -> Void) async -> UIImage? {
+    nonisolated private static func load(_ id: String, onProgress: @escaping @Sendable (Double) -> Void) async -> UIImage? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return nil }
-        nonisolated(unsafe) let options = PHImageRequestOptions()
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .highQualityFormat
-        options.progressHandler = { p, _, _, _ in onProgress(p) }
         let manager = PHImageManager.default()
-        let request = OSAllocatedUnfairLock(initialState: PHInvalidImageRequestID)
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { done in
-                request.withLock {
-                    $0 = manager.requestImage(for: asset, targetSize: CGSize(width: 3000, height: 3000), contentMode: .aspectFit, options: options) {
-                        image, _ in
-                        done.resume(returning: image)
-                    }
+        return await awaitPhotoRequest(
+            cancel: { manager.cancelImageRequest($0) },
+            start: { done in
+                let options = PHImageRequestOptions()
+                options.isNetworkAccessAllowed = true
+                options.deliveryMode = .highQualityFormat
+                options.progressHandler = { @Sendable p, _, _, _ in onProgress(p) }
+                return manager.requestImage(for: asset, targetSize: CGSize(width: 3000, height: 3000), contentMode: .aspectFit, options: options) {
+                    @Sendable image, info in
+                    guard info?[PHImageResultIsDegradedKey] as? Bool != true else { return }
+                    done(image)
                 }
-                if Task.isCancelled { manager.cancelImageRequest(request.withLock { $0 }) }
+            })
+    }
+}
+
+/// Photos need not call back after cancellation, and may call back before returning the request ID.
+@concurrent func awaitPhotoRequest<Value>(
+    cancel: @escaping @Sendable (PHImageRequestID) -> Void,
+    start: @Sendable (@escaping @Sendable (sending Value?) -> Void) -> PHImageRequestID
+) async -> sending Value? {
+    let request = PhotoRequest<Value>()
+    return await withTaskCancellationHandler(
+        operation: { @Sendable () async -> sending Value? in
+            await withCheckedContinuation { done in
+                guard request.install(done) else {
+                    done.resume(returning: nil)
+                    return
+                }
+                let id = start { request.finish($0) }
+                if request.register(id) { cancel(id) }
             }
-        } onCancel: {
-            manager.cancelImageRequest(request.withLock { $0 })
+        },
+        onCancel: {
+            if let id = request.cancel() { cancel(id) }
+        })
+}
+
+private final class PhotoRequest<Value>: Sendable {
+    private struct State {
+        var done: CheckedContinuation<Value?, Never>?
+        var id: PHImageRequestID?
+        var cancelled = false
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func install(_ done: CheckedContinuation<Value?, Never>) -> Bool {
+        state.withLock {
+            guard !$0.cancelled else { return false }
+            $0.done = done
+            return true
         }
+    }
+
+    func register(_ id: PHImageRequestID) -> Bool {
+        state.withLock {
+            $0.id = id
+            return $0.cancelled
+        }
+    }
+
+    func finish(_ value: sending Value?) {
+        let done = state.withLock { s in
+            defer { s.done = nil }
+            return s.done
+        }
+        done?.resume(returning: value)
+    }
+
+    func cancel() -> PHImageRequestID? {
+        let (done, id) = state.withLock { s in
+            s.cancelled = true
+            defer {
+                s.done = nil
+                s.id = nil
+            }
+            return (s.done, s.id)
+        }
+        done?.resume(returning: nil)
+        return id
     }
 }
 
@@ -369,20 +435,5 @@ private struct ZoomableImage: UIViewRepresentable {
             guard let scroll = tap.view as? UIScrollView else { return }
             scroll.setZoomScale(scroll.zoomScale > 1 ? 1 : 2.5, animated: true)
         }
-    }
-}
-
-/// A two-line inline title: the file's name and where in it.
-private struct Title: View {
-    let name: String
-    let detail: String?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(name).font(.headline).lineLimit(1).truncationMode(.middle)
-            if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).monospacedDigit() }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 }

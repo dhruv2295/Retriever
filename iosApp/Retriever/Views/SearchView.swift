@@ -69,7 +69,7 @@ struct SearchView: View {
         .navigationTitle(trial == nil ? "Retriever" : Copy.tryItTitle)
         .searchable(
             text: Binding(get: { search.text }, set: search.setText), isPresented: $presented,
-            placement: .navigationBarDrawer(displayMode: .always), prompt: "Search photos, screenshots and files"
+            placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your files"
         )
         .searchScopes($search.scope, activation: .onSearchPresentation) {
             // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
@@ -151,7 +151,9 @@ struct SearchView: View {
 
     private func open(_ hit: SearchEngine.Hit) {
         search.record()
-        openFile(hit.file, locator: hit.locator, words: highlightWords(snippet: hit.snippet, query: search.photo == nil ? search.query : nil))
+        openFile(
+            hit.file, locator: hit.locator, words: highlightWords(snippet: hit.snippet, query: search.photo == nil ? search.query : nil),
+            among: search.answer?.hits.map(\.file) ?? [])
     }
 }
 
@@ -342,6 +344,7 @@ private struct ResultsView: View {
                     search.clearPhoto()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Stop searching by photo")
             }
@@ -354,7 +357,9 @@ private struct ResultsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(answer.relaxed ? parsed.relaxedNote(scope: answer.key.scope.kept) : Copy.understood(parsed.understood))
                     .font(.footnote).foregroundStyle(.secondary)
-                Button(Copy.exactWords, action: search.searchAsTyped).font(.footnote)
+                Button(action: search.searchAsTyped) {
+                    Text(Copy.exactWords).font(.footnote).frame(minHeight: 44).contentShape(Rectangle())
+                }
             }
         }
         if let note = note(answer) {
@@ -472,6 +477,7 @@ private struct NoMatches: View {
                 message: "Retriever has read \(Copy.count(snap.indexed)) of \(Copy.count(snap.total)) files so far. Try again later, or try other words."
             ) {
                 ProgressView(value: snap.total > 0 ? Double(snap.indexed) / Double(snap.total) : 0).frame(width: 220)
+                    .accessibilityHidden(true)  // The message already gives the same counts.
             }
         } else {
             StateView(mood: mood, title: "No matches for “\(query)”", message: "Try other or fewer words.")

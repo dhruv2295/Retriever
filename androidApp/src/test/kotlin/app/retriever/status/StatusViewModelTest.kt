@@ -10,6 +10,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.ShotTheme
 import app.retriever.access.AccessService
+import app.retriever.core.CoreDispatchers
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
@@ -17,6 +18,7 @@ import app.retriever.core.SourceFile
 import app.retriever.duplicates.retrieverOver
 import app.retriever.home.HomeViewModel
 import app.retriever.indexing.IndexService
+import app.retriever.testRetriever
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -71,7 +73,7 @@ class StatusViewModelTest {
     }
 
     @Test fun theHeaderSharesHomesOnceOnlyCelebration() = runTest {
-        val retriever = retrieverOver(files = listOf(photo))
+        val retriever = testRetriever(files = listOf(photo), dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
         retriever.indexBatch(1.minutes)
         val vm = viewModel(retriever)
         assertTrue(vm.celebration.due())

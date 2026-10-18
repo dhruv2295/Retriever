@@ -32,21 +32,27 @@ struct FoldersView: View {
         List {
             let shown = folders.filter { f in !excluded.contains { f.path == $0 || f.path.hasPrefix($0 + "/") } }
             if !shown.isEmpty {
-                Section("Folders with files") {
+                Section {
                     ForEach(shown) { f in
                         NavigationLink(value: Route.files(FileQuery(folder: f.path, title: f.name))) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Label(f.name, systemImage: "folder")
+                                Label {
+                                    Text(f.name).fixedSize(horizontal: false, vertical: true)
+                                } icon: {
+                                    Image(systemName: "folder")
+                                }
                                 Text([Format.files(f.count), f.parent].compactMap { $0 }.joined(separator: " · "))
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                    .foregroundStyle(Color.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
+                            .accessibilityElement(children: .combine)
                         }
                         .swipeActions { Button("Stop searching", systemImage: "eye.slash") { excluding = f }.tint(.orange) }
                         .contextMenu { Button("Stop searching this folder", systemImage: "eye.slash") { excluding = f } }
                     }
+                } header: {
+                    Text("Folders with files").foregroundStyle(Color.primary)
                 }
             }
             if failed && !(picked.isEmpty && unreachable.isEmpty) {
@@ -77,17 +83,24 @@ struct FoldersView: View {
                     adding = true
                 } label: {
                     Label("Add a folder", systemImage: "folder.badge.plus")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
             } header: {
-                Text("Folders you added")
+                Text("Folders you added").foregroundStyle(Color.primary)
             } footer: {
                 Text("Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.")
+                    .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             if !excluded.isEmpty {
                 Section("Not searched") {
                     ForEach(excluded.sorted(), id: \.self) { path in
                         LabeledContent {
-                            Button("Search again") { model.restoreFolder(path) }.buttonStyle(.borderless)
+                            Button {
+                                model.restoreFolder(path)
+                            } label: {
+                                Text("Search again").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                            }.buttonStyle(.borderless)
                         } label: {
                             Label(path.split(separator: "/").last.map(String.init) ?? path, systemImage: "eye.slash")
                         }

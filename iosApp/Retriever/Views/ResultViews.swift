@@ -124,13 +124,13 @@ struct FileRowView: View {
             FileName(name: file.name, styled: styledName, wrapLines: typeSize.isAccessibilitySize ? 3 : 1)
             Text(subtitle ?? "\(file.folder) · \(Format.date(file.modifiedAt))")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .foregroundStyle(Color.primary)
+                .fixedSize(horizontal: false, vertical: true)
             if let snippet, !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
             }
             if let note = Copy.extent(extent) ?? coverage {
-                Text(note).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(.footnote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

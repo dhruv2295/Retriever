@@ -13,6 +13,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertIsNot
 import kotlin.test.assertTrue
 
@@ -101,5 +102,59 @@ class IosEmbedderTest {
         val e = assertFailsWith<EmbedderClosedException> { embed(open(native)) }
         assertTrue(e.broken)
         assertTrue(native.closed)
+    }
+
+    @Test
+    fun aRejectedImageUsesAnImageProbeAndKeepsTheBackend() = runBlocking {
+        val native = ScriptedNative(listOf(failed, ok))
+        val e = open(native)
+        try {
+            assertFailsWith<IllegalArgumentException> { e.embedRaw(listOf(Part.Image(byteArrayOf(1)))) }
+            assertIs<NSData>(native.calls[1].single())
+            assertFalse(native.closed)
+        } finally {
+            e.close()
+        }
+    }
+
+    @Test
+    fun nonFiniteImageOutputsRetireTheBackendWhenTheImageProbeFails() = runBlocking {
+        for (value in listOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY)) {
+            val invalid = floatArrayOf(value).toLeBytes().toNSData() to 0
+            val native = ScriptedNative(listOf(invalid, invalid))
+            val e = open(native)
+            val failure = assertFailsWith<EmbedderClosedException> { e.embedRaw(listOf(Part.Image(byteArrayOf(1)))) }
+            assertTrue(failure.broken)
+            assertIs<NSData>(native.calls[1].single())
+            assertTrue(native.closed)
+        }
+    }
+
+    @Test
+    fun aNonFiniteInputWithAPassingProbeKeepsTheBackend() {
+        val native = ScriptedNative(listOf((floatArrayOf(Float.NaN).toLeBytes().toNSData() to 0), ok))
+        val e = open(native)
+        try {
+            assertFailsWith<IllegalArgumentException> { embed(e) }
+            assertEquals(listOf<Any>(Prefix.query("warm up")), native.calls[1])
+            assertFalse(native.closed)
+        } finally {
+            e.close()
+        }
+    }
+
+    @Test
+    fun memoryAndBackgroundOpenRefusalsDoNotBlameTheGpu() {
+        for (lowMemory in listOf(true, false)) {
+            val opener = object : RefusesForNow {
+                override val refusedForNow = lowMemory
+                override val lastMessage = "open refused"
+                override fun open(modelPath: String, gpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder? = null
+            }
+            val factory = IosEmbedderFactory(opener, "/nowhere", cacheDir, isSimulator = false) { lowMemory }
+            val profile = DeviceProfile(Tier.FULL, ModelVariant.M440, Backend.GPU, 70, 0, false, false)
+            val error = assertFailsWith<EmbedderClosedException> { factory.open(profile, ModelVariant.M440.generic) }
+            assertFalse(error.broken)
+        }
     }
 }

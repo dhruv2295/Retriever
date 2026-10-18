@@ -7,8 +7,9 @@ struct SettingsView: View {
     @State private var confirmingFree = false
     @State private var searchesCleared = false
     /// Overrides the app's own log (previews); nil reads model.services?.diagnostics.
-    var diagnostics: Diagnostics?
+    var diagnostics: Diagnostics? = nil
     @State private var problems: (url: URL, count: Int)?
+    @State private var loadedProblems = false
 
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
@@ -51,8 +52,9 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.modelMissing) { await model.loadStorage() }
         .task {
-            guard let log = diagnostics ?? model.services?.diagnostics else { return }
-            problems = await Task.detached { log.exportURL().map { ($0, log.entries.count) } }.value
+            guard !loadedProblems, let log = diagnostics ?? model.services?.diagnostics else { return }
+            loadedProblems = true
+            problems = await Self.exportProblems(log)
         }
         .confirmationDialog("Remove the search model?", isPresented: $confirmingFree, titleVisibility: .visible) {
             Button("Remove", role: .destructive, action: model.freeUpSpace)
@@ -60,6 +62,19 @@ struct SettingsView: View {
             Text(
                 "Searching by meaning and by what is in photos stops until it downloads again (about \(Copy.bytes(snap.downloadBytes))). Searching by name and words keeps working. Your files and stars are not touched."
             )
+        }
+    }
+
+    /// The share file and its count describe the same read, even if MetricKit adds another report meanwhile.
+    @concurrent static func exportProblems(_ log: Diagnostics) async -> (url: URL, count: Int)? {
+        let entries = log.entries
+        guard !entries.isEmpty else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Retriever problems.json")
+        do {
+            try "[\(entries.joined(separator: ","))]".write(to: url, atomically: true, encoding: .utf8)
+            return (url, entries.count)
+        } catch {
+            return nil
         }
     }
 
@@ -83,9 +98,13 @@ struct SettingsView: View {
                     HStack {
                         Text(name).lineLimit(1)
                         Spacer()
-                        Button("Search again") { model.restoreFolder(path) }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Search “\(name)” again")
+                        Button {
+                            model.restoreFolder(path)
+                        } label: {
+                            Text("Search again").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Search “\(name)” again")
                     }
                 }
             } header: {

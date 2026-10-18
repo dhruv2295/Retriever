@@ -143,6 +143,18 @@ final class SearchModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .empty)
     }
 
+    func testARetryKeepsVisibleWordsOnlyResults() {
+        let file = SourceFile(
+            uri: "folder://test/rent.pdf", name: "rent.pdf", folder: "test", mime: "application/pdf", kind: .pdf, size: 1, modifiedAt: 0, takenAt: nil)
+        let hit = SearchEngine.Hit(file: file, fileId: 1, chunkId: 1, locator: "", snippet: nil, score: 1)
+        let model = SearchModel.fixture(text: "rent", hits: [hit], vectorLane: false)
+        model.retry()
+        XCTAssertEqual(model.screen, .results)
+        XCTAssertFalse(model.stale)
+        model.setText("receipt")
+        XCTAssertEqual(model.screen, .searching(slow: false))
+    }
+
     func testAFailureBelongsToItsQuestion() {
         let model = SearchModel.fixture(text: "rent", failed: true)
         XCTAssertEqual(model.screen, .failed)
@@ -210,6 +222,38 @@ final class SearchModelTests: XCTestCase {
         await model.search(model.key)
         XCTAssertEqual(model.screen, .empty)
         XCTAssertNotNil(model.answer, "no services: the answer on screen is untouched")
+    }
+
+    func testReturningReusesACompleteAnswerButAnExplicitRetryRuns() async throws {
+        let model = SearchModel(services: AppServices.temporary())
+        model.setText("videos")
+        await model.search(model.key)
+        let before = try XCTUnwrap(model.phase as? SearchPhaseResults)
+        XCTAssertTrue(before.complete)
+        XCTAssertTrue(before.result.vectorLane)
+
+        await model.search(model.key)
+        XCTAssertTrue((model.phase as? SearchPhaseResults) === before)
+        model.retry()
+        await model.search(model.key)
+        XCTAssertEqual(model.answer?.key, model.key, "retry must not be swallowed by the same-question guard")
+        XCTAssertFalse((model.phase as? SearchPhaseResults) === before)
+    }
+
+    func testReturningToCompleteWordsOnlyResultsSearchesAgain() async throws {
+        let model = SearchModel(services: AppServices.temporary())
+        model.setText("rent")
+        for _ in 0...Int(SearchTiming.shared.WORDS_ONLY_RETRIES) {
+            await model.search(model.key)
+            if (model.phase as? SearchPhaseResults)?.complete == true { break }
+        }
+        let before = try XCTUnwrap(model.phase as? SearchPhaseResults)
+        XCTAssertTrue(before.complete)
+        XCTAssertFalse(before.result.vectorLane)
+        let key = model.key
+        await model.search(key)
+        XCTAssertEqual(model.answer?.key, key)
+        XCTAssertFalse((model.phase as? SearchPhaseResults) === before, "returning must give meaning search another chance")
     }
 
     /// A replaced search closes its core handle at once instead of running on with the model, and the next search

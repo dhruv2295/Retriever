@@ -14,9 +14,6 @@ import SwiftUI
 /// the matched page of a PDF or moment of a video.
 @MainActor
 enum Thumbnails {
-    /// The app's services for views that cannot read `\.services` (Viewer.swift still does; switch it and delete this).
-    static var services: AppServices? { AppServices.shared }
-
     /// Bounded by decoded bytes, not count: a 768 px cell costs far more than a 52 pt row's.
     private static let cache: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
@@ -154,6 +151,10 @@ struct Thumb: View {
 
     private var pixels: CGFloat { bucketed ? Thumbnails.bucket(points * scale) : points * scale }
 
+    static func requestID(_ file: SourceFile, locator: String, pixels: CGFloat) -> String {
+        "\(file.uri)|\(file.modifiedAt)|\(file.size)|\(locator)|\(Int(pixels))"
+    }
+
     var body: some View {
         Rectangle()
             .fill(.fill.tertiary)
@@ -165,7 +166,7 @@ struct Thumb: View {
                 }
             }
             .clipped()
-            .task(id: "\(file.uri)|\(file.modifiedAt)|\(file.size)|\(locator)|\(Int(pixels))") {
+            .task(id: Self.requestID(file, locator: locator, pixels: pixels)) {
                 image = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
             }
             .accessibilityHidden(true)

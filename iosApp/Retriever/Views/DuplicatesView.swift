@@ -61,10 +61,14 @@ struct DuplicatesView: View {
                 Text("\(Copy.bytes(groups.reduce(0) { $0 + $1.wastedBytes })) could be freed").font(.headline)
             } footer: {
                 Text("Compares files in the folders you added, not photos. The oldest copy of each file is kept. Tap a copy to change what goes.")
+                    .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(groups, id: \.files.first!.uri) { group in
-                Section("\(group.files.count) copies · \(Copy.bytes(group.size)) each") {
+                Section {
                     ForEach(group.files, id: \.uri) { file in row(file) }
+                } header: {
+                    Text("\(group.files.count) copies · \(Copy.bytes(group.size)) each")
+                        .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -92,6 +96,7 @@ struct DuplicatesView: View {
                 openFile(file)
             } label: {
                 Image(systemName: "arrow.up.forward.square")
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Open \(file.name)")

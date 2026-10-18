@@ -9,13 +9,14 @@ import os
 extension AppModel {
     /// Changes the settings given and leaves the rest as they are.
     func edit(
-        kinds: Set<Kind>? = nil, charging: Bool? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
-        excluded: Set<String>? = nil, onThisDay: Bool? = nil
+        kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, charging: Bool? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
+        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil
     ) async throws {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(
-                kinds: kinds ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging, excludedFolders: excluded ?? p.excludedFolders,
+                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging,
+                excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
@@ -37,7 +38,7 @@ extension AppModel {
         if on { kinds.insert(kind) } else { kinds.remove(kind) }
         snap?.kinds = kinds
         // Core clears a kind turned off and queues one turned on.
-        Task { try? await edit(kinds: kinds) }
+        Task { try? await edit(kinds: { on ? $0.union([kind]) : $0.subtracting([kind]) }) }
     }
 
     func setOnlyWhileCharging(_ on: Bool) {
@@ -74,7 +75,7 @@ extension AppModel {
         let rest = on ? skipped.union([path]) : skipped.subtracting([path])
         snap?.excludedFolders = rest
         Task {
-            try? await edit(excluded: rest)
+            try? await edit(excluded: { on ? $0.union([path]) : $0.subtracting([path]) })
             services?.retriever.notifyChanged()
             wake()
         }
