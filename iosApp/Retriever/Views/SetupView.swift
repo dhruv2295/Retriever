@@ -252,7 +252,7 @@ struct SetupContent: View {
                     Button(Copy.firstRunSkip, action: actions.skip).frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 if let mood = state.mood {
-                    MascotView(mood: mood)
+                    MascotView(mood: mood, settles: false)
                         .frame(width: state.stage == .welcome ? 260 : 160)
                         .frame(maxWidth: .infinity)
                 }
