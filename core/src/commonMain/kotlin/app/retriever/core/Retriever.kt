@@ -981,15 +981,21 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
-    /**
-     * Up to three "Try searching" examples, each shown once a kind it would find is read in full (some files, none
-     * waiting) and read inside at all ([readInside]). The photo one needs the model, as photos are found by what they show.
-     */
-    fun suggestions(byKindState: Map<Pair<Kind, FileState>, Long>): List<String> {
-        val inside = readInside()
-        fun ready(k: Kind) = k in inside && (k != Kind.PHOTO || !noModel()) && (byKindState[k to FileState.PENDING] ?: 0L) == 0L &&
-            byKindState.any { (key, n) -> key.first == k && n > 0 }
-        return EXAMPLES.filter { (_, kinds) -> kinds.any(::ready) }.take(3).map { it.first }
+    private val suggestionLock = Mutex()
+    private val contentSuggestions = ContentSuggestions()
+
+    /** Content from the selected read files, with document frequencies from the whole read set. */
+    @Throws(Throwable::class)
+    suspend fun suggestions(fileIds: Set<Long>? = null): List<String> = io {
+        suggestionLock.withLock {
+            contentSuggestions.refresh(store.readContentVersions()) { id -> store.chunkTexts(id).mapNotNull { it.text } }
+            contentSuggestions.suggestions(fileIds)
+        }
+    }
+
+    @Throws(Throwable::class)
+    suspend fun readFiles(fileIds: Set<Long>): List<SourceFile> = io {
+        store.indexedIn(fileIds).values.toList()
     }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
@@ -1169,14 +1175,6 @@ class Retriever(
 
         /** Photos whose median read time can move the tier up; an odd quick one alone can't. */
         const val RETIER_WINDOW = 5
-
-        val EXAMPLES = listOf(
-            "wifi password" to setOf(Kind.SCREENSHOT),
-            "boarding pass" to setOf(Kind.PDF, Kind.SCREENSHOT),
-            "electricity bill" to setOf(Kind.PDF),
-            "notes from the meeting" to setOf(Kind.DOC),
-            "dog on the beach" to setOf(Kind.PHOTO),
-        )
 
         fun nextRunFor(reason: StopReason, changedSinceSync: Boolean): NextRun = when (reason) {
             StopReason.BUDGET -> NextRun.SOON

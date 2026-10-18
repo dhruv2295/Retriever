@@ -47,6 +47,7 @@ data class BackendResult(
     val detail: String? = null,
     val queryMs: Double? = null,
     val maxFrameGapMs: Double = 0.0,
+    val renderingStalls: Boolean = false,
 )
 
 data class CalibrationResult(val backends: List<BackendResult>, val chosen: Backend, val profile: DeviceProfile)
@@ -98,7 +99,7 @@ class Calibration(
         val chosen = pick.backend
         val gpu = results.firstOrNull { it.backend == Backend.GPU }
         val profile = Tiers.profileFor(pick.imageMs ?: 9999.0, ramGb, chosen, variant, maxTokens).copy(
-            gpuVisionStalls = stallsRendering(gpu?.maxFrameGapMs ?: 0.0),
+            gpuVisionStalls = gpu?.renderingStalls == true,
             cpuImageMs = results.firstOrNull { it.backend == Backend.CPU && it.ok }?.imageMs,
             gpuImageMs = gpu?.takeIf { it.ok }?.imageMs,
         )
@@ -197,6 +198,7 @@ class Calibration(
                     detail = embedder.detail,
                     queryMs = median(times.subList(ni + nt + audio.size, times.size)),
                     maxFrameGapMs = rendering?.maxGapMs ?: 0.0,
+                    renderingStalls = rendering?.stalled == true,
                 )
                 return Measured(result, raws, elapsedMs())
             } finally {
@@ -208,6 +210,7 @@ class Calibration(
             val result = BackendResult(
                 backend, false, e.message ?: e::class.simpleName, loadMs, null, null, null, null, null,
                 maxFrameGapMs = rendering?.maxGapMs ?: 0.0,
+                renderingStalls = rendering?.stalled == true,
             )
             return Measured(result, null, elapsedMs())
         }

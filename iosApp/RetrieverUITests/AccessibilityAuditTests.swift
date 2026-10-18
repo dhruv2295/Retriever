@@ -60,6 +60,24 @@ final class AccessibilityAuditTests: XCTestCase {
         try auditFixtures()
     }
 
+    func testDownloadCardKeepsProgressAndStopAccessibleInBothAppearances() throws {
+        for style in ["light", "dark"] {
+            appearance = style
+            XCUIDevice.shared.appearance = style == "dark" ? .dark : .light
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", "setup.limited"]
+            launch(app)
+            let progress = app.staticTexts["download-amount"]
+            let stop = app.buttons["Stop"]
+            XCTAssertTrue(progress.exists)
+            XCTAssertGreaterThanOrEqual(stop.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(stop.frame.width, 44)
+            XCTAssertEqual(progress.frame.midY, stop.frame.midY, accuracy: 14)
+            try audit(app, route: "setup.limited")
+            app.terminate()
+        }
+    }
+
     func testPhotoCaptionsAndUnavailablePhotoContrastInBothAppearances() throws {
         for style in ["light", "dark"] {
             appearance = style
@@ -77,7 +95,12 @@ final class AccessibilityAuditTests: XCTestCase {
                     screenshot.name = "\(route) \(appearance)"
                     screenshot.lifetime = .keepAlways
                     add(screenshot)
-                    try app.performAccessibilityAudit(for: .contrast)
+                    try app.performAccessibilityAudit(for: .contrast) { issue in
+            // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
+            if self.clippedByLegend(issue.element, in: app) { return true }
+            print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
+            return false
+        }
                 }
             }
         }
@@ -160,8 +183,24 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     private func audit(_ app: XCUIApplication, route: String) throws {
+        // Contrast needs complete glyphs: the shorter download card can leave a footer action partly below the fold.
+        let scroll = app.scrollViews.firstMatch
+        if route.hasPrefix("setup."), scroll.exists,
+            let clipped = app.buttons.allElementsBoundByIndex.first(where: {
+                $0.frame.minY >= scroll.frame.midY && $0.frame.minY < scroll.frame.maxY && $0.frame.maxY > scroll.frame.maxY - $0.frame.height
+            })
+        {
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let distance = min(clipped.frame.maxY - scroll.frame.maxY + 2 * clipped.frame.height, scroll.frame.height / 2)
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)))
+        }
         // Dynamic Type auditing resizes lazy lists. Sample contrast before it can invalidate their frames.
-        try app.performAccessibilityAudit(for: .contrast)
+        try app.performAccessibilityAudit(for: .contrast) { issue in
+            // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
+            if self.clippedByLegend(issue.element, in: app) { return true }
+            print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
+            return false
+        }
         try app.performAccessibilityAudit(for: .all.subtracting(.contrast)) { issue in
             guard let element = issue.element else {
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")
@@ -191,6 +230,8 @@ final class AccessibilityAuditTests: XCTestCase {
                 if route == "home.caughtUp", ["document-name", "document-detail"].contains(element.identifier) { return true }
                 // The taller hero displaces this row during live resizing; testRecentSearchChipsGrowAtTheLargestAccessibilitySize verifies its actual growth.
                 if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
+                // The same live resize moves the folders row off-screen; its launch-size growth is checked directly below.
+                if route.hasPrefix("home."), element.label == "All folders" { return true }
                 if route == "browse.folders", Self.folderText.contains(element.label) { return true }
             }
             print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
@@ -242,6 +283,59 @@ final class AccessibilityAuditTests: XCTestCase {
             shot.name = "Document cards \(category)"
             shot.lifetime = .keepAlways
             add(shot)
+            app.terminate()
+        }
+    }
+
+    private func clippedByLegend(_ element: XCUIElement?, in app: XCUIApplication) -> Bool {
+        let legend = app.scrollViews["home.library"]
+        guard let element, legend.exists else { return false }
+        let viewport = legend.frame
+        let frame = element.frame
+        return viewport.intersects(frame) && (frame.minX < viewport.minX || frame.maxX > viewport.maxX)
+    }
+
+    func testKindLegendContrastInBothAppearances() throws {
+        for style in ["light", "dark"] {
+            appearance = style
+            XCUIDevice.shared.appearance = style == "dark" ? .dark : .light
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp"]
+            launch(app)
+            let legend = app.scrollViews["home.library"]
+            XCTAssertTrue(legend.exists)
+            let chips = legend.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "kind-")).allElementsBoundByIndex
+            XCTAssertFalse(chips.isEmpty)
+            for chip in chips {
+                for _ in 0..<(chips.count * 2) {
+                    let viewport = legend.frame
+                    if viewport.insetBy(dx: -1, dy: -1).contains(chip.frame) { break }
+                    let distance = min(max(chip.frame.midX - viewport.midX, -viewport.width / 2), viewport.width / 2)
+                    let start = legend.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: -distance, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.2)
+                }
+                XCTAssertTrue(legend.frame.insetBy(dx: -1, dy: -1).contains(chip.frame), chip.label)
+                try app.performAccessibilityAudit(for: .contrast) { self.clippedByLegend($0.element, in: app) }
+            }
+            app.terminate()
+        }
+    }
+
+    func testLibraryFoldersGrowAtTheLargestAccessibilitySize() {
+        var normal: CGFloat?
+        for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", category]
+            launch(app)
+            let folders = app.buttons["All folders"]
+            for _ in 0..<12 {
+                if folders.exists && folders.isHittable { break }
+                app.swipeUp()
+            }
+            XCTAssertTrue(folders.exists)
+            XCTAssertTrue(folders.isHittable)
+            if let normal { XCTAssertGreaterThan(folders.frame.height, normal) }
+            else { normal = folders.frame.height }
             app.terminate()
         }
     }

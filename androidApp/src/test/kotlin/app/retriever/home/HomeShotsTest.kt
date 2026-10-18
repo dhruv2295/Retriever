@@ -193,7 +193,7 @@ class HomeShotsTest {
     @Test fun caughtUpLight() {
         shot("caught_up", false)
         rule.onNodeWithText("All caught up").assertExists()
-        rule.onNodeWithText("· 26,300 files searchable").assertExists()
+        rule.onNodeWithText("26,300 searchable of", substring = true).assertExists()
         rule.onNodeWithText("760 of them by name only").assertExists()
         // One chip row, no header and no Clear on Home.
         rule.onNodeWithText("Recent searches").assertDoesNotExist()
@@ -255,7 +255,7 @@ class HomeShotsTest {
     @Test fun pausedLight() {
         shot("paused", false)
         rule.onNodeWithText("Paused").assertExists()
-        rule.onNodeWithText("26,300").assertExists()
+        rule.onNodeWithText("searchable of 26,300", substring = true).assertExists()
         rule.onNodeWithText("Resume").assertExists()
     }
 
@@ -412,8 +412,8 @@ class HomeShotsTest {
         rule.setContent { ShotTheme(false) { Screen(caughtUp.copy(suggestions = listOf("wifi password", "a", "b", "c")), IndexState(), recent = emptyList()) } }
         rule.onNodeWithText("Try searching").assertExists()
         rule.onNodeWithContentDescription("Try searching wifi password").assertExists()
-        // Three suggestions at most.
-        rule.onNodeWithText("c").assertDoesNotExist()
+        // Core supplies four to six content terms.
+        rule.onNodeWithText("c").assertExists()
     }
 
     @Test fun suggestionsAreNotDrawnOverAHistory() {

@@ -64,10 +64,13 @@ enum Copy {
         if s.trial && s.pending > 0 {
             return HomeStatus(
                 phase: s.paused ? .paused : (s.running ? .reading : .waiting),
-                title: "Finishing your trial · \(count(s.pending)) files left",
+                title: "\(s.paused ? "Trial paused" : "Finishing your trial") · \(count(s.pending)) files left",
                 detail: stop(s.lastStop).flatMap { s.lastStop == StopReason.done ? nil : $0 } ?? readSoFar)
         }
-        if s.running && s.pendingAtStart == 0 { return HomeStatus(phase: .looking, title: "Looking for new files…") }
+        if s.trial && s.pending == 0 && s.waiting > 0 {
+            return HomeStatus(phase: .waiting, title: "Trial ready · Choose when to read the rest")
+        }
+        if s.running && s.pendingAtStart == 0 { return HomeStatus(phase: .looking, title: "Up to date · Looking for new files…") }
         if s.running {
             return HomeStatus(
                 phase: .reading, title: "Reading your files · \(of)", detail: s.etaMinutes.map(eta),

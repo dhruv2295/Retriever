@@ -173,7 +173,7 @@ class SearchShotsTest {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
         rule.onNodeWithText("Reading your files").assertExists()
-        rule.onNodeWithText("5,330").assertExists()
+        rule.onNodeWithText("searchable of 5,330", substring = true).assertExists()
     }
 
     @Test fun homeDark() = shot("home", true)
@@ -192,7 +192,7 @@ class SearchShotsTest {
     @Test fun homeCaughtUpKeepsAWayToStatus() {
         shot("home_caught_up", false)
         rule.onNodeWithText("All caught up").assertExists()
-        rule.onNodeWithText("· 5,330 files searchable").assertExists()
+        rule.onNodeWithText("5,330 searchable of", substring = true).assertExists()
     }
 
     @Test fun homeBeforeCountsShowsNoFirstRunMessage() {
@@ -336,7 +336,7 @@ class SearchShotsTest {
 
     @Test fun resultsLessLikelyLight() {
         shot("results_less_likely", false)
-        rule.onNodeWithText("Less likely matches").assertExists()
+        rule.onNodeWithText("Less likely matches", substring = true).assertExists()
         rule.onNodeWithText("Nothing matches", substring = true).assertDoesNotExist()
     }
 
@@ -344,9 +344,9 @@ class SearchShotsTest {
 
     @Test fun resultsNothingWellLight() {
         shot("results_nothing_well", false)
-        rule.onNodeWithText("Nothing matches “bill” well").assertExists()
-        rule.onNodeWithText("These are the closest files, but they may not be what you're looking for.").assertExists()
-        rule.onNodeWithText("Less likely matches").assertExists()
+        rule.onNodeWithText("Nothing matches “bill” well").assertDoesNotExist()
+        rule.onNodeWithText("These are the closest files, but they may not be what you're looking for.").assertDoesNotExist()
+        rule.onNodeWithText("Less likely matches", substring = true).assertExists()
     }
 
     @Test fun resultsNothingWellDark() = shot("results_nothing_well", true)
@@ -365,7 +365,7 @@ class SearchShotsTest {
 
     @Test fun allStrongHasNoLessLikelyHeader() {
         shot("results", false)
-        rule.onNodeWithText("Less likely matches").assertDoesNotExist()
+        rule.onNodeWithText("Less likely matches", substring = true).assertDoesNotExist()
     }
 
     @Test fun wordsOnlyPhoneSaysSo() {

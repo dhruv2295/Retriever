@@ -42,6 +42,13 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 12 files left")
         snap.paused = true
         XCTAssertEqual(Copy.homeStatus(snap)?.phase, .paused)
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Trial paused · 12 files left")
+    }
+
+    func testFinishedTrialAndScanningHaveAccurateStatus() {
+        let trial = AppModel.Snap(setUp: true, indexed: 24, trial: true, waiting: 200)
+        XCTAssertEqual(Copy.homeStatus(trial)?.title, "Trial ready · Choose when to read the rest")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 24, running: true))?.title, "Up to date · Looking for new files…")
     }
 
     func testKindProgressSaysHowFarEachKindIs() {

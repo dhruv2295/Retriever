@@ -6,28 +6,32 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RenderingStallsTest {
-    @Test fun measuredNormalFramesDoNotTripTheStallThreshold() {
-        val gaps = FrameGaps()
-        listOf(0.0, 11.0, 38.0, 91.0, 164.0, 261.0, 411.0).forEach { gaps.frame(it, true) }
-        assertEquals(150.0, gaps.maxGapMs)
-        assertFalse(stallsRendering(gaps.maxGapMs))
-        assertFalse(stallsRendering(250.0))
+    @Test fun thresholdFollowsTheDisplay() {
+        for (hz in listOf(60.0, 90.0, 120.0, 144.0)) {
+            assertFalse(stallsRendering(3000.0 / hz, hz))
+            assertTrue(stallsRendering(3000.0 / hz + 0.1, hz))
+            assertTrue(stallsRendering(183.0, hz))
+        }
+        assertFalse(stallsRendering(40.0, 60.0))
+        assertTrue(stallsRendering(40.0, 120.0))
     }
 
-    @Test fun oneLongFrameIsEnough() {
+    @Test fun refreshChangesAreMeasuredAtTheGap() {
         val gaps = FrameGaps()
-        listOf(0.0, 16.0, 4966.0, 4982.0).forEach { gaps.frame(it, true) }
-        assertEquals(4950.0, gaps.maxGapMs)
-        assertTrue(stallsRendering(gaps.maxGapMs))
-        assertTrue(stallsRendering(250.1))
+        gaps.frame(0.0, true, 60.0)
+        gaps.frame(40.0, true, 60.0)
+        assertFalse(gaps.stalled)
+        gaps.frame(80.0, true, 120.0)
+        assertTrue(gaps.stalled)
+        assertEquals(40.0, gaps.maxGapMs)
     }
 
     @Test fun aHiddenDisplayDoesNotBecomeAStall() {
         val gaps = FrameGaps()
-        gaps.frame(0.0, true)
-        gaps.frame(5000.0, false)
-        gaps.frame(10000.0, true)
-        gaps.frame(10016.0, true)
+        gaps.frame(0.0, true, 120.0)
+        gaps.frame(5000.0, false, 120.0)
+        gaps.frame(10000.0, true, 120.0)
+        gaps.frame(10016.0, true, 120.0)
         assertEquals(16.0, gaps.maxGapMs)
     }
 

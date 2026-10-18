@@ -3,7 +3,6 @@ import SwiftUI
 
 struct LibraryOverview<Status: View>: View {
     let snap: AppModel.Snap
-    let folders: [FolderCount]
     @ViewBuilder var status: () -> Status
     static var kinds: [Kind] { [.photo, .video, .screenshot, .pdf, .doc, .audio, .other] }
     private let colors: [Color] = [.accentColor, .blue, .purple, .orange, .teal, .pink, .secondary]
@@ -21,21 +20,28 @@ struct LibraryOverview<Status: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Your library").font(.headline).accessibilityAddTraits(.isHeader)
-            Text(Copy.count(snap.libraryTotal)).font(.largeTitle.bold()).monospacedDigit()
-            Text(snap.trial ? "Files in your whole library · trial reading" : "Files in your library").font(.subheadline)
+            Text("\(Copy.count(snap.indexed)) searchable of \(Copy.count(snap.libraryTotal))").font(.title2.bold()).monospacedDigit()
             GeometryReader { bounds in
+                let active = Self.kinds.filter { (snap.byKind[$0] ?? 0) > 0 }
+                let minimum = min(bounds.size.height, bounds.size.width / CGFloat(max(active.count, 1)))
+                let remaining = max(0, bounds.size.width - minimum * CGFloat(active.count))
                 HStack(spacing: 0) {
                     ForEach(Array(Self.kinds.enumerated()), id: \.element) { index, kind in
                         let count = snap.byKind[kind] ?? 0
                         if count > 0 {
                             let read = snap.reads(kind) && kind != .other ? min(count, snap.readByKind[kind] ?? 0) : 0
+                            let width = minimum + remaining * CGFloat(count) / CGFloat(max(snap.libraryTotal, 1))
+                            let readWidth = read > 0 ? min(width, max(bounds.size.height / 2, width * CGFloat(read) / CGFloat(count))) : 0
                             ZStack(alignment: .leading) {
                                 colors[index].opacity(0.18)
-                                colors[index].frame(width: bounds.size.width * CGFloat(read) / CGFloat(max(snap.libraryTotal, 1)))
+                                colors[index].frame(width: readWidth)
+                                    .overlay(alignment: .bottom) {
+                                        if snap.trial && read > 0 { Rectangle().fill(.primary).frame(height: 2) }
+                                    }
                             }
-                            .frame(width: bounds.size.width * CGFloat(count) / CGFloat(max(snap.libraryTotal, 1)))
+                            .frame(width: width)
                             .accessibilityLabel("\(Self.title(kind)): \(Copy.count(read)) of \(Copy.count(count)) read")
                         }
                     }
@@ -48,15 +54,28 @@ struct LibraryOverview<Status: View>: View {
                 HStack {
                     ForEach(Self.kinds.filter { (snap.byKind[$0] ?? 0) > 0 }, id: \.self) { kind in
                         NavigationLink(value: Route.files(FileQuery(kind: kind, title: Self.title(kind)))) {
-                            Text("\(Self.title(kind)) \(Copy.count(snap.byKind[kind] ?? 0))")
-                        }.buttonStyle(.bordered).controlSize(.large)
+                            HStack(spacing: 6) {
+                                Circle().fill(colors[Self.kinds.firstIndex(of: kind)!]).frame(width: 10, height: 10).accessibilityHidden(true)
+                                Text("\(Self.title(kind)) \(Copy.count(snap.byKind[kind] ?? 0))").foregroundStyle(.primary)
+                            }
+                        }.buttonStyle(.bordered).controlSize(.regular)
                             .accessibilityLabel("\(Self.title(kind)): \(snap.reads(kind) && kind != .other ? min(snap.byKind[kind] ?? 0, snap.readByKind[kind] ?? 0) : 0) of \(snap.byKind[kind] ?? 0) read")
                             .accessibilityHint("Browse \(Self.title(kind).lowercased())")
+                            .accessibilityIdentifier("kind-\(kind.name)")
                     }
                 }
             }
             status()
-            Text("Top folders").font(.subheadline.bold())
+
+        }
+        .padding(.vertical, 8)
+        .accessibilityIdentifier("home.library")
+    }
+}
+
+struct LibraryFolders: View {
+    let folders: [FolderCount]
+    var body: some View {
             ScrollView(.horizontal) {
                 HStack {
                     ForEach(folders, id: \.path) { folder in
@@ -68,8 +87,5 @@ struct LibraryOverview<Status: View>: View {
                     NavigationLink("All folders", value: Route.folders).buttonStyle(.bordered).controlSize(.large)
                 }
             }
-        }
-        .padding(.vertical, 8)
-        .accessibilityIdentifier("home.library")
     }
 }

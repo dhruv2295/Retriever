@@ -37,7 +37,7 @@ struct SectionLink: View {
 
 // MARK: Chips
 
-/// One scrolling row: up to five recent searches, or "Try searching" and up to three suggestions while there is no history.
+/// One scrolling row: up to five recent searches, or "Try searching" and up to six content suggestions while there is no history.
 struct HomeChips: View {
     let recent: [String]
     let suggestions: [String]
@@ -46,7 +46,7 @@ struct HomeChips: View {
 
     var body: some View {
         let history = !recent.isEmpty
-        let queries = history ? Array(recent.prefix(5)) : Array(suggestions.prefix(3))
+        let queries = history ? Array(recent.prefix(5)) : Array(suggestions.prefix(6))
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 if !history { Text("Try searching").font(.subheadline).foregroundStyle(.secondary) }

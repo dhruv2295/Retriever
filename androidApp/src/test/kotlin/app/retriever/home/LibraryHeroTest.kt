@@ -5,7 +5,9 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import app.retriever.ShotTheme
@@ -56,7 +58,7 @@ class LibraryHeroTest {
 
     @Test fun trialKeepsWholeLibraryTotalAndOnlyCountsReadFiles() {
         show(ready.copy(trial = true, waiting = 2, rest = 6, searchable = 2, readByKind = mapOf(Kind.DOC to 2L)))
-        rule.onNodeWithText("Files in your whole library · trial reading").assertIsDisplayed()
+        rule.onNodeWithText("2 searchable of 10").assertIsDisplayed()
         rule.onNodeWithContentDescription("Documents: 2 of 10 read").assertExists()
     }
 
@@ -76,5 +78,21 @@ class LibraryHeroTest {
         show(ready.copy(inside = setOf(Kind.DOC, Kind.PDF, Kind.SCREENSHOT)))
         rule.onNodeWithText("Documents 10").performClick()
         assertEquals(BrowseRoute(kind = "DOC", title = "Documents"), destination)
+    }
+
+    @Test fun subtitleFollowsTheActualReadingState() {
+        val idle = IndexState()
+        assertTrue(libraryStatus(ready.copy(trial = true, waiting = 2), idle).startsWith("Trial in progress"))
+        assertTrue(libraryStatus(ready.copy(trial = true, rest = 5), idle).startsWith("Trial ready"))
+        assertEquals("Paused", libraryStatus(ready.copy(paused = true), idle))
+        assertEquals("Reading your files", libraryStatus(ready.copy(waiting = 5), idle.copy(running = true, pendingAtStart = 5)))
+        assertEquals("All caught up", libraryStatus(ready, idle))
+    }
+
+    @Test fun heroStaysCompactAtDefaultTextSize() {
+        show(ready)
+        val hero = rule.onNodeWithTag("library-hero").fetchSemanticsNode().boundsInRoot
+        val screen = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue(hero.height <= screen.height / 3)
     }
 }

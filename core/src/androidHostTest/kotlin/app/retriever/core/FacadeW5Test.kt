@@ -118,13 +118,9 @@ class FacadeW5Test {
     }
 
     @Test
-    fun suggestionsLeaveOutKindsNotReadInside() = test {
-        val f = Fx(listOf(testFile("a.png", Kind.SCREENSHOT)))
-        f.index()
-        val counts = mapOf((Kind.SCREENSHOT to FileState.INDEXED) to 1L)
-        assertTrue("wifi password" in f.r.suggestions(counts))
-        f.r.updatePrefs { it.copy(kinds = it.kinds - Kind.SCREENSHOT) }
-        assertFalse("wifi password" in f.r.suggestions(counts))
+    fun suggestionsNeverInventContentForAnUnreadFile() = test {
+        val f = Fx(listOf(testFile("wifi password.png", Kind.SCREENSHOT)))
+        assertTrue(f.r.suggestions().isEmpty())
     }
 
     @Test
@@ -207,29 +203,16 @@ class FacadeW5Test {
     }
 
     @Test
-    fun suggestionsFollowTheKindsReadInFull() = test {
-        val f = Fx(emptyList())
-        f.r.refreshSetUp()
-        fun counts(vararg e: Pair<Pair<Kind, FileState>, Long>) = mapOf(*e)
-        assertEquals(emptyList(), f.r.suggestions(emptyMap()))
-        assertEquals(
-            listOf("wifi password", "boarding pass"),
-            f.r.suggestions(counts((Kind.SCREENSHOT to FileState.INDEXED) to 4L)),
-        )
-        assertEquals(
-            emptyList(),
-            f.r.suggestions(counts((Kind.SCREENSHOT to FileState.INDEXED) to 4L, (Kind.SCREENSHOT to FileState.PENDING) to 1L)),
-            "a kind with files waiting isn't ready",
-        )
-        val all = counts(*Kind.entries.map { (it to FileState.INDEXED) to 1L }.toTypedArray())
-        assertEquals(listOf("wifi password", "boarding pass", "electricity bill"), f.r.suggestions(all))
-        assertEquals(
-            listOf("dog on the beach"),
-            f.r.suggestions(counts((Kind.PHOTO to FileState.INDEXED) to 2L)),
-        )
-        f.ready = false
-        f.r.refreshSetUp()
-        assertEquals(emptyList(), f.r.suggestions(counts((Kind.PHOTO to FileState.INDEXED) to 2L)), "photos need the model")
+    fun suggestionsUseReadContentAndRespectTrialScope() = test {
+        val f = Fx(listOf(testFile("one.txt"), testFile("two.txt")))
+        f.store.upsertFiles(listOf(testFile("one.txt"), testFile("two.txt")))
+        val ids = f.store.pending(2).map { it.id }
+        f.store.replaceChunks(ids[0], listOf(Store.NewChunk(0, "", "orchard cedar jasmine marigold", null)))
+        f.store.replaceChunks(ids[1], listOf(Store.NewChunk(0, "", "telescope nebula galaxy comet", null)))
+        assertEquals(setOf("orchard", "cedar", "jasmine", "marigold"), f.r.suggestions(setOf(ids[0])).toSet())
+        assertEquals(6, f.r.suggestions().size)
+        assertTrue(f.r.suggestions(emptySet()).isEmpty())
+        assertEquals(1, f.r.readFiles(setOf(ids[0])).size)
     }
 
     @Test

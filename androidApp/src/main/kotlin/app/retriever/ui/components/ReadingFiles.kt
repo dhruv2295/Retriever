@@ -10,10 +10,13 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -98,23 +101,30 @@ private fun Modifier.readingSweep(size: Dp, position: State<Float>): Modifier {
 }
 
 @Composable
-internal fun ReadyFiles(files: List<SourceFile>, read: Int, reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled()) {
+internal fun ReadyFiles(
+    files: List<SourceFile>,
+    read: Int,
+    reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
+    onOpen: ((SourceFile) -> Unit)? = null,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Ready to search", style = MaterialTheme.typography.titleSmall)
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val size = (maxWidth - 24.dp) / 4
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                maxItemsInEachRow = 4,
-                modifier = Modifier.semantics {
-                    contentDescription = "Ready to search"
-                    collectionInfo = CollectionInfo((files.size + 3) / 4, 4)
-                },
-            ) {
-                // Flat keys keep cells alive even when an insertion moves them to another row.
-                for (file in files) key(file.uri) { RecentFileCell(file, size, reduceMotion) }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = 4,
+            modifier = Modifier.fillMaxWidth().semantics {
+                contentDescription = "Ready to search"
+                collectionInfo = CollectionInfo((files.size + 3) / 4, 4)
+            },
+        ) {
+            // Flat URI keys preserve the arrival animation when a file moves to another row.
+            for (file in files) {
+                key(file.uri) {
+                    RecentFileCell(file, null, reduceMotion, Modifier.weight(1f).aspectRatio(1f), onOpen)
+                }
             }
+            repeat((4 - files.size % 4) % 4) { Spacer(Modifier.weight(1f).aspectRatio(1f)) }
         }
         val more = (read - files.size).coerceAtLeast(0)
         if (more > 0) Muted("+$more more")
@@ -127,38 +137,39 @@ internal fun RecentlyRead(files: List<SourceFile>, onOpen: (SourceFile) -> Unit)
         Text("Recently read", style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = "Recently read" }) {
             items(files, key = { it.uri }) { file ->
-                RecentFileCell(file, 56.dp, !ValueAnimator.areAnimatorsEnabled(), onOpen)
+                RecentFileCell(file, 56.dp, !ValueAnimator.areAnimatorsEnabled(), onOpen = onOpen)
             }
         }
     }
 }
 
 @Composable
-internal fun RecentFileCell(file: SourceFile, size: Dp, reduceMotion: Boolean, onOpen: ((SourceFile) -> Unit)? = null) {
+internal fun RecentFileCell(file: SourceFile, size: Dp?, reduceMotion: Boolean, modifier: Modifier = Modifier, onOpen: ((SourceFile) -> Unit)? = null) {
     val arrival = remember { Animatable(if (reduceMotion) 1f else 0f) }
     LaunchedEffect(reduceMotion) {
         if (reduceMotion) arrival.snapTo(1f) else arrival.animateTo(1f, tween(220))
     }
-    app.retriever.files.FilePressMenu(file) { menu ->
-        val click = if (onOpen ==
-            null
-        ) {
-            Modifier
-        } else {
-            Modifier.combinedClickable(role = Role.Button, onClickLabel = "Open", onLongClickLabel = "File actions", onLongClick = menu, onClick = {
-                onOpen(file)
-            })
-        }
-        Thumb(
-            file,
-            size,
-            Modifier.size(size).graphicsLayer {
+    Box(modifier.then(if (size != null) Modifier.size(size) else Modifier)) {
+        app.retriever.files.FilePressMenu(file) { menu ->
+            val click = if (onOpen == null) {
+                Modifier
+            } else {
+                Modifier.combinedClickable(
+                    role = Role.Button,
+                    onClickLabel = "Open",
+                    onLongClickLabel = "File actions",
+                    onLongClick = menu,
+                    onClick = { onOpen(file) },
+                )
+            }
+            val image = Modifier.fillMaxSize().graphicsLayer {
                 alpha = arrival.value
                 scaleX = 0.92f + 0.08f * arrival.value
                 scaleY = scaleX
             }.clip(MaterialTheme.shapes.medium).then(click).semantics {
                 contentDescription = "${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
-            }.testTag("recent:${file.uri}"),
-        )
+            }.testTag("recent:${file.uri}")
+            if (size == null) MeasuredThumbnailImage(file, image) else Thumb(file, size, image)
+        }
     }
 }

@@ -53,7 +53,7 @@ struct SearchView: View {
             if search.active {
                 ResultsView(search: search, textOnly: textOnly, setUp: setUp, pinned: fixedSnap, photos: model.photos, model: model, trial: trial, open: open)
             } else if trial != nil {
-                TryItIntro(search: search, textOnly: textOnly)
+                TryItIntro(search: search, model: model, ids: trial?.ids ?? [])
             } else {
                 LiveHome(
                     search: search, pinned: fixedSnap, model: model,
@@ -181,7 +181,7 @@ private struct RefreshHome: ViewModifier {
 
     func body(content: Content) -> some View {
         let snap = pinned ?? model.snap
-        content.task(id: [snap?.total ?? -1, snap?.pending == 0 ? 1 : 0]) { await model.refreshHome() }
+        content.task(id: [snap?.total ?? -1, snap?.indexed ?? -1, snap?.pending == 0 ? 1 : 0]) { await model.refreshHome() }
     }
 }
 
@@ -209,6 +209,7 @@ private struct ResultsView: View {
     let model: AppModel
     let trial: Trial?
     let open: (SearchEngine.Hit) -> Void
+    @State private var expanded = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -298,26 +299,16 @@ private struct ResultsView: View {
         // One read of the stars and of "find similar" for every row.
         let rows = Rows(starred: model.starred, similar: search.similar(textOnly: textOnly))
         // A search by photo ranks by likeness alone, so all of it is one list.
-        let strong = search.photo == nil ? min(answer.strongCount, answer.hits.count) : answer.hits.count
+        let strong = min(max(answer.strongCount, 1), answer.hits.count)
         let weak = Array(answer.hits.dropFirst(strong))
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 header(answer)
-                if strong == 0 {
-                    // The words these results answer, not the field's, which may already be ahead of them.
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Copy.nothingWell(answer.key.query)).font(typeSize.isAccessibilitySize ? .headline : .title3.bold())
-                        Text(typeSize.isAccessibilitySize ? Copy.closestFilesShort : Copy.closestFiles).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isHeader)
-                }
                 sections(Array(answer.hits.prefix(strong)), answer: answer, rows: rows)
-                if strong > 0 && !weak.isEmpty {
-                    SectionTitle(Copy.lessLikely)
-                    sections(weak, answer: answer, rows: rows, titled: false)
-                } else if strong == 0 {
-                    sections(weak, answer: answer, rows: rows)
+                if !weak.isEmpty {
+                    DisclosureGroup("Less likely matches (\(weak.count))", isExpanded: $expanded) {
+                        sections(weak, answer: answer, rows: rows, titled: false)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -325,6 +316,7 @@ private struct ResultsView: View {
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.immediately)
+        .onChange(of: answer.key) { expanded = false }
     }
 
     @ViewBuilder private func header(_ answer: SearchModel.Answer) -> some View {
@@ -438,17 +430,38 @@ private struct ResultsView: View {
 /// Under the field before the first word of the first run's try-it: what to try. The title is the navigation bar's.
 private struct TryItIntro: View {
     let search: SearchModel
-    let textOnly: Bool
+    let model: AppModel
+    let ids: [Int64]
+    @State private var files: [SourceFile] = []
+    @State private var suggestions: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(textOnly ? Copy.tryItWordsTextOnly : Copy.tryItWords).font(.body).foregroundStyle(.secondary)
-            StillReading(search: search)
-            Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Search something you remember, or try one of these.").font(.body)
+                WrappingLayout {
+                    if !suggestions.isEmpty {
+                        ForEach(suggestions, id: \.self) { term in
+                            Button(term) { search.setText(term) }.buttonStyle(.bordered)
+                        }
+                    } else {
+                        ForEach(Array(Set(files.map(\.kind))).sorted { $0.name < $1.name }, id: \.self) { kind in
+                            let title = LibraryOverview<EmptyView>.title(kind)
+                            Button(title) { search.setText(title) }.buttonStyle(.bordered)
+                        }
+                    }
+                }
+                StillReading(search: search)
+                ReadyFiles(files: files, read: files.count, interactive: true)
+            }
+            .padding(.horizontal, 24).padding(.top, 16)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: [ids.count, model.snap?.indexed ?? 0]) {
+            guard let retriever = model.services?.retriever else { return }
+            let scope = Set(ids.map { KotlinLong(value: $0) })
+            files = (try? await retriever.readFiles(fileIds: scope)) ?? []
+            suggestions = (try? await retriever.suggestions(fileIds: scope)) ?? []
+        }
     }
 }
 

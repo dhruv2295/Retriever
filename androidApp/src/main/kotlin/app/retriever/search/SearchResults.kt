@@ -48,8 +48,10 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -64,6 +66,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -369,8 +372,10 @@ private fun ResultGrid(
     edge: Dp,
     act: HitActions,
 ) {
-    val strong = hits.take(strongCount)
-    val weak = hits.drop(strongCount)
+    val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
+    val strong = hits.take(visibleCount)
+    val weak = hits.drop(visibleCount)
+    var expanded by remember(query, hits) { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (stale) 0.6f else 1f, fastEffects)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(110.dp),
@@ -380,22 +385,17 @@ private fun ResultGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
     ) {
-        if (strong.isEmpty() && query != null) {
-            item(key = "nothing-well", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
-                Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Nothing matches “$query” well", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "These are the closest files, but they may not be what you're looking for.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
         sections(strong, extents, query, titled = true, act)
         if (weak.isNotEmpty()) {
-            sectionHeader("weak", "Less likely matches")
-            sections(weak, extents, query, titled = false, act)
+            item(key = "weak", span = { GridItemSpan(maxLineSpan) }) {
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.semantics {
+                        stateDescription = if (expanded) "Expanded" else "Collapsed"
+                    },
+                ) { Text("Less likely matches (${weak.size})") }
+            }
+            if (expanded) sections(weak, extents, query, titled = false, act)
         }
     }
 }

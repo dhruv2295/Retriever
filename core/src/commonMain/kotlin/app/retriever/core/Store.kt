@@ -118,6 +118,8 @@ class Store(
         stored.file.copy(uri = newUri, name = name, modifiedAt = modifiedAt)
     }
 
+    fun readContentVersions(): Map<Long, Long> = q.readContentVersions { id, revision -> id to (revision ?: 0L) }.executeAsList().toMap()
+
     fun contentTexts(ids: Collection<Long>): Map<Long, String?> = inChunks(ids) { q.contentByIds(it) { id, text -> id to text }.executeAsList() }.toMap()
 
     /** [sample]: only the newest [sample] files of each kind are work; the rest stay pending, found by name. */

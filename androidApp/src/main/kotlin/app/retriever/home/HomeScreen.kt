@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalTextStyle
@@ -35,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -173,7 +175,7 @@ internal fun HomeBody(
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
     val chips = remember(recent) { recent.take(5) }
-    val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions.take(3) else emptyList() }
+    val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions else emptyList() }
     val tiles = remember(ui.counts, ui.pending, ui.waiting, ui.inside, ui.home?.folders) { moreTiles(ui) }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Adaptive(380.dp),
@@ -200,9 +202,10 @@ internal fun HomeBody(
         item(key = "hero", span = FullLine) {
             LibraryHero(ui, actions.onNavigate) {
                 Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
-                if (ui.hasAccess && ui.setUp && ui.waiting == 0L && ui.rest > 0L) CommitCard(ui, onCommit)
             }
         }
+        if (ui.hasAccess && ui.setUp && ui.waiting == 0L && ui.rest > 0L) item(key = "commit", span = FullLine) { CommitCard(ui, onCommit) }
+        item(key = "folders", span = FullLine) { LibraryFolders(ui, actions.onNavigate) }
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
         // Pictures need the files themselves: without access they would only fail to load.
@@ -260,57 +263,40 @@ private fun Status(
             go(SetupRoute)
         }, clickLabel = "Finish setup")
 
-        ui.trialTitle != null -> StatusCard(
-            colors.surfaceContainer,
-            colors.onSurface,
-            ui.trialTitle!!,
-            body = index.pauseReason,
-            mascot = if (index.running) MascotMood.WALKING else MascotMood.RESTING,
-            onClick = { go(StatusRoute) },
-            action = if (ui.paused) "Resume" to onResume else null,
-        )
-
-        index.running && index.pendingAtStart > 0L -> StatusCard(
-            colors.surfaceContainer,
-            colors.onSurface,
-            "Reading your files",
-            count = index.etaMinutes?.let {
-                Format.eta(it).replaceFirstChar { c -> c.uppercase() } + "." +
-                    if (it >= 60 && !charging) " Faster while charging." else ""
-            },
-            mascot = MascotMood.WALKING,
-            onClick = { go(StatusRoute) },
-        )
-
-        index.running -> QuietRow("Looking for new files…", null, null, false, false, go)
-
-        ui.paused -> StatusCard(
-            colors.secondaryContainer,
-            colors.onSecondaryContainer,
-            "Paused",
-            mascot = MascotMood.RESTING,
-            onClick = { go(StatusRoute) },
-            action = "Resume" to onResume,
-        )
-
-        ui.waiting > 0 -> StatusCard(
-            colors.secondaryContainer,
-            colors.onSecondaryContainer,
-            waitingCopy(index.lastStop) ?: "Waiting",
-            mascot = MascotMood.RESTING,
-            onClick = { go(StatusRoute) },
-        )
-
-        !ui.caughtUpDismissed -> QuietRow(
-            "All caught up",
-            "${Format.count(ui.searchable)} files searchable",
-            ui.home?.nameOnly?.takeIf { it > 0 }?.let { "${Format.count(it)} of them by name only" },
-            true,
-            // The short read being done is not the first full read: the dog waits for the rest to be chosen and read.
-            rememberCelebrating(ui.rest == 0L, celebration),
-            go,
-            onDismissCaughtUp,
-        )
+        else -> {
+            val caughtUp = ui.waiting == 0L && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
+            val celebrating = rememberCelebrating(caughtUp, celebration)
+            val detail = if (ui.trial && ui.waiting > 0) {
+                "${Format.count(ui.waiting)} files left"
+            } else if (index.running && index.pendingAtStart > 0) {
+                index.etaMinutes?.let {
+                    Format.eta(it).replaceFirstChar(Char::uppercase) + "." + if (it >= 60 && !charging) " Faster while charging." else ""
+                }
+            } else {
+                null
+            }
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) }
+                    .heightIn(min = 48.dp).padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (celebrating) Mascot(MascotMood.CAUGHT_UP, Modifier.width(40.dp))
+                Column(Modifier.weight(1f)) {
+                    TitleWithCount(libraryStatus(ui, index), detail, MaterialTheme.typography.bodyMedium)
+                    if (caughtUp) {
+                        ui.home?.nameOnly?.takeIf { it > 0 }?.let {
+                            Text("${Format.count(it)} of them by name only", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                if (ui.paused) TextButton(onClick = onResume) { Text("Resume") }
+                if (caughtUp) {
+                    IconButton(onClick = onDismissCaughtUp) {
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss all caught up")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -361,47 +347,6 @@ private fun StatusCard(
             if (action != null) Button(onClick = action.second, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) { Text(action.first) }
         }
     }
-}
-
-/** Nothing to act on: one line, no card. */
-@Composable
-private fun QuietRow(
-    title: String,
-    count: String?,
-    second: String?,
-    done: Boolean,
-    celebrating: Boolean,
-    go: (Route) -> Unit,
-    onDismiss: (() -> Unit)? = null,
-) {
-    ListItem(
-        leadingContent = when {
-            !done -> null
-
-            celebrating -> ({ Mascot(MascotMood.CAUGHT_UP, Modifier.width(80.dp)) })
-
-            else -> (
-                {
-                    Box(Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                        Icon(painterResource(R.drawable.ic_check), contentDescription = null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-                )
-        },
-        headlineContent = { TitleWithCount(title, count, LocalTextStyle.current) },
-        supportingContent = second?.let { { Text(it) } },
-        trailingContent = {
-            if (onDismiss != null) {
-                androidx.compose.material3.IconButton(onClick = onDismiss) {
-                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss all caught up")
-                }
-            } else {
-                Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        colors = transparent,
-        modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) },
-    )
 }
 
 /** The rest of the library waits for a choice: Read everything opens the setup's three answers as a sheet. */
@@ -494,4 +439,17 @@ private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
         colors = transparent,
         modifier = Modifier.clickable(onClickLabel = "Open", onClick = onClick),
     )
+}
+
+internal fun libraryStatus(ui: HomeUi, index: IndexState): String = when {
+    !ui.hasAccess -> "Allow access to find new files"
+    !ui.setUp -> "Finishing setup"
+    ui.paused -> "Paused"
+    ui.trial && ui.waiting > 0 -> "Trial in progress"
+    ui.trial && ui.rest > 0 -> "Trial ready · Choose when to read the rest"
+    index.running && index.pendingAtStart > 0 -> "Reading your files"
+    ui.waiting > 0 -> waitingCopy(index.lastStop) ?: "Waiting to read"
+    index.running -> "Up to date · Looking for new files…"
+    ui.caughtUpDismissed -> "Ready to search"
+    else -> "All caught up"
 }

@@ -247,8 +247,13 @@ private struct HomeStatusSection: View {
         if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit {
             Section {
                 if snap.libraryTotal > 0 {
-                    LibraryOverview(snap: snap, folders: model.home?.topFolders ?? []) { reading(status) }
+                    LibraryOverview(snap: snap) { reading(status) }
+                    LibraryFolders(folders: model.home?.topFolders ?? [])
                 } else { reading(status) }
+            if snap.asksCommit {
+                card(HomeStatus(phase: .waiting, title: "Read the other \(Copy.count(snap.waiting))?", detail: Copy.commitRest(files: nil)), "Read everything") { asking = true }
+                    .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
+            }
                 if let note = photosNote {
                     if note.phase == .photosOff { card(note, "Open Settings", model.openSettings) }
                     else { card(note, "Choose more photos", model.chooseMorePhotos) }
@@ -272,10 +277,7 @@ private struct HomeStatusSection: View {
                 }
                 if status.phase == .paused { Button("Resume", action: model.resume) }
             }
-            if snap.asksCommit {
-                card(HomeStatus(phase: .waiting, title: "Read the other \(Copy.count(snap.waiting))?", detail: Copy.commitRest(files: nil)), "Read everything") { asking = true }
-                    .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
-            }
+
         }
     }
 
@@ -327,7 +329,7 @@ private struct StatusRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            StatusDog(mood: mood, width: 80, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
+            StatusDog(mood: mood, width: 40, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.phase == .reading && !status.title.contains("trial") ? ["Reading", status.detail].compactMap { $0 }.joined(separator: " · ") : status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)

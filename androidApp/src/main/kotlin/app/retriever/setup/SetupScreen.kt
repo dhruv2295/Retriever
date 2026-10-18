@@ -48,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -157,11 +158,15 @@ fun SetupContent(
     val size = ui.build?.sizeBytes?.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(context, it) }
     val stage = ui.stage
     val mascotWidth by animateDpAsState(if (stage == SetupStage.WELCOME) 260.dp else 160.dp, spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS))
-    Surface(modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize()) {
+    Scaffold(modifier.fillMaxSize().safeDrawingPadding(), bottomBar = {
+        if (stage == SetupStage.READ_FEW && ui.taste?.readyToTry == true) {
+            Surface { TryNow(actions.tryNow) }
+        }
+    }) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
             Column(
                 // Capped inside the scroll, so the gutters scroll too.
-                Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState())
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
@@ -187,7 +192,7 @@ fun SetupContent(
 
                             SetupStage.WAITING -> Waiting(ui, size, folderError, actions)
 
-                            SetupStage.READ_FEW -> ui.taste?.let { ReadingFew(it, actions, reading) }
+                            SetupStage.READ_FEW -> ui.taste?.let { ReadingFew(it, reading) }
 
                             SetupStage.COMMIT -> CommitStage(ui, actions)
 

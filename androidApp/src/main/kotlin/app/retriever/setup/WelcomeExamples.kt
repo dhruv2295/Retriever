@@ -38,7 +38,7 @@ internal fun WelcomeExamples(textOnly: Boolean) {
     val power = LocalContext.current.getSystemService(PowerManager::class.java)
     val animate = motionAllowed(ValueAnimator.areAnimatorsEnabled(), power.isPowerSaveMode, power.currentThermalStatus)
     val queries = if (textOnly) EXAMPLE_QUERIES.drop(1) else EXAMPLE_QUERIES
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             queries.forEachIndexed { index, query ->
                 key(query) {

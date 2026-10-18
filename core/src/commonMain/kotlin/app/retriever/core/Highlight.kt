@@ -16,3 +16,10 @@ fun nameMatchRanges(name: String, query: String): List<IntRange> {
         w in words || (prefix != null && w.startsWith(prefix))
     }.map { it.range }.toList()
 }
+
+/** Unicode letters and combining marks stay together; a query never marks an interior fragment. */
+internal fun wordMatchRanges(text: String, words: List<String>): List<IntRange> = NAME_WORD.findAll(text)
+    .filter { match ->
+        val token = foldLatin(match.value)
+        words.any { word -> token == word || (word.length >= 3 && token.startsWith(word)) }
+    }.map { it.range }.toList()

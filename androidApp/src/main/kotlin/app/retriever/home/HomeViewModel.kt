@@ -156,7 +156,6 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         rest = c.waiting,
                         trial = c.trial,
                         pending = c.byKindState.filterKeys { k -> k.second == FileState.PENDING }.mapKeys { e -> e.key.first },
-                        suggestions = retriever.suggestions(c.byKindState),
                     )
                 }
             }
@@ -179,7 +178,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
             counts.conflate().collect { c ->
                 launchCatching {
                     val estimate = if (ESTIMATE_CALIBRATED && c.waiting > 0) retriever.estimateAll() else null
-                    retriever.home().let { h -> _ui.update { it.copy(home = h.reusing(it.home), estimate = estimate) } }
+                    val suggestions = retriever.suggestions()
+                    retriever.home().let { h -> _ui.update { it.copy(home = h.reusing(it.home), estimate = estimate, suggestions = suggestions) } }
                 }
                 // Photos from past years can arrive today (a restored phone): look again while there are none.
                 ui.value.let { u ->

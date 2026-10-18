@@ -115,16 +115,16 @@ final class HomeModelTests: XCTestCase {
         // Status, the chip row, the mosaic, screenshots, documents, starred, the tiles, tidy up.
         let layout = try await layout(model, search: .fixture(recent: ["passport scan"]))
         XCTAssertEqual(layout.headers, 6)
-        // One status row; one chip row; the mosaic; the strip of screenshots; the strip of documents; the strip of
+        // The hero and folders; one chip row; the mosaic; the strip of screenshots; the strip of documents; the strip of
         // starred files; the grid of tiles (one row); Large files + Duplicates.
-        XCTAssertEqual(layout.items, [1, 1, 1, 1, 1, 1, 1, 2])
+        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 1, 2])
     }
 
     func testPicturesHideWithoutPhotosAccessAndDocumentsStay() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         let denied = try await layout(model, search: .fixture(recent: ["a"]), photos: .denied)
         XCTAssertEqual(
-            denied.items, [2, 1, 1, 1, 1, 2],
+            denied.items, [3, 1, 1, 1, 1, 2],
             "status and the Photos note; no mosaic or screenshots; documents come from added folders; starred, tiles, tidy up stay")
     }
 
@@ -132,7 +132,7 @@ final class HomeModelTests: XCTestCase {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         XCTAssertEqual(model.suggestions.count, 3)
         let layout = try await layout(model, search: .fixture())
-        XCTAssertEqual(layout.items, [1, 1, 1, 1, 1, 1, 1, 2], "still one chip row, of suggestions")
+        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 1, 2], "still one chip row, of suggestions")
     }
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
@@ -148,7 +148,7 @@ final class HomeModelTests: XCTestCase {
         // screenshots have strips and headers of their own). What is left is the status, the nudge to add a folder
         // (5 files is nearly empty), and Duplicates.
         XCTAssertEqual(layout.headers, 1)
-        XCTAssertEqual(layout.items, [1, 1, 1])
+        XCTAssertEqual(layout.items, [2, 1, 1])
     }
 
     /// Videos, Documents (beside PDFs), Audio, Other files, Folders, in that order and only with something in them.
@@ -197,8 +197,8 @@ final class HomeModelTests: XCTestCase {
         var asking = try XCTUnwrap(model.snap)
         asking.waiting = 26_214
         let card = try await layout(model, snap: asking, search: .fixture())
-        XCTAssertEqual(plain.items.first, 1)
-        XCTAssertEqual(card.items.first, 1, "status and the choice belong inside the same library hero")
+        XCTAssertEqual(plain.items.first, 2, "hero and folders")
+        XCTAssertEqual(card.items.first, 3, "the commit choice stays below the compact hero and folders")
         XCTAssertEqual(Array(card.items.dropFirst()), Array(plain.items.dropFirst()))
     }
 

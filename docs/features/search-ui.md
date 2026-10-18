@@ -40,7 +40,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `failed`, `results`, `empty`) from the shared functions, so the view only switches on it. One `Task` per key runs the
   names phase (after the 20 ms floor), then the full phase, and checks `Task.isCancelled` after each await.
 - **Search by photo.** The photo is decoded once (Android `photoReader`, iOS `Photo`), becomes part of the `Question`, and
-  has no weak tail and no names phase.
+  has no names phase; its relative tail uses the same collapsed disclosure as text search.
 - **Re-ask on indexing.** If an answer is empty and files finish being read, the same question is asked again once, after
   a 2 s settle, so a list being read never reshuffles but an empty one fills.
 - **Hooks to other features.** `setUiBusy` (indexing yields while the person types or scrolls and while a search runs, see
@@ -106,3 +106,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   coverage are separate wave 7 items, not part of this note.
 
 Android Home intercepts Back only while the search is expanded, has text, or has a photo query. The standard BackHandler clears the query and collapses the bar before navigation can leave Home.
+
+The strong prefix stays visible; the tail is a collapsed “Less likely matches (N)” disclosure on both platforms.
+Opening it preserves every returned result. A new question resets the disclosure. Even an all-loose name result keeps
+its first file visible. This grouping makes no absolute claim that nothing matches well.

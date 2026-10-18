@@ -101,3 +101,12 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
         fun bin(cos: Float): Int = ((cos + 1f) * (BINS / 2)).toInt().coerceIn(0, BINS - 1)
     }
 }
+
+/** Scores are descending, one per file in a lane. Ties always stay together. */
+internal fun likelyCount(scores: List<Double>): Int {
+    if (scores.size <= 3) return scores.size
+    // The largest drop after the first three sets a query-relative margin; no absolute confidence claim or discarded hits.
+    val gaps = scores.zipWithNext { a, b -> a - b }
+    val split = (2 until gaps.size).maxByOrNull { gaps[it] } ?: return scores.size
+    return if (gaps[split] > 0 && gaps[split] > gaps.average()) split + 1 else scores.size
+}

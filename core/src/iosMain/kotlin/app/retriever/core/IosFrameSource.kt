@@ -10,6 +10,8 @@ import platform.QuartzCore.CADisplayLink
 import platform.darwin.NSObject
 
 internal class IosFrameSource : FrameSource {
+    override val refreshRateHz: Double get() = link?.duration?.takeIf { it > 0 }?.let { 1.0 / it } ?: Double.NaN
+
     private var link: CADisplayLink? = null
     private var target: DisplayTarget? = null
 

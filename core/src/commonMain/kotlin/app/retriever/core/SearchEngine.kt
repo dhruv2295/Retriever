@@ -45,7 +45,7 @@ class SearchEngine(
     private val store: Store,
     @Volatile var embedder: Embedder,
     private val tuning: SearchTuning = SearchTuning(),
-    /** Splits files found only by meaning into strong and weak; null counts them all strong. */
+    /** Optional absolute rule for evaluation; the shipped null uses relative score gaps. */
     private val rule: RelevanceRule? = RelevanceRule.shipped,
     /** The in-memory name index once it is built; null before, when names come from the file keyword table. */
     private val nameIndex: () -> NameIndex? = { null },
@@ -71,7 +71,7 @@ class SearchEngine(
 
     /**
      * [vectorLane] is false when results are keyword-only (other model's index, closed or failed embedder).
-     * hits[0 until strongCount] match well; the rest are weak, listed after them.
+     * hits[0 until strongCount] stay visible; the rest form the collapsed tail, without an absolute confidence claim.
      */
     data class SearchResult(
         val hits: List<Hit>,
@@ -357,7 +357,7 @@ class SearchEngine(
 
     private enum class Source { MEANING, WORDS, NAME_EXACT, NAME, NAME_LOOSE }
 
-    /** [minStrong]: a meaning lane's per-modality strong line from [RelevanceRule.minStrong]; null calls every hit strong. */
+    /** Optional per-modality absolute lines; null splits the lane at its relative score gaps. */
     private class Lane(val hits: List<Candidate>, val source: Source, val minStrong: FloatArray? = null)
 
     /** [text] is a vector candidate's chunk text, [snippet] a keyword candidate's; [cos] is NaN outside the vector lane. */
@@ -407,10 +407,18 @@ class SearchEngine(
         val byName = HashSet<Long>()
         val exact = HashSet<Long>()
         val perLane = lanes.map { lane ->
+            val relativeStrong = if (lane.source == Source.MEANING && lane.minStrong == null) {
+                lane.hits.groupBy { it.modality }.values.flatMap { candidates ->
+                    val files = candidates.sortedByDescending { it.cos }.distinctBy { it.fileId }
+                    files.take(likelyCount(files.map { it.cos.toDouble() })).map { it.fileId }
+                }.toSet()
+            } else {
+                emptySet()
+            }
             val seen = LinkedHashSet<Long>()
             for (c in lane.hits) {
                 when (lane.source) {
-                    Source.MEANING -> if (lane.minStrong == null || c.cos >= lane.minStrong[c.modality]) strong += c.fileId
+                    Source.MEANING -> if (c.fileId in relativeStrong || (lane.minStrong != null && c.cos >= lane.minStrong[c.modality])) strong += c.fileId
 
                     Source.WORDS -> strong += c.fileId
 
@@ -479,7 +487,7 @@ class SearchEngine(
 
         internal fun contentSnippet(text: String, words: List<String>): String {
             val snippet = bestSentence(text, words)
-            val ranges = nameMatchRanges(snippet, words.joinToString(" "))
+            val ranges = wordMatchRanges(snippet, words)
             return buildString {
                 var at = 0
                 for (range in ranges) {
@@ -502,27 +510,32 @@ class SearchEngine(
          * match deep in an unpunctuated run still shows; the start of [text] when none holds any.
          */
         fun bestSentence(text: String, words: List<String>): String {
-            var best: String? = null
-            var bestScore = 0
-            if (words.isNotEmpty()) {
-                for (s in sentences(text)) {
-                    val tokens = Store.ftsTokens(foldLatin(s))
-                    val score = words.count { w -> tokens.any { matches(it, w) } }
-                    if (score > bestScore) {
-                        best = s
-                        bestScore = score
-                    }
+            val candidates = sentences(text).flatMap { sentence ->
+                wordMatchRanges(sentence, words).map { range ->
+                    var start = maxOf(0, range.first - 40)
+                    // A cut inside a word must not create a new word boundary for the highlighter.
+                    while (start in 1 until range.first && wordCharacter(sentence[start - 1]) && wordCharacter(sentence[start])) start++
+                    sentence.substring(start).trimStart().take(SNIPPET)
                 }
-            }
-            val s = best ?: return text.take(SNIPPET)
-            // Positions come from the unfolded sentence: folding can change its length.
-            val at = WORD.findAll(s).firstOrNull { m -> foldLatin(m.value).let { t -> words.any { matches(t, it) } } }?.range?.first ?: 0
-            return s.substring(maxOf(0, at - 40)).take(SNIPPET)
+            }.distinct()
+            val readable = candidates.filterNot(::numericSnippet)
+            return (readable.ifEmpty { candidates }).maxByOrNull { window ->
+                val tokens = Store.ftsTokens(foldLatin(window))
+                words.count { w -> tokens.any { matches(it, w) } }
+            } ?: text.take(SNIPPET)
+        }
+
+        private fun wordCharacter(char: Char): Boolean = char.isLetterOrDigit() ||
+            char.category == CharCategory.NON_SPACING_MARK || char.category == CharCategory.COMBINING_SPACING_MARK
+
+        private fun numericSnippet(text: String): Boolean {
+            val visible = text.filterNot(Char::isWhitespace)
+            return visible.isNotEmpty() &&
+                visible.count { it.isDigit() || !wordCharacter(it) } >
+                visible.length / 2
         }
 
         private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word))
-
-        private val WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
 
         private fun sentences(text: String): List<String> {
             val out = ArrayList<String>()

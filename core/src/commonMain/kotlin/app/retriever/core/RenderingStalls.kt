@@ -8,6 +8,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** Main-thread display callbacks, only subscribed during Tune's existing GPU image calls. Times are milliseconds. */
 interface FrameSource {
+    val refreshRateHz: Double
+
     fun start(onFrame: (Double) -> Unit)
 
     fun stop()
@@ -18,17 +20,29 @@ internal class FrameGaps {
     var maxGapMs = 0.0
         private set
 
-    fun frame(ms: Double, visible: Boolean) {
-        if (visible) previous?.let { maxGapMs = maxOf(maxGapMs, ms - it) }
+    var stalled = false
+        private set
+
+    fun frame(ms: Double, visible: Boolean, refreshRateHz: Double) {
+        if (visible) {
+            previous?.let {
+                maxGapMs = maxOf(maxGapMs, ms - it)
+                stalled = stalled || stallsRendering(ms - it, refreshRateHz)
+            }
+        }
         previous = ms.takeIf { visible }
     }
 }
 
-// 250 ms exceeds the measured 150 ms GPU-on p99 (paused: 53 ms), isolating the seconds-long rendering stalls.
-internal fun stallsRendering(maxGapMs: Double): Boolean = maxGapMs > 250.0
+// Three display intervals: the same visible interruption budget at every refresh rate.
+internal fun stallsRendering(maxGapMs: Double, refreshRateHz: Double): Boolean =
+    refreshRateHz.isFinite() && refreshRateHz > 0 && maxGapMs > 3000.0 / refreshRateHz
 
 internal class RenderingStalls(private val source: FrameSource, private val visible: () -> Boolean) {
     var maxGapMs = 0.0
+        private set
+
+    var stalled = false
         private set
 
     suspend fun <T> image(block: suspend () -> T): T {
@@ -37,7 +51,7 @@ internal class RenderingStalls(private val source: FrameSource, private val visi
         try {
             withContext(Dispatchers.Main) {
                 source.start {
-                    gaps.frame(it, visible())
+                    gaps.frame(it, visible(), source.refreshRateHz)
                     next.complete(Unit)
                 }
                 // A baseline before inference; a hidden display need not deliver callbacks.
@@ -51,6 +65,7 @@ internal class RenderingStalls(private val source: FrameSource, private val visi
                 if (visible()) withTimeoutOrNull(1000) { next.await() }
                 source.stop()
                 maxGapMs = maxOf(maxGapMs, gaps.maxGapMs)
+                stalled = stalled || gaps.stalled
             }
         }
     }

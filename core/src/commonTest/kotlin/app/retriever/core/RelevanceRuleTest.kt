@@ -134,14 +134,16 @@ class RelevanceRuleTest {
     }
 
     @Test
-    fun theShippedSettingCallsEveryHitStrong() = runTest {
+    fun theShippedSettingKeepsAllHitsWithARelativeTail() = runTest {
         // RELEVANCE_RULE_ENABLED is false (theFitFailedItsGateSoTheRuleShipsOff); this test changes with it.
         assertEquals(null, RelevanceRule.shipped)
         val (store, _) = store(background(5_000, 0.5, 0.02) + F("outlier.pdf", 0.62f))
         val r = SearchEngine(store, AxisEmbedder(sig)).search("anything", vector)
         assertEquals(20, r.hits.size)
-        assertEquals(r.hits.size, r.strongCount)
-        assertEquals(r.hits.size, SearchEngine(store, AxisEmbedder(sig)).searchImage(byteArrayOf(1)).strongCount)
+        assertTrue(r.strongCount in 1..r.hits.size)
+        val photo = SearchEngine(store, AxisEmbedder(sig)).searchImage(byteArrayOf(1))
+        assertEquals(r.hits.size, photo.hits.size)
+        assertTrue(photo.strongCount in 1..photo.hits.size)
     }
 
     @Test

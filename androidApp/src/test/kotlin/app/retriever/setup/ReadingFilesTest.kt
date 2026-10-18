@@ -2,6 +2,7 @@ package app.retriever.setup
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composer
 import androidx.compose.runtime.CompositionTracer
 import androidx.compose.runtime.InternalComposeTracingApi
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -63,11 +65,30 @@ class ReadingFilesTest {
 
     @After fun untrace() = Composer.setTracer(null)
 
+    @Test fun fourCellsShareARowAtSeveralWidthsAndTheLastRowKeepsItsSize() {
+        val width = mutableStateOf(239.dp)
+        rule.setContent { ShotTheme(false, 1f) { Column(Modifier.width(width.value)) { ReadyFiles((1..5).map(::file), 5, reduceMotion = true) } } }
+        for (dp in listOf(239, 280, 327, 360)) {
+            rule.runOnIdle { width.value = dp.dp }
+            val cells = (1..5).map { rule.onNodeWithTag("recent:demo:$it").fetchSemanticsNode().boundsInRoot }
+            assertEquals(1, cells.take(4).map { it.top }.distinct().size)
+            assertTrue(cells[4].top > cells[0].bottom)
+            cells.forEach { assertEquals(cells[0].width, it.width, 1f) }
+        }
+    }
+
+    @Test fun trialReadyFilesOpenInTheViewer() {
+        var opened: SourceFile? = null
+        rule.setContent { ShotTheme(false) { ReadyFiles(recent, 4, reduceMotion = true, onOpen = { opened = it }) } }
+        rule.onNodeWithTag("recent:${recent[0].uri}").performClick()
+        assertEquals(recent[0], opened)
+    }
+
     @Test fun setupShowsCurrentFileAndNonInteractiveReadyCells() {
         rule.setContent {
             ShotTheme(false, 1f) {
                 Column {
-                    ReadingFew(taste, SetupActions()) { read ->
+                    ReadingFew(taste) { read ->
                         ReadingNow(file(5, Kind.PDF), reduceMotion = true)
                         ReadyFiles(recent, read, reduceMotion = true)
                     }
@@ -78,7 +99,6 @@ class ReadingFilesTest {
         rule.onNodeWithText("PDF").assertExists()
         rule.onNodeWithText("+26 more").assertExists()
         rule.onNodeWithText("Photos 30/40").assertExists()
-        rule.onNodeWithText("Try it now").assertExists()
         rule.onAllNodes(SemanticsMatcher("recent cell") { it.config.getOrElse(SemanticsProperties.TestTag) { "" }.startsWith("recent:") })
             .assertCountEquals(4)
         recent.forEach { rule.onNodeWithTag("recent:${it.uri}").assertHasNoClickAction() }
@@ -103,7 +123,7 @@ class ReadingFilesTest {
         rule.setContent {
             ShotTheme(false, 1f) {
                 Column {
-                    ReadingFew(taste, SetupActions()) { read ->
+                    ReadingFew(taste) { read ->
                         SetupReadingFiles(null, recent, "Paused while you use other apps. It carries on when you come back.", read)
                     }
                 }

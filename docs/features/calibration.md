@@ -62,7 +62,7 @@ from real read times.
 ## Rendering and configuration pace
 
 The existing GPU image calls (including warm-ups) also measure main-thread display gaps; see `model-lifecycle.md`.
-The profile stores the maximum-gap decision and both CPU/GPU image medians. The medians seed the corresponding
+A visible gap longer than three current display intervals marks GPU vision as stalling (25 ms at 120 Hz, 50 ms at 60 Hz). Android reads Display.refreshRate; iOS uses CADisplayLink.duration, the display interval. The profile stores this decision and both CPU/GPU image medians. The medians seed the corresponding
 vision configuration; real per-kind reads replace those seeds. A mixed text-GPU/vision-CPU image initially uses the
 CPU benchmark as its estimate, then learns its own pace. No additional hybrid benchmark runs.
 

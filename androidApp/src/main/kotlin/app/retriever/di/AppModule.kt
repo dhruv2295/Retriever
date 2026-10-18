@@ -208,7 +208,7 @@ val appModule = module {
             now = System::currentTimeMillis,
             zoneOffsetMs = { java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong() },
             dispatchers = CoreDispatchers(indexing = indexingDispatcher),
-            frames = AndroidFrameSource(),
+            frames = AndroidFrameSource(androidContext()),
             lastExitCrashed = androidContext().let { app -> { ExitReasons.lastExitCrashed(app) } },
         )
     }

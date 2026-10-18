@@ -18,14 +18,13 @@
 package app.retriever.setup
 
 import android.text.format.Formatter
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,9 +39,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -60,6 +61,7 @@ import app.retriever.model.TuneState
 import app.retriever.status.textOnlyNote
 import app.retriever.ui.components.Muted
 import app.retriever.ui.tabular
+import java.text.NumberFormat
 
 /** Two choices and no Skip: either tap starts the download. */
 @Composable
@@ -105,8 +107,8 @@ internal fun ColumnScope.AccessStage(ui: SetupUi, filesDenied: Boolean, folderEr
 private fun DownloadLine(ui: SetupUi) {
     when (val m = ui.model) {
         is ModelState.Downloading -> {
-            val percent = (m.progress * 100).toInt()
-            Muted(if (m.indeterminate) "Downloading" else "Downloading · $percent %")
+            val percent = percentFormat().format(m.progress)
+            Muted(if (m.indeterminate) "Downloading" else "Downloading · $percent")
             DownloadBar(m, Modifier.fillMaxWidth())
         }
 
@@ -235,19 +237,23 @@ private fun DownloadReason(icon: Int, headline: String, supporting: String) {
 
 /** The file being read, the files ready to search, and progress through each kind. */
 @Composable
-internal fun ColumnScope.ReadingFew(taste: TasteProgress, actions: SetupActions, reading: @Composable (Int) -> Unit) {
+internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (Int) -> Unit) {
     val planned = taste.byKind.values.sumOf { it.second }
     Text("Reading a few of your files", style = MaterialTheme.typography.headlineSmall)
     Muted(listOfNotNull("$planned files", timeLeft(taste.secondsLeft)).joinToString(" · "))
     reading(taste.read)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((name, kinds) in KIND_ROWS) {
             val (read, of) = kinds.mapNotNull(taste.byKind::get).fold(0 to 0) { (r, n), (a, b) -> r + a to n + b }
             if (of > 0) KindRow(name, read, of)
         }
     }
-    if (taste.readyToTry) {
-        Button(onClick = actions.tryNow, modifier = Modifier.fillMaxWidth()) { Text("Try it now") }
+}
+
+@Composable
+internal fun TryNow(onTry: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Button(onClick = onTry, modifier = Modifier.fillMaxWidth()) { Text("Try it now") }
         Muted("Everything it reads now stays searchable.")
     }
 }
@@ -288,9 +294,9 @@ internal fun ErrorText(text: String) {
 
 @Composable
 private fun DownloadBar(state: ModelState.Downloading, modifier: Modifier = Modifier) {
-    val percent = (state.progress * 100).toInt()
+    val percent = percentFormat().format(state.progress)
     val bar = modifier.semantics {
-        contentDescription = if (state.indeterminate) "Starting the download" else "Downloading, $percent percent"
+        contentDescription = if (state.indeterminate) "Starting the download" else "Downloading, $percent"
         if (!state.indeterminate) progressBarRangeInfo = ProgressBarRangeInfo(state.progress, 0f..1f)
     }
     if (state.indeterminate) {
@@ -307,16 +313,23 @@ private fun DownloadProgress(state: ModelState.Downloading, totalBytes: Long?, o
     val progress = state.progress.coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (total != null) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "${Formatter.formatShortFileSize(context, (progress * total).toLong())} of ${Formatter.formatShortFileSize(context, total)}",
                     style = MaterialTheme.typography.bodyMedium.tabular(),
                     modifier = Modifier.weight(1f),
                 )
-                Text("${(progress * 100).toInt()} %", style = MaterialTheme.typography.bodyMedium.tabular())
+                Text(percentFormat().format(progress), style = MaterialTheme.typography.bodyMedium.tabular())
+                TextButton(onClick = onStop) { Text("Stop") }
             }
         }
         DownloadBar(state.copy(progress = progress, indeterminate = total == null || state.indeterminate), Modifier.fillMaxWidth())
-        TextButton(onClick = onStop, modifier = Modifier.align(Alignment.End)) { Text("Stop") }
+        if (total == null) TextButton(onClick = onStop, modifier = Modifier.align(Alignment.End)) { Text("Stop") }
     }
+}
+
+@Composable
+private fun percentFormat(): NumberFormat {
+    val locale = LocalConfiguration.current.locales[0]
+    return remember(locale) { NumberFormat.getPercentInstance(locale) }
 }

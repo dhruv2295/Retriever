@@ -20,6 +20,7 @@ struct SetupView: View {
     /// The short read's planned files, once core has them: the try-it search stays inside them.
     @State private var planIds: [Int64]?
     @State private var trySearch: SearchModel
+    @State private var trialPath: [Route] = []
     /// Files beyond the short read, for the commit sentence; nil until counted.
     @State private var restFiles: Int?
     @AppStorage("firstRunTrying") private var trying = false
@@ -108,7 +109,7 @@ struct SetupView: View {
             }
             .onChange(of: taste.planned - taste.read, initial: true) { _, left in trySearch.stillReading = left }
             .task { await refreshRest() }
-        if asked { page } else { NavigationStack { page } }
+        if asked { page } else { AppStack(model: model, path: $trialPath) { page } }
     }
 
     /// Continue: the commit choice, or Done when the short read already was everything.
@@ -266,6 +267,16 @@ struct SetupContent: View {
             .frame(maxWidth: .infinity)
             .animation(reduceMotion ? .default : .snappy, value: state.stage)
         }
+        .safeAreaInset(edge: .bottom) {
+            if state.stage == .readFew, state.taste?.readyToTry == true {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button(action: actions.tryNow) { Text(Copy.firstRunTryNow).frame(maxWidth: .infinity) }
+                        .buttonStyle(.primaryAction).controlSize(.large)
+                    Note(Copy.firstRunStaysSearchable)
+                }
+                .padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
+            }
+        }
         .scrollBounceBehavior(.basedOnSize)
         .clipped()
     }
@@ -297,7 +308,7 @@ struct SetupContent: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
             Button {
                 actions.begin(false)
             } label: {
@@ -393,28 +404,23 @@ struct SetupContent: View {
         switch state.download {
         case .downloading:
             let progress = min(max(state.progress, 0), 1)
-            let percent = progress.formatted(.percent.precision(.fractionLength(0)))
             let amount = state.size.map { "\(Copy.downloadSize(Int64(progress * Double(state.downloadBytes)))) of \($0)" }
-            VStack(alignment: .leading, spacing: 12) {
-                if let amount {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(amount)
-                        Spacer(minLength: 0)
-                        Text(percent)
-                    }
-                    .font(.subheadline)
-                    .monospacedDigit()
-                    ProgressView(value: progress)
-                } else {
-                    ProgressView().progressViewStyle(.linear)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(amount ?? "Downloading").font(.subheadline).monospacedDigit()
+                    .accessibilityIdentifier("download-amount")
+                Spacer(minLength: 0)
+                if amount != nil {
+                    Text(progress, format: .percent.precision(.fractionLength(0))).font(.subheadline).monospacedDigit()
+                }
+                Button(action: actions.stopDownload) {
+                    Text(Copy.firstRunStop).frame(minWidth: 44, minHeight: 44)
                 }
             }
-            .frame(minHeight: 44)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Downloading")
-            .accessibilityValue(amount.map { "\($0), \(percent)" } ?? "")
-            Button(Copy.firstRunStop, action: actions.stopDownload)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Group {
+                if amount != nil { ProgressView(value: progress) } else { ProgressView().progressViewStyle(.linear) }
+            }
+            .accessibilityHidden(true)
+
         case .waitingForWifi:
             Note(Copy.firstRunWaitingForWifi)
             Button(Copy.firstRunUseMobileData) { actions.setUseMobileData(true) }.buttonStyle(.bordered)
@@ -469,16 +475,7 @@ struct SetupContent: View {
             Text(Copy.firstRunReadingHeadline).font(.title2.bold())
             Note(Copy.firstRunReadingLine(files: taste.planned, secondsLeft: taste.secondsLeft))
             SetupReadingFiles(reading: reading, read: taste.read)
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) { ForEach(taste.rows) { KindRow(row: $0) } }
-            }
-            .scrollIndicators(.hidden)
-            if taste.readyToTry {
-                Button(action: actions.tryNow) { Text(Copy.firstRunTryNow).frame(maxWidth: .infinity) }
-                    .buttonStyle(.primaryAction)
-                    .controlSize(.large)
-                Note(Copy.firstRunStaysSearchable)
-            }
+            WrappingLayout { ForEach(taste.rows) { KindRow(row: $0) } }
         }
         .animation(reduceMotion ? nil : .snappy, value: taste.readyToTry)
     }

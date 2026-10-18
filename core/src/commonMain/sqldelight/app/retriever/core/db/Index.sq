@@ -462,3 +462,9 @@ UPDATE files SET uri = ?, name = ?, modified_at = ? WHERE id = ?;
 
 renameStar:
 UPDATE starred SET uri = ?, name = ?, modified_at = ? WHERE uri = ?;
+
+-- Chunk ids change when content is replaced. Cache term counts, never filenames or embedding metadata.
+readContentVersions:
+SELECT files.id, MAX(chunks.id) AS revision FROM files LEFT JOIN chunks ON chunks.file_id = files.id AND chunks.content_text IS NOT NULL
+WHERE files.state = 'INDEXED'
+GROUP BY files.id;

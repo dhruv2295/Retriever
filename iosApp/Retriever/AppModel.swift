@@ -226,8 +226,9 @@ final class AppModel {
         let ramGb = services.retriever.probe.ramGb
         observation = services.retriever.observeAll { @Sendable [weak self] snapshot in
             let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
-            let suggestions = services.retriever.suggestions(byKindState: snapshot.counts.byKindState)
-            Task { @MainActor in self?.apply(snap, starred: snapshot.starred, modelMissing: snapshot.modelMissing, suggestions: suggestions) }
+            Task { @MainActor in
+                self?.apply(snap, starred: snapshot.starred, modelMissing: snapshot.modelMissing, suggestions: self?.suggestions ?? [])
+            }
         }
         readCelebrated = { (try? await services.retriever.celebrated().boolValue) ?? true }
         markCelebrated = { try? await services.retriever.markCelebrated() }

@@ -251,10 +251,17 @@ class RetrievalEval(
             }
             val lane = LinkedHashMap<Int, Float>()
             val strong = HashSet<Int>()
-            for (i in scores.indices.sortedByDescending { scores[it] }.take(SearchEngine.CANDIDATES)) {
+            val candidates = scores.indices.sortedByDescending { scores[it] }.take(SearchEngine.CANDIDATES)
+            if (minStrong == null) {
+                candidates.groupBy { group.chunks[it].modality }.values.forEach { rows ->
+                    val files = rows.distinctBy { group.chunks[it].file }
+                    strong += files.take(likelyCount(files.map { scores[it].toDouble() })).map { group.chunks[it].file }
+                }
+            }
+            for (i in candidates) {
                 val c = group.chunks[i]
                 lane.getOrPut(c.file) { scores[i] }
-                if (minStrong == null || scores[i] >= minStrong[c.modality]) strong += c.file
+                if (minStrong != null && scores[i] >= minStrong[c.modality]) strong += c.file
             }
             MeaningLane(lane, strong)
         }
@@ -400,7 +407,7 @@ private fun EvalRun.strengthSection(row: EvalRow, productionStrong: List<Int>?):
     out.appendLine(
         "A file found by words or a close name match is strong; a loose (substring or typo) name match alone is weak. " +
             if (rule == null) {
-                "The relevance rule is off (RELEVANCE_RULE_ENABLED), so every file found by meaning is strong too."
+                "Absolute relevance is off; the largest score gap within each modality separates the collapsed tail."
             } else {
                 "A file found by meaning is strong when a chunk clears its group's noise line by m = ${rule.margin} (groups under ${rule.minRows} rows: all strong)."
             },

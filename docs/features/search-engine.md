@@ -18,7 +18,7 @@ index (`name-index.md`) is one of its lanes. The screens that show the result ar
 | Keyword lane | `Store.keywordSearch`: FTS4 MATCH on AND-ed tokens, prefix on the last token of 3+ letters. The newest `FTS_CAP` matches are scored by BM25 in Kotlin (matchinfo), and `snippet()` runs only for the winners | FTS is the standard SQLite full-text tool. The recency cap is a known ceiling, marked `ponytail:` in `Store.kt` |
 | Name lanes | `NameIndex.search` split into three lanes: `NAME_EXACT`, `NAME` (exact or prefix) and `NAME_LOOSE` (substring, typo). Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. See `name-index.md` |
 | Fusion | `rrfMerge`: reciprocal rank fusion, `rrfK` and weight from `SearchTuning`. A file shows its best-ranked chunk, a words chunk wins a rank tie. A file whose own name is an exact match for the query goes first, before the `limit` cut | RRF is the accepted rank-only fusion; it needs no score calibration between cosine and BM25 |
-| Strong and weak | Hits found by words or by an exact or prefix name are strong. A hit found only by meaning is strong above the `RelevanceRule` line | Inert today: `RELEVANCE_RULE_ENABLED` is false (`Ranking.kt`; the fit failed its gate, see `eval/REPORT.md`), so every hit is strong |
+| Strong and weak | Words and exact/prefix names stay visible. For meaning-only hits, the largest score drop after the first three files in each modality separates the tail | The tail is collapsed, never discarded. Absolute no-match confidence remains parked (`RELEVANCE_RULE_ENABLED = false`) |
 | Snippet | Only `chunks.content_text`, explicitly supplied by content extractors, can be displayed. `bestSentence` selects content, with the existing query markers; an image can borrow OCR at the same locator. Metadata stays searchable but cannot become a snippet | Both UIs render the markers; migration preserves known legacy document/OCR content and leaves unproven media text hidden |
 | Relax | `Retriever.parsedSearch`: if the filters the parser found leave nothing, search once more without them and mark the result `relaxed` | The second search reuses the cached query vector (`lastQuery`), so it embeds once |
 | Filters | One `Filter` per query (kinds, dates, starred ids) applied inside every lane before its cap | One rule, no lane adds its own |
@@ -103,3 +103,7 @@ until that search ends; a check that the same snippet renders the same bold span
   (`indexing-pipeline.md`, `awaitUi`).
 - Wave 7 A4 (exact name first) is the behaviour in invariant 9; the relevance rule stays off and has no further
   research this wave.
+
+Snippets mark whole Unicode words or prefixes only. Match windows dominated by digits and separators yield to the
+next readable match window. `SnippetTest` covers Hindi, interior fragments and spreadsheet number runs;
+`LikelyMatchesTest` uses synthetic score lists, and the eval shares the production grouping rule.

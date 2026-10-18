@@ -34,10 +34,12 @@ parts are deliberately switched off.
 
 ### What is switched off, and what turns it on
 
-- **Suggestion chips on try-it are not built.** Try-it says "try your own words", and no code or flag draws chips. They
-  are built (WP-K3: the concept bank and per-file scoring) only after WP-K2 passes: an eval over `eval/corpus` with the
-  real embedder on a device where at most one false chip appears per 50 simulated short reads. If it fails, try-it
-  ships with "Try your own words" only.
+- **Content-derived suggestions.** `Retriever.suggestions(fileIds)` computes four to six TF-IDF terms from read files'
+  `content_text`, against the whole read set. Standard English/Hindi stopwords, numbers and short tokens are excluded.
+  With too little text, try-it offers kind filters. The same shared method feeds Home; no fixed phrases are used.
+  `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer.
+- **Layout.** Four weighted square cells per row on Android (spacers complete the last row), four flexible columns on
+  iOS. URI keys preserve arrival animations. Kind pills wrap, and the ready action stays in the bottom inset.
 - **No hours estimate.** `ESTIMATE_CALIBRATED = false` in `Estimate.kt`. While false, `Format` and Home show the fallback
   copy ("Reading the other N takes hours; Retriever measures this phone as it goes", `Format.restSentence`) and `HomeUi.estimate` is `null`.
   It turns on after WP-P1: a full read timed on a device against its own short read, then `ESTIMATE_LOW` and
@@ -56,8 +58,8 @@ parts are deliberately switched off.
 
 1. **Setup never queues the model twice,** and never fetches it unasked after Free up space.
 2. **Every stage resumes after process death** from persisted state.
-3. **No chips and no hours until their gates pass.** Chips are not built; the hours are one named constant
-   (`ESTIMATE_CALIBRATED`), so turning them on is one line after the evidence exists.
+3. **Suggestions quote real content only.** Semantic concept suggestions remain parked. Hours stay behind
+   `ESTIMATE_CALIBRATED` until the timing evidence exists.
 4. **The short read reads only its plan,** then stops; every other file is still found by name.
 5. **"Read everything now" skips try-it and commit;** a returning user never sees the short read.
 6. **Names are searchable from the moment access is granted,** before any model exists.
@@ -78,7 +80,6 @@ parts are deliberately switched off.
 
 ## Known limits
 
-- The chip and hours gates (WP-K2, WP-P1) need a device (the real embedder; a timed full read), which the harness does not have; they
-  are in the device queue.
+- Concept inference and the hours gate still need device evidence; literal content terms do not infer concepts.
 - The estimate ranges are placeholders; one phone is one data point.
 - Tuning runs in the app scope, not WorkManager (see `settings.md`).

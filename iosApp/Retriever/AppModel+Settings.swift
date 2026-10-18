@@ -231,8 +231,11 @@ extension AppModel {
         let wait = 2 - Date.now.timeIntervalSince(homeLoadedAt)
         if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
         guard !Task.isCancelled, let facts = try? await services.retriever.home() else { return }
+        let terms = try? await services.retriever.suggestions(fileIds: nil)
+        guard !Task.isCancelled else { return }
         homeLoadedAt = .now
         home = facts
+        if let terms, suggestions != terms { suggestions = terms }
     }
 
     /// The same date in past years, asked of core with this calendar's real day lengths. Not throttled: it is a few

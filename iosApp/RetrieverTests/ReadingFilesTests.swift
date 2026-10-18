@@ -1,5 +1,6 @@
 import RetrieverCore
 import XCTest
+import SwiftUI
 
 @testable import Retriever
 
@@ -48,5 +49,15 @@ final class ReadingFilesTests: XCTestCase {
             XCTAssertEqual(RecentFileCell(file: old), RecentFileCell(file: retained))
         }
         XCTAssertNotEqual(RecentFileCell(file: before[0]), RecentFileCell(file: after[0]))
+    }
+    func testFourCellsShareOneRowAtSeveralWidths() {
+        for width: CGFloat in [239, 280, 327, 430] {
+            func height(_ count: Int) -> CGFloat {
+                let host = UIHostingController(rootView: ReadyFiles(files: (1...count).map(file), read: count))
+                return host.sizeThatFits(in: CGSize(width: width, height: 2000)).height
+            }
+            XCTAssertEqual(height(1), height(4), accuracy: 1)
+            XCTAssertGreaterThan(height(5), height(4))
+        }
     }
 }

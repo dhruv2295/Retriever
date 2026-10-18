@@ -20,6 +20,7 @@ class CalibrationTest {
         private val clock: TestTimeSource,
         private val queryMs: Map<Backend, Duration> = emptyMap(),
         private val cpuFails: Boolean = false,
+        private val imageMs: Map<Backend, Duration> = emptyMap(),
         private val onImage: (Backend) -> Unit = {},
     ) : EmbedderFactory {
         val texts = mutableListOf<String>()
@@ -38,7 +39,7 @@ class CalibrationTest {
                     clock += when {
                         p is Part.Text && p.text.startsWith(Prefix.query("")) -> queryMs[backend] ?: 10.milliseconds
                         p is Part.Text -> 10.milliseconds.also { texts += p.text }
-                        else -> 100.milliseconds
+                        else -> imageMs[backend] ?: 100.milliseconds
                     }
                     return FloatArray(DIMS) { 1f }
                 }
@@ -58,6 +59,7 @@ class CalibrationTest {
         var starts = 0
         var stops = 0
         val frames = object : FrameSource {
+            override val refreshRateHz = 120.0
             override fun start(onFrame: (Double) -> Unit) {
                 starts++
                 callback = onFrame
@@ -69,16 +71,28 @@ class CalibrationTest {
         }
         val clock = TestTimeSource()
         val images = mutableMapOf<Backend, Int>()
-        val factory = Factory(clock, onImage = { backend ->
-            images[backend] = (images[backend] ?: 0) + 1
-            if (backend == Backend.GPU) callback?.invoke(500.0)
-        })
+        val factory =
+            Factory(
+                clock,
+                queryMs = mapOf(
+                    Backend.CPU to 78.milliseconds,
+                    Backend.GPU to 103.milliseconds,
+                ),
+                imageMs = mapOf(Backend.CPU to 788.milliseconds, Backend.GPU to 474.milliseconds),
+                onImage = { backend ->
+                    images[backend] = (images[backend] ?: 0) + 1
+                    if (backend == Backend.GPU) callback?.invoke(183.0)
+                },
+            )
         try {
             val r = Calibration(factory, clock, frames).run(samples, ModelVariant.M740.generic, 8.0)
             assertTrue(r.profile.gpuVisionStalls)
-            assertEquals(100.0, r.profile.cpuImageMs)
-            assertEquals(100.0, r.profile.gpuImageMs)
-            assertEquals(500.0, r.backends.single { it.backend == Backend.GPU }.maxFrameGapMs)
+            assertEquals(788.0, r.profile.cpuImageMs)
+            assertEquals(474.0, r.profile.gpuImageMs)
+            assertEquals(Backend.GPU, r.chosen)
+            assertEquals(Backend.CPU, visionBackendFor(r.profile, visible = true))
+            assertEquals(Backend.GPU, visionBackendFor(r.profile, visible = false))
+            assertEquals(183.0, r.backends.single { it.backend == Backend.GPU }.maxFrameGapMs)
             assertEquals(mapOf(Backend.CPU to 5, Backend.GPU to 5), images, "three samples and two warm-ups, no new benchmark")
             assertEquals(5, starts)
             assertEquals(starts, stops)

@@ -2,6 +2,7 @@ package app.retriever.setup
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -131,7 +132,8 @@ class SetupStatusShotsTest {
 
     @Test fun readingDoneLight() {
         three("setup_reading_done", readFew, 0)
-        rule.onNodeWithText("Try it now").assertExists()
+        rule.onNodeWithText("Try it now").assertIsDisplayed()
+        rule.onNodeWithText("Everything it reads now stays searchable.").assertIsDisplayed()
     }
 
     @Test fun readingDoneDark() = three("setup_reading_done", readFew, 1)
@@ -159,7 +161,7 @@ class SetupStatusShotsTest {
     @Test fun tryItEmptyLight() {
         shot("setup_tryit_empty_light") { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
         rule.onNodeWithText("Try it on your files").assertExists()
-        rule.onNodeWithText("Try your own words: something you remember seeing in a photo or a screenshot.").assertExists()
+        rule.onNodeWithText("Search something you remember, or try one of these.").assertExists()
         rule.onNodeWithText("Continue").assertExists()
         rule.onAllNodesWithText("Settings").assertCountEquals(0)
     }
