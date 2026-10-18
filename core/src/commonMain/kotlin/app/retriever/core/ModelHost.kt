@@ -200,11 +200,14 @@ internal class ModelHost(
         lock.withLock { withContext(dispatchers.default) { closeLocked() } }
     }
 
-    /** Opening already has a completion cleanup; an idle check must never make a query wait for that open. */
-    suspend fun releaseIf(allowed: () -> Boolean) {
-        if (!lock.tryLock()) return
+    /**
+     * Opening already has a completion cleanup; an idle check must never make a query wait for that open. Returns whether
+     * it closed the model; false while the lock is held or [allowed] says no, so the caller can try again later.
+     */
+    suspend fun releaseIf(allowed: () -> Boolean): Boolean {
+        if (!lock.tryLock()) return false
         try {
-            withContext(dispatchers.default) { if (allowed()) closeLocked() }
+            return withContext(dispatchers.default) { allowed().also { if (it) closeLocked() } }
         } finally {
             lock.unlock()
         }

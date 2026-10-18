@@ -178,9 +178,17 @@ class Retriever(
     @Volatile
     private var nameOnlyAt: Pair<Map<FileState, Long>, Long>? = null
 
-    /** A visible app indexes now, on battery too; the user is watching it happen. */
+    /** A visible app indexes now, on battery too; the user is watching it happen. Showing drops a pending release. */
     @Volatile
     var uiVisible: Boolean = false
+        set(v) {
+            field = v
+            if (v) releaseWanted = false
+        }
+
+    /** A hidden-idle release was asked for and hasn't happened yet: a batch or search held the model. */
+    @Volatile
+    private var releaseWanted = false
 
     private val uiBusy = MutableStateFlow(false)
     private val searching = MutableStateFlow(0)
@@ -623,11 +631,21 @@ class Retriever(
 
     /** Hidden work gives memory back when its last user finishes; an imminent follow-up keeps the model warm. */
     @Throws(Throwable::class)
-    suspend fun releaseIfIdle() = withContext(NonCancellable) {
-        if (uiVisible || searching.value != 0) return@withContext
+    suspend fun releaseIfIdle() {
+        if (uiVisible) return
+        releaseWanted = true
+        retryRelease()
+    }
+
+    /**
+     * Finishes a release that was asked for. Searches and warm-ups call only this, never [releaseIfIdle]: a hidden search
+     * (a Shortcut) that closed the model it had just warmed would leave every later hidden search on keywords alone.
+     */
+    private suspend fun retryRelease() = withContext(NonCancellable) {
+        if (!releaseWanted || uiVisible || searching.value != 0) return@withContext
         if (!indexLock.tryLock()) return@withContext
         try {
-            model.releaseIf { !uiVisible && (!batchSoon || prefs.value.paused) && searching.value == 0 }
+            if (model.releaseIf { !uiVisible && (!batchSoon || prefs.value.paused) && searching.value == 0 }) releaseWanted = false
         } finally {
             indexLock.unlock()
         }
@@ -747,7 +765,7 @@ class Retriever(
             }
         } finally {
             searching.update { it - 1 }
-            releaseIfIdle()
+            retryRelease()
         }
     }
 
@@ -779,7 +797,7 @@ class Retriever(
         } catch (t: Exception) {
             log("Couldn't open the model ahead of a search", t)
         } finally {
-            releaseIfIdle()
+            retryRelease()
         }
     }
 
