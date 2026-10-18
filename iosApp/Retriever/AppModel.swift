@@ -32,6 +32,7 @@ final class AppModel {
         var failed = 0
         var pendingAtStart = 0
         var current: String?
+        var reading = ReadingPreview()
         var lastStop: StopReason?
         var lastError: String?
         var filesPerMinute = 0.0
@@ -64,11 +65,14 @@ final class AppModel {
         /// What changes with every file read. `AppModel.snap` leaves it at its defaults, so a tick doesn't redraw the
         /// screens that don't show it; read `AppModel.live` where it is shown.
         var progress: Progress {
-            get { Progress(processed: processed, current: current, filesPerMinute: filesPerMinute, etaMinutes: etaMinutes, lastError: lastError) }
+            get {
+                Progress(processed: processed, current: current, filesPerMinute: filesPerMinute, etaMinutes: etaMinutes, lastError: lastError, reading: reading)
+            }
             set {
                 (processed, current, filesPerMinute, etaMinutes, lastError) = (
                     newValue.processed, newValue.current, newValue.filesPerMinute, newValue.etaMinutes, newValue.lastError
                 )
+                reading = newValue.reading
             }
         }
 
@@ -86,6 +90,7 @@ final class AppModel {
         var filesPerMinute = 0.0
         var etaMinutes: Int?
         var lastError: String?
+        var reading = ReadingPreview()
     }
 
     /// Bytes Retriever keeps on this device.
@@ -355,6 +360,7 @@ extension AppModel.Snap {
         failed = Int(s.state.failed)
         pendingAtStart = Int(s.state.pendingAtStart)
         current = s.state.current
+        reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.state.pauseReason)
         lastStop = s.state.lastStop
         lastError = s.state.lastError
         filesPerMinute = s.state.filesPerMinute

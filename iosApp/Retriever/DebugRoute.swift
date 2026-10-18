@@ -41,6 +41,8 @@
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
         case statusSkipped = "status.skipped"
+        case setupReading = "setup.reading"
+        case setupReadingPaused = "setup.readingPaused"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
@@ -120,7 +122,7 @@
             case .setupWaitingWifi: .waitingForWifi
             case .setupFailed: .downloadFailed
             case .setupTuning: .tuning
-            case .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
+            case .setupReading, .setupReadingPaused, .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
             case .statusPaused: .paused
             case .statusSkipped: .skipped(6)
             case .statusTailFiles: .tailFiles(12)
@@ -132,6 +134,8 @@
 
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
+            case .setupReading, .setupReadingPaused:
+                readingSetup(model, paused: self == .setupReadingPaused)
             case .setupWelcome:
                 SetupView(model: model)
             case .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupDownload, .setupWaitingWifi, .setupFailed, .setupTuning, .setupTextOnly:
@@ -163,6 +167,20 @@
             default:
                 AppStack(model: model, path: path) { fixtureSearch(model).task { await Self.hideKeyboard() } }
             }
+        }
+
+        @MainActor private func readingSetup(_ model: AppModel, paused: Bool) -> some View {
+            var preview = model.progress.reading
+            if paused {
+                preview.current = nil
+                preview.pauseReason = "Paused while you use other apps. It carries on when you come back."
+            }
+            let state = SetupState(
+                asked: true, photos: .authorized, folders: [], downloadBytes: 0, download: .ready, progress: 1,
+                useMobileData: false, tune: .done("Ready"), setUp: true,
+                taste: TasteSnap(counts: [.screenshot: (6, 6), .pdf: (4, 8), .photo: (20, 40)], secondsLeft: 70, readyToTry: true),
+                decided: false)
+            return SetupContent(state: state, reading: { preview })
         }
 
         @MainActor @ViewBuilder private func fixtureSearch(_ model: AppModel) -> some View {

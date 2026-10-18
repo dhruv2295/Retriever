@@ -45,6 +45,8 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -72,6 +74,8 @@ import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
+import app.retriever.ui.components.ReadingNow
+import app.retriever.ui.components.ReadyFiles
 import org.koin.compose.koinInject
 
 @Composable
@@ -132,7 +136,10 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
     if (ui.stage == SetupStage.TRY) {
         TryItScreen(ui, actions, onNavigate)
     } else {
-        SetupContent(ui, filesDenied = askedFiles && !ui.files, folderError = folderError, actions = actions)
+        SetupContent(ui, filesDenied = askedFiles && !ui.files, folderError = folderError, actions = actions, reading = { read ->
+            val index by flow.reading.collectAsStateWithLifecycle()
+            SetupReadingFiles(index.currentFile, index.recentFiles, index.pauseReason, read)
+        })
     }
 }
 
@@ -144,6 +151,7 @@ fun SetupContent(
     filesDenied: Boolean = false,
     actions: SetupActions = SetupActions(),
     folderError: String? = null,
+    reading: @Composable (Int) -> Unit = { read -> SetupReadingFiles(null, emptyList(), ui.pauseReason, read) },
 ) {
     val context = LocalContext.current
     val size = ui.build?.sizeBytes?.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(context, it) }
@@ -177,7 +185,7 @@ fun SetupContent(
 
                             SetupStage.WAITING -> Waiting(ui, size, folderError, actions)
 
-                            SetupStage.READ_FEW -> ui.taste?.let { ReadingFew(it, actions) }
+                            SetupStage.READ_FEW -> ui.taste?.let { ReadingFew(it, actions, reading) }
 
                             SetupStage.COMMIT -> CommitStage(ui, actions)
 
@@ -219,4 +227,12 @@ internal fun SetupUi.mood(): MascotMood = when {
     model is ModelState.Failed || tune is TuneState.Failed -> MascotMood.TROUBLE
     model == ModelState.WaitingForWifi || downloadStopped || textOnly -> MascotMood.RESTING
     else -> MascotMood.WALKING
+}
+
+@Composable
+internal fun SetupReadingFiles(current: app.retriever.core.SourceFile?, recent: List<app.retriever.core.SourceFile>, pauseReason: String?, read: Int) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) { ReadingNow(current, pauseReason) }
+    }
+    ReadyFiles(recent, read)
 }

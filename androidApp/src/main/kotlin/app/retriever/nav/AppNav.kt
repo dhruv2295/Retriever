@@ -112,7 +112,7 @@ fun AppNav(retriever: Retriever = koinInject()) {
         composable<SettingsRoute> { SettingsScreen(back) }
         composable<FoldersRoute> { FoldersScreen(go, back) }
         composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
-        composable<StatusRoute> { StatusScreen(back, onOpenSettings = { go(SettingsRoute) }) }
+        composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
         composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back) }
         composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back) }
         composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }

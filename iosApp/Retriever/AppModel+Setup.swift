@@ -188,7 +188,6 @@ extension AppModel {
 struct TasteSnap: Equatable, Sendable {
     struct Row: Equatable, Identifiable, Sendable {
         let name: String
-        let icon: String
         let read: Int
         let planned: Int
         var id: String { name }
@@ -212,7 +211,7 @@ struct TasteSnap: Equatable, Sendable {
             let found = group.kinds.compactMap { counts[$0] }
             let planned = found.reduce(0) { $0 + $1.planned }
             guard planned > 0 else { return nil }
-            return Row(name: group.name, icon: Format.icon(group.kinds[0]), read: found.reduce(0) { $0 + $1.read }, planned: planned)
+            return Row(name: group.name, read: found.reduce(0) { $0 + $1.read }, planned: planned)
         }
         self.secondsLeft = secondsLeft
         self.readyToTry = readyToTry

@@ -63,6 +63,12 @@ extension AppModel {
             snap.etaMinutes = Int((Double(total - done) / 38).rounded(.up))
             snap.pendingByKind = [.photo: total - done]
             snap.current = "Photo 2026-09-14 at 18.42.07"
+            let files = (1...8).map { i in
+                SourceFile(
+                    uri: "folder://fixture/reading-\(i)", name: "Photo \(i).jpg", folder: "Photos", mime: "image/jpeg", kind: .photo,
+                    size: 240_000, modifiedAt: 1_760_000_000_000, takenAt: nil)
+            }
+            snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
             snap.tailFiles = 3
         case .caughtUp:
             break

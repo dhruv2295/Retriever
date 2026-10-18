@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,16 +65,21 @@ import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
 import app.retriever.core.Retriever
+import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
 import app.retriever.home.rememberCelebrating
 import app.retriever.motion.Mascot
+import app.retriever.nav.Route
 import app.retriever.ui.Format
 import app.retriever.ui.components.Header
 import app.retriever.ui.components.Muted
+import app.retriever.ui.components.ReadingNow
+import app.retriever.ui.components.RecentlyRead
 import app.retriever.ui.tabular
+import app.retriever.viewer.Opener
 import org.koin.androidx.compose.koinViewModel
 
 internal fun stopCopy(stop: StopReason?): String? = when (stop) {
@@ -92,6 +98,7 @@ internal fun waitingCopy(stop: StopReason?): String? = if (stop == StopReason.DO
 
 class StatusActions(
     val back: () -> Unit = {},
+    val openFile: (SourceFile) -> Unit = {},
     val pause: () -> Unit = {},
     val resume: () -> Unit = {},
     val toggleSkipped: () -> Unit = {},
@@ -113,9 +120,13 @@ internal fun textOnlyNote(ramGb: Double): String =
     )
 
 @Composable
-fun StatusScreen(onBack: () -> Unit, onOpenSettings: (() -> Unit)? = null, vm: StatusViewModel = koinViewModel()) {
+fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings: (() -> Unit)? = null, vm: StatusViewModel = koinViewModel()) {
     val context = LocalContext.current
     val ui by vm.uiState.collectAsStateWithLifecycle()
+    val recentFiles by rememberUpdatedState(ui.index.recentFiles)
+    val openFile = remember(context, onNavigate) {
+        { file: SourceFile -> Opener.open(context, file, navigate = onNavigate, siblings = recentFiles) }
+    }
     var skippedOpen by rememberSaveable { mutableStateOf(false) }
     val power = remember { context.getSystemService(PowerManager::class.java) }
     var unrestricted by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
@@ -141,6 +152,7 @@ fun StatusScreen(onBack: () -> Unit, onOpenSettings: (() -> Unit)? = null, vm: S
         batteryHint = !unrestricted,
         actions = StatusActions(
             back = onBack,
+            openFile = openFile,
             pause = vm::pause,
             resume = vm::resume,
             toggleSkipped = {
@@ -239,11 +251,14 @@ fun StatusContent(
 
                         index.running -> {
                             index.etaMinutes?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
-                            index.current?.let { Muted("Now: $it", maxLines = 1) }
                         }
 
                         // The title already says paused or all caught up.
                         waiting > 0 && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
+                    }
+                    if (index.running) {
+                        ReadingNow(index.currentFile, size = 56.dp)
+                        RecentlyRead(index.recentFiles, actions.openFile)
                     }
                     index.lastError?.let {
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
