@@ -103,6 +103,12 @@ data class DemoParts(
 /** Demo parts, or null in a normal run; a holder because a Koin definition can't be null. */
 class DemoMode(val parts: DemoParts?)
 
+/**
+ * Whether the app can see any files yet; the worker syncs names before the model arrives. Declared above [appModule]:
+ * top-level properties initialise in file order, so a qualifier declared below the module is still null when it registers.
+ */
+val PlatformReady = named("platformReady")
+
 private val log: (String, Throwable?) -> Unit = { message, t -> LogSink.write(BuildConfig.DEBUG, message, t) }
 
 // Every single is lazy: the first get, from RetrieverApp's IO start, does the disk reads off the main thread.
@@ -238,6 +244,3 @@ val appModule = module {
     viewModelOf(::DocViewModel)
     viewModelOf(::PlayerViewModel)
 }
-
-/** Whether the app can see any files yet; the worker syncs names before the model arrives. */
-val PlatformReady = named("platformReady")

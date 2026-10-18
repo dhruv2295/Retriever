@@ -7,8 +7,10 @@ import app.cash.sqldelight.db.SqlDriver
 import app.retriever.core.Platform
 import org.junit.Test
 import org.koin.core.annotation.KoinExperimentalAPI
+import org.koin.core.annotation.KoinInternalApi
 import org.koin.test.verify.verify
 import java.net.URI
+import kotlin.test.assertTrue
 
 class KoinModuleTest {
     @OptIn(KoinExperimentalAPI::class)
@@ -22,5 +24,12 @@ class KoinModuleTest {
                 Platform::class, SqlDriver::class, DemoParts::class, WorkerParameters::class,
             ),
         )
+    }
+
+    /** verify() can't see a qualifier that was still null when the module registered; the debug app crashed on launch. */
+    @OptIn(KoinInternalApi::class)
+    @Test
+    fun qualifiedDefinitionsRegisterUnderTheirQualifier() {
+        assertTrue(appModule.mappings.keys.any { PlatformReady.value in it }, "PlatformReady missing from ${appModule.mappings.keys}")
     }
 }
