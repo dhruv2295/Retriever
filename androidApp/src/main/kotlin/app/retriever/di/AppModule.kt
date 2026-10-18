@@ -152,7 +152,7 @@ val appModule = module {
             override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
                 val start = System.nanoTime()
                 super.onUpgrade(db, oldVersion, newVersion)
-                Log.i("Retriever", "Index upgraded $oldVersion -> $newVersion in ${(System.nanoTime() - start) / 1_000_000} ms")
+                if (BuildConfig.DEBUG) Log.i("Retriever", "Index upgraded $oldVersion -> $newVersion in ${(System.nanoTime() - start) / 1_000_000} ms")
             }
         }
         // Backed up and moved to a new phone (data_extraction_rules.xml); demo mode keeps the person's state out of its database.

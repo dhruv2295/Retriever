@@ -82,7 +82,7 @@ class SearchViewModelTest {
     private fun vm(
         r: Retriever = retriever,
         photo: ByteArray? = null,
-        reader: PhotoReader = PhotoReader { uri, label -> photo?.let { Similar(uri, label, it) } },
+        reader: PhotoReader = PhotoReader { uri, label -> photo?.let { PickedPhoto(Similar(uri, label), it) } },
     ) = SearchViewModel(r, launchQuery, RecentShortcuts(app), reader)
 
     /** The answer to the question asked now, as the screen would show it. */
@@ -240,6 +240,25 @@ class SearchViewModelTest {
         assertEquals(null, vm.ui.value.error)
     }
 
+    @Test fun pickingTheSameUriAgainSearchesTheNewBytesAndClearingReturnsToWords() = runTest {
+        val r = withModel()
+        r.indexBatch(1.minutes, deepen = false)
+        var image = 0
+        val vm = vm(r, reader = PhotoReader { uri, label -> PickedPhoto(Similar(uri, label), byteArrayOf(image.toByte())) })
+        vm.searchPhoto("content://picked/photo").join()
+        advanceUntilIdle()
+        assertEquals("IMG_0.jpg", vm.ui.value.hits!!.first().file.name)
+        image = 3
+        vm.searchPhoto("content://picked/photo").join()
+        advanceUntilIdle()
+        assertEquals("IMG_3.jpg", vm.ui.value.hits!!.first().file.name)
+        vm.clearSimilar()
+        vm.submit("notes")
+        advanceUntilIdle()
+        assertEquals(null, vm.ui.value.similar)
+        assertEquals("notes.txt", vm.ui.value.hits!!.first().file.name)
+    }
+
     @Test fun aSupersededSearchLeavesNoExtentsForHitsNotShown() = runTest {
         val r = withModel()
         r.indexBatch(1.minutes, deepen = false)
@@ -278,10 +297,10 @@ class SearchViewModelTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         vm.setQuery("bill")
-        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
-        vm.opened(hit)
+        vm.ui.first { it.hits?.size == 60 }
+        vm.opened()
         assertEquals(listOf("bill"), vm.ui.first { it.recent.isNotEmpty() }.recent)
-        vm.opened(hit)
+        vm.opened()
         advanceUntilIdle()
         assertEquals(listOf("bill"), retriever.recentQueries())
     }
@@ -290,10 +309,10 @@ class SearchViewModelTest {
         retriever.indexBatch(1.minutes)
         val vm = vm(photo = ByteArray(1))
         vm.setQuery("bill")
-        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
+        vm.ui.first { it.hits?.size == 60 }
         vm.findSimilar(photos.first()).join()
         assertTrue(vm.ui.value.similar != null)
-        vm.opened(hit)
+        vm.opened()
         advanceUntilIdle()
         assertEquals(emptyList<String>(), retriever.recentQueries())
     }
@@ -302,9 +321,9 @@ class SearchViewModelTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         vm.setQuery("bill")
-        val hit = vm.ui.first { it.hits?.size == 60 }.hits!!.first()
+        vm.ui.first { it.hits?.size == 60 }
         vm.setQuery("   ")
-        vm.opened(hit)
+        vm.opened()
         advanceUntilIdle()
         assertEquals(emptyList<String>(), retriever.recentQueries())
     }

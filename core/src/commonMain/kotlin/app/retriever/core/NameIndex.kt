@@ -43,6 +43,7 @@ class NameIndex private constructor(
      * and newest first within one, capped at [limit]. [admit] runs before the cap, so a filter never empties a full page.
      */
     fun search(query: String, kinds: Set<Kind>? = null, limit: Int = 100, admit: ((NameEntry) -> Boolean)? = null): List<NameHit> {
+        if (limit <= 0) return emptyList()
         val words = ArrayList<String>().also { tokenize(query) { t -> it += t } }
         if (words.isEmpty() || entries.isEmpty()) return emptyList()
         val per = words.map(::classify)
@@ -114,7 +115,6 @@ class NameIndex private constructor(
         if (!found && edits > 0) {
             // An edit spoils at most 3 trigrams, but an adjacent swap (one OSA edit) spoils 4.
             val need = maxOf(1, q.length - 2 - 4 * edits)
-            val shared = IntArray(tokens.size)
             if (q.length - 2 - 4 * edits < 1) {
                 // A short word can lose every trigram to one edit ('tlak' vs 'talk'), so compare by length instead.
                 for (t in tokens.indices) {
@@ -125,6 +125,7 @@ class NameIndex private constructor(
                     }
                 }
             } else {
+                val shared = IntArray(tokens.size)
                 for (g in 0..q.length - 3) {
                     for (t in grams[gram(q, g)] ?: continue) {
                         if (++shared[t] == need && kotlin.math.abs(tokens[t].length - q.length) <= edits &&

@@ -3,6 +3,7 @@ package app.retriever.search
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.net.toUri
@@ -44,7 +45,11 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /** A photo to search by; [uri] names it in the [Question]. Not a data class: equality is identity, so each pick searches. */
-class Similar(val uri: String, val label: String, val jpeg: ByteArray, val thumb: ImageBitmap? = null)
+@Immutable
+class Similar(val uri: String, val label: String, val thumb: ImageBitmap? = null)
+
+/** Search input owned by the ViewModel; the UI receives only [similar], whose thumbnail is never modified. */
+class PickedPhoto(val similar: Similar, val jpeg: ByteArray)
 
 data class SearchUi(
     val query: String = "",
@@ -106,6 +111,7 @@ class SearchViewModel(
     private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly))
     val ui: StateFlow<SearchUi> = _ui.asStateFlow()
     private val retries = MutableStateFlow(0)
+    private var photo: PickedPhoto? = null
 
     /** The question whose first answer is on screen, and the one whose full answer is. */
     private var shown: Question? = null
@@ -132,6 +138,7 @@ class SearchViewModel(
             launchQuery.pending.filterNotNull().collect { q ->
                 launchQuery.consume()
                 recentShortcuts.used(q)
+                photo = null
                 _ui.update { it.copy(query = q, chip = null, similar = null, onlyStarred = false, literal = false, launched = it.launched + 1) }
             }
         }
@@ -147,15 +154,17 @@ class SearchViewModel(
         launchCatching { loadRecent() }
     }
 
-    /** A question as asked: [similar] carries the photo's bytes, [retry] asks the same question again. */
-    private data class Key(val question: Question, val similar: Similar?, val retry: Int)
+    /** A question as asked: [photo] carries the photo's bytes, [retry] asks the same question again. */
+    private data class Key(val question: Question, val photo: PickedPhoto?, val retry: Int)
 
-    private fun keyNow(): Key = _ui.value.let { Key(it.question, it.similar, retries.value) }
+    private fun SearchUi.pickedPhoto() = photo?.takeIf { it.similar === similar }
+
+    private fun keyNow(): Key = _ui.value.let { Key(it.question, it.pickedPhoto(), retries.value) }
 
     /** The key as it changes: the words wait [wait] ms for more typing, everything else counts at once. */
     private fun keys(wait: Long) = combine(
         _ui.map { it.query.trim() }.distinctUntilChanged().debounce(wait),
-        _ui.map { it.question.copy(text = "") to it.similar }.distinctUntilChanged(),
+        _ui.map { it.question.copy(text = "") to it.pickedPhoto() }.distinctUntilChanged(),
         retries,
     ) { text, (rest, similar), retry ->
         // A search by photo ignores the words, so the query settling to "" must not start it again.
@@ -168,8 +177,8 @@ class SearchViewModel(
      */
     private suspend fun search(k: Key, namesOnly: Boolean) {
         val q = k.question
-        if (namesOnly && k.similar != null) return
-        if (k.similar == null && q.text.isEmpty()) {
+        if (namesOnly && k.photo != null) return
+        if (k.photo == null && q.text.isEmpty()) {
             // Retyping the same words is a new search: its names answer comes first again.
             shown = null
             complete = null
@@ -181,7 +190,7 @@ class SearchViewModel(
         val kinds = q.kind?.let(::setOf)
         try {
             val r = when {
-                k.similar != null -> retriever.searchImage(k.similar.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope).let {
+                k.photo != null -> retriever.searchImage(k.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope).let {
                     it.copy(strongCount = it.hits.size) // a search by photo has no weak tail
                 }
 
@@ -254,6 +263,7 @@ class SearchViewModel(
                 else -> it.copy(query = q, similar = null, literal = false)
             }
         }
+        if (_ui.value.similar == null) photo = null
         if (q != before) typed()
     }
 
@@ -298,7 +308,7 @@ class SearchViewModel(
         record(q)
     }
 
-    fun opened(hit: SearchEngine.Hit) {
+    fun opened() {
         if (_ui.value.similar == null) record(_ui.value.query)
     }
 
@@ -331,11 +341,15 @@ class SearchViewModel(
     fun searchPhoto(uri: String) = showSimilar(uri, "your photo")
 
     private fun showSimilar(uri: String, label: String) = attempt {
-        val similar = photos.read(uri, label) ?: return@attempt
-        _ui.update { it.copy(similar = similar, query = "") }
+        val picked = photos.read(uri, label) ?: return@attempt
+        photo = picked
+        _ui.update { it.copy(similar = picked.similar, query = "") }
     }
 
-    fun clearSimilar() = _ui.update { it.copy(similar = null) }
+    fun clearSimilar() {
+        photo = null
+        _ui.update { it.copy(similar = null) }
+    }
 
     fun errorShown() = _ui.update { it.copy(error = null) }
 
@@ -351,12 +365,13 @@ class SearchViewModel(
 
 /** A picked photo or a file as the search by photo needs it, or null when it can't be read. */
 fun interface PhotoReader {
-    suspend fun read(uri: String, label: String): Similar?
+    suspend fun read(uri: String, label: String): PickedPhoto?
 }
 
 /** A JPEG at most 1024 px on its longest side, decoded once here, not in composition: the chip shows it as its avatar. */
 fun photoReader(context: Context) = PhotoReader { uri, label ->
     withContext(Dispatchers.IO) { ImageBytes.jpeg(context, uri.toUri(), 1024) }?.let { jpeg ->
-        Similar(uri, label, jpeg, withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() })
+        val thumb = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
+        PickedPhoto(Similar(uri, label, thumb), jpeg)
     }
 }

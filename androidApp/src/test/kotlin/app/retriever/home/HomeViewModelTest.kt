@@ -19,6 +19,7 @@ import app.retriever.indexing.IndexService
 import app.retriever.status.StatusViewModel
 import app.retriever.testFile
 import app.retriever.testRetriever
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -218,6 +219,18 @@ class HomeViewModelTest {
     // --- On this day ---
 
     private val newYork = ZoneId.of("America/New_York")
+
+    @Test fun resumeDoesNotBlockOnTheClock() = runTest {
+        val clock = CompletableDeferred<ZonedDateTime>()
+        val vm = vm()
+        vm.now = { clock.await() }
+        vm.onResume()
+        runCurrent()
+        assertEquals(null, vm.ui.value.memoriesDay)
+        val noon = ZonedDateTime.of(2026, 10, 17, 12, 0, 0, 0, newYork)
+        clock.complete(noon)
+        assertEquals(noon.toLocalDate(), vm.ui.first { it.memoriesDay != null }.memoriesDay)
+    }
 
     @Test fun aDayIsRangedByTheZonesRulesAcrossDstChanges() {
         fun hours(r: Triple<Int, Long, Long>) = Duration.ofMillis(r.third + 1 - r.second).toHours()

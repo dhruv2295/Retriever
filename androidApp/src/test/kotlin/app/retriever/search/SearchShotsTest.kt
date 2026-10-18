@@ -140,7 +140,7 @@ class SearchShotsTest {
             "chip_pdf" -> Pane(ready.copy(chip = Kind.PDF).answered("bill", mixedHits.filter { it.file.kind == Kind.PDF }), none)
 
             "similar" -> Pane(
-                ready.copy(similar = Similar("demo:IMG_2041.jpg", "IMG_2041.jpg", ByteArray(1))).answered(
+                ready.copy(similar = Similar("demo:IMG_2041.jpg", "IMG_2041.jpg")).answered(
                     "",
                     mixedHits.filter {
                         it.file.kind ==

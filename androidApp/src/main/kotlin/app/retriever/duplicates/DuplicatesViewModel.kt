@@ -11,9 +11,11 @@ import app.retriever.core.android.SafSource
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 
 private const val MIN_SIZE = 64L * 1024
@@ -24,12 +26,11 @@ private const val MIN_SIZE = 64L * 1024
  * time (the group already shares size and content). Deleting either would lose the only copy, so the folder's row goes.
  */
 internal fun oneEntryPerFile(files: List<SourceFile>): List<SourceFile> {
-    val media = files.filter { !it.uri.startsWith(SafSource.PREFIX) }
-
     // MediaStore keeps whole seconds.
-    fun sameFile(a: SourceFile, b: SourceFile) = a.name == b.name && a.modifiedAt / 1000 == b.modifiedAt / 1000
+    fun SourceFile.identity() = name to modifiedAt / 1000
+    val media = files.filterNot { it.uri.startsWith(SafSource.PREFIX) }.mapTo(HashSet()) { it.identity() }
     return files
-        .filter { f -> !f.uri.startsWith(SafSource.PREFIX) || media.none { sameFile(it, f) } }
+        .filter { !it.uri.startsWith(SafSource.PREFIX) || it.identity() !in media }
         .distinctBy { it.folder to it.name }
 }
 
@@ -42,8 +43,6 @@ data class DuplicatesState(
     val failed: Int = 0,
     val error: String? = null,
     val keepOne: Boolean = false,
-    /** Android's own "allow Retriever to delete?" prompt, waiting to be shown. */
-    val confirm: IntentSender? = null,
 )
 
 class DuplicatesViewModel(
@@ -54,6 +53,8 @@ class DuplicatesViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow(DuplicatesState())
     val state: StateFlow<DuplicatesState> = _state.asStateFlow()
+    private val confirmations = Channel<IntentSender>(Channel.BUFFERED)
+    val confirm = confirmations.receiveAsFlow()
 
     init {
         scan()
@@ -102,7 +103,7 @@ class DuplicatesViewModel(
             val tried = uris - ask.toSet()
             val deleted = deleter.delete(tried)
             val request = if (ask.isEmpty()) null else deleter.request(ask)
-            if (request == null) finishDelete(uris, deleted) else _state.update { it.copy(confirm = request) }
+            if (request == null) finishDelete(uris, deleted) else confirmations.send(request)
         }
     }
 
@@ -114,8 +115,6 @@ class DuplicatesViewModel(
         indexer.indexNow()
         scan()
     }
-
-    fun confirmShown() = _state.update { it.copy(confirm = null) }
 
     private fun finishDelete(uris: List<String>, deleted: List<String>) {
         // The next sync drops the deleted files from the index.

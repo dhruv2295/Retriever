@@ -69,6 +69,20 @@ class ReadingRulesTest {
         assertEquals(listOf(media, later), oneEntryPerFile(listOf(media, later)))
     }
 
+    @Test fun duplicateEntriesKeepTheirOriginalOrderAndUseBothNameAndSecond() {
+        val media = file("content://media/1", "Aa.jpg", "Camera", 1_000)
+        val same = file("${SafSource.PREFIX}1", "Aa.jpg", "Card", 1_999)
+        val nextSecond = same.copy(uri = "${SafSource.PREFIX}2", modifiedAt = 2_000)
+        // Aa and BB have the same String hash; set membership must still compare the full name.
+        val otherName = same.copy(uri = "${SafSource.PREFIX}3", name = "BB.jpg")
+        val repeatedPath = media.copy(uri = "content://media/2")
+        assertEquals(
+            listOf(otherName, media, nextSecond),
+            oneEntryPerFile(listOf(same, otherName, media, repeatedPath, nextSecond)),
+        )
+        assertEquals(emptyList<SourceFile>(), oneEntryPerFile(emptyList()))
+    }
+
     @Test fun aMemoryCardFolderReadsTheSameFromBothSources() {
         val describe: (String) -> String? = { if (it == "1A2B-3C4D") "SanDisk SD card" else null }
         val saf = { d: (String) -> String? -> SafSource.sourceFile("u", "1A2B-3C4D:DCIM/Camera", "IMG_1.jpg", "image/jpeg", 300_000, 0, d)!!.folder }

@@ -8,6 +8,7 @@ if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrain
 
 // ./gradlew -PcomposeReports :androidApp:compileDebugKotlin writes the stability reports to androidApp/build/compose.
 composeCompiler {
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("stability.conf"))
     if (providers.gradleProperty("composeReports").isPresent) {
         reportsDestination = layout.buildDirectory.dir("compose")
         metricsDestination = layout.buildDirectory.dir("compose")

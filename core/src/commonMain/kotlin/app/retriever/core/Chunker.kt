@@ -1,6 +1,9 @@
 package app.retriever.core
 
 object Chunker {
+    private val PARAGRAPHS = Regex("\\n\\s*\\n")
+    private val WORDS = Regex("\\s+")
+
     /** About 300 model tokens; English runs roughly 0.75 words per token. */
     const val WORDS_PER_CHUNK = 220
 
@@ -15,8 +18,8 @@ object Chunker {
         val out = mutableListOf<String>()
         val current = StringBuilder()
         var words = 0
-        for (paragraph in text.split(Regex("\\n\\s*\\n"))) {
-            for (word in paragraph.split(Regex("\\s+")).flatMap { it.pieces(maxChars) }) {
+        for (paragraph in text.split(PARAGRAPHS)) {
+            for (word in paragraph.split(WORDS).flatMap { it.pieces(maxChars) }) {
                 if (current.isNotEmpty() && (words == maxWords || current.length + 1 + word.length > maxChars)) {
                     out += current.toString()
                     current.clear()

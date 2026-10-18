@@ -20,6 +20,13 @@ class NameIndexTest {
 
     @Test fun substringInsideAToken() = assertEquals(MatchClass.SUBSTRING, classOf("invoice", 1))
 
+    @Test fun aNonPositiveLimitReturnsNoHits() {
+        for (limit in listOf(0, -1)) {
+            assertEquals(emptyList(), index.search("pdf", limit = limit))
+        }
+        assertEquals(1, index.search("pdf", limit = 1).size)
+    }
+
     @Test fun typoFindsTheFile() = assertEquals(MatchClass.TYPO, classOf("screnshot", 2))
 
     @Test fun adjacentSwapIsOneTypo() {

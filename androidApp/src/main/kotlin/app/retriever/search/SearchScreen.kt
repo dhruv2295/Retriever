@@ -166,7 +166,7 @@ fun SearchViewModel.actions(context: Context, onNavigate: (Route) -> Unit) = Sea
     onClearRecent = { clearRecent() },
     onRetry = this::retry,
     onOpenHit = { hit ->
-        opened(hit)
+        opened()
         // The words asked at the tap (none for a search by photo), so the reader highlights them.
         Opener.open(context, hit.file, hit.locator, onNavigate, fileId = hit.fileId, query = ui.value.question.text)
     },

@@ -15,6 +15,7 @@ import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
 import app.retriever.ui.Format
 import app.retriever.ui.launchCatching
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.Year
 import java.time.ZoneId
@@ -117,7 +119,7 @@ internal fun HomeFacts.reusing(old: HomeFacts?): HomeFacts = old?.let {
 
 class HomeViewModel(private val retriever: Retriever, private val access: AccessService, private val indexer: IndexService) : ViewModel() {
     /** The local clock; replaced in tests. */
-    internal var now: () -> ZonedDateTime = { ZonedDateTime.now() }
+    internal var now: suspend () -> ZonedDateTime = { withContext(Dispatchers.IO) { ZonedDateTime.now() } }
 
     private val today = MutableStateFlow<LocalDate?>(null)
 
@@ -182,7 +184,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     /** Access can be taken away in Settings while the app is away, so Home asks again on every return; so does the date. */
     fun onResume() {
         access.refresh()
-        today.value = now().toLocalDate()
+        launchCatching { today.value = now().toLocalDate() }
     }
 
     /** Long press on a year card. The switch in Status brings it back. */

@@ -75,6 +75,17 @@ class RecompositionTest {
 
     private fun tileRuns() = runs.filterKeys { it != "HitMenu" }.values.sum()
 
+    @Test fun equalFilesInANewAnswerDoNotRecomposeTiles() {
+        Composer.setTracer(tracer)
+        val (u, _) = show()
+        assertTrue("tiles never composed: $runs", tileRuns() >= hits.size)
+        runs.clear()
+        // A changed parent state must recompose, while each copied file and hit still compares equal.
+        u.value = ui.answered("bill", hits.map { it.copy(file = it.file.copy()) }).copy(answer = ui.answer + 1)
+        rule.waitForIdle()
+        assertEquals("equal files recomposed: $runs", 0, tileRuns())
+    }
+
     @Test fun countsAndHomeChangesLeaveTheTilesAlone() {
         Composer.setTracer(tracer)
         val (_, h) = show()

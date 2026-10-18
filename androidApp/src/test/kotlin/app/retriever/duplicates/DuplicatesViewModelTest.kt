@@ -1,9 +1,16 @@
 package app.retriever.duplicates
 
 import android.app.Application
+import android.app.PendingIntent
+import android.content.ContentResolver
+import android.content.Intent
+import android.net.Uri
+import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.MainActivity
+import app.retriever.NoFileAccess
 import app.retriever.access.AccessService
 import app.retriever.core.Backend
 import app.retriever.core.Changes
@@ -27,21 +34,28 @@ import app.retriever.core.Thermal
 import app.retriever.core.android.SafSource
 import app.retriever.core.db.IndexDb
 import app.retriever.indexing.IndexService
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import kotlin.time.Duration.Companion.minutes
 
 /** A real Retriever on [driver] listing [files] once; every file hashes alike unless [hasher] says otherwise. */
@@ -105,6 +119,26 @@ class DuplicatesViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
+    @Test
+    @Config(shadows = [NoFileAccess::class, DeleteRequestShadow::class])
+    fun aConfirmationWaitsForACollectorAndIsDeliveredOnlyOnce() = runTest {
+        val a = older.copy(uri = "content://media/external/images/media/1")
+        val b = newer.copy(uri = "content://media/external/images/media/2")
+        val retriever = retrieverOver(files = listOf(a, b))
+        retriever.indexBatch(1.minutes)
+        val vm = DuplicatesViewModel(retriever, IndexService(app, retriever), AccessService(app), MediaDeleter(app))
+        vm.state.first { !it.scanning }
+        vm.deleteSelected()
+        DeleteRequestShadow.created.await()
+        runCurrent()
+        assertTrue(vm.state.value.deleting)
+        assertEquals(listOf(Uri.parse(b.uri)), DeleteRequestShadow.uris)
+        assertEquals(DeleteRequestShadow.request.intentSender, vm.confirm.first())
+        val afterRecreation = backgroundScope.async { vm.confirm.first() }
+        runCurrent()
+        assertFalse(afterRecreation.isCompleted)
+    }
+
     @Test fun scanKeepsTheOldestCopyAndGuardsTheLastOne() = runTest {
         val retriever = retrieverOver(files = listOf(older, newer))
         retriever.indexBatch(1.minutes)
@@ -157,5 +191,27 @@ class DuplicatesViewModelTest {
         val s = vm.state.first { !it.deleting }
         assertEquals(1, s.failed)
         assertEquals(setOf(newer.uri), s.selected)
+    }
+}
+
+/** The system owns the confirmation activity; the ViewModel test only needs its pending request. */
+@Implements(MediaStore::class)
+class DeleteRequestShadow {
+    companion object {
+        lateinit var request: PendingIntent
+        var uris: List<Uri> = emptyList()
+        val created = CompletableDeferred<Unit>()
+
+        @Implementation
+        @JvmStatic
+        fun createDeleteRequest(resolver: ContentResolver, requested: Collection<Uri>): PendingIntent {
+            uris = requested.toList()
+            val app = ApplicationProvider.getApplicationContext<Application>()
+            return PendingIntent.getActivity(app, 0, Intent(app, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                .also {
+                    request = it
+                    created.complete(Unit)
+                }
+        }
     }
 }

@@ -42,7 +42,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import app.retriever.R
 import app.retriever.core.Retriever
 import app.retriever.core.motion.MascotMood
@@ -66,11 +69,10 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
     val confirmLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         vm.onConfirmed()
     }
-    LaunchedEffect(s.confirm) {
-        s.confirm?.let {
-            confirmLauncher.launch(IntentSenderRequest.Builder(it).build())
-            // Cleared once shown: a rotation must not ask twice, and the result still reaches the new launcher.
-            vm.confirmShown()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(vm, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            vm.confirm.collect { confirmLauncher.launch(IntentSenderRequest.Builder(it).build()) }
         }
     }
     val context = LocalContext.current

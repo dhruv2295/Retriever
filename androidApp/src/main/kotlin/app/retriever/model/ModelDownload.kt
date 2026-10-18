@@ -130,7 +130,7 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
                 md.update(buf, 0, n)
             }
         }
-        val hex = md.digest().joinToString("") { "%02x".format(it) }
+        val hex = md.digest().toHexString()
         if (hex == b.sha256.lowercase()) {
             marker(b).writeText(b.sha256)
             true

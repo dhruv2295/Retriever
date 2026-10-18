@@ -40,7 +40,8 @@ import kotlin.time.Duration.Companion.seconds
 
 class RetrieverApp :
     Application(),
-    Configuration.Provider {
+    Configuration.Provider,
+    DefaultLifecycleObserver {
     // WorkManager builds itself on first use, not at launch (its startup initializer is removed in the manifest).
     // Koin builds the workers, so IndexWorker gets its dependencies through its constructor.
     override val workManagerConfiguration: Configuration = Configuration.Builder().setWorkerFactory(KoinWorkerFactory()).build()
@@ -50,7 +51,7 @@ class RetrieverApp :
     private val index: IndexService by inject()
 
     override fun onCreate() {
-        super.onCreate()
+        super<Application>.onCreate()
         if (BuildConfig.DEBUG) strictMode()
         startKoin {
             androidContext(this@RetrieverApp)
@@ -66,52 +67,52 @@ class RetrieverApp :
             }
         }
         Notifications.createChannel(this)
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            /** What the app could see when it was last in front; Settings may have changed it since. */
-            private var seen: Access? = null
-
-            override fun onStart(owner: LifecycleOwner) {
-                retriever.uiVisible = true
-                val access = get<AccessService>()
-                val now = access.access()
-                if (seen != null && seen != now) access.changed()
-                seen = now
-                // setUp is null until start() settles it, which a cold start's first onStart beats.
-                scope.launch {
-                    if (retriever.setUp.first { it != null } != true) return@launch
-                    // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
-                    val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
-                    if (held) index.indexNow()
-                    retriever.warmSearch()
-                }
-                scope.launch {
-                    // Picks the setup chain up where it stopped, whichever screen the user comes back to. Built once
-                    // setUp settles, so it seeds from the stored prefs.
-                    retriever.setUp.first { it != null }
-                    val setup = get<SetupFlow>()
-                    if (setup.ui.value.started) setup.refresh()
-                }
-            }
-
-            override fun onStop(owner: LifecycleOwner) {
-                retriever.uiVisible = false
-                // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
-                retriever.setUiBusy(false)
-            }
-        })
+        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         // A batch that stopped because the phone was in use (BUSY) resumes once the screen goes off. Not while one
         // runs: continueLater replaces index-continue, and so would cancel a running follow-up.
         ContextCompat.registerReceiver(
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    val s = retriever.state.value
-                    if (s.lastStop == StopReason.BUSY && !s.running) index.continueLater(10.seconds)
+                    val s = get<Retriever>().state.value
+                    if (s.lastStop == StopReason.BUSY && !s.running) get<IndexService>().continueLater(10.seconds)
                 }
             },
             IntentFilter(Intent.ACTION_SCREEN_OFF),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+    }
+
+    /** What the app could see when it was last in front; Settings may have changed it since. */
+    private var seen: Access? = null
+
+    override fun onStart(owner: LifecycleOwner) {
+        retriever.uiVisible = true
+        val access = get<AccessService>()
+        val now = access.access()
+        if (seen != null && seen != now) access.changed()
+        seen = now
+        // setUp is null until start() settles it, which a cold start's first onStart beats.
+        scope.launch {
+            if (retriever.setUp.first { it != null } != true) return@launch
+            // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
+            val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
+            if (held) index.indexNow()
+            retriever.warmSearch()
+        }
+        scope.launch {
+            // Picks the setup chain up where it stopped, whichever screen the user comes back to. Built once
+            // setUp settles, so it seeds from the stored prefs.
+            retriever.setUp.first { it != null }
+            val setup = get<SetupFlow>()
+            if (setup.ui.value.started) setup.refresh()
+        }
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        retriever.uiVisible = false
+        // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
+        retriever.setUiBusy(false)
     }
 
     /** Once per process, on IO: opens the database and settles [Retriever.setUp]. */
