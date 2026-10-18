@@ -455,16 +455,12 @@ class SearchEngine(
                     if (f.admits(file)) picked += r to file
                 }
             }
-            // A PDF page wins on its page image, which has no words: show that page's text instead.
-            val pageText = store.firstTextAt(
-                picked.mapNotNull { (r, file) ->
-                    val c = best.getValue(r.first).second
-                    if (file.kind == Kind.PDF && c.chunkId != 0L && c.snippet == null && c.text == null) r.first to c.locator else null
-                },
-            )
+            // Only extractor-proven content may become a snippet; keyword and embedding text may be metadata.
+            val content = store.contentTexts(picked.map { best.getValue(it.first.first).second.chunkId })
+            val pageText = store.firstTextAt(picked.map { (r, _) -> r.first to best.getValue(r.first).second.locator })
             val hits = picked.map { (r, file) ->
                 val c = best.getValue(r.first).second
-                val snippet = c.snippet ?: (c.text ?: pageText[r.first to c.locator])?.let { bestSentence(it, words) }
+                val snippet = (content[c.chunkId] ?: pageText[r.first to c.locator])?.let { contentSnippet(it, words) }
                 Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName)
             }
             val (s, weak) = hits.partition { it.fileId in strong }
@@ -480,6 +476,22 @@ class SearchEngine(
         private const val MAX_PASSES = 3
         const val SNIPPET = 160
         private const val DAY_MS = 86_400_000L
+
+        internal fun contentSnippet(text: String, words: List<String>): String {
+            val snippet = bestSentence(text, words)
+            val ranges = nameMatchRanges(snippet, words.joinToString(" "))
+            return buildString {
+                var at = 0
+                for (range in ranges) {
+                    append(snippet.substring(at, range.first))
+                    append('\u0002')
+                    append(snippet.substring(range.first, range.last + 1))
+                    append('\u0003')
+                    at = range.last + 1
+                }
+                append(snippet.substring(at))
+            }
+        }
 
         /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped. */
         fun folded(q: String): List<String> = Store.ftsTokens(foldLatin(q)).distinct()

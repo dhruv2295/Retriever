@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 private const val PAGE = 200
 
@@ -46,6 +47,7 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
     private var busy = false
 
     init {
+        viewModelScope.launch { retriever.fileRevision.collect { if (it > 0) reload() } }
         reload()
     }
 

@@ -81,6 +81,17 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         return SyncResult(added, touched.size - added, removed.size, changes.isFullScan)
     }
 
+    suspend fun rename(uri: String, name: String, newUri: String, modifiedAt: Long): SourceFile? = namesLock.withLock {
+        val file = store.renameFile(uri, name, newUri, modifiedAt) ?: return@withLock null
+        names = names?.update(emptyList(), store.nameEntries(listOf(newUri)))
+        file
+    }
+
+    suspend fun remove(uris: List<String>) = namesLock.withLock {
+        val ids = removeLocked(uris)
+        names = names?.update(ids, emptyList())
+    }
+
     /** Removes the files in folders [prefs] excludes at once, with no scan, so it works while paused. Returns how many. */
     suspend fun dropExcluded(prefs: Prefs): Int {
         val gone = namesLock.withLock {

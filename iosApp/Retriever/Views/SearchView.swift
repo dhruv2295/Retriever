@@ -94,6 +94,7 @@ struct SearchView: View {
                 }
             }
         }
+        .onChange(of: model.fileRevision) { search.retry() }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
         .modifier(RefreshHome(model: model, pinned: fixedSnap))
         .task { await search.loadRecent() }

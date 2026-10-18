@@ -202,7 +202,7 @@ fun BrowseContent(
                 ) {
                     items(files, key = { it.id }, contentType = { "file" }) { stored ->
                         val on = stored.file.uri in starred
-                        StarMenu(on, { onStar(stored.file, !on) }) { menu ->
+                        StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu ->
                             ThumbCell(
                                 file = stored.file,
                                 onClick = { onOpen(stored.file) },
@@ -226,7 +226,7 @@ fun BrowseContent(
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            StarMenu(on, { onStar(stored.file, !on) }) { menu ->
+                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu ->
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
@@ -263,8 +263,9 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
 
 /** A file list's long-press menu: Star or Remove star, as on a search result, so a photo can be unstarred from a list. */
 @Composable
-private fun StarMenu(on: Boolean, toggle: () -> Unit, content: @Composable (onLongClick: () -> Unit) -> Unit) {
+private fun StarMenu(file: SourceFile, on: Boolean, toggle: () -> Unit, content: @Composable (onLongClick: () -> Unit) -> Unit) {
     PressMenu(content = content) { dismiss ->
+        app.retriever.files.FileActionItems(file, dismiss)
         DropdownMenuItem(
             text = { Text(if (on) "Remove star" else "Star") },
             leadingIcon = { Icon(painterResource(if (on) R.drawable.ic_star_border else R.drawable.ic_star), contentDescription = null) },

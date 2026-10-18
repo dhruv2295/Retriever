@@ -104,3 +104,5 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 - Past searches reach the launcher shortcuts only when "remember searches" is on.
 - Results open in the app's own viewer (`Opener` on Android); the "Matched here" mark in the PDF viewer and per-file
   coverage are separate wave 7 items, not part of this note.
+
+Android Home intercepts Back only while the search is expanded, has text, or has a photo query. The standard BackHandler clears the query and collapses the bar before navigation can leave Home.

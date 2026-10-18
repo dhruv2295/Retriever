@@ -93,12 +93,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, modifier: Modifier = Mo
                 },
                 actions = {
                     StarButton(route.uri in starred) { stars.toggle(route.uri) }
-                    IconButton(onClick = { Opener.share(context, route.uri, route.mime) }) {
-                        Icon(painterResource(R.drawable.ic_share), contentDescription = "Share")
-                    }
-                    IconButton(onClick = { Opener.view(context, route.uri, route.mime) }) {
-                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = "Open with")
-                    }
+                    app.retriever.files.FileOverflow(route.uri, onBack)
                 },
             )
         },

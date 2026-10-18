@@ -258,7 +258,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
             DocFormat.RTF -> stripRtf(plainText(uri, onCut))
             DocFormat.TEXT -> plainText(uri, onCut)
         }
-        val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it) }
+        val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it, it) }
         return if (cut) pieces + cutShort() else pieces
     }
 

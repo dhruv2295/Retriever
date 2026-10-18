@@ -102,6 +102,8 @@ struct RecentlyRead: View {
                             RecentFileCell(file: file).equatable().frame(width: 56, height: 56)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { FileActionButtons(file: file) }
+                        .accessibilityActions { FileActionButtons(file: file) }
                         .accessibilityHint("Open file")
                     }
                 }

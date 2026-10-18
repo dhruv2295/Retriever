@@ -36,7 +36,7 @@ const val AUDIO_SAMPLE_RATE = 16_000
 const val AUDIO_WINDOW_SEC = 10
 
 /** A searchable slice of a file: a PDF page, an OCR'd screenshot, a 30 s audio window. */
-data class Piece(val locator: String, val parts: List<Part>, val keywordText: String?)
+data class Piece(val locator: String, val parts: List<Part>, val keywordText: String?, val contentText: String? = null)
 
 // Commit-pinned resolve URLs adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt (Apache-2.0). Modified for Retriever: constants instead of a fetched allowlist.
 

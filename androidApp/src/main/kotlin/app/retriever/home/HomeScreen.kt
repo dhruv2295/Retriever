@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalTextStyle
@@ -111,7 +110,7 @@ fun HomeScreen(
     }
     HomeBody(ui, index, rememberCharging(), recent, actions, vm::resume, {
         openAllFilesSettings(context)
-    }, state, padding, side, fill, vm::hideOnThisDay, vm::commit, vm.celebration)
+    }, state, padding, side, fill, vm::hideOnThisDay, vm::commit, vm.celebration, vm::dismissCaughtUp)
 }
 
 /**
@@ -169,6 +168,7 @@ internal fun HomeBody(
     onHideOnThisDay: () -> Unit = {},
     onCommit: (whileCharging: Boolean) -> Unit = {},
     celebration: Celebration = Celebration(),
+    onDismissCaughtUp: () -> Unit = {},
 ) {
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
@@ -193,16 +193,15 @@ internal fun HomeBody(
                     EmptyHome(looking)
                 }
             } else {
-                item(key = "status", span = FullLine) { Status(ui, index, total, charging, actions.onNavigate, onResume, onAllowAccess, celebration) }
+                item(key = "status", span = FullLine) { Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration) }
             }
             return@LazyVerticalStaggeredGrid
         }
-        item(key = "status", span = FullLine) { Status(ui, index, total, charging, actions.onNavigate, onResume, onAllowAccess, celebration) }
-        // The short read is done and the rest waits for a choice; the sheet is the setup's commit screen.
-        if (ui.hasAccess && ui.setUp && ui.waiting == 0L &&
-            ui.rest > 0L
-        ) {
-            item(key = "commit", span = FullLine, contentType = "commit") { CommitCard(ui, onCommit) }
+        item(key = "hero", span = FullLine) {
+            LibraryHero(ui, actions.onNavigate) {
+                Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
+                if (ui.hasAccess && ui.setUp && ui.waiting == 0L && ui.rest > 0L) CommitCard(ui, onCommit)
+            }
         }
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
@@ -239,15 +238,14 @@ internal fun HomeBody(
 private fun Status(
     ui: HomeUi,
     index: IndexState,
-    total: Long,
     charging: Boolean,
     go: (Route) -> Unit,
     onResume: () -> Unit,
     onAllowAccess: () -> Unit,
     celebration: Celebration,
+    onDismissCaughtUp: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
-    val of = "${Format.count(ui.searchable)} of ${Format.count(total)}"
     // Access first: setUp needs access too, so without it "Finishing setup" would show instead of the way back.
     when {
         !ui.hasAccess -> StatusCard(
@@ -266,7 +264,7 @@ private fun Status(
             colors.surfaceContainer,
             colors.onSurface,
             ui.trialTitle!!,
-            body = index.pauseReason ?: "Search works on everything read so far.",
+            body = index.pauseReason,
             mascot = if (index.running) MascotMood.WALKING else MascotMood.RESTING,
             onClick = { go(StatusRoute) },
             action = if (ui.paused) "Resume" to onResume else null,
@@ -276,12 +274,10 @@ private fun Status(
             colors.surfaceContainer,
             colors.onSurface,
             "Reading your files",
-            count = of,
-            body = index.etaMinutes?.let {
+            count = index.etaMinutes?.let {
                 Format.eta(it).replaceFirstChar { c -> c.uppercase() } + "." +
                     if (it >= 60 && !charging) " Faster while charging." else ""
             },
-            progress = if (total > 0) ui.searchable.toFloat() / total else 0f,
             mascot = MascotMood.WALKING,
             onClick = { go(StatusRoute) },
         )
@@ -292,8 +288,6 @@ private fun Status(
             colors.secondaryContainer,
             colors.onSecondaryContainer,
             "Paused",
-            count = "$of searchable",
-            body = "Search works on everything read so far.",
             mascot = MascotMood.RESTING,
             onClick = { go(StatusRoute) },
             action = "Resume" to onResume,
@@ -303,13 +297,11 @@ private fun Status(
             colors.secondaryContainer,
             colors.onSecondaryContainer,
             waitingCopy(index.lastStop) ?: "Waiting",
-            count = "$of searchable",
-            body = "Search works on everything read so far.",
             mascot = MascotMood.RESTING,
             onClick = { go(StatusRoute) },
         )
 
-        else -> QuietRow(
+        !ui.caughtUpDismissed -> QuietRow(
             "All caught up",
             "${Format.count(ui.searchable)} files searchable",
             ui.home?.nameOnly?.takeIf { it > 0 }?.let { "${Format.count(it)} of them by name only" },
@@ -317,6 +309,7 @@ private fun Status(
             // The short read being done is not the first full read: the dog waits for the rest to be chosen and read.
             rememberCelebrating(ui.rest == 0L, celebration),
             go,
+            onDismissCaughtUp,
         )
     }
 }
@@ -342,12 +335,11 @@ private fun StatusCard(
     count: String? = null,
     body: String? = null,
     mascot: MascotMood? = null,
-    progress: Float? = null,
     onClick: (() -> Unit)? = null,
     clickLabel: String = "Show reading details",
     action: Pair<String, () -> Unit>? = null,
 ) {
-    Surface(color = container, contentColor = content, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    Surface(color = container, contentColor = content, modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(
                 Modifier
@@ -361,7 +353,6 @@ private fun StatusCard(
                 if (mascot != null) Mascot(mascot, Modifier.width(80.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TitleWithCount(title, count, MaterialTheme.typography.bodyLarge)
-                    if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                     if (body != null) Text(body, style = MaterialTheme.typography.bodyMedium)
                 }
                 if (onClick != null) Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null)
@@ -374,7 +365,15 @@ private fun StatusCard(
 
 /** Nothing to act on: one line, no card. */
 @Composable
-private fun QuietRow(title: String, count: String?, second: String?, done: Boolean, celebrating: Boolean, go: (Route) -> Unit) {
+private fun QuietRow(
+    title: String,
+    count: String?,
+    second: String?,
+    done: Boolean,
+    celebrating: Boolean,
+    go: (Route) -> Unit,
+    onDismiss: (() -> Unit)? = null,
+) {
     ListItem(
         leadingContent = when {
             !done -> null
@@ -392,7 +391,13 @@ private fun QuietRow(title: String, count: String?, second: String?, done: Boole
         headlineContent = { TitleWithCount(title, count, LocalTextStyle.current) },
         supportingContent = second?.let { { Text(it) } },
         trailingContent = {
-            Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onDismiss != null) {
+                androidx.compose.material3.IconButton(onClick = onDismiss) {
+                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss all caught up")
+                }
+            } else {
+                Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         },
         colors = transparent,
         modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) },

@@ -54,12 +54,16 @@ struct HomeChips: View {
                     Button {
                         use(q)
                     } label: {
-                        Label(q, systemImage: history ? "clock" : "magnifyingglass").lineLimit(1)
-                            .foregroundStyle(Color.primary)
+                        Label {
+                            Text(q).accessibilityIdentifier("recent-search")
+                        } icon: {
+                            Image(systemName: history ? "clock" : "magnifyingglass")
+                        }.font(.body).fixedSize().foregroundStyle(Color.primary)
                     }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel(history ? q : "Try searching \(q)")
                     .accessibilityHint(history ? "Searches again" : "Searches for this")
                     .contextMenu {

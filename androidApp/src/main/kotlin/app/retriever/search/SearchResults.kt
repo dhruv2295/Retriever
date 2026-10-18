@@ -316,6 +316,7 @@ private fun HitMenu(
     content: @Composable (onLongClick: () -> Unit) -> Unit,
 ) {
     PressMenu(content, modifier) { dismiss ->
+        app.retriever.files.FileActionItems(file, dismiss)
         val on = file.uri in act.starred()
         DropdownMenuItem(
             text = { Text(if (on) "Remove star" else "Star") },

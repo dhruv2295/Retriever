@@ -64,7 +64,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -170,14 +169,7 @@ fun FileRow(
                 Text(readNote, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             if (!snippet.isNullOrBlank()) {
-                val text = if ('\u0002' in snippet) {
-                    highlighted(snippet, SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.primary))
-                } else {
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(fontWeight = MaterialTheme.typography.labelMedium.fontWeight)) { append("Similar in meaning: ") }
-                        append(snippet)
-                    }
-                }
+                val text = highlighted(snippet, SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.primary))
                 Text(text, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }

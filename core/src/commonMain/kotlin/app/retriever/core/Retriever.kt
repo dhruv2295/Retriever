@@ -94,7 +94,10 @@ data class HomeFacts(
     val largeCount: Long,
     val largeBytes: Long,
     val nameOnly: Long,
+    val topFolders: List<FolderCount> = emptyList(),
 )
+
+data class FolderCount(val path: String, val count: Long)
 
 /** The photos and videos taken on one calendar day in [year], with a photo for the cover when there is one. */
 data class YearMemory(val year: Int, val photos: Long, val videos: Long, val cover: SourceFile)
@@ -503,6 +506,7 @@ class Retriever(
     }
 
     private fun onCurrent(file: SourceFile?) {
+        if (file != null && _prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
         _state.update { it.copy(current = file?.name, currentFile = file) }
     }
 
@@ -945,6 +949,7 @@ class Retriever(
             largeCount = largeCount,
             largeBytes = largeBytes,
             nameOnly = nameOnly,
+            topFolders = store.folders().take(6).map { FolderCount(it.first, it.second) },
         )
     }
 
@@ -992,6 +997,43 @@ class Retriever(
 
     /** The kinds this phone can read inside, and so the switches Settings shows. */
     val readableKinds: Set<Kind> get() = if (textOnly) textOnlyKinds else Kind.entries.toSet() - Kind.OTHER
+
+    @Throws(Throwable::class)
+    suspend fun dismissCaughtUp() = updatePrefs { it.dismissCaughtUp() }
+
+    @Throws(Throwable::class)
+    suspend fun storedFile(uri: String): Store.StoredFile? = io { store.fileByUri(uri) }
+
+    private val _fileRevision = MutableStateFlow(0L)
+    val fileRevision: StateFlow<Long> = _fileRevision.asStateFlow()
+
+    /** Holds the scan lock across the platform rename and index update so a scan cannot replace the file id. */
+    @Throws(Throwable::class)
+    suspend fun renameFile(uri: String, operation: (SourceFile) -> SourceFile?): SourceFile? = io {
+        indexLock.withLock {
+            val old = store.fileByUri(uri)?.file ?: return@withLock null
+            val changed = operation(old) ?: return@withLock null
+            renamedFileLocked(uri, changed.name, changed.uri, changed.modifiedAt)
+        }
+    }
+
+    private suspend fun renamedFileLocked(uri: String, name: String, newUri: String, modifiedAt: Long): SourceFile? {
+        val file = sync.rename(uri, name, newUri, modifiedAt) ?: return null
+        _state.update { it.copy(recentFiles = it.recentFiles.map { old -> if (old.uri == uri) file else old }) }
+        _starred.value = store.starredUris()
+        _fileRevision.update { it + 1 }
+        return file
+    }
+
+    @Throws(Throwable::class)
+    suspend fun deletedFiles(uris: List<String>) = io {
+        indexLock.withLock {
+            sync.remove(uris)
+            _fileRevision.update { it + 1 }
+            reconcileRecentFiles()
+            _starred.value = store.starredUris()
+        }
+    }
 
     // --- Browse ---
 

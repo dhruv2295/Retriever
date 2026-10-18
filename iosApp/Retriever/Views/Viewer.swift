@@ -6,6 +6,7 @@ import AVFoundation
 import AVKit
 import PDFKit
 import Photos
+import QuickLook
 import RetrieverCore
 import SwiftUI
 import os
@@ -15,6 +16,7 @@ enum Viewing: Hashable {
     case pdf(SourceFile, page: Int, words: [String])
     case video(SourceFile, ms: Int64)
     case photos([SourceFile], index: Int)
+    case document(SourceFile, [SourceFile])
 }
 
 /// Opens a file at its match: in the app for PDFs, videos and library photos, in Quick Look otherwise.
@@ -37,19 +39,19 @@ private func isPhoto(_ file: SourceFile) -> Bool {
 }
 
 /// What opening a file means: a page to push, or nil for Quick Look.
-func viewing(_ file: SourceFile, locator: String, words: [String], among: [SourceFile] = []) -> Viewing? {
+func viewing(_ file: SourceFile, locator: String, words: [String], among: [SourceFile] = []) -> Viewing {
     if file.kind == .pdf, !file.uri.hasPrefix("ph://") {
         return .pdf(file, page: Locator.shared.pageOf(l: locator)?.intValue ?? 1, words: words)
     }
     if file.kind == .video { return .video(file, ms: Locator.shared.msOf(l: locator)?.int64Value ?? 0) }
-    guard isPhoto(file) else { return nil }
+    guard isPhoto(file) else { return .document(file, quickLookFiles(file, among: among)) }
     let photos = among.filter(isPhoto)
     return .photos(photos.contains { $0.uri == file.uri } ? photos : [file], index: photos.firstIndex { $0.uri == file.uri } ?? 0)
 }
 
 /// The files Quick Look pages through when `file` is opened from `among`: its folder neighbours with no in-app viewer.
 func quickLookFiles(_ file: SourceFile, among: [SourceFile]) -> [SourceFile] {
-    (among.contains { $0.uri == file.uri } ? among : [file]).filter { viewing($0, locator: "", words: []) == nil }
+    (among.contains { $0.uri == file.uri } ? among : [file]).filter { $0.kind != .pdf && $0.kind != .video && !isPhoto($0) }
 }
 
 /// The words to highlight inside the file: those a keyword match marked, else the query's own words.
@@ -64,6 +66,7 @@ func highlightWords(snippet: String?, query: String?) -> [String] {
     case .pdf(let file, let page, let words): PDFViewer(file: file, page: page, words: words)
     case .video(let file, let ms): VideoViewer(file: file, ms: ms)
     case .photos(let files, let index): PhotoViewer(files: files, index: index)
+    case .document(let file, let files): DocumentViewer(file: file, files: files)
     }
 }
 
@@ -93,7 +96,7 @@ struct PDFViewer: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: file)
-                ShareButton(file: file)
+                FileOverflow(file: file)
             }
         }
         .navigationTitle(file.name)
@@ -187,7 +190,7 @@ struct VideoViewer: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: file)
-                ShareButton(file: file)
+                FileOverflow(file: file)
             }
         }
         .navigationTitle(file.name)
@@ -268,7 +271,7 @@ struct PhotoViewer: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 StarButton(file: files[selection])
-                ShareButton(file: files[selection])
+                FileOverflow(file: files[selection])
             }
         }
         .navigationTitle(files[selection].name)
@@ -436,5 +439,53 @@ private struct ZoomableImage: UIViewRepresentable {
             guard let scroll = tap.view as? UIScrollView else { return }
             scroll.setZoomScale(scroll.zoomScale > 1 ? 1 : 2.5, animated: true)
         }
+    }
+}
+
+
+/// Quick Look keeps its native rendering and paging; the app toolbar supplies the same file actions as other viewers.
+private struct DocumentViewer: View {
+    let file: SourceFile
+    let files: [SourceFile]
+    @Environment(\.services) private var services
+    @State private var current: SourceFile?
+
+    var body: some View {
+        let items = files.compactMap { f in services?.folders.resolve(f.uri).map { (f, $0) } }
+        Group {
+            if items.isEmpty { StateView(mood: .trouble, title: "Couldn't open this file", message: "Its folder can't be reached right now.") }
+            else { DocumentPreview(items: items, initial: file.uri, current: $current).ignoresSafeArea(edges: .bottom) }
+        }
+        .navigationTitle((current ?? file).name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { StarButton(file: current ?? file); FileOverflow(file: current ?? file) } }
+    }
+}
+
+private struct DocumentPreview: UIViewControllerRepresentable {
+    let items: [(SourceFile, URL)]
+    let initial: String
+    @Binding var current: SourceFile?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        controller.currentPreviewItemIndex = items.firstIndex { $0.0.uri == initial } ?? 0
+        context.coordinator.observation = controller.observe(\.currentPreviewItemIndex, options: [.new]) { _, change in
+            let index = change.newValue ?? 0
+            Task { @MainActor in
+                if items.indices.contains(index) { current = items[index].0 }
+            }
+        }
+        return controller
+    }
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let parent: DocumentPreview
+        var observation: NSKeyValueObservation?
+        init(_ parent: DocumentPreview) { self.parent = parent }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { parent.items.count }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { parent.items[index].1 as NSURL }
     }
 }

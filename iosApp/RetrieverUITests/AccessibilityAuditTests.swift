@@ -189,6 +189,8 @@ final class AccessibilityAuditTests: XCTestCase {
             if issue.auditType == .dynamicType {
                 if route.hasPrefix("status."), Self.statusText.contains(element.label) { return true }
                 if route == "home.caughtUp", ["document-name", "document-detail"].contains(element.identifier) { return true }
+                // The taller hero displaces this row during live resizing; testRecentSearchChipsGrowAtTheLargestAccessibilitySize verifies its actual growth.
+                if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
                 if route == "browse.folders", Self.folderText.contains(element.label) { return true }
             }
             print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
@@ -240,6 +242,30 @@ final class AccessibilityAuditTests: XCTestCase {
             shot.name = "Document cards \(category)"
             shot.lifetime = .keepAlways
             add(shot)
+            app.terminate()
+        }
+    }
+
+    func testRecentSearchChipsGrowAtTheLargestAccessibilitySize() {
+        var normal: CGFloat?
+        for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", category]
+            launch(app)
+            let chip = app.buttons["passport scan"].firstMatch
+            for _ in 0..<12 {
+                if chip.exists && chip.isHittable { break }
+                app.swipeUp()
+            }
+            XCTAssertTrue(chip.exists)
+            XCTAssertTrue(chip.isHittable)
+            let height = chip.frame.height
+            print("Recent search chip height at \(category): \(height)")
+            if let normal { XCTAssertGreaterThan(height, normal) } else { normal = height }
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Recent search chips \(category)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
             app.terminate()
         }
     }

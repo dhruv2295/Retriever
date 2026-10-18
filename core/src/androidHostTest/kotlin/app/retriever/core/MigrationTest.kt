@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(4L, IndexDb.Schema.version)
+        assertEquals(5L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(

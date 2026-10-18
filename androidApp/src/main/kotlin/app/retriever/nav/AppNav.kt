@@ -87,35 +87,43 @@ fun AppNav(retriever: Retriever = koinInject()) {
     // Names are searchable once files are allowed, so Home opens while the rest of setup carries on.
     // SetupFlow is built here, after setUp settles, so it seeds from the stored prefs.
     val start: Route = remember { if (ready || koin.get<SetupFlow>().ui.value.canSearch) HomeRoute else SetupRoute }
-    NavHost(navController, startDestination = start) {
-        // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
-        composable<SetupRoute>(exitTransition = { fadeOut(fastEffects) }) {
-            // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
-            SetupScreen(onNavigate = go, onDone = {
-                navController.navigate(HomeRoute) {
-                    popUpTo(navController.graph.id) { inclusive = true }
-                    launchSingleTop = true
-                }
-            })
+    app.retriever.files.FileActionsHost(retriever) {
+        NavHost(navController, startDestination = start) {
+            // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
+            composable<SetupRoute>(exitTransition = { fadeOut(fastEffects) }) {
+                // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
+                SetupScreen(onNavigate = go, onDone = {
+                    navController.navigate(HomeRoute) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                })
+            }
+            // The expanded search bar is its own window; Home must leave at once, or it covers the PDF or player while fading.
+            composable<HomeRoute>(
+                enterTransition = {
+                    if (initialState.destination.hasRoute<SetupRoute>()) fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) else null
+                },
+                exitTransition = {
+                    val to = targetState.destination
+                    if (to.hasRoute<PdfRoute>() || to.hasRoute<PhotoRoute>() || to.hasRoute<PlayerRoute>() ||
+                        to.hasRoute<DocRoute>()
+                    ) {
+                        ExitTransition.None
+                    } else {
+                        null
+                    }
+                },
+            ) { SearchScreen(onNavigate = go) }
+            composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
+            composable<SettingsRoute> { SettingsScreen(back) }
+            composable<FoldersRoute> { FoldersScreen(go, back) }
+            composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
+            composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
+            composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back) }
+            composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back) }
+            composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
+            composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back) }
         }
-        // The expanded search bar is its own window; Home must leave at once, or it covers the PDF or player while fading.
-        composable<HomeRoute>(
-            enterTransition = {
-                if (initialState.destination.hasRoute<SetupRoute>()) fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) else null
-            },
-            exitTransition = {
-                val to = targetState.destination
-                if (to.hasRoute<PdfRoute>() || to.hasRoute<PhotoRoute>() || to.hasRoute<PlayerRoute>() || to.hasRoute<DocRoute>()) ExitTransition.None else null
-            },
-        ) { SearchScreen(onNavigate = go) }
-        composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
-        composable<SettingsRoute> { SettingsScreen(back) }
-        composable<FoldersRoute> { FoldersScreen(go, back) }
-        composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
-        composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
-        composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back) }
-        composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back) }
-        composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
-        composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back) }
     }
 }

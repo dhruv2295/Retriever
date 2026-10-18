@@ -20,7 +20,7 @@ extension AppModel {
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
-                noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay)
+                noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle, dismissedReadingCycle: p.dismissedReadingCycle)
         }
     }
 

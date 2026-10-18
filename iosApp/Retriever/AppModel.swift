@@ -17,6 +17,8 @@ final class AppModel {
         var byKind: [Kind: Int] = [:]
         /// Files of each kind still waiting to be read.
         var pendingByKind: [Kind: Int] = [:]
+        var readByKind: [Kind: Int] = [:]
+        var caughtUpDismissed = false
         var indexed = 0
         var pending = 0
         var trial = false
@@ -55,6 +57,7 @@ final class AppModel {
         static let insideTextOnly: [Kind] = inside.filter { RetrieverKt.textOnlyKinds.contains($0) }
 
         var total: Int { indexed + pending + skipped }
+        var libraryTotal: Int { byKind.values.reduce(0, +) }
 
         /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
         /// under the short read's scope, so this is `scope == SAMPLE && waiting > 0`.
@@ -157,6 +160,7 @@ final class AppModel {
     /// "Try searching" examples for the kinds that are ready.
     var suggestions: [String] = []
     /// Home's newest files, folder count and large files; nil until the first load.
+    var fileRevision = 0
     var home: HomeFacts?
     /// Past years' photos on today's date (`refreshOnThisDay`); Home draws them while `Snap.showOnThisDay`.
     var memories: [OnThisDay.Card] = []
@@ -296,6 +300,16 @@ final class AppModel {
         wake()
     }
 
+    func filesChanged() async {
+        fileRevision += 1
+        await refreshHome()
+    }
+
+    func dismissCaughtUp() {
+        snap?.caughtUpDismissed = true
+        Task { try? await services?.retriever.dismissCaughtUp() }
+    }
+
     /// Asks core once per catch-up whether the first full read was celebrated; once it was (or is known to be), never again.
     private func considerCelebration(_ s: Snap) {
         guard s.isCaughtUp else {
@@ -346,6 +360,10 @@ extension AppModel.Snap {
         for (key, n) in s.counts.byKindState where key.second == FileState.pending {
             if let kind = key.first { pendingByKind[kind] = n.intValue }
         }
+        for (key, n) in s.counts.byKindState where key.second == FileState.indexed {
+            if let kind = key.first { readByKind[kind] = n.intValue }
+        }
+        caughtUpDismissed = s.prefs.caughtUpDismissed
         allowMobileData = s.prefs.allowMobileData
         onlyWhileCharging = s.prefs.onlyWhileCharging
         rememberSearches = s.prefs.rememberSearches

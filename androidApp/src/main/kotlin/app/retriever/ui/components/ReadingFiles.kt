@@ -8,7 +8,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -139,16 +139,26 @@ internal fun RecentFileCell(file: SourceFile, size: Dp, reduceMotion: Boolean, o
     LaunchedEffect(reduceMotion) {
         if (reduceMotion) arrival.snapTo(1f) else arrival.animateTo(1f, tween(220))
     }
-    val click = if (onOpen == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = "Open") { onOpen(file) }
-    Thumb(
-        file,
-        size,
-        Modifier.size(size).graphicsLayer {
-            alpha = arrival.value
-            scaleX = 0.92f + 0.08f * arrival.value
-            scaleY = scaleX
-        }.clip(MaterialTheme.shapes.medium).then(click).semantics {
-            contentDescription = "${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
-        }.testTag("recent:${file.uri}"),
-    )
+    app.retriever.files.FilePressMenu(file) { menu ->
+        val click = if (onOpen ==
+            null
+        ) {
+            Modifier
+        } else {
+            Modifier.combinedClickable(role = Role.Button, onClickLabel = "Open", onLongClickLabel = "File actions", onLongClick = menu, onClick = {
+                onOpen(file)
+            })
+        }
+        Thumb(
+            file,
+            size,
+            Modifier.size(size).graphicsLayer {
+                alpha = arrival.value
+                scaleX = 0.92f + 0.08f * arrival.value
+                scaleY = scaleX
+            }.clip(MaterialTheme.shapes.medium).then(click).semantics {
+                contentDescription = "${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
+            }.testTag("recent:${file.uri}"),
+        )
+    }
 }

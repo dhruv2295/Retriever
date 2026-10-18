@@ -136,6 +136,7 @@ struct FileListView: View {
                 .padding().frame(maxWidth: .infinity).background(.bar)
             }
         }
+        .onChange(of: model?.fileRevision) { Task { await pages.load(sort) } }
         .task(id: sort) {
             guard services != nil else { return }
             await pages.load(sort)

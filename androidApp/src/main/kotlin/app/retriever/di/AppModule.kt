@@ -117,6 +117,7 @@ private val log: (String, Throwable?) -> Unit = { message, t -> LogSink.write(Bu
 val appModule = module {
     single(AppScope) { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     singleOf(::ViewerQueue)
+    single { app.retriever.files.FileActions() }
     single { DemoMode(Demo.parts(androidContext())) }
     single(ModelDir) { androidContext().getExternalFilesDir("models")!! }
     single { ModelDownload(androidContext(), get(ModelDir)) }

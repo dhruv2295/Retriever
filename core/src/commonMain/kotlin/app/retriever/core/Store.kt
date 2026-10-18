@@ -47,7 +47,7 @@ class Store(
     enum class Sort { NEWEST, LARGEST, NAME }
 
     /** A null [vector] is a text tail chunk: keyword-searchable at once, embedded later by the deepen pass. */
-    data class NewChunk(val ordinal: Int, val locator: String, val text: String?, val vector: Vector?)
+    data class NewChunk(val ordinal: Int, val locator: String, val text: String?, val vector: Vector?, val contentText: String? = text)
     data class ChunkRow(val id: Long, val fileId: Long, val ordinal: Int, val locator: String, val text: String?)
     data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0)
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
@@ -106,6 +106,19 @@ class Store(
             }
         }
     }
+
+    /** A provider-confirmed rename keeps the file id, chunks, read state and star. */
+    fun renameFile(uri: String, name: String, newUri: String, modifiedAt: Long): SourceFile? = inTransaction {
+        val stored = fileByUri(uri) ?: return@inTransaction null
+        q.renameFile(newUri, name, modifiedAt, stored.id)
+        q.renameStar(newUri, name, modifiedAt, uri)
+        q.deleteFileFts(stored.id)
+        q.insertFileFts(stored.id, name, stored.file.folder)
+        saveUserState()
+        stored.file.copy(uri = newUri, name = name, modifiedAt = modifiedAt)
+    }
+
+    fun contentTexts(ids: Collection<Long>): Map<Long, String?> = inChunks(ids) { q.contentByIds(it) { id, text -> id to text }.executeAsList() }.toMap()
 
     /** [sample]: only the newest [sample] files of each kind are work; the rest stay pending, found by name. */
     fun pending(limit: Int, sample: Int? = null): List<StoredFile> = if (sample == null) {
@@ -223,7 +236,7 @@ class Store(
             q.chunkIdsForFile(fileId).executeAsList().forEach { q.deleteFts(it) }
             q.deleteChunksForFile(fileId)
             for (c in chunks) {
-                q.insertChunk(fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble())
+                q.insertChunk(fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(), c.contentText)
                 val chunkId = q.lastId().executeAsOne()
                 if (c.text != null) q.insertFts(chunkId, c.text)
             }
@@ -257,7 +270,7 @@ class Store(
         q.transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (text in parts) {
-                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null)
+                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text })
                 q.insertFts(q.lastId().executeAsOne(), text)
             }
             q.deleteFts(id)
@@ -275,7 +288,7 @@ class Store(
         check(vector.signature == signature()) { "vector signature ${vector.signature.value} does not match index" }
         q.transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
-            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble())
+            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text)
             val newId = q.lastId().executeAsOne()
             q.deleteFts(id)
             q.deleteChunk(id)

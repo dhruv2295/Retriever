@@ -128,7 +128,7 @@ class IndexEngine(
             }
             store.replaceChunks(
                 stored.id,
-                chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector) },
+                chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText) },
                 partial = pieces.any { it.locator == CUT_SHORT },
                 // A kind switched mid-read: what was read no longer matches what the setting asks for.
                 stillCurrent = { (file.kind in this.settings().kinds) == readInside },
@@ -174,7 +174,7 @@ class IndexEngine(
 }
 
 /** One chunk as [draftChunks] decides it; [vector] null leaves it keyword-only. */
-internal class ChunkDraft<V : Any>(val ordinal: Int, val locator: String, val text: String?, val vector: V?)
+internal class ChunkDraft<V : Any>(val ordinal: Int, val locator: String, val text: String?, val vector: V?, val contentText: String? = null)
 
 /**
  * What a file stores, shared by IndexEngine and RetrievalEval so the eval measures production's rules: the first
@@ -197,11 +197,11 @@ internal suspend fun <V : Any> draftChunks(
         // A mixed piece's text parts are model input (a video moment's timestamps), not words to search.
         val text = piece.keywordText ?: if (textOnly) piece.parts.joinToString("\n") { (it as Part.Text).text } else null
         if (embed == null) {
-            if (text != null) chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null)
+            if (text != null) chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText)
             return
         }
         if (textOnly && headText >= IndexEngine.HEAD_TEXT_CHUNKS) {
-            chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null)
+            chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText)
             return
         }
         val vector = try {
@@ -212,12 +212,12 @@ internal suspend fun <V : Any> draftChunks(
             val only = piece.parts.singleOrNull() as? Part.Text
             if (only == null || depth >= 3) throw e
             for (half in Chunker.chunks(only.text, maxChars = only.text.length / 2 + 1)) {
-                add(Piece(piece.locator, listOf(Part.Text(half)), half), depth + 1)
+                add(Piece(piece.locator, listOf(Part.Text(half)), half, half.takeIf { piece.contentText == only.text }), depth + 1)
             }
             return
         }
         if (textOnly) headText++
-        chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector)
+        chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector, piece.contentText)
     }
     for (piece in pieces) if (piece.parts.isNotEmpty()) add(piece)
 

@@ -163,8 +163,7 @@ struct FileRowView: View {
     }
 
     private func snippetText(_ snippet: String) -> Text {
-        if snippet.contains("\u{2}") { return Text(Format.highlighted(snippet)) }
-        return Text("Similar in meaning: ").fontWeight(.medium) + Text(snippet)
+        Text(Format.highlighted(snippet))
     }
 }
 
@@ -222,7 +221,7 @@ private struct ResultActions: ViewModifier {
             .accessibilityActions {
                 starButton
                 if let similar { Button("Find similar") { similar(file) } }
-                ShareButton(file: file)
+                FileActionButtons(file: file)
             }
             .contextMenu {
                 starButton
@@ -233,7 +232,7 @@ private struct ResultActions: ViewModifier {
                         Label("Find similar", systemImage: "photo.stack")
                     }
                 }
-                ShareButton(file: file)
+                FileActionButtons(file: file)
             }
             .sensoryFeedback(trigger: starred) { _, now in now ? .success : .impact(weight: .light) }
     }
@@ -293,6 +292,10 @@ struct SharedAsset: Transferable {
     }
 
     private func export() async throws -> SentTransferredFile {
+        SentTransferredFile(try await exportURL())
+    }
+
+    func exportURL() async throws -> URL {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
             let resource = PhotosSource.renditions(asset).current
         else { throw CocoaError(.fileNoSuchFile) }
@@ -302,7 +305,7 @@ struct SharedAsset: Transferable {
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
         try await PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options)
-        return SentTransferredFile(url)
+        return url
     }
 }
 

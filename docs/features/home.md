@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The first screen once the app is set up: the search bar as the hero, a status line or card, one row of recent or example
+The first screen once the app is set up: the search bar, one library hero with reading status and top folders, one row of recent or example
 searches, then the person's own pictures and files in a fixed order (photos and videos mosaic, screenshots, documents,
 On this day, Starred, kind tiles, Tidy up). It says what can be searched and how far reading has got. The visual
 decisions (Gallery layout, grafts taken and rejected) are in the Home v2 spec; this note records only how the code
@@ -25,9 +25,11 @@ holds them. The search bar and results are in `search-ui.md`.
 - **On this day without a date library in core.** The platform computes each past year's local-day range with real zone
   rules (`onThisDayRanges`, `dayRange` on Android; `Calendar` on iOS) and core answers with `Retriever.onThisDay`. The
   result is asked once per local date and again when the date changes. The person can hide it (`showOnThisDay`).
-- **Status and commit card.** The status area is one line when nothing is actionable and a card when something is. The
+- **Library hero.** Whole-library `byKind` totals feed the count, kind chips and proportional bar. Solid portions use INDEXED counts for kinds read inside, never total minus the trial-scoped pending count. A trial labels the whole-library total explicitly. The six largest `folderCounts` (indexed by `files_by_folder`) and All folders open existing Browse/Folder routes.
+- **Status and commit choice.** The existing status mapping and mascot sit inside the hero. The
   commit card shows only when the first run's short read is done and files still wait; "Read everything" opens the
   setup's three answers as a sheet. The hours estimate is `null` until `ESTIMATE_CALIBRATED` (see `onboarding.md`).
+- **Dismissal.** `Prefs.dismissedReadingCycle` hides All caught up across launches. The first actual file read after dismissal advances `readingCycle`; empty scans and renames do not. The existing celebration budget remains separate.
 - **Mascot.** Placement follows `docs/motion-api.md`: `WALKING` on the empty first-scan state, `NO_MATCH` on an empty
   library, `CAUGHT_UP` once ever on the status line (`Celebration`, Store meta `celebrated`, haptic 0.2 s after the pop).
   Starred, Home with files and Browse with files stay static.

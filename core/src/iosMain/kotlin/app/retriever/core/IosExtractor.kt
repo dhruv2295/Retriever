@@ -65,7 +65,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
             DocFormat.RTF -> stripRtf(capped(native.textHead(uri, TEXT_BYTES + 1), TEXT_BYTES))
             DocFormat.TEXT -> capped(native.textHead(uri, TEXT_BYTES + 1), TEXT_BYTES)
         }
-        val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it) }
+        val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it, it) }
         return if (cut) pieces + cutShort() else pieces
     }
 

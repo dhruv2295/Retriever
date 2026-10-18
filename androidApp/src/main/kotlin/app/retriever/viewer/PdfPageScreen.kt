@@ -198,12 +198,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
                 },
                 actions = {
                     StarButton(route.uri in starred) { stars.toggle(route.uri) }
-                    IconButton(onClick = { Opener.share(context, route.uri, "application/pdf") }) {
-                        Icon(painterResource(R.drawable.ic_share), contentDescription = "Share")
-                    }
-                    IconButton(onClick = openElsewhere) {
-                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = "Open in another app")
-                    }
+                    app.retriever.files.FileOverflow(route.uri, onBack)
                 },
             )
         },

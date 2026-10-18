@@ -243,32 +243,38 @@ private struct HomeStatusSection: View {
 
     var body: some View {
         let status = Copy.homeStatus(shown, download: model.download, progress: model.downloadProgress, nameOnly: model.home?.nameOnly ?? 0)
-        // With no files the empty state says it all, Photos access included.
         let photosNote = snap.total == 0 ? nil : Copy.photosNote(photos)
-        if status != nil || photosNote != nil || snap.asksCommit {
+        if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit {
             Section {
-                if let status {
+                if snap.libraryTotal > 0 {
+                    LibraryOverview(snap: snap, folders: model.home?.topFolders ?? []) { reading(status) }
+                } else { reading(status) }
+                if let note = photosNote {
+                    if note.phase == .photosOff { card(note, "Open Settings", model.openSettings) }
+                    else { card(note, "Choose more photos", model.chooseMorePhotos) }
+                }
+            }
+        }
+    }
+
+    private func reading(_ status: HomeStatus?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let status, status.phase != .caughtUp || !snap.caughtUpDismissed {
+                HStack {
                     NavigationLink(value: status.phase == .settingUp ? Route.setup : Route.status) {
                         StatusRow(status: status, due: model.caughtUpDue, celebrate: model.celebrate)
+                    }.buttonStyle(.plain).accessibilityHint("Shows reading details")
+                    if status.phase == .caughtUp {
+                        Button(action: model.dismissCaughtUp) {
+                            Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel("Dismiss all caught up")
                     }
-                    .accessibilityHint("Shows reading details")
-                    if status.phase == .paused { Button("Resume", action: model.resume) }
                 }
-                // The short read is done and the rest waits on the person. No hours until the pace is measured on this phone.
-                if snap.asksCommit {
-                    card(
-                        HomeStatus(phase: .waiting, title: "Read the other \(Copy.count(snap.waiting))?", detail: Copy.commitRest(files: nil)),
-                        "Read everything"
-                    ) { asking = true }
+                if status.phase == .paused { Button("Resume", action: model.resume) }
+            }
+            if snap.asksCommit {
+                card(HomeStatus(phase: .waiting, title: "Read the other \(Copy.count(snap.waiting))?", detail: Copy.commitRest(files: nil)), "Read everything") { asking = true }
                     .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
-                }
-                if let note = photosNote {
-                    if note.phase == .photosOff {
-                        card(note, "Open Settings", model.openSettings)
-                    } else {
-                        card(note, "Choose more photos", model.chooseMorePhotos)
-                    }
-                }
             }
         }
     }
@@ -323,9 +329,8 @@ private struct StatusRow: View {
         HStack(spacing: 12) {
             StatusDog(mood: mood, width: 80, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
             VStack(alignment: .leading, spacing: 4) {
-                Text(status.title).monospacedDigit().multilineTextAlignment(.leading)
-                if let progress = status.progress { ProgressView(value: progress) }
-                if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(Color.primary) }
+                Text(status.phase == .reading && !status.title.contains("trial") ? ["Reading", status.detail].compactMap { $0 }.joined(separator: " · ") : status.title)
+                    .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 2)

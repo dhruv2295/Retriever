@@ -307,7 +307,7 @@ val DocFormat.textEntry: String? get() = when (this) {
 fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int): List<Piece> {
     val text = textPieces(locator, ocr, maxChars)
     val keyword = if (text.isEmpty()) ocr.ifBlank { null } else null
-    return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword)) + text
+    return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword, keyword)) + text
 }
 
 /**
@@ -362,7 +362,7 @@ suspend fun pdfPieces(
 fun textPieces(locator: String, text: String, maxChars: Int): List<Piece> = if (text.trim().length < MIN_TEXT_CHARS) {
     emptyList()
 } else {
-    Chunker.chunks(text, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it) }
+    Chunker.chunks(text, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it, it) }
 }
 
 /** Consecutive [seconds]-long windows as (start second, samples); a tail shorter than [minSeconds] is dropped. */

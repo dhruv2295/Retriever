@@ -76,12 +76,7 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
                 },
                 actions = {
                     StarButton(current.uri in starred) { stars.toggle(current.uri) }
-                    IconButton(onClick = { Opener.share(context, current.uri, current.mime) }) {
-                        Icon(painterResource(R.drawable.ic_share), contentDescription = "Share")
-                    }
-                    IconButton(onClick = { Opener.view(context, current.uri, current.mime) }) {
-                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = "Open with")
-                    }
+                    app.retriever.files.FileOverflow(current.uri, onBack)
                 },
             )
         },

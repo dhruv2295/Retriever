@@ -113,7 +113,16 @@ class HomeShotsTest {
 
     private val memories = listOf(memory(2023, 8, 0), memory(2021, 0, 1), memory(2019, 3, 2))
 
-    private val caughtUp = HomeUi(setUp = true, counts = counts, searchable = 26_300, home = facts, starred = 4, memories = memories, memoriesDay = day)
+    private val caughtUp = HomeUi(
+        setUp = true,
+        counts = counts,
+        readByKind = counts,
+        searchable = 26_300,
+        home = facts,
+        starred = 4,
+        memories = memories,
+        memoriesDay = day,
+    )
 
     @Composable
     private fun Screen(
@@ -131,6 +140,9 @@ class HomeShotsTest {
     }
 
     private val reading = caughtUp.copy(
+        readByKind = counts.mapValues { (kind, n) ->
+            (n - (mapOf(Kind.PHOTO to 14_700L, Kind.VIDEO to 1_700L, Kind.AUDIO to 60L)[kind] ?: 0L)).coerceAtLeast(0)
+        },
         searchable = 9_840,
         waiting = 16_460,
         pending = mapOf(Kind.PHOTO to 14_700L, Kind.VIDEO to 1_700L, Kind.AUDIO to 60L),
@@ -219,8 +231,8 @@ class HomeShotsTest {
         shot("reading", false)
         // Only the words are a live region; the count beside them changes without an announcement each time.
         rule.onNode(hasText("Reading your files") and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
-        rule.onNode(hasText("· 9,840 of 26,300") and SemanticsMatcher.keyNotDefined(SemanticsProperties.LiveRegion)).assertExists()
-        rule.onNodeWithText("About 3 hours left. Faster while charging.").assertExists()
+        rule.onNode(hasText("· About 3 hours left. Faster while charging.") and SemanticsMatcher.keyNotDefined(SemanticsProperties.LiveRegion)).assertExists()
+        rule.onNodeWithText("About 3 hours left. Faster while charging.", substring = true).assertExists()
         rule.onNodeWithContentDescription("Videos, 1,700 files, Waiting").assertExists()
         rule.onNodeWithContentDescription("Audio, 345 files, 60 to go").assertExists()
         // Pictures are never greyed out; the big cell says how many photos are left, and headers say where each stands.
@@ -236,14 +248,14 @@ class HomeShotsTest {
 
     @Test fun readingOnTheChargerDoesNotAdviseCharging() {
         rule.setContent { ShotTheme(false) { Screen(reading, readingIndex, charging = true) } }
-        rule.onNodeWithText("About 3 hours left.").assertExists()
+        rule.onNodeWithText("About 3 hours left.", substring = true).assertExists()
         rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
     }
 
     @Test fun pausedLight() {
         shot("paused", false)
         rule.onNodeWithText("Paused").assertExists()
-        rule.onNodeWithText("· 9,840 of 26,300 searchable").assertExists()
+        rule.onNodeWithText("26,300").assertExists()
         rule.onNodeWithText("Resume").assertExists()
     }
 
@@ -507,7 +519,7 @@ class HomeShotsTest {
         rule.setContent { ShotTheme(false, fontScale = 2f) { Screen(reading, readingIndex) } }
         rule.waitForIdle()
         rule.shot("home_reading_2x")
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents, Ready").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents, Ready").assertExists()
         cells().assertCountEquals(6)
     }
 

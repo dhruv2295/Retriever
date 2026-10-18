@@ -41,6 +41,8 @@ data class HomeUi(
     /** null until the store has answered. */
     val counts: Map<Kind, Long>? = null,
     val searchable: Long = 0L,
+    val readByKind: Map<Kind, Long> = emptyMap(),
+    val caughtUpDismissed: Boolean = false,
     val waiting: Long = 0L,
     val trial: Boolean = false,
     /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
@@ -126,7 +128,14 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
 
     private val today = MutableStateFlow<LocalDate?>(null)
 
-    private val _ui = MutableStateFlow(HomeUi(hasAccess = access.state.value.ready, showOnThisDay = retriever.prefs.value.showOnThisDay))
+    private val _ui =
+        MutableStateFlow(
+            HomeUi(
+                hasAccess = access.state.value.ready,
+                showOnThisDay = retriever.prefs.value.showOnThisDay,
+                caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
+            ),
+        )
     val ui: StateFlow<HomeUi> = _ui.asStateFlow()
     val indexState: StateFlow<IndexState> = retriever.state
 
@@ -141,6 +150,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 _ui.update {
                     it.copy(
                         counts = c.byKind,
+                        readByKind = c.byKindState.filterKeys { k -> k.second == FileState.INDEXED }.mapKeys { e -> e.key.first },
                         searchable = c.byState[FileState.INDEXED] ?: 0L,
                         waiting = c.byState[FileState.PENDING] ?: 0L,
                         rest = c.waiting,
@@ -152,7 +162,11 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
             }
         }
         viewModelScope.launch {
-            retriever.prefs.collect { p -> _ui.update { it.copy(paused = p.paused, inside = retriever.readInside(), showOnThisDay = p.showOnThisDay) } }
+            retriever.prefs.collect { p ->
+                _ui.update {
+                    it.copy(paused = p.paused, inside = retriever.readInside(), showOnThisDay = p.showOnThisDay, caughtUpDismissed = p.caughtUpDismissed)
+                }
+            }
         }
         // Once per local date, again only when the date changed while the app was away; not while hidden.
         viewModelScope.launch {
@@ -196,6 +210,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         _ui.update { it.copy(showOnThisDay = false) }
         launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = false) } }
     }
+
+    fun dismissCaughtUp() = launchCatching { retriever.dismissCaughtUp() }
 
     val celebration = celebrationOf(retriever)
 

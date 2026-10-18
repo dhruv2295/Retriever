@@ -1,4 +1,3 @@
-import QuickLook
 import RetrieverCore
 import SwiftUI
 
@@ -27,6 +26,7 @@ struct RootView: View {
 
     var body: some View {
         content
+            .modifier(FileActionsHost(model: model))
             .environment(model)
             .environment(\.services, model.services)
             #if DEBUG
@@ -108,9 +108,6 @@ extension View {
 struct AppStack<Root: View>: View {
     let model: AppModel
     @Binding var path: [Route]
-    @State private var quickLook: URL?
-    @State private var quickLookURLs: [URL] = []
-    @State private var openFailed = false
     private let root: Root
 
     init(model: AppModel, path: Binding<[Route]>, @ViewBuilder root: () -> Root) {
@@ -125,25 +122,13 @@ struct AppStack<Root: View>: View {
         }
         .environment(model)
         .environment(\.services, model.services)
-        .quickLookPreview($quickLook, in: quickLookURLs)
         .environment(
             \.openFile,
             OpenFile { file, locator, words, among in
-                if let v = viewing(file, locator: locator, words: words, among: among) {
-                    path.append(Route.view(v))
-                } else if let folders = model.services?.folders {
-                    let urls = quickLookFiles(file, among: among).compactMap { folders.resolve($0.uri) }
-                    let url = folders.resolve(file.uri)
-                    quickLookURLs = url.map { urls.contains($0) ? urls : [$0] } ?? []
-                    quickLook = url
-                    openFailed = url == nil
-                }
+                path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
             }
         )
-        .alert("Couldn't open this file", isPresented: $openFailed) {
-        } message: {
-            Text("Its folder can't be reached right now. If you moved or renamed the folder, add it again in Folders.")
-        }
+
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {

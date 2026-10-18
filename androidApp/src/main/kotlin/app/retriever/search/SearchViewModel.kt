@@ -124,6 +124,7 @@ class SearchViewModel(
     private var wordsOnly = 0
 
     init {
+        viewModelScope.launch { retriever.fileRevision.collect { if (it > 0) retry() } }
         // Two phases per key: the file names a moment after typing, the full search once the typing has paused.
         viewModelScope.launch { keys(SearchTiming.NAMES_MS).collectLatest { search(it, namesOnly = true) } }
         viewModelScope.launch { keys(SearchTiming.FULL_MS).collectLatest { search(it, namesOnly = false) } }

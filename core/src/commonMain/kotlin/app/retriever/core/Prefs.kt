@@ -25,7 +25,16 @@ data class Prefs(
     val noMatchSeen: Int = 0,
     /** Home shows "On this day" unless the person hides it. */
     val showOnThisDay: Boolean = true,
+    val readingCycle: Long = 0,
+    val dismissedReadingCycle: Long = -1,
+
 ) {
+    val caughtUpDismissed: Boolean get() = dismissedReadingCycle == readingCycle
+
+    fun readingStarted(): Prefs = if (caughtUpDismissed) copy(readingCycle = readingCycle + 1) else this
+
+    fun dismissCaughtUp(): Prefs = copy(dismissedReadingCycle = readingCycle)
+
     companion object {
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(
             // LIGHT keeps video at its sparse 30 s keyframes; audio windows are dense, so they stay off.

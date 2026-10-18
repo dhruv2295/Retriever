@@ -99,7 +99,7 @@ class IndexPipelineTest {
         assertEquals(20L, store.chunkCount())
         assertEquals(1, store.keywordSearch("zebra", 10).size)
         val after = search.search("zebra", SearchEngine.Mode.VECTOR).hits.single()
-        assertEquals("part15 zebra", after.snippet, "the loaded table picked up the deepened chunk")
+        assertEquals("part15 \u0002zebra\u0003", after.snippet, "the loaded table picked up the deepened chunk")
         assertEquals("p. 16", after.locator)
     }
 

@@ -100,6 +100,16 @@ final class HomeModelTests: XCTestCase {
 
     // MARK: What Home shows
 
+    func testLibraryHeroReadingTrialCaughtUpDismissedAndTextOnlyScreenshots() async throws {
+        for name in ["reading", "trial", "caught-up", "dismissed", "text-only"] {
+            let model = AppModel(fixture: name == "reading" || name == "trial" ? .reading(done: 20, total: 100) : name == "text-only" ? .textOnly(ramGb: 2) : .caughtUp)
+            if name == "trial" { model.snap?.trial = true; model.snap?.waiting = 2_000 }
+            if name == "dismissed" { model.dismissCaughtUp() }
+            let result = try await layout(model, screenshot: name)
+            XCTAssertGreaterThan(result.items.first ?? 0, 0, "The library hero remains visible: \(name)")
+        }
+    }
+
     func testCaughtUpHomeShowsEverySection() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         // Status, the chip row, the mosaic, screenshots, documents, starred, the tiles, tidy up.
@@ -188,7 +198,7 @@ final class HomeModelTests: XCTestCase {
         asking.waiting = 26_214
         let card = try await layout(model, snap: asking, search: .fixture())
         XCTAssertEqual(plain.items.first, 1)
-        XCTAssertEqual(card.items.first, 2, "the status row and the commit card")
+        XCTAssertEqual(card.items.first, 1, "status and the choice belong inside the same library hero")
         XCTAssertEqual(Array(card.items.dropFirst()), Array(plain.items.dropFirst()))
     }
 
@@ -429,7 +439,7 @@ final class HomeModelTests: XCTestCase {
         }
         model.home = h.doCopy(
             newMedia: media, newShots: h.newShots, newDocs: h.newDocs, starred: stars, starredCount: Int64(starred),
-            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, nameOnly: h.nameOnly)
+            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, nameOnly: h.nameOnly, topFolders: h.topFolders)
         return model
     }
 
@@ -441,7 +451,7 @@ final class HomeModelTests: XCTestCase {
     /// HomeList in a window of the host app's scene (without one SwiftUI lays out nothing), then the rows in each section.
     private func layout(
         _ model: AppModel, snap: AppModel.Snap? = nil, search: SearchModel? = nil,
-        photos: PHAuthorizationStatus = .authorized
+        photos: PHAuthorizationStatus = .authorized, screenshot: String? = nil
     ) async throws -> Layout {
         let list = NavigationStack {
             HomeList(search: search ?? .fixture(), snap: snap ?? model.snap, photos: photos, model: model, useRecent: { _ in }, addFolder: {})
@@ -450,7 +460,7 @@ final class HomeModelTests: XCTestCase {
         let host = UIHostingController(rootView: list)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 390, height: 5_000)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: screenshot == nil ? 5_000 : 844)
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
@@ -464,7 +474,21 @@ final class HomeModelTests: XCTestCase {
             let now = Layout(
                 headers: collection.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader).count,
                 items: (0..<collection.numberOfSections).map { collection.numberOfItems(inSection: $0) })
-            if now == last { return now }
+            if now == last {
+                if let screenshot {
+                    let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { context in
+                        host.view.layer.render(in: context.cgContext)
+                    }
+                    let pixels = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
+                    let shades = Set(stride(from: 0, to: pixels.count, by: 97).map { pixels[$0] })
+                    XCTAssertGreaterThan(shades.count, 8, "The hero screenshot must contain rendered content")
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "home-hero-" + screenshot
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+                return now
+            }
             last = now
         }
         return try XCTUnwrap(last, "Home is not a list")

@@ -17,6 +17,8 @@ CREATE TABLE files (
   taken_at INTEGER
 );
 
+CREATE INDEX files_by_folder ON files(folder);
+
 CREATE INDEX files_by_state ON files(state);
 
 CREATE INDEX files_by_kind_state ON files(kind, state);
@@ -36,6 +38,7 @@ CREATE TABLE chunks (
   ordinal INTEGER NOT NULL,
   locator TEXT NOT NULL DEFAULT '',
   text TEXT,
+  content_text TEXT,
   -- NULL: a text tail chunk, keyword-searchable now, embedded by the deepen pass.
   vector BLOB,
   scale REAL,
@@ -273,7 +276,7 @@ deleteChunk:
 DELETE FROM chunks WHERE id = ?;
 
 insertChunk:
-INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 lastId:
 SELECT last_insert_rowid();
@@ -319,12 +322,12 @@ chunksByIds:
 SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
 
 chunkTextsOfFile:
-SELECT id, ordinal, locator, text FROM chunks WHERE file_id = ? AND text IS NOT NULL ORDER BY ordinal, id;
+SELECT id, ordinal, locator, content_text FROM chunks WHERE file_id = ? AND content_text IS NOT NULL ORDER BY ordinal, id;
 
 -- The first text at each place, for many places at once; SQLite returns the text of the row that holds MIN(ordinal).
 firstTextAtMany:
-SELECT file_id, locator, text, MIN(ordinal) FROM chunks
-WHERE file_id IN :fileIds AND locator IN :locators AND text IS NOT NULL
+SELECT file_id, locator, content_text, MIN(ordinal) FROM chunks
+WHERE file_id IN :fileIds AND locator IN :locators AND content_text IS NOT NULL
 GROUP BY file_id, locator;
 
 insertFts:
@@ -450,3 +453,12 @@ SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri WHERE f.kind != 'OT
 
 starredCount:
 SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri;
+
+contentByIds:
+SELECT id, content_text FROM chunks WHERE id IN ?;
+
+renameFile:
+UPDATE files SET uri = ?, name = ?, modified_at = ? WHERE id = ?;
+
+renameStar:
+UPDATE starred SET uri = ?, name = ?, modified_at = ? WHERE uri = ?;

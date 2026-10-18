@@ -108,7 +108,7 @@ internal fun testFile(name: String, kind: Kind = Kind.DOC, modifiedAt: Long = 1L
 
 internal fun settingsOf(kinds: Set<Kind> = Kind.entries.toSet(), profile: DeviceProfile = PROFILE): () -> IndexSettings = { IndexSettings(profile, kinds) }
 
-internal fun textPiece(text: String, locator: String = "") = Piece(locator, listOf(Part.Text(text)), null)
+internal fun textPiece(text: String, locator: String = "") = Piece(locator, listOf(Part.Text(text)), text, text)
 
 internal val PIXEL = DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 8.0, false)
 

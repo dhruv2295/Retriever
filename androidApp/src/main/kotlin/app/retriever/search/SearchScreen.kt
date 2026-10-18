@@ -20,6 +20,7 @@ package app.retriever.search
 
 import android.content.Context
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
@@ -248,6 +249,15 @@ fun SearchContent(
         }
     }
 
+    val closeSearch = {
+        text.clearText()
+        actions.onQuery("")
+        actions.onClearSimilar()
+        scope.launch { bar.animateToCollapsed() }
+        Unit
+    }
+    BackHandler(enabled = text.text.isNotEmpty() || ui.similar != null || bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
+
     // Read before the lambda, so it captures these two values and not the whole SearchUi.
     val similar = ui.similar
     val photoSearch = ui.canSearchByPhoto
@@ -275,7 +285,7 @@ fun SearchContent(
             placeholder = { Text("Search inside your files", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = {
                 if (bar.currentValue == SearchBarValue.Expanded) {
-                    IconButton(onClick = { scope.launch { bar.animateToCollapsed() } }) {
+                    IconButton(onClick = closeSearch) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
                 } else {
@@ -336,6 +346,7 @@ fun SearchContent(
     // results' text colour from it.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
+            BackHandler(enabled = bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
             LightStatusBarIconsOnDark()
             SearchPane(ui, home, actions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
         }

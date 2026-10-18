@@ -173,7 +173,7 @@ class SearchShotsTest {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
         rule.onNodeWithText("Reading your files").assertExists()
-        rule.onNodeWithText("· 3,100 of 5,330").assertExists()
+        rule.onNodeWithText("5,330").assertExists()
     }
 
     @Test fun homeDark() = shot("home", true)

@@ -41,7 +41,8 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   file with no text yet is `NotReadYet`, never the "couldn't read" `Empty`, and a file the index lacks is `Failed`.
   `loadDoc` picks the paragraph from the hit's locator or the query (a search hit carries its id and the words asked)
   and the list opens there with the words marked.
-- **Secondary actions.** Every viewer's top bar has Star, Share and Open with (the PDF's is "Open in another app").
+- **File actions.** Star and one overflow menu serve every viewer, including the iOS Quick Look wrapper. The same platform action model supplies long-press menus in Search, Browse and Recently read: Info, Share, Open with, Rename and Delete. Info reads optional dimensions/duration off the UI thread. Native share/open and mutation APIs own access and confirmation; Photos assets omit Rename.
+- **Index mutations.** A rename holds `Retriever`'s scan lock across the provider operation and the in-place store update. The file id, chunks, read state and star stay; the name index and recent entries follow the new URI. Confirmed deletion removes index chunks and recent entries immediately. Lists observe the action revision; deleting from a viewer closes it.
 - **States.** Every viewer has explicit loading, content, empty and trouble states; failures use `MascotMood.TROUBLE`
   ("Couldn't open this file", "Couldn't play this video", "Couldn't show this photo").
 - **iOS.** `PDFKit` `PDFView` at the matched page with highlighted selections (PDF parse through a `@concurrent` function

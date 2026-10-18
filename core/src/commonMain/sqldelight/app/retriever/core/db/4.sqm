@@ -1,0 +1,4 @@
+ALTER TABLE chunks ADD COLUMN content_text TEXT;
+CREATE INDEX files_by_folder ON files(folder);
+-- Legacy image and audio text has no provenance. Only the document/OCR extractors wrote these text chunks.
+UPDATE chunks SET content_text = text WHERE ordinal > 0 AND file_id IN (SELECT id FROM files WHERE kind IN ('DOC', 'PDF', 'SCREENSHOT'));
