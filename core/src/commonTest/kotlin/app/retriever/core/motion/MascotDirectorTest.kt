@@ -17,13 +17,13 @@ class MascotDirectorTest {
      * Plays steps the way a player does: a one-shot runs to its end; a loop runs until its time is up or the mood
      * changes, then finishes the loop it is in; a hold lasts its time or until the mood changes.
      */
-    private fun run(mood: (Double) -> MascotMood, until: Double): List<Pair<Double, MascotStep>> {
+    private fun run(mood: (Double) -> MascotMood, until: Double, settles: Boolean = true): List<Pair<Double, MascotStep>> {
         var t = 0.0
         var last: MascotStep? = null
         val out = mutableListOf<Pair<Double, MascotStep>>()
         while (t < until) {
             val now = mood(t)
-            val step = MascotDirector.next(now, last, t)
+            val step = MascotDirector.next(now, last, t, settles)
             out += t to step
             var changeAt = t
             while (changeAt < until && mood(changeAt) == now) changeAt += 0.05
@@ -46,6 +46,18 @@ class MascotDirectorTest {
         assertEquals(listOf(HOLD to WALK, LOOP to WALK, HOLD to WALK), after.take(3).map { it.kind to it.clip })
         assertEquals(MascotDirector.CADENCE_REST, after.first { it.kind == HOLD }.seconds)
         assertEquals(MascotDirector.CADENCE_WALK, after.first { it.kind == LOOP }.seconds)
+    }
+
+    @Test
+    fun setupKeepsWalkingForAsLongAsItIsOnScreen() {
+        val steps = run({ MascotMood.WALKING }, 3600.0, settles = false).map { it.second }
+        assertEquals(true, steps.all { it.kind == LOOP && it.clip == WALK })
+    }
+
+    @Test
+    fun setupStillWakesAndRestsLikeEverywhereElse() {
+        assertEquals(MascotStep(ONCE, MascotClip.WAKE), MascotDirector.next(MascotMood.WALKING, MascotStep(HOLD, DOZE), 300.0, settles = false))
+        assertEquals(MascotStep(ONCE, MascotClip.SIT), MascotDirector.next(MascotMood.RESTING, MascotStep(LOOP, WALK), 300.0, settles = false))
     }
 
     @Test
