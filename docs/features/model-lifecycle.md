@@ -36,12 +36,18 @@ content leaves the phone; only the model download uses the network.
   `title: <name> | text: ...`; images, audio and video moments go in raw (`Prefix` in Chunker.kt). `Signature` =
   variant/sha8/vision tokens/d256/max tokens; vectors of different signatures never mix and a change re-indexes. The eval
   (`eval/REPORT.md`) found prefixes worth +2 recall@5 and d256 int8 equal to d512 float.
-- **Release.** `release()` frees the model: Android after a worker run that nothing follows soon and on
-  `onTrimMemory(BACKGROUND)`; iOS on entering the background (under `beginBackgroundTask`) and on a memory warning while
-  not in front.
+- **Release.** Android process `onStop` asks `releaseIfIdle()` to free the hidden model. Batch, search and warm-up
+  completion also check, so an in-flight user defers release until it finishes. The index lock protects the entire
+  batch and the SOON gap; the model lock protects closing and rechecks visibility and active queries. A visible app
+  and an imminent follow-up keep the model warm. Explicit `release()` still forces release for storage/debug actions.
+  iOS also releases on entering the background (under `beginBackgroundTask`) and on a hidden memory warning.
 - **Caches.** `cacheDir/embed/<model stem>-<delegate>-vt<n>-t<n>`; `keepOnly` drops caches of removed models (Android);
   `ModelDownload.deleteModel` removes a build's caches.
-- **Scheduling.** Strictly sequential, batch size 1. A query waits for at most the one native call in flight.
+- **Scheduling.** Strictly sequential, batch size 1. Android indexing uses an owned thread set to
+  `THREAD_PRIORITY_BACKGROUND` before its first task; iOS uses a serial dispatch queue at utility QoS. Extraction
+  and embedding inherit the caller context. Search and shared model construction/warm-up retain normal priority,
+  so CPU pools created by that shared model do not permanently slow interactive queries. A query waits for at most
+  the one native call in flight.
 
 ## Owner files
 
@@ -56,7 +62,7 @@ content leaves the phone; only the model download uses the network.
 - `core/src/androidMain/kotlin/app/retriever/core/android/Device.kt`
 - `core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt`
 - `iosApp/Retriever/Core/MediaPipeEmbedder.swift`
-- `androidApp/src/main/kotlin/app/retriever/RetrieverApp.kt` (`onTrimMemory`), `androidApp/src/main/kotlin/app/retriever/IndexWorker.kt` (release after a run)
+- `androidApp/src/main/kotlin/app/retriever/RetrieverApp.kt` (`onStop`), `androidApp/src/main/kotlin/app/retriever/IndexWorker.kt` (release after a run)
 - `iosApp/Retriever/Core/Lifecycle.swift`
 
 ## Invariants
@@ -83,6 +89,9 @@ content leaves the phone; only the model download uses the network.
 ## Known limits
 
 - No batching: extraction and embedding alternate per file.
+- Shared model CPU pools remain at their original normal priority during indexing too. The wrapper cannot reprioritize
+  vendor pools per request, and a second model would double memory. Only owned indexing threads are demoted; GPU
+  scheduling and vendor-created OCR thread priorities still require device measurement. Backend choice is unchanged.
 - Query latency has no on-device number; inputs may be padded to the signature length, so a short query may cost a full
   window. Device queue: measure query time on GPU and CPU before choosing a backend by query time instead of image time.
 - A GPU or NPU that never crashes but is slightly wrong is caught only by the 0.98 mean-cosine gate at Tune time; NPU

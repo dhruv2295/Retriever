@@ -29,14 +29,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.retriever.core.IndexState
-import app.retriever.core.NextRun
 import app.retriever.core.Retriever
+import app.retriever.core.indexingDispatcher
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,8 +62,8 @@ class IndexWorker(
 
     // A stop (constraints, time limit, Pause) cancels doWork, and with it the batch inside indexBatch:
     // the cancelBatch() the platform's onStopped would call (it is final in CoroutineWorker).
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        // No Process.setThreadPriority: it would demote a pooled IO thread for good, and the heavy work runs on Dispatchers.Default and MediaPipe's own threads.
+    override suspend fun doWork(): Result = withContext(indexingDispatcher) {
+        // Owned threads may stay at background priority; shared IO/Default threads must never be demoted.
         // First, so a paused or not-yet-permitted run keeps watching too. Only the media run, and only its first attempt:
         // any other run (or a retry) appending would grow a chain behind the waiting trigger.
         if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
@@ -73,10 +71,8 @@ class IndexWorker(
         retriever.refreshSetUp()
         // Before setup finishes a batch only syncs the file list, so names are searchable while the model downloads.
         if (retriever.prefs.value.paused || !platformReady()) return@withContext Result.success()
-        // Null when the run was stopped: that releases too.
-        var next: NextRun? = null
         try {
-            next = coroutineScope {
+            val next = coroutineScope {
                 // A sync-only run takes seconds, and another worker's batch already shows its own: no notification.
                 val foreground = !retriever.state.value.running && retriever.setUp.value == true && retriever.uiVisible &&
                     safeSetForeground(foregroundInfo(retriever.state.value))
@@ -86,11 +82,6 @@ class IndexWorker(
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
-            // Nothing follows soon and nobody is searching: give the model's memory back, even when stopped (a REPLACE
-            // follow-up cancels this worker). DONE also means another worker's batch holds the lock: never close it under it.
-            if (next != NextRun.SOON && !retriever.uiVisible && !retriever.state.value.running) {
-                withContext(NonCancellable) { retriever.release() }
-            }
             // Our own notify() posts outlive the worker when there was no foreground service to own them.
             notificationManager.cancel(notificationId)
         }

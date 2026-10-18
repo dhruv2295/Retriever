@@ -1,7 +1,9 @@
 package app.retriever.browse
 
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelStore
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.CoreDispatchers
 import app.retriever.core.Kind
 import app.retriever.duplicates.retrieverOver
 import app.retriever.nav.BrowseRoute
@@ -12,8 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -40,6 +45,37 @@ class BrowseViewModelTest {
         SavedStateHandle(mapOf("kind" to kind, "folder" to null, "sort" to sort, "title" to "PDFs", "starredOnly" to starredOnly))
 
     private val files = listOf(testFile("b.pdf", Kind.PDF), testFile("a.pdf", Kind.PDF), testFile("c.jpg", Kind.PHOTO))
+
+    @Test fun scrollingPausesReadingUntilTheGestureEnds() = runTest {
+        var reads = 0
+        val r = testRetriever(files, ramGb = 3.0, extract = {
+            reads++
+            emptyList()
+        }, dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
+        val vm = BrowseViewModel(r, args())
+        vm.setScrolling(true)
+        val batch = launch { r.indexBatch(1.minutes) }
+        runCurrent()
+        assertFalse(batch.isCompleted)
+        assertEquals(0, reads)
+        vm.setScrolling(false)
+        advanceUntilIdle()
+        assertTrue(batch.isCompleted)
+        assertTrue(reads > 0)
+    }
+
+    @Test fun leavingBrowseReleasesItsScrollGate() = runTest {
+        val r = testRetriever(files, ramGb = 3.0, dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
+        val vm = BrowseViewModel(r, args())
+        val store = ViewModelStore().apply { put("browse", vm) }
+        vm.setScrolling(true)
+        val batch = launch { r.indexBatch(1.minutes) }
+        runCurrent()
+        assertFalse(batch.isCompleted)
+        store.clear()
+        advanceUntilIdle()
+        assertTrue(batch.isCompleted)
+    }
 
     @Test fun loadsTheRouteFromTheSavedStateOnCreation() = runTest {
         val retriever = testRetriever(files).also { it.indexBatch(1.minutes) }

@@ -68,6 +68,117 @@ class RetrieverTest {
     private fun test(body: suspend TestScope.() -> Unit) = runTest(dispatcher, timeout = 20.seconds) { body() }
 
     @Test
+    fun hidingAnIdleAppReleasesItsModelButVisibleKeepsItWarm() = test {
+        val f = fx()
+        f.r.uiVisible = true
+        f.r.indexBatch(1.minutes)
+        f.r.releaseIfIdle()
+        assertFalse(f.factory.last!!.closed)
+        f.r.uiVisible = false
+        f.r.releaseIfIdle()
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun hidingDuringABatchDefersReleaseUntilItFinishes() = test {
+        val f = fx()
+        f.r.uiVisible = true
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        f.r.uiVisible = false
+        f.r.releaseIfIdle()
+        assertFalse(f.factory.last!!.closed)
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.DONE, batch.await())
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun hiddenSoonFollowUpReusesTheModelThenReleasesWhenDone() = test {
+        val f = fx()
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.SOON, batch.await())
+        f.r.releaseIfIdle()
+        assertFalse(f.factory.last!!.closed)
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(1, f.factory.opened.size)
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun pausingAHiddenSoonFollowUpReleasesTheModel() = test {
+        val f = fx()
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        f.r.notifyChanged()
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.SOON, batch.await())
+        assertFalse(f.factory.last!!.closed)
+        f.r.pause()
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun hidingDuringASearchDefersReleaseUntilTheQueryFinishes() = test {
+        val f = fx()
+        f.r.uiVisible = true
+        f.r.indexBatch(1.minutes)
+        val gate = CompletableDeferred<Unit>()
+        f.factory.beforeEmbed = { gate.await() }
+        val search = async { f.r.search("f1") }
+        advanceUntilIdle()
+        assertFalse(search.isCompleted)
+        f.r.uiVisible = false
+        f.r.releaseIfIdle()
+        assertFalse(f.factory.last!!.closed)
+        gate.complete(Unit)
+        assertTrue(search.await().vectorLane)
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun returningToTheAppWhileAHiddenSearchFinishesKeepsTheModel() = test {
+        val f = fx()
+        f.r.uiVisible = true
+        f.r.indexBatch(1.minutes)
+        val gate = CompletableDeferred<Unit>()
+        f.factory.beforeEmbed = { gate.await() }
+        val search = async { f.r.search("f1") }
+        advanceUntilIdle()
+        f.r.uiVisible = false
+        f.r.releaseIfIdle()
+        f.r.uiVisible = true
+        gate.complete(Unit)
+        search.await()
+        assertFalse(f.factory.last!!.closed)
+    }
+
+    @Test
+    fun hidingDuringWarmUpReleasesAfterTheOpenSettles() = test {
+        val f = fx()
+        f.r.uiVisible = true
+        f.r.refreshSetUp()
+        val gate = CompletableDeferred<Unit>()
+        f.factory.beforeEmbed = { gate.await() }
+        val warm = async { f.r.warmSearch() }
+        advanceUntilIdle()
+        f.r.uiVisible = false
+        val release = async { f.r.releaseIfIdle() }
+        advanceUntilIdle()
+        assertFalse(f.factory.last!!.closed)
+        gate.complete(Unit)
+        warm.await()
+        release.await()
+        assertTrue(f.factory.last!!.closed)
+    }
+
+    @Test
     fun stopReasonsMapToNextRun() {
         val expected = mapOf(
             StopReason.BUDGET to NextRun.SOON,
@@ -285,6 +396,7 @@ class RetrieverTest {
     @Test
     fun aPrefsSwitchDoesNotReopenTheModel() = test {
         val f = fx(store = newStore(genericSig))
+        f.r.uiVisible = true
         f.r.indexBatch(1.minutes)
         f.r.updatePrefs { it.copy(onlyWhileCharging = true, kinds = it.kinds - Kind.VIDEO) }
         assertTrue(f.r.search("hello").vectorLane)
@@ -335,6 +447,7 @@ class RetrieverTest {
     @Test
     fun aModelThatBreaksDuringASearchIsRetiredAndReopened() = test {
         val f = fx(store = newStore(genericSig))
+        f.r.uiVisible = true
         f.r.indexBatch(1.minutes)
         var broken = true
         f.factory.beforeEmbed = {
@@ -355,6 +468,7 @@ class RetrieverTest {
     @Test
     fun aSearchWithNoModelOpenAnswersFromKeywordsAndOpensItAfterwards() = test {
         val f = fx(store = newStore(genericSig))
+        f.r.uiVisible = true
         f.r.refreshSetUp()
         f.r.indexBatch(1.minutes)
         f.r.release()
@@ -429,6 +543,7 @@ class RetrieverTest {
     @Test
     fun searchImageSendsOneRawImage() = test {
         val f = fx(store = newStore(genericSig))
+        f.r.uiVisible = true
         f.r.refreshSetUp()
         f.r.warmSearch()
         val result = f.r.searchImage(ByteArray(33))

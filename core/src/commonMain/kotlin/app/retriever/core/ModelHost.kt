@@ -43,6 +43,7 @@ internal class ModelHost(
 
     /** The shared embedder and its build, opened if needed. Null when not set up. */
     suspend fun open(): Pair<Embedder, ModelBuild>? = lock.withLock {
+        // Native CPU pools are shared with search: create and warm them at normal priority even for an index batch.
         withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
     }
 
@@ -197,6 +198,16 @@ internal class ModelHost(
     /** Frees the model's memory; the next search or batch opens it again. */
     suspend fun release() {
         lock.withLock { withContext(dispatchers.default) { closeLocked() } }
+    }
+
+    /** Opening already has a completion cleanup; an idle check must never make a query wait for that open. */
+    suspend fun releaseIf(allowed: () -> Boolean) {
+        if (!lock.tryLock()) return
+        try {
+            withContext(dispatchers.default) { if (allowed()) closeLocked() }
+        } finally {
+            lock.unlock()
+        }
     }
 
     fun unfinishedOpens(): Int = store.meta(UNFINISHED_OPENS)?.toIntOrNull() ?: 0

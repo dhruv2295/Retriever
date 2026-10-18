@@ -20,6 +20,7 @@ package app.retriever.core
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -196,6 +197,7 @@ class Retriever(
     private var bookSavedAt = 0L
 
     private val indexLock = Mutex()
+    private var batchSoon = false // guarded by indexLock, including the gap before a SOON follow-up
 
     /** Outlives any one embedder, so a reopen keeps the loaded vector table. Read and set under [model]'s lock. */
     private var engine: SearchEngine? = null
@@ -280,6 +282,7 @@ class Retriever(
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
             }
+            if (new.paused) releaseIfIdle()
         }
     }
 
@@ -319,9 +322,10 @@ class Retriever(
             changedSinceSync = true
             return NextRun.DONE
         }
+        batchSoon = false
         try {
             return coroutineScope {
-                val work = async(dispatchers.default) { runBatch(budget, deepen) }
+                val work = async(dispatchers.indexing) { runBatch(budget, deepen) }
                 batchJob = work
                 try {
                     work.await()
@@ -330,10 +334,11 @@ class Retriever(
                     _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = StopReason.BUDGET) }
                     NextRun.SOON
                 }
-            }
+            }.also { batchSoon = it == NextRun.SOON }
         } finally {
             batchJob = null
             indexLock.unlock()
+            releaseIfIdle()
         }
     }
 
@@ -616,6 +621,18 @@ class Retriever(
         model.release()
     }
 
+    /** Hidden work gives memory back when its last user finishes; an imminent follow-up keeps the model warm. */
+    @Throws(Throwable::class)
+    suspend fun releaseIfIdle() = withContext(NonCancellable) {
+        if (uiVisible || searching.value != 0) return@withContext
+        if (!indexLock.tryLock()) return@withContext
+        try {
+            model.releaseIf { !uiVisible && (!batchSoon || prefs.value.paused) && searching.value == 0 }
+        } finally {
+            indexLock.unlock()
+        }
+    }
+
     // --- Search ---
 
     // Swift sees no default arguments, so its three-argument calls keep this overload.
@@ -730,6 +747,7 @@ class Retriever(
             }
         } finally {
             searching.update { it - 1 }
+            releaseIfIdle()
         }
     }
 
@@ -760,6 +778,8 @@ class Retriever(
             throw c
         } catch (t: Exception) {
             log("Couldn't open the model ahead of a search", t)
+        } finally {
+            releaseIfIdle()
         }
     }
 

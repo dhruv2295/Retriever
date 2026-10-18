@@ -21,11 +21,11 @@
 package app.retriever.core
 
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.NSFileManager
 import platform.UIKit.UIGraphicsImageRenderer
@@ -82,7 +82,8 @@ private class IosEmbedder(
     private val mutex = Mutex()
     private var closed = false
 
-    override suspend fun embedRaw(parts: List<Part>): FloatArray = withContext(Dispatchers.Default) {
+    override suspend fun embedRaw(parts: List<Part>): FloatArray {
+        currentCoroutineContext().ensureActive()
         val input = parts.map {
             when (it) {
                 is Part.Text -> it.text
@@ -93,7 +94,7 @@ private class IosEmbedder(
                 else -> throw IllegalArgumentException("no audio on iOS")
             }
         }
-        mutex.withLock {
+        return mutex.withLock {
             if (closed) throw EmbedderClosedException()
             // A NaN output is a failure like a null one.
             native.embed(input)?.toFloatArray()?.takeUnless(::hasNonFinite)?.let { return@withLock it }
@@ -117,7 +118,7 @@ private class IosEmbedder(
             closed = true
             native.close()
             throw EmbedderClosedException("${backend.name} inference failed: $message")
-        }
+        }.also { currentCoroutineContext().ensureActive() }
     }
 
     // Blocks until an in-flight embed finishes; call off the main thread.

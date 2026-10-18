@@ -45,11 +45,11 @@ import com.google.mediapipe.tasks.core.BaseOptions.DelegateOptions.NpuOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedder
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedderOptions
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -191,26 +191,25 @@ private class MediaPipeEmbedder(
         return UniversalEmbedder.createFromOptions(context, builder.build())
     }
 
-    override suspend fun embedRaw(parts: List<Part>): FloatArray = withContext(Dispatchers.Default) {
-        mutex.withLock {
-            if (closed) throw EmbedderClosedException()
-            try {
-                vector(tracedAsync("embed.run") { infer(parts) })
-            } catch (e: Exception) {
-                // An over-long input fails the same way on every backend: report it so the caller splits the text.
-                if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)
-                // One odd input (an undecodable image or audio buffer) fails only itself: the file fails, the
-                // model stays. Only when a known-good input fails too is the backend broken; the caller then
-                // falls back (NPU to the generic build, GPU to CPU) and records it, never silently.
-                // A NaN output lands here too. The probe matches the failing modality: a broken vision or audio
-                // encoder still passes a text probe.
-                if (runCatching { vector(probe(probeKindFor(parts))) }.isSuccess) throw IllegalArgumentException("model rejected this input", e)
-                closed = true
-                runCatching { embedder.close() }.onFailure { Log.w(TAG, "closing failed embedder", it) }
-                throw EmbedderClosedException("${backend.name} inference failed", e)
-            }
+    override suspend fun embedRaw(parts: List<Part>): FloatArray = mutex.withLock {
+        currentCoroutineContext().ensureActive()
+        if (closed) throw EmbedderClosedException()
+        try {
+            vector(tracedAsync("embed.run") { infer(parts) })
+        } catch (e: Exception) {
+            // An over-long input fails the same way on every backend: report it so the caller splits the text.
+            if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)
+            // One odd input (an undecodable image or audio buffer) fails only itself: the file fails, the
+            // model stays. Only when a known-good input fails too is the backend broken; the caller then
+            // falls back (NPU to the generic build, GPU to CPU) and records it, never silently.
+            // A NaN output lands here too. The probe matches the failing modality: a broken vision or audio
+            // encoder still passes a text probe.
+            if (runCatching { vector(probe(probeKindFor(parts))) }.isSuccess) throw IllegalArgumentException("model rejected this input", e)
+            closed = true
+            runCatching { embedder.close() }.onFailure { Log.w(TAG, "closing failed embedder", it) }
+            throw EmbedderClosedException("${backend.name} inference failed", e)
         }
-    }
+    }.also { currentCoroutineContext().ensureActive() }
 
     private fun vector(result: EmbeddingResult): FloatArray {
         val v = result.embeddings().firstOrNull()?.floatEmbedding() ?: throw IllegalStateException("MediaPipe returned no embedding")
