@@ -303,6 +303,7 @@ private struct PhotoPage: View {
                 ProgressView().tint(.white)
             }
         }
+        .environment(\.colorScheme, .dark)
         .task {
             guard image == nil else { return }
             image = await Self.load(String(file.uri.dropFirst(5))) { p in Task { @MainActor in progress = p } }

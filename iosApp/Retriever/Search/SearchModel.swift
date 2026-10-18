@@ -128,15 +128,12 @@ final class SearchModel {
         /// What the words were understood to ask for, and whether a filter left nothing so it was dropped.
         var parsed: ParsedQuery?
         var relaxed = false
-        /// The words left once kinds and dates were read out of them.
-        let nameWords: String
         /// Names of the files found by their name, with the matched words in bold, built once per answer.
         let names: [Int64: AttributedString]
 
         init(_ r: SearchEngine.SearchResult, strong: Int? = nil, key: Key) {
             (hits, strongCount, vectorLane, self.key, parsed, relaxed) = (r.hits, strong ?? Int(r.strongCount), r.vectorLane, key, r.parsed, r.relaxed)
             let words = r.parsed?.text ?? key.query
-            nameWords = words
             names =
                 words.isEmpty
                 ? [:]
@@ -381,8 +378,6 @@ final class SearchModel {
     func similar(textOnly: Bool) -> ((SourceFile) -> Void)? {
         textOnly ? nil : { [weak self] file in self?.findSimilar(file) }
     }
-
-    func similar(_ snap: AppModel.Snap?) -> ((SourceFile) -> Void)? { similar(textOnly: snap?.textOnly == true) }
 
     func findSimilar(_ file: SourceFile) {
         guard let extractor = services?.extractor else { return }

@@ -1,11 +1,36 @@
 // Xcode also runs App Intents metadata extraction for this test bundle.
 import AppIntents
+import UIKit
 import XCTest
 
 /// Runs only in verify.sh --full and at the gate: one launch per fixture route, then Apple's accessibility audit.
 /// The list mirrors DebugRouteTests.fixtureRoutes (live routes need a seeded library).
 @MainActor
 final class AccessibilityAuditTests: XCTestCase {
+    private var appearance = "light"
+
+    override func setUp() async throws {
+        await MainActor.run {
+            XCUIDevice.shared.appearance = .light
+            XCUIDevice.shared.orientation = .portrait
+            XCTAssertTrue(UIAccessibility.isReduceMotionEnabled, "ios-unit-tests.sh must enable Reduce Motion")
+        }
+    }
+
+    private func launch(_ app: XCUIApplication) {
+        app.launchArguments += ["-ui-testing", "-ui-appearance", appearance]
+        if !app.launchArguments.contains("-UIPreferredContentSizeCategoryName") {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
+        }
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        // Debug routes dismiss the keyboard after 1.5 s; wait through that and the native search-bar layout.
+        let settled = expectation(description: "Launch layout settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { settled.fulfill() }
+        wait(for: [settled], timeout: 5)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+    }
+
     private static let folderText = [
         "audit", "Add a folder",
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
@@ -25,11 +50,44 @@ final class AccessibilityAuditTests: XCTestCase {
     ]
 
     func testEveryFixtureRoutePassesTheAccessibilityAudit() throws {
+        try auditFixtures()
+    }
+
+    func testEveryFixtureRoutePassesTheAccessibilityAuditInDarkAppearance() throws {
+        appearance = "dark"
+        XCUIDevice.shared.appearance = .dark
+        try auditFixtures()
+    }
+
+    func testPhotoCaptionsAndUnavailablePhotoContrastInBothAppearances() throws {
+        for style in ["light", "dark"] {
+            appearance = style
+            XCUIDevice.shared.appearance = style == "dark" ? .dark : .light
+            for route in ["home.memories", "viewer.photoMissing"] {
+                let app = XCUIApplication()
+                app.launchArguments = ["-mutedMedia", "-route", route]
+                launch(app)
+                defer { app.terminate() }
+                if route == "viewer.photoMissing" {
+                    XCTAssertTrue(app.staticTexts["Couldn't show this photo"].waitForExistence(timeout: 5))
+                }
+                try XCTContext.runActivity(named: "\(route) \(appearance)") { _ in
+                    let screenshot = XCTAttachment(screenshot: app.screenshot())
+                    screenshot.name = "\(route) \(appearance)"
+                    screenshot.lifetime = .keepAlways
+                    add(screenshot)
+                    try app.performAccessibilityAudit(for: .contrast)
+                }
+            }
+        }
+    }
+
+    private func auditFixtures() throws {
         continueAfterFailure = true
         for route in Self.routes {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", route]
-            app.launch()
+            launch(app)
             XCTContext.runActivity(named: route) { _ in
                 do {
                     try audit(app, route: route)
@@ -37,6 +95,17 @@ final class AccessibilityAuditTests: XCTestCase {
             }
             app.terminate()
         }
+    }
+
+    func testHomeAuditAfterAnAccessibilitySizeLaunch() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        launch(app)
+        app.terminate()
+        app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp"]
+        launch(app)
+        defer { app.terminate() }
+        try audit(app, route: "home.caughtUp")
     }
 
     func testSeededViewerAndBrowseRoutesPassTheAccessibilityAudit() throws {
@@ -51,7 +120,7 @@ final class AccessibilityAuditTests: XCTestCase {
         for (route, query, label) in routes {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", route, "-q", query]
-            app.launch()
+            launch(app)
             defer { app.terminate() }
             XCTAssertTrue(app.descendants(matching: .any)[label].firstMatch.waitForExistence(timeout: 15), "\(route) never opened")
             if route.hasPrefix("viewer.") {
@@ -65,7 +134,9 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     private func audit(_ app: XCUIApplication, route: String) throws {
-        try app.performAccessibilityAudit { issue in
+        // Dynamic Type auditing resizes lazy lists. Sample contrast before it can invalidate their frames.
+        try app.performAccessibilityAudit(for: .contrast)
+        try app.performAccessibilityAudit(for: .all.subtracting(.contrast)) { issue in
             guard let element = issue.element else {
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")
                 return false
@@ -104,7 +175,7 @@ final class AccessibilityAuditTests: XCTestCase {
         for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "status.reading", "-UIPreferredContentSizeCategoryName", category]
-            app.launch()
+            launch(app)
             for label in Self.statusText {
                 let element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
                 for _ in 0..<12 {
@@ -128,7 +199,7 @@ final class AccessibilityAuditTests: XCTestCase {
         for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", category]
-            app.launch()
+            launch(app)
             for id in ["document-name", "document-detail"] {
                 let element = app.staticTexts[id].firstMatch
                 for _ in 0..<12 {
@@ -150,7 +221,7 @@ final class AccessibilityAuditTests: XCTestCase {
     func testNativeSearchFieldAtTheLargestAccessibilitySize() {
         let app = XCUIApplication()
         app.launchArguments = ["-mutedMedia", "-route", "home.reading", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
-        app.launch()
+        launch(app)
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable)
@@ -169,7 +240,7 @@ final class AccessibilityAuditTests: XCTestCase {
         for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "browse.folders", "-UIPreferredContentSizeCategoryName", category]
-            app.launch()
+            launch(app)
             for label in Self.folderText {
                 let element = app.staticTexts[label].firstMatch
                 for _ in 0..<12 {
@@ -191,7 +262,7 @@ final class AccessibilityAuditTests: XCTestCase {
     func testBrowsePhotosSwipeThroughVisibleFilesAndUpdateTheToolbar() {
         let app = XCUIApplication()
         app.launchArguments = ["-mutedMedia", "-route", "browse.large"]
-        app.launch()
+        launch(app)
         defer { app.terminate() }
         let photo = app.buttons.matching(NSPredicate(format: "label CONTAINS 'IMG_' AND label CONTAINS '.jpg'")).firstMatch
         for _ in 0..<8 {

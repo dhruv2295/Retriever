@@ -204,9 +204,8 @@ final class SearchModelTests: XCTestCase {
 
     func testFindSimilarNeedsTheModel() {
         let model = SearchModel(services: nil)
-        XCTAssertNil(model.similar(AppModel.Snap(textOnly: true)), "no model on this phone to match a photo with")
-        XCTAssertNotNil(model.similar(AppModel.Snap()))
-        XCTAssertNotNil(model.similar(nil))
+        XCTAssertNil(model.similar(textOnly: true), "no model on this phone to match a photo with")
+        XCTAssertNotNil(model.similar(textOnly: false))
     }
 
     func testRecentSearchesCanBeRemovedOrCleared() {

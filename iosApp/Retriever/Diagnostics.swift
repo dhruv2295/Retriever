@@ -25,15 +25,6 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber, @unchecked Sendabl
         }
     }
 
-    /// The file as one shareable text file, or nil when there is nothing to share.
-    func exportURL() -> URL? {
-        let all = entries
-        guard !all.isEmpty else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Retriever problems.json")
-        try? "[\(all.joined(separator: ","))]".write(to: url, atomically: true, encoding: .utf8)
-        return url
-    }
-
     private func read() -> [String] {
         (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
     }

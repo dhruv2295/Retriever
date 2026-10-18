@@ -216,7 +216,7 @@ private struct ResultsView: View {
             switch screen {
             case .failed:
                 StateView(mood: .trouble, title: "Search hit a snag", message: "Something went wrong searching. Try again.") {
-                    Button("Try again", action: search.retry).buttonStyle(.borderedProminent)
+                    Button("Try again", action: search.retry).buttonStyle(.primaryAction)
                 }
             case .empty:
                 if let answer = search.answer {
@@ -256,14 +256,14 @@ private struct ResultsView: View {
                 art: "IllusWelcome", title: "Photos access is off",
                 message: "Turn it on in Settings, and Retriever can search your \(scope.title.lowercased()) too."
             ) {
-                Button("Open Settings", action: model.openSettings).buttonStyle(.borderedProminent)
+                Button("Open Settings", action: model.openSettings).buttonStyle(.primaryAction)
             }
         } else if scope.needsPhotos && photos == .limited {
             StateView(
                 mood: .noMatch, title: "No matches in the photos you picked",
                 message: "Retriever can only see the photos you chose. Pick more to search more of your library."
             ) {
-                Button("Choose more photos", action: model.chooseMorePhotos).buttonStyle(.borderedProminent)
+                Button("Choose more photos", action: model.chooseMorePhotos).buttonStyle(.primaryAction)
             }
         } else if search.photo != nil && !answer.vectorLane {
             StateView(mood: .walking, title: "Not quite ready", message: "Search by photo works once setup finishes.")
@@ -273,18 +273,18 @@ private struct ResultsView: View {
                 mood: search.noMatchMood, title: parsed.missing(),
                 message: scope == .all ? "Nothing like that on this \(Copy.device) yet." : "Nothing in \(scope.title) fits. Try all your files."
             ) {
-                if scope != .all { Button("Search all files") { search.scope = .all }.buttonStyle(.borderedProminent) }
+                if scope != .all { Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction) }
             }
         } else if scope == .starred && search.photo == nil {
             StateView(mood: search.noMatchMood, title: "No starred file matches “\(q)”", message: "Only files you've starred show here. Try all your files.") {
-                Button("Search all files") { search.scope = .all }.buttonStyle(.borderedProminent)
+                Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction)
             }
         } else if scope != .all {
             StateView(
                 mood: search.noMatchMood, title: search.photo != nil ? "Nothing like this photo in \(scope.title)" : "No matches for “\(q)”",
                 message: search.photo != nil ? "Try all your files instead." : "Nothing in \(scope.title) matches. Try all your files."
             ) {
-                Button("Search all files") { search.scope = .all }.buttonStyle(.borderedProminent)
+                Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction)
             }
         } else if search.photo != nil {
             StateView(mood: search.noMatchMood, title: "Nothing like this yet", message: "Try another photo.")

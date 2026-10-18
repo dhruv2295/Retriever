@@ -28,6 +28,8 @@ xcodebuild build-for-testing -project "$ROOT/iosApp/iosApp.xcodeproj" -scheme Re
 # One small real library lets the viewer audits exercise Photos, PDFKit and AVKit.
 if ! xcrun simctl list devices | grep -F "$UDID" | grep -q '(Booted)'; then xcrun simctl boot "$UDID"; fi
 xcrun simctl bootstatus "$UDID" -b >/dev/null
+xcrun simctl ui "$UDID" appearance light
+xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/Retriever.app"
 xcrun simctl install "$UDID" "$APP"
 xcrun simctl privacy "$UDID" grant photos app.retriever

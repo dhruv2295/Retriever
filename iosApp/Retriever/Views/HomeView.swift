@@ -65,7 +65,7 @@ struct HomeList: View {
                     : "Add a folder, or let Retriever see your photos, and it'll find what's inside them."
             ) {
                 // Never a dead end: a phone that cannot see its photos still offers the way to fix that.
-                if !looking || photosOff { Button("Add a folder", action: addFolder).buttonStyle(.borderedProminent) }
+                if !looking || photosOff { Button("Add a folder", action: addFolder).buttonStyle(.primaryAction) }
                 if photos == .notDetermined { Button("Allow Photos access", action: model.requestPhotos) }
                 if photos == .denied || photos == .restricted { Button("Turn on Photos access", action: model.openSettings) }
             }

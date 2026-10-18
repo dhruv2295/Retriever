@@ -80,8 +80,8 @@ struct SetupView: View {
             retryTune: model.retryTune,
             tryNow: { trying = true },
             continueToCommit: continueFromTryIt,
-            readWhileCharging: { commit(whileCharging: true) },
-            readNow: { commit(whileCharging: false) },
+            readWhileCharging: { model.commit(whileCharging: true) },
+            readNow: { model.commit(whileCharging: false) },
             skip: model.skipSetup,
             done: onDone
         )
@@ -100,7 +100,7 @@ struct SetupView: View {
                 Button(action: continueFromTryIt) {
                     Text(restFiles == 0 ? Copy.tryItDone : Copy.tryItContinue).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.primaryAction)
                 .controlSize(.large)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 8)
@@ -116,7 +116,7 @@ struct SetupView: View {
         guard let retriever = model.services?.retriever else { return }
         Task {
             await refreshRest()
-            if restFiles == 0 { commit(whileCharging: retriever.prefsNow.onlyWhileCharging) } else { committing = true }
+            if restFiles == 0 { model.commit(whileCharging: retriever.prefsNow.onlyWhileCharging) } else { committing = true }
         }
     }
 
@@ -124,23 +124,6 @@ struct SetupView: View {
     private func refreshRest() async {
         guard let retriever = model.services?.retriever else { return }
         restFiles = (try? await retriever.estimateAll()).map { Int($0.files) }
-    }
-
-    /// Read while charging or Read now: the rest is read from now on and the person is done choosing. The charger-only
-    /// request waits for power; Read now on iOS 26 hands the reading to a task that goes on after they leave, and
-    /// below that the open app reads.
-    private func commit(whileCharging: Bool) {
-        guard let retriever = model.services?.retriever else { return }
-        Task {
-            try? await retriever.commit(whileCharging: whileCharging)
-            IndexTask.schedule()
-            model.wake()
-            model.setupSeen = true
-            guard !whileCharging, #available(iOS 26.0, *) else { return }
-            // The count of waiting files follows the new scope a moment later; keepReading needs it.
-            for _ in 0..<10 where !model.canKeepReading { try? await Task.sleep(for: .milliseconds(100)) }
-            model.keepReading()
-        }
     }
 
     private func begin(readEverything: Bool) {
@@ -311,7 +294,7 @@ struct SetupContent: View {
             } label: {
                 Text(Copy.firstRunTry).frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.primaryAction)
             .controlSize(.large)
             .padding(.top, 8)
             Button {
@@ -335,7 +318,7 @@ struct SetupContent: View {
                 Button("Open Settings", action: actions.openSettings).buttonStyle(.bordered)
                 Failure(Copy.firstRunNothingAllowed)
             } else {
-                Button(Copy.firstRunAllowPhotos, action: actions.allowPhotos).buttonStyle(.borderedProminent).controlSize(.large)
+                Button(Copy.firstRunAllowPhotos, action: actions.allowPhotos).buttonStyle(.primaryAction).controlSize(.large)
                 Note(Copy.firstRunPhotosNote)
             }
             ForEach(state.folders, id: \.self) { Label($0, systemImage: "folder") }
@@ -440,7 +423,7 @@ struct SetupContent: View {
             ForEach(taste.rows) { KindRow(row: $0) }
             if taste.readyToTry {
                 Button(action: actions.tryNow) { Text(Copy.firstRunTryNow).frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.primaryAction)
                     .controlSize(.large)
                 Note(Copy.firstRunStaysSearchable)
             }
@@ -458,7 +441,7 @@ struct SetupContent: View {
                 Note(Copy.limitedPhotosFootnote(photos: state.chosenPhotos, folders: state.folders.count))
             }
             Button(action: actions.readWhileCharging) { Text(Copy.commitWhileCharging).frame(maxWidth: .infinity) }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.primaryAction)
                 .controlSize(.large)
                 .padding(.top, 8)
             Button(action: actions.readNow) { Text(Copy.commitReadNow(continued: Self.continuedReading)).frame(maxWidth: .infinity) }
@@ -479,7 +462,7 @@ struct SetupContent: View {
             Text(Copy.firstRunDone).font(.title2.bold())
             if let done = actions.done {
                 Button(action: done) { Text(Copy.firstRunStartSearching).frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.primaryAction)
                     .controlSize(.large)
             }
         }

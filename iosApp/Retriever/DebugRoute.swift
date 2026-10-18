@@ -50,6 +50,8 @@
         case homeCaughtUp = "home.caughtUp"
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
+        case homeMemories = "home.memories"
+        case viewerPhotoMissing = "viewer.photoMissing"
         case searchEmpty = "search.empty"
         case searchWordsOnly = "search.wordsOnly"
         case searchError = "search.error"
@@ -138,6 +140,26 @@
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
                 MascotGallery()
+            case .homeMemories:
+                NavigationStack {
+                    OnThisDayStrip(
+                        cards: [
+                            OnThisDay.Card(
+                                year: 2025, photos: 4, videos: 1,
+                                cover: Fixtures.file("memory.jpg", .photo, "Photos", daysAgo: 365),
+                                day: OnThisDay.Day(year: 2025, from: 0, to: 1, title: "18 October 2025"))
+                        ],
+                        date: "18 October", hide: {})
+                }
+            case .viewerPhotoMissing:
+                NavigationStack {
+                    PhotoViewer(
+                        files: [
+                            SourceFile(
+                                uri: "ph://missing-audit-photo", name: "Missing photo", folder: "Photos", mime: "image/jpeg", kind: .photo,
+                                size: 0, modifiedAt: 0, takenAt: nil)
+                        ], index: 0)
+                }
             default:
                 AppStack(model: model, path: path) { fixtureSearch(model).task { await Self.hideKeyboard() } }
             }

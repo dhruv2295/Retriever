@@ -9,6 +9,17 @@ import RetrieverCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Keep the native prominent button, with a light label on the dark accent and a dark label on the light accent.
+struct PrimaryActionStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(configuration).buttonStyle(.borderedProminent).foregroundStyle(Color(.systemBackground))
+    }
+}
+
+extension PrimitiveButtonStyle where Self == PrimaryActionStyle {
+    static var primaryAction: PrimaryActionStyle { PrimaryActionStyle() }
+}
+
 /// Pictures go in the grid, except a screenshot matched by its words: its row shows them.
 func inGrid(_ hit: SearchEngine.Hit) -> Bool {
     let kind = hit.file.kind

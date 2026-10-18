@@ -53,6 +53,27 @@ final class BrowseTests: XCTestCase {
         XCTAssertEqual(requests, [.newest, .largest])
     }
 
+    func testOverlappingPagesAdvanceByFetchedRowsAndDeduplicateWithinAPage() async {
+        var offsets: [Int32] = []
+        let pages = FilePages { _, offset in
+            offsets.append(offset)
+            switch offset {
+            case 0: return (0..<60).map(self.file)
+            case 60: return (0..<60).map(self.file)
+            default: return [self.file(60), self.file(60), self.file(61)]
+            }
+        }
+        await pages.load(.newest)
+        await pages.loadPage()
+        await pages.loadPage()
+        XCTAssertEqual(offsets, [0, 60, 120])
+        XCTAssertEqual(pages.files.map(\.id), (0..<62).map(Int64.init))
+        XCTAssertTrue(pages.exhausted)
+        await pages.load(.largest)
+        XCTAssertEqual(offsets.last, 0)
+        XCTAssertEqual(pages.files.count, 60, "a new sort clears the IDs from the previous pages")
+    }
+
     private func file(_ id: Int) -> Store.StoredFile {
         let file = SourceFile(uri: "folder://test/\(id)", name: "\(id)", folder: "test", mime: "", kind: .doc, size: 1, modifiedAt: 0, takenAt: nil)
         return Store.StoredFile(id: Int64(id), file: file, attempts: 0, state: .indexed, partial: false)

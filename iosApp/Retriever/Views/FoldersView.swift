@@ -113,7 +113,7 @@ struct FoldersView: View {
                 ProgressView()
             } else if failed && picked.isEmpty && unreachable.isEmpty {
                 StateView(mood: .trouble, title: "Couldn't load folders", message: "Something went wrong reading your folders.") {
-                    Button("Try again") { Task { await load() } }.buttonStyle(.borderedProminent)
+                    Button("Try again") { Task { await load() } }.buttonStyle(.primaryAction)
                 }
             } else if folders.isEmpty && picked.isEmpty && unreachable.isEmpty {
                 StateView(mood: .noMatch, title: "No folders yet", message: "Folders appear once Retriever has looked through your files.")

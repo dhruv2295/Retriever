@@ -81,7 +81,7 @@ struct FileListView: View {
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if visible.isEmpty && pages.failed {
                 StateView(mood: .trouble, title: "Couldn't load files", message: "Something went wrong reading the list.") {
-                    Button("Try again") { Task { await pages.loadPage() } }.buttonStyle(.borderedProminent)
+                    Button("Try again") { Task { await pages.loadPage() } }.buttonStyle(.primaryAction)
                 }
             } else if visible.isEmpty {
                 if query.starredOnly {
@@ -162,7 +162,9 @@ final class FilePages {
     private(set) var failed = false
     private(set) var exhausted: Bool
     private(set) var loadedSort: FileQuery.Sort?
-    private var generation = 0
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var offset: Int32 = 0
+    @ObservationIgnored private var seen: Set<Int64> = []
     private let fetch: (FileQuery.Sort, Int32) async throws -> [Store.StoredFile]
 
     init(files: [Store.StoredFile]? = nil, fetch: @escaping (FileQuery.Sort, Int32) async throws -> [Store.StoredFile]) {
@@ -177,6 +179,8 @@ final class FilePages {
         generation += 1
         loadedSort = sort
         files = []
+        offset = 0
+        seen = []
         exhausted = false
         loading = false
         await loadPage()
@@ -189,16 +193,19 @@ final class FilePages {
         failed = false
         defer { if gen == generation { loading = false } }
         do {
-            let page = try await fetch(sort, Int32(files.count))
-            guard gen == generation else { return }
-            guard !Task.isCancelled else {
-                if files.isEmpty { loadedSort = nil }
-                return
-            }
-            // Offset paging can overlap while indexing adds files.
-            let seen = Set(files.map(\.id))
-            files += page.filter { !seen.contains($0.id) }
-            exhausted = page.count < Self.pageSize
+            let count = files.count
+            repeat {
+                let page = try await fetch(sort, offset)
+                guard gen == generation else { return }
+                guard !Task.isCancelled else {
+                    if files.isEmpty { loadedSort = nil }
+                    return
+                }
+                // A fully overlapping page adds no row to trigger onAppear, so keep paging until one does.
+                offset += Int32(page.count)
+                files += page.filter { seen.insert($0.id).inserted }
+                exhausted = page.count < Self.pageSize
+            } while files.count == count && !exhausted
         } catch {
             guard gen == generation else { return }
             if Task.isCancelled {

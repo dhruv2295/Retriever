@@ -29,6 +29,17 @@ struct RootView: View {
         content
             .environment(model)
             .environment(\.services, model.services)
+            #if DEBUG
+                .preferredColorScheme(
+                    CommandLine.arguments.contains("-ui-testing") ? (DebugRoute.arg("-ui-appearance") == "dark" ? .dark : .light) : nil
+                )
+                .transaction {
+                    if CommandLine.arguments.contains("-ui-testing") {
+                        $0.animation = nil
+                        $0.disablesAnimations = true
+                    }
+                }
+            #endif
     }
 
     @ViewBuilder private var content: some View {

@@ -15,6 +15,7 @@ struct RetrieverApp: App {
             return
         }
         #if DEBUG
+            if CommandLine.arguments.contains("-ui-testing") { UIView.setAnimationsEnabled(false) }
             if CommandLine.arguments.contains("-selftest") {
                 SelfTest.run()
                 // The self-test drives the facade itself; a live loop would race it for the index.

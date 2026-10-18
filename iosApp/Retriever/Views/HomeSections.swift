@@ -381,13 +381,10 @@ struct OnThisDayStrip: View {
                                     Text(String(card.year)).font(.title2.bold())
                                     Text(card.count).font(.subheadline)
                                 }
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.primary)
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    LinearGradient(
-                                        stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.6), location: 1)],
-                                        startPoint: .top, endPoint: .bottom))
+                                .background(Color(.systemBackground))
                             }
                             .clipShape(.rect(cornerRadius: 22, style: .continuous))
                             .contentShape(.rect(cornerRadius: 22, style: .continuous))
@@ -598,7 +595,7 @@ struct CommitSheet: View {
             } label: {
                 Text(Copy.commitWhileCharging).frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.primaryAction)
             .controlSize(.large)
             Button {
                 read(whileCharging: false)

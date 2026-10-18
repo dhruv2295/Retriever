@@ -27,7 +27,7 @@ enum Thumbnails {
     }()
 
     static func load(_ file: SourceFile, locator: String, pixels: CGFloat, services: AppServices?) async -> UIImage? {
-        let key = "\(file.uri)|\(file.modifiedAt)|\(file.size)|\(locator)|\(Int(pixels))" as NSString
+        let key = Thumb.requestID(file, locator: locator, pixels: pixels) as NSString
         if let hit = cache.object(forKey: key) { return hit }
         guard let services else { return nil }
         let uri = file.uri

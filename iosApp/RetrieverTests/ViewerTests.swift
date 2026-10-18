@@ -158,7 +158,9 @@ final class ViewerTests: XCTestCase {
         try AVAudioSession.sharedInstance().setCategory(.soloAmbient)
         let player = UIHostingController(rootView: AppStack(model: model, path: .constant([])) { VideoViewer(file: movie, ms: 0) })
         window.rootViewController = player
-        let playing = await eventually { AVAudioSession.sharedInstance().category == .playback }
+        let playing = await eventually {
+            AVAudioSession.sharedInstance().category == .playback && self.playerController(in: player)?.player != nil
+        }
         XCTAssertTrue(playing)
         XCTAssertEqual(AVAudioSession.sharedInstance().mode, .moviePlayback)
         let controller = try XCTUnwrap(playerController(in: player))

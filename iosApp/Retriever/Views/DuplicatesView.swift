@@ -28,7 +28,7 @@ struct DuplicatesView: View {
         Group {
             if failed {
                 StateView(mood: .trouble, title: "Couldn't look for duplicates", message: "Something went wrong. Try again.") {
-                    Button("Try again") { Task { await scan() } }.buttonStyle(.borderedProminent)
+                    Button("Try again") { Task { await scan() } }.buttonStyle(.primaryAction)
                 }
             } else if let groups, groups.isEmpty {
                 StateView(
@@ -112,7 +112,7 @@ struct DuplicatesView: View {
             } label: {
                 Text("Delete \(selected.count) selected (\(Copy.bytes(selectedBytes)))").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.primaryAction)
             .controlSize(.large)
             .disabled(selected.isEmpty || deleting)
         }
