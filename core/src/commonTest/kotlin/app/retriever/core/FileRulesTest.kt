@@ -63,12 +63,12 @@ class FileRulesTest {
     }
 
     private val big = Kind.entries.filter { it in seeds }.flatMap { library(it, 120) }
-    private val plan = FileRules.planTaste(big, seeds, 90.seconds)
+    private val plan = FileRules.planTaste(big, { seeds.getValue(it.kind) }, 90.seconds)
     private val byUri = big.associateBy { it.uri }
 
     @Test
     fun planTasteIsDeterministicAndWithinBudget() {
-        assertEquals(plan, FileRules.planTaste(big.reversed(), seeds, 90.seconds))
+        assertEquals(plan, FileRules.planTaste(big.reversed(), { seeds.getValue(it.kind) }, 90.seconds))
         assertFalse(plan.everything)
         assertTrue(plan.seconds <= 90, "seconds=${plan.seconds}")
     }
@@ -96,17 +96,18 @@ class FileRulesTest {
     }
 
     @Test
-    fun planTasteGivesEachKindItsMinimumAndFirstRoundIsTwoEach() {
-        val tight = FileRules.planTaste(big, seeds, 1.seconds)
-        for (k in seeds.keys) assertTrue(tight.byKind.getValue(k) >= if (k == Kind.VIDEO) 1 else 3, "$k")
-        val firstRound = plan.ids.take(10).map { byUri.getValue(it).kind }.groupingBy { it }.eachCount()
-        assertEquals(seeds.keys.associateWith { 2 }, firstRound)
+    fun evenATinyBudgetHasNoForcedMinimum() {
+        val tight = FileRules.planTaste(big, { seeds.getValue(it.kind) }, 1.seconds)
+        assertTrue(tight.seconds <= 1)
+        assertTrue(tight.ids.isEmpty())
+        val firstRound = plan.ids.take(8).map { byUri.getValue(it).kind }.groupingBy { it }.eachCount()
+        assertEquals((seeds.keys - Kind.VIDEO).associateWith { 2 }, firstRound)
     }
 
     @Test
     fun planTasteTakesASmallLibraryWhole() {
         val small = library(Kind.PHOTO, 2) + library(Kind.PDF, 1) + library(Kind.AUDIO, 3)
-        val p = FileRules.planTaste(small, seeds, 90.seconds)
+        val p = FileRules.planTaste(small, { seeds.getValue(it.kind) }, 90.seconds)
         assertTrue(p.everything)
         assertEquals(9, p.ids.size)
         assertEquals(mapOf(Kind.PHOTO to 6, Kind.PDF to 3), p.byKind)
@@ -114,8 +115,27 @@ class FileRulesTest {
 
     @Test
     fun planTasteVideosPreferSmallFilesUnder200Mb() {
-        val vids = (0 until 30).map { SourceFile("v$it", "v", "F", "video/mp4", Kind.VIDEO, if (it == 15) 5_000L else 300L shl 20, it * day) }
-        val p = FileRules.planTaste(vids, seeds, 30.seconds)
+        val vids = (0 until 30).map { SourceFile("v$it", "v", "F", "video/mp4", Kind.VIDEO, if (it == 15) 5_000L else (300L shl 20), it * day) }
+        val p = FileRules.planTaste(vids, SpeedBook()::costMs, 30.seconds)
         assertTrue("v15" in p.ids)
+    }
+
+    @Test
+    fun phoneSizedLibraryFitsAtRealisticPacesIncludingSmallAndUnknownVideos() {
+        val book = SpeedBook()
+        val phone = seeds.keys.flatMap { library(it, 2000, size = if (it == Kind.VIDEO) 5_000_000 else 1000) }
+        val p = FileRules.planTaste(phone, book::costMs, 90.seconds)
+        val chosen = phone.filter { it.uri in p.ids }
+        assertTrue(chosen.sumOf(book::costMs) <= 90_000)
+        assertEquals(1, p.byKind[Kind.VIDEO])
+        assertEquals(seeds.keys, p.byKind.keys)
+        for (size in listOf(0L, 100L, 5_000_000L)) {
+            val videos = library(Kind.VIDEO, 1000, size)
+            val fast = FileRules.planTaste(videos, { 1.0 }, 90.seconds)
+            assertEquals(3, fast.ids.size, "a cheap measurement cannot defeat the budget-derived video ceiling")
+            val seeded = FileRules.planTaste(videos, book::costMs, 90.seconds)
+            assertEquals(3, seeded.ids.size)
+            assertFalse(seeded.everything)
+        }
     }
 }

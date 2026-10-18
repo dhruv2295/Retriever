@@ -35,6 +35,7 @@ data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: 
 const val TRY_AFTER_FILES = 20
 
 internal const val TASTE_SCOPE_KEY = "taste_scope"
+internal const val TASTE_BUDGET_KEY = "taste_budget_ms"
 internal const val TASTE_IDS_KEY = "taste_ids"
 internal const val TASTE_DECIDED_KEY = "taste_decided"
 internal const val CELEBRATED_KEY = "celebrated"

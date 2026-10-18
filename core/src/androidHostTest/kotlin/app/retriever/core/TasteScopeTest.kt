@@ -72,6 +72,23 @@ class TasteScopeTest {
     }
 
     @Test
+    fun pendingCountsPerKindIncludeOnlyTheRemainingPlan() = test {
+        val store = newStore(sig)
+        val r = testRetriever(store, files, FakeExtractor())
+        r.planTaste(5.seconds)
+        val ids = store.tasteIds()
+        store.replaceChunks(ids.first(), emptyList())
+        val expected = store.pendingIn(ids).groupingBy { it.file.kind }.eachCount()
+        val counts = r.counts().first()
+        for (kind in Kind.entries) {
+            assertEquals(expected[kind]?.toLong() ?: 0L, counts.byKindState[kind to FileState.PENDING])
+        }
+        assertEquals(expected.values.sum().toLong(), counts.byState[FileState.PENDING])
+        assertEquals(1L, counts.byKindState[store.file(ids.first())!!.kind to FileState.INDEXED])
+        assertEquals(files.size.toLong(), counts.byKind.values.sum())
+    }
+
+    @Test
     fun noScopeKeyReadsAsAll() = test {
         val store = newStore(sig).also { it.setProfile(PROFILE) }
         val extractor = FakeExtractor(pieces)

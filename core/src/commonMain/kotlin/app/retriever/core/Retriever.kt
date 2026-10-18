@@ -50,6 +50,10 @@ data class IndexState(
     val failed: Int = 0,
     val pendingAtStart: Long = 0,
     val current: String? = null,
+    /** The file in extraction/embedding now, cleared whenever reading stops. */
+    val currentFile: SourceFile? = null,
+    /** Successful reads, newest first, at most 24; on restart, reversed plan order intersected with INDEXED. */
+    val recentFiles: List<SourceFile> = emptyList(),
     val lastStop: StopReason? = null,
     val lastError: String? = null,
     /** Files per minute of reading this session. */
@@ -59,7 +63,21 @@ data class IndexState(
     val backend: Backend? = null,
     /** Part of the model running elsewhere than [backend], e.g. the vision encoder on CPU. */
     val detail: String? = null,
-)
+) {
+    /** Shared setup copy; null while reading or when there is no pause to explain. */
+    val pauseReason: String? get() = if (running) {
+        null
+    } else {
+        when (lastStop) {
+            StopReason.BUSY -> "Paused while you use other apps"
+            StopReason.POWER_SAVE -> "Paused: Battery Saver"
+            StopReason.HOT -> "Paused while your device cools down"
+            StopReason.UNPLUGGED -> "Paused until connected to power"
+            StopReason.PAUSED -> "Reading paused"
+            else -> null
+        }
+    }
+}
 
 /**
  * Home's facts besides the counts: the newest pictures, screenshots and documents, starred files, folders, large files,
@@ -208,7 +226,11 @@ class Retriever(
 
     private fun reload() {
         _prefs.value = store.prefs()
-        loadScope()
+        val ids = loadScope()
+        if (_state.value.recentFiles.isEmpty() && ids != null) {
+            val indexed = store.indexedIn(ids)
+            _state.update { it.copy(recentFiles = ids.asReversed().mapNotNull(indexed::get).take(RECENT_FILES)) }
+        }
         _requiredBuild.value = ModelBuilds.buildFor(variant, probe, model.npuFailed())
         // Tune writes the profile with the model present, so it marks a finished setup; losing the file later keeps it.
         val tuned = store.profile() != null
@@ -268,8 +290,15 @@ class Retriever(
     fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing, sampleIds) { c, missing, ids ->
         val counts = if (textOnly || missing) c.copy(tailChunks = 0, tailFiles = 0) else c
         if (ids == null) return@combine counts
-        val asked = store.pendingIn(ids).size.toLong()
-        counts.copy(byState = c.byState + (FileState.PENDING to asked), waiting = (c.byState[FileState.PENDING] ?: 0L) - asked)
+        val pending = store.pendingIn(ids)
+        val perKind = pending.groupingBy { it.file.kind }.eachCount()
+        val asked = pending.size.toLong()
+        counts.copy(
+            byState = c.byState + (FileState.PENDING to asked),
+            byKindState = c.byKindState.filterKeys { it.second != FileState.PENDING } +
+                Kind.entries.associate { (it to FileState.PENDING) to (perKind[it]?.toLong() ?: 0L) },
+            waiting = (c.byState[FileState.PENDING] ?: 0L) - asked,
+        )
     }.flowOn(dispatchers.default)
 
     /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
@@ -298,7 +327,7 @@ class Retriever(
                     work.await()
                 } catch (e: CancellationException) {
                     ensureActive() // the caller was cancelled, not just this batch
-                    _state.update { it.copy(running = false, current = null, lastStop = StopReason.BUDGET) }
+                    _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = StopReason.BUDGET) }
                     NextRun.SOON
                 }
             }
@@ -322,6 +351,7 @@ class Retriever(
                 build = it.build,
                 backend = it.backend,
                 detail = it.detail,
+                recentFiles = it.recentFiles,
             )
         }
         var stop: StopReason? = null
@@ -346,10 +376,11 @@ class Retriever(
             // A visible app reads on battery too; hidden, a low battery waits for the charger like the setting does.
             // An unknown level (a negative value) is not low.
             val requireCharging = { s: DeviceState -> !uiVisible && (batchPrefs().effective(stored).bulkOnlyWhenCharging || s.batteryPct in 0..LOW_BATTERY) }
-            val device = monitor.state()
+            val device = readingMonitor.state()
             // The loop's own checks, before the model's seconds-long open and its memory.
             IndexEngine.stopReason(settings(), device, busy(), requireCharging(device))?.let { return end(it) }
             // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
+            trimTaste()
             val ids = loadScope()
             fun pendingNow(): Pair<Map<Kind, Long>, Long> = if (ids == null) {
                 store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
@@ -381,14 +412,16 @@ class Retriever(
             eta.start(left, videoBytes)
             _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes) }
             val engine = if (ids == null) {
-                IndexEngine(store, extractor, e, monitor, settings, ::onFile, busy, ::awaitUi)
+                IndexEngine(store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi, onCurrent = ::onCurrent)
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
                 IndexEngine(
-                    store, extractor, e, monitor, settings, ::onFile, busy, ::awaitUi,
-                    pendingPage = { store.pendingIn(ids).sortedBy { rank[it.id] } },
-                    tailPage = { store.tailChunksIn(ids) },
+                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    // One at a time: a measured pace can trim the remaining plan after any success.
+                    pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
+                    tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
+                    onCurrent = ::onCurrent,
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
@@ -411,12 +444,20 @@ class Retriever(
             return NextRun.RETRY
         } finally {
             saveBook()
-            _state.update { it.copy(running = false, current = null, lastStop = stop ?: it.lastStop, lastError = error) }
+            _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop ?: it.lastStop, lastError = error) }
         }
     }
 
     /** Text-only mode reads screenshots, PDFs and documents; photos, video and audio stay findable by name. */
     private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect textOnlyKinds) else it }
+
+    private val readingMonitor = object : DeviceMonitor {
+        override fun state(): DeviceState = monitor.state().let { if (uiVisible) it.copy(powerSave = false) else it }
+    }
+
+    private fun onCurrent(file: SourceFile?) {
+        _state.update { it.copy(current = file?.name, currentFile = file) }
+    }
 
     private fun onFile(m: FileMetric) {
         retierFrom(m)
@@ -432,11 +473,16 @@ class Retriever(
             it.copy(
                 processed = it.processed + if (m.ok) 1 else 0,
                 failed = it.failed + if (m.ok) 0 else 1,
-                current = m.file.name,
+                recentFiles = if (m.ok && store.fileByUri(m.file.uri)?.state == FileState.INDEXED) {
+                    (listOf(m.file) + it.recentFiles.filterNot { f -> f.uri == m.file.uri }).take(RECENT_FILES)
+                } else {
+                    it.recentFiles
+                },
                 filesPerMinute = eta.filesPerMinute,
                 etaMinutes = eta.minutes,
             )
         }
+        if (m.ok) trimTaste()
     }
 
     private fun saveBook() {
@@ -485,10 +531,8 @@ class Retriever(
             sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
             val kinds = store.prefs().kinds intersect readableKinds
             val files = store.knownFiles().values.filter { it.kind in kinds }
-            // Videos cost by bytes: plan at the library's median video size, the planner prefers small ones anyway.
-            val videoBytes = files.filter { it.kind == Kind.VIDEO }.map { it.size }.sorted().let { it.getOrNull(it.size / 2) } ?: 0L
-            val book = eta.book
-            val plan = FileRules.planTaste(files, kinds.associateWith { book.ms(mapOf(it to 1L), if (it == Kind.VIDEO) videoBytes else 0L) }, budget)
+            val plan = FileRules.planTaste(files, eta.book::costMs, budget)
+            store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
             val byUri = store.filesByUris(plan.ids)
             store.setTaste(plan.ids.mapNotNull { byUri[it]?.id })
             loadScope()
@@ -498,7 +542,30 @@ class Retriever(
 
     /** The short read: one batch of the planned files, which ends DONE once they and their tails are read. */
     @Throws(Throwable::class)
-    suspend fun taste(): NextRun = indexBatch(TASTE_BATCH)
+    suspend fun taste(): NextRun = indexBatch(TASTE_BATCH, waitForLock = true)
+
+    @Throws(Throwable::class)
+    suspend fun hasPendingTaste(): Boolean = io { store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() } == true }
+
+    /** Under indexLock: keep completed work, drop videos first then the most expensive pending files. */
+    internal fun trimTaste() {
+        val ids = store.sampleIds() ?: return
+        val pending = store.pendingIn(ids)
+        val budget = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
+        val costs = pending.associate { it.id to eta.book.costMs(it.file) }
+        var left = costs.values.sum()
+        if (left <= budget * 1.5) return
+        val drop = mutableSetOf<Long>()
+        for (file in pending.sortedWith(compareByDescending<Store.StoredFile> { it.file.kind == Kind.VIDEO }.thenByDescending { costs.getValue(it.id) })) {
+            if (left <= budget) break
+            drop += file.id
+            left -= costs.getValue(file.id)
+        }
+        store.setTaste(ids.filterNot { it in drop })
+        loadScope()
+        val (counts, bytes) = pending.filterNot { it.id in drop }.byKind()
+        eta.start(counts.mapValues { it.value.toLong() }, bytes)
+    }
 
     /** How far the short read is; re-emits as files are read. */
     fun tasteProgress(): Flow<TasteProgress> = combine(store.counts(), sampleIds) { _, _ ->
@@ -893,6 +960,7 @@ class Retriever(
             eta.book = eta.book.copy(photoSeedMs = it)
             saveBook()
         }
+        trimTaste()
         return result.copy(profile = profile)
     }
 
@@ -934,6 +1002,7 @@ class Retriever(
     }
 
     internal companion object {
+        const val RECENT_FILES = 24
         const val LARGE_FILE = 100L * 1024 * 1024
 
         /** Battery percent at or below which a hidden app waits for the charger. */
@@ -960,7 +1029,7 @@ class Retriever(
 
         fun nextRunFor(reason: StopReason, changedSinceSync: Boolean): NextRun = when (reason) {
             StopReason.BUDGET -> NextRun.SOON
-            StopReason.HOT -> NextRun.AFTER_COOLDOWN
+            StopReason.HOT, StopReason.POWER_SAVE -> NextRun.AFTER_COOLDOWN
             StopReason.UNPLUGGED -> NextRun.WHEN_CHARGING
             StopReason.BUSY -> NextRun.WHEN_IDLE
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE

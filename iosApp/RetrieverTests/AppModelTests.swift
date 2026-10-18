@@ -93,6 +93,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(offered(.firstRun), "not set up yet")
     }
 
+    func testComebackSetsCoreVisibilityBeforeStartingTheLoop() {
+        let services = AppServices.temporary()
+        let model = AppModel(services: services)
+        model.started = true
+        model.setPhase(.background)
+        services.monitor.active = false
+        services.retriever.uiVisible = false
+        model.setPhase(.active)
+        XCTAssertTrue(services.monitor.active)
+        XCTAssertTrue(services.retriever.uiVisible)
+        XCTAssertNotNil(model.loop)
+        model.setPhase(.background)
+        XCTAssertNil(model.loop)
+    }
+
     func testBackgroundTaskIdsArePermitted() {
         let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
         XCTAssertTrue(permitted.contains(IndexTask.id))

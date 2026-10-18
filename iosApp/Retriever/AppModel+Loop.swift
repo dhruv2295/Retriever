@@ -17,6 +17,9 @@ extension AppModel {
             // Back from Control Center, a banner or the app switcher, nothing stopped, so there's nothing to redo.
             guard !active else { return }
             active = true
+            // Scene phase can arrive before Lifecycle's notifications; establish visibility before the batch checks it.
+            services.monitor.active = true
+            services.retriever.uiVisible = true
             photos = services.photos.status
             services.lifecycle?.observePhotos()
             // A background batch may still hold the index; it stops within a file and its task wakes the loop.
@@ -45,7 +48,7 @@ extension AppModel {
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 self?.keepScreenOn(true)
-                let next = try? await services.retriever.indexBatchSeconds(seconds: 120)
+                let next = try? await services.retriever.foregroundBatchSeconds(seconds: 120)
                 self?.keepScreenOn(false)
                 if Task.isCancelled {
                     Self.log.info("foreground reading stopped")

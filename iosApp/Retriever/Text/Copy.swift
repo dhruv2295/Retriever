@@ -24,6 +24,7 @@ enum Copy {
     static func stop(_ stop: StopReason?) -> String? {
         switch stop {
         case StopReason.done: "All caught up"
+        case StopReason.powerSave: "Paused: Low Power Mode"
         case StopReason.hot: "Resting while your \(device) cools down"
         case StopReason.unplugged: "Waiting for the charger"
         case StopReason.budget: "Taking a short break"

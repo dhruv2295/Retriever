@@ -36,7 +36,6 @@ import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.factory.KoinWorkerFactory
 import org.koin.core.context.startKoin
-import kotlin.time.Duration.Companion.seconds
 
 class RetrieverApp :
     Application(),
@@ -74,8 +73,7 @@ class RetrieverApp :
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    val s = get<Retriever>().state.value
-                    if (s.lastStop == StopReason.BUSY && !s.running) get<IndexService>().continueLater(10.seconds)
+                    scope.launch { index.screenOff() }
                 }
             },
             IntentFilter(Intent.ACTION_SCREEN_OFF),
@@ -97,7 +95,7 @@ class RetrieverApp :
             if (retriever.setUp.first { it != null } != true) return@launch
             // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
             val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
-            if (held) index.indexNow()
+            if (!index.readTrial() && held) index.indexNow()
             retriever.warmSearch()
         }
         scope.launch {

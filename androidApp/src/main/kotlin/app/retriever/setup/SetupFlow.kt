@@ -22,7 +22,6 @@ import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.CalibrationResult
 import app.retriever.core.ModelBuild
-import app.retriever.core.NextRun
 import app.retriever.core.ReadEstimate
 import app.retriever.core.Retriever
 import app.retriever.core.TasteProgress
@@ -76,6 +75,8 @@ data class SetupUi(
     val committing: Boolean = false,
     /** Skip: Home now, whatever runs carries on. */
     val skipped: Boolean = false,
+    /** The shared reading policy's explanation, ready for the setup screen. */
+    val pauseReason: String? = null,
 ) {
     val files get() = access.ready
     val canSearch get() = started && files
@@ -180,6 +181,7 @@ class SetupFlow(
     private var wasMissing = false
 
     init {
+        scope.launch { retriever.state.collect { s -> _ui.update { it.copy(pauseReason = s.pauseReason) } } }
         scope.launch { retriever.prefs.collect { p -> _ui.update { it.copy(started = it.started || p.setupStarted) } } }
         scope.launch {
             models.state.collect { model ->
@@ -464,15 +466,14 @@ class SetupFlow(
         _ui.update { it.copy(scheduled = true) }
         index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
         scope.launch {
-            val next = try {
-                retriever.taste()
+            try {
+                if (!index.readTrial()) index.indexNow()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e("Retriever", "short read failed", e)
-                NextRun.SOON
+                index.indexNow()
             }
-            if (next != NextRun.DONE) index.indexNow()
         }
     }
 

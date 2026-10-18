@@ -78,6 +78,7 @@ import org.koin.androidx.compose.koinViewModel
 
 internal fun stopCopy(stop: StopReason?): String? = when (stop) {
     StopReason.DONE -> "All caught up"
+    StopReason.POWER_SAVE -> "Paused: Battery Saver"
     StopReason.HOT -> "Resting while the phone cools down"
     StopReason.UNPLUGGED -> "Waiting for the charger"
     StopReason.BUDGET -> "Taking a short break"

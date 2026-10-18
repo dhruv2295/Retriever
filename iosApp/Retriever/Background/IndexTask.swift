@@ -103,7 +103,8 @@ enum IndexTask {
             if state.processed > 0 {
                 try? await retriever.recordBackgroundRun(files: state.processed, seconds: (ContinuousClock.now - started).components.seconds)
             }
-            try? await retriever.release()
+            // The foreground loop may already have taken over the index after our cancellation.
+            if !retriever.uiVisible && !retriever.stateNow.running { try? await retriever.release() }
             // Even when caught up: the next run reads photos taken meanwhile. A failed batch (.retry) rests like a
             // cooldown: iOS has no backoff to hand it to, so the next scheduled run is the retry.
             if !retriever.prefsNow.paused { schedule() }

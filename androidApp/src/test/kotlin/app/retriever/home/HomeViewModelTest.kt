@@ -3,7 +3,10 @@ package app.retriever.home
 import android.app.AppOpsManager
 import android.app.Application
 import android.os.Process
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.sqldelight.Query
 import app.cash.sqldelight.db.QueryResult
@@ -22,7 +25,9 @@ import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -82,7 +87,8 @@ class HomeViewModelTest {
     private val retriever = testRetriever(pdfs + photos, dispatchers = core)
     private val access by lazy { AccessService(app) }
 
-    private fun vm(r: Retriever = retriever) = HomeViewModel(r, access, IndexService(app, r))
+    private val models = mutableListOf<ViewModel>()
+    private fun vm(r: Retriever = retriever) = HomeViewModel(r, access, IndexService(app, r)).also { models += it }
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -91,7 +97,13 @@ class HomeViewModelTest {
         ShadowEnvironment.addExternalDir("sdcard")
     }
 
-    @After fun tearDown() = Dispatchers.resetMain()
+    @After fun tearDown() {
+        // Wait for IO continuations too, before replacing Main underneath their ViewModel scopes.
+        runTest(dispatcher) { models.forEach { it.viewModelScope.coroutineContext.job.cancelAndJoin() } }
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        WorkManagerTestInitHelper.closeWorkDatabase()
+        Dispatchers.resetMain()
+    }
 
     @Test fun homeFollowsTheIndexAndAccess() = runTest {
         retriever.indexBatch(1.minutes)
@@ -317,7 +329,7 @@ class HomeViewModelTest {
         advanceUntilIdle()
         assertFalse(r.prefs.value.showOnThisDay)
 
-        StatusViewModel(r, IndexService(app, r), access).setOnThisDay(true)
+        StatusViewModel(r, IndexService(app, r), access).also { models += it }.setOnThisDay(true)
         assertTrue(vm.ui.first { it.showOnThisDay }.showOnThisDay)
         assertTrue(r.prefs.value.showOnThisDay)
         // The cards that were found are still there: no second look.

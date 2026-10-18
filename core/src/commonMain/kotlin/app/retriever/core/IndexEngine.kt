@@ -18,7 +18,7 @@ data class FileMetric(
     val cause: Throwable? = null,
 )
 
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED }
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE }
 
 data class BatchResult(val processed: Int, val failed: Int, val stopReason: StopReason)
 
@@ -40,6 +40,8 @@ class IndexEngine(
     private val pendingPage: () -> List<Store.StoredFile> = { store.pending(PAGE, store.prefs().sampleSize) },
     /** The next text chunks to embed; empty ends the deepen pass. */
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
+    /** Before extraction starts, after any wait for the UI. Null clears the current file, including on cancellation. */
+    private val onCurrent: (SourceFile?) -> Unit = {},
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
     suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
@@ -99,6 +101,7 @@ class IndexEngine(
         var embedMs = 0.0
         // Before the attempt is counted: a search running now would otherwise wait behind this file's extraction.
         awaitUi()
+        onCurrent(file)
         // Count the attempt up front so a file that kills the process (OOM, native crash, LMK) still ends up skipped.
         store.markFailed(stored.id, stored.attempts + 1)
         val readInside = file.kind in settings.kinds
@@ -138,6 +141,8 @@ class IndexEngine(
             throw e
         } catch (e: Throwable) {
             return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
+        } finally {
+            onCurrent(null)
         }
     }
 
@@ -150,6 +155,7 @@ class IndexEngine(
         fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean, pauseWhenHot: Boolean = true): StopReason? = when {
             settings.paused -> StopReason.PAUSED
             busy -> StopReason.BUSY
+            state.powerSave -> StopReason.POWER_SAVE
             state.hot && pauseWhenHot -> StopReason.HOT
             requireCharging && !state.charging -> StopReason.UNPLUGGED
             else -> null

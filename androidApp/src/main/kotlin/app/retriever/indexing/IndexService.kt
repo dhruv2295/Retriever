@@ -1,23 +1,86 @@
 package app.retriever.indexing
 
 import android.content.Context
+import android.os.PowerManager
 import android.provider.MediaStore
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import app.retriever.IndexWorker
+import app.retriever.core.NextRun
 import app.retriever.core.Retriever
+import app.retriever.core.StopReason
+import app.retriever.core.ThermalRest
+import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
 /** Background indexing: the one owner of IndexWorker's unique work, for the screens, the worker and the receivers. */
 class IndexService(private val context: Context, private val retriever: Retriever) {
     private val work get() = WorkManager.getInstance(context)
+    private val trialLock = Mutex()
+
+    /** A foreground trial takes the core lock directly, including after a worker or setup batch was interrupted. */
+    suspend fun readTrial(): Boolean {
+        if (!retriever.uiVisible || !retriever.hasPendingTaste()) return false
+        trialLock.lock()
+        try {
+            // A comeback can arrive while the old foreground call is finishing its pause; never drop that handoff.
+            if (!retriever.uiVisible || !retriever.hasPendingTaste()) return true
+            retriever.cancelBatch()
+            var next: NextRun
+            do {
+                next = retriever.taste()
+            } while (next == NextRun.SOON && retriever.uiVisible && retriever.hasPendingTaste())
+            schedule(next)
+        } finally {
+            trialLock.unlock()
+        }
+        return true
+    }
+
+    suspend fun schedule(next: NextRun) {
+        when (next) {
+            NextRun.SOON -> if (retriever.hasPendingTaste()) continueTrial() else continueLater(10.seconds)
+
+            NextRun.AFTER_COOLDOWN, NextRun.RETRY -> continueLater(ThermalRest.RECHECK)
+
+            NextRun.WHEN_CHARGING -> continueWhenCharging()
+
+            NextRun.WHEN_IDLE -> if (retriever.hasPendingTaste() && !context.getSystemService(PowerManager::class.java).isInteractive) {
+                continueTrial()
+            } else {
+                continueWhenIdle()
+            }
+
+            NextRun.DONE -> Unit
+        }
+    }
+
+    suspend fun screenOff() {
+        if (retriever.state.value.running) return
+        if (retriever.hasPendingTaste()) {
+            continueTrial()
+        } else if (retriever.state.value.lastStop == StopReason.BUSY) {
+            continueLater(10.seconds)
+        }
+    }
+
+    /** Short user-started work uses expedited WorkManager, avoiding device-idle maintenance windows. */
+    internal fun continueTrial() {
+        val request = OneTimeWorkRequestBuilder<IndexWorker>()
+            // Expedited work rejects battery/charging/idle constraints; core checks battery, heat and Battery Saver per file.
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .build()
+        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request)
+    }
 
     /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */
     fun indexNow() {

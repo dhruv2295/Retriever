@@ -23,7 +23,14 @@ class EstimateTest {
     fun videoIsReadByBytes() {
         val b = SpeedBook().add(Kind.VIDEO, 1_000.0, 1e6) // 1 ms per kB
         assertEquals(60_000.0, b.ms(mapOf(Kind.VIDEO to 1L), 60_000_000L), "one 60 MB video is a minute")
-        assertEquals(6_000.0, b.ms(mapOf(Kind.VIDEO to 9L), 6_000_000L), "small videos are quick whatever their count")
+        assertEquals(9_000.0, b.ms(mapOf(Kind.VIDEO to 9L), 6_000_000L), "small videos still pay per-file overhead")
+    }
+
+    @Test
+    fun videoSeedIncludesFrameOverheadAndCorrectByteUnits() {
+        assertEquals(25_000.0, SpeedBook().ms(mapOf(Kind.VIDEO to 1L), 0))
+        assertEquals(25_000.0, SpeedBook().ms(mapOf(Kind.VIDEO to 1L), 5_000_000))
+        assertEquals(60_000.0, SpeedBook().ms(mapOf(Kind.VIDEO to 1L), 100_000_000), 0.001)
     }
 
     @Test

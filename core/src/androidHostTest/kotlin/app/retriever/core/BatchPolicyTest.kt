@@ -131,6 +131,40 @@ class BatchPolicyTest {
     }
 
     @Test
+    fun trialPausesForOtherAppsAndResumesWhenVisibleOrScreenOff() = test {
+        for (visible in listOf(true, false)) {
+            val f = Fx(state = plugged.copy(screenOn = true))
+            f.r.planTaste()
+            assertEquals(NextRun.WHEN_IDLE, f.r.taste())
+            assertEquals("Paused while you use other apps", f.r.state.value.pauseReason)
+            f.r.uiVisible = visible
+            f.monitor.state = plugged.copy(screenOn = visible)
+            assertEquals(NextRun.DONE, f.r.taste())
+            assertEquals(1L, f.indexed())
+        }
+    }
+
+    @Test
+    fun hiddenTrialRespectsBatterySaverHeatAndLowBattery() = test {
+        val cases = listOf(
+            plugged.copy(powerSave = true) to StopReason.POWER_SAVE,
+            plugged.copy(thermal = Thermal.SEVERE) to StopReason.HOT,
+            plugged.copy(charging = false, batteryPct = 10) to StopReason.UNPLUGGED,
+        )
+        for ((state, stop) in cases) {
+            val f = Fx(state = state)
+            f.r.planTaste()
+            f.r.taste()
+            assertEquals(stop, f.r.state.value.lastStop)
+            assertEquals(0L, f.indexed())
+            assertTrue(f.r.state.value.pauseReason != null)
+        }
+        val f = Fx(state = plugged.copy(powerSave = true))
+        f.r.uiVisible = true
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes), "Battery Saver governs hidden work")
+    }
+
+    @Test
     fun aFailedSyncAsksForARetry() = test {
         val f = Fx()
         f.onSync = { throw IllegalStateException("provider went away") }

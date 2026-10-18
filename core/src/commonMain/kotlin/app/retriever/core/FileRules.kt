@@ -82,41 +82,52 @@ object FileRules {
     )
     private val TASTE_ORDER = listOf(Kind.SCREENSHOT, Kind.DOC, Kind.PDF, Kind.PHOTO, Kind.VIDEO)
     private const val BURST_MS = 3_600_000L
-    private const val BIG_VIDEO = 200L * 1024 * 1024
-    private const val FALLBACK_COST_MS = 1000.0
 
     private fun at(f: SourceFile) = f.takenAt ?: f.modifiedAt
 
-    /**
-     * The first-run slice: a stratified sample per kind within [budget], by seeded [costMs] per file. Deterministic.
-     * [TastePlan.ids] are file uris: 2 per present kind first, then cheap-first. A library that fits is taken whole.
-     */
-    fun planTaste(files: List<SourceFile>, costMs: Map<Kind, Double>, budget: Duration): TastePlan {
+    /** A varied first read within [budget]; videos use their own size and are always picked smallest first. */
+    fun planTaste(files: List<SourceFile>, costMs: (SourceFile) -> Double, budget: Duration): TastePlan {
         val byKind = files.filter { it.kind in TASTE_SHARES }.groupBy { it.kind }
-        fun cost(k: Kind) = costMs[k] ?: FALLBACK_COST_MS
-        val budgetMs = budget.inWholeMilliseconds.toDouble()
-        val everything = byKind.entries.sumOf { (k, g) -> g.size * cost(k) } <= budgetMs
+        val budgetMs = budget.inWholeMilliseconds.toDouble().coerceAtLeast(0.0)
         val shareSum = byKind.keys.sumOf { TASTE_SHARES.getValue(it) }
-        val picks = byKind.mapValues { (k, g) ->
-            if (everything) return@mapValues g.sortedByDescending(::at)
-            val n = (TASTE_SHARES.getValue(k) / shareSum * budgetMs / cost(k))
-                .toInt().coerceIn(if (k == Kind.VIDEO) 1 else 3, 40).coerceAtMost(g.size)
-            pickAcrossTime(g, n, k == Kind.VIDEO)
+        val videos = byKind[Kind.VIDEO].orEmpty().sortedWith(compareBy<SourceFile> { it.size }.thenBy { it.uri })
+        // At most a few videos even if a fast tune or tiny byte sizes promise hundreds; no minimum can bust the budget.
+        val videoBudget = if (videos.isEmpty()) {
+            0.0
+        } else {
+            maxOf(budgetMs * TASTE_SHARES.getValue(Kind.VIDEO) / shareSum, costMs(videos.first())).coerceAtMost(budgetMs)
         }
+        var videoLeft = videoBudget
+        val pickedVideos = videos.take((videoBudget / VIDEO_SEED_MS).toInt()).takeWhile {
+            val cost = costMs(it)
+            (cost <= videoLeft).also { fits -> if (fits) videoLeft -= cost }
+        }
+        val remaining = budgetMs - pickedVideos.sumOf(costMs)
+        val others = byKind - Kind.VIDEO
+        val otherShares = others.keys.sumOf { TASTE_SHARES.getValue(it) }
+        val allOthersFit = others.values.flatten().sumOf(costMs) <= remaining
+        val picks = others.mapValues { (kind, group) ->
+            val allowance = if (allOthersFit) remaining else remaining * TASTE_SHARES.getValue(kind) / otherShares
+            val n = if (allOthersFit) group.size else (allowance / costMs(group.first())).toInt().coerceIn(0, 40)
+            pickAcrossTime(group, n).let { candidates ->
+                var left = allowance
+                candidates.takeWhile { f -> (costMs(f) <= left).also { if (it) left -= costMs(f) } }
+            }
+        } + (Kind.VIDEO to pickedVideos)
         val ordered = TASTE_ORDER.mapNotNull { picks[it]?.takeIf(List<SourceFile>::isNotEmpty) }
-        val all = picks.values.flatten()
+        val all = ordered.flatten()
         return TastePlan(
             ids = (ordered.flatMap { it.take(2) } + ordered.flatMap { it.drop(2) }).map { it.uri },
             byKind = picks.mapValues { it.value.size }.filterValues { it > 0 },
             oldest = all.minOfOrNull(::at),
             newest = all.maxOfOrNull(::at),
-            seconds = ceil(picks.entries.sumOf { (k, g) -> g.size * cost(k) } / 1000).toInt(),
-            everything = everything,
+            seconds = ceil(all.sumOf(costMs) / 1000).toInt(),
+            everything = all.size == byKind.values.sumOf { it.size },
         )
     }
 
-    /** Newest 2, then one per equal-count time bin (nearest the middle; smallest for video), under burst and folder guards. */
-    private fun pickAcrossTime(group: List<SourceFile>, n: Int, video: Boolean): List<SourceFile> {
+    /** Newest 2, then one per equal-count time bin nearest the middle, under burst and folder guards. */
+    private fun pickAcrossTime(group: List<SourceFile>, n: Int): List<SourceFile> {
         val s = group.sortedBy(::at)
         val cap = ceil(0.4 * n)
         val picked = ArrayList<SourceFile>(n)
@@ -127,21 +138,7 @@ object FileRules {
         for (i in 0 until bins) {
             val lo = i * s.size / bins
             val hi = (i + 1) * s.size / bins
-            val order = (lo until hi).sortedBy {
-                if (video) {
-                    s[it].size.let { z ->
-                        if (z >=
-                            BIG_VIDEO
-                        ) {
-                            z + BIG_VIDEO
-                        } else {
-                            z
-                        }
-                    }
-                } else {
-                    abs(2 * it - (lo + hi - 1)).toLong()
-                }
-            }
+            val order = (lo until hi).sortedBy { abs(2 * it - (lo + hi - 1)) }
             // A one-folder library can't satisfy the folder guard, so fall back to the burst guard alone.
             (order.firstOrNull { ok(s[it]) } ?: order.firstOrNull { calm(s[it]) })?.let { picked += s[it] }
         }

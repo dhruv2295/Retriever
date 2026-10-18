@@ -52,6 +52,7 @@ class AndroidDeviceMonitor(context: Context) : DeviceMonitor {
         batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
         thermal = thermal(powerManager.currentThermalStatus),
         screenOn = powerManager.isInteractive,
+        powerSave = powerManager.isPowerSaveMode,
     )
 
     private fun thermal(status: Int): Thermal = when (status) {

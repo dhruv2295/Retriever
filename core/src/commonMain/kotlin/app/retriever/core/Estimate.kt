@@ -30,11 +30,16 @@ data class SpeedBook(val paces: Map<Kind, Pace> = emptyMap(), val photoSeedMs: D
     fun ms(pending: Map<Kind, Long>, videoBytes: Long): Double = pending.entries.sumOf { (kind, files) ->
         val p = paces[kind]
         if (kind == Kind.VIDEO) {
-            videoBytes * (p?.takeIf { it.units > 0 }?.let { it.ms / it.units } ?: SEED_MS_PER_VIDEO_BYTE)
+            max(
+                files * (p?.let { it.ms / it.files } ?: VIDEO_SEED_MS),
+                videoBytes * (p?.takeIf { it.units > 0 }?.let { it.ms / it.units } ?: SEED_MS_PER_VIDEO_BYTE),
+            )
         } else {
             files * (p?.let { it.ms / it.files } ?: seedMsPerFile(kind))
         }
     }
+
+    fun costMs(file: SourceFile): Double = ms(mapOf(file.kind to 1L), file.size)
 
     private fun seedMsPerFile(kind: Kind): Double = photoSeedMs?.takeIf { kind == Kind.PHOTO || kind == Kind.SCREENSHOT } ?: SEED_MS_PER_FILE.getValue(kind)
 
@@ -139,17 +144,18 @@ const val ESTIMATE_CALIBRATED = false
 /** One charging night, INFERRED (onboarding §3.4). */
 const val NIGHT_MINUTES = 360.0
 
-// Seeds for a kind not measured yet, INFERRED: photos ~480 ms and docs 100-200 ms in the soak; the rest are guesses
-// (a 100 MB video is about a minute, 12 frames at 500 ms). Measured time replaces them at the first file of a kind.
+// Pixel trial: photos 0.6–0.8 s, screenshots ~1 s, videos ~25 s. Byte size alone misses decode/frame overhead.
+// Large unmeasured videos allow about a minute per 100 MB; measured time replaces the seeds.
+internal const val VIDEO_SEED_MS = 25_000.0
 private val SEED_MS_PER_FILE = mapOf(
-    Kind.PHOTO to 500.0,
-    Kind.SCREENSHOT to 500.0,
+    Kind.PHOTO to 800.0,
+    Kind.SCREENSHOT to 1000.0,
     Kind.PDF to 300.0,
     Kind.DOC to 200.0,
     Kind.AUDIO to 5_000.0,
     Kind.VIDEO to 0.0,
     Kind.OTHER to 20.0,
 )
-private const val SEED_MS_PER_VIDEO_BYTE = 6e-5
+private const val SEED_MS_PER_VIDEO_BYTE = 6e-4
 
 private val JSON = Json { ignoreUnknownKeys = true }

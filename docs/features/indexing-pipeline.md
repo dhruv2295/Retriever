@@ -10,19 +10,19 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
 ## Mechanism and why
 
 - **One batch at a time.** `Retriever.indexBatch(budget)` takes `indexLock` with `tryLock` and returns `NextRun.DONE`
-  (after flagging `changedSinceSync`) when another batch holds it. Only the continued iOS read passes
-  `waitForLock = true`, because it must replace the foreground batch. A single lock beats a queue here: a second batch
+  (after flagging `changedSinceSync`) when another batch holds it. Foreground trial and iOS foreground/continued reads pass
+  `waitForLock = true`, so a handoff waits for the cancelled batch without needing another scheduler wake. A single lock beats a queue here: a second batch
   would only repeat the first one's work.
 - **The budget covers everything.** `runBatch` starts one `TimeSource.Monotonic` mark, then the sync, the model open and
   the engine all draw from it (`budget - started.elapsedNow()`), so a platform's time limit holds (WorkManager's 10 minute
   JobScheduler limit, a BGProcessingTask's window).
 - **Stop reason to next run.** The engine ends with a `StopReason`; `Retriever.nextRunFor` maps it to `NextRun`:
-  BUDGET to SOON, HOT to AFTER_COOLDOWN, UNPLUGGED to WHEN_CHARGING, BUSY to WHEN_IDLE, DONE to DONE (SOON when files changed
+  BUDGET to SOON, HOT and POWER_SAVE to AFTER_COOLDOWN, UNPLUGGED to WHEN_CHARGING, BUSY to WHEN_IDLE, DONE to DONE (SOON when files changed
   during the batch), PAUSED to DONE. A thrown error is RETRY. Each platform turns `NextRun` into its own scheduling call.
   This is the shape of Apple's and Android's "do a slice, then ask to be run again" guidance for deferrable work.
 - **Phone policy in one place.** `IndexEngine.stopReason` is read before every file: Pause, budget, busy (screen on while
   the app is hidden), thermal at MODERATE or worse, and charging when the setting or a battery at 20% or less requires it
-  and the app is hidden. A visible app reads on battery.
+  and the app is hidden. Battery Saver also pauses hidden reading, separately from heat. A visible app reads on battery.
 - **Per-file loop.** `IndexEngine` pages pending files, extracts, then embeds per piece. Each embed first `awaitUi()`s:
   it suspends while a search runs or the UI is typing or scrolling, so a query waits behind at most one native call.
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.
@@ -36,7 +36,15 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   turns pending counts into minutes. The hours estimate stays off in the UI until it is calibrated on a device
   (`ESTIMATE_CALIBRATED`).
 - **First run.** `planTaste` picks a varied slice of the library that reads in about 90 seconds and scopes the first batch
-  to it (SAMPLE scope); `Store.pendingIn` limits the engine to that plan.
+  to it (SAMPLE scope); `Store.pendingIn` limits the engine to that plan. Pending counts, including per-kind counts,
+  exclude the rest of the library (`Counts.waiting`). Videos use their own size, a 25-second seed floor and a
+  budget-derived count ceiling, smallest first. After tuning, at batch start, and after each success, a pending
+  estimate above 1.5 times the budget is trimmed back to the budget, dropping videos then costliest files, retaining
+  completed work. SAMPLE reads one pending file per page so a trim takes effect before the next file.
+- **Reading state.** `IndexState.currentFile` is set before extraction and cleared on exit. `recentFiles` contains the
+  newest 24 successful INDEXED files, preserved across batches. A fresh process restores them from reversed plan
+  order intersected with INDEXED. Both are carried by the existing StateFlow and iOS `observeAll` snapshot;
+  `IndexState.pauseReason` supplies setup copy, and Android `SetupUi` exposes it.
 
 ## Owner files
 
@@ -61,7 +69,7 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
 ## Tests
 
 `RetrieverTest`, `BatchPolicyTest`, `ThermalTest`, `EtaTest`, `EstimateTest`, `TokenRetryTest`, `ReviewFixesTest`,
-`IndexPipelineTest`, `TasteProgressTest`, `LowEndTest`, `RetuneTest` (all under `core/src/androidHostTest` and `core/src/commonTest`).
+`IndexPipelineTest`, `TasteProgressTest`, `TrialReadTest`, `TasteScopeTest`, `LowEndTest`, `RetuneTest` (all under `core/src/androidHostTest` and `core/src/commonTest`).
 iOS: `AppModelTests`.
 
 ## Known limits

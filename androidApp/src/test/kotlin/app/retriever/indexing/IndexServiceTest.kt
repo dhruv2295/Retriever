@@ -12,6 +12,7 @@ import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
+import app.retriever.core.CoreDispatchers
 import app.retriever.core.Kind
 import app.retriever.core.NextRun
 import app.retriever.indexing.IndexService.Companion.CONTINUE
@@ -21,7 +22,10 @@ import app.retriever.indexing.IndexService.Companion.PERIODIC
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -56,7 +61,8 @@ class IndexServiceTest {
     }
 
     @After fun tearDown() {
-        work.cancelAllWork()
+        work.cancelAllWork().result.get()
+        WorkManagerTestInitHelper.closeWorkDatabase()
     }
 
     private fun infos(name: String): List<WorkInfo> = work.getWorkInfosForUniqueWork(name).get()
@@ -71,6 +77,53 @@ class IndexServiceTest {
         assertEquals(1, live.size)
         WorkManagerTestInitHelper.getTestDriver(context)!!.setInitialDelayMet(live.single().id)
         assertEquals(WorkInfo.State.RUNNING, work.getWorkInfoById(live.single().id).get()!!.state)
+    }
+
+    @Test fun screenOffTrialReplacesIdleWithoutAnIdleConstraint() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        val service = IndexService(context, retriever)
+        service.continueWhenIdle()
+        service.screenOff()
+        val live = infos(CONTINUE).single { !it.state.isFinished }
+        assertEquals(false, live.constraints.requiresDeviceIdle())
+        assertEquals(false, live.constraints.requiresBatteryNotLow())
+        assertEquals(0L, live.initialDelayMillis)
+    }
+
+    @Test fun foregroundTrialReadsEvenWithAWorkerWaitingForIdle() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        retriever.uiVisible = true
+        val service = IndexService(context, retriever)
+        service.continueWhenIdle()
+        assertTrue(service.readTrial())
+        assertEquals(false, retriever.hasPendingTaste())
+        assertEquals(1, retriever.state.value.processed)
+        assertTrue("the direct read did not need a WorkManager slot", infos(NOW).isEmpty())
+    }
+
+    @Test fun overlappingForegroundRequestsWaitForTheHandoff() = runTest {
+        val retriever = testRetriever(
+            files = listOf(testFile("a.txt", Kind.DOC)),
+            ramGb = 3.0,
+            dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)),
+        ).apply { uiVisible = true }
+        retriever.planTaste()
+        val service = IndexService(context, retriever)
+        val finished = mutableListOf<String>()
+        val first = launch {
+            service.readTrial()
+            finished += "first"
+        }
+        val second = launch {
+            service.readTrial()
+            finished += "second"
+        }
+        first.join()
+        second.join()
+        assertEquals(listOf("first", "second"), finished)
+        assertEquals(1, retriever.state.value.processed)
     }
 
     @Test fun pauseStopsNowAndContinueButKeepsThePeriodicRun() {
@@ -122,6 +175,7 @@ class IndexServiceTest {
 
         // KEEP drops the second request, and the running batch comes back soon for the change instead.
         assertEquals(NextRun.SOON, runBlocking { retriever.indexBatch(1.minutes) })
-        assertEquals(WorkInfo.State.RUNNING, infos(NOW).single().state)
+        val errors = ShadowLog.getLogs().filter { it.throwable != null }.joinToString("\n") { it.msg + "\n" + it.throwable.stackTraceToString() }
+        assertEquals(errors, WorkInfo.State.RUNNING, infos(NOW).single().state)
     }
 }

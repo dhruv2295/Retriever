@@ -17,9 +17,9 @@ scheduling around it.
 | Stop and cancel | A stop cancels `doWork`, which cancels the batch (`indexBatch` returns SOON, the file's attempt is given back). `stopReason` is logged on API 31+. | Cooperative cancellation is what `CoroutineWorker` expects (`onStopped` is final). |
 | Foreground | `setForeground` only when set up, the app is visible and no batch already shows one. Type `mediaProcessing` on API 35+, `dataSync` below; both declared in the manifest with their permissions. A refused start is caught. | A foreground service started from a visible state is the documented exemption (develop/background-work/services/fgs). The FGS timeout resets when the app comes to the front. |
 | Progress | Screens and the notification read `Retriever.state`, throttled to once a second for the notification. `setProgress` is not used. | The worker runs in the app's process; the StateFlow carries more than `Data` (ETA, current file, stop reason). |
-| Expedited | Not used. | WorkManager already runs unconstrained work at once while the process lives; expedited has a quota and no charging or idle constraint. |
+| Expedited | Pending trial work uses `setExpedited(RUN_AS_NON_EXPEDITED_WORK_REQUEST)` on screen-off and SOON follow-ups. | Short user-started work should not wait for device-idle maintenance; core still checks hidden-use, battery, heat and Battery Saver. Expedited rejects battery/charging/idle constraints; Android 11 receives `getForegroundInfo`. Quota exhaustion falls back to ordinary work. |
 | Change trigger | `IndexService.watchMedia` arms a `ContentUriTrigger` on `MediaStore.Files` with a 1 minute update delay and a 10 minute max delay. The media run re-arms with APPEND_OR_REPLACE on its first attempt only. | JobScheduler holds the trigger, so it works with the process gone (the old in-process observer died with it). |
-| Held stops | `ProcessLifecycleOwner.onStart` resumes an UNPLUGGED or BUSY stop; an `ACTION_SCREEN_OFF` receiver resumes a BUSY stop when no batch runs. | Instant resume while the process lives; the constraints cover the rest. |
+| Held stops | `ProcessLifecycleOwner.onStart` and setup call `IndexService.readTrial` directly, waiting for any cancelled batch; `ACTION_SCREEN_OFF` expedites pending trial work when no batch runs. | Foreground trial progress does not depend on a WorkManager slot. Screen-on use of other apps still pauses reading. |
 | Process death | Attempts are charged before each file, chunks are written per file, WorkManager re-runs the interrupted work. | A file that kills the process is skipped after N tries instead of crash-looping. |
 | Memory | `IndexWorker` releases the model when nothing follows soon and the app is hidden; `onTrimMemory(BACKGROUND)` releases it when no batch runs. | Only one copy of the model is in memory, and none while nothing needs it. |
 
@@ -40,7 +40,7 @@ scheduling around it.
 1. One batch at a time (`indexLock`); a request made while one runs reaches it through `changedSinceSync`.
 2. A background run without a foreground service finishes inside 10 minutes, sync and model open included.
 3. A follow-up never waits behind a constraint that does not belong to it (all follow-ups REPLACE one name).
-4. A foreground service starts only from a visible state; a refused start is not fatal.
+4. Explicit foreground services start from a visible state; WorkManager also uses one for expedited work on Android 11.
 5. A stop, cancel or Pause gives back the attempt for the file in flight; process death does not.
 6. Pause stops the running batch within one file and cancels `index-now` and `index-continue`; `index-periodic` stays.
 7. The model is never closed under a running batch and never loaded twice.
@@ -62,4 +62,4 @@ scheduling around it.
 - SAF folders have no change trigger; they are picked up by the periodic run, app open, or a MediaStore change elsewhere.
 - Tune runs in `AppScope` with no process protection; leaving the app mid-Tune can get the cached process killed.
 - Thermal: current status only (see `indexing-pipeline.md`).
-- Background follow-ups do not check Battery Saver; the engine's 20% battery rule and the charging setting apply.
+- Screen-off broadcasts require a live process. After process death or quota exhaustion Android still controls when background work runs; foreground trials resume directly.

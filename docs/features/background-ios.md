@@ -13,12 +13,12 @@ foreground loop (reading while the app is open) from fighting the background tas
 | Overnight reading | `BGProcessingTask` `app.retriever.index`; `requiresExternalPower` follows the "only while charging" setting; one `indexBatchSeconds(1500)` per run. | Apple's API for minutes-long deferrable work. Registered before launch ends (`RetrieverApp.init`), resubmitted before `setTaskCompleted`, as the BGTask header says. |
 | A read the person starts | `BGContinuedProcessingTask` (iOS 26), `strategy = .fail`, progress on `task.progress`, title and subtitle updated. Fixed identifier `$(PRODUCT_BUNDLE_IDENTIFIER).continued`, listed in Info.plist. | The only API for user-initiated work that continues with system UI. It must report progress. No `.gpu` (needs an entitlement); `backendNow` picks the CPU once the app leaves. |
 | Expiration | `expirationHandler = IndexTask.expire` sets a flag and calls `retriever.cancelBatch()`; the batch stops at the next suspension point, then the model is released and `setTaskCompleted` called. | Swift task cancellation does not reach the Kotlin coroutine, so the cancel goes through the facade. `IosEmbedder.close()` waits for the embed mutex. |
-| Reading while open | `AppModel+Loop`: 120 s `indexBatchSeconds` batches, `NextRun.soon` continues, other results sleep until `wake()` (AFTER_COOLDOWN and RETRY rest for `ThermalRest.RECHECK_SECONDS`). | Matches the shared contract; `tryLock` returns DONE when another batch holds the index. |
+| Reading while open | `AppModel+Loop`: 120 s `foregroundBatchSeconds` batches, `NextRun.soon` continues, other results sleep until `wake()` (AFTER_COOLDOWN and RETRY rest for `ThermalRest.RECHECK_SECONDS`). | Waits for the cancelled background batch to release the index, avoiding a false DONE and sleep on comeback. |
 | Phase transitions | `AppModel.setPhase` (scene phase, the aggregate of all scenes) starts and stops the loop; `Lifecycle` (UIKit notifications) feeds the monitor (`active`, battery, `uiVisible`) and releases the model under `beginBackgroundTask`. | App-level scene phase means a second iPad window going to the background does not stop reading. |
 | Model download | Background `URLSession` (`app.retriever.model`), resume data per network rule, streamed SHA-256, `.sha256` marker. See `model-download.md`. | Apple's pattern for large downloads that outlive the process. |
 | Library changes | `PHPhotoLibraryChangeObserver`, registered once access is granted; it calls `notifyChanged()` and wakes the loop. Sync uses persistent change tokens. | Only the delta is read after a suspension. |
 | Screen awake | `isIdleTimerDisabled` is on only while a foreground batch runs with files waiting; off when hot, at 20% battery or less, or in Low Power Mode unless charging. | A locked phone backgrounds the app and stops GPU reading. |
-| Thermal and power | `IosDeviceMonitor` maps Nominal/Fair/Serious/Critical to NONE/LIGHT/SEVERE/CRITICAL; in the background Low Power Mode counts as MODERATE. `ThermalRest.STOP_AT = MODERATE`. | Cut discretionary work at Serious (Apple thermal guidance). |
+| Thermal and power | `IosDeviceMonitor` maps Nominal/Fair/Serious/Critical to NONE/LIGHT/SEVERE/CRITICAL; background Low Power Mode reports POWER_SAVE separately from thermal state. `ThermalRest.STOP_AT = MODERATE`. | Cut discretionary work at Serious (Apple thermal guidance). |
 
 ## Owner files
 
@@ -37,14 +37,14 @@ foreground loop (reading while the app is open) from fighting the background tas
 
 ## Invariants
 
-1. Exactly one batch at a time (`indexLock`). The foreground loop and the processing task use `tryLock`; the continued
-   read waits for the lock because it replaces the foreground batch.
+1. Exactly one batch at a time (`indexLock`). The processing task uses `tryLock`; foreground and continued
+   reads wait for the lock because they replace another batch.
 2. No GPU work in the background: `backendNow` returns the CPU when the app is not active, and entering the background
    cancels the running batch so the next one reopens on the CPU. The signature excludes the backend.
 3. Expiration to `setTaskCompleted` takes at most one in-flight embed plus the release.
 4. Every exit of the continued task posts `IndexTask.ended`, and a processing task defers to a running continued read.
 5. Every background exit reschedules the processing task unless reading is paused.
-6. The model is released before `setTaskCompleted`.
+6. The model is released before `setTaskCompleted` only while hidden and without a new foreground batch.
 7. An expired processing task reports failure, not success.
 8. The download is never fetched twice (a live task with the same description is adopted).
 

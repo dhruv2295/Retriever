@@ -34,9 +34,8 @@ class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
             ramGb = ramGb,
             charging = charging,
             batteryPct = batteryPct,
-            // Low Power Mode asks apps to cut background work: count it as hot, which pauses indexing, but only in
-            // the background. An open app reads its files regardless (and iOS runs no BGProcessingTask in it anyway).
-            thermal = if (info.lowPowerModeEnabled && !active && !continued) maxOf(thermal, Thermal.MODERATE) else thermal,
+            thermal = thermal,
+            powerSave = info.lowPowerModeEnabled && !active && !continued,
             // iOS can't tell whether the screen is on. With screenOn == visible, Retriever's busy() never trips
             // while the app is open, and the batch policy stays visibility-based.
             screenOn = active,

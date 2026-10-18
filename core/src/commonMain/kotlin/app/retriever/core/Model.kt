@@ -109,7 +109,14 @@ object ThermalRest {
     val STOP_AT = Thermal.MODERATE
 }
 
-data class DeviceState(val ramGb: Double, val charging: Boolean, val batteryPct: Int, val thermal: Thermal, val screenOn: Boolean = false) {
+data class DeviceState(
+    val ramGb: Double,
+    val charging: Boolean,
+    val batteryPct: Int,
+    val thermal: Thermal,
+    val screenOn: Boolean = false,
+    val powerSave: Boolean = false,
+) {
     val hot: Boolean get() = thermal >= ThermalRest.STOP_AT
 }
 

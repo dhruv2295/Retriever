@@ -53,14 +53,14 @@ class Store(
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
     data class KeywordHit(val chunkId: Long, val snippet: String?)
 
-    /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byState] and [byKind] sum [byKindState]. */
+    /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byKind] includes the whole library. */
     data class Counts(
         val byState: Map<FileState, Long>,
         val byKind: Map<Kind, Long>,
         val tailChunks: Long,
         val tailFiles: Long = 0,
         val byKindState: Map<Pair<Kind, FileState>, Long> = emptyMap(),
-        /** Pending files outside the first run's plan, left out of [byState]; set by Retriever.counts. */
+        /** Pending files outside the first run's plan, left out of [byState] and [byKindState]; set by Retriever.counts. */
         val waiting: Long = 0,
     )
 
@@ -426,6 +426,9 @@ class Store(
     /** The files of [ids] that still exist, by id, in one query. */
     fun files(ids: Collection<Long>): Map<Long, SourceFile> =
         if (ids.isEmpty()) emptyMap() else q.filesByIds(ids, ::storedFile).executeAsList().associate { it.id to it.file }
+
+    internal fun indexedIn(ids: Collection<Long>): Map<Long, SourceFile> =
+        inChunks(ids) { q.filesByIds(it, ::storedFile).executeAsList() }.filter { it.state == FileState.INDEXED }.associate { it.id to it.file }
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 

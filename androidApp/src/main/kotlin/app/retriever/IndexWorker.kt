@@ -31,7 +31,6 @@ import androidx.work.WorkerParameters
 import app.retriever.core.IndexState
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
-import app.retriever.core.ThermalRest
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
@@ -42,7 +41,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 // Stays in app.retriever: WorkManager persists this class name in pending work specs.
 // Built by Koin's WorkerFactory (workerOf in AppModule), so its dependencies are constructor parameters.
@@ -85,7 +83,7 @@ class IndexWorker(
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes).also { progress?.cancel() }
             }
-            if (!retriever.prefs.value.paused) schedule(next)
+            if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
             // Nothing follows soon and nobody is searching: give the model's memory back, even when stopped (a REPLACE
@@ -101,14 +99,8 @@ class IndexWorker(
         Result.success()
     }
 
-    // A failed batch (RETRY) rests like heat does, as on iOS.
-    private fun schedule(next: NextRun) = when (next) {
-        NextRun.SOON -> index.continueLater(10.seconds)
-        NextRun.AFTER_COOLDOWN, NextRun.RETRY -> index.continueLater(ThermalRest.RECHECK)
-        NextRun.WHEN_CHARGING -> index.continueWhenCharging()
-        NextRun.WHEN_IDLE -> index.continueWhenIdle()
-        NextRun.DONE -> Unit
-    }
+    // Android 11 implements expedited work as a foreground service and needs its notification before doWork.
+    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(retriever.state.value)
 
     private suspend fun showProgress() {
         var last = 0L

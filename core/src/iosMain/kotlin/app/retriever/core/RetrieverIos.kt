@@ -81,6 +81,10 @@ fun modelReady(modelDir: String, build: ModelBuild): Boolean {
 @Throws(Throwable::class)
 suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds)
 
+/** A comeback waits for the cancelled background batch, so lock contention cannot put the visible loop to sleep. */
+@Throws(Throwable::class)
+suspend fun Retriever.foregroundBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, waitForLock = true)
+
 /**
  * The person's continued read: pending files only, so it ends DONE once they are read, and it waits for the
  * foreground batch it replaces to stop rather than finding the index busy.

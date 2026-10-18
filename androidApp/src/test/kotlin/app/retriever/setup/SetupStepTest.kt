@@ -154,7 +154,7 @@ class SetupStepTest {
     /** A words-only phone needs no download or tune, so its whole first run plays out here. */
     private fun TestScope.wordsOnly(): Retriever {
         shadowOf(app).grantPermissions(*Access.mediaPermissions(35).toTypedArray())
-        return testRetriever(docs, ramGb = 3.0, dispatchers = core())
+        return testRetriever(docs, ramGb = 3.0, dispatchers = core()).apply { uiVisible = true }
     }
 
     @Test fun tryingFirstPlansAtTheNamesSyncAndResumesAfterProcessDeath() = runTest {
