@@ -231,10 +231,21 @@ enum Copy {
         "Search your photos, screenshots, PDFs and documents in your own words. Everything is read on this \(device) and stays on it."
     static let firstRunTry = "Try it on a few files first"
     static let firstRunReadAll = "Read everything now"
-    static let firstRunTextOnlyTime = "Try it on a few of your files first. Reading everything takes hours, and you choose when."
+    static let firstRunTextOnlyTime = "Ready in a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
+    static func firstRunExamples(textOnly: Bool) -> [String] {
+        let examples = ["“sunset at the beach”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”"]
+        return textOnly ? Array(examples.dropFirst()) : examples
+    }
+
+    nonisolated static func downloadSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.isAdaptive = false
+        return formatter.string(fromByteCount: bytes)
+    }
 
     static func firstRunTime(size: String?) -> String {
-        "Try it on a few of your files first. It's ready in a few minutes on Wi-Fi; most of that is a one-time \(size.map { "\($0) " } ?? "")download. Reading everything takes hours, and you choose when."
+        "A one-time \(size.map { "\($0) " } ?? "")download, then a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
     }
 
     static let firstRunMobileDataTitle = "Download over mobile data?"
@@ -265,22 +276,29 @@ enum Copy {
     static func firstRunDownloadA11y(_ progress: Double) -> String { "Downloading, \(percent(progress)) percent" }
     private static func percent(_ progress: Double) -> Int { Int((progress * 100).rounded()) }
 
-    static func firstRunWaitingTitle(size: String?) -> String {
-        size.map { "Downloading what Retriever needs · \($0)" } ?? "Downloading what Retriever needs"
+    static let firstRunWaitingTitle = "Getting Retriever ready to read"
+    static let firstRunTuneTitle = "Getting to know this \(device)"
+    static let firstRunTuneBody = "About a minute. Retriever times a few reads to pick the fastest way to run on this \(device)."
+    static let firstRunWhyDownload = "Why this download"
+    static let firstRunUnderstandsTitle = "It understands what's inside"
+    static let firstRunUnderstandsBody = "So “sunset at the beach” finds the photo, even when the file is called IMG_2041."
+    static let firstRunOnDeviceTitle = "It runs on this \(device)"
+    static let firstRunOnDeviceBody = "Everything is read on this \(device) and stays on it. That's why it's big: the whole model lives here."
+    static let firstRunDownloadOnceTitle = "You download it once"
+    static func firstRunDownloadOnceBody(size: String?) -> String {
+        "\(size.map { "\($0), one time." } ?? "A one-time download.") Search works without the internet after this."
     }
-
-    static let firstRunTuneTitle = "Getting to know this \(device) · about a minute"
+    static let firstRunWhileWaiting = "While you wait"
     static let firstRunTuneFailed = "Couldn't finish getting to know this \(device)."
     static let firstRunWaitingForWifi = "Waiting for Wi-Fi. It starts by itself when you're on Wi-Fi."
     static let firstRunStopped = "Download stopped."
-    static let firstRunStopA11y = "Stop the download"
+    static let firstRunStop = "Stop"
     static let firstRunChecking = "Checking the download…"
     static let firstRunDownloaded = "Downloaded"
     static let firstRunDownload = "Download"
     static let firstRunTryAgain = "Try again"
     static let firstRunNamesNow = "Names are searchable now."
-    static let firstRunNamesNowThenRead = "Names are searchable now. Retriever reads a few files when the download finishes."
-    static let firstRunSearchByName = "Search by name now"
+    static let firstRunSearchByName = "Search by name"
     static let firstRunSkip = "Skip"
     static let firstRunDone = "Retriever is set up."
     static let firstRunStartSearching = "Start searching"

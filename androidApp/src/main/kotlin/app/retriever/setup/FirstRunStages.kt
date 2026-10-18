@@ -17,6 +17,7 @@
 
 package app.retriever.setup
 
+import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -24,10 +25,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -35,11 +39,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.access.Fix
@@ -60,18 +67,20 @@ internal fun ColumnScope.Welcome(ui: SetupUi, size: String?, actions: SetupActio
         "Search your photos, screenshots, PDFs and documents in your own words. Everything is read on this phone and stays on it.",
         style = MaterialTheme.typography.bodyLarge,
     )
-    Text(
-        when {
-            ui.textOnly -> "Try it on a few of your files first. Reading everything takes hours, and you choose when."
-
-            else ->
-                "Try it on a few of your files first. It's ready in a few minutes on Wi-Fi; most of that is a one-time " +
-                    "${size ?: "model"} download. Reading everything takes hours, and you choose when."
-        },
-        style = MaterialTheme.typography.bodyLarge,
-    )
+    WelcomeExamples(ui.textOnly)
     Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text("Try it on a few files first") }
     TextButton(onClick = actions.readEverything, modifier = Modifier.fillMaxWidth()) { Text("Read everything now") }
+    MaterialTheme(typography = MaterialTheme.typography.copy(bodyMedium = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center))) {
+        Muted(
+            if (ui.textOnly) {
+                "Ready in a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
+            } else {
+                "A one-time ${size?.let { "$it " } ?: ""}download, then a few minutes on a handful of your files. " +
+                    "Reading everything takes hours, and you choose when."
+            },
+            Modifier.fillMaxWidth(),
+        )
+    }
     if (ui.textOnly) Muted(textOnlyNote(ui.ramGb))
 }
 
@@ -113,74 +122,113 @@ private fun DownloadLine(ui: SetupUi) {
 
 /** The download, then the tune. Names are searchable throughout. */
 @Composable
-internal fun ColumnScope.Waiting(ui: SetupUi, size: String?, folderError: String?, actions: SetupActions) {
+internal fun Waiting(ui: SetupUi, size: String?, folderError: String?, actions: SetupActions) {
     val downloading = ui.model != ModelState.Done
-    Text(
-        when {
-            !downloading -> "Getting to know this phone · about a minute"
-            size != null -> "Downloading what Retriever needs · $size"
-            else -> "Downloading what Retriever needs"
-        },
-        style = MaterialTheme.typography.headlineSmall,
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            if (downloading) "Getting Retriever ready to read" else "Getting to know this phone",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (val m = ui.model) {
+                    is ModelState.Downloading -> DownloadProgress(m, ui.build?.sizeBytes, actions.stopDownload)
+
+                    ModelState.WaitingForWifi -> {
+                        Muted("Waiting for Wi-Fi. It starts by itself when you're on Wi-Fi.")
+                        TextButton(onClick = actions.useMobileData, modifier = Modifier.align(Alignment.End)) { Text("Use mobile data") }
+                    }
+
+                    ModelState.Checking -> Muted("Checking the download…")
+
+                    is ModelState.Failed -> {
+                        ErrorText(m.reason)
+                        OutlinedButton(onClick = actions.retry) { Text("Try again") }
+                    }
+
+                    ModelState.Missing -> if (ui.downloadStopped) {
+                        Muted("Download stopped.")
+                        OutlinedButton(onClick = actions.retry) { Text("Download") }
+                    }
+
+                    ModelState.Done -> if (ui.tune is TuneState.Failed) {
+                        ErrorText("Couldn't finish getting to know this phone.")
+                        OutlinedButton(onClick = actions.retry) { Text("Try again") }
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Getting to know this phone" },
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        )
+                        Muted("About a minute. Retriever times a few reads to pick the fastest way to run on this phone.")
+                    }
+                }
+                if (ui.fellBack && downloading) {
+                    Muted(
+                        "This phone's AI chip couldn't run it, so Retriever will use the graphics chip instead. " +
+                            "That needs one more download${size?.let { " ($it)" } ?: ""}.",
+                    )
+                }
+            }
+        }
+        if (downloading) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Why this download", style = MaterialTheme.typography.titleSmall)
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+                    DownloadReason(
+                        R.drawable.ic_search,
+                        "It understands what's inside",
+                        "So “sunset at the beach” finds the photo, even when the file is called IMG_2041.",
+                    )
+                    DownloadReason(
+                        R.drawable.ic_lock,
+                        "It runs on this phone",
+                        "Everything is read on this phone and stays on it. That's why it's big: the whole model lives here.",
+                    )
+                    DownloadReason(
+                        R.drawable.ic_download_done,
+                        "You download it once",
+                        "${size?.let { "$it, one time." } ?: "A one-time download."} Search works without the internet after this.",
+                    )
+                }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("While you wait", style = MaterialTheme.typography.titleSmall)
+            Muted("Names are searchable now.")
+            FilledTonalButton(onClick = actions.search) { Text("Search by name") }
+            if (!ui.access.allFiles) {
+                val lines = ui.access.coverage()
+                val covered = lines.filter { !it.gap }.map { it.text } + ui.access.folders.map { it.name }
+                Muted("Retriever can search: " + covered.joinToString(" · "))
+                if (lines.any { it.fix == Fix.ALLOW_MEDIA }) {
+                    OutlinedButton(onClick = actions.allowMedia) { Text("Allow photos, videos and music") }
+                }
+                OutlinedButton(onClick = actions.addFolder) { Text("Add a folder of documents") }
+                folderError?.let { ErrorText(it) }
+            }
+        }
+        if (ui.notificationAsk) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Show reading progress in a notification?", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = actions.allowNotifications) { Text("Allow") }
+                        TextButton(onClick = actions.dismissNotifications) { Text("Not now") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadReason(icon: Int, headline: String, supporting: String) {
+    ListItem(
+        headlineContent = { Text(headline) },
+        supportingContent = { Text(supporting) },
+        leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
-    if (ui.fellBack && downloading && size != null) {
-        Muted("This phone's AI chip couldn't run it, so Retriever will use the graphics chip instead. That needs one more download ($size).")
-    }
-    when (val m = ui.model) {
-        is ModelState.Downloading -> DownloadProgress(m, actions.stopDownload)
-
-        ModelState.WaitingForWifi -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Waiting for Wi-Fi. It starts by itself when you're on Wi-Fi.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = actions.useMobileData) { Text("Use mobile data") }
-        }
-
-        ModelState.Checking -> Muted("Checking the download…")
-
-        is ModelState.Failed -> {
-            ErrorText(m.reason)
-            OutlinedButton(onClick = actions.retry) { Text("Try again") }
-        }
-
-        ModelState.Missing -> if (ui.downloadStopped) {
-            Muted("Download stopped.")
-            OutlinedButton(onClick = actions.retry) { Text("Download") }
-        }
-
-        ModelState.Done -> when (ui.tune) {
-            TuneState.Running -> LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Getting to know this phone" },
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
-
-            is TuneState.Failed -> {
-                ErrorText("Couldn't finish getting to know this phone.")
-                OutlinedButton(onClick = actions.retry) { Text("Try again") }
-            }
-
-            TuneState.Idle, is TuneState.Done -> Unit
-        }
-    }
-    if (!ui.access.allFiles) {
-        val lines = ui.access.coverage()
-        val covered = lines.filter { !it.gap }.map { it.text } + ui.access.folders.map { it.name }
-        Muted("Retriever can search: " + covered.joinToString(" · "))
-        if (lines.any { it.fix == Fix.ALLOW_MEDIA }) {
-            OutlinedButton(onClick = actions.allowMedia) { Text("Allow photos, videos and music") }
-        }
-        OutlinedButton(onClick = actions.addFolder) { Text("Add a folder of documents") }
-        folderError?.let { ErrorText(it) }
-    }
-    Muted(if (ui.firstRun && downloading) "Names are searchable now. Retriever reads a few files when the download finishes." else "Names are searchable now.")
-    TextButton(onClick = actions.search) { Text("Search by name now") }
-    if (ui.notificationAsk) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Show reading progress in a notification?", style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = actions.allowNotifications) { Text("Allow") }
-                TextButton(onClick = actions.dismissNotifications) { Text("Not now") }
-            }
-        }
-    }
 }
 
 /** What kinds are being read, never which files: no thumbnails before the person searches. */
@@ -260,20 +308,22 @@ private fun DownloadBar(state: ModelState.Downloading, modifier: Modifier = Modi
 }
 
 @Composable
-private fun DownloadProgress(state: ModelState.Downloading, onStop: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        if (!state.indeterminate) {
-            Text(
-                "${(state.progress * 100).toInt()} %",
-                style = MaterialTheme.typography.bodyMedium.tabular(),
-                modifier = Modifier.padding(end = 8.dp),
-            )
+private fun DownloadProgress(state: ModelState.Downloading, totalBytes: Long?, onStop: () -> Unit) {
+    val context = LocalContext.current
+    val total = totalBytes?.takeIf { it > 0 }
+    val progress = state.progress.coerceIn(0f, 1f)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (total != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "${Formatter.formatShortFileSize(context, (progress * total).toLong())} of ${Formatter.formatShortFileSize(context, total)}",
+                    style = MaterialTheme.typography.bodyMedium.tabular(),
+                    modifier = Modifier.weight(1f),
+                )
+                Text("${(progress * 100).toInt()} %", style = MaterialTheme.typography.bodyMedium.tabular())
+            }
         }
-        DownloadBar(state, Modifier.weight(1f))
-        IconButton(
-            onClick = onStop,
-            colors = IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            modifier = Modifier.padding(start = 4.dp),
-        ) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Stop the download") }
+        DownloadBar(state.copy(progress = progress, indeterminate = total == null || state.indeterminate), Modifier.fillMaxWidth())
+        TextButton(onClick = onStop, modifier = Modifier.align(Alignment.End)) { Text("Stop") }
     }
 }
