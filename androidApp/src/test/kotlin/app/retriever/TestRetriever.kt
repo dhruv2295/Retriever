@@ -34,7 +34,7 @@ fun testFile(name: String, kind: Kind) = SourceFile("content://test/$name", name
 fun testRetriever(
     files: List<SourceFile> = emptyList(),
     ramGb: Double = 8.0,
-    extract: (SourceFile) -> List<Piece> = { emptyList() },
+    extract: suspend (SourceFile) -> List<Piece> = { emptyList() },
     embedder: Embedder? = null,
     beforeOpen: () -> Unit = {},
     profile: DeviceProfile? = null,

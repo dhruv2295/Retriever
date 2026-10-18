@@ -10,12 +10,21 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.await
+import androidx.work.workDataOf
 import app.retriever.IndexWorker
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.ThermalRest
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -27,23 +36,37 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     private val work get() = WorkManager.getInstance(context)
     private val trialLock = Mutex()
 
-    /** A foreground trial takes the core lock directly, including after a worker or setup batch was interrupted. */
-    suspend fun readTrial(): Boolean {
-        if (!retriever.uiVisible || !retriever.hasPendingTaste()) return false
-        trialLock.lock()
-        try {
-            // A comeback can arrive while the old foreground call is finishing its pause; never drop that handoff.
-            if (!retriever.uiVisible || !retriever.hasPendingTaste()) return true
-            retriever.cancelBatch()
-            var next: NextRun
-            do {
-                next = retriever.taste()
-            } while (next == NextRun.SOON && retriever.uiVisible && retriever.hasPendingTaste())
-            schedule(next)
-        } finally {
-            trialLock.unlock()
+    // Serializes ownership changes, not extraction: leaving must persist the successor before cancelling the direct job.
+    private val ownership = Mutex()
+    private var directTrial: Job? = null
+
+    /** A comeback leaves an already-persisted trial worker in charge; otherwise it reads directly. */
+    suspend fun readTrial(): Boolean = trialLock.withLock {
+        coroutineScope {
+            val reading = ownership.withLock {
+                if (!retriever.uiVisible || !retriever.hasPendingTaste()) return@coroutineScope false
+                if (work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { TRIAL in it.tags && !it.state.isFinished }) {
+                    return@coroutineScope true
+                }
+                retriever.cancelBatch()
+                launch(start = CoroutineStart.LAZY) {
+                    var next: NextRun
+                    do {
+                        next = retriever.taste()
+                    } while (next == NextRun.SOON && retriever.uiVisible && retriever.hasPendingTaste())
+                    ownership.withLock { if (isActive) schedule(next) }
+                }.also {
+                    directTrial = it
+                    it.start()
+                }
+            }
+            try {
+                reading.join()
+            } finally {
+                ownership.withLock { if (directTrial === reading) directTrial = null }
+            }
+            true
         }
-        return true
     }
 
     suspend fun schedule(next: NextRun) {
@@ -65,6 +88,13 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     suspend fun screenOff() {
+        ownership.withLock {
+            if (directTrial?.isActive == true && (!retriever.uiVisible || !context.getSystemService(PowerManager::class.java).isInteractive)) {
+                continueTrial()
+                directTrial?.cancel()
+                return
+            }
+        }
         if (retriever.state.value.running) return
         if (retriever.hasPendingTaste()) {
             continueTrial()
@@ -73,13 +103,20 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         }
     }
 
+    suspend fun powerSaveChanged() {
+        if (context.getSystemService(PowerManager::class.java).isPowerSaveMode) return
+        if (retriever.hasPendingTaste()) continueTrial() else indexNow()
+    }
+
     /** Short user-started work uses expedited WorkManager, avoiding device-idle maintenance windows. */
-    internal fun continueTrial() {
+    internal suspend fun continueTrial() {
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
             // Expedited work rejects battery/charging/idle constraints; core checks battery, heat and Battery Saver per file.
+            .setInputData(workDataOf(TRIAL to true))
+            .addTag(TRIAL)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request)
+        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
     }
 
     /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */
@@ -161,6 +198,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     internal companion object {
+        const val TRIAL = "trial"
         const val NOW = "index-now"
         const val CONTINUE = "index-continue"
         const val PERIODIC = "index-periodic"

@@ -55,6 +55,12 @@ foreground loop (reading while the app is open) from fighting the background tas
 
 ## Known limits
 
+- A trial pauses while the app is suspended and resumes on return through the foreground loop. `IndexTask.schedule`
+  preserves an opportunistic background run, but iOS controls its timing. Continued processing is submitted only by
+  the person's tap while the app is visible; suspension is too late to request an immediate handoff.
+- Hidden Low Power Mode returns DONE before library sync. There is no hidden polling loop: foreground return resumes
+  reading, and scheduled processing tasks remain the safety net.
+
 - iOS decides when the processing task runs (mostly overnight on the charger). With `requiresExternalPower = false`
   the engine's own charging and Low Power Mode rules gate it.
 - The continued read ends (`success: false`) on the first HOT or error stop; a task with no progress is expired.

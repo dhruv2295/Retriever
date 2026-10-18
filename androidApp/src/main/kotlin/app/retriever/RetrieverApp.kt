@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.PowerManager
 import android.os.StrictMode
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -28,6 +29,7 @@ import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.setup.SetupFlow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
@@ -47,6 +49,7 @@ class RetrieverApp :
     private val retriever: Retriever by inject()
     private val scope: CoroutineScope by inject(AppScope)
     private val index: IndexService by inject()
+    private var warmUp: Job? = null
 
     override fun onCreate() {
         super<Application>.onCreate()
@@ -66,16 +69,17 @@ class RetrieverApp :
         }
         Notifications.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-        // A batch that stopped because the phone was in use (BUSY) resumes once the screen goes off. Not while one
-        // runs: continueLater replaces index-continue, and so would cancel a running follow-up.
+        // Screen-off hands a direct trial to durable work, or resumes a batch held back by another app.
         ContextCompat.registerReceiver(
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    scope.launch { index.screenOff() }
+                    scope.launch {
+                        if (intent.action == PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) index.powerSaveChanged() else index.screenOff()
+                    }
                 }
             },
-            IntentFilter(Intent.ACTION_SCREEN_OFF),
+            IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
     }
@@ -89,13 +93,17 @@ class RetrieverApp :
         val now = access.access()
         if (seen != null && seen != now) access.changed()
         seen = now
+        // Warm independently of the trial; leaving cancels even a warm-up waiting for setup or the model lock.
+        warmUp?.cancel()
+        warmUp = scope.launch {
+            if (retriever.setUp.first { it != null } == true && retriever.uiVisible) retriever.warmSearch()
+        }
         // setUp is null until start() settles it, which a cold start's first onStart beats.
         scope.launch {
-            if (retriever.setUp.first { it != null } != true) return@launch
+            if (retriever.setUp.first { it != null } != true || !retriever.uiVisible) return@launch
             // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
-            val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
+            val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY || it == StopReason.POWER_SAVE }
             if (!index.readTrial() && held) index.indexNow()
-            retriever.warmSearch()
         }
         scope.launch {
             // Picks the setup chain up where it stopped, whichever screen the user comes back to. Built once
@@ -107,10 +115,14 @@ class RetrieverApp :
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        warmUp?.cancel()
         retriever.uiVisible = false
         // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
         retriever.setUiBusy(false)
-        scope.launch { retriever.releaseIfIdle() }
+        scope.launch {
+            if (!retriever.uiVisible) index.screenOff()
+            retriever.releaseIfIdle()
+        }
     }
 
     /** Once per process, on IO: opens the database and settles [Retriever.setUp]. */

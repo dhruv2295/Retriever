@@ -148,7 +148,7 @@ internal fun RecentFileCell(file: SourceFile, size: Dp, reduceMotion: Boolean, o
             scaleX = 0.92f + 0.08f * arrival.value
             scaleY = scaleX
         }.clip(MaterialTheme.shapes.medium).then(click).semantics {
-            contentDescription = "${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
+            contentDescription = "${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
         }.testTag("recent:${file.uri}"),
     )
 }

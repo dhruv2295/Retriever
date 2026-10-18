@@ -1,6 +1,7 @@
 package app.retriever.indexing
 
 import android.content.Context
+import android.os.PowerManager
 import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -21,11 +22,14 @@ import app.retriever.indexing.IndexService.Companion.NOW
 import app.retriever.indexing.IndexService.Companion.PERIODIC
 import app.retriever.testFile
 import app.retriever.testRetriever
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -33,6 +37,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
 import kotlin.time.Duration.Companion.minutes
@@ -88,6 +93,57 @@ class IndexServiceTest {
         val live = infos(CONTINUE).single { !it.state.isFinished }
         assertEquals(false, live.constraints.requiresDeviceIdle())
         assertEquals(false, live.constraints.requiresBatteryNotLow())
+        assertEquals(0L, live.initialDelayMillis)
+    }
+
+    @Test fun screenOffDuringDirectTrialPersistsHandoffBeforeCancellation() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        var calls = 0
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, extract = {
+            calls++
+            entered.complete(Unit)
+            try {
+                proceed.await()
+            } finally {
+                assertTrue("persist before cancelling extraction", infos(CONTINUE).any { !it.state.isFinished })
+            }
+            emptyList()
+        }).apply { uiVisible = true }
+        retriever.planTaste()
+        val service = IndexService(context, retriever)
+        val reading = async { service.readTrial() }
+        try {
+            withTimeout(10.seconds) { entered.await() }
+            retriever.uiVisible = false
+            service.screenOff()
+            val continuation = infos(CONTINUE).single { !it.state.isFinished }
+            assertEquals(0L, continuation.initialDelayMillis)
+            assertEquals(false, continuation.constraints.requiresDeviceIdle())
+            // The direct call must finish even while the extractor is suspended.
+            withTimeout(10.seconds) { reading.await() }
+            retriever.uiVisible = true
+            assertTrue(service.readTrial())
+            assertEquals("the persisted worker owns a quick comeback", 1, calls)
+            assertEquals(continuation.id, infos(CONTINUE).single { !it.state.isFinished }.id)
+        } finally {
+            proceed.complete(Unit)
+            reading.await()
+        }
+    }
+
+    @Test fun leavingBatterySaverResumesTheTrialWithoutACooldown() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        val service = IndexService(context, retriever)
+        val power = shadowOf(context.getSystemService(PowerManager::class.java))
+        power.setIsPowerSaveMode(true)
+        service.powerSaveChanged()
+        assertTrue(infos(CONTINUE).isEmpty())
+        power.setIsPowerSaveMode(false)
+        service.powerSaveChanged()
+        val live = infos(CONTINUE).single { !it.state.isFinished }
+        assertTrue(IndexService.TRIAL in live.tags)
         assertEquals(0L, live.initialDelayMillis)
     }
 

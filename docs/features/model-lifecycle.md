@@ -36,7 +36,8 @@ content leaves the phone; only the model download uses the network.
   `title: <name> | text: ...`; images, audio and video moments go in raw (`Prefix` in Chunker.kt). `Signature` =
   variant/sha8/vision tokens/d256/max tokens; vectors of different signatures never mix and a change re-indexes. The eval
   (`eval/REPORT.md`) found prefixes worth +2 recall@5 and d256 int8 equal to d512 float.
-- **Release.** Android process `onStop` asks `releaseIfIdle()` to free the hidden model. Batch, search and warm-up
+- **Release.** Android starts a separate foreground warm-up before awaiting its trial. `onStop` cancels it, then asks
+  `releaseIfIdle()` to free the hidden model. Batch, search and warm-up
   completion also check, so an in-flight user defers release until it finishes. The index lock protects the entire
   batch and the SOON gap; the model lock protects closing and rechecks visibility and active queries. A visible app
   and an imminent follow-up keep the model warm. Explicit `release()` still forces release for storage/debug actions.

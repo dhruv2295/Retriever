@@ -85,13 +85,13 @@ object FileRules {
 
     private fun at(f: SourceFile) = f.takenAt ?: f.modifiedAt
 
-    /** A varied first read within [budget]; videos use their own size and are always picked smallest first. */
+    /** A varied first read within [budget], or the single cheapest eligible file when none fits. */
     fun planTaste(files: List<SourceFile>, costMs: (SourceFile) -> Double, budget: Duration): TastePlan {
         val byKind = files.filter { it.kind in TASTE_SHARES }.groupBy { it.kind }
         val budgetMs = budget.inWholeMilliseconds.toDouble().coerceAtLeast(0.0)
         val shareSum = byKind.keys.sumOf { TASTE_SHARES.getValue(it) }
         val videos = byKind[Kind.VIDEO].orEmpty().sortedWith(compareBy<SourceFile> { it.size }.thenBy { it.uri })
-        // At most a few videos even if a fast tune or tiny byte sizes promise hundreds; no minimum can bust the budget.
+        // At most a few videos even if a fast tune or tiny byte sizes promise hundreds.
         val videoBudget = if (videos.isEmpty()) {
             0.0
         } else {
@@ -115,11 +115,14 @@ object FileRules {
                 candidates.takeWhile { f -> (costMs(f) <= left).also { if (it) left -= costMs(f) } }
             }
         } + (Kind.VIDEO to pickedVideos)
-        val ordered = TASTE_ORDER.mapNotNull { picks[it]?.takeIf(List<SourceFile>::isNotEmpty) }
+        val ordered = TASTE_ORDER.mapNotNull { picks[it]?.takeIf(List<SourceFile>::isNotEmpty) }.ifEmpty {
+            byKind.values.flatten().minWithOrNull(compareBy<SourceFile>(costMs).thenBy { it.uri })
+                ?.let { listOf(listOf(it)) }.orEmpty()
+        }
         val all = ordered.flatten()
         return TastePlan(
             ids = (ordered.flatMap { it.take(2) } + ordered.flatMap { it.drop(2) }).map { it.uri },
-            byKind = picks.mapValues { it.value.size }.filterValues { it > 0 },
+            byKind = all.groupingBy { it.kind }.eachCount(),
             oldest = all.minOfOrNull(::at),
             newest = all.maxOfOrNull(::at),
             seconds = ceil(all.sumOf(costMs) / 1000).toInt(),

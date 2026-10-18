@@ -130,7 +130,7 @@ struct RecentFileCell: View, @MainActor Equatable {
         .scaleEffect(reduceMotion || appeared ? 1 : 0.92)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { appeared = true } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(Format.kind(file.kind)), \(Format.date(file.modifiedAt))")
+        .accessibilityLabel("\(file.name), \(Format.kind(file.kind)), \(Format.date(file.modifiedAt))")
         .accessibilityIdentifier("recent:\(file.uri)")
     }
 }

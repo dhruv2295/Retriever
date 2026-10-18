@@ -15,13 +15,13 @@ scheduling around it.
 | Work unit | `IndexWorker : CoroutineWorker` runs one `Retriever.indexBatch(8.minutes)`, then `schedule(next)` maps `NextRun` to a follow-up and returns success. A failed batch (`RETRY`) rests like heat through `index-continue`, never `Result.retry()`: NOW work waiting in backoff would make `index-now`'s KEEP drop every Resume and commit. | Stays under the 10 minute deadline of a non-foreground job. Each stop reason maps to the constraint that ends it: charger, idle, or a delay. |
 | Follow-ups | Every follow-up REPLACEs `index-continue`, so the last decision wins and a timed run never waits behind a charger- or idle-gated one. | APPEND_OR_REPLACE chained a SOON run behind a gated one. |
 | Stop and cancel | A stop cancels `doWork`, which cancels the batch (`indexBatch` returns SOON, the file's attempt is given back). `stopReason` is logged on API 31+. | Cooperative cancellation is what `CoroutineWorker` expects (`onStopped` is final). |
-| Foreground | `setForeground` only when set up, the app is visible and no batch already shows one. Type `mediaProcessing` on API 35+, `dataSync` below; both declared in the manifest with their permissions. A refused start is caught. | A foreground service started from a visible state is the documented exemption (develop/background-work/services/fgs). The FGS timeout resets when the app comes to the front. |
+| Foreground | `setForeground` when set up and either handing off a trial or visible with no other batch. Type `mediaProcessing` on API 35+, `dataSync` below; both declared in the manifest with their permissions. A refused start is caught. | A foreground service started from a visible state is the documented exemption (develop/background-work/services/fgs). The FGS timeout resets when the app comes to the front. |
 | Progress | Screens and the notification read `Retriever.state`, throttled to once a second for the notification. `setProgress` is not used. | The worker runs in the app's process; the StateFlow carries more than `Data` (ETA, current file, stop reason). |
 | Expedited | Pending trial work uses `setExpedited(RUN_AS_NON_EXPEDITED_WORK_REQUEST)` on screen-off and SOON follow-ups. | Short user-started work should not wait for device-idle maintenance; core still checks hidden-use, battery, heat and Battery Saver. Expedited rejects battery/charging/idle constraints; Android 11 receives `getForegroundInfo`. Quota exhaustion falls back to ordinary work. |
 | Change trigger | `IndexService.watchMedia` arms a `ContentUriTrigger` on `MediaStore.Files` with a 1 minute update delay and a 10 minute max delay. The media run re-arms with APPEND_OR_REPLACE on its first attempt only. | JobScheduler holds the trigger, so it works with the process gone (the old in-process observer died with it). |
-| Held stops | `ProcessLifecycleOwner.onStart` and setup call `IndexService.readTrial` directly, waiting for any cancelled batch; `ACTION_SCREEN_OFF` expedites pending trial work when no batch runs. | Foreground trial progress does not depend on a WorkManager slot. Screen-on use of other apps still pauses reading. |
+| Held stops | `ProcessLifecycleOwner.onStart` and setup call `IndexService.readTrial` directly, waiting for any cancelled batch; `onStop` and `ACTION_SCREEN_OFF` persist a trial continuation before cancelling a direct read. | A comeback reads directly unless a persisted trial worker already owns it. Screen-on use of other apps still pauses reading. |
 | Process death | Attempts are charged before each file, chunks are written per file, WorkManager re-runs the interrupted work. | A file that kills the process is skipped after N tries instead of crash-looping. |
-| Memory | `IndexWorker` releases the model when nothing follows soon and the app is hidden; `onTrimMemory(BACKGROUND)` releases it when no batch runs. | Only one copy of the model is in memory, and none while nothing needs it. |
+| Memory | `onStop` cancels the foreground warm-up and requests `releaseIfIdle`; batch completion retries a pending release. | Only one copy of the model is in memory, and none while nothing needs it. |
 
 ## Owner files
 
@@ -35,12 +35,20 @@ scheduling around it.
 - `core/src/commonMain/kotlin/app/retriever/core/Retriever.kt`
 - `core/src/commonMain/kotlin/app/retriever/core/IndexEngine.kt`
 
+## Trial handoff and power changes
+
+Leaving during a direct trial first persists expedited continuation work, then cancels the direct job. The worker
+requests a foreground service and waits for the core lock; a quick comeback keeps that worker as owner. Android may
+refuse a foreground-service start or exhaust expedited quota, in which case WorkManager still owns the pending work.
+A screen-on phone with another app in front remains BUSY. Battery Saver stops before sync and waits for
+`ACTION_POWER_SAVE_MODE_CHANGED`; the six-hour periodic run remains the safety net. Only heat uses the thermal cooldown.
+
 ## Invariants
 
 1. One batch at a time (`indexLock`); a request made while one runs reaches it through `changedSinceSync`.
 2. A background run without a foreground service finishes inside 10 minutes, sync and model open included.
 3. A follow-up never waits behind a constraint that does not belong to it (all follow-ups REPLACE one name).
-4. Explicit foreground services start from a visible state; WorkManager also uses one for expedited work on Android 11.
+4. Trial workers request a foreground service even after leaving; a refused start retains WorkManager ownership.
 5. A stop, cancel or Pause gives back the attempt for the file in flight; process death does not.
 6. Pause stops the running batch within one file and cancels `index-now` and `index-continue`; `index-periodic` stays.
 7. The model is never closed under a running batch and never loaded twice.
@@ -62,4 +70,4 @@ scheduling around it.
 - SAF folders have no change trigger; they are picked up by the periodic run, app open, or a MediaStore change elsewhere.
 - Tune runs in `AppScope` with no process protection; leaving the app mid-Tune can get the cached process killed.
 - Thermal: current status only (see `indexing-pipeline.md`).
-- Screen-off broadcasts require a live process. After process death or quota exhaustion Android still controls when background work runs; foreground trials resume directly.
+- Screen-off broadcasts require a live process. After process death or quota exhaustion Android still controls when background work runs; foreground trials resume directly when no persisted trial worker owns them.

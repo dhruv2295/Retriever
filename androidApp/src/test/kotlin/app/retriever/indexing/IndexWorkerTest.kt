@@ -9,6 +9,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
+import androidx.work.workDataOf
 import app.retriever.IndexWorker
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
@@ -26,11 +27,15 @@ import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.NOW
 import app.retriever.testFile
 import app.retriever.testRetriever
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,6 +54,7 @@ import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /** Koin's WorkerFactory builds the worker with its constructor dependencies, so a test module is enough. */
 @RunWith(RobolectricTestRunner::class)
@@ -67,7 +73,7 @@ class IndexWorkerTest {
         CallbackToFutureAdapter.getFuture { it.set(null) }
     }
 
-    private fun worker(retriever: Retriever, platformReady: Boolean = true): IndexWorker {
+    private fun worker(retriever: Retriever, platformReady: Boolean = true, trial: Boolean = false): IndexWorker {
         startKoin {
             androidContext(context)
             modules(
@@ -82,6 +88,7 @@ class IndexWorkerTest {
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
             .setForegroundUpdater(countingUpdater)
+            .setInputData(workDataOf("trial" to trial))
             .build()
     }
 
@@ -171,6 +178,37 @@ class IndexWorkerTest {
         retriever.uiVisible = true
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertEquals(1, foregrounds.get())
+    }
+
+    @Test fun trialWorkerWaitsForTheDirectBatchAndStartsForegroundWhileHidden() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        var calls = 0
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, extract = {
+            if (calls++ == 0) {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+            emptyList()
+        })
+        retriever.planTaste()
+        val direct = async { retriever.taste() }
+        withTimeout(10.seconds) { entered.await() }
+        val worker = worker(retriever, trial = true)
+        val continuation = async(Dispatchers.Default) { worker.doWork() }
+        try {
+            withTimeout(10.seconds) { while (!continuation.isCompleted && foregrounds.get() == 0) delay(10) }
+            assertFalse("the continuation must wait for the core lock", continuation.isCompleted)
+            assertEquals(1, foregrounds.get())
+            retriever.cancelBatch()
+            direct.await()
+            assertEquals(ListenableWorker.Result.success(), withTimeout(10.seconds) { continuation.await() })
+            assertEquals(2, calls)
+            assertFalse(retriever.hasPendingTaste())
+        } finally {
+            retriever.cancelBatch()
+            direct.cancel()
+            continuation.cancel()
+        }
     }
 
     @Test fun noForegroundServiceWhileAnotherBatchRuns() {

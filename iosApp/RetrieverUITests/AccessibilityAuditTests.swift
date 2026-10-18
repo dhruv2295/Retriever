@@ -83,6 +83,18 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    func testRecentAndReadyCellsAnnounceNameKindAndDate() {
+        for route in ["setup.reading", "status.reading"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", route]
+            launch(app)
+            let cell = app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch
+            XCTAssertTrue(cell.exists)
+            XCTAssertEqual(cell.label, "Photo 2.jpg, Photo, 9 October 2025")
+            app.terminate()
+        }
+    }
+
     private func auditFixtures() throws {
         continueAfterFailure = true
         for route in Self.routes {

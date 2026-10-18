@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt (Apache-2.0). Modified for Retriever: the per-photo loop, input data, setProgress, coordinator pause and sample branch are replaced by one Retriever.indexBatch, a foreground service only while the app is visible, and follow-up scheduling by NextRun.
+// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt (Apache-2.0). Modified for Retriever: the per-photo loop, input data, setProgress, coordinator pause and sample branch are replaced by one Retriever.indexBatch, foreground services for visible or expedited trial work, and follow-up scheduling by NextRun.
 
 package app.retriever
 
@@ -73,11 +73,12 @@ class IndexWorker(
         if (retriever.prefs.value.paused || !platformReady()) return@withContext Result.success()
         try {
             val next = coroutineScope {
-                // A sync-only run takes seconds, and another worker's batch already shows its own: no notification.
-                val foreground = !retriever.state.value.running && retriever.setUp.value == true && retriever.uiVisible &&
+                // A trial handoff owns its foreground service before waiting for the direct batch to stop.
+                val trial = inputData.getBoolean(IndexService.TRIAL, false)
+                val foreground = retriever.setUp.value == true && (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
                     safeSetForeground(foregroundInfo(retriever.state.value))
                 val progress = if (foreground) launch { showProgress() } else null
-                retriever.indexBatch(8.minutes).also { progress?.cancel() }
+                retriever.indexBatch(8.minutes, waitForLock = trial).also { progress?.cancel() }
             }
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {

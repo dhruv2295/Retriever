@@ -235,6 +235,7 @@ class Retriever(
     }
 
     private fun reload() {
+        reconcileRecentFiles()
         _prefs.value = store.prefs()
         val ids = loadScope()
         if (_state.value.recentFiles.isEmpty() && ids != null) {
@@ -289,6 +290,7 @@ class Retriever(
             // Stars of dropped files stay, hidden until the folder is put back.
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
+                reconcileRecentFiles()
             }
             if (new.paused) releaseIfIdle()
         }
@@ -376,8 +378,13 @@ class Retriever(
             return nextRunFor(reason, changedSinceSync)
         }
         try {
+            // Battery Saver waits for a power-state change, without walking folders first.
+            if (readingMonitor.state().powerSave) return end(StopReason.POWER_SAVE)
             // Stars follow their files: hidden while a file is gone, back when it returns.
-            sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
+            sync.sync().let {
+                if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
+                if (it.removed > 0) reconcileRecentFiles()
+            }
             // Not tuned yet: the sync kept names current, and files wait to be read in full.
             val stored = if (textOnly) textOnlyProfile else store.profile() ?: return end(StopReason.DONE)
             // Read per file, so a switch flipped mid-batch applies at once.
@@ -468,6 +475,10 @@ class Retriever(
         override fun state(): DeviceState = monitor.state().let { if (uiVisible) it.copy(powerSave = false) else it }
     }
 
+    private fun reconcileRecentFiles() {
+        _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
+    }
+
     private fun onCurrent(file: SourceFile?) {
         _state.update { it.copy(current = file?.name, currentFile = file) }
     }
@@ -541,7 +552,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock {
         io {
-            sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
+            sync.sync().let {
+                if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
+                if (it.removed > 0) reconcileRecentFiles()
+            }
             val kinds = store.prefs().kinds intersect readableKinds
             val files = store.knownFiles().values.filter { it.kind in kinds }
             val plan = FileRules.planTaste(files, eta.book::costMs, budget)
@@ -568,9 +582,11 @@ class Retriever(
         val costs = pending.associate { it.id to eta.book.costMs(it.file) }
         var left = costs.values.sum()
         if (left <= budget * 1.5) return
+        // An over-budget file is still a trial; never trim away its last chance to read anything.
+        val minimum = if (store.indexedIn(ids).isEmpty()) 1 else 0
         val drop = mutableSetOf<Long>()
         for (file in pending.sortedWith(compareByDescending<Store.StoredFile> { it.file.kind == Kind.VIDEO }.thenByDescending { costs.getValue(it.id) })) {
-            if (left <= budget) break
+            if (left <= budget || pending.size - drop.size <= minimum) break
             drop += file.id
             left -= costs.getValue(file.id)
         }
@@ -1067,7 +1083,8 @@ class Retriever(
 
         fun nextRunFor(reason: StopReason, changedSinceSync: Boolean): NextRun = when (reason) {
             StopReason.BUDGET -> NextRun.SOON
-            StopReason.HOT, StopReason.POWER_SAVE -> NextRun.AFTER_COOLDOWN
+            StopReason.HOT -> NextRun.AFTER_COOLDOWN
+            StopReason.POWER_SAVE -> NextRun.DONE
             StopReason.UNPLUGGED -> NextRun.WHEN_CHARGING
             StopReason.BUSY -> NextRun.WHEN_IDLE
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE

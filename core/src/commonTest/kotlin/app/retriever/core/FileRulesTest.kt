@@ -96,10 +96,10 @@ class FileRulesTest {
     }
 
     @Test
-    fun evenATinyBudgetHasNoForcedMinimum() {
+    fun evenATinyBudgetKeepsTheCheapestEligibleFile() {
         val tight = FileRules.planTaste(big, { seeds.getValue(it.kind) }, 1.seconds)
-        assertTrue(tight.seconds <= 1)
-        assertTrue(tight.ids.isEmpty())
+        val cheapest = big.minWith(compareBy<SourceFile> { seeds.getValue(it.kind) }.thenBy { it.uri })
+        assertEquals(listOf(cheapest.uri), tight.ids)
         val firstRound = plan.ids.take(8).map { byUri.getValue(it).kind }.groupingBy { it }.eachCount()
         assertEquals((seeds.keys - Kind.VIDEO).associateWith { 2 }, firstRound)
     }

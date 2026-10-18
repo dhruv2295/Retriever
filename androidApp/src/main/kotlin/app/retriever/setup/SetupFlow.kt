@@ -447,6 +447,7 @@ class SetupFlow(
     private suspend fun plan() {
         try {
             val p = retriever.planTaste()
+            // An empty plan means only "no eligible files".
             if (p.ids.isEmpty() && _ui.value.files) retriever.commit(retriever.prefs.value.onlyWhileCharging)
         } catch (e: CancellationException) {
             throw e

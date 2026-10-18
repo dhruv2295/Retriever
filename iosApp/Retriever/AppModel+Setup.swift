@@ -101,6 +101,7 @@ extension AppModel {
         let taste = await tasteState(services.retriever)
         guard !taste.decided, taste.planned == 0 else { return false }
         let plan = try? await services.retriever.planTaste()
+        // An empty plan means only "no eligible files".
         if plan?.ids.isEmpty == true {
             try? await services.retriever.commit(whileCharging: services.retriever.prefsNow.onlyWhileCharging)
         }

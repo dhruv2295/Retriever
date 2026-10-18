@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -28,6 +29,7 @@ import app.retriever.core.Store
 import app.retriever.core.TasteProgress
 import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
+import app.retriever.ui.Format
 import app.retriever.ui.components.ReadingNow
 import app.retriever.ui.components.ReadyFiles
 import app.retriever.ui.components.RecentlyRead
@@ -80,6 +82,21 @@ class ReadingFilesTest {
         rule.onAllNodes(SemanticsMatcher("recent cell") { it.config.getOrElse(SemanticsProperties.TestTag) { "" }.startsWith("recent:") })
             .assertCountEquals(4)
         recent.forEach { rule.onNodeWithTag("recent:${it.uri}").assertHasNoClickAction() }
+    }
+
+    @Test fun recentAndReadyCellsAnnounceNameKindAndDate() {
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                Column {
+                    ReadyFiles(listOf(recent[0]), 1, reduceMotion = true)
+                    RecentlyRead(listOf(recent[1])) {}
+                }
+            }
+        }
+        recent.take(2).forEach { file ->
+            rule.onNodeWithTag("recent:${file.uri}")
+                .assertContentDescriptionEquals("${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}")
+        }
     }
 
     @Test fun pauseReasonReplacesTheFileAndSweep() {
