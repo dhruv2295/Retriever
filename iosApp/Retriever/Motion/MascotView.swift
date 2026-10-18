@@ -11,13 +11,15 @@ import UIKit
 /// outside the active scene, in Low Power Mode, or when the phone is hot.
 struct MascotView: View {
     let mood: MascotMood
+    /// false keeps the walk going (setup); true settles into a walk-and-rest cadence after two minutes (Home, Status).
+    var settles = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var onScreen = false
 
     var body: some View {
-        MascotPlayerView(mood: mood, animate: onScreen && !reduceMotion && scenePhase == .active)
+        MascotPlayerView(mood: mood, settles: settles, animate: onScreen && !reduceMotion && scenePhase == .active)
             .aspectRatio(MascotFrames.size(MascotDirector.shared.still(mood: mood)), contentMode: .fit)
             .onAppear { onScreen = true }
             .onDisappear { onScreen = false }
@@ -27,6 +29,7 @@ struct MascotView: View {
 
 private struct MascotPlayerView: UIViewRepresentable {
     let mood: MascotMood
+    let settles: Bool
     let animate: Bool
 
     func makeUIView(context: Context) -> UIImageView {
@@ -45,7 +48,7 @@ private struct MascotPlayerView: UIViewRepresentable {
 
     static func dismantleUIView(_ view: UIImageView, coordinator: MascotPlayer) { coordinator.update(mood: coordinator.mood, animate: false) }
 
-    func makeCoordinator() -> MascotPlayer { MascotPlayer(mood: mood) }
+    func makeCoordinator() -> MascotPlayer { MascotPlayer(mood: mood, settles: settles) }
 }
 
 /// Runs the director's steps on one image view. Main actor only; ImageIO calls its frame block on the main queue.
@@ -63,8 +66,11 @@ private struct MascotPlayerView: UIViewRepresentable {
     /// instead of drawing beside the new one (hidden and shown again within a frame).
     private var generation = 0
 
-    init(mood: MascotMood) {
+    private let settles: Bool
+
+    init(mood: MascotMood, settles: Bool) {
         self.mood = mood
+        self.settles = settles
         view.image = MascotFrames.still(MascotDirector.shared.still(mood: mood))
     }
 
@@ -91,7 +97,7 @@ private struct MascotPlayerView: UIViewRepresentable {
                 await wait(seconds: 10)
                 continue
             }
-            let step = MascotDirector.shared.next(mood: now, last: last, onScreen: Date().timeIntervalSince(appeared))
+            let step = MascotDirector.shared.next(mood: now, last: last, onScreen: Date().timeIntervalSince(appeared), settles: settles)
             #if DEBUG
                 NSLog("Mascot %@: %@", now.name, step.description)
             #endif

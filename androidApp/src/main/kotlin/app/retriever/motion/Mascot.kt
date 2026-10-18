@@ -45,10 +45,11 @@ import kotlin.coroutines.resume
  *
  * Frames are animated WebPs (assets, shared with iOS) played by the platform's [AnimatedImageDrawable], which decodes
  * off the main thread; [MascotDirector] picks each next clip. It shows a still pose instead when animations are off,
- * it is off screen, the app is not resumed, Battery Saver is on, or the phone is warm.
+ * it is off screen, the app is not resumed, Battery Saver is on, or the phone is warm. [settles] false keeps the
+ * walk going (setup); the default settles into a walk-and-rest cadence after two minutes (Home, Status).
  */
 @Composable
-fun Mascot(mood: MascotMood, modifier: Modifier = Modifier) {
+fun Mascot(mood: MascotMood, modifier: Modifier = Modifier, settles: Boolean = true) {
     val context = LocalContext.current
     val frames = remember { MascotFrames(context) }
     val view = remember {
@@ -77,7 +78,7 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier) {
                 withTimeoutOrNull(RECHECK_MS) { moods.first { it != now } }
                 continue
             }
-            val step = MascotDirector.next(now, history.last, (SystemClock.elapsedRealtime() - appeared) / 1000.0)
+            val step = MascotDirector.next(now, history.last, (SystemClock.elapsedRealtime() - appeared) / 1000.0, settles)
             if (BuildConfig.DEBUG) Log.d("Mascot", "$now: $step")
             when (step.kind) {
                 StepKind.HOLD -> {

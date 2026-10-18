@@ -35,7 +35,7 @@ enum class MascotMood {
  * motion, fewer for slow motion (sit 8, welcome 10, doze 5).
  */
 enum class MascotClip(val file: String, val still: String, val seconds: Double) {
-    WALK("mascot_walk.webp", "mascot_walk_still.webp", 1.41),
+    WALK("mascot_walk.webp", "mascot_walk_still.webp", 1.25),
     SIT("mascot_sit.webp", "mascot_doze_still.webp", 4.25),
     DOZE("mascot_doze.webp", "mascot_doze_still.webp", 3.2),
     WAKE("mascot_wake.webp", "mascot_walk_still.webp", 3.32),
@@ -80,13 +80,17 @@ object MascotDirector {
 
     /**
      * The step after [last] (null: the mascot just appeared, or motion was just turned back on; the gap is never
-     * replayed). [onScreen] is seconds since this mascot appeared.
+     * replayed). [onScreen] is seconds since this mascot appeared. [settles] false keeps WALKING walking for as long as
+     * it is on screen (setup: a download that stands still reads as stuck); true settles into the cadence after
+     * [SETTLE_AFTER], for Home and Status where reading runs for hours.
      */
-    fun next(mood: MascotMood, last: MascotStep?, onScreen: Double): MascotStep {
+    fun next(mood: MascotMood, last: MascotStep?, onScreen: Double, settles: Boolean = true): MascotStep {
         val clip = last?.clip
         return when (mood) {
             MascotMood.WALKING -> when {
                 clip == MascotClip.SIT || clip == MascotClip.DOZE -> MascotStep(StepKind.ONCE, MascotClip.WAKE)
+
+                !settles -> MascotStep(StepKind.LOOP, MascotClip.WALK, SETTLE_AFTER)
 
                 onScreen < SETTLE_AFTER -> MascotStep(StepKind.LOOP, MascotClip.WALK, SETTLE_AFTER - onScreen)
 
