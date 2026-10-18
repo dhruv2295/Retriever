@@ -18,12 +18,14 @@
 package app.retriever.setup
 
 import android.text.format.Formatter
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +36,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +59,6 @@ import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.status.textOnlyNote
 import app.retriever.ui.components.Muted
-import app.retriever.ui.components.kindIcon
 import app.retriever.ui.tabular
 
 /** Two choices and no Skip: either tap starts the download. */
@@ -231,15 +233,18 @@ private fun DownloadReason(icon: Int, headline: String, supporting: String) {
     )
 }
 
-/** What kinds are being read, never which files: no thumbnails before the person searches. */
+/** The file being read, the files ready to search, and progress through each kind. */
 @Composable
-internal fun ReadingFew(taste: TasteProgress, actions: SetupActions) {
+internal fun ColumnScope.ReadingFew(taste: TasteProgress, actions: SetupActions, reading: @Composable (Int) -> Unit) {
     val planned = taste.byKind.values.sumOf { it.second }
     Text("Reading a few of your files", style = MaterialTheme.typography.headlineSmall)
     Muted(listOfNotNull("$planned files", timeLeft(taste.secondsLeft)).joinToString(" · "))
-    for ((name, kinds) in KIND_ROWS) {
-        val (read, of) = kinds.mapNotNull(taste.byKind::get).fold(0 to 0) { (r, n), (a, b) -> r + a to n + b }
-        if (of > 0) KindRow(name, kinds.first(), read, of)
+    reading(taste.read)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((name, kinds) in KIND_ROWS) {
+            val (read, of) = kinds.mapNotNull(taste.byKind::get).fold(0 to 0) { (r, n), (a, b) -> r + a to n + b }
+            if (of > 0) KindRow(name, read, of)
+        }
     }
     if (taste.readyToTry) {
         Button(onClick = actions.tryNow, modifier = Modifier.fillMaxWidth()) { Text("Try it now") }
@@ -262,28 +267,16 @@ internal fun timeLeft(seconds: Int?): String? = when {
     else -> "about ${(seconds + 30) / 60} minutes left"
 }
 
-/** Counts and the bar move without easing; a finished kind shows its check once. */
 @Composable
-private fun KindRow(name: String, kind: Kind, read: Int, of: Int) {
-    val done = read == of
-    Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(painterResource(kindIcon(kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            if (done) {
-                Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("ready to search", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-            } else {
-                Text("$read of $of", style = MaterialTheme.typography.bodyMedium.tabular())
-            }
-        }
-        if (!done) {
-            LinearProgressIndicator(
-                progress = { read.toFloat() / of },
-                modifier = Modifier.fillMaxWidth().padding(start = 36.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                drawStopIndicator = {},
-            )
+private fun KindRow(name: String, read: Int, of: Int) {
+    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp).semantics(mergeDescendants = true) {},
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("$name $read/$of", style = MaterialTheme.typography.labelLarge.tabular())
+            if (read == of) Icon(painterResource(R.drawable.ic_check_circle), contentDescription = "Ready to search", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

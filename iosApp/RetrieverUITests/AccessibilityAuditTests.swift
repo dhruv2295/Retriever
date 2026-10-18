@@ -36,6 +36,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
     ]
     private static let statusText = [
+        "Reading now", "Photo", "9 October 2025", "Recently read",
         "Retriever keeps your screen on while it reads. Lock your iPhone any time to stop.",
         "Pause", "Keep reading after I leave", "Your iPhone shows how it's going and lets you stop it any time.",
         "3 long files still being read in depth", "Show On This Day on Home", "Photos and videos from this date in earlier years.",
@@ -43,7 +44,7 @@ final class AccessibilityAuditTests: XCTestCase {
     ]
     private static let routes = [
         "setup.welcome", "setup.photos", "setup.limited", "setup.denied", "setup.folders", "setup.download",
-        "setup.waitingWifi", "setup.failed", "setup.tuning", "setup.textOnly",
+        "setup.waitingWifi", "setup.failed", "setup.tuning", "setup.textOnly", "setup.reading", "setup.readingPaused",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "search.empty", "search.wordsOnly", "search.lessLikely",
         "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
@@ -90,6 +91,19 @@ final class AccessibilityAuditTests: XCTestCase {
             launch(app)
             XCTContext.runActivity(named: route) { _ in
                 do {
+                    if route.hasPrefix("setup.reading") {
+                        XCTAssertTrue(app.staticTexts["Reading now"].exists)
+                        XCTAssertTrue(app.staticTexts["Ready to search"].exists)
+                        XCTAssertTrue(app.staticTexts["+23 more"].exists)
+                        for i in 2...8 {
+                            XCTAssertTrue(app.descendants(matching: .any)["recent:folder://fixture/reading-\(i)"].firstMatch.exists)
+                        }
+                        if route == "setup.readingPaused" {
+                            XCTAssertTrue(app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists)
+                        }
+                    }
+                    if route == "status.reading" { XCTAssertTrue(app.staticTexts["Recently read"].exists) }
+                    if route == "status.paused" { XCTAssertFalse(app.staticTexts["Recently read"].exists) }
                     try audit(app, route: route)
                 } catch { XCTFail("\(route): \(error)") }
             }

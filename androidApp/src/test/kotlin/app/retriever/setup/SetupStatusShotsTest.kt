@@ -35,6 +35,7 @@ import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
 import app.retriever.tallWindowForBigText
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,7 +64,11 @@ class SetupStatusShotsTest {
     }
 
     private fun setup(name: String, ui: SetupUi, dark: Boolean = false, fontScale: Float = 1f) =
-        shot(name, dark, fontScale, settleMs = if (ui.stage == SetupStage.WELCOME) 4_000 else 0) { SetupContent(ui) }
+        shot(name, dark, fontScale, settleMs = if (ui.stage == SetupStage.WELCOME) 4_000 else 0) {
+            SetupContent(ui, reading = { read ->
+                SetupReadingFiles(if (read < 71) previewFiles.first() else null, previewFiles.take(read), null, read)
+            })
+        }
 
     /** Light, dark and 1.5x text of one first-run state. */
     private fun three(name: String, ui: SetupUi, variant: Int) = when (variant) {
@@ -116,6 +121,8 @@ class SetupStatusShotsTest {
     @Test fun readingMidLight() {
         three("setup_reading_mid", readingFew, 0)
         rule.onAllNodesWithText("Try it now").assertCountEquals(0)
+        rule.onNodeWithText("Reading now").assertExists()
+        rule.onNodeWithText("Screenshots 14/15").assertExists()
     }
 
     @Test fun readingMidDark() = three("setup_reading_mid", readingFew, 1)
@@ -232,11 +239,19 @@ class SetupStatusShotsTest {
         mapOf(Kind.PHOTO to 9_000L, Kind.PDF to 2_533L),
         tailChunks = 12,
     )
+    private val previewFiles = (1..8).map { i ->
+        SourceFile("demo:reading-$i", "Photo $i.jpg", "Photos", "image/jpeg", Kind.PHOTO, 1_200_000, 1_760_000_000_000)
+    }
+
+    @Before fun readingThumbnails() = registerReadingThumbnails(previewFiles.map { it.uri })
+
     private val running = IndexState(
         running = true,
         processed = 120,
         pendingAtStart = 8_238,
         current = "IMG_20250914_183022.jpg",
+        currentFile = previewFiles.first(),
+        recentFiles = previewFiles,
         etaMinutes = 95,
         backend = Backend.GPU,
         detail = "the vision encoder runs on the processor",

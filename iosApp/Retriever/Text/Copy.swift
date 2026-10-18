@@ -304,8 +304,7 @@ enum Copy {
     static let firstRunStartSearching = "Start searching"
 
     static let firstRunReadingHeadline = "Reading a few of your files"
-    static let firstRunKeepOpen = "Keep Retriever open for a minute or two."
-    static let firstRunReadyToSearch = "ready to search"
+    static let firstRunReadyToSearch = "Ready to search"
     static let firstRunTryNow = "Try it now"
     static let firstRunStaysSearchable = "Everything it reads now stays searchable."
 
@@ -313,8 +312,6 @@ enum Copy {
     static func firstRunReadingLine(files: Int, secondsLeft: Int?) -> String {
         [files == 1 ? "1 file" : "\(count(files)) files", timeLeft(secondsLeft)].compactMap { $0 }.joined(separator: " · ")
     }
-
-    static func firstRunOf(_ read: Int, _ planned: Int) -> String { "\(count(read)) of \(count(planned))" }
 
     /// The short read's time left, from measured per-file cost.
     nonisolated static func timeLeft(_ seconds: Int?) -> String? {

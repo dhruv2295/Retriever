@@ -41,7 +41,7 @@ struct SetupView: View {
             if state.stage == .tryIt, let planIds {
                 tryIt(planIds, state)
             } else {
-                SetupContent(state: state, actions: actions)
+                SetupContent(state: state, actions: actions, reading: { model.progress.reading })
             }
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
@@ -242,6 +242,7 @@ struct SetupActions {
 struct SetupContent: View {
     let state: SetupState
     var actions = SetupActions()
+    var reading: () -> ReadingPreview = { ReadingPreview() }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -372,7 +373,8 @@ struct SetupContent: View {
                         VStack(alignment: .leading, spacing: 16) {
                             DownloadReason(icon: "sparkle.magnifyingglass", headline: Copy.firstRunUnderstandsTitle, supporting: Copy.firstRunUnderstandsBody)
                             DownloadReason(icon: "lock", headline: Copy.firstRunOnDeviceTitle, supporting: Copy.firstRunOnDeviceBody)
-                            DownloadReason(icon: "checkmark.circle", headline: Copy.firstRunDownloadOnceTitle, supporting: Copy.firstRunDownloadOnceBody(size: state.size))
+                            DownloadReason(
+                                icon: "checkmark.circle", headline: Copy.firstRunDownloadOnceTitle, supporting: Copy.firstRunDownloadOnceBody(size: state.size))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -460,14 +462,17 @@ struct SetupContent: View {
         }
     }
 
-    /// What kinds are being read, never which files: no thumbnails before the person searches.
+    /// The file being read, the files ready to search, and progress through each kind.
     private var readFew: some View {
         let taste = state.taste ?? TasteSnap()
         return VStack(alignment: .leading, spacing: 16) {
             Text(Copy.firstRunReadingHeadline).font(.title2.bold())
             Note(Copy.firstRunReadingLine(files: taste.planned, secondsLeft: taste.secondsLeft))
-            Note(Copy.firstRunKeepOpen)
-            ForEach(taste.rows) { KindRow(row: $0) }
+            SetupReadingFiles(reading: reading, read: taste.read)
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) { ForEach(taste.rows) { KindRow(row: $0) } }
+            }
+            .scrollIndicators(.hidden)
             if taste.readyToTry {
                 Button(action: actions.tryNow) { Text(Copy.firstRunTryNow).frame(maxWidth: .infinity) }
                     .buttonStyle(.primaryAction)
@@ -475,7 +480,7 @@ struct SetupContent: View {
                 Note(Copy.firstRunStaysSearchable)
             }
         }
-        .animation(reduceMotion ? .default : .snappy, value: taste.readyToTry)
+        .animation(reduceMotion ? nil : .snappy, value: taste.readyToTry)
     }
 
     /// One sentence about the rest, the nights, and three one-tap answers. No mascot: the decision is the focal point.
@@ -560,7 +565,9 @@ private struct ExampleQuery: View {
                     typed = count
                     try await Task.sleep(for: .milliseconds(35))
                 }
-            } catch { /* Disappearing cancels the typing. */ }
+            } catch {
+                // Disappearing cancels the typing.
+            }
         }
         .onDisappear {
             typed = nil
@@ -593,29 +600,15 @@ private struct KindRow: View {
     let row: TasteSnap.Row
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                Image(systemName: row.icon).foregroundStyle(.secondary).frame(width: 24)
-                Text(row.name).font(.subheadline.weight(.semibold))
-                Spacer()
-                if row.done {
-                    Text(Copy.firstRunReadyToSearch).font(.subheadline).foregroundStyle(Color.accentColor)
-                } else {
-                    Text(Copy.firstRunOf(row.read, row.planned)).font(.subheadline).monospacedDigit()
-                        .transaction(value: row.read) { $0.animation = nil }
-                }
-                Image(systemName: row.done ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(row.done ? Color.accentColor : Color.secondary)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            if !row.done {
-                ProgressView(value: Double(row.read), total: Double(row.planned))
-                    .padding(.leading, 36)
-                    .transaction(value: row.read) { $0.animation = nil }
-            }
+        HStack(spacing: 4) {
+            Text("\(row.name) \(row.read)/\(row.planned)").font(.subheadline).monospacedDigit()
+            if row.done { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor) }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.fill.quaternary, in: Capsule())
         .accessibilityElement(children: .combine)
-        .accessibilityValue(row.done ? Copy.firstRunReadyToSearch : Copy.firstRunOf(row.read, row.planned))
+        .accessibilityValue(row.done ? Copy.firstRunReadyToSearch : "")
     }
 }
 

@@ -106,6 +106,10 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
+        if snap.running {
+            ReadingNow(file: snap.reading.current, size: 56)
+            RecentlyRead(files: snap.reading.recent)
+        }
         if screenKeptOn { Note(Copy.screenKeptOn) }
         if let error = snap.lastError { Failure(error) }
         if snap.paused {
@@ -129,7 +133,6 @@ struct StatusContent: View {
             var lines = ["This round: \(Copy.count(snap.processed)) of \(Copy.count(snap.pendingAtStart)) read"]
             if snap.filesPerMinute >= 1 { lines[0] += " · \(Copy.count(Int(snap.filesPerMinute.rounded()))) files a minute" }
             if let eta = snap.etaMinutes { lines.append(Copy.eta(eta)) }
-            if let current = snap.current { lines.append("Now reading: \(current)") }
             return lines
         }
         // The title already says paused or all caught up.

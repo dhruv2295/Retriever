@@ -163,6 +163,8 @@ class SetupFlow(
     private val notificationsGranted: () -> Boolean,
     private val calibrate: suspend () -> CalibrationResult,
 ) {
+    val reading = retriever.state
+
     // Seeded synchronously: AppNav reads canSearch once to pick the first screen. Built only after setUp settles, so
     // the prefs are read; a finished setup counts as started for installs from before Prefs.setupStarted.
     private val _ui = MutableStateFlow(
