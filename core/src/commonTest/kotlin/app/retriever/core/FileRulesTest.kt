@@ -121,6 +121,13 @@ class FileRulesTest {
     }
 
     @Test
+    fun aVideoMeasuredFasterThanTheSeedKeepsItsSlot() {
+        val phone = seeds.keys.flatMap { library(it, 2000, size = 1000) }
+        val p = FileRules.planTaste(phone, { if (it.kind == Kind.VIDEO) 20_000.0 else seeds.getValue(it.kind) }, 90.seconds)
+        assertEquals(1, p.byKind[Kind.VIDEO])
+    }
+
+    @Test
     fun phoneSizedLibraryFitsAtRealisticPacesIncludingSmallAndUnknownVideos() {
         val book = SpeedBook()
         val phone = seeds.keys.flatMap { library(it, 2000, size = if (it == Kind.VIDEO) 5_000_000 else 1000) }

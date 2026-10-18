@@ -98,7 +98,8 @@ object FileRules {
             maxOf(budgetMs * TASTE_SHARES.getValue(Kind.VIDEO) / shareSum, costMs(videos.first())).coerceAtMost(budgetMs)
         }
         var videoLeft = videoBudget
-        val pickedVideos = videos.take((videoBudget / VIDEO_SEED_MS).toInt()).takeWhile {
+        // At least one candidate: a video measured faster than the seed must not lose the slot a seeded one gets.
+        val pickedVideos = videos.take(maxOf(1, (videoBudget / VIDEO_SEED_MS).toInt())).takeWhile {
             val cost = costMs(it)
             (cost <= videoLeft).also { fits -> if (fits) videoLeft -= cost }
         }
