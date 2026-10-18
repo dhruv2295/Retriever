@@ -54,14 +54,16 @@ class SetupStatusShotsTest {
     private val going = SetupUi(started = true, access = Access.ALL, namesSynced = true, build = build)
 
     /** [tall] fits a whole Status page, so the sections below the fold are in the shot too. */
-    private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, tall: Boolean = false, content: @Composable () -> Unit) {
+    private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, tall: Boolean = false, settleMs: Long = 0, content: @Composable () -> Unit) {
         tallWindowForBigText(fontScale)
         if (tall) RuntimeEnvironment.setQualifiers("+h1500dp")
         rule.setContent { ShotTheme(dark, fontScale, content) }
+        if (settleMs > 0) rule.mainClock.advanceTimeBy(settleMs)
         rule.shot(name)
     }
 
-    private fun setup(name: String, ui: SetupUi, dark: Boolean = false, fontScale: Float = 1f) = shot(name, dark, fontScale) { SetupContent(ui) }
+    private fun setup(name: String, ui: SetupUi, dark: Boolean = false, fontScale: Float = 1f) =
+        shot(name, dark, fontScale, settleMs = if (ui.stage == SetupStage.WELCOME) 4_000 else 0) { SetupContent(ui) }
 
     /** Light, dark and 1.5x text of one first-run state. */
     private fun three(name: String, ui: SetupUi, variant: Int) = when (variant) {
@@ -83,6 +85,10 @@ class SetupStatusShotsTest {
     @Test fun downloadingLight() {
         three("setup_downloading", downloading.copy(notificationAsk = true), 0)
         rule.onNodeWithText("Skip").assertExists()
+        rule.onNodeWithText("Getting Retriever ready to read").assertExists()
+        rule.onNodeWithText("218 MB of 485 MB").assertExists()
+        rule.onNodeWithText("Stop").assertExists()
+        rule.onNodeWithText("Search by name").assertExists()
     }
 
     @Test fun downloadingDark() = three("setup_downloading", downloading, 1)

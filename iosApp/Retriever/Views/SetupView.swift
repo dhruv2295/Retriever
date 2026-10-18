@@ -190,7 +190,7 @@ struct SetupState {
     var accessGiven: Bool { photosReady || !folders.isEmpty }
     /// A later launch never restarts a finished download, so its state stays idle: set-up says it's done.
     var downloaded: Bool { download == .ready || setUp }
-    var size: String? { downloadBytes > 0 ? Copy.bytes(downloadBytes) : nil }
+    var size: String? { downloadBytes > 0 ? Copy.downloadSize(downloadBytes) : nil }
     var textOnly: Bool { ramGb != nil }
     /// A short read is planned and the person has not answered what comes after it.
     var firstRun: Bool { decided == false && (taste?.planned ?? 0) > 0 }
@@ -288,7 +288,15 @@ struct SetupContent: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Copy.firstRunHeadline).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
             Text(Copy.firstRunWelcomeBody).fixedSize(horizontal: false, vertical: true)
-            Text(state.textOnly ? Copy.firstRunTextOnlyTime : Copy.firstRunTime(size: state.size)).fixedSize(horizontal: false, vertical: true)
+            let examples = Copy.firstRunExamples(textOnly: state.textOnly)
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(examples.enumerated()), id: \.element) { index, query in
+                    ExampleQuery(query: query, delay: 400 + examples.prefix(index).reduce(0) { $0 + $1.count * 35 + 250 })
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
             Button {
                 actions.begin(false)
             } label: {
@@ -303,6 +311,9 @@ struct SetupContent: View {
                 Text(Copy.firstRunReadAll).frame(maxWidth: .infinity)
             }
             .controlSize(.large)
+            Note(state.textOnly ? Copy.firstRunTextOnlyTime : Copy.firstRunTime(size: state.size))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
             if let ramGb = state.ramGb {
                 Note(Copy.textOnlyNote(ramGb: ramGb)).multilineTextAlignment(.center)
             }
@@ -343,37 +354,65 @@ struct SetupContent: View {
         }
     }
 
-    /// The download, then the tune. Names are searchable throughout; the dog is the only thing that moves.
+    /// The download, then the tune. Names are searchable throughout.
     private var waiting: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(state.downloaded ? Copy.firstRunTuneTitle : Copy.firstRunWaitingTitle(size: state.size)).font(.title2.bold())
-            if !state.downloaded { downloadBody } else { tuneBody }
-            accessSummary
-            Note(state.decided == false ? Copy.firstRunNamesNowThenRead : Copy.firstRunNamesNow)
-            Button(Copy.firstRunSearchByName, action: actions.skip)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(state.downloaded ? Copy.firstRunTuneTitle : Copy.firstRunWaitingTitle).font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    if state.downloaded { tuneBody } else { downloadBody }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !state.downloaded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(Copy.firstRunWhyDownload).font(.subheadline.bold()).accessibilityAddTraits(.isHeader)
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 16) {
+                            DownloadReason(icon: "sparkle.magnifyingglass", headline: Copy.firstRunUnderstandsTitle, supporting: Copy.firstRunUnderstandsBody)
+                            DownloadReason(icon: "lock", headline: Copy.firstRunOnDeviceTitle, supporting: Copy.firstRunOnDeviceBody)
+                            DownloadReason(icon: "checkmark.circle", headline: Copy.firstRunDownloadOnceTitle, supporting: Copy.firstRunDownloadOnceBody(size: state.size))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Copy.firstRunWhileWaiting).font(.subheadline.bold()).accessibilityAddTraits(.isHeader)
+                Note(Copy.firstRunNamesNow)
+                Button(Copy.firstRunSearchByName, action: actions.skip).buttonStyle(.bordered)
+                accessSummary
+            }
         }
     }
 
     @ViewBuilder private var downloadBody: some View {
         switch state.download {
         case .downloading:
-            HStack(spacing: 12) {
-                HStack(spacing: 12) {
-                    Text(state.progress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
-                    ProgressView(value: state.progress)
+            let progress = min(max(state.progress, 0), 1)
+            let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+            let amount = state.size.map { "\(Copy.downloadSize(Int64(progress * Double(state.downloadBytes)))) of \($0)" }
+            VStack(alignment: .leading, spacing: 12) {
+                if let amount {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(amount)
+                        Spacer(minLength: 0)
+                        Text(percent)
+                    }
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    ProgressView(value: progress)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
                 }
-                .frame(minHeight: 44)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Downloading")
-                .accessibilityValue(state.progress.formatted(.percent.precision(.fractionLength(0))))
-                Button(action: actions.stopDownload) {
-                    Image(systemName: "xmark.circle.fill").imageScale(.large)
-                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(Copy.firstRunStopA11y)
             }
+            .frame(minHeight: 44)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Downloading")
+            .accessibilityValue(amount.map { "\($0), \(percent)" } ?? "")
+            Button(Copy.firstRunStop, action: actions.stopDownload)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         case .waitingForWifi:
             Note(Copy.firstRunWaitingForWifi)
             Button(Copy.firstRunUseMobileData) { actions.setUseMobileData(true) }.buttonStyle(.bordered)
@@ -396,6 +435,14 @@ struct SetupContent: View {
         if case .failed = state.tune {
             Failure(Copy.firstRunTuneFailed).transition(.opacity)
             Button(Copy.firstRunTryAgain, action: actions.retryTune).buttonStyle(.bordered)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ProgressView().progressViewStyle(.linear)
+                Note(Copy.firstRunTuneBody)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Copy.firstRunTuneTitle)
+            .accessibilityValue(Copy.firstRunTuneBody)
         }
     }
 
@@ -404,10 +451,10 @@ struct SetupContent: View {
         switch state.photos {
         case .limited:
             Note(state.chosenPhotos > 0 ? Copy.limitedPhotosFootnote(photos: state.chosenPhotos, folders: state.folders.count) : Copy.firstRunLimitedNote)
-            Button("Choose more photos", action: actions.chooseMorePhotos).buttonStyle(.bordered)
+            Button("Choose more photos", action: actions.chooseMorePhotos).buttonStyle(.bordered).foregroundStyle(.primary)
         case .denied, .restricted:
             Note(Copy.firstRunPhotosOff)
-            Button("Open Settings", action: actions.openSettings).buttonStyle(.bordered)
+            Button("Open Settings", action: actions.openSettings).buttonStyle(.bordered).foregroundStyle(.primary)
         default:
             EmptyView()
         }
@@ -466,6 +513,78 @@ struct SetupContent: View {
                     .controlSize(.large)
             }
         }
+    }
+}
+
+/// Per-row state keeps each character update out of the rest of setup.
+private struct ExampleQuery: View {
+    let query: String
+    let delay: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @SceneStorage private var played: Bool
+    @State private var typed: Int?
+
+    init(query: String, delay: Int) {
+        self.query = query
+        self.delay = delay
+        _played = SceneStorage(wrappedValue: false, "setup.example.\(query)")
+    }
+
+    private var text: AttributedString {
+        var result = AttributedString(query)
+        let count = reduceMotion ? query.count : typed ?? (played ? query.count : 0)
+        let tail = result.characters.index(result.startIndex, offsetBy: count)
+        result[tail...].foregroundColor = .clear
+        return result
+    }
+
+    var body: some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(query)
+        .task(id: reduceMotion) {
+            guard !played, !reduceMotion else {
+                typed = query.count
+                played = true
+                return
+            }
+            typed = 0
+            played = true
+            do {
+                try await Task.sleep(for: .milliseconds(delay))
+                for count in 1...query.count {
+                    typed = count
+                    try await Task.sleep(for: .milliseconds(35))
+                }
+            } catch { /* Disappearing cancels the typing. */ }
+        }
+        .onDisappear {
+            typed = nil
+            played = false
+        }
+    }
+}
+
+private struct DownloadReason: View {
+    let icon: String
+    let headline: String
+    let supporting: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(headline).font(.subheadline.bold())
+                Note(supporting)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: icon).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -543,6 +662,14 @@ struct Busy: View {
 
 #Preview("Downloading") {
     SetupView(model: AppModel(fixture: .downloading(0.34)), asked: true)
+}
+
+#Preview("Tuning") {
+    SetupView(model: AppModel(fixture: .tuning), asked: true)
+}
+
+#Preview("Download failed") {
+    SetupView(model: AppModel(fixture: .downloadFailed), asked: true)
 }
 
 #Preview("Reading a few files") {

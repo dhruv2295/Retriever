@@ -154,10 +154,21 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.firstRunReadAll, "Read everything now")
         XCTAssertEqual(
             Copy.firstRunTime(size: "485 MB"),
-            "Try it on a few of your files first. It's ready in a few minutes on Wi-Fi; most of that is a one-time 485 MB download. Reading everything takes hours, and you choose when."
+            "A one-time 485 MB download, then a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
         )
-        XCTAssertTrue(Copy.firstRunTime(size: nil).contains("a one-time download."))
+        XCTAssertTrue(Copy.firstRunTime(size: nil).hasPrefix("A one-time download, then "))
         XCTAssertEqual(Copy.firstRunMobileDataMessage(size: "485 MB"), "The download is 485 MB. On Wi-Fi it won't use your data.")
+    }
+
+    func testSetupDownloadSizeUsesWholeMegabytes() {
+        XCTAssertEqual(Copy.downloadSize(484_622_336), "485 MB")
+        XCTAssertEqual(Copy.bytes(484_622_336), "484.6 MB")
+    }
+
+    func testWelcomeExamplesMatchWhatThePhoneReads() {
+        XCTAssertEqual(Copy.firstRunExamples(textOnly: false), ["“sunset at the beach”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”"])
+        XCTAssertEqual(Copy.firstRunExamples(textOnly: true), ["“the Wi-Fi password screenshot”", "“lease that mentions the deposit”"])
+        XCTAssertEqual(Copy.firstRunTextOnlyTime, "Ready in a few minutes on a handful of your files. Reading everything takes hours, and you choose when.")
     }
 
     func testLimitedPhotosFootnote() {
@@ -172,8 +183,9 @@ final class CopyTests: XCTestCase {
     func testFirstRunDownloadAndReadingLines() {
         XCTAssertEqual(Copy.firstRunDownloadLine(0.34), "Downloading · 34 %")
         XCTAssertEqual(Copy.firstRunDownloadA11y(0.34), "Downloading, 34 percent")
-        XCTAssertEqual(Copy.firstRunWaitingTitle(size: "485 MB"), "Downloading what Retriever needs · 485 MB")
-        XCTAssertEqual(Copy.firstRunWaitingTitle(size: nil), "Downloading what Retriever needs")
+        XCTAssertEqual(Copy.firstRunWaitingTitle, "Getting Retriever ready to read")
+        XCTAssertEqual(Copy.firstRunTuneTitle, "Getting to know this \(Copy.device)")
+        XCTAssertEqual(Copy.firstRunSearchByName, "Search by name")
         XCTAssertEqual(Copy.firstRunOf(11, 18), "11 of 18")
         XCTAssertEqual(Copy.firstRunReadingLine(files: 79, secondsLeft: 70), "79 files · about a minute left")
         XCTAssertEqual(Copy.firstRunReadingLine(files: 1, secondsLeft: nil), "1 file")
@@ -230,7 +242,7 @@ final class CopyTests: XCTestCase {
                 Copy.firstRunWelcomeBody, Copy.firstRunTime(size: nil), Copy.firstRunTextOnlyTime, Copy.firstRunMobileDataMessage(size: nil),
                 Copy.firstRunPhotosNote, Copy.firstRunPhotosOff, Copy.firstRunLimitedNote, Copy.firstRunNothingAllowed,
                 Copy.limitedPhotosFootnote(photos: 4, folders: 1), Copy.firstRunTuneTitle, Copy.firstRunTuneFailed,
-                Copy.firstRunWaitingForWifi, Copy.firstRunNamesNowThenRead, Copy.firstRunKeepOpen, Copy.firstRunStaysSearchable,
+                Copy.firstRunWaitingForWifi, Copy.firstRunNamesNow, Copy.firstRunKeepOpen, Copy.firstRunStaysSearchable,
                 Copy.firstRunReadingLine(files: 79, secondsLeft: 70),
             ] + home(setting) + home(setting, .downloading) + home(setting, .waitingForWifi) + home(setting, .failed("offline"))
             + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))
