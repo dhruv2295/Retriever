@@ -1,10 +1,10 @@
 package app.retriever.core
 
-import kotlin.concurrent.Volatile
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSProcessInfoThermalState
 import platform.Foundation.lowPowerModeEnabled
 import platform.Foundation.thermalState
+import kotlin.concurrent.Volatile
 
 /** Swift sets the battery fields and [active] on the main thread; thermal state and Low Power Mode are read here. */
 class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {

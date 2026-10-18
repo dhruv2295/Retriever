@@ -64,7 +64,10 @@ suspend fun runDump(
             dumpLibrary(
                 files, queries, IosExtractor(extractor), embedder, profile,
                 earlier?.files?.map { it.id }.orEmpty().toSet(), earlier?.queries?.map { it.id }.orEmpty().toSet(),
-                append = { bytes -> out.writeData(bytes.toNSData()); out.synchronizeFile() },
+                append = { bytes ->
+                    out.writeData(bytes.toNSData())
+                    out.synchronizeFile()
+                },
                 log = log,
             )
         }
@@ -74,5 +77,4 @@ suspend fun runDump(
     return path
 }
 
-private fun readText(path: String): String =
-    checkNotNull(NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null)) { "can't read $path" }
+private fun readText(path: String): String = checkNotNull(NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null)) { "can't read $path" }

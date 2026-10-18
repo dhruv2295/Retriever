@@ -28,6 +28,31 @@ class NameIndexTest {
         assertTrue(NameIndex.withinEdits("tlak", "talk", 1))
     }
 
+    @Test fun longWordWithASwapAndATypo() {
+        // A swap spoils 4 trigrams, not 3: this pair shares only 2 of 9, and is 2 OSA edits apart.
+        val cert = NameIndex.build(listOf(NameEntry(1, "certificate.pdf", "Documents", Kind.PDF)))
+        assertEquals(MatchClass.TYPO, cert.search("cetrifixate").single().match)
+    }
+
+    @Test fun exactNameIsTheNameNotTheFolder() {
+        val cam = NameIndex.build(listOf(NameEntry(1, "camera.jpg", "Pictures", Kind.PHOTO), NameEntry(2, "IMG_1.jpg", "DCIM/Camera", Kind.PHOTO)))
+        assertEquals(mapOf(1L to true, 2L to false), cam.search("camera").associate { it.id to it.exactName })
+        assertTrue(index.search("holiday jp").none { it.exactName })
+    }
+
+    @Test fun aMatchFoundOnlyByDroppingAWordIsNoExactName() {
+        val docs = NameIndex.build(
+            listOf(
+                NameEntry(1, "march invoice.pdf", "Documents", Kind.PDF),
+                NameEntry(2, "acme report.pdf", "Documents", Kind.PDF),
+                NameEntry(3, "acme letter.pdf", "Documents", Kind.PDF),
+            ),
+        )
+        // No name holds all three words; "acme" (in the most names) is dropped and "march invoice" matches.
+        assertEquals(listOf(NameHit(1, MatchClass.EXACT, exactName = false)), docs.search("acme invoice march"))
+        assertTrue(docs.search("invoice march").single().exactName)
+    }
+
     @Test fun prefixWhileTyping() = assertEquals(MatchClass.PREFIX, classOf("scr", 2))
 
     @Test fun exactTokenInAnyScript() {
@@ -46,7 +71,8 @@ class NameIndexTest {
 
     @Test fun everyWordMustMatchAndTheWorstClassWins() {
         assertEquals(MatchClass.PREFIX, classOf("holiday jp", 5))
-        assertEquals(emptyList(), index.search("holiday invoice"))
+        assertEquals(emptyList(), index.search("qqqq xxxx")) // no word matches: nothing to retry with
+        assertEquals(listOf(1L), index.search("pictures invoice").map { it.id }) // else the most common word is dropped
     }
 
     @Test fun kindFilterAndOrder() {
@@ -59,7 +85,10 @@ class NameIndexTest {
     @Test fun noTyposForVeryShortWords() = assertEquals(emptyList(), index.search("jx"))
 
     @Test fun copyOnWriteSnapshots() {
-        val added = index.update(emptyList(), listOf(NameEntry(6, "passport scan.jpg", "Pictures", Kind.PHOTO), NameEntry(5, "beach.jpg", "Pictures", Kind.PHOTO)))
+        val added = index.update(
+            emptyList(),
+            listOf(NameEntry(6, "passport scan.jpg", "Pictures", Kind.PHOTO), NameEntry(5, "beach.jpg", "Pictures", Kind.PHOTO)),
+        )
         assertTrue(added.search("passport").isNotEmpty())
         assertTrue(added.search("holiday").isEmpty())
         assertTrue(added.search("beach").isNotEmpty())

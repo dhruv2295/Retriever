@@ -11,6 +11,7 @@ struct FoldersView: View {
     @State private var picked: [FolderSource.Folder] = []
     @State private var unreachable: [FolderSource.Folder] = []
     @State private var loading = true
+    @State private var failed = false
     @State private var excluding: FolderCount?
     @State private var removing: FolderSource.Folder?
     @State private var adding = false
@@ -48,6 +49,9 @@ struct FoldersView: View {
                     }
                 }
             }
+            if failed && !(picked.isEmpty && unreachable.isEmpty) {
+                Section { Button("Couldn't load the folder list. Try again") { Task { await load() } } }
+            }
             Section {
                 ForEach(picked) { f in
                     Label(f.name, systemImage: "folder.badge.person.crop")
@@ -69,7 +73,11 @@ struct FoldersView: View {
                     .swipeActions { Button("Remove", role: .destructive) { removing = f } }
                     .contextMenu { Button("Remove", systemImage: "trash", role: .destructive) { removing = f } }
                 }
-                Button { adding = true } label: { Label("Add a folder", systemImage: "folder.badge.plus") }
+                Button {
+                    adding = true
+                } label: {
+                    Label("Add a folder", systemImage: "folder.badge.plus")
+                }
             } header: {
                 Text("Folders you added")
             } footer: {
@@ -79,7 +87,7 @@ struct FoldersView: View {
                 Section("Not searched") {
                     ForEach(excluded.sorted(), id: \.self) { path in
                         LabeledContent {
-                            Button("Search again") { setExcluded(path, false) }.buttonStyle(.borderless)
+                            Button("Search again") { model.restoreFolder(path) }.buttonStyle(.borderless)
                         } label: {
                             Label(path.split(separator: "/").last.map(String.init) ?? path, systemImage: "eye.slash")
                         }
@@ -90,25 +98,33 @@ struct FoldersView: View {
         .overlay {
             if loading && folders.isEmpty {
                 ProgressView()
+            } else if failed && picked.isEmpty && unreachable.isEmpty {
+                StateView(mood: .trouble, title: "Couldn't load folders", message: "Something went wrong reading your folders.") {
+                    Button("Try again") { Task { await load() } }.buttonStyle(.borderedProminent)
+                }
             } else if folders.isEmpty && picked.isEmpty && unreachable.isEmpty {
-                StateView(art: "IllusEmpty", title: "No folders yet", message: "Folders appear once Retriever has looked through your files.")
+                StateView(mood: .noMatch, title: "No folders yet", message: "Folders appear once Retriever has looked through your files.")
             }
         }
         .navigationTitle("Folders")
         .task(id: excluded) { await load() }
         .fileImporter(isPresented: $adding, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
-            guard case let .success(urls) = result else { return }
+            guard case .success(let urls) = result else { return }
             note = model.addFolders(urls).map(Copy.addFolderResult).joined(separator: "\n")
             Task { await load() }
         }
         .alert(note ?? "", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) {}
-        .alert("Stop searching \(excluding?.name ?? "")?", isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }), presenting: excluding) { f in
-            Button("Stop searching", role: .destructive) { setExcluded(f.path, true) }
+        .alert(
+            "Stop searching \(excluding?.name ?? "")?", isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
+            presenting: excluding
+        ) { f in
+            Button("Stop searching", role: .destructive) { model.setExcluded(f.path, true) }
             Button("Cancel", role: .cancel) {}
         } message: { f in
             Text("Retriever will forget the \(Format.files(f.count)) in \(f.name). You can bring it back here.")
         }
-        .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { f in
+        .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) {
+            f in
             Button("Remove", role: .destructive) { remove(f) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
@@ -117,28 +133,21 @@ struct FoldersView: View {
     }
 
     private func load() async {
-        guard let services else { return loading = false }
+        guard let services else {
+            loading = false
+            return
+        }
+        loading = true
         picked = services.folders.folders.filter { $0.id != FolderSource.documentsId }
         unreachable = services.folders.unreachable
-        let pairs = (try? await services.retriever.folders()) ?? []
-        folders = pairs.map { FolderCount(path: ($0.first as String?) ?? "", count: $0.second?.intValue ?? 0) }
-        loading = false
-    }
-
-    /// The next reading round rescans, which forgets an excluded folder's files or reads a restored one again.
-    private func setExcluded(_ path: String, _ on: Bool) {
-        guard let services else { return }
-        Task {
-            try? await services.retriever.updatePrefs { @Sendable p in
-                p.doCopy(kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging,
-                         excludedFolders: on ? p.excludedFolders.union([path]) : p.excludedFolders.subtracting([path]),
-                         paused: p.paused, sampleSize: p.sampleSize, allowMobileData: p.allowMobileData,
-                         rememberSearches: p.rememberSearches, dynamicColor: p.dynamicColor,
-                         setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed)
-            }
-            services.retriever.notifyChanged()
-            model.wake()
+        do {
+            let pairs = try await services.retriever.folders()
+            folders = pairs.map { FolderCount(path: ($0.first as String?) ?? "", count: $0.second?.intValue ?? 0) }
+            failed = false
+        } catch {
+            failed = true
         }
+        loading = false
     }
 
     private func remove(_ folder: FolderSource.Folder) {

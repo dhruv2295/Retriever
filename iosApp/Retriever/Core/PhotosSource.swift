@@ -1,8 +1,8 @@
 import Foundation
-import os
 import Photos
 import RetrieverCore
 import UniformTypeIdentifiers
+import os
 
 /// The photo library as ph://<localIdentifier> files. Incremental syncs come from PhotoKit's persistent change
 /// history, which also reports deletions. Nothing here downloads from iCloud.
@@ -79,7 +79,7 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
                     if let file = self.file(asset, known, recheck: true) { files.append(file) }
                 }
             }
-            removed.formUnion(upsert.subtracting(seen)) // gone again before this sync
+            removed.formUnion(upsert.subtracting(seen))  // gone again before this sync
         }
         return Changes(upserted: files, removed: removed.map { "ph://\($0)" }, nextToken: next, isFullScan: false, present: nil, scope: nil)
     }
@@ -106,7 +106,8 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
         let date = asset.hasAdjustments ? asset.modificationDate ?? asset.creationDate : asset.creationDate
         let stamp = Int64((date ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000)
         let uri = "ph://\(asset.localIdentifier)"
-        let name: String, mime: String
+        let name: String
+        let mime: String
         if !recheck, let old = known.file(uri: uri), old.modifiedAt == stamp {
             (name, mime) = (old.name, old.mime)
         } else {

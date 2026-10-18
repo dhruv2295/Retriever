@@ -12,6 +12,8 @@ import kotlin.test.assertTrue
  * re-index every file through the signature: re-run the eval (-eval on iOS, corpus eval on Android) first.
  */
 class DefaultsTest {
+    private val lenientJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
     /** 512 and 768 float ranked exactly as 256 (29 · 31 · 0.96) at 2-3x the memory and scan time; int8 lost nothing. */
     @Test
     fun vectorsKeep256Dims() = assertEquals(256, DIMS)
@@ -41,6 +43,14 @@ class DefaultsTest {
         assertEquals(30, Prefs.defaultFor(light).effective(light).videoFrameEverySec)
     }
 
+    /** The first tune has no old profile: untouched fields take the tier default, touched ones stay. */
+    @Test
+    fun firstTuneRetunesOnlyUntouchedFields() {
+        val light = Tiers.profileFor(5000.0, 4.0, Backend.CPU, ModelVariant.M440)
+        assertEquals(Prefs.defaultFor(light).copy(allowMobileData = true), Prefs(allowMobileData = true).retuned(null, light))
+        assertEquals(setOf(Kind.PDF), Prefs(kinds = setOf(Kind.PDF)).retuned(null, light).kinds)
+    }
+
     /**
      * INFERRED floor, not measured: under 4 GB (3 GB iPhones such as XR and SE 2, 2-3 GB Android phones) runs
      * names-and-text only, since the M440 is 388 MB on disk plus its runtime. Re-measure on a device before moving it.
@@ -53,6 +63,14 @@ class DefaultsTest {
     }
 
     /** Without them: recall@5 31 to 29 fused, 30 to 27 on the vector lane alone. */
+    @Test
+    fun oldStoredPrefsDecodeToTheNewDefaults() {
+        val old = lenientJson.decodeFromString<Prefs>("""{"paused":true}""")
+        assertEquals(Prefs(paused = true), old)
+        assertEquals(0, old.noMatchSeen)
+        assertTrue(old.showOnThisDay)
+    }
+
     @Test
     fun modelCardPrefixes() {
         assertEquals("task: search result | query: rent receipt", Prefix.query("rent receipt"))

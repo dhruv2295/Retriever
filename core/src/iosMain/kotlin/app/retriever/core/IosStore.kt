@@ -5,6 +5,7 @@ package app.retriever.core
 import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import app.retriever.core.db.IndexDb
 import co.touchlab.sqliter.JournalMode
+import co.touchlab.sqliter.SynchronousFlag
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSApplicationSupportDirectory
@@ -27,7 +28,7 @@ fun iosStore(dir: String, log: (String, Throwable?) -> Unit): Store {
     NSFileManager.defaultManager.createDirectoryAtPath(dir, true, null, null)
     NSURL.fileURLWithPath(dir).setResourceValue(true, NSURLIsExcludedFromBackupKey, null)
     val driver = NativeSqliteDriver(IndexDb.Schema, Store.DB_NAME, maxReaderConnections = 4, onConfiguration = {
-        it.copy(journalMode = JournalMode.WAL, extendedConfig = it.extendedConfig.copy(basePath = dir))
+        it.copy(journalMode = JournalMode.WAL, extendedConfig = it.extendedConfig.copy(basePath = dir, synchronousFlag = SynchronousFlag.NORMAL))
     })
     val statePath = dir.trimEnd('/') + "-user-state.json"
     val userState = UserStateFile(

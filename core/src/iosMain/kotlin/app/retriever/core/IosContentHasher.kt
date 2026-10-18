@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+@file:OptIn(ExperimentalForeignApi::class, BetaInteropApi::class, ExperimentalUnsignedTypes::class)
 
 package app.retriever.core
 
@@ -72,7 +72,7 @@ class IosContentHasher(private val native: NativeExtractor) : ContentHasher {
         if (!feed { CC_SHA256_Update(ctx.ptr, it.bytes, it.length.toUInt()) }) return null
         val digest = allocArray<UByteVar>(CC_SHA256_DIGEST_LENGTH)
         CC_SHA256_Final(digest, ctx.ptr)
-        (0 until CC_SHA256_DIGEST_LENGTH).joinToString("") { digest[it].toString(16).padStart(2, '0') }
+        UByteArray(CC_SHA256_DIGEST_LENGTH) { digest[it] }.toHexString()
     }
 
     private companion object {

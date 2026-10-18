@@ -50,16 +50,64 @@ class OcrScriptsTest {
         val order = ocrOrder(listOf("en-IN"))
         fun sure(text: String) = OcrReading(text, 0.85f)
         // An English image: Latin reads it, so Devanagari never runs.
-        assertEquals(english, readScripts(order) { tried += it; sure(if (it == latin) english else hindi) })
+        assertEquals(
+            english,
+            readScripts(order) {
+                tried += it
+                sure(if (it == latin) english else hindi)
+            },
+        )
         assertEquals(listOf(latin), tried)
         // A Hindi bill on an English phone: Latin gets a few stray letters, Devanagari reads it.
         tried.clear()
-        assertEquals(hindi, readScripts(order) { tried += it; sure(if (it == latin) "ad 1,240" else hindi) })
+        assertEquals(
+            hindi,
+            readScripts(order) {
+                tried += it
+                if (it == latin) OcrReading("ad 1,240", 0.4f) else sure(hindi)
+            },
+        )
         assertEquals(listOf(latin, OcrScript.DEVANAGARI), tried)
         // Or Latin guesses a long line of letters it doubts (as ML Kit does on Hindi): Devanagari still reads it.
         val guessed = "fastft faT y Ifer: 1,240 3ifaH fafe: 25 34Gr HGYT: 4471"
         assertEquals(hindi, readScripts(order) { if (it == latin) OcrReading(guessed, 0.42f) else OcrReading(hindi, 0.81f) })
         // Nothing reads well: the more confident reading stays.
-        assertEquals("1,240 due", readScripts(order) { if (it == latin) sure("1,240 due") else OcrReading.NONE })
+        assertEquals("1,240 due", readScripts(order) { if (it == latin) OcrReading("1,240 due", 0.5f) else OcrReading.NONE })
+    }
+
+    @Test
+    fun aBlankReadingStopsTheFallback() = kotlinx.coroutines.test.runTest {
+        var reads = 0
+        assertEquals(
+            "",
+            readScripts(ocrOrder(listOf("en-IN"))) {
+                reads++
+                OcrReading.NONE
+            },
+        )
+        assertEquals(1, reads)
+    }
+
+    @Test
+    fun aShortConfidentReadingStopsTheFallback() = kotlinx.coroutines.test.runTest {
+        var reads = 0
+        assertEquals(
+            "Wi-Fi off",
+            readScripts(ocrOrder(listOf("en-IN"))) {
+                reads++
+                OcrReading("Wi-Fi off", 0.9f)
+            },
+        )
+        assertEquals(1, reads)
+    }
+
+    @Test
+    fun aLowConfidenceGarbageReadingStillFallsThrough() = kotlinx.coroutines.test.runTest {
+        var reads = 0
+        readScripts(ocrOrder(listOf("en-IN"))) {
+            reads++
+            OcrReading("fastft faT y", 0.3f)
+        }
+        assertEquals(2, reads)
     }
 }

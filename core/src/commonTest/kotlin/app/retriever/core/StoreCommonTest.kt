@@ -4,6 +4,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+/** One chunk by id, through the batched [Store.chunks] production uses. */
+internal fun Store.chunk(id: Long): Store.ChunkRow? = chunks(listOf(id))[id]
+
 /** Keyword search on each platform's own SQLite: the JVM's bundled one and iOS's system library. */
 class StoreCommonTest {
     private fun storeWith(name: String, folder: String, text: String): Pair<Store, Long> {

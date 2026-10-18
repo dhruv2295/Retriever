@@ -25,6 +25,9 @@ enum class MascotMood {
 
     /** First open after the first full read: one happy bounce. */
     CAUGHT_UP,
+
+    /** Something failed: a still, sheepish pose, never animated. */
+    TROUBLE,
 }
 
 /**
@@ -40,6 +43,7 @@ enum class MascotClip(val file: String, val still: String, val seconds: Double) 
     HUH("mascot_huh.webp", "mascot_huh_still.webp", 2.24),
     WELCOME("mascot_welcome.webp", "mascot_welcome_still.webp", 2.6),
     CAUGHT_UP("mascot_caughtup.webp", "mascot_caughtup_still.webp", 1.33),
+    TROUBLE("mascot_trouble_still.webp", "mascot_trouble_still.webp", 0.0),
 }
 
 enum class StepKind {
@@ -71,6 +75,7 @@ object MascotDirector {
         MascotMood.NO_MATCH, MascotMood.NO_MATCH_QUIET -> MascotClip.HUH
         MascotMood.WELCOME -> MascotClip.WELCOME
         MascotMood.CAUGHT_UP -> MascotClip.CAUGHT_UP
+        MascotMood.TROUBLE -> MascotClip.TROUBLE
     }
 
     /**
@@ -82,32 +87,45 @@ object MascotDirector {
         return when (mood) {
             MascotMood.WALKING -> when {
                 clip == MascotClip.SIT || clip == MascotClip.DOZE -> MascotStep(StepKind.ONCE, MascotClip.WAKE)
+
                 onScreen < SETTLE_AFTER -> MascotStep(StepKind.LOOP, MascotClip.WALK, SETTLE_AFTER - onScreen)
+
                 clip == MascotClip.WALK && last.kind == StepKind.LOOP ->
                     MascotStep(StepKind.HOLD, MascotClip.WALK, CADENCE_REST)
+
                 else -> MascotStep(StepKind.LOOP, MascotClip.WALK, CADENCE_WALK)
             }
+
             MascotMood.RESTING -> when {
                 // Opening a screen while already paused shows the doze, without acting out the sit.
                 last == null -> MascotStep(StepKind.HOLD, MascotClip.DOZE)
+
                 clip == MascotClip.WALK || clip == MascotClip.WAKE -> MascotStep(StepKind.ONCE, MascotClip.SIT)
+
                 clip == MascotClip.SIT -> MascotStep(StepKind.LOOP, MascotClip.DOZE, DOZE_BREATHS * MascotClip.DOZE.seconds)
+
                 else -> MascotStep(StepKind.HOLD, MascotClip.DOZE)
             }
+
             MascotMood.SEARCHING -> when {
                 clip == MascotClip.SNIFF -> MascotStep(StepKind.HOLD, MascotClip.SNIFF)
                 else -> MascotStep(StepKind.LOOP, MascotClip.SNIFF, SNIFF_LOOPS * MascotClip.SNIFF.seconds)
             }
+
             MascotMood.NO_MATCH -> when (clip) {
                 MascotClip.HUH -> MascotStep(StepKind.HOLD, MascotClip.HUH)
                 else -> MascotStep(StepKind.ONCE, MascotClip.HUH)
             }
+
             MascotMood.NO_MATCH_QUIET -> MascotStep(StepKind.HOLD, MascotClip.HUH)
+
             MascotMood.WELCOME -> once(MascotClip.WELCOME, clip)
+
             MascotMood.CAUGHT_UP -> once(MascotClip.CAUGHT_UP, clip)
+
+            MascotMood.TROUBLE -> MascotStep(StepKind.HOLD, MascotClip.TROUBLE)
         }
     }
 
-    private fun once(target: MascotClip, clip: MascotClip?) =
-        if (clip == target) MascotStep(StepKind.HOLD, target) else MascotStep(StepKind.ONCE, target)
+    private fun once(target: MascotClip, clip: MascotClip?) = if (clip == target) MascotStep(StepKind.HOLD, target) else MascotStep(StepKind.ONCE, target)
 }

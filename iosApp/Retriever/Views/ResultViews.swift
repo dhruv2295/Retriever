@@ -9,143 +9,6 @@ import RetrieverCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Words and numbers as the person reads them.
-enum Format {
-    static func kind(_ kind: Kind) -> String {
-        switch kind {
-        case .pdf: "PDF"
-        case .doc: "Document"
-        case .screenshot: "Screenshot"
-        case .photo: "Photo"
-        case .audio: "Audio"
-        case .video: "Video"
-        default: "File"
-        }
-    }
-
-    static func kindPlural(_ kind: Kind) -> String {
-        switch kind {
-        case .pdf: "PDFs"
-        case .doc: "Documents"
-        case .screenshot: "Screenshots"
-        case .photo: "Photos"
-        case .audio: "Audio"
-        case .video: "Videos"
-        default: "Other files"
-        }
-    }
-
-    static func icon(_ kind: Kind) -> String {
-        switch kind {
-        case .pdf: "doc.richtext"
-        case .doc: "doc.text"
-        case .screenshot: "camera.viewfinder"
-        case .photo: "photo"
-        case .audio: "waveform"
-        case .video: "video"
-        default: "doc"
-        }
-    }
-
-    static func date(_ ms: Int64) -> String {
-        Date(timeIntervalSince1970: Double(ms) / 1000).formatted(date: .long, time: .omitted)
-    }
-
-    /// "p. 12" is page 12 (1-based); anything else is nil.
-    static func page(_ locator: String) -> Int? {
-        guard locator.hasPrefix("p. "), let n = Int(locator.dropFirst(3)), n >= 1 else { return nil }
-        return n
-    }
-
-    /// "m:ss" or "h:mm:ss" in milliseconds; anything else is nil.
-    static func ms(_ locator: String) -> Int64? {
-        let parts = locator.split(separator: ":", omittingEmptySubsequences: false)
-        guard (2...3).contains(parts.count), parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCII) }) else { return nil }
-        var seconds: Int64 = 0
-        for p in parts {
-            guard let n = Int64(p) else { return nil }
-            seconds = seconds * 60 + n
-        }
-        return seconds * 1000
-    }
-
-    static func badge(_ locator: String) -> String? {
-        if let page = page(locator) { return "Page \(page)" }
-        return ms(locator) != nil ? locator : nil
-    }
-
-    /// How VoiceOver says where the match is.
-    static func spoken(_ locator: String) -> String? {
-        if let page = page(locator) { return "page \(page)" }
-        guard let ms = ms(locator) else { return nil }
-        return "at " + Duration.milliseconds(ms).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
-    }
-
-    static func openHint(_ locator: String) -> String {
-        if let page = page(locator) { return "Opens at page \(page)" }
-        if ms(locator) != nil { return "Plays from \(locator)" }
-        return "Opens"
-    }
-
-    static func files(_ n: Int) -> String {
-        n == 1 ? "1 file" : "\(Copy.count(n)) files"
-    }
-
-    /// The \u{2}...\u{3} words bold on a tinted background. An unclosed span runs to the end.
-    static func highlighted(_ snippet: String) -> AttributedString {
-        var out = AttributedString()
-        var run = ""
-        var marked = false
-        func flush() {
-            var piece = AttributedString(run)
-            if marked {
-                piece.inlinePresentationIntent = .stronglyEmphasized
-                piece.backgroundColor = Color.accentColor.opacity(0.2)
-            }
-            out += piece
-            run = ""
-        }
-        for ch in snippet {
-            switch ch {
-            case "\u{2}": flush(); marked = true
-            case "\u{3}": flush(); marked = false
-            default: run.append(ch)
-            }
-        }
-        flush()
-        return out
-    }
-
-    /// The words a keyword match marked, for highlighting them inside the file.
-    static func markedWords(_ snippet: String?) -> [String] {
-        guard let snippet else { return [] }
-        var words: [String] = []
-        var current: String?
-        for ch in snippet {
-            switch ch {
-            case "\u{2}": current = ""
-            case "\u{3}": if let w = current, !w.isEmpty { words.append(w) }; current = nil
-            default: current?.append(ch)
-            }
-        }
-        return Array(Set(words))
-    }
-
-    /// The file name with each word of the query in bold.
-    static func name(_ name: String, query: String?) -> AttributedString {
-        var out = AttributedString(name)
-        guard let query else { return out }
-        for token in Store.Companion.shared.ftsTokens(s: query) where token.count >= 2 {
-            var from = out.startIndex
-            while let range = out[from...].range(of: token, options: [.caseInsensitive, .diacriticInsensitive]) {
-                out[range].inlinePresentationIntent = .stronglyEmphasized
-                from = range.upperBound
-            }
-        }
-        return out
-    }
-}
-
 /// Pictures go in the grid, except a screenshot matched by its words: its row shows them.
 func inGrid(_ hit: SearchEngine.Hit) -> Bool {
     let kind = hit.file.kind
@@ -164,6 +27,7 @@ func gridColumns(_ size: DynamicTypeSize, spacing: CGFloat) -> [GridItem] {
 struct ResultCell: View {
     let file: SourceFile
     var locator = ""
+    var starred = false
     let onOpen: () -> Void
     var extent: ReadExtent?
     var onFindSimilar: ((SourceFile) -> Void)?
@@ -180,7 +44,7 @@ struct ResultCell: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint(Format.openHint(locator))
-        .resultActions(file, onFindSimilar)
+        .resultActions(file, starred: starred, onFindSimilar)
     }
 
     private var label: String {
@@ -215,9 +79,12 @@ struct FileRowView: View {
     let file: SourceFile
     var locator = ""
     var snippet: String?
-    var query: String?
+    /// The name with the words a search matched in bold; nil is the name as it is.
+    var styledName: AttributedString?
     var subtitle: String?
     var extent: ReadExtent?
+    /// How much of the file is searchable, for a list that is not a search.
+    var coverage: String?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -249,12 +116,12 @@ struct FileRowView: View {
         Thumb(file: file, locator: locator, points: 52)
             .frame(width: 52, height: 52)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator)) // white pages on white
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator))  // white pages on white
     }
 
     private var texts: some View {
         VStack(alignment: .leading, spacing: 3) {
-            FileName(name: file.name, query: query, wrapLines: typeSize.isAccessibilitySize ? 3 : 1)
+            FileName(name: file.name, styled: styledName, wrapLines: typeSize.isAccessibilitySize ? 3 : 1)
             Text(subtitle ?? "\(file.folder) · \(Format.date(file.modifiedAt))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -262,7 +129,7 @@ struct FileRowView: View {
             if let snippet, !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
             }
-            if let note = Copy.extent(extent) {
+            if let note = Copy.extent(extent) ?? coverage {
                 Text(note).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -271,7 +138,7 @@ struct FileRowView: View {
 
     @ViewBuilder private var badge: some View {
         if let badge = Format.badge(locator) {
-            Label(badge, systemImage: Format.ms(locator) != nil ? "play.fill" : "doc.text.magnifyingglass")
+            Label(badge, systemImage: Locator.shared.msOf(l: locator) != nil ? "play.fill" : "doc.text.magnifyingglass")
                 .labelStyle(.titleAndIcon)
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
@@ -294,12 +161,12 @@ struct FileRowView: View {
 /// spaces may wrap, between words, up to `wrapLines` lines.
 struct FileName: View {
     let name: String
-    var query: String?
+    var styled: AttributedString?
     let wrapLines: Int
 
     var body: some View {
         let spaced = name.contains(" ")
-        Text(Format.name(name, query: query)).lineLimit(spaced ? wrapLines : 1).truncationMode(spaced ? .tail : .middle)
+        Text(styled ?? AttributedString(name)).lineLimit(spaced ? wrapLines : 1).truncationMode(spaced ? .tail : .middle)
     }
 }
 
@@ -308,34 +175,38 @@ struct FileButton: View {
     let file: SourceFile
     var locator = ""
     var snippet: String?
-    var query: String?
+    var styledName: AttributedString?
     var subtitle: String?
     var extent: ReadExtent?
+    var coverage: String?
+    var starred = false
     let onOpen: () -> Void
     var onFindSimilar: ((SourceFile) -> Void)?
 
     var body: some View {
         Button(action: onOpen) {
-            FileRowView(file: file, locator: locator, snippet: snippet, query: query, subtitle: subtitle, extent: extent)
+            FileRowView(file: file, locator: locator, snippet: snippet, styledName: styledName, subtitle: subtitle, extent: extent, coverage: coverage)
         }
         .buttonStyle(.plain)
-        .resultActions(file, onFindSimilar)
+        .resultActions(file, starred: starred, onFindSimilar)
     }
 }
 
 extension View {
-    func resultActions(_ file: SourceFile, _ onFindSimilar: ((SourceFile) -> Void)?) -> some View {
-        modifier(ResultActions(file: file, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil }))
+    /// `starred` comes from the list's own read of the stars, so starring one file redraws that row, not every one.
+    func resultActions(_ file: SourceFile, starred: Bool, _ onFindSimilar: ((SourceFile) -> Void)?) -> some View {
+        modifier(ResultActions(file: file, starred: starred, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil }))
     }
 }
 
 /// Star and Find similar and Share, in the long-press menu and for VoiceOver.
 private struct ResultActions: ViewModifier {
     let file: SourceFile
+    let starred: Bool
     let similar: ((SourceFile) -> Void)?
+    @Environment(AppModel.self) private var model: AppModel?
 
     func body(content: Content) -> some View {
-        let starred = Stars.isOn(file)
         content
             .accessibilityActions {
                 starButton
@@ -344,37 +215,40 @@ private struct ResultActions: ViewModifier {
             }
             .contextMenu {
                 starButton
-                if let similar { Button { similar(file) } label: { Label("Find similar", systemImage: "photo.stack") } }
+                if let similar {
+                    Button {
+                        similar(file)
+                    } label: {
+                        Label("Find similar", systemImage: "photo.stack")
+                    }
+                }
                 ShareButton(file: file)
             }
             .sensoryFeedback(trigger: starred) { _, now in now ? .success : .impact(weight: .light) }
     }
 
     @ViewBuilder private var starButton: some View {
-        if let model = Stars.model {
-            let on = model.starred.contains(file.uri)
-            Button { model.setStarred(file.uri, !on) } label: {
-                Label(on ? Copy.removeStar : Copy.star, systemImage: on ? "star.slash" : "star")
+        if let model {
+            Button {
+                model.setStarred(file.uri, !starred)
+            } label: {
+                Label(starred ? Copy.removeStar : Copy.star, systemImage: starred ? "star.slash" : "star")
             }
         }
     }
 }
 
-/// The app's starred files, for views that don't take the model (rows, the viewers). SearchView sets it once.
-@MainActor enum Stars {
-    static weak var model: AppModel?
-
-    static func isOn(_ file: SourceFile) -> Bool { model?.starred.contains(file.uri) ?? false }
-}
-
 /// The star in a viewer's toolbar.
 struct StarButton: View {
     let file: SourceFile
+    @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
-        if let model = Stars.model {
+        if let model {
             let on = model.starred.contains(file.uri)
-            Button { model.setStarred(file.uri, !on) } label: {
+            Button {
+                model.setStarred(file.uri, !on)
+            } label: {
                 Label(on ? Copy.removeStar : Copy.star, systemImage: on ? "star.fill" : "star")
             }
             .sensoryFeedback(trigger: on) { _, now in now ? .success : .impact(weight: .light) }
@@ -386,11 +260,12 @@ struct StarButton: View {
 
 struct ShareButton: View {
     let file: SourceFile
+    @Environment(\.services) private var services
 
     var body: some View {
         if file.uri.hasPrefix("ph://") {
             ShareLink(item: SharedAsset(id: String(file.uri.dropFirst(5)), video: file.kind == .video), preview: SharePreview(file.name))
-        } else if let url = Thumbnails.services?.folders.resolve(file.uri) {
+        } else if let url = services?.folders.resolve(file.uri) {
             ShareLink(item: url)
         }
     }
@@ -408,7 +283,8 @@ struct SharedAsset: Transferable {
 
     private func export() async throws -> SentTransferredFile {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject,
-              let resource = PhotosSource.renditions(asset).current else { throw CocoaError(.fileNoSuchFile) }
+            let resource = PhotosSource.renditions(asset).current
+        else { throw CocoaError(.fileNoSuchFile) }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(resource.originalFilename)
@@ -423,19 +299,32 @@ struct SharedAsset: Transferable {
 
 /// One illustrated state: a picture, a title, a sentence and an optional action.
 struct StateView<Actions: View>: View {
-    let art: String
+    let art: String?
+    let mood: MascotMood?
     let title: String
     let message: String
     @ViewBuilder var actions: () -> Actions
 
+    init(art: String, title: String, message: String, @ViewBuilder actions: @escaping () -> Actions) {
+        (self.art, self.mood, self.title, self.message, self.actions) = (art, nil, title, message, actions)
+    }
+
+    init(mood: MascotMood, title: String, message: String, @ViewBuilder actions: @escaping () -> Actions) {
+        (self.art, self.mood, self.title, self.message, self.actions) = (nil, mood, title, message, actions)
+    }
+
     var body: some View {
         ContentUnavailableView {
             VStack(spacing: 12) {
-                Image(art)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 200)
-                    .accessibilityHidden(true)
+                if let mood {
+                    MascotView(mood: mood).frame(maxWidth: 160)
+                } else if let art {
+                    Image(art)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 200)
+                        .accessibilityHidden(true)
+                }
                 Text(title).font(.title2.bold())
             }
         } description: {
@@ -449,5 +338,9 @@ struct StateView<Actions: View>: View {
 extension StateView where Actions == EmptyView {
     init(art: String, title: String, message: String) {
         self.init(art: art, title: title, message: message) { EmptyView() }
+    }
+
+    init(mood: MascotMood, title: String, message: String) {
+        self.init(mood: mood, title: title, message: message) { EmptyView() }
     }
 }

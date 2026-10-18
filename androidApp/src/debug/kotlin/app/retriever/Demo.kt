@@ -49,6 +49,7 @@ object Demo {
 private class DemoFile(val file: SourceFile, val locator: String, val text: String)
 
 private const val DAY_MS = 86_400_000L
+
 private const val EPOCH = 1_760_000_000_000L
 
 private fun demo(i: Int, name: String, folder: String, mime: String, kind: Kind, uri: String, locator: String, text: String) =
@@ -56,8 +57,7 @@ private fun demo(i: Int, name: String, folder: String, mime: String, kind: Kind,
 
 private fun drawable(name: String) = "android.resource://app.retriever/drawable/$name"
 
-private fun doc(i: Int, name: String, text: String) =
-    demo(i, name, "Documents", "text/plain", Kind.DOC, "demo:doc/$name", "", text)
+private fun doc(i: Int, name: String, text: String) = demo(i, name, "Documents", "text/plain", Kind.DOC, "demo:doc/$name", "", text)
 
 private val FILES = listOf(
     demo(0, "IMG_dog_park.webp", "DCIM/Camera", "image/webp", Kind.PHOTO, drawable("illus_welcome"), "", "dog fetching a ball in the park"),

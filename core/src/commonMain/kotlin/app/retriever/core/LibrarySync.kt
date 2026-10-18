@@ -27,24 +27,21 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             prefs.excludedFolders != scannedExcludes() || store.meta(RULES) != source.rulesVersion.toString()
 
         val changes = source.changes(if (wantFull) null else token)
-        // A full scan compares every file; an incremental one only looks up what changed.
+        // A full scan compares every file; an incremental one looks up only what changed, in one bulk read.
         val known = if (changes.isFullScan) {
             store.knownFiles()
         } else {
-            changes.upserted.mapNotNull { store.fileByUri(it.uri)?.file }.associateBy { it.uri }
+            store.filesByUris(changes.upserted.map { it.uri }).mapValues { it.value.file }
         }
         // Only files this scan could see may be removed: an unmounted volume's files wait for it to come back.
-        val knownInScope = store.knownUris().filterTo(HashSet()) { uri -> changes.scope?.any { uri.startsWith(it) } ?: true }
+        val knownInScope by lazy {
+            (if (changes.isFullScan) known.keys else store.knownUris())
+                .filterTo(HashSet()) { uri -> changes.scope?.any { uri.startsWith(it) } ?: true }
+        }
         // Sample mode never trims here: it only limits what IndexEngine reads (Store.pending), so nothing read is lost.
         val keep = changes.upserted.filter { !prefs.excludes(it.folder) }
-
-        val touched = ArrayList<SourceFile>()
-        for (f in keep) {
-            val old = known[f.uri]
-            if (old == null || old.size != f.size || old.modifiedAt != f.modifiedAt || old.name != f.name || old.folder != f.folder) {
-                touched += f
-            }
-        }
+        // SourceFile mirrors the stored columns, so equality is the change test: kind, mime and takenAt count too.
+        val touched = keep.filter { known[it.uri] != it }
         val added = touched.count { it.uri !in known }
 
         val removed = if (changes.isFullScan) {
@@ -58,7 +55,7 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         val excludedMeanwhile = namesLock.withLock {
             // A folder excluded during the scan was dropped already (dropExcluded): this scan would bring it back.
             if (store.prefs().excludedFolders != prefs.excludedFolders) return@withLock true
-            store.upsertFiles(keep)
+            store.upsertFiles(touched)
             // An incremental sync is small, and a full scan rebuilds the names instead.
             val removedIds = removeLocked(removed, needIds = !changes.isFullScan)
             // A starred file can only come back under a new uri, so syncs that add nothing skip the search.
@@ -75,11 +72,11 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         }
         // The token was not advanced, so the scan runs again under the new folders.
         if (excludedMeanwhile) return sync(forceFull)
-        store.setMeta(TOKEN, changes.nextToken)
+        putMeta(TOKEN, changes.nextToken)
         if (changes.isFullScan) {
-            store.setMeta(LAST_FULL, now().toString())
-            store.setMeta(EXCLUDES, Json.encodeToString(prefs.excludedFolders))
-            store.setMeta(RULES, source.rulesVersion.toString())
+            putMeta(LAST_FULL, now().toString())
+            putMeta(EXCLUDES, Json.encodeToString(prefs.excludedFolders))
+            putMeta(RULES, source.rulesVersion.toString())
         }
         return SyncResult(added, touched.size - added, removed.size, changes.isFullScan)
     }
@@ -109,9 +106,13 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         return ids
     }
 
+    /** An unchanged sync writes nothing. */
+    private fun putMeta(key: String, value: String) {
+        if (store.meta(key) != value) store.setMeta(key, value)
+    }
+
     /** The excluded folders the store reflects: the last full scan's, plus any dropped since. */
-    private fun scannedExcludes(): Set<String> =
-        store.meta(EXCLUDES)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
+    private fun scannedExcludes(): Set<String> = store.meta(EXCLUDES)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
 
     private companion object {
         const val TOKEN = "source_token"

@@ -14,7 +14,9 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
     static let documentsId = "documents"
     private static let bookmarksKey = "folderBookmarks"
     private static let removedKey = "removedFolders"
-    private static let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .contentTypeKey, .ubiquitousItemDownloadingStatusKey]
+    private static let keys: [URLResourceKey] = [
+        .isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .contentTypeKey, .ubiquitousItemDownloadingStatusKey,
+    ]
 
     private let documents: URL
     private let defaults: UserDefaults
@@ -34,9 +36,10 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
 
     /// Documents first, then picked folders by name.
     var folders: [Folder] {
-        [Folder(id: Self.documentsId, name: "Retriever")] + bookmarks.keys.compactMap { id in
-            root(id).map { Folder(id: id, name: $0.lastPathComponent) }
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        [Folder(id: Self.documentsId, name: "Retriever")]
+            + bookmarks.keys.compactMap { id in
+                root(id).map { Folder(id: id, name: $0.lastPathComponent) }
+            }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     /// Picked folders whose bookmark no longer resolves; the person needs to remove them and pick them again.
@@ -111,7 +114,8 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
         var scanned: [String] = []
         for folder in folders {
             guard let base = root(folder.id), (try? base.checkResourceIsReachable()) == true,
-                  let (found, evicted) = scan(folderId: folder.id, label: folder.name, base: base) else { continue }
+                let (found, evicted) = scan(folderId: folder.id, label: folder.name, base: base)
+            else { continue }
             files += found
             placeholders.formUnion(evicted)
             scanned.append(folder.id)
@@ -126,7 +130,10 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
     private func scan(folderId: String, label: String, base: URL) -> ([SourceFile], [String])? {
         // Symlinks resolved on both sides: on a device /var is /private/var, and the walker may report either.
         let basePath = base.resolvingSymlinksInPath().path
-        guard let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return nil }
+        guard
+            let walker = FileManager.default.enumerator(
+                at: base, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles, .skipsPackageDescendants])
+        else { return nil }
         var out: [SourceFile] = []
         var evicted: [String] = []
         for case let url as URL in walker {
@@ -144,16 +151,17 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
                 let dir = relative.contains("/") ? String(relative[..<relative.lastIndex(of: "/")!]) + "/" : ""
                 if FileRules.shared.shouldSkip(relativePath: dir, name: name) { return }
                 let mime = v.contentType?.preferredMIMEType ?? FileRules.shared.mimeForExtension(ext: url.pathExtension) ?? "application/octet-stream"
-                out.append(SourceFile(
-                    uri: uri,
-                    name: name,
-                    folder: (label + "/" + dir).trimmingCharacters(in: CharacterSet(charactersIn: "/")),
-                    mime: mime,
-                    kind: FileRules.shared.classify(mime: mime, relativePath: dir, name: name),
-                    size: size,
-                    modifiedAt: Int64((v.contentModificationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000),
-                    takenAt: nil
-                ))
+                out.append(
+                    SourceFile(
+                        uri: uri,
+                        name: name,
+                        folder: (label + "/" + dir).trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+                        mime: mime,
+                        kind: FileRules.shared.classify(mime: mime, relativePath: dir, name: name),
+                        size: size,
+                        modifiedAt: Int64((v.contentModificationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000),
+                        takenAt: nil
+                    ))
             }
         }
         return (out, evicted)
@@ -166,7 +174,8 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
         guard let data = bookmarks[id] else { return nil }
         var isStale = false
         guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale),
-              url.startAccessingSecurityScopedResource() else {
+            url.startAccessingSecurityScopedResource()
+        else {
             lock.withLock { _ = stale.insert(id) }
             return nil
         }

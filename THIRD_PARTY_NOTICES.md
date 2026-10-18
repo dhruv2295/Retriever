@@ -84,6 +84,7 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - core/src/androidMain/kotlin/app/retriever/core/android/AndroidExtractor.kt — ImageBytes.bitmap's loadThumbnail fallback, gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt` (Apache-2.0)
 - core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt`, by way of MediaPipeEmbedder.kt (Apache-2.0)
 - iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
+- androidApp/src/main/kotlin/app/retriever/viewer/PhotoScreen.kt — saket/telephoto `zoomable` and `sub-sampling-image` usage, as a dependency (Apache-2.0)
 - iosApp/Retriever/Views/ResultViews.swift — Queryable `Queryable/Queryable/View/PhotoResult` (grid layout reference) (MIT)
 
 ## Runtime libraries
@@ -111,9 +112,12 @@ and every pin in the iOS `Package.resolved`. Licences are read from each artifac
 | com.google.mediapipe | Apache-2.0 (also the iOS pin `mediapipe`) |
 | com.google.mlkit | ML Kit Terms of Service (binary client libraries, not open source) |
 | com.google.protobuf | BSD-3-Clause (upstream) |
-| io.insert-koin | Apache-2.0 |
+| com.squareup.okio | Apache-2.0 (okio, a Telephoto dependency) |
+| dev.drewhamilton.poko | Apache-2.0 (annotations only, a Telephoto dependency) |
+| io.insert-koin | Apache-2.0 (koin-android, koin-androidx-compose, koin-androidx-workmanager) |
 | javax.inject | Apache-2.0 |
 | org.checkerframework | MIT (checker-qual) and GPL-2.0 with the Classpath Exception (checker-compat-qual); used at compile time only |
+| me.saket.telephoto | Apache-2.0 (zoomable, sub-sampling-image: the photo viewer's pinch, double-tap zoom, fling and tiled decoding) |
 | org.jetbrains | Apache-2.0 |
 | org.jetbrains.androidx.lifecycle, org.jetbrains.androidx.savedstate | Apache-2.0 |
 | org.jetbrains.compose.animation, org.jetbrains.compose.annotation-internal, org.jetbrains.compose.collection-internal, org.jetbrains.compose.foundation, org.jetbrains.compose.runtime, org.jetbrains.compose.ui | Apache-2.0 |

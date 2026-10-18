@@ -13,7 +13,11 @@ import app.retriever.core.FileSource
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Folders the person picked with the system file picker, for phones without all-files access. URIs are document
@@ -36,13 +40,16 @@ class SafSource(
         val skipped = skip()
         val known = if (trees.isEmpty()) emptySet() else listed()
         val describe = volumeDescriber(context)
+        val ctx = currentCoroutineContext()
         val files = ArrayList<SourceFile>()
         val walked = HashSet<String>()
         var failed = false
         for (tree in trees) {
             try {
-                walk(tree.toUri(), skipped, known, describe, files)
+                walk(ctx, tree.toUri(), skipped, known, describe, files)
                 walked += "$tree/document/"
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 // Revoked in Settings, or on a card that is out: its files keep their index until it is back.
                 failed = true
@@ -52,10 +59,11 @@ class SafSource(
         Changes(files, emptyList(), "", isFullScan = true, scope = if (failed) walked else setOf(PREFIX))
     }
 
-    private fun walk(tree: Uri, skipped: Set<Kind>, known: Set<String>, describe: (String) -> String?, out: MutableList<SourceFile>) {
+    private fun walk(ctx: CoroutineContext, tree: Uri, skipped: Set<Kind>, known: Set<String>, describe: (String) -> String?, out: MutableList<SourceFile>) {
         val resolver = context.contentResolver
         val dirs = ArrayDeque(listOf(DocumentsContract.getTreeDocumentId(tree)))
         while (dirs.isNotEmpty()) {
+            ctx.ensureActive()
             val dir = dirs.removeLast()
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, dir)
             val cursor = resolver.query(children, PROJECTION, null, null, null) ?: error("No cursor for $children")

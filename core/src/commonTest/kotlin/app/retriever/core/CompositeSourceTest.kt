@@ -17,8 +17,11 @@ class CompositeSourceTest {
         override suspend fun changes(since: String?): Changes {
             seen += since
             val all = files.map { SourceFile(it, it.substringAfterLast('/'), "", "image/jpeg", Kind.PHOTO, 10, 1) }
-            return if (since == null || alwaysFull) Changes(all, emptyList(), token, isFullScan = true)
-            else Changes(emptyList(), emptyList(), token)
+            return if (since == null || alwaysFull) {
+                Changes(all, emptyList(), token, isFullScan = true)
+            } else {
+                Changes(emptyList(), emptyList(), token)
+            }
         }
     }
 

@@ -1,7 +1,6 @@
-// Ported from Retriever's Android DuplicatesScreen.kt (same project). Modified for iOS: photos go to Recently
-// Deleted through PhotoKit, folder files are removed, and the oldest copy is kept by default.
+// Ported from Retriever's Android DuplicatesScreen.kt (same project). Modified for iOS: only files in added
+// folders are compared (PhotoKit has no public byte size), they are removed, and the oldest copy is kept by default.
 
-import Photos
 import RetrieverCore
 import SwiftUI
 
@@ -28,16 +27,17 @@ struct DuplicatesView: View {
     var body: some View {
         Group {
             if failed {
-                StateView(art: "IllusEmpty", title: "Couldn't look for duplicates", message: "Something went wrong. Try again.") {
+                StateView(mood: .trouble, title: "Couldn't look for duplicates", message: "Something went wrong. Try again.") {
                     Button("Try again") { Task { await scan() } }.buttonStyle(.borderedProminent)
                 }
             } else if let groups, groups.isEmpty {
-                StateView(art: "IllusEmpty", title: "No duplicates found",
-                          message: "Retriever compared \(Format.files(model.snap?.total ?? 0)) and found no copies bigger than 1 MB.")
+                StateView(
+                    mood: .noMatch, title: "No duplicates found",
+                    message: "Retriever checked the files in your added folders and found no copies bigger than 1 MB. Photos aren't checked.")
             } else if let groups {
                 list(groups)
             } else {
-                StateView(art: "IllusReading", title: "Looking for copies", message: "This can take a minute.") { ProgressView() }
+                StateView(mood: .walking, title: "Looking for copies", message: "This can take a minute.") { ProgressView() }
             }
         }
         .navigationTitle("Duplicates")
@@ -48,7 +48,7 @@ struct DuplicatesView: View {
             Button("Delete", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(deleteMessage)
+            Text("They can't be recovered.")
         }
         .task {
             if groups == nil { await scan() }
@@ -60,7 +60,7 @@ struct DuplicatesView: View {
             Section {
                 Text("\(Copy.bytes(groups.reduce(0) { $0 + $1.wastedBytes })) could be freed").font(.headline)
             } footer: {
-                Text("The oldest copy of each file is kept. Tap a copy to change what goes.")
+                Text("Compares files in the folders you added, not photos. The oldest copy of each file is kept. Tap a copy to change what goes.")
             }
             ForEach(groups, id: \.files.first!.uri) { group in
                 Section("\(group.files.count) copies · \(Copy.bytes(group.size)) each") {
@@ -73,7 +73,9 @@ struct DuplicatesView: View {
     private func row(_ file: SourceFile) -> some View {
         let checked = selected.contains(file.uri)
         return HStack(spacing: 8) {
-            Button { toggle(file.uri) } label: {
+            Button {
+                toggle(file.uri)
+            } label: {
                 HStack(spacing: 12) {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
@@ -86,9 +88,13 @@ struct DuplicatesView: View {
             .accessibilityAddTraits(checked ? .isSelected : [])
             .accessibilityHint(checked ? "Selected to delete. Double-tap to keep it." : "Kept. Double-tap to select it for deleting.")
             // Look before deleting: copies often have identical thumbnails.
-            Button { openFile(file) } label: { Image(systemName: "arrow.up.forward.square") }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Open \(file.name)")
+            Button {
+                openFile(file)
+            } label: {
+                Image(systemName: "arrow.up.forward.square")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Open \(file.name)")
         }
     }
 
@@ -96,7 +102,9 @@ struct DuplicatesView: View {
         VStack(spacing: 8) {
             if keepOne { Text("Keep at least one copy of each file").font(.footnote) }
             if notDeleted > 0 { Text(notDeleted == 1 ? "1 file wasn't deleted" : "\(notDeleted) files weren't deleted").font(.footnote).foregroundStyle(.red) }
-            Button { confirming = true } label: {
+            Button {
+                confirming = true
+            } label: {
                 Text("Delete \(selected.count) selected (\(Copy.bytes(selectedBytes)))").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -109,16 +117,6 @@ struct DuplicatesView: View {
 
     private var selectedBytes: Int64 {
         (groups ?? []).reduce(0) { sum, g in sum + g.size * Int64(g.files.filter { selected.contains($0.uri) }.count) }
-    }
-
-    private var deleteMessage: String {
-        let photos = selected.contains { $0.hasPrefix("ph://") }
-        let others = selected.contains { !$0.hasPrefix("ph://") }
-        switch (photos, others) {
-        case (true, false): return "They'll go to Recently Deleted in Photos. \(Copy.device) will ask you once more."
-        case (true, true): return "The photos go to Recently Deleted in Photos, and \(Copy.device) will ask you once more. The other files can't be recovered."
-        default: return "They can't be recovered."
-        }
     }
 
     /// Every copy but the oldest; files arrive oldest first.
@@ -142,7 +140,10 @@ struct DuplicatesView: View {
     }
 
     private func scan() async {
-        guard let retriever = model.services?.retriever else { return groups = [] }
+        guard let retriever = model.services?.retriever else {
+            groups = []
+            return
+        }
         failed = false
         groups = nil
         do {
@@ -159,16 +160,7 @@ struct DuplicatesView: View {
         deleting = true
         let uris = Array(selected)
         var gone = Set<String>()
-        let ids = uris.filter { $0.hasPrefix("ph://") }.map { String($0.dropFirst(5)) }
-        if !ids.isEmpty {
-            do {
-                try await PHPhotoLibrary.shared().performChanges {
-                    PHAssetChangeRequest.deleteAssets(PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil))
-                }
-                gone.formUnion(ids.map { "ph://" + $0 })
-            } catch {} // the person said no in iOS's own prompt
-        }
-        for uri in uris where !uri.hasPrefix("ph://") {
+        for uri in uris {
             if let url = services.folders.resolve(uri), (try? FileManager.default.removeItem(at: url)) != nil { gone.insert(uri) }
         }
         // The next reading round drops the deleted files from the index.

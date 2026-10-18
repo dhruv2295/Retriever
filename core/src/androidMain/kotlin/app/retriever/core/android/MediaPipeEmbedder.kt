@@ -17,7 +17,9 @@
 package app.retriever.core.android
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
+import androidx.core.graphics.createBitmap
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProbe
@@ -26,39 +28,38 @@ import app.retriever.core.Embedder
 import app.retriever.core.EmbedderClosedException
 import app.retriever.core.EmbedderFactory
 import app.retriever.core.InputTooLongException
+import app.retriever.core.Modality
 import app.retriever.core.ModelBuild
 import app.retriever.core.ModelVariant
 import app.retriever.core.Part
 import app.retriever.core.Prefix
 import app.retriever.core.Signature
+import app.retriever.core.hasNonFinite
+import app.retriever.core.probeKindFor
 import app.retriever.core.tracedAsync
 import com.google.ai.edge.litertlm.ModelInfo
 import com.google.mediapipe.tasks.components.containers.AudioData
+import com.google.mediapipe.tasks.components.containers.EmbeddingResult
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.BaseOptions.DelegateOptions.NpuOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedder
 import com.google.mediapipe.tasks.retrieval.universalembedder.UniversalEmbedderOptions
-import com.google.mediapipe.tasks.components.containers.EmbeddingResult
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 // LiteRT-LM reports it as INVALID_ARGUMENT "Input sequence length (N) exceeds maximum supported signature length".
 private fun Throwable.isInputTooLong(): Boolean =
     generateSequence(this) { it.cause }.any { it.message?.contains("exceeds maximum supported signature length") == true }
 
-class MediaPipeEmbedderFactory(
-    private val context: Context,
-    private val modelDir: File,
-    private val probe: DeviceProbe,
-) : EmbedderFactory {
+class MediaPipeEmbedderFactory(private val context: Context, private val modelDir: File, private val probe: DeviceProbe) : EmbedderFactory {
     // NPU only for SoC-specific builds; the Pixel 8 Pro (Tensor G3) has none.
-    override fun backends(build: ModelBuild) =
-        if (build.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU)
+    override fun backends(build: ModelBuild) = if (build.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU)
 
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
@@ -87,13 +88,12 @@ private fun cacheKey(model: File) = "${model.lastModified() / 1000}_${model.leng
  * older copy of the model are stale.
  */
 // ponytail: keeps every config of a present model (at most a few); prune by last use if configs multiply.
-fun staleEmbedCaches(dirs: Map<String, List<String>>, models: Map<String, String>): List<String> =
-    dirs.flatMap { (dir, entries) ->
-        val model = models.keys.firstOrNull { dir.startsWith(it.substringBeforeLast('.') + "-") }
-            ?: return@flatMap listOf(dir)
-        val current = "${model}_${models.getValue(model)}"
-        entries.filter { it.startsWith("${model}_") && !it.startsWith("$current.") }.map { "$dir/$it" }
-    }
+fun staleEmbedCaches(dirs: Map<String, List<String>>, models: Map<String, String>): List<String> = dirs.flatMap { (dir, entries) ->
+    val model = models.keys.firstOrNull { dir.startsWith(it.substringBeforeLast('.') + "-") }
+        ?: return@flatMap listOf(dir)
+    val current = "${model}_${models.getValue(model)}"
+    entries.filter { it.startsWith("${model}_") && !it.startsWith("$current.") }.map { "$dir/$it" }
+}
 
 // Recovery, model-limit reading, NPU options, per-configuration cache and close adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt (Apache-2.0); old-Mali vision-on-CPU rule from GemmaEmbeddingModelStore.kt in the same directory. Modified for Retriever: coroutine Mutex instead of synchronized, throws instead of returning null, close waits for an in-flight embed, cache dir passed through setCacheDir, no in-place CPU rebuild (a probe input tells a bad input from a broken backend, and the core records the fallback).
 private class MediaPipeEmbedder(
@@ -146,12 +146,22 @@ private class MediaPipeEmbedder(
     // Long vision kernels stall EGL fences on old Mali GPUs; run the vision encoder on CPU there.
     private val oldMaliVision = delegate == Delegate.GPU && model.vision && oldMaliGpu
 
+    // Remembers a GPU vision compile failure in this configuration's cache dir, so later opens skip the failing compile.
+    private val visionCpu = File(cache, "vision-cpu")
+
     private val embedder: UniversalEmbedder = try {
-        if (oldMaliVision) detail = "vision on CPU (old Mali GPU)"
-        build(delegate, if (oldMaliVision) Delegate.CPU else delegate)
+        val cpuVision = oldMaliVision || (delegate == Delegate.GPU && model.vision && visionCpu.exists())
+        detail = when {
+            oldMaliVision -> "vision on CPU (old Mali GPU)"
+            cpuVision -> "vision encoder on CPU (GPU failed before)"
+            else -> null
+        }
+        build(delegate, if (cpuVision) Delegate.CPU else delegate)
     } catch (e: Exception) {
         // Some GPUs (Tensor G3's Mali) can't compile the vision encoder; keep text on the GPU.
-        if (delegate != Delegate.GPU || !model.vision || oldMaliVision) throw e
+        if (delegate != Delegate.GPU || !model.vision || detail != null) throw e
+        cache.mkdirs()
+        visionCpu.createNewFile()
         detail = "vision encoder on CPU (GPU failed: ${e.message?.lineSequence()?.last()?.trim()})"
         build(delegate, Delegate.CPU)
     }
@@ -184,34 +194,47 @@ private class MediaPipeEmbedder(
     override suspend fun embedRaw(parts: List<Part>): FloatArray = withContext(Dispatchers.Default) {
         mutex.withLock {
             if (closed) throw EmbedderClosedException()
-            val result = try {
-                tracedAsync("embed.run") { infer(parts) }
+            try {
+                vector(tracedAsync("embed.run") { infer(parts) })
             } catch (e: Exception) {
                 // An over-long input fails the same way on every backend: report it so the caller splits the text.
                 if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)
                 // One odd input (an undecodable image or audio buffer) fails only itself: the file fails, the
                 // model stays. Only when a known-good input fails too is the backend broken; the caller then
                 // falls back (NPU to the generic build, GPU to CPU) and records it, never silently.
-                if (runCatching { embedder.embedText(PROBE) }.isSuccess) throw IllegalArgumentException("model rejected this input", e)
+                // A NaN output lands here too. The probe matches the failing modality: a broken vision or audio
+                // encoder still passes a text probe.
+                if (runCatching { vector(probe(probeKindFor(parts))) }.isSuccess) throw IllegalArgumentException("model rejected this input", e)
                 closed = true
                 runCatching { embedder.close() }.onFailure { Log.w(TAG, "closing failed embedder", it) }
                 throw EmbedderClosedException("${backend.name} inference failed", e)
             }
-            result.embeddings().firstOrNull()?.floatEmbedding()
-                ?: throw IllegalStateException("MediaPipe returned no embedding")
         }
     }
 
-    private fun infer(parts: List<Part>): EmbeddingResult =
-        if (parts.size == 1 && parts[0] is Part.Text) {
-            embedder.embedText((parts[0] as Part.Text).text)
-        } else {
-            embedder.embedContent(parts.map(::content))
-        }
+    private fun vector(result: EmbeddingResult): FloatArray {
+        val v = result.embeddings().firstOrNull()?.floatEmbedding() ?: throw IllegalStateException("MediaPipe returned no embedding")
+        check(!hasNonFinite(v)) { "non-finite embedding" }
+        return v
+    }
+
+    private fun probe(kind: Modality): EmbeddingResult = when {
+        kind == Modality.IMAGE -> embedder.embedContent(listOf(PROBE_JPEG))
+        kind == Modality.AUDIO && modelHasAudio -> embedder.embedContent(listOf(content(Part.Audio(ShortArray(AUDIO_SAMPLE_RATE)))))
+        else -> embedder.embedText(PROBE)
+    }
+
+    private fun infer(parts: List<Part>): EmbeddingResult = if (parts.size == 1 && parts[0] is Part.Text) {
+        embedder.embedText((parts[0] as Part.Text).text)
+    } else {
+        embedder.embedContent(parts.map(::content))
+    }
 
     private fun content(part: Part): Any = when (part) {
         is Part.Text -> part.text
+
         is Part.Image -> part.jpeg
+
         is Part.Audio -> {
             val format = AudioData.AudioDataFormat.builder()
                 .setNumOfChannels(1)
@@ -236,5 +259,12 @@ private class MediaPipeEmbedder(
     private companion object {
         const val TAG = "Retriever"
         val PROBE = Prefix.query("warm up")
+        val PROBE_JPEG: ByteArray by lazy {
+            val bitmap = createBitmap(32, 32)
+            ByteArrayOutputStream().also {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, it)
+                bitmap.recycle()
+            }.toByteArray()
+        }
     }
 }

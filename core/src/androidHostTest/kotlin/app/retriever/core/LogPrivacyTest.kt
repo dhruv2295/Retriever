@@ -26,15 +26,20 @@ class LogPrivacyTest {
     @Test
     fun aFailingExtractorLogsKindMimeSizeAndClassNotTheNameOrPath() = runTest {
         val extractor = object : Extractor {
-            override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> =
-                throw java.io.IOException("cannot open $path")
+            override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = throw java.io.IOException("cannot open $path")
         }
         val source = FakeSource().apply { next = Changes(names.map { testFile(it, Kind.PDF, folder = folder) }, emptyList(), "t", isFullScan = true) }
         val hasher = object : ContentHasher {
             override suspend fun quickHash(uri: String, size: Long): String? = null
             override suspend fun fullHash(uri: String): String? = null
         }
-        val r = Retriever(newStore(log = log).also { it.setProfile(PROFILE) }, source, extractor, FakeFactory(), FakeMonitor(), hasher, PIXEL, { true }, { true }, log, System::currentTimeMillis, { 0L })
+        val r =
+            Retriever(
+                newStore(log = log).also {
+                    it.setProfile(PROFILE)
+                },
+                source, extractor, FakeFactory(), FakeMonitor(), hasher, PIXEL, { true }, { true }, log, System::currentTimeMillis, { 0L },
+            )
         r.indexBatch(9.minutes)
 
         assertClean()

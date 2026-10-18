@@ -1,5 +1,5 @@
 #!/bin/bash
-# Archives the R8 mapping and tags the release. Run after scripts/verify.sh (it builds the release APK).
+# Archives the R8 mapping and tags the release. Run after scripts/verify.sh (it builds the per-ABI release APKs).
 # Fails unless versionCode and CURRENT_PROJECT_VERSION were bumped together since the last tag.
 # Does not push.
 set -euo pipefail

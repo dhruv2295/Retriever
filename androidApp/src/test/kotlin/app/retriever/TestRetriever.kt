@@ -1,5 +1,6 @@
 package app.retriever
 
+import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.Backend
 import app.retriever.core.Changes
@@ -38,8 +39,15 @@ fun testRetriever(
     beforeOpen: () -> Unit = {},
     profile: DeviceProfile? = null,
     dispatchers: CoreDispatchers = CoreDispatchers(),
+    wrapDriver: (SqlDriver) -> SqlDriver = { it },
 ): Retriever {
-    val store = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).let { IndexDb.Schema.create(it); Store(it, dispatchers = dispatchers) }
+    // DriverManager registers the SQLite driver once per JVM, from the first Robolectric sandbox's class loader; a test in
+    // another sandbox (NATIVE graphics) can't see that one, so load the driver class in this sandbox too.
+    Class.forName("org.sqlite.JDBC")
+    val store = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).let {
+        IndexDb.Schema.create(it)
+        Store(wrapDriver(it), dispatchers = dispatchers)
+    }
     profile?.let(store::setProfile)
     return Retriever(
         store = store,
@@ -51,8 +59,7 @@ fun testRetriever(
         },
         factory = object : EmbedderFactory {
             override fun backends(build: ModelBuild) = listOf(Backend.CPU)
-            override fun open(profile: DeviceProfile, build: ModelBuild): Embedder =
-                (embedder ?: error("no model in this test")).also { beforeOpen() }
+            override fun open(profile: DeviceProfile, build: ModelBuild): Embedder = (embedder ?: error("no model in this test")).also { beforeOpen() }
         },
         monitor = object : DeviceMonitor {
             override fun state() = DeviceState(ramGb, true, 80, Thermal.NONE)

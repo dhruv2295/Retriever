@@ -1,4 +1,5 @@
 #if DEBUG
+    import RetrieverCore
     import XCTest
     @testable import Retriever
 
@@ -43,13 +44,10 @@
 
         /// The locator and snippet parsing the results and viewers depend on (was `-selfcheck`).
         func testLocatorAndSnippetParsing() {
-            XCTAssertEqual(Format.page("p. 12"), 12)
-            XCTAssertNil(Format.page("p. 0"))
-            XCTAssertNil(Format.page("12"))
-            XCTAssertEqual(Format.ms("0:37"), 37_000)
-            XCTAssertEqual(Format.ms("1:02:03"), 3_723_000)
-            XCTAssertNil(Format.ms("p. 3"))
-            XCTAssertNil(Format.ms("1:"))
+            XCTAssertEqual(Locator.shared.pageOf(l: "p. 12")?.intValue, 12)
+            XCTAssertNil(Locator.shared.pageOf(l: "p. 0"))
+            XCTAssertEqual(Locator.shared.msOf(l: "1:02:03")?.int64Value, 3_723_000)
+            XCTAssertNil(Locator.shared.msOf(l: "1:"))
             XCTAssertEqual(Format.badge("p. 3"), "Page 3")
             XCTAssertEqual(Format.badge("0:37"), "0:37")
             XCTAssertNil(Format.badge(""))

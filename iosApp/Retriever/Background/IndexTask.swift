@@ -1,7 +1,7 @@
 @preconcurrency import BackgroundTasks
 import Foundation
-import os
 @preconcurrency import RetrieverCore
+import os
 
 /// Reads files while the app is in the background: iOS runs it when it sees fit, mostly overnight on the charger.
 /// The model runs on the CPU there (IosEmbedderFactory.backendNow), since iOS refuses GPU work in the background.
@@ -75,10 +75,16 @@ enum IndexTask {
 
     /// The task's work, apart from BGTask so the debug drill can run it where BGTaskScheduler can't.
     static func runBatch(complete: @escaping @Sendable (Bool) -> Void) {
+        // The person's continued read holds the index; it schedules the next run itself when it ends.
+        if services?.monitor.continued == true {
+            schedule()
+            return complete(true)
+        }
         guard let retriever = services?.retriever else { return complete(false) }
         expired.withLock { $0 = false }
         Task {
             var next: NextRun?
+            let started = ContinuousClock.now
             do {
                 try await retriever.refreshSetUp()
                 if expired.withLock({ $0 }) {
@@ -90,12 +96,20 @@ enum IndexTask {
                 log.error("background batch failed: \(error, privacy: .private)")
             }
             let state = retriever.stateNow
-            log.info("background batch: \(next?.name ?? "failed", privacy: .public), backend \(state.backend?.name ?? "none", privacy: .public), processed \(state.processed)")
+            log.info(
+                "background batch: \(next?.name ?? "failed", privacy: .public), backend \(state.backend?.name ?? "none", privacy: .public), processed \(state.processed)"
+            )
+            // Measured, so the estimate can count nights.
+            if state.processed > 0 {
+                try? await retriever.recordBackgroundRun(files: state.processed, seconds: (ContinuousClock.now - started).components.seconds)
+            }
             try? await retriever.release()
-            // Even when caught up: the next run reads photos taken meanwhile.
+            // Even when caught up: the next run reads photos taken meanwhile. A failed batch (.retry) rests like a
+            // cooldown: iOS has no backoff to hand it to, so the next scheduled run is the retry.
             if !retriever.prefsNow.paused { schedule() }
-            complete(next != nil)
-            log.info("background task completed, success \(next != nil)")
+            let ok = next != nil && !expired.withLock { $0 }
+            complete(ok)
+            log.info("background task completed, success \(ok)")
             DispatchQueue.main.async { NotificationCenter.default.post(name: ended, object: nil) }
         }
     }
@@ -112,12 +126,19 @@ enum IndexTask {
         task.progress.totalUnitCount = 1
         monitor.continued = true
         let pending = OSAllocatedUnfairLock(initialState: 1)
+        // Pending at the first snapshot: progress counts this read, not the whole library.
+        let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
             let waiting = snap.pending
             pending.withLock { $0 = waiting }
-            task.progress.totalUnitCount = Int64(max(snap.total, 1))
-            task.progress.completedUnitCount = Int64(snap.indexed + snap.skipped)
+            let total = max(
+                start.withLock {
+                    $0 = $0 ?? waiting
+                    return $0 ?? waiting
+                }, waiting, 1)
+            task.progress.totalUnitCount = Int64(total)
+            task.progress.completedUnitCount = Int64(total - waiting)
             task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(snap))
         }
         Task {

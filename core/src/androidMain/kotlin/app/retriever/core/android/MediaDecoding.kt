@@ -13,21 +13,27 @@ import androidx.core.graphics.scale
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.Moment
 import app.retriever.core.moments
+import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
+
+/** Messages carry the failure's class, never a URI. */
+typealias MediaLog = (String, Throwable?) -> Unit
+
+private val NO_LOG: MediaLog = { _, _ -> }
 
 object MediaDecoding {
-    /** Set once by the app to the core log; messages carry the failure's class, never a URI. */
-    @Volatile var log: (String, Throwable?) -> Unit = { _, _ -> }
-
     private const val TIMEOUT_US = 10_000L
     private const val MAX_POST_EOS_OUTPUT_TIMEOUTS = 100
 
     fun decodeAudio16kMono(context: Context, uri: Uri, maxSeconds: Int): ShortArray =
-        audioAt(context, uri, 0, maxSeconds * 1000L)
+        audioAt(context, uri, 0, maxSeconds * 1000L, EmptyCoroutineContext, NO_LOG)
 
     /** The container's duration; 0 when it can't be read. */
-    fun durationMs(context: Context, uri: Uri): Long {
+    fun durationMs(context: Context, uri: Uri, log: MediaLog): Long {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
@@ -40,8 +46,8 @@ object MediaDecoding {
         }
     }
 
-    /** Mono 16 kHz PCM for [fromMs, toMs); empty when the file has no decodable audio. */
-    fun audioAt(context: Context, uri: Uri, fromMs: Long, toMs: Long): ShortArray {
+    /** Mono 16 kHz PCM for [fromMs, toMs); empty when the file has no decodable audio. Stops within one codec step of [ctx] being cancelled. */
+    fun audioAt(context: Context, uri: Uri, fromMs: Long, toMs: Long, ctx: CoroutineContext, log: MediaLog): ShortArray {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -72,11 +78,15 @@ object MediaDecoding {
             var postEosTimeouts = 0
 
             while (!outputDone) {
+                ctx.ensureActive()
                 if (!inputDone) {
                     val i = dec.dequeueInputBuffer(TIMEOUT_US)
                     if (i >= 0) {
-                        val n = if (extractor.sampleTime >= toUs) -1
-                        else dec.getInputBuffer(i)?.let { extractor.readSampleData(it, 0) } ?: -1
+                        val n = if (extractor.sampleTime >= toUs) {
+                            -1
+                        } else {
+                            dec.getInputBuffer(i)?.let { extractor.readSampleData(it, 0) } ?: -1
+                        }
                         if (n < 0) {
                             dec.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             inputDone = true
@@ -93,6 +103,7 @@ object MediaDecoding {
                         log("audio decoder gave no EOS; stopping", null)
                         outputDone = true
                     }
+
                     o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         postEosTimeouts = 0
                         val f = dec.outputFormat
@@ -101,6 +112,7 @@ object MediaDecoding {
                         float = f.intOr(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT) ==
                             AudioFormat.ENCODING_PCM_FLOAT
                     }
+
                     o >= 0 -> {
                         postEosTimeouts = 0
                         val buf = dec.getOutputBuffer(o)!!
@@ -117,12 +129,17 @@ object MediaDecoding {
                             var sum = 0
                             var fsum = 0f
                             for (c in 0 until channels) {
-                                if (floats != null) fsum += floats.get(fr * channels + c)
-                                else sum += shorts!!.get(fr * channels + c)
+                                if (floats != null) {
+                                    fsum += floats.get(fr * channels + c)
+                                } else {
+                                    sum += shorts!!.get(fr * channels + c)
+                                }
                             }
                             val v = if (floats != null) {
                                 (fsum / channels * 32767f).coerceIn(-32768f, 32767f).toInt()
-                            } else sum / channels
+                            } else {
+                                sum / channels
+                            }
                             if (count == mono.size) mono = mono.copyOf(count * 2)
                             mono[count++] = v.toShort()
                         }
@@ -132,6 +149,8 @@ object MediaDecoding {
                 }
             }
             return resample(mono, count, rate)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log("audio decode failed", e)
             return ShortArray(0)
@@ -142,8 +161,7 @@ object MediaDecoding {
         }
     }
 
-    private fun MediaFormat.intOr(key: String, default: Int) =
-        if (containsKey(key)) getInteger(key) else default
+    private fun MediaFormat.intOr(key: String, default: Int) = if (containsKey(key)) getInteger(key) else default
 
     private fun resample(src: ShortArray, n: Int, rate: Int): ShortArray {
         if (n == 0) return ShortArray(0)
@@ -160,19 +178,30 @@ object MediaDecoding {
     }
 
     /** One bright [maxSide] px JPEG per moment; a moment whose frame and ±1 s neighbours are all black is dropped. */
-    fun momentFrames(context: Context, uri: Uri, everySec: Int, audioSec: Int, maxSide: Int = 512): List<Pair<Moment, ByteArray>> {
-        if (everySec <= 0 || definitelyUnsupported(context, uri)) return emptyList()
+    fun momentFrames(
+        context: Context,
+        uri: Uri,
+        everySec: Int,
+        audioSec: Int,
+        ctx: CoroutineContext,
+        log: MediaLog,
+        maxSide: Int = 512,
+    ): List<Pair<Moment, ByteArray>> {
+        if (everySec <= 0 || definitelyUnsupported(context, uri, log)) return emptyList()
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
             moments(durationMs, everySec, audioSec).mapNotNull { m ->
+                ctx.ensureActive()
                 listOf(m.frameMs, m.frameMs - 1000, m.frameMs + 1000)
                     .filter { it >= m.startMs && it < m.endMs }
                     .firstNotNullOfOrNull { brightJpeg(retriever, it, maxSide) }
                     ?.let { m to it }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log("video frames failed", e)
             emptyList()
@@ -184,8 +213,11 @@ object MediaDecoding {
     private fun brightJpeg(retriever: MediaMetadataRetriever, ms: Long, maxSide: Int): ByteArray? {
         val bmp = frameAt(retriever, ms * 1000, maxSide) ?: return null
         return try {
-            if (measureBrightness(bmp).isEffectivelyBlack) null
-            else ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+            if (measureBrightness(bmp).isEffectivelyBlack) {
+                null
+            } else {
+                ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
+            }
         } finally {
             bmp.recycle()
         }
@@ -205,7 +237,7 @@ object MediaDecoding {
             }
 
     // Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/VideoDecoderSupport.kt checkVideoDecoderSupport/readVideoTrackFormat (Apache-2.0). Modified for Retriever: one Boolean; anything that can't be inspected counts as supported.
-    private fun definitelyUnsupported(context: Context, uri: Uri): Boolean {
+    private fun definitelyUnsupported(context: Context, uri: Uri, log: MediaLog): Boolean {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(context, uri, null)

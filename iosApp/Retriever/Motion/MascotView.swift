@@ -133,9 +133,15 @@ private struct MascotPlayerView: UIViewRepresentable {
             // Loops keep the file's own count (forever); ImageIO reads 0 here as "no loops". One-shots play once.
             let options = (loops ? [:] : [kCGImageAnimationLoopCount: 1]) as CFDictionary
             let status = CGAnimateImageAtURLWithBlock(url as CFURL, options) { [weak self] index, image, stop in
-                guard let self, !finished else { stop.pointee = true; return }
+                guard let self, !finished else {
+                    stop.pointee = true
+                    return
+                }
                 if Task.isCancelled || (self.task?.isCancelled ?? true) {
-                    finished = true; stop.pointee = true; done.resume(); return
+                    finished = true
+                    stop.pointee = true
+                    done.resume()
+                    return
                 }
                 if shown || index != 0 { self.view.image = UIImage(cgImage: image) }
                 shown = true

@@ -12,8 +12,7 @@ class SampleModeTest {
     }
     private val extractor = FakeExtractor(files.associate { it.name to listOf(textPiece("inside ${it.name}")) })
 
-    private suspend fun Store.batch() =
-        IndexEngine(this, extractor, FakeEmbedder(), FakeMonitor(), settingsOf()).runBatch(9.minutes, requireCharging = false)
+    private suspend fun Store.batch() = IndexEngine(this, extractor, FakeEmbedder(), FakeMonitor(), settingsOf()).runBatch(9.minutes, requireCharging = false)
 
     private fun Store.state(name: String) = fileByUri("content://test/$name")?.state
 

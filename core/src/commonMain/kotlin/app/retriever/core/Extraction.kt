@@ -1,6 +1,11 @@
 package app.retriever.core
 
-/** Text rules shared by the Android and iOS extractors. */
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.roundToInt
+
+// Text rules shared by the Android and iOS extractors.
 /** Pages read through their text layer: cheap, and the head-first embed keeps the model cost per file fixed. */
 const val PDF_TEXT_PAGES = 1000
 
@@ -12,15 +17,38 @@ const val TEXT_BYTES = 2 * 1024 * 1024
 const val MIN_TEXT_CHARS = 40
 const val MIN_AUDIO_WINDOW_SEC = 2
 
+/** The longest side of an image or page bitmap read for OCR, and the width a scanned PDF page is rendered at. */
+const val MAX_PAGE_PX = 4096
+const val OCR_WIDTH = 1600
+const val OCR_SHORT_PX = 1080
+
+/** [w] x [h] scaled down (never up) to fit [maxShort] on the shorter side and [maxLong] on the longer. */
+fun fitSize(w: Int, h: Int, maxShort: Int, maxLong: Int): Pair<Int, Int> {
+    val scale = minOf(1.0, maxShort.toDouble() / minOf(w, h), maxLong.toDouble() / maxOf(w, h))
+    return if (scale >= 1.0) w to h else maxOf(1, (w * scale).roundToInt()) to maxOf(1, (h * scale).roundToInt())
+}
+
+/**
+ * The size to OCR an image at: ML Kit wants about 16 px per character, which a 1080 px short side gives for screen
+ * text, and the long side stays under [MAX_PAGE_PX] so a very tall screenshot does not decode to a huge bitmap.
+ */
+fun ocrTargetSize(w: Int, h: Int): Pair<Int, Int> = fitSize(w, h, OCR_SHORT_PX, MAX_PAGE_PX)
+
 /**
  * One running byte budget (4 x [TEXT_BYTES]) for all the entries of a zip (epub chapters, pptx slides), so a zip
  * bomb of many in-cap entries cannot add up to gigabytes. [onCut] runs once, when an entry is wanted past the budget.
  */
 class ZipBudget(private var left: Int = 4 * TEXT_BYTES, private val onCut: () -> Unit) {
-    /** The text of the next entry, read through [read] with the bytes still left; null once the budget is spent. */
-    fun entry(read: (cap: Int) -> String): String? {
-        if (left <= 0) { onCut(); return null }
-        return read(left).also { left -= it.encodeToByteArray().size }
+    /**
+     * The text of the next entry, read through [read] with the bytes still left less [reserve] (kept for a later
+     * entry that must fit); null once nothing is left to read with.
+     */
+    fun entry(reserve: Int = 0, read: (cap: Int) -> String): String? {
+        if (left - reserve <= 0) {
+            onCut()
+            return null
+        }
+        return read(left - reserve).also { left -= it.encodeToByteArray().size }
     }
 }
 
@@ -79,8 +107,7 @@ private val CELL_V = Regex("<v>([\\s\\S]*?)</v>")
 private val CELL_IS = Regex("<is>([\\s\\S]*?)</is>")
 
 /** Order of the xlsx entries [xlsxText] reads: the shared strings first, then the sheets by number; null for the rest. */
-fun xlsxOrder(entryName: String): Int? =
-    if (entryName == "xl/sharedStrings.xml") 0 else XLSX_PART.matchEntire(entryName)?.groupValues?.get(1)?.toInt()?.plus(1)
+fun xlsxOrder(entryName: String): Int? = if (entryName == "xl/sharedStrings.xml") 0 else XLSX_PART.matchEntire(entryName)?.groupValues?.get(1)?.toInt()?.plus(1)
 
 /**
  * The text of an xlsx read as the raw XML of sharedStrings.xml followed by the sheets (see [xlsxOrder]): one line
@@ -132,7 +159,11 @@ fun stripRtf(rtf: String): String {
     var fallback = 0 // fallback characters still to drop after a \uN
     var i = 0
     fun text(s: String) {
-        if (fallback > 0) fallback-- else if (!skip) out.append(s)
+        if (fallback > 0) {
+            fallback--
+        } else if (!skip) {
+            out.append(s)
+        }
     }
     while (i < rtf.length) {
         val c = rtf[i++]
@@ -141,11 +172,17 @@ fun stripRtf(rtf: String): String {
                 groups += skip to uc
                 fallback = 0
             }
+
             '}' -> {
-                groups.removeLastOrNull()?.let { (s, u) -> skip = s; uc = u }
+                groups.removeLastOrNull()?.let { (s, u) ->
+                    skip = s
+                    uc = u
+                }
                 fallback = 0
             }
+
             '\r', '\n' -> {}
+
             '\\' -> {
                 if (i >= rtf.length) break
                 val next = rtf[i]
@@ -157,11 +194,20 @@ fun stripRtf(rtf: String): String {
                             i += 2
                             if (code != null) text((if (code in 0x80..0x9F) CP1252_HIGH[code - 0x80] else code.toChar()).toString())
                         }
+
                         '*' -> skip = true
+
                         '~' -> text(" ")
+
                         '_' -> text("-")
+
                         '\\', '{', '}' -> text(next.toString())
-                        '\r', '\n' -> { fallback = 0; if (!skip) out.append('\n') }
+
+                        '\r', '\n' -> {
+                            fallback = 0
+                            if (!skip) out.append('\n')
+                        }
+
                         else -> fallback = 0 // \- optional hyphen, \| and the rest: nothing to show
                     }
                     continue
@@ -180,15 +226,21 @@ fun stripRtf(rtf: String): String {
                         text((if (param < 0) param + 65536 else param).toChar().toString())
                         fallback = uc
                     }
+
                     word == "uc" && param != null -> uc = param
-                    word == "bin" && param != null -> if (param > 0) i = minOf(i + param, rtf.length) // a negative count would rewind the cursor for ever
+
+                    word == "bin" && param != null -> if (param > 0) i = minOf(i + param, rtf.length)
+
+                    // a negative count would rewind the cursor for ever
                     word in RTF_SKIPPED -> skip = true
+
                     else -> {
                         fallback = 0
                         RTF_CHARS[word]?.let { if (!skip) out.append(it) }
                     }
                 }
             }
+
             else -> text(c.toString())
         }
     }
@@ -213,13 +265,17 @@ private fun Char.isMark() = category == CharCategory.NON_SPACING_MARK || categor
 fun looksBroken(text: String): Boolean {
     val missing = text.count { it.isMissingGlyph() }
     if (missing > 0 && missing * 100 >= text.length) return true
-    if (text.indices.any { text[it].isMark() && (it == 0 || text[it - 1].isWhitespace() || text[it - 1].isISOControl() || text[it - 1].isMissingGlyph()) }) return true
+    if (text.indices.any {
+            text[it].isMark() && (it == 0 || text[it - 1].isWhitespace() || text[it - 1].isISOControl() || text[it - 1].isMissingGlyph())
+        }
+    ) {
+        return true
+    }
     return SPLIT_MATRA.containsMatchIn(text)
 }
 
 /** After OCR of a page whose text layer was thin or broken: the longer clean one, else the longer of the two. */
-fun betterPageText(layer: String, ocr: String): String =
-    listOf(ocr, layer).maxWith(compareBy({ it.isNotBlank() && !looksBroken(it) }, { it.trim().length }))
+fun betterPageText(layer: String, ocr: String): String = listOf(ocr, layer).maxWith(compareBy({ it.isNotBlank() && !looksBroken(it) }, { it.trim().length }))
 
 enum class DocFormat { DOCX, PPTX, XLSX, ODF, EPUB, HTML, RTF, TEXT }
 
@@ -247,10 +303,67 @@ val DocFormat.textEntry: String? get() = when (this) {
     else -> null
 }
 
-/** Text chunks for a page or image; empty when there is too little text to be worth embedding. */
-fun textPieces(locator: String, text: String, maxChars: Int): List<Piece> =
-    if (text.trim().length < MIN_TEXT_CHARS) emptyList()
-    else Chunker.chunks(text, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it) }
+/** OCR text is stored once: in its text pieces, or on the image piece when it is too short to chunk. */
+fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int): List<Piece> {
+    val text = textPieces(locator, ocr, maxChars)
+    val keyword = if (text.isEmpty()) ocr.ifBlank { null } else null
+    return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword)) + text
+}
+
+/**
+ * A PDF's pieces: each page by its text layer ([text]), else rendered and read by OCR ([scanned], given the page
+ * index and its layer text) up to [PDF_OCR_PAGES], then skipped and the file marked [cutShort]. A file known to have
+ * no text layer ([hasTextLayer] false), or not known (null) with no text on any page so far, stops opening pages once
+ * the OCR cap is spent: they have nothing left to give. A page that throws is left out.
+ */
+suspend fun pdfPieces(
+    pageCount: Int,
+    hasTextLayer: Boolean?,
+    text: (Int) -> String,
+    scanned: suspend (Int, String) -> List<Piece>,
+    maxChars: Int,
+): List<Piece> {
+    val pieces = mutableListOf<Piece>()
+    var ocrPages = 0
+    var sawText = false
+    var skipped = false
+    for (i in 0 until minOf(pageCount, PDF_TEXT_PAGES)) {
+        currentCoroutineContext().ensureActive()
+        if (ocrPages >= PDF_OCR_PAGES && (hasTextLayer == false || (hasTextLayer == null && !sawText))) {
+            skipped = true
+            break
+        }
+        val locator = Locator.page(i + 1)
+        try {
+            val layer = text(i)
+            val hasText = layer.trim().length >= MIN_TEXT_CHARS
+            sawText = sawText || hasText
+            pieces += when {
+                hasText && !looksBroken(layer) -> textPieces(locator, layer, maxChars)
+
+                ocrPages < PDF_OCR_PAGES -> {
+                    ocrPages++
+                    scanned(i, layer)
+                }
+
+                else -> {
+                    skipped = true
+                    if (hasText) textPieces(locator, layer, maxChars) else emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+        }
+    }
+    if (pageCount > PDF_TEXT_PAGES || skipped) pieces += cutShort()
+    return pieces
+}
+
+fun textPieces(locator: String, text: String, maxChars: Int): List<Piece> = if (text.trim().length < MIN_TEXT_CHARS) {
+    emptyList()
+} else {
+    Chunker.chunks(text, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it) }
+}
 
 /** Consecutive [seconds]-long windows as (start second, samples); a tail shorter than [minSeconds] is dropped. */
 fun audioWindows(pcm: ShortArray, seconds: Int, minSeconds: Int = MIN_AUDIO_WINDOW_SEC): List<Pair<Int, ShortArray>> {

@@ -16,8 +16,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.measureTime
 
 class IndexPipelineTest {
-    private fun engine(store: Store, extractor: Extractor, embedder: Embedder) =
-        IndexEngine(store, extractor, embedder, FakeMonitor(), settingsOf())
+    private fun engine(store: Store, extractor: Extractor, embedder: Embedder) = IndexEngine(store, extractor, embedder, FakeMonitor(), settingsOf())
 
     private suspend fun IndexEngine.batch(deepen: Boolean = false) = runBatch(9.minutes, requireCharging = false, deepen = deepen)
 
@@ -163,6 +162,41 @@ class IndexPipelineTest {
         engine(store, extractor, FakeEmbedder()).batch()
 
         assertEquals(listOf(1), seen)
+    }
+
+    /**
+     * Indexes one file whose kind's switch [flip] turns mid-read. Returns the file's state, chunk count and attempts as
+     * the first read left them; the batch then reads it again under the new setting.
+     */
+    private suspend fun midReadSwitch(start: Set<Kind>, flip: (Set<Kind>) -> Set<Kind>, inside: Boolean): Triple<FileState, Long, Int> {
+        val store = newStore()
+        val doc = testFile("a.txt")
+        store.upsertFiles(listOf(doc))
+        var kinds = start
+        var first: Triple<FileState, Long, Int>? = null
+        // A read inside flips the switch during extraction; a name-only read has no extraction, so it flips on the name's embed.
+        val extractor = FakeExtractor(mapOf("a.txt" to listOf(textPiece("hello"))), onExtract = { if (inside) kinds = flip(kinds) })
+        val embedder = FakeEmbedder { if (!inside && first == null) kinds = flip(kinds) }
+        IndexEngine(
+            store,
+            extractor,
+            embedder,
+            FakeMonitor(),
+            { IndexSettings(PROFILE, kinds) },
+            onFile = { if (first == null) first = store.fileByUri(doc.uri)!!.let { Triple(it.state, store.chunkCount(), it.attempts) } },
+        ).batch()
+        assertEquals(FileState.INDEXED, store.fileByUri(doc.uri)!!.state, "the second read, under the new setting, commits")
+        return first!!
+    }
+
+    @Test
+    fun aKindSwitchedOffMidReadCommitsNothing() = runTest {
+        assertEquals(Triple(FileState.PENDING, 0L, 0), midReadSwitch(Kind.entries.toSet(), { it - Kind.DOC }, inside = true))
+    }
+
+    @Test
+    fun aKindSwitchedOnMidReadIsNotCommittedNameOnly() = runTest {
+        assertEquals(Triple(FileState.PENDING, 0L, 0), midReadSwitch(Kind.entries.toSet() - Kind.DOC, { it + Kind.DOC }, inside = false))
     }
 
     @Test

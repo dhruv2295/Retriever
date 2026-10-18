@@ -6,6 +6,14 @@ plugins {
 
 if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
 
+// ./gradlew -PcomposeReports :androidApp:compileDebugKotlin writes the stability reports to androidApp/build/compose.
+composeCompiler {
+    if (providers.gradleProperty("composeReports").isPresent) {
+        reportsDestination = layout.buildDirectory.dir("compose")
+        metricsDestination = layout.buildDirectory.dir("compose")
+    }
+}
+
 android {
     namespace = "app.retriever"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -20,16 +28,24 @@ android {
 
     // litertlm ships only arm64-v8a and x86_64, so a 32-bit device must not install the app. x86_64 is for emulators.
     buildTypes {
-        debug {
-            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-        }
         release {
-            ndk { abiFilters += listOf("arm64-v8a") }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Placeholder: the debug key, so local release installs work. Use a real upload key before any store release.
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    // Every variant builds one APK per ABI, no universal APK: arm64-v8a for phones, x86_64 for ChromeOS and emulators
+    // (installDebug picks the device's). The include list is what keeps 32-bit devices out; splits and ndk abiFilters
+    // conflict in any build type, so there are no filters.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
         }
     }
 
@@ -57,8 +73,7 @@ android {
         checkReleaseBuilds = true
         // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
         disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
-        // Only documented false positives and recorded decisions, each with its reason.
-        baseline = file("lint-baseline.xml")
+        // No baseline: it is empty, so a new lint issue fails the build.
     }
 
     testOptions { unitTests { isIncludeAndroidResources = true } }
@@ -77,9 +92,9 @@ android {
 // excluding it everywhere would break the Kotlin compiler classpath.
 configurations.matching { it.name == "releaseRuntimeClasspath" }.configureEach { exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect") }
 
-// Warnings are defects on the app's main compilations; test compilations may carry a dependency-forced deprecation.
+// Warnings are defects, in tests too; a dependency-forced deprecation is suppressed at its call, with the reason.
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    if (!name.contains("Test")) compilerOptions.allWarningsAsErrors.set(true)
+    compilerOptions.allWarningsAsErrors.set(true)
 }
 
 // Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning.
@@ -88,6 +103,7 @@ tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAM
 // About shows the repo's notices file; it is copied into the assets at build time, so the repo holds one copy.
 abstract class CopyNotices : DefaultTask() {
     @get:InputFile abstract val source: RegularFileProperty
+
     @get:OutputDirectory abstract val out: DirectoryProperty
 
     @TaskAction fun copy() {
@@ -118,6 +134,8 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.navigation.compose)
     implementation(libs.work.runtime)
+    implementation(libs.telephoto.zoomable)
+    implementation(libs.telephoto.sub.sampling.image)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.ui)
     implementation(libs.lifecycle.process)
@@ -126,6 +144,7 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)
+    implementation(libs.koin.androidx.workmanager)
     lintChecks(libs.compose.lint.checks)
 
     testImplementation(libs.junit)

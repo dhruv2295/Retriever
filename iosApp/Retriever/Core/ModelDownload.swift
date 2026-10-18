@@ -25,6 +25,8 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     private(set) var state: State = .idle
     /// 0...1 while downloading.
     private(set) var progress: Double = 0
+    /// The person pressed Stop: setup leaves the download alone until they start it again.
+    private(set) var stopped = false
 
     /// Set from the app delegate's handleEventsForBackgroundURLSession; called once the session's events are in.
     /// Setting it reconnects the session on a cold relaunch, so the pending events reach this delegate.
@@ -65,6 +67,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
 
     /// [allowCellular] false waits for Wi-Fi, as Android's "wait for Wi-Fi" does: the model is about 390 MB.
     func start(_ build: ModelBuild, allowCellular: Bool) {
+        stopped = false
         if RetrieverIosKt.modelReady(modelDir: dir.path, build: build) { return set(.ready) }
         // A whole file with no marker (the app closed while checking a finished download): check it, don't fetch it again.
         let size = (try? dir.appendingPathComponent(build.fileName).resourceValues(forKeys: [.fileSizeKey]))?.fileSize
@@ -91,7 +94,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         session.getAllTasks { tasks in
             // Already going, from this launch or an earlier one: adopt it rather than download it twice.
             let live = tasks.first { ($0.state == .running || $0.state == .suspended) && $0.taskDescription == description }
-            tasks.filter { $0 !== live }.forEach { $0.cancel() }
+            for stale in tasks where stale !== live { stale.cancel() }
             let task: URLSessionTask
             var fresh = false
             if let live {
@@ -126,8 +129,29 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     }
 
     func cancel() {
-        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        session.getAllTasks { tasks in for task in tasks { task.cancel() } }
         set(.idle)
+    }
+
+    /// The person's Stop. The bytes so far are kept, so starting again carries on from there.
+    func stop() {
+        stopped = true
+        session.getAllTasks { tasks in
+            for task in tasks.compactMap({ $0 as? URLSessionDownloadTask }) {
+                let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
+                task.cancel(byProducingResumeData: { data in
+                    guard parts.count == 3, let data else { return }
+                    try? data.write(to: self.resumeFile(parts[0], parts[2] == "1"), options: .atomic)
+                })
+            }
+        }
+        set(.idle)
+    }
+
+    /// On mobile data or a data-saving network right now: a Wi-Fi-only download would wait.
+    var isMetered: Bool {
+        let path = pathMonitor.currentPath
+        return path.isExpensive || path.isConstrained
     }
 
     /// For a file already in place (copied in, or an earlier run that stopped before checking). Slow: call off main.
@@ -143,16 +167,23 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     func deleteModel(_ build: ModelBuild) {
         cancel()
         let fm = FileManager.default
-        [dir.appendingPathComponent(build.fileName), marker(build.fileName),
-         resumeFile(build.fileName, true), resumeFile(build.fileName, false)].forEach { try? fm.removeItem(at: $0) }
+        let files = [
+            dir.appendingPathComponent(build.fileName), marker(build.fileName),
+            resumeFile(build.fileName, true), resumeFile(build.fileName, false),
+        ]
+        for file in files { try? fm.removeItem(at: file) }
     }
 
     // MARK: URLSessionDownloadDelegate
 
-    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+    nonisolated func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
         let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : downloadTask.countOfBytesClientExpectsToReceive
         guard total > 0 else { return }
-        let fraction = min(1, Double(totalBytesWritten) / Double(total))
+        // Whole percents: @Observable skips an equal value, so the bar redraws 100 times, not per chunk.
+        let fraction = (min(1, Double(totalBytesWritten) / Double(total)) * 100).rounded() / 100
         DispatchQueue.main.async {
             self.state = .downloading
             self.progress = fraction
@@ -162,7 +193,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let parts = (downloadTask.taskDescription ?? "").split(separator: "|").map(String.init)
         guard parts.count >= 2 else { return }
-        if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
+        if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             return set(.failed("The download didn't finish (error \(http.statusCode)). Try again in a moment."))
         }
         // The system deletes `location` when this returns, so move it now and check it afterwards.
@@ -175,9 +206,10 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         }
         set(.verifying)
         DispatchQueue.global(qos: .utility).async {
-            self.set(self.verify(file, fileName: parts[0], sha256: parts[1])
-                ? .ready
-                : .failed("The download came through damaged. Try again."))
+            self.set(
+                self.verify(file, fileName: parts[0], sha256: parts[1])
+                    ? .ready
+                    : .failed("The download came through damaged. Try again."))
         }
     }
 
@@ -185,11 +217,15 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         guard let error = error as? URLError, error.code != .cancelled else { return }
         let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
         // Kept so the next start() carries on from here instead of fetching all of it again.
-        let kept = parts.count == 3 && error.downloadTaskResumeData.map { data in
-            (try? data.write(to: resumeFile(parts[0], parts[2] == "1"), options: .atomic)) != nil
-        } == true
-        set(.failed("The download stopped: \(error.localizedDescription) " +
-            (kept ? "It picks up where it left off when you try again." : "Try again to start it over.")))
+        let kept =
+            parts.count == 3
+            && error.downloadTaskResumeData.map { data in
+                (try? data.write(to: resumeFile(parts[0], parts[2] == "1"), options: .atomic)) != nil
+            } == true
+        set(
+            .failed(
+                "The download stopped: \(error.localizedDescription) "
+                    + (kept ? "It picks up where it left off when you try again." : "Try again to start it over.")))
     }
 
     nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

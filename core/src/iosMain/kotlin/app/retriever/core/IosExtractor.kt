@@ -34,47 +34,27 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     private fun image(uri: String): ByteArray =
         checkNotNull(native.imageJpeg(uri, 512)) { "no image to read yet (an iCloud photo waits for Wi-Fi)" }.toByteArray()
 
-    /** OCR text is stored once: in its text pieces, or on the image piece when it is too short to chunk. */
-    private fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int): List<Piece> {
-        val text = textPieces(locator, ocr, maxChars)
-        val keyword = if (text.isEmpty()) ocr.ifBlank { null } else null
-        return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword)) + text
-    }
-
     // A locked PDF reports -1 and leaves the file to its name chunk. One pool per page: the whole file is one
     // coroutine task, so without it every page's renders and PDFKit objects live until the file is done.
-    private suspend fun pdf(uri: String, maxChars: Int): List<Piece> {
-        val pageCount = native.pdfPageCount(uri)
-        val pieces = mutableListOf<Piece>()
-        var ocrPages = 0
-        var skipped = false
-        for (i in 0 until minOf(pageCount, PDF_TEXT_PAGES)) {
-            currentCoroutineContext().ensureActive()
+    private suspend fun pdf(uri: String, maxChars: Int): List<Piece> = pdfPieces(
+        native.pdfPageCount(uri),
+        null,
+        text = { i -> autoreleasepool { native.pdfPageText(uri, i).orEmpty() } },
+        scanned = { i, layer ->
             autoreleasepool {
-                val locator = "p. ${i + 1}"
-                val text = native.pdfPageText(uri, i).orEmpty()
-                val hasText = text.trim().length >= MIN_TEXT_CHARS
-                pieces += when {
-                    hasText && !looksBroken(text) -> textPieces(locator, text, maxChars)
-                    ocrPages < PDF_OCR_PAGES -> {
-                        ocrPages++
-                        native.pdfPageJpeg(uri, i, 1024)?.let { imageWithText(locator, it.toByteArray(), betterPageText(text, ocr(uri, i)), maxChars) }.orEmpty()
-                    }
-                    else -> {
-                        skipped = true
-                        if (hasText) textPieces(locator, text, maxChars) else emptyList()
-                    }
-                }
+                native.pdfPageJpeg(uri, i, 1024)?.let {
+                    imageWithText(Locator.page(i + 1), it.toByteArray(), betterPageText(layer, ocr(uri, i)), maxChars)
+                }.orEmpty()
             }
-        }
-        if (pageCount > PDF_TEXT_PAGES || skipped) pieces += cutShort()
-        return pieces
-    }
+        },
+        maxChars,
+    )
 
     private suspend fun doc(file: SourceFile, uri: String, maxChars: Int): List<Piece> {
         val format = docFormat(file.name, file.mime) ?: return emptyList()
         var cut = false
         val onCut = { cut = true }
+
         // Swift decodes the bytes, so the extra byte read past the cap shows as a UTF-8 length over it.
         fun capped(text: String?, cap: Int): String = text.orEmpty().also { if (it.encodeToByteArray().size > cap) cut = true }
         fun entry(name: String, cap: Int) = capped(native.zipEntryText(uri, name, cap + 1), cap)
@@ -98,7 +78,13 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     }
 
     // Entries whose [order] is non-null are read and concatenated sorted by it.
-    private suspend fun zipText(uri: String, order: (String) -> Int?, entry: (String, Int) -> String, onCut: () -> Unit, strip: (String) -> String = ::stripXml): String {
+    private suspend fun zipText(
+        uri: String,
+        order: (String) -> Int?,
+        entry: (String, Int) -> String,
+        onCut: () -> Unit,
+        strip: (String) -> String = ::stripXml,
+    ): String {
         val budget = ZipBudget(onCut = onCut)
         val parts = mutableListOf<String>()
         for ((_, name) in native.zipEntryNames(uri).mapNotNull { name -> order(name)?.let { it to name } }.sortedBy { it.first }) {
@@ -108,10 +94,13 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         return parts.joinToString("\n")
     }
 
-    private fun video(uri: String, profile: DeviceProfile): List<Piece> =
-        if (profile.videoFrameEverySec <= 0) emptyList() else moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0).mapNotNull { m ->
+    private fun video(uri: String, profile: DeviceProfile): List<Piece> = if (profile.videoFrameEverySec <= 0) {
+        emptyList()
+    } else {
+        moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0).mapNotNull { m ->
             autoreleasepool {
                 native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m, false), momentParts(it.toByteArray(), m.frameMs, null), null) }
             }
         }
+    }
 }

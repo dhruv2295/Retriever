@@ -8,6 +8,7 @@ import kotlin.test.assertTrue
 class TextQualityTest {
     // eval/corpus/docs/Document_04.pdf (Chrome export, Type 3 Kohinoor Devanagari) read back by PDFKit on the
     // iOS 27 simulator: missing glyphs come out as NUL and vowel signs land after line breaks.
+    @Suppress("ktlint:standard:max-line-length")
     private val pdfKit = "सेवा म\u0000,\nप्रधानाचाय\u0000,\nसरस्व\nत\nी \u0000व\u0000ा मं\u0000दर, लखनऊ\n\u0000वषय: क\u0000ा छह म\u0000 प्रवेश के \u0000लए प्राथ\u0000ना पत्र\nमहोदय,\nम\u0000 अपने पुत्र आरव कु मार के \u0000लए आपके \u0000व\u0000ालय क\u0000 क\u0000ा छह म\u0000 प्रवेश चाहत\nा \u0000ँ। उसने इस वष\u0000\nक\u0000ा पाँच क\u0000 परी\u0000ा अ\u0000े अंक\u0000 से उ\u0000ीण\u0000 क\u0000 ह\u0000। उसके सभी प्रमाणपत्र और \u0000ानांतरण पत्र इस\nआवेदन के साथ\nसंलग्न ह\u0000।\nकृ पया उसे अपने \u0000व\u0000ालय म\u0000 प्रवेश द\u0000ने क\u0000 कृ पा कर\u0000। म\u0000 आपका आभारी र\u0000ँगा।\nभवदीय,\nसुर\u0000श कु मार"
 
     // The same page through poppler's pdftotext on the Mac: every glyph present, conjuncts split at the vowel sign.

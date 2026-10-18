@@ -216,7 +216,16 @@ class RetrievalEval(
                 (strong + weak) to strong.size
             }
             val top = ordered.map { it.first }
-            EvalRow(s, top.mapIndexed { qi, files -> targets[qi]?.let { files.indexOf(it) }?.takeIf { it >= 0 }?.plus(1) }, top, ordered.map { it.second }, lanes.map { it.cos }, keyword)
+            EvalRow(
+                s,
+                top.mapIndexed { qi, files ->
+                    targets[qi]?.let { files.indexOf(it) }?.takeIf { it >= 0 }?.plus(1)
+                },
+                top,
+                ordered.map { it.second },
+                lanes.map { it.cos },
+                keyword,
+            )
         }
         return EvalRun(corpus, queries, rows, embedMs, notes.distinct(), rule)
     }
@@ -295,7 +304,10 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null, product
     out.appendLine("Cells: recall@1 · recall@5 (queries) · MRR. Ranks count within the top ${RetrievalEval.LIMIT}, as search returns them.")
     out.appendLine()
     out.appendLine("### Corpus")
-    out.appendLine(corpus.groupBy { it.kind }.entries.joinToString(", ") { "${it.value.size} ${it.key}" } + " files; $matched queries with a file, ${queries.size - matched} with none.")
+    out.appendLine(
+        corpus.groupBy { it.kind }.entries.joinToString(", ") { "${it.value.size} ${it.key}" } +
+            " files; $matched queries with a file, ${queries.size - matched} with none.",
+    )
     if (notes.isNotEmpty()) out.appendLine(notes.joinToString("\n") { "- $it" })
     out.appendLine()
     out.append(strengthSection(defaultRow, productionStrong))
@@ -307,7 +319,19 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null, product
     out.appendLine("### Default")
     out.append(header)
     out.append(line(default.label, defaultRow.ranks, "default"))
-    if (production != null) out.append(line("production path (Retriever.search)", production, "agrees on ${production.indices.count { kinds[it] != null && production[it] == defaultRow.ranks[it] }}/$matched ranks"))
+    if (production !=
+        null
+    ) {
+        out.append(
+            line(
+                "production path (Retriever.search)",
+                production,
+                "agrees on ${production.indices.count {
+                    kinds[it] != null && production[it] == defaultRow.ranks[it]
+                }}/$matched ranks",
+            ),
+        )
+    }
     out.appendLine()
     val factors = listOf<Pair<String, (EvalSetting) -> EvalSetting>>(
         "Dimensions and int8" to { it.copy(dims = default.dims, int8 = default.int8) },
@@ -325,7 +349,15 @@ fun EvalRun.report(default: EvalSetting, production: List<Int?>? = null, product
     out.append(table(rows.filter { it.setting.tuning == default.tuning.copy(keywordWeight = 0.0) }))
     out.appendLine()
     out.appendLine("### Best of ${rows.size} combinations (recall@5, then MRR, then recall@1); ten best follow it")
-    out.append(table(rows.sortedWith(compareByDescending<EvalRow>({ metrics(it.ranks).at5 }).thenByDescending { metrics(it.ranks).mrr }.thenByDescending { metrics(it.ranks).at1 }).take(10)))
+    out.append(
+        table(
+            rows.sortedWith(
+                compareByDescending<EvalRow>({
+                    metrics(it.ranks).at5
+                }).thenByDescending { metrics(it.ranks).mrr }.thenByDescending { metrics(it.ranks).at1 },
+            ).take(10),
+        ),
+    )
     out.appendLine()
     out.appendLine("### Per-query ranks (- means not in the top ${RetrievalEval.LIMIT})")
     val alone = rows.firstOrNull { it.setting == default.copy(tuning = default.tuning.copy(keywordWeight = 0.0)) }
@@ -360,27 +392,45 @@ private fun groupOf(kind: Kind) = when (kind) {
 private fun EvalRun.strengthSection(row: EvalRow, productionStrong: List<Int>?): String {
     fun f3(x: Float?) = if (x == null || x.isNaN()) "-" else ((x * 1000).roundToInt() / 1000.0).toString()
     val target = queries.map { q -> q.file?.let { f -> corpus.indexOfFirst { it.name == f } } }
+
     /** The best cosine among files of [group] other than the query's own file. */
     fun wrong(qi: Int, group: String) = row.cos[qi].filterKeys { it != target[qi] && groupOf(corpus[it].kind) == group }.values.maxOrNull()
     val out = StringBuilder()
     out.appendLine("### Strong and weak (${row.setting.label}; int8 cosines, as search scores them)")
     out.appendLine(
         "A file found by words or a close name match is strong; a loose (substring or typo) name match alone is weak. " +
-            if (rule == null) "The relevance rule is off (RELEVANCE_RULE_ENABLED), so every file found by meaning is strong too."
-            else "A file found by meaning is strong when a chunk clears its group's noise line by m = ${rule.margin} (groups under ${rule.minRows} rows: all strong).",
+            if (rule == null) {
+                "The relevance rule is off (RELEVANCE_RULE_ENABLED), so every file found by meaning is strong too."
+            } else {
+                "A file found by meaning is strong when a chunk clears its group's noise line by m = ${rule.margin} (groups under ${rule.minRows} rows: all strong)."
+            },
     )
     out.appendLine()
-    out.appendLine("| Query | Group | Right | Right found by | " + kindGroups.joinToString(" | ") { "Best wrong $it" } + " | Strong | Right strong | Rank |" +
-        (if (productionStrong != null) " Production strong |" else ""))
+    out.appendLine(
+        "| Query | Group | Right | Right found by | " + kindGroups.joinToString(" | ") { "Best wrong $it" } + " | Strong | Right strong | Rank |" +
+            (if (productionStrong != null) " Production strong |" else ""),
+    )
     out.appendLine("|---|---|---|---|---|---|---|---|---|---|" + (if (productionStrong != null) "---|" else ""))
     queries.forEachIndexed { i, q ->
         val t = target[i]
         val rank = row.ranks[i]
         out.appendLine(
             "| ${q.q} | ${t?.let { groupOf(corpus[it].kind) } ?: "no match"} | ${f3(t?.let { row.cos[i][it] })} | " +
-                "${if (t == null) "-" else if (t in row.keyword[i]) "keyword" else "meaning"} | " +
+                "${if (t == null) {
+                    "-"
+                } else if (t in row.keyword[i]) {
+                    "keyword"
+                } else {
+                    "meaning"
+                }} | " +
                 kindGroups.joinToString(" | ") { f3(wrong(i, it)) } + " | ${row.strong[i]} | " +
-                "${if (t == null) "-" else if (rank != null && rank <= row.strong[i]) "yes" else "**no**"} | ${rank ?: "-"} |" +
+                "${if (t == null) {
+                    "-"
+                } else if (rank != null && rank <= row.strong[i]) {
+                    "yes"
+                } else {
+                    "**no**"
+                }} | ${rank ?: "-"} |" +
                 (if (productionStrong != null) " ${productionStrong[i]} |" else ""),
         )
     }
@@ -403,8 +453,14 @@ private fun EvalRun.strengthSection(row: EvalRow, productionStrong: List<Int>?):
     val strongRight = withFile.count { row.ranks[it]?.let { r -> r <= row.strong[it] } == true }
     val at5 = withFile.count { row.ranks[it]?.let { r -> r <= 5 } == true }
     val at5Strong = withFile.count { row.ranks[it]?.let { r -> r <= 5 && r <= row.strong[it] } == true }
-    out.appendLine("- Right file strong: $strongRight/${withFile.size}. Recall@5 over strong hits: $at5Strong/${withFile.size} (over all hits: $at5/${withFile.size}).")
-    out.appendLine("- No-match queries with no strong hit: ${noMatch.count { row.strong[it] == 0 }}/${noMatch.size}; strong hits on them: ${noMatch.sumOf { row.strong[it] }}.")
+    out.appendLine(
+        "- Right file strong: $strongRight/${withFile.size}. Recall@5 over strong hits: $at5Strong/${withFile.size} (over all hits: $at5/${withFile.size}).",
+    )
+    out.appendLine(
+        "- No-match queries with no strong hit: ${noMatch.count {
+            row.strong[it] == 0
+        }}/${noMatch.size}; strong hits on them: ${noMatch.sumOf { row.strong[it] }}.",
+    )
     out.appendLine("- Strong hits per query with a file: ${withFile.sumOf { row.strong[it] }} over ${withFile.size} queries.")
     return out.toString()
 }

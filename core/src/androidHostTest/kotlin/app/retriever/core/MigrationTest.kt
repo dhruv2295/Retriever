@@ -4,6 +4,7 @@ import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -13,7 +14,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(3L, IndexDb.Schema.version)
+        assertEquals(4L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -97,6 +98,47 @@ class MigrationTest {
         assertEquals(1L, store.starredCount())
     }
 
+    @Test
+    fun version3GainsTheListIndexesAndTheQueriesUseThem() {
+        // 3.db is SQLDelight's snapshot of schema 3 (verifyCommonMainIndexDbMigration replays 3.sqm on it too).
+        val v3 = File.createTempFile("index-v3", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v3, overwrite = true)
+        val migrated = JdbcSqliteDriver("jdbc:sqlite:${v3.path}")
+        assertTrue("files_by_size" !in indexes(migrated))
+        IndexDb.Schema.migrate(migrated, 3, IndexDb.Schema.version).value
+        val fresh = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+
+        for (driver in listOf(migrated, fresh)) {
+            assertTrue(indexes(driver).containsAll(listOf("files_by_modified", "files_by_size", "files_by_kind_time", "chunks_tail")))
+            val tail = count(driver, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'chunks_tail' AND sql LIKE '%tail_attempts%WHERE vector IS NULL'")
+            assertEquals(1L, tail, "chunks_tail covers tail_attempts and keeps its predicate")
+            val relink = plan(
+                driver,
+                "UPDATE OR IGNORE starred SET uri = COALESCE((SELECT f.uri FROM files f WHERE f.name = starred.name AND " +
+                    "f.size = starred.size AND f.modified_at = starred.modified_at AND f.uri NOT IN (SELECT uri FROM starred) " +
+                    "ORDER BY f.id LIMIT 1), uri) WHERE uri NOT IN (SELECT uri FROM files)",
+            )
+            assertTrue(relink.any { "SEARCH f USING INDEX files_by_size" in it }, relink.toString())
+            val newest = plan(
+                driver,
+                "SELECT * FROM files WHERE (?1 IS NULL OR kind = ?1) AND (?2 IS NULL OR folder = ?2) " +
+                    "ORDER BY modified_at DESC, id LIMIT 10 OFFSET 0",
+            )
+            assertTrue(newest.any { "USING INDEX files_by_modified" in it } && newest.none { "TEMP B-TREE" in it }, newest.toString())
+            val ofKind = plan(driver, "SELECT * FROM files WHERE kind IN ('PHOTO') ORDER BY COALESCE(taken_at, modified_at) DESC, id LIMIT 15")
+            assertTrue(ofKind.any { "files_by_kind_time" in it }, ofKind.toString())
+        }
+        migrated.close()
+    }
+
+    private fun indexes(driver: SqlDriver): List<String> = strings(driver, "SELECT name FROM sqlite_master WHERE type = 'index'", 0)
+
+    private fun plan(driver: SqlDriver, sql: String): List<String> = strings(driver, "EXPLAIN QUERY PLAN $sql", 3)
+
+    private fun strings(driver: SqlDriver, sql: String, column: Int): List<String> = driver.executeQuery(null, sql, { c ->
+        QueryResult.Value(buildList { while (c.next().value) add(c.getString(column)!!) })
+    }, 0).value
+
     private fun terms(driver: SqlDriver): List<String> {
         driver.execute(null, "CREATE VIRTUAL TABLE terms USING fts4aux(chunk_fts)", 0)
         return driver.executeQuery(null, "SELECT term FROM terms WHERE col = '*'", { c ->
@@ -104,8 +146,10 @@ class MigrationTest {
         }, 0).value.also { driver.execute(null, "DROP TABLE terms", 0) }
     }
 
-    private fun count(driver: SqlDriver, sql: String): Long =
-        driver.executeQuery(null, sql, { c -> c.next(); QueryResult.Value(c.getLong(0)!!) }, 0).value
+    private fun count(driver: SqlDriver, sql: String): Long = driver.executeQuery(null, sql, { c ->
+        c.next()
+        QueryResult.Value(c.getLong(0)!!)
+    }, 0).value
 
     /** The tables as schema [version] 1 or 2 created them; version 1 had no partial column. */
     private fun createOldSchema(driver: SqlDriver, version: Int) {

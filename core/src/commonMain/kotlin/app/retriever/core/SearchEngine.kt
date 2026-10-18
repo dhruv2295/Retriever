@@ -29,7 +29,13 @@ private fun sortedHas(a: LongArray, x: Long): Boolean {
     var hi = a.size - 1
     while (lo <= hi) {
         val mid = (lo + hi) ushr 1
-        if (a[mid] < x) lo = mid + 1 else if (a[mid] > x) hi = mid - 1 else return true
+        if (a[mid] < x) {
+            lo = mid + 1
+        } else if (a[mid] > x) {
+            hi = mid - 1
+        } else {
+            return true
+        }
     }
     return false
 }
@@ -129,12 +135,8 @@ class SearchEngine(
         }
     }
 
-    suspend fun search(
-        query: String,
-        mode: Mode = Mode.MERGED,
-        limit: Int = 20,
-        kinds: Set<Kind>? = null,
-    ): SearchResult = search(SearchRequest(query, kinds, limit = limit, mode = mode))
+    suspend fun search(query: String, mode: Mode = Mode.MERGED, limit: Int = 20, kinds: Set<Kind>? = null): SearchResult =
+        search(SearchRequest(query, kinds, limit = limit, mode = mode))
 
     /** The keyword and name lanes run beside the query embed; the scan and fusion follow it. */
     suspend fun search(req: SearchRequest): SearchResult = coroutineScope {
@@ -205,9 +207,11 @@ class SearchEngine(
             val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkIds[it] }) }
             // A picked row whose chunk is gone was deleted after the load: mark it and scan again, so it frees its slot.
             var missed = false
-            for (row in top.rows) if (l.view.chunkIds[row] !in rows) {
-                l.dead[row] = true
-                missed = true
+            for (row in top.rows) {
+                if (l.view.chunkIds[row] !in rows) {
+                    l.dead[row] = true
+                    missed = true
+                }
             }
             if (missed) l.anyDead = true
             // Past MAX_PASSES that kept finding dead rows, reload in full once; the scan after the reload is the last.
@@ -217,22 +221,32 @@ class SearchEngine(
             }
             val hits = top.rows.indices.mapNotNull { i ->
                 val row = top.rows[i]
-                rows[l.view.chunkIds[row]]?.let { Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modalities[row].toInt()) }
+                rows[l.view.chunkIds[row]]?.let {
+                    Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modalities[row].toInt())
+                }
             }
             return Lane(hits, Source.MEANING, if (rule != null && histogram != null) rule.minStrong(histogram) else null)
         }
     }
 
     private fun wordLanes(q: String, f: Filter): List<Lane> {
-        val words = traced("kw.fts") {
-            val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
-            val rows = store.chunks(hits.map { it.chunkId })
-            hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admits(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+        // One letter matches almost every chunk (28-46 ms while typing); the names lane already answers it in about 1 ms.
+        val words = if (q.length < 2) {
+            emptyList()
+        } else {
+            traced("kw.fts") {
+                val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
+                val rows = store.chunks(hits.map { it.chunkId })
+                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admits(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+            }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
     }
 
-    /** Exact and prefix matches are evidence like a keyword's; substring and typo matches are a lane of their own. */
+    /**
+     * Exact and prefix matches are evidence like a keyword's; substring and typo matches are a lane of their own. A file
+     * whose own name holds every query word gets a lane too, which fusion puts first.
+     */
     private fun nameLanes(q: String, f: Filter): List<Lane> = traced("kw.names") {
         val index = nameIndex()
         if (index == null) {
@@ -240,8 +254,13 @@ class SearchEngine(
         } else {
             val dates = f.dates
             val hits = index.search(q, f.kinds, CANDIDATES) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
-            val (close, loose) = hits.partition { it.match <= MatchClass.PREFIX }
-            listOf(Lane(close.map { Candidate(it.id) }, Source.NAME), Lane(loose.map { Candidate(it.id) }, Source.NAME_LOOSE))
+            val (exact, rest) = hits.partition { it.exactName }
+            val (close, loose) = rest.partition { it.match <= MatchClass.PREFIX }
+            listOf(
+                Lane(exact.map { Candidate(it.id) }, Source.NAME_EXACT),
+                Lane(close.map { Candidate(it.id) }, Source.NAME),
+                Lane(loose.map { Candidate(it.id) }, Source.NAME_LOOSE),
+            )
         }
     }
 
@@ -336,7 +355,7 @@ class SearchEngine(
     fun scanTop(q: Vector, n: Int, table: VectorTable, allowed: BooleanArray? = null): List<Pair<Long, Float>> =
         scan(q, n, table, allowed).let { s -> List(s.rows.size) { table.chunkIds[s.rows[it]] to s.cos[it] } }
 
-    private enum class Source { MEANING, WORDS, NAME, NAME_LOOSE }
+    private enum class Source { MEANING, WORDS, NAME_EXACT, NAME, NAME_LOOSE }
 
     /** [minStrong]: a meaning lane's per-modality strong line from [RelevanceRule.minStrong]; null calls every hit strong. */
     private class Lane(val hits: List<Candidate>, val source: Source, val minStrong: FloatArray? = null)
@@ -379,19 +398,33 @@ class SearchEngine(
      * Fuses the lanes per file with reciprocal rank fusion. A file shows its best-ranked chunk; a name-only match
      * shows no chunk and opens the file at the start. The first [limit] fused files that pass [f] are then split:
      * strong (found by words, an exact or prefix name match, or by meaning with a chunk on or above its group's strong
-     * line), then weak, each in fused order. Returns the hits and the strong count.
+     * line), then weak, each in fused order. Files named exactly by the query come first, before the [limit] cut.
+     * Returns the hits and the strong count.
      */
     private fun toHits(lanes: List<Lane>, f: Filter, limit: Int, words: List<String>): Pair<List<Hit>, Int> {
         val best = HashMap<Long, Pair<Int, Candidate>>()
         val strong = HashSet<Long>()
         val byName = HashSet<Long>()
+        val exact = HashSet<Long>()
         val perLane = lanes.map { lane ->
             val seen = LinkedHashSet<Long>()
             for (c in lane.hits) {
                 when (lane.source) {
                     Source.MEANING -> if (lane.minStrong == null || c.cos >= lane.minStrong[c.modality]) strong += c.fileId
+
                     Source.WORDS -> strong += c.fileId
-                    Source.NAME -> { strong += c.fileId; byName += c.fileId }
+
+                    Source.NAME_EXACT -> {
+                        strong += c.fileId
+                        byName += c.fileId
+                        exact += c.fileId
+                    }
+
+                    Source.NAME -> {
+                        strong += c.fileId
+                        byName += c.fileId
+                    }
+
                     Source.NAME_LOOSE -> byName += c.fileId
                 }
                 if (!seen.add(c.fileId)) continue
@@ -403,11 +436,12 @@ class SearchEngine(
             }
             seen.toList()
         }
-        val ranked = if (lanes.size == 1) {
+        val fused = if (lanes.size == 1) {
             perLane[0].mapIndexed { i, id -> id to 1.0 / (i + 1) }
         } else {
             rrfMerge(perLane, tuning.rrfK, lanes.map { if (it.source == Source.MEANING) 1.0 else tuning.keywordWeight })
         }
+        val ranked = fused.sortedByDescending { it.first in exact } // stable: fused order holds within each group
         return traced("fuse.lookups") {
             val picked = ArrayList<Pair<Pair<Long, Double>, SourceFile>>()
             var at = 0
@@ -452,7 +486,8 @@ class SearchEngine(
 
         /**
          * The sentence of [text] that holds the most of [words] (a word of 3+ letters also matches as a prefix, as the
-         * keyword lane's last word does), cut to [SNIPPET] characters; the start of [text] when none holds any.
+         * keyword lane's last word does), cut to [SNIPPET] characters from a little before its first matched word, so a
+         * match deep in an unpunctuated run still shows; the start of [text] when none holds any.
          */
         fun bestSentence(text: String, words: List<String>): String {
             var best: String? = null
@@ -460,15 +495,22 @@ class SearchEngine(
             if (words.isNotEmpty()) {
                 for (s in sentences(text)) {
                     val tokens = Store.ftsTokens(foldLatin(s))
-                    val score = words.count { w -> tokens.any { it == w || (w.length >= 3 && it.startsWith(w)) } }
+                    val score = words.count { w -> tokens.any { matches(it, w) } }
                     if (score > bestScore) {
                         best = s
                         bestScore = score
                     }
                 }
             }
-            return (best ?: text).take(SNIPPET)
+            val s = best ?: return text.take(SNIPPET)
+            // Positions come from the unfolded sentence: folding can change its length.
+            val at = WORD.findAll(s).firstOrNull { m -> foldLatin(m.value).let { t -> words.any { matches(t, it) } } }?.range?.first ?: 0
+            return s.substring(maxOf(0, at - 40)).take(SNIPPET)
         }
+
+        private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word))
+
+        private val WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
 
         private fun sentences(text: String): List<String> {
             val out = ArrayList<String>()
@@ -480,7 +522,11 @@ class SearchEngine(
             }
             for (i in text.indices) {
                 val c = text[i]
-                if (c == '\n' || c == '।' || c == '。' || ((c == '.' || c == '!' || c == '?') && (i + 1 == text.length || text[i + 1].isWhitespace()))) cut(i + 1)
+                if (c == '\n' || c == '।' || c == '。' ||
+                    ((c == '.' || c == '!' || c == '?') && (i + 1 == text.length || text[i + 1].isWhitespace()))
+                ) {
+                    cut(i + 1)
+                }
             }
             cut(text.length)
             return out

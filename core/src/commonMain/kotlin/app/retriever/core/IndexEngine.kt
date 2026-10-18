@@ -36,13 +36,13 @@ class IndexEngine(
     private val busy: () -> Boolean = { false },
     /** Suspends while the UI needs the model (a search in flight), so indexing never delays a query. */
     private val awaitUi: suspend () -> Unit = {},
+    /** The next files to read, e.g. the first run's plan only; empty ends the reading. */
+    private val pendingPage: () -> List<Store.StoredFile> = { store.pending(PAGE, store.prefs().sampleSize) },
+    /** The next text chunks to embed; empty ends the deepen pass. */
+    private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
 ) {
-    suspend fun runBatch(
-        budget: Duration,
-        requireCharging: Boolean,
-        pauseWhenHot: Boolean = true,
-        deepen: Boolean = false,
-    ): BatchResult {
+    /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
+    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
         val start = TimeSource.Monotonic.markNow()
         var processed = 0
         var failed = 0
@@ -53,12 +53,9 @@ class IndexEngine(
             fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
             if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
             val now = settings()
-            if (now.paused) return stop(StopReason.PAUSED)
-            if (busy()) return stop(StopReason.BUSY)
             val state = monitor.state()
-            if (state.hot && pauseWhenHot) return stop(StopReason.HOT)
-            if (requireCharging && !state.charging) return stop(StopReason.UNPLUGGED)
-            if (files.isEmpty()) files += store.pending(PAGE, store.prefs().sampleSize)
+            stopReason(now, state, busy(), requireCharging(state), pauseWhenHot)?.let { return stop(it) }
+            if (files.isEmpty()) files += pendingPage()
             val next = files.removeFirstOrNull()
             if (next != null) {
                 val metric = index(next, now, state)
@@ -67,7 +64,7 @@ class IndexEngine(
                 continue
             }
             if (!deepen || embedder == null) return stop(StopReason.DONE)
-            if (tails.isEmpty()) tails += store.tailChunks(PAGE)
+            if (tails.isEmpty()) tails += tailPage()
             embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
         }
     }
@@ -100,11 +97,14 @@ class IndexEngine(
         val file = stored.file
         var extractMs = 0.0
         var embedMs = 0.0
+        // Before the attempt is counted: a search running now would otherwise wait behind this file's extraction.
+        awaitUi()
         // Count the attempt up front so a file that kills the process (OOM, native crash, LMK) still ends up skipped.
         store.markFailed(stored.id, stored.attempts + 1)
+        val readInside = file.kind in settings.kinds
         try {
             val extracted = measureTimedValue {
-                if (file.kind in settings.kinds) extractor.extract(file, settings.profile) else emptyList()
+                if (readInside) extractor.extract(file, settings.profile) else emptyList()
             }
             extractMs = extracted.duration.inWholeNanoseconds / 1e6
             val pieces = extracted.value
@@ -124,6 +124,8 @@ class IndexEngine(
                 stored.id,
                 chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector) },
                 partial = pieces.any { it.locator == CUT_SHORT },
+                // A kind switched mid-read: what was read no longer matches what the setting asks for.
+                stillCurrent = { (file.kind in this.settings().kinds) == readInside },
             )
             return FileMetric(file, pieces.size, chunks.size, extractMs, embedMs, true, null, state)
         } catch (e: CancellationException) {
@@ -139,7 +141,20 @@ class IndexEngine(
         }
     }
 
+    /** A policy that never changes mid-batch (tests, the eval). */
+    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false) =
+        runBatch(budget, { requireCharging }, pauseWhenHot, deepen)
+
     companion object {
+        /** Why a batch must not go on now, or null to carry on: checked before every file, and by Retriever before it opens the model. */
+        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean, pauseWhenHot: Boolean = true): StopReason? = when {
+            settings.paused -> StopReason.PAUSED
+            busy -> StopReason.BUSY
+            state.hot && pauseWhenHot -> StopReason.HOT
+            requireCharging && !state.charging -> StopReason.UNPLUGGED
+            else -> null
+        }
+
         /** Text-only pieces embedded per file on the first pass; the rest wait for the deepen pass. */
         const val HEAD_TEXT_CHUNKS = 8
 

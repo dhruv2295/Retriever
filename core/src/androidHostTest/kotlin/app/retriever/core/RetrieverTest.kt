@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -40,6 +41,7 @@ class RetrieverTest {
         val source = FakeSource()
         val logs = mutableListOf<String>()
         var ready = true
+        var crashed = true
 
         init {
             profile?.let(store::setProfile)
@@ -48,7 +50,7 @@ class RetrieverTest {
 
         fun retriever() = Retriever(
             store, source, extractor, factory, monitor, NoHasher, probe, { ready }, { true },
-            { m, _ -> logs += m }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher),
+            { m, _ -> logs += m }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), lastExitCrashed = { crashed },
         )
 
         val r = retriever()
@@ -111,7 +113,10 @@ class RetrieverTest {
         val f = Fx(newStore(), pixel, profile = light)
         f.store.updatePrefs { Prefs.defaultFor(light) }
         f.source.next = Changes(
-            listOf(testFile("memo.m4a", Kind.AUDIO), testFile("clip.mp4", Kind.VIDEO), testFile("a.txt")), emptyList(), "tok", isFullScan = true,
+            listOf(testFile("memo.m4a", Kind.AUDIO), testFile("clip.mp4", Kind.VIDEO), testFile("a.txt")),
+            emptyList(),
+            "tok",
+            isFullScan = true,
         )
         f.r.indexBatch(1.minutes)
         assertEquals(3L, f.store.countsByState()[FileState.INDEXED])
@@ -160,7 +165,7 @@ class RetrieverTest {
         f.r.setUiBusy(true)
         val first = async { f.r.indexBatch(1.minutes) }
         advanceUntilIdle()
-        assertTrue(f.extractor.names.isNotEmpty())
+        assertTrue(f.extractor.names.isEmpty(), "nothing is read while the UI needs the model")
         assertEquals(1, f.factory.last!!.received.size, "only the warm-up embed ran")
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         f.r.setUiBusy(false)
@@ -255,7 +260,7 @@ class RetrieverTest {
     fun aThrownOrCancelledOpenIsNoCrash() = test {
         val f = fx()
         f.factory.fail = { _, _ -> IllegalStateException("no GPU today") }
-        assertEquals(NextRun.AFTER_COOLDOWN, f.r.indexBatch(1.minutes))
+        assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertEquals("0", f.store.meta("unfinished_opens"))
 
         f.factory.fail = { _, _ -> null }
@@ -266,6 +271,15 @@ class RetrieverTest {
         f.r.cancelBatch()
         assertEquals(NextRun.SOON, batch.await())
         assertEquals("0", f.store.meta("unfinished_opens"))
+    }
+
+    /** iOS refusing a CPU open for low memory: SOON would rerun at once into the same refusal, over and over. */
+    @Test
+    fun anOpenRefusedForNowRestsInsteadOfComingBackAtOnce() = test {
+        val f = fx()
+        f.factory.fail = { _, _ -> EmbedderClosedException("not enough memory to open the model", broken = false) }
+        assertEquals(NextRun.AFTER_COOLDOWN, f.r.indexBatch(1.minutes))
+        assertEquals(Backend.CPU, f.store.profile()!!.backend)
     }
 
     @Test
@@ -332,8 +346,58 @@ class RetrieverTest {
         val first = f.r.search("f1")
         assertFalse(first.vectorLane)
         assertEquals("f1.txt", first.hits.single().file.name, "keyword results still answer")
-        assertTrue(f.r.search("f1").vectorLane)
+        assertFalse(f.r.search("f1").vectorLane, "the next search doesn't wait for the reopen")
+        advanceUntilIdle()
         assertEquals(2, f.factory.opened.size)
+        assertTrue(f.r.search("f1").vectorLane)
+    }
+
+    @Test
+    fun aSearchWithNoModelOpenAnswersFromKeywordsAndOpensItAfterwards() = test {
+        val f = fx(store = newStore(genericSig))
+        f.r.refreshSetUp()
+        f.r.indexBatch(1.minutes)
+        f.r.release()
+        f.factory.opened.clear()
+        // The open's warm-up hangs until released: a search that waited for it would never return.
+        val warmUp = CompletableDeferred<Unit>()
+        f.factory.beforeEmbed = { warmUp.await() }
+
+        val cold = f.r.search("f1")
+        assertFalse(cold.vectorLane)
+        assertEquals("f1.txt", cold.hits.single().file.name)
+        assertFalse(f.r.search("f1").vectorLane, "a second search doesn't wait either")
+        warmUp.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(1, f.factory.opened.size, "it opened once, off the searches' path")
+        assertTrue(f.r.search("f1").vectorLane)
+        assertEquals(1, f.factory.opened.size)
+    }
+
+    @Test
+    fun unfinishedOpensAfterADeathThatWasNoCrashKeepTheGpu() = test {
+        val f = fx()
+        f.store.setProfile(PROFILE.copy(backend = Backend.GPU))
+        f.store.setMeta("unfinished_opens", "2")
+        f.crashed = false
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(Backend.GPU, f.store.profile()!!.backend)
+        assertEquals(Backend.GPU, f.factory.opened.single().first.backend)
+        assertEquals("0", f.store.meta("unfinished_opens"))
+        assertEquals(null, f.store.meta("gpu_unsafe"))
+    }
+
+    @Test
+    fun tuneAgainMeasuresAGpuMarkedUnsafe() = test {
+        val f = fx()
+        val samples = Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList())
+        f.store.setMeta("gpu_unsafe", "1")
+        f.r.calibrate(samples, tuneAgain = false)
+        assertTrue(f.factory.opened.none { it.first.backend == Backend.GPU }, "first tune skips it")
+        f.factory.opened.clear()
+        f.r.calibrate(samples, tuneAgain = true)
+        assertTrue(f.factory.opened.any { it.first.backend == Backend.GPU }, "Tune again measures it")
+        assertEquals("0", f.store.meta("gpu_unsafe"))
     }
 
     @Test
@@ -365,6 +429,8 @@ class RetrieverTest {
     @Test
     fun searchImageSendsOneRawImage() = test {
         val f = fx(store = newStore(genericSig))
+        f.r.refreshSetUp()
+        f.r.warmSearch()
         val result = f.r.searchImage(ByteArray(33))
         assertTrue(result.vectorLane)
         val parts = f.factory.last!!.received.last()

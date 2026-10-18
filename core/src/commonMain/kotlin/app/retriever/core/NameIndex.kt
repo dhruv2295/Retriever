@@ -6,7 +6,8 @@ class NameEntry(val id: Long, val name: String, val folder: String, val kind: Ki
 /** Best first. */
 enum class MatchClass { EXACT, PREFIX, SUBSTRING, TYPO }
 
-data class NameHit(val id: Long, val match: MatchClass)
+/** [exactName]: an EXACT match whose words are all tokens of the file name itself, not just of its folder. */
+data class NameHit(val id: Long, val match: MatchClass, val exactName: Boolean = false)
 
 /**
  * File names and folders searched in memory while the user types. Snapshots are immutable: [update] returns a new index
@@ -38,20 +39,38 @@ class NameIndex private constructor(
     }
 
     /**
-     * Files whose name or folder matches every word of [query] and that [admit] lets through, best match class first
+     * Files whose name or folder matches every word of [query] (else all but the most common words, one dropped at a time) and that [admit] lets through, best match class first
      * and newest first within one, capped at [limit]. [admit] runs before the cap, so a filter never empties a full page.
      */
     fun search(query: String, kinds: Set<Kind>? = null, limit: Int = 100, admit: ((NameEntry) -> Boolean)? = null): List<NameHit> {
         val words = ArrayList<String>().also { tokenize(query) { t -> it += t } }
         if (words.isEmpty() || entries.isEmpty()) return emptyList()
-        var acc: ByteArray? = null
-        for (word in words) {
-            val cur = classify(word)
-            val prev = acc
-            if (prev != null) for (s in cur.indices) cur[s] = if (prev[s] == NONE || cur[s] == NONE) NONE else maxOf(prev[s], cur[s])
-            acc = cur
+        val per = words.map(::classify)
+        val live = words.indices.toMutableList()
+        while (true) {
+            val out = hits(live.map { words[it] }, live.map { per[it] }, kinds, limit, admit, relaxed = live.size < words.size)
+            if (out.isNotEmpty() || live.size < 2) return out
+            // Nothing matched every word: drop the word that matches the most files, as Store's token retry does.
+            live.remove(live.maxBy { w -> per[w].count { it != NONE } })
         }
-        val rank = acc!!
+    }
+
+    /** [relaxed]: a word was dropped, so no hit holds every query word and none is an exact name. */
+    private fun hits(
+        words: List<String>,
+        classes: List<ByteArray>,
+        kinds: Set<Kind>?,
+        limit: Int,
+        admit: ((NameEntry) -> Boolean)?,
+        relaxed: Boolean,
+    ): List<NameHit> {
+        val rank = classes[0].copyOf()
+        for (k in 1 until classes.size) {
+            for (s in rank.indices) {
+                val cur = classes[k][s]
+                rank[s] = if (rank[s] == NONE || cur == NONE) NONE else maxOf(rank[s], cur)
+            }
+        }
         val out = ArrayList<NameHit>()
         for (c in MatchClass.entries) {
             for (s in rank.indices) {
@@ -59,7 +78,8 @@ class NameIndex private constructor(
                 val e = entries[s]
                 if (kinds != null && e.kind !in kinds) continue
                 if (admit != null && !admit(e)) continue
-                out += NameHit(e.id, c)
+                val inName = !relaxed && c == MatchClass.EXACT && ArrayList<String>().also { tokenize(e.name) { t -> it += t } }.containsAll(words)
+                out += NameHit(e.id, c, inName)
                 if (out.size >= limit) return out
             }
         }
@@ -84,18 +104,35 @@ class NameIndex private constructor(
         if (q.length >= 3) {
             for (t in withAllGrams(q)) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, MatchClass.SUBSTRING)
         }
-        val edits = if (q.length >= 6) 2 else if (q.length >= 3) 1 else 0
+        val edits = if (q.length >= 6) {
+            2
+        } else if (q.length >= 3) {
+            1
+        } else {
+            0
+        }
         if (!found && edits > 0) {
-            val need = maxOf(1, q.length - 2 - 3 * edits) // each edit spoils at most 3 trigrams
+            // An edit spoils at most 3 trigrams, but an adjacent swap (one OSA edit) spoils 4.
+            val need = maxOf(1, q.length - 2 - 4 * edits)
             val shared = IntArray(tokens.size)
-            if (q.length - 2 - 3 * edits < 1) {
+            if (q.length - 2 - 4 * edits < 1) {
                 // A short word can lose every trigram to one edit ('tlak' vs 'talk'), so compare by length instead.
-                for (t in tokens.indices) if (kotlin.math.abs(tokens[t].length - q.length) <= edits && withinEdits(q, tokens[t], edits)) mark(t, MatchClass.TYPO)
-            } else for (g in 0..q.length - 3) {
-                for (t in grams[gram(q, g)] ?: continue) {
-                    if (++shared[t] == need && kotlin.math.abs(tokens[t].length - q.length) <= edits &&
+                for (t in tokens.indices) {
+                    if (kotlin.math.abs(tokens[t].length - q.length) <= edits &&
                         withinEdits(q, tokens[t], edits)
-                    ) mark(t, MatchClass.TYPO)
+                    ) {
+                        mark(t, MatchClass.TYPO)
+                    }
+                }
+            } else {
+                for (g in 0..q.length - 3) {
+                    for (t in grams[gram(q, g)] ?: continue) {
+                        if (++shared[t] == need && kotlin.math.abs(tokens[t].length - q.length) <= edits &&
+                            withinEdits(q, tokens[t], edits)
+                        ) {
+                            mark(t, MatchClass.TYPO)
+                        }
+                    }
                 }
             }
         }
@@ -120,7 +157,15 @@ class NameIndex private constructor(
         var j = 0
         var n = 0
         while (i < a.size && j < b.size) {
-            if (a[i] < b[j]) i++ else if (a[i] > b[j]) j++ else { out[n++] = a[i]; i++; j++ }
+            if (a[i] < b[j]) {
+                i++
+            } else if (a[i] > b[j]) {
+                j++
+            } else {
+                out[n++] = a[i]
+                i++
+                j++
+            }
         }
         return out.copyOf(n)
     }
@@ -167,7 +212,9 @@ class NameIndex private constructor(
 
         private fun isWordChar(c: Char) = c.isLetter() || when (c.category) {
             CharCategory.NON_SPACING_MARK, CharCategory.COMBINING_SPACING_MARK, CharCategory.ENCLOSING_MARK,
-            CharCategory.DECIMAL_DIGIT_NUMBER, CharCategory.LETTER_NUMBER, CharCategory.OTHER_NUMBER -> true
+            CharCategory.DECIMAL_DIGIT_NUMBER, CharCategory.LETTER_NUMBER, CharCategory.OTHER_NUMBER,
+            -> true
+
             else -> false
         }
 
@@ -178,8 +225,12 @@ class NameIndex private constructor(
         internal fun tokenize(s: String, out: (String) -> Unit) {
             var start = -1
             for (i in 0..s.length) {
-                if (i < s.length && isWordChar(s[i])) { if (start < 0) start = i }
-                else if (start >= 0) { out(foldLatin(s.substring(start, i))); start = -1 }
+                if (i < s.length && isWordChar(s[i])) {
+                    if (start < 0) start = i
+                } else if (start >= 0) {
+                    out(foldLatin(s.substring(start, i)))
+                    start = -1
+                }
             }
         }
 
@@ -208,7 +259,10 @@ class NameIndex private constructor(
                 }
                 if (rowMin > max && prevMin > max) return false
                 prevMin = rowMin
-                val t = prev2; prev2 = prev; prev = cur; cur = t
+                val t = prev2
+                prev2 = prev
+                prev = cur
+                cur = t
             }
             return prev[b.length] <= max
         }
@@ -218,7 +272,10 @@ class NameIndex private constructor(
         private var a = IntArray(2)
         private var n = 0
         fun last() = if (n == 0) -1 else a[n - 1]
-        fun add(v: Int) { if (n == a.size) a = a.copyOf(n * 2); a[n++] = v }
+        fun add(v: Int) {
+            if (n == a.size) a = a.copyOf(n * 2)
+            a[n++] = v
+        }
         fun toArray() = a.copyOf(n)
     }
 }

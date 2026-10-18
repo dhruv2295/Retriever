@@ -7,9 +7,19 @@ working tree. Paths are from the repo root; `core/` means `core/src/commonMain/k
 
 | Module | Holds | Source |
 |---|---|---|
-| `:core` | Kotlin Multiplatform: all logic, one `Retriever` facade. Targets Android library, `jvm` (so `commonTest` runs on the JVM), `iosArm64`, `iosSimulatorArm64` | `core/build.gradle.kts`, `settings.gradle.kts` |
+| `:core` | Kotlin Multiplatform: all logic, one `Retriever` facade. Targets an Android library (host tests: `commonTest` and `androidHostTest` run on the JVM), `iosArm64`, `iosSimulatorArm64` | `core/build.gradle.kts`, `settings.gradle.kts` |
 | `:androidApp` | Compose Material 3 UI, WorkManager worker, Koin graph | `androidApp/src/main/kotlin/app/retriever/` |
 | `iosApp` | SwiftUI app (Xcode project, not a Gradle module). Links the static `RetrieverCore` framework built from `:core` | `iosApp/Retriever/`, `core/build.gradle.kts` (`baseName = "RetrieverCore"`) |
+
+Package map. `:androidApp` is by feature under `androidApp/src/main/kotlin/app/retriever/`: `access`, `browse`, `diagnostics`,
+`di`, `duplicates`, `folders`, `home`, `indexing`, `model`, `motion`, `nav`, `search`, `settings`, `setup`, `starred`,
+`status`, `ui`, `viewer`; each screen sits with its ViewModel. `IndexWorker` stays at the package root on purpose:
+WorkManager stores the worker's fully qualified class name (`app.retriever.IndexWorker`) in its database, so moving or
+renaming it strands queued work. `:core` is one package, `app.retriever.core`, one file per feature
+(`core/Retriever.kt` the facade; `IndexEngine`, `LibrarySync`, `SearchEngine`, `NameIndex`, `QueryParser`, `Store`,
+`Calibration`, `Duplicates`, `Eval` and so on) and `core/motion/MascotDirector.kt`. `ModelHost` (`core/ModelHost.kt`) owns the one
+embedder: open, lock, backend fallback, release. `Retriever` takes it as a collaborator. Feature notes are in
+`docs/features/README.md`.
 
 Platform code in `:core` lives beside the shared code: `androidMain/.../core/android/` (MediaStore and SAF sources,
 MediaPipe embedder, extractor), `iosMain/.../core/` (Swift bridges, SQLite store, device probe). Swift supplies the
@@ -134,7 +144,7 @@ Core's `log: (String, Throwable?) -> Unit` receives messages that hold no file n
 kind, MIME, size, exception class, counts (`core/Retriever.kt:327`; `Store` logs the class only,
 `Store.kt:441`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
 Platform sinks: Android `LogSink` writes the message plus the exception class and top stack frame in release, never the
-exception message (`androidApp/.../data/LogSink.kt`); iOS logs through `os.Logger` with the message public because core
+exception message (`androidApp/.../diagnostics/LogSink.kt`); iOS logs through `os.Logger` with the message public because core
 guarantees it is clean (`AppServices.swift:59,74`). Crash and hang reports on iOS stay on the device in
 `problems.json` for the person to share by hand (`iosApp/Retriever/Diagnostics.swift`).
 

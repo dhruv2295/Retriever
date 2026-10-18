@@ -6,7 +6,7 @@ struct StatusView: View {
     let model: AppModel
 
     var body: some View {
-        let snap = model.snap ?? AppModel.Snap()
+        let snap = model.live ?? AppModel.Snap()
         StatusContent(
             snap: snap,
             photos: model.photos,
@@ -15,6 +15,7 @@ struct StatusView: View {
             skippedFiles: model.skippedFiles,
             screenKeptOn: model.screenKeptOn,
             canKeepReading: model.canKeepReading,
+            celebrating: model.caughtUpDue,
             actions: actions
         )
         .onChange(of: snap.skipped, initial: true) { _, n in
@@ -30,7 +31,9 @@ struct StatusView: View {
             useMobileData: { model.setUseMobileData(true) },
             chooseMorePhotos: model.chooseMorePhotos,
             openSettings: model.openSettings,
-            keepReading: model.keepReading
+            keepReading: model.keepReading,
+            showOnThisDay: model.setShowOnThisDay,
+            celebrate: model.celebrate
         )
     }
 }
@@ -43,6 +46,8 @@ struct StatusActions {
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
     var keepReading: () -> Void = {}
+    var showOnThisDay: (Bool) -> Void = { _ in }
+    var celebrate: () -> Void = {}
 }
 
 struct StatusContent: View {
@@ -53,6 +58,8 @@ struct StatusContent: View {
     let skippedFiles: [AppModel.SkippedFile]
     var screenKeptOn = false
     var canKeepReading = false
+    /// CAUGHT_UP is due (`AppModel.caughtUpDue`).
+    var celebrating = false
     var actions = StatusActions()
 
     var body: some View {
@@ -66,23 +73,27 @@ struct StatusContent: View {
             if snap.skipped > 0 { Section { skipped } }
             if snap.tailFiles > 0 && !snap.textOnly { Section { Note(Copy.deepReading(snap.tailFiles)) } }
             photosSection
+            if snap.setUp == true {
+                Section {
+                    Toggle("Show On This Day on Home", isOn: Binding(get: { snap.showOnThisDay }, set: { actions.showOnThisDay($0) }))
+                } footer: {
+                    Text("Photos and videos from this date in earlier years.")
+                }
+            }
             Section {
                 NavigationLink("Settings", value: Route.settings)
-            } footer: { Text(Copy.backgroundNote) }
+            } footer: {
+                Text(Copy.backgroundNote)
+            }
         }
         .navigationTitle(Copy.statusTitle(snap))
     }
 
     @ViewBuilder private var progressSection: some View {
-        if snap.running {
-            Image("IllusReading")
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: 160)
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
-                .listRowSeparator(.hidden)
-        }
+        // Walking while reading runs, resting while it waits or is paused; CAUGHT_UP once, the first time all is read.
+        StatusDog(mood: snap.running ? .walking : snap.pending > 0 ? .resting : nil, due: celebrating, done: actions.celebrate)
+            .frame(maxWidth: .infinity)
+            .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
             Text("\(Copy.count(snap.indexed)) of \(Copy.count(snap.total)) files searchable")
                 .font(.headline)
@@ -134,7 +145,7 @@ struct StatusContent: View {
         case .waitingForWifi:
             Note("Waiting for Wi-Fi.")
             Button("Use mobile data", action: actions.useMobileData)
-        case let .failed(reason): Failure(reason)
+        case .failed(let reason): Failure(reason)
         default: EmptyView()
         }
         NavigationLink("Setup details", value: Route.setup)

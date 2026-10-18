@@ -147,7 +147,7 @@ class SchemaV3Test {
 
         val texts = store.firstTextAt(listOf(pdf to "p. 1", pdf to "p. 2", photo to "", pdf to "p. 9"))
         assertEquals(mapOf((pdf to "p. 1") to "rent is due monthly", (pdf to "p. 2") to "signed by both"), texts)
-        assertEquals(store.firstTextAt(pdf, "p. 1"), texts[pdf to "p. 1"])
+        assertEquals(mapOf((pdf to "p. 1") to "rent is due monthly"), store.firstTextAt(listOf(pdf to "p. 1")))
     }
 
     @Test
@@ -159,8 +159,10 @@ class SchemaV3Test {
         val counts = store.counts().first()
         assertEquals(
             mapOf(
-                (Kind.PDF to FileState.INDEXED) to 1L, (Kind.PDF to FileState.PENDING) to 1L,
-                (Kind.PHOTO to FileState.SKIPPED) to 1L, (Kind.PHOTO to FileState.PENDING) to 1L,
+                (Kind.PDF to FileState.INDEXED) to 1L,
+                (Kind.PDF to FileState.PENDING) to 1L,
+                (Kind.PHOTO to FileState.SKIPPED) to 1L,
+                (Kind.PHOTO to FileState.PENDING) to 1L,
             ),
             counts.byKindState,
         )

@@ -1,5 +1,6 @@
 import RetrieverCore
 import XCTest
+
 @testable import Retriever
 
 extension XCTestCase {
@@ -62,6 +63,18 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.snap?.rememberSearches, false)
     }
 
+    func testSettingExcludedShowsAtOnceAndPersistsOnce() async throws {
+        let model = try await liveModel()
+        model.setExcluded("DCIM/Old", true)
+        XCTAssertEqual(model.snap?.excludedFolders.contains("DCIM/Old"), true, "the screen shows it before Prefs answers")
+        var landed = await eventually { self.prefs.excludedFolders == ["DCIM/Old"] }
+        XCTAssertTrue(landed, "excluded persists")
+        model.setExcluded("DCIM/Old", false)
+        XCTAssertEqual(model.snap?.excludedFolders.contains("DCIM/Old"), false)
+        landed = await eventually { self.prefs.excludedFolders.isEmpty }
+        XCTAssertTrue(landed, "restored persists")
+    }
+
     func testTextOnlyPhonesOfferOnlyTheKindsTheyCanRead() {
         XCTAssertEqual(AppModel.Snap.insideTextOnly, [.pdf, .doc, .screenshot])
         XCTAssertTrue(Set(AppModel.Snap.insideTextOnly).isSubset(of: AppModel.Snap.inside))
@@ -99,10 +112,14 @@ final class SettingsModelTests: XCTestCase {
     }
 
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
-        try await services.retriever.updatePrefs { $0.doCopy(kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, excludedFolders: $0.excludedFolders,
-                                                              paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
-                                                              rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
-                                                              setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed) }
+        try await services.retriever.updatePrefs {
+            $0.doCopy(
+                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, excludedFolders: $0.excludedFolders,
+                paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
+                rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
+                setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,
+                noMatchSeen: $0.noMatchSeen, showOnThisDay: $0.showOnThisDay)
+        }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)
 

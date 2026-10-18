@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class FileRulesTest {
     @Test
@@ -15,7 +16,9 @@ class FileRulesTest {
         assertEquals(
             Kind.DOC,
             FileRules.classify(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Download/", "e.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "Download/",
+                "e.docx",
             ),
         )
         assertEquals(Kind.DOC, FileRules.classify("application/octet-stream", "Download/", "f.odt"))
@@ -42,12 +45,77 @@ class FileRulesTest {
         assertFalse(FileRules.shouldSkip("Android/media/com.whatsapp/", "z.jpg"))
     }
 
+    private val day = 86_400_000L
+    private val seeds = mapOf(
+        Kind.PHOTO to 750.0,
+        Kind.SCREENSHOT to 1500.0,
+        Kind.DOC to 1000.0,
+        Kind.PDF to 1000.0,
+        Kind.VIDEO to 6000.0,
+    )
+
+    /** [days] bursts of 3 files a minute apart, folders cycling over 3. */
+    private fun library(kind: Kind, days: Int, size: Long = 1000) = (0 until days).flatMap { d ->
+        (0 until 3).map { k ->
+            val t = d * day + k * 60_000L
+            SourceFile("$kind/$d/$k", "$d$k", "F${d % 3}", "x/y", kind, size, t)
+        }
+    }
+
+    private val big = Kind.entries.filter { it in seeds }.flatMap { library(it, 120) }
+    private val plan = FileRules.planTaste(big, seeds, 90.seconds)
+    private val byUri = big.associateBy { it.uri }
+
     @Test
-    fun pickSamplesReturnsNewestPerKind() {
-        data class F(val kind: Kind, val at: Long)
-        val files = listOf(F(Kind.PHOTO, 1), F(Kind.PHOTO, 3), F(Kind.PHOTO, 2), F(Kind.DOC, 5), F(Kind.VIDEO, 9))
-        val picked = FileRules.pickSamples(files, mapOf(Kind.PHOTO to 2, Kind.DOC to 1), { it.kind }, { it.at })
-        assertEquals(setOf(F(Kind.PHOTO, 3), F(Kind.PHOTO, 2), F(Kind.DOC, 5)), picked.toSet())
-        assertEquals(3, picked.size)
+    fun planTasteIsDeterministicAndWithinBudget() {
+        assertEquals(plan, FileRules.planTaste(big.reversed(), seeds, 90.seconds))
+        assertFalse(plan.everything)
+        assertTrue(plan.seconds <= 90, "seconds=${plan.seconds}")
+    }
+
+    @Test
+    fun planTasteCoversOldestBinAndNewest() {
+        val photos = big.filter { it.kind == Kind.PHOTO }.sortedBy { it.modifiedAt }
+        val n = plan.byKind.getValue(Kind.PHOTO)
+        val firstBin = photos.take(photos.size / (n - 2)).maxOf { it.modifiedAt }
+        val times = plan.ids.map { byUri.getValue(it) }.filter { it.kind == Kind.PHOTO }.map { it.modifiedAt }
+        assertTrue(times.min() <= firstBin)
+        assertEquals(photos.last().modifiedAt, times.max())
+        assertEquals(plan.newest, big.maxOf { it.modifiedAt }.takeIf { it == plan.newest })
+    }
+
+    @Test
+    fun planTasteHonoursBurstAndFolderGuards() {
+        for ((kind, n) in plan.byKind) {
+            val picks = plan.ids.map { byUri.getValue(it) }.filter { it.kind == kind }
+            assertEquals(n, picks.size)
+            for (a in picks) for (b in picks) if (a !== b) assertTrue(kotlin.math.abs(a.modifiedAt - b.modifiedAt) >= 3_600_000L)
+            val cap = kotlin.math.ceil(0.4 * n).toInt()
+            assertTrue(picks.groupingBy { it.folder }.eachCount().values.all { it <= cap }, "$kind")
+        }
+    }
+
+    @Test
+    fun planTasteGivesEachKindItsMinimumAndFirstRoundIsTwoEach() {
+        val tight = FileRules.planTaste(big, seeds, 1.seconds)
+        for (k in seeds.keys) assertTrue(tight.byKind.getValue(k) >= if (k == Kind.VIDEO) 1 else 3, "$k")
+        val firstRound = plan.ids.take(10).map { byUri.getValue(it).kind }.groupingBy { it }.eachCount()
+        assertEquals(seeds.keys.associateWith { 2 }, firstRound)
+    }
+
+    @Test
+    fun planTasteTakesASmallLibraryWhole() {
+        val small = library(Kind.PHOTO, 2) + library(Kind.PDF, 1) + library(Kind.AUDIO, 3)
+        val p = FileRules.planTaste(small, seeds, 90.seconds)
+        assertTrue(p.everything)
+        assertEquals(9, p.ids.size)
+        assertEquals(mapOf(Kind.PHOTO to 6, Kind.PDF to 3), p.byKind)
+    }
+
+    @Test
+    fun planTasteVideosPreferSmallFilesUnder200Mb() {
+        val vids = (0 until 30).map { SourceFile("v$it", "v", "F", "video/mp4", Kind.VIDEO, if (it == 15) 5_000L else 300L shl 20, it * day) }
+        val p = FileRules.planTaste(vids, seeds, 30.seconds)
+        assertTrue("v15" in p.ids)
     }
 }

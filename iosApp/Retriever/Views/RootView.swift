@@ -27,6 +27,8 @@ struct RootView: View {
 
     var body: some View {
         content
+            .environment(model)
+            .environment(\.services, model.services)
     }
 
     @ViewBuilder private var content: some View {
@@ -44,16 +46,22 @@ struct RootView: View {
     }
 
     @ViewBuilder private var main: some View {
-        if model.started && model.setupSeen {
-            home { SearchView(model: model, search: search) }
-                // A search from Shortcuts or Siri shows over whatever page was open: back to Search first (on iPad
-                // the empty path selects it), where SearchView takes the words.
-                .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
-                    if pending?.isEmpty == false { path = [] }
-                }
-        } else {
-            SetupView(model: model, onDone: model.finishSetup).readableSetup(true)
+        let inHome = model.started && model.setupSeen
+        Group {
+            if inHome {
+                home { SearchView(model: model, search: search) }
+                    // A search from Shortcuts or Siri shows over whatever page was open: back to Search first (on iPad
+                    // the empty path selects it), where SearchView takes the words.
+                    .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
+                        if pending?.isEmpty == false { path = [] }
+                    }
+                    .transition(.opacity)
+            } else {
+                SetupView(model: model, onDone: model.finishSetup).readableSetup(true).transition(.opacity)
+            }
         }
+        // Setup gives way to Home with a fade.
+        .animation(.easeInOut(duration: 0.3), value: inHome)
     }
 
     /// Sidebar and detail at regular width; today's single stack on iPhone and in narrow windows.
@@ -74,9 +82,9 @@ struct RootView: View {
     }
 }
 
-private extension View {
+extension View {
     /// Setup reads as a column, not a stretched phone screen, on an iPad.
-    @ViewBuilder func readableSetup(_ on: Bool) -> some View {
+    @ViewBuilder fileprivate func readableSetup(_ on: Bool) -> some View {
         if on {
             frame(maxWidth: 640).frame(maxWidth: .infinity).background(Color(.systemBackground))
         } else {
@@ -90,6 +98,7 @@ struct AppStack<Root: View>: View {
     let model: AppModel
     @Binding var path: [Route]
     @State private var quickLook: URL?
+    @State private var quickLookURLs: [URL] = []
     @State private var openFailed = false
     private let root: Root
 
@@ -97,23 +106,29 @@ struct AppStack<Root: View>: View {
         self.model = model
         _path = path
         self.root = root()
-        Thumbnails.services = model.services
     }
 
     var body: some View {
         NavigationStack(path: $path) {
             root.navigationDestination(for: Route.self) { destination($0) }
         }
-        .quickLookPreview($quickLook)
-        .environment(\.openFile, OpenFile { file, locator, words in
-            if let v = viewing(file, locator: locator, words: words) {
-                path.append(Route.view(v))
-            } else if let services = model.services {
-                quickLook = services.folders.resolve(file.uri)
-                openFailed = quickLook == nil
+        .quickLookPreview($quickLook, in: quickLookURLs)
+        .environment(
+            \.openFile,
+            OpenFile { file, locator, words, among in
+                if let v = viewing(file, locator: locator, words: words, among: among) {
+                    path.append(Route.view(v))
+                } else if let folders = model.services?.folders {
+                    let urls = quickLookFiles(file, among: among).compactMap { folders.resolve($0.uri) }
+                    let url = folders.resolve(file.uri)
+                    quickLookURLs = url.map { urls.contains($0) ? urls : [$0] } ?? []
+                    quickLook = url
+                    openFailed = url == nil
+                }
             }
-        })
-        .alert("Couldn't open this file", isPresented: $openFailed) {} message: {
+        )
+        .alert("Couldn't open this file", isPresented: $openFailed) {
+        } message: {
             Text("Its folder can't be reached right now. If you moved or renamed the folder, add it again in Folders.")
         }
     }
@@ -128,13 +143,13 @@ struct AppStack<Root: View>: View {
                 .navigationBarTitleDisplayMode(.inline)
         case .settings:
             SettingsView(model: model)
-        case let .files(query):
+        case .files(let query):
             FileListView(query: query, services: model.services)
         case .folders:
             FoldersView(model: model)
         case .duplicates:
             DuplicatesView(model: model)
-        case let .view(v):
+        case .view(let v):
             viewer(v)
         }
     }

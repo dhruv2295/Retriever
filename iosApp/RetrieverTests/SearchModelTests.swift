@@ -1,6 +1,7 @@
 @preconcurrency import RetrieverCore
 import UIKit
 import XCTest
+
 @testable import Retriever
 
 @MainActor
@@ -92,13 +93,74 @@ final class SearchModelTests: XCTestCase {
         XCTAssertTrue(model.stale)
         model.scope = .all
         model.retry()
-        XCTAssertTrue(model.stale)
+        XCTAssertFalse(model.stale, "a retry asks the same question, so its answer stays")
+    }
+
+    func testScopedQuestionsCarryThePlannedIds() {
+        let model = SearchModel(services: nil)
+        model.setText("rent")
+        XCTAssertNil(model.question.scope, "Home's search is unscoped")
+        model.fileIds = [7, 3, 9]
+        XCTAssertEqual(model.question.scope?.map(\.int64Value), [7, 3, 9])
+        XCTAssertEqual(model.key.ids, [7, 3, 9])
+        // Another scope or kind keeps the ids; the same words with other ids are another question.
+        model.scope = .documents
+        XCTAssertEqual(model.question.scope?.map(\.int64Value), [7, 3, 9])
+        let before = model.question
+        model.fileIds = [7, 3]
+        XCTAssertNotEqual(model.question, before)
+        model.fileIds = nil
+        XCTAssertNil(model.question.scope)
     }
 
     func testNothingAnsweredIsStaleOnceActive() {
         let model = SearchModel(services: nil)
         model.setText("rent")
         XCTAssertTrue(model.stale)
+    }
+
+    func testANewQueryIsSearchingNeverEmpty() {
+        let model = SearchModel(services: nil)
+        XCTAssertEqual(model.screen, .idle)
+        model.setText("rent")
+        XCTAssertEqual(model.screen, .searching(slow: false))
+    }
+
+    func testAnEmptyAnswerToAnOlderQuestionIsSearching() {
+        let model = SearchModel.fixture(text: "rent", hits: [])
+        XCTAssertEqual(model.screen, .empty)
+        model.setText("rent receipt")
+        XCTAssertEqual(model.screen, .searching(slow: false))
+        model.setText("rent")
+        XCTAssertEqual(model.screen, .empty, "back to the question that was answered")
+        model.scope = .photos
+        XCTAssertEqual(model.screen, .searching(slow: false))
+    }
+
+    func testARetryOfTheSameQuestionKeepsItsEmptyAnswer() {
+        let model = SearchModel.fixture(text: "rent", hits: [])
+        model.retry()
+        XCTAssertEqual(model.screen, .empty)
+    }
+
+    func testAFailureBelongsToItsQuestion() {
+        let model = SearchModel.fixture(text: "rent", failed: true)
+        XCTAssertEqual(model.screen, .failed)
+        model.retry()
+        XCTAssertEqual(model.screen, .failed, "stays until the search answers")
+        model.setText("rental")
+        XCTAssertEqual(model.screen, .searching(slow: false))
+    }
+
+    func testResultsAreResultsAndSlowShowsOnlyWhileSearching() {
+        let slow = SearchModel.fixture(text: "rent", slow: true)
+        XCTAssertEqual(slow.screen, .searching(slow: true))
+        XCTAssertEqual(SearchModel.fixture(text: "rent", hits: []).screen, .empty)
+    }
+
+    func testTheDogMovesForTheFirstNoMatches() {
+        let model = SearchModel(services: nil)
+        XCTAssertEqual(model.noMatchMood, .noMatch)
     }
 
     func testSearchingMyExactWordsLastsUntilTheWordsChange() {
@@ -118,12 +180,14 @@ final class SearchModelTests: XCTestCase {
         let before = model.key
         model.retry()
         XCTAssertNotEqual(model.key, before)
-        XCTAssertTrue(model.key.asks(before))
+        XCTAssertEqual(model.question, before.question)
         model.setText("rental")
-        XCTAssertFalse(model.key.asks(before))
+        XCTAssertNotEqual(model.question, before.question)
         model.setText("rent")
         model.scope = .videos
-        XCTAssertFalse(model.key.asks(before))
+        XCTAssertNotEqual(model.question, before.question)
+        model.scope = .photos
+        XCTAssertNotEqual(model.question, SearchModel.fixture(text: "rent", hits: []).question)
     }
 
     func testFindSimilarNeedsTheModel() {
@@ -144,7 +208,7 @@ final class SearchModelTests: XCTestCase {
     func testSearchingWithoutServicesLeavesNothing() async {
         let model = SearchModel.fixture(text: "rent", hits: [])
         await model.search(model.key)
-        XCTAssertFalse(model.failed)
+        XCTAssertEqual(model.screen, .empty)
         XCTAssertNotNil(model.answer, "no services: the answer on screen is untouched")
     }
 
@@ -152,7 +216,12 @@ final class SearchModelTests: XCTestCase {
     /// isn't queued behind it. Without a model the embedder mutex isn't held; the self-test covers that path.
     func testACancelledSearchStopsAtOnceAndTheNextRuns() async throws {
         let stuck = Stuck()
-        let first = Task { try await awaitSearch { stuck.done = $0; return stuck } }
+        let first = Task {
+            try await awaitSearch {
+                stuck.done = $0
+                return stuck
+            }
+        }
         try await Task.sleep(for: .milliseconds(50))
         let clock = ContinuousClock()
         let cancelled = clock.now

@@ -1,7 +1,7 @@
 import Foundation
 import MetricKit
-import os
 @preconcurrency import RetrieverCore
+import os
 
 /// The one set of adapters and the Retriever facade the app, the background task and the self-test share.
 final class AppServices: Sendable {
@@ -53,9 +53,11 @@ final class AppServices: Sendable {
         folders = FolderSource(documents: documents)
         // The extractor is built before the facade it asks, so it reads the setting through this slot.
         let facade = OSAllocatedUnfairLock<Retriever?>(initialState: nil)
-        extractor = FileExtractor(folders: folders, allowMobileData: {
-            (facade.withLock { $0 }?.prefs.value as? Prefs)?.allowMobileData == true
-        })
+        extractor = FileExtractor(
+            folders: folders,
+            allowMobileData: {
+                (facade.withLock { $0 }?.prefs.value as? Prefs)?.allowMobileData == true
+            })
         let logger = Logger(subsystem: "app.retriever", category: "core")
         photos = PhotosSource()
         let created = RetrieverIosKt.createRetriever(

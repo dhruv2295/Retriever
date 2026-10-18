@@ -1,0 +1,10 @@
+-- Indexes for the Home lists, the capture-time filter and relinkStars; the deepen pass reads tail_attempts from the index.
+CREATE INDEX files_by_modified ON files(modified_at DESC, id);
+
+CREATE INDEX files_by_size ON files(size DESC, id);
+
+CREATE INDEX files_by_kind_time ON files(kind, COALESCE(taken_at, modified_at) DESC);
+
+DROP INDEX chunks_tail;
+
+CREATE INDEX chunks_tail ON chunks(file_id, tail_attempts) WHERE vector IS NULL;

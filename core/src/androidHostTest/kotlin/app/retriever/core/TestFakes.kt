@@ -22,12 +22,16 @@ internal class FakeEmbedder(override val signature: Signature = SIG, private val
         if (closed) throw EmbedderClosedException()
         received += parts
         val v = FloatArray(DIMS)
-        for (p in parts) when (p) {
-            is Part.Text -> for (word in stripPrefix(p.text).split(Regex("[^\\p{L}\\p{Nd}]+"))) {
-                if (word.isNotEmpty()) v[abs(word.lowercase().hashCode()) % DIMS] += 1f
+        for (p in parts) {
+            when (p) {
+                is Part.Text -> for (word in stripPrefix(p.text).split(Regex("[^\\p{L}\\p{Nd}]+"))) {
+                    if (word.isNotEmpty()) v[abs(word.lowercase().hashCode()) % DIMS] += 1f
+                }
+
+                is Part.Image -> v[p.jpeg.size % DIMS] += 1f
+
+                is Part.Audio -> v[7] += 1f
             }
-            is Part.Image -> v[p.jpeg.size % DIMS] += 1f
-            is Part.Audio -> v[7] += 1f
         }
         if (v.all { it == 0f }) v[0] = 1f
         return v
@@ -99,17 +103,10 @@ internal fun newStore(sig: Signature? = SIG, log: (String, Throwable?) -> Unit =
     return Store(driver, log).also { if (sig != null) it.resetForModel(sig) }
 }
 
-internal fun testFile(
-    name: String,
-    kind: Kind = Kind.DOC,
-    modifiedAt: Long = 1L,
-    folder: String = "",
-    size: Long = 100L,
-    takenAt: Long? = null,
-) = SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt, takenAt)
+internal fun testFile(name: String, kind: Kind = Kind.DOC, modifiedAt: Long = 1L, folder: String = "", size: Long = 100L, takenAt: Long? = null) =
+    SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt, takenAt)
 
-internal fun settingsOf(kinds: Set<Kind> = Kind.entries.toSet(), profile: DeviceProfile = PROFILE): () -> IndexSettings =
-    { IndexSettings(profile, kinds) }
+internal fun settingsOf(kinds: Set<Kind> = Kind.entries.toSet(), profile: DeviceProfile = PROFILE): () -> IndexSettings = { IndexSettings(profile, kinds) }
 
 internal fun textPiece(text: String, locator: String = "") = Piece(locator, listOf(Part.Text(text)), null)
 

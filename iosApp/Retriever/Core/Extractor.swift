@@ -1,13 +1,13 @@
 @preconcurrency import AVFoundation
 import ImageIO
 import Network
-import os
 import PDFKit
 import Photos
 import RetrieverCore
 import UIKit
 import Vision
 import ZIPFoundation
+import os
 
 /// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from background threads, so the
 /// blocking waits here are fine. Every failure is nil (or -1 / empty), never a throw. Unchecked Sendable: each
@@ -35,12 +35,12 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     // keep each page's renders and PDFKit objects alive until the whole file is done.
 
     func imageJpeg(uri: String, maxSide: Int32) -> Data? {
-        autoreleasepool { image(uri, maxSide: CGFloat(maxSide))?.jpegData(compressionQuality: 0.85) }
+        autoreleasepool { image(uri, size: CGSize(width: Int(maxSide), height: Int(maxSide)))?.jpegData(compressionQuality: 0.85) }
     }
 
     func ocr(uri: String, page: Int32) -> String? {
         autoreleasepool {
-            let source = page >= 0 ? pdfPage(uri, Int(page)).flatMap { render($0, maxSide: Self.ocrSide) } : image(uri, maxSide: Self.ocrSide)
+            let source = page >= 0 ? pdfPage(uri, Int(page)).flatMap { render($0, maxSide: Self.ocrSide) } : image(uri, size: ocrSize(uri))
             guard let cg = source?.cgImage else { return nil }
             _ = Self.logLanguages
             let request = VNRecognizeTextRequest()
@@ -63,10 +63,26 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         UserDefaults.standard.set(os, forKey: "ocrLanguagesLoggedOS")
     }()
 
+    /// Core's OCR size for the image's own pixel size; a square 1600 when the size is unknown.
+    private func ocrSize(_ uri: String) -> CGSize {
+        var w = 0
+        var h = 0
+        if let asset = asset(uri) {
+            (w, h) = (asset.pixelWidth, asset.pixelHeight)
+        } else if let url = folders.resolve(uri), let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        {
+            (w, h) = (p[kCGImagePropertyPixelWidth] as? Int ?? 0, p[kCGImagePropertyPixelHeight] as? Int ?? 0)
+        }
+        guard w > 0, h > 0 else { return CGSize(width: Self.ocrSide, height: Self.ocrSide) }
+        let fit = ExtractionKt.ocrTargetSize(w: Int32(w), h: Int32(h))
+        return CGSize(width: fit.first!.intValue, height: fit.second!.intValue)
+    }
+
     /// An iCloud-only photo fetches its small derivative on Wi-Fi, or on any network when the person allows mobile
     /// data; otherwise it keeps only its name. Async so a stalled download can be cancelled; the handler may come
     /// back on the main queue, so this must never wait there.
-    private func image(_ uri: String, maxSide: CGFloat) -> UIImage? {
+    private func image(_ uri: String, size: CGSize) -> UIImage? {
         if let asset = asset(uri) {
             assert(!Thread.isMainThread)
             let path = pathMonitor.currentPath
@@ -77,10 +93,13 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             options.isNetworkAccessAllowed = wifi || allowMobileData()
             let done = DispatchSemaphore(value: 0)
             let box = Box<UIImage>()
-            let id = PHImageManager.default().requestImage(for: asset, targetSize: CGSize(width: maxSide, height: maxSide), contentMode: .aspectFit, options: options) { [self] image, info in
+            let id = PHImageManager.default().requestImage(for: asset, targetSize: size, contentMode: .aspectFit, options: options) { [self] image, info in
                 box.value = image
                 if image == nil, info?[PHImageResultIsInCloudKey] as? Bool == true {
-                    let n = cloudLock.withLock { cloudOnly += 1; return cloudOnly }
+                    let n = cloudLock.withLock {
+                        cloudOnly += 1
+                        return cloudOnly
+                    }
                     Self.log.info("iCloud-only photos left without an image: \(n)")
                 }
                 done.signal()
@@ -95,7 +114,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxSide,
+            kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height),
         ]
         return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
     }
@@ -199,67 +218,36 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
     func readBytes(uri: String, offset: Int64, length: Int32) -> Data? {
         autoreleasepool {
-            guard let url = uri.hasPrefix("ph://") ? exported(uri) : folders.resolve(uri), let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            guard let url = folders.resolve(uri), let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
             guard (try? handle.seek(toOffset: UInt64(max(offset, 0)))) != nil else { return nil }
             do {
-                return try handle.read(upToCount: Int(length)) ?? Data() // nil at the end of the file
+                return try handle.read(upToCount: Int(length)) ?? Data()  // nil at the end of the file
             } catch {
                 return nil
             }
         }
     }
 
-    /// A photo or video as a temp file, for the content hash. ponytail: a one-entry export cache (the hasher reads
-    /// one file at a time) and nothing over 1 GB; a streaming hash if big videos matter. PhotoKit has no public byte
-    /// size, so the cap is counted while copying and the copy is cancelled past it.
-    private let exportLock = NSLock()
-    private var export: (uri: String, url: URL)?
+    /// The last archive listed, so an N-entry deck opens its zip once rather than N+1 times (as lastPdf does). The
+    /// listing reopens it afresh, so an edited file is never read stale; a single-entry read (docx) is not cached.
+    private let archiveLock = NSLock()
+    private var lastArchive: (uri: String, archive: Archive)?
 
-    private func exported(_ uri: String) -> URL? {
-        exportLock.withLock {
-            if let export, export.uri == uri { return export.url }
-            if let old = export?.url { try? FileManager.default.removeItem(at: old) }
-            export = nil
-            guard let asset = asset(uri), let current = PhotosSource.renditions(asset).current else { return nil }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("export-\(UUID().uuidString)")
-            guard FileManager.default.createFile(atPath: url.path, contents: nil), let handle = try? FileHandle(forWritingTo: url) else { return nil }
-            let options = PHAssetResourceRequestOptions()
-            options.isNetworkAccessAllowed = false
-            let copy = OSAllocatedUnfairLock(initialState: (bytes: Int64(0), failed: false, id: PHAssetResourceDataRequestID?.none))
-            let done = DispatchSemaphore(value: 0)
-            let id = PHAssetResourceManager.default().requestData(for: current, options: options, dataReceivedHandler: { chunk in
-                let cancel: PHAssetResourceDataRequestID? = copy.withLock { s in
-                    if !s.failed {
-                        s.bytes += Int64(chunk.count)
-                        s.failed = s.bytes > 1 << 30 || (try? handle.write(contentsOf: chunk)) == nil
-                    }
-                    return s.failed ? s.id : nil // nil id: the request hasn't returned yet; a later chunk cancels
-                }
-                if let cancel { PHAssetResourceManager.default().cancelDataRequest(cancel) }
-            }, completionHandler: { error in
-                if error != nil { copy.withLock { $0.failed = true } }
-                done.signal()
-            })
-            copy.withLock { $0.id = id }
-            done.wait()
-            try? handle.close()
-            guard !copy.withLock({ $0.failed }) else {
-                try? FileManager.default.removeItem(at: url)
-                return nil
-            }
-            export = (uri, url)
-            return url
-        }
+    private func openArchive(_ uri: String) -> Archive? {
+        folders.resolve(uri).flatMap { try? Archive(url: $0, accessMode: .read, pathEncoding: nil) }
     }
 
     func zipEntryNames(uri: String) -> [String] {
-        guard let archive = archive(uri) else { return [] }
+        guard let archive = openArchive(uri) else { return [] }
+        archiveLock.withLock { lastArchive = (uri, archive) }
         return archive.map(\.path)
     }
 
     func zipEntryText(uri: String, name: String, maxBytes: Int32) -> String? {
-        guard let archive = archive(uri), let entry = archive[name] else { return nil }
+        guard let archive = archiveLock.withLock({ lastArchive.flatMap { $0.uri == uri ? $0.archive : nil } }) ?? openArchive(uri),
+            let entry = archive[name]
+        else { return nil }
         let cap = Int(maxBytes)
         var out = Data()
         do {
@@ -275,10 +263,6 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     }
 
     private struct Capped: Error {}
-
-    private func archive(_ uri: String) -> Archive? {
-        folders.resolve(uri).flatMap { try? Archive(url: $0, accessMode: .read, pathEncoding: nil) }
-    }
 
     // MARK: Helpers
 

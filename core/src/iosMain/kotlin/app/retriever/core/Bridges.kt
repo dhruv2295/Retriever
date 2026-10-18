@@ -79,8 +79,7 @@ fun NativeFileSource.asFileSource(known: KnownFiles): FileSource = object : File
     override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) { this@asFileSource.changes(since, known) }
 }
 
-internal fun ByteArray.toNSData(): NSData =
-    if (isEmpty()) NSData() else usePinned { NSData.dataWithBytes(it.addressOf(0), size.toULong()) }
+internal fun ByteArray.toNSData(): NSData = if (isEmpty()) NSData() else usePinned { NSData.dataWithBytes(it.addressOf(0), size.toULong()) }
 
 internal fun NSData.toByteArray(): ByteArray {
     val out = ByteArray(length.toInt())

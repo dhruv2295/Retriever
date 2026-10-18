@@ -64,7 +64,9 @@ class RelevanceReplayTest {
         return queries.parallelStream().map { q ->
             val qv = checkNotNull(vectors[q.id]) { "query ${q.id} is not in the dump" }
             val excluded = q.excludeFiles.toSet()
-            val admitted = if (excluded.isEmpty() && q.excludeDataset == null) null else {
+            val admitted = if (excluded.isEmpty() && q.excludeDataset == null) {
+                null
+            } else {
                 names.filter { it !in excluded && dataset[it] != q.excludeDataset }.map { idOf.getValue(it) }.toLongArray().apply { sort() }
             }
             val relevant = q.relevant.mapNotNull { idOf[it] }.toSet()
@@ -112,7 +114,9 @@ class RelevanceReplayTest {
         // -Drelevance.sample=N: a seeded library of about N files with the same kind mix (the library-size sweep);
         // match queries whose right files all fell out are dropped.
         val sample = System.getProperty("relevance.sample")?.toInt()
-        val dump = if (sample == null) full else {
+        val dump = if (sample == null) {
+            full
+        } else {
             val kept = full.files.groupBy { it.kind }.values.flatMap { fs ->
                 fs.shuffled(Random(17)).take(Math.round(sample.toDouble() * fs.size / full.files.size).toInt())
             }.map { it.id }.toSet()
@@ -144,7 +148,9 @@ class RelevanceReplayTest {
         println("RelevanceReplay: ${rows.size} rows to $out")
         // Medians per (dataset, kind or construction, group): a glance, not the fit.
         println("dataset\tquery kind\tgroup\tqueries\tmedian right excess\tmedian best-wrong excess")
-        rows.groupBy { Triple(it.query.dataset, it.query.construction ?: it.query.kind, it.group) }.toSortedMap(compareBy({ it.first }, { it.second }, { it.third })).forEach { (k, rs) ->
+        rows.groupBy {
+            Triple(it.query.dataset, it.query.construction ?: it.query.kind, it.group)
+        }.toSortedMap(compareBy({ it.first }, { it.second }, { it.third })).forEach { (k, rs) ->
             println("${k.first}\t${k.second}\t${k.third}\t${rs.size}\t${median(rs.map { it.rightExcess })}\t${median(rs.map { it.wrongExcess })}")
         }
     }
@@ -166,7 +172,18 @@ class RelevanceReplayTest {
         val torn = RelevanceDump.read(full.copyOf(full.size - 7))
         assertEquals(queries.size - 1, torn.queries.size)
         val resumed = ByteArrayOutputStream().apply { write(full, 0, torn.validBytes) }
-        dumpLibrary(manifest, queries, FakeExtractor, TopicEmbedder, PROFILE, torn.files.map { it.id }.toSet(), torn.queries.map { it.id }.toSet(), resumed::write) {}
+        dumpLibrary(
+            manifest,
+            queries,
+            FakeExtractor,
+            TopicEmbedder,
+            PROFILE,
+            torn.files.map {
+                it.id
+            }.toSet(),
+            torn.queries.map { it.id }.toSet(),
+            resumed::write,
+        ) {}
         assertContentEquals(full, resumed.toByteArray())
 
         // Torn inside the files: the queries all come after.
@@ -231,8 +248,15 @@ class RelevanceReplayTest {
 
     private fun synthetic(): Pair<List<DumpFile>, List<DumpQuery>> {
         val files = List(PHOTOS) { DumpFile("photo_$it.jpg", "photo", "pics", "$it") } + List(DOCS) { DumpFile("doc_$it.txt", "doc", "texts", "$it") }
-        fun q(id: String, text: String, relevant: List<String>, kind: String = "match", construction: String? = null, exclude: List<String> = emptyList(), dataset: String? = null) =
-            DumpQuery(id, text, "en", "texts", "calibration", relevant, kind, construction, exclude, dataset)
+        fun q(
+            id: String,
+            text: String,
+            relevant: List<String>,
+            kind: String = "match",
+            construction: String? = null,
+            exclude: List<String> = emptyList(),
+            dataset: String? = null,
+        ) = DumpQuery(id, text, "en", "texts", "calibration", relevant, kind, construction, exclude, dataset)
         val queries = listOf(
             q("doc7", "topic 7", listOf("doc_7.txt")),
             q("photo3", "topic p3", listOf("photo_3.jpg")),

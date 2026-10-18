@@ -29,8 +29,7 @@ class RelevanceRuleTest {
 
     private fun gauss() = sqrt(-2 * ln(1 - rnd.nextDouble())) * cos(2 * PI * rnd.nextDouble())
 
-    private fun background(n: Int, mean: Double, sd: Double, text: String? = "words") =
-        List(n) { F("bg$it.pdf", (mean + sd * gauss()).toFloat(), text = text) }
+    private fun background(n: Int, mean: Double, sd: Double, text: String? = "words") = List(n) { F("bg$it.pdf", (mean + sd * gauss()).toFloat(), text = text) }
 
     /**
      * The row is (cos, noise of norm sqrt(1 - cos^2)), so its first component is the largest and int8 keeps cos to
@@ -47,7 +46,10 @@ class RelevanceRuleTest {
                 val noise = FloatArray(DIMS - 1) { gauss().toFloat() }
                 val norm = sqrt(noise.sumOf { (it * it).toDouble() }).toFloat()
                 val rest = sqrt(1 - f.cos * f.cos)
-                val raw = FloatArray(768).also { v -> v[0] = f.cos; for (d in 1 until DIMS) v[d] = noise[d - 1] / norm * rest }
+                val raw = FloatArray(768).also { v ->
+                    v[0] = f.cos
+                    for (d in 1 until DIMS) v[d] = noise[d - 1] / norm * rest
+                }
                 val id = checkNotNull(store.fileByUri(sources[i].uri)).id
                 ids[f.name] = id
                 store.replaceChunks(id, listOf(Store.NewChunk(f.ordinal, "p. 1", f.text, Vector.of(raw, sig))))
@@ -168,7 +170,19 @@ class RelevanceRuleTest {
     @Test
     fun datesKindsAndFileIdsFilterEveryLane() = runTest {
         val day = 86_400_000L
-        val files = listOf(F("old.pdf", 0.9f, at = 10 * day), F("new.pdf", 0.5f, at = 20 * day + 5), F("newer.pdf", 0.4f, at = 21 * day), F("photo.jpg", 0.8f, Kind.PHOTO, at = 20 * day))
+        val files =
+            listOf(
+                F("old.pdf", 0.9f, at = 10 * day),
+                F("new.pdf", 0.5f, at = 20 * day + 5),
+                F("newer.pdf", 0.4f, at = 21 * day),
+                F(
+                    "photo.jpg",
+                    0.8f,
+                    Kind.PHOTO,
+                    at =
+                    20 * day,
+                ),
+            )
         val (store, ids) = store(files)
         val names = NameIndex.build(files.map { NameEntry(ids.getValue(it.name), it.name, "Docs", it.kind, it.at) })
         val engine = SearchEngine(store, AxisEmbedder(sig)) { names }

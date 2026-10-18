@@ -101,7 +101,9 @@ class AndroidDeviceProbe(private val context: Context) {
         // Pixel 9 and later should use GPU.
         if (model.contains("pixel 9") || device in PIXEL_9_CODENAMES || board in PIXEL_9_CODENAMES ||
             soc.contains("tensor g4") || hardware.contains("zumapro")
-        ) return false
+        ) {
+            return false
+        }
         val combined = "$hardware $board $soc"
         return !combined.contains("malibu") && (combined.contains("exynos") || combined.contains("mali"))
     }

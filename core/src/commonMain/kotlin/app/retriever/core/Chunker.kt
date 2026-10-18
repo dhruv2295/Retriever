@@ -45,7 +45,13 @@ object Chunker {
             if (end < length) {
                 var safe = end
                 while (safe > start && (this[safe - 1].isHighSurrogate() || this[safe].isContinuation())) safe--
-                end = if (safe > start) safe else if (this[end - 1].isHighSurrogate()) end - 1 else end
+                end = if (safe > start) {
+                    safe
+                } else if (this[end - 1].isHighSurrogate()) {
+                    end - 1
+                } else {
+                    end
+                }
             }
             out += substring(start, end)
             start = end
@@ -53,8 +59,7 @@ object Chunker {
         return out
     }
 
-    private fun Char.isContinuation() =
-        isLowSurrogate() || category == CharCategory.NON_SPACING_MARK || category == CharCategory.COMBINING_SPACING_MARK
+    private fun Char.isContinuation() = isLowSurrogate() || category == CharCategory.NON_SPACING_MARK || category == CharCategory.COMBINING_SPACING_MARK
 }
 
 /**

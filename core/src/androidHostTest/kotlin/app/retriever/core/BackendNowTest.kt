@@ -19,8 +19,7 @@ class BackendNowTest {
     private var active = false
     private val fake = FakeFactory()
     private val factory = object : EmbedderFactory by fake {
-        override fun backendNow(profile: DeviceProfile) =
-            if (profile.backend == Backend.GPU && !active) Backend.CPU else profile.backend
+        override fun backendNow(profile: DeviceProfile) = if (profile.backend == Backend.GPU && !active) Backend.CPU else profile.backend
     }
     private val store = newStore().also { it.setProfile(PROFILE.copy(backend = Backend.GPU)) }
     private val source = FakeSource().apply {
@@ -52,6 +51,7 @@ class BackendNowTest {
     fun theForegroundReopensOnGpu() = test {
         r.indexBatch(1.minutes)
         active = true
+        r.warmSearch() // what the app runs on coming to the front; a search itself never opens the model
         assertTrue(r.search("f1").vectorLane)
         assertEquals(listOf(Backend.CPU, Backend.GPU), openedOn())
         assertEquals(Backend.GPU, store.profile()!!.backend)

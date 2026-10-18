@@ -1,6 +1,7 @@
 import Photos
-import XCTest
 import RetrieverCore
+import XCTest
+
 @testable import Retriever
 
 @MainActor
@@ -23,7 +24,8 @@ final class CopyTests: XCTestCase {
         XCTAssertNil(status(AppModel.Snap(setUp: true)), "no files: the empty state alone, never \"caught up\" over it")
         XCTAssertEqual(status(AppModel.Snap(setUp: false))?.title, "Getting ready. For now Retriever finds files by name.")
         XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 3, running: true, pendingAtStart: 0))?.phase, .looking)
-        XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, running: true, pendingAtStart: 2, etaMinutes: 150))?.detail, "About 3 hours left")
+        XCTAssertEqual(
+            status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, running: true, pendingAtStart: 2, etaMinutes: 150))?.detail, "About 3 hours left")
         XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
         XCTAssertEqual(
             status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, lastStop: StopReason.done))?.title,
@@ -132,12 +134,6 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.largeFiles(1), "1 file over 100 MB")
         XCTAssertEqual(Copy.largeFiles(4), "4 files over 100 MB")
         XCTAssertEqual(Copy.largeFiles(1_200), "\(Copy.count(1_200)) files over 100 MB")
-        let file = SourceFile(uri: "folder://x/Lease.pdf", name: "Lease.pdf", folder: "Retriever/Download", mime: "application/pdf", kind: .pdf,
-                              size: 2_100_000, modifiedAt: Int64(Date().timeIntervalSince1970 * 1000), takenAt: nil)
-        XCTAssertEqual(Copy.newFileLine(file), ["Download", Copy.day(file.modifiedAt), Copy.bytes(2_100_000)].joined(separator: " · "))
-        // A file at the top of a folder has no parent to name; an empty size is left out rather than shown as "Zero KB".
-        let loose = SourceFile(uri: "folder://x/a", name: "a", folder: "Downloads", mime: "text/plain", kind: .other, size: 0, modifiedAt: file.modifiedAt, takenAt: nil)
-        XCTAssertTrue(Copy.newFileLine(loose).hasPrefix("Downloads · "))
     }
 
     func testDeepReadingAndTextOnlyNotes() {
@@ -153,6 +149,68 @@ final class CopyTests: XCTestCase {
         XCTAssertNil(Copy.extent(nil))
     }
 
+    func testFirstRunWelcomeCopy() {
+        XCTAssertEqual(Copy.firstRunTry, "Try it on a few files first")
+        XCTAssertEqual(Copy.firstRunReadAll, "Read everything now")
+        XCTAssertEqual(
+            Copy.firstRunTime(size: "485 MB"),
+            "Try it on a few of your files first. It's ready in a few minutes on Wi-Fi; most of that is a one-time 485 MB download. Reading everything takes hours, and you choose when."
+        )
+        XCTAssertTrue(Copy.firstRunTime(size: nil).contains("a one-time download."))
+        XCTAssertEqual(Copy.firstRunMobileDataMessage(size: "485 MB"), "The download is 485 MB. On Wi-Fi it won't use your data.")
+    }
+
+    func testLimitedPhotosFootnote() {
+        XCTAssertEqual(Copy.limitedPhotosFootnote(photos: 12, folders: 0), "Retriever can see the 12 photos you chose. You can change this in Settings.")
+        XCTAssertEqual(
+            Copy.limitedPhotosFootnote(photos: 1_204, folders: 2),
+            "Retriever can see the \(Copy.count(1_204)) photos you chose and 2 folders. You can change this in Settings.")
+        XCTAssertEqual(
+            Copy.limitedPhotosFootnote(photos: 1, folders: 1), "Retriever can see the photo you chose and 1 folder. You can change this in Settings.")
+    }
+
+    func testFirstRunDownloadAndReadingLines() {
+        XCTAssertEqual(Copy.firstRunDownloadLine(0.34), "Downloading · 34 %")
+        XCTAssertEqual(Copy.firstRunDownloadA11y(0.34), "Downloading, 34 percent")
+        XCTAssertEqual(Copy.firstRunWaitingTitle(size: "485 MB"), "Downloading what Retriever needs · 485 MB")
+        XCTAssertEqual(Copy.firstRunWaitingTitle(size: nil), "Downloading what Retriever needs")
+        XCTAssertEqual(Copy.firstRunOf(11, 18), "11 of 18")
+        XCTAssertEqual(Copy.firstRunReadingLine(files: 79, secondsLeft: 70), "79 files · about a minute left")
+        XCTAssertEqual(Copy.firstRunReadingLine(files: 1, secondsLeft: nil), "1 file")
+        XCTAssertEqual(Copy.firstRunKeepOpen, "Keep Retriever open for a minute or two.")
+    }
+
+    func testTimeLeftRoundsToPlainWords() {
+        XCTAssertNil(Copy.timeLeft(nil))
+        XCTAssertNil(Copy.timeLeft(0))
+        XCTAssertEqual(Copy.timeLeft(10), "almost done")
+        XCTAssertEqual(Copy.timeLeft(45), "less than a minute left")
+        XCTAssertEqual(Copy.timeLeft(89), "about a minute left")
+        XCTAssertEqual(Copy.timeLeft(150), "about 3 minutes left")
+    }
+
+    func testTryItAndCommitCopy() {
+        XCTAssertEqual(Copy.closestIn(79), "Closest in these 79 files")
+        XCTAssertEqual(Copy.stillReading(1200), "Still reading 1,200 more")
+        XCTAssertEqual(Copy.tryItWords, "Try your own words: something you remember seeing in a photo or a screenshot.")
+        XCTAssertEqual(Copy.commitTitle, "Read everything?")
+        XCTAssertEqual(Copy.commitNights, "iPhone reads more slowly in the background, so this takes several nights on the charger.")
+        // Uncalibrated: no hours, no night count.
+        XCTAssertEqual(Copy.commitRest(files: 26_214), "Reading the other 26,214 takes hours; Retriever measures this \(Copy.device) as it goes.")
+        XCTAssertEqual(Copy.commitRest(files: nil), "Reading the rest takes hours; Retriever measures this \(Copy.device) as it goes.")
+        let figure = /\d+(,\d+)?( to \d+)? (hours?|minutes?|nights?|days?)/
+        for text in [Copy.commitRest(files: 26_214), Copy.commitRest(files: nil), Copy.commitNights] {
+            XCTAssertNil(text.firstMatch(of: figure), text)
+        }
+    }
+
+    func testCommitButtonsFollowTheOS() {
+        XCTAssertEqual(Copy.commitWhileCharging, "Read while charging")
+        XCTAssertEqual(Copy.commitNotYet, "Not yet")
+        XCTAssertEqual(Copy.commitReadNow(continued: true), "Read now")
+        XCTAssertEqual(Copy.commitReadNow(continued: false), "Read while Retriever is open")
+    }
+
     func testNoJargon() {
         let setting = AppModel.Snap(setUp: false, pending: 5)
         let reading = AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true, pendingAtStart: 5)
@@ -160,15 +218,21 @@ final class CopyTests: XCTestCase {
             let status = Copy.homeStatus(s, download: download, progress: 0.5)
             return [status?.title, status?.detail]
         }
-        let strings: [String?] = [
-            Copy.stop(StopReason.done), Copy.stop(StopReason.hot), Copy.stop(StopReason.unplugged), Copy.stop(StopReason.budget),
-            Copy.stop(StopReason.busy), Copy.stop(StopReason.paused), Copy.waiting(StopReason.done),
-            Copy.statusTitle(setting), Copy.statusTitle(AppModel.Snap(paused: true)), Copy.statusTitle(AppModel.Snap(running: true)),
-            Copy.eta(0), Copy.eta(1), Copy.eta(30), Copy.eta(60), Copy.eta(120), Copy.eta(3_000),
-            Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
-            Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
-            Copy.backgroundNote, Copy.largeFiles(4), Copy.deepReading(3),
-        ] + home(setting) + home(setting, .downloading) + home(setting, .waitingForWifi) + home(setting, .failed("offline"))
+        let strings: [String?] =
+            [
+                Copy.stop(StopReason.done), Copy.stop(StopReason.hot), Copy.stop(StopReason.unplugged), Copy.stop(StopReason.budget),
+                Copy.stop(StopReason.busy), Copy.stop(StopReason.paused), Copy.waiting(StopReason.done),
+                Copy.statusTitle(setting), Copy.statusTitle(AppModel.Snap(paused: true)), Copy.statusTitle(AppModel.Snap(running: true)),
+                Copy.eta(0), Copy.eta(1), Copy.eta(30), Copy.eta(60), Copy.eta(120), Copy.eta(3_000),
+                Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
+                Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
+                Copy.backgroundNote, Copy.largeFiles(4), Copy.deepReading(3),
+                Copy.firstRunWelcomeBody, Copy.firstRunTime(size: nil), Copy.firstRunTextOnlyTime, Copy.firstRunMobileDataMessage(size: nil),
+                Copy.firstRunPhotosNote, Copy.firstRunPhotosOff, Copy.firstRunLimitedNote, Copy.firstRunNothingAllowed,
+                Copy.limitedPhotosFootnote(photos: 4, folders: 1), Copy.firstRunTuneTitle, Copy.firstRunTuneFailed,
+                Copy.firstRunWaitingForWifi, Copy.firstRunNamesNowThenRead, Copy.firstRunKeepOpen, Copy.firstRunStaysSearchable,
+                Copy.firstRunReadingLine(files: 79, secondsLeft: 70),
+            ] + home(setting) + home(setting, .downloading) + home(setting, .waitingForWifi) + home(setting, .failed("offline"))
             + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))
         for string in strings.compactMap({ $0 }) {
             for word in ["model", "embedding", "vector", "gpu"] {

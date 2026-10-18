@@ -86,8 +86,10 @@
 
         /// `-open status|setup|settings|starred` pushes that page over the live Home, for screenshots of a real run.
         @MainActor static let openOnLaunch: Route? = arg("-open").flatMap {
-            ["status": Route.status, "setup": .setup, "settings": .settings,
-             "starred": .files(FileQuery(title: "Starred", starredOnly: true))][$0]
+            [
+                "status": Route.status, "setup": .setup, "settings": .settings,
+                "starred": .files(FileQuery(title: "Starred", starredOnly: true)),
+            ][$0]
         }
 
         /// `-star <words>` stars the best hit for the words at launch, so starred screens need no taps.
@@ -154,11 +156,13 @@
             case .searchWordsOnly:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, vectorLane: false), presented: true)
             case .searchLessLikely:
-                SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits + Fixtures.closest.prefix(2), strongCount: 2), presented: true)
+                SearchView(
+                    model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits + Fixtures.closest.prefix(2), strongCount: 2), presented: true)
             case .searchNothingWell:
                 SearchView(model: model, search: .fixture(text: "car insurance renewal", hits: Fixtures.closest, strongCount: 0), presented: true)
             case .searchFirstPart:
-                SearchView(model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, extents: [1: .firstPart, 2: .deepening]), presented: true)
+                SearchView(
+                    model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, extents: [1: .firstPart, 2: .deepening]), presented: true)
             case .searchError:
                 SearchView(model: model, search: .fixture(text: "electricity bill", failed: true), presented: true)
             case .searchLoading:
@@ -245,29 +249,36 @@
 
     private enum Fixtures {
         static func file(_ name: String, _ kind: Kind, _ folder: String, daysAgo: Double) -> SourceFile {
-            SourceFile(uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: 240_000,
-                       modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000), takenAt: nil)
+            SourceFile(
+                uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: 240_000,
+                modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000), takenAt: nil)
         }
 
         static let hits: [SearchEngine.Hit] = [
-            SearchEngine.Hit(file: file("Lease agreement 2026.pdf", .pdf, "Retriever/Home", daysAgo: 40), fileId: 1, chunkId: 11, locator: "p. 3",
-                             snippet: "The \u{2}security\u{3} \u{2}deposit\u{3} of two months' rent is refundable when the tenant leaves", score: 1),
-            SearchEngine.Hit(file: file("Flat handover notes.docx", .doc, "Retriever/Home", daysAgo: 12), fileId: 2, chunkId: 21, locator: "",
-                             snippet: "Return of the \u{2}deposit\u{3} after the inspection on Friday", score: 0.8),
-            SearchEngine.Hit(file: file("Screenshot 2026-09-14 at 18.42.07.png", .screenshot, "Photos/Screenshots", daysAgo: 30), fileId: 3, chunkId: 31,
-                             locator: "", snippet: "Paid \u{2}security\u{3} \u{2}deposit\u{3} ₹48,000 to Sharma Properties", score: 0.6),
+            SearchEngine.Hit(
+                file: file("Lease agreement 2026.pdf", .pdf, "Retriever/Home", daysAgo: 40), fileId: 1, chunkId: 11, locator: "p. 3",
+                snippet: "The \u{2}security\u{3} \u{2}deposit\u{3} of two months' rent is refundable when the tenant leaves", score: 1),
+            SearchEngine.Hit(
+                file: file("Flat handover notes.docx", .doc, "Retriever/Home", daysAgo: 12), fileId: 2, chunkId: 21, locator: "",
+                snippet: "Return of the \u{2}deposit\u{3} after the inspection on Friday", score: 0.8),
+            SearchEngine.Hit(
+                file: file("Screenshot 2026-09-14 at 18.42.07.png", .screenshot, "Photos/Screenshots", daysAgo: 30), fileId: 3, chunkId: 31,
+                locator: "", snippet: "Paid \u{2}security\u{3} \u{2}deposit\u{3} ₹48,000 to Sharma Properties", score: 0.6),
         ]
     }
 
     extension Fixtures {
         /// Close but not good: shown after the strong hits, or alone when nothing matches well.
         static let closest: [SearchEngine.Hit] = [
-            SearchEngine.Hit(file: file("Rent receipt March.pdf", .pdf, "Retriever/Home", daysAgo: 200), fileId: 4, chunkId: 41, locator: "p. 1",
-                             snippet: "Received with thanks from the tenant", score: 0.3),
-            SearchEngine.Hit(file: file("Society notice board.docx", .doc, "Downloads", daysAgo: 90), fileId: 5, chunkId: 51, locator: "",
-                             snippet: "Water supply will be off on Sunday morning", score: 0.25),
-            SearchEngine.Hit(file: file("Scan_0001_long_file_name_without_spaces_final_copy.pdf", .pdf, "Downloads", daysAgo: 400), fileId: 6, chunkId: 61, locator: "p. 2",
-                             snippet: nil, score: 0.2),
+            SearchEngine.Hit(
+                file: file("Rent receipt March.pdf", .pdf, "Retriever/Home", daysAgo: 200), fileId: 4, chunkId: 41, locator: "p. 1",
+                snippet: "Received with thanks from the tenant", score: 0.3),
+            SearchEngine.Hit(
+                file: file("Society notice board.docx", .doc, "Downloads", daysAgo: 90), fileId: 5, chunkId: 51, locator: "",
+                snippet: "Water supply will be off on Sunday morning", score: 0.25),
+            SearchEngine.Hit(
+                file: file("Scan_0001_long_file_name_without_spaces_final_copy.pdf", .pdf, "Downloads", daysAgo: 400), fileId: 6, chunkId: 61, locator: "p. 2",
+                snippet: nil, score: 0.2),
         ]
     }
 #endif

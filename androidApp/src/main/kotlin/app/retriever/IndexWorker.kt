@@ -32,23 +32,27 @@ import app.retriever.core.IndexState
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
 import app.retriever.core.ThermalRest
+import app.retriever.indexing.IndexService
+import app.retriever.indexing.Notifications
+import app.retriever.indexing.PauseReceiver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
-import org.koin.core.qualifier.named
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** Whether the app can see any files yet; the worker syncs names before the model arrives. */
-val PlatformReady = named("platformReady")
-
-class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), KoinComponent {
-    private val retriever: Retriever by inject()
-    private val platformReady: () -> Boolean by inject(PlatformReady)
+// Stays in app.retriever: WorkManager persists this class name in pending work specs.
+// Built by Koin's WorkerFactory (workerOf in AppModule), so its dependencies are constructor parameters.
+class IndexWorker(
+    context: Context,
+    params: WorkerParameters,
+    private val retriever: Retriever,
+    private val index: IndexService,
+    private val platformReady: () -> Boolean,
+) : CoroutineWorker(context, params) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val notificationId: Int = params.id.hashCode()
     private val pauseIntent by lazy {
@@ -64,35 +68,45 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     // the cancelBatch() the platform's onStopped would call (it is final in CoroutineWorker).
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         // No Process.setThreadPriority: it would demote a pooled IO thread for good, and the heavy work runs on Dispatchers.Default and MediaPipe's own threads.
+        // First, so a paused or not-yet-permitted run keeps watching too. Only the media run, and only its first attempt:
+        // any other run (or a retry) appending would grow a chain behind the waiting trigger.
+        if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
         // Before setup finishes a batch only syncs the file list, so names are searchable while the model downloads.
         if (retriever.prefs.value.paused || !platformReady()) return@withContext Result.success()
+        // Null when the run was stopped: that releases too.
+        var next: NextRun? = null
         try {
-            val next = coroutineScope {
-                // A sync-only run takes seconds: no notification for it.
-                val foreground = retriever.setUp.value == true && retriever.uiVisible &&
+            next = coroutineScope {
+                // A sync-only run takes seconds, and another worker's batch already shows its own: no notification.
+                val foreground = !retriever.state.value.running && retriever.setUp.value == true && retriever.uiVisible &&
                     safeSetForeground(foregroundInfo(retriever.state.value))
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes).also { progress?.cancel() }
             }
             if (!retriever.prefs.value.paused) schedule(next)
-            // Nothing follows soon and nobody is searching: give the model's memory back.
-            // DONE also means another worker's batch holds the lock: never close the model under it.
-            if (next != NextRun.SOON && !retriever.uiVisible && !retriever.state.value.running) retriever.release()
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
+            // Nothing follows soon and nobody is searching: give the model's memory back, even when stopped (a REPLACE
+            // follow-up cancels this worker). DONE also means another worker's batch holds the lock: never close it under it.
+            if (next != NextRun.SOON && !retriever.uiVisible && !retriever.state.value.running) {
+                withContext(NonCancellable) { retriever.release() }
+            }
             // Our own notify() posts outlive the worker when there was no foreground service to own them.
             notificationManager.cancel(notificationId)
         }
+        // Never Result.retry(): NOW work waiting in WorkManager's backoff (up to 5 h) would make indexNow's KEEP drop every
+        // Resume, setting change and first-run commit until it ran. A failed batch rests through CONTINUE instead.
         Result.success()
     }
 
+    // A failed batch (RETRY) rests like heat does, as on iOS.
     private fun schedule(next: NextRun) = when (next) {
-        NextRun.SOON -> IndexScheduler.continueLater(applicationContext, 10.seconds)
-        NextRun.AFTER_COOLDOWN -> IndexScheduler.continueLater(applicationContext, ThermalRest.RECHECK)
-        NextRun.WHEN_CHARGING -> IndexScheduler.continueWhenCharging(applicationContext)
-        NextRun.WHEN_IDLE -> IndexScheduler.continueWhenIdle(applicationContext)
+        NextRun.SOON -> index.continueLater(10.seconds)
+        NextRun.AFTER_COOLDOWN, NextRun.RETRY -> index.continueLater(ThermalRest.RECHECK)
+        NextRun.WHEN_CHARGING -> index.continueWhenCharging()
+        NextRun.WHEN_IDLE -> index.continueWhenIdle()
         NextRun.DONE -> Unit
     }
 
@@ -107,8 +121,6 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         }
     }
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(retriever.state.value)
-
     /** False when Android refused the foreground service (background start, time limit). */
     private suspend fun safeSetForeground(foregroundInfo: ForegroundInfo): Boolean = try {
         setForeground(foregroundInfo)
@@ -119,14 +131,16 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         false
     }
 
-    private fun notification(s: IndexState) =
-        Notifications.progress(applicationContext, s.processed + s.failed, s.pendingAtStart, s.current, pauseIntent)
+    private fun notification(s: IndexState) = Notifications.progress(applicationContext, s.processed + s.failed, s.pendingAtStart, s.current, pauseIntent)
 
     // mediaProcessing (API 35) has its own time budget; dataSync's 6 h a day is shared with other work.
     private fun foregroundInfo(s: IndexState) = ForegroundInfo(
         notificationId,
         notification(s),
-        if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        if (Build.VERSION.SDK_INT >= 35) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+        } else {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        },
     )
 }

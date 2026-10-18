@@ -21,6 +21,14 @@ CREATE INDEX files_by_state ON files(state);
 
 CREATE INDEX files_by_kind_state ON files(kind, state);
 
+-- The Home lists (filesNewest, filesLargest) read these in order instead of sorting every file, filesCaptured searches
+-- by kind and capture time, and relinkStars searches by size. Added in 3.sqm.
+CREATE INDEX files_by_modified ON files(modified_at DESC, id);
+
+CREATE INDEX files_by_size ON files(size DESC, id);
+
+CREATE INDEX files_by_kind_time ON files(kind, COALESCE(taken_at, modified_at) DESC);
+
 -- AUTOINCREMENT keeps ids monotonic, so SearchEngine can load only rows above the last id it saw.
 CREATE TABLE chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +45,7 @@ CREATE TABLE chunks (
 
 CREATE INDEX chunks_by_file ON chunks(file_id);
 
-CREATE INDEX chunks_tail ON chunks(file_id) WHERE vector IS NULL;
+CREATE INDEX chunks_tail ON chunks(file_id, tail_attempts) WHERE vector IS NULL;
 
 -- tokenchars: every combining mark (Unicode Mn and Mc) outside the generic diacritic blocks that remove_diacritics
 -- folds. unicode61 would otherwise split words at the vowel signs of Indic and Southeast Asian scripts
@@ -125,8 +133,30 @@ SELECT folder, COUNT(*) AS n FROM files GROUP BY folder ORDER BY n DESC;
 folderCount:
 SELECT COUNT(DISTINCT folder) FROM files;
 
+-- By capture time, so a restored phone still shows the newest captures first; PDF and DOC have no taken_at.
 filesNewestOfKinds:
-SELECT * FROM files WHERE kind IN ? ORDER BY modified_at DESC, id LIMIT ?;
+SELECT * FROM files WHERE kind IN ? ORDER BY COALESCE(taken_at, modified_at) DESC, id LIMIT ?;
+
+filesByUris:
+SELECT * FROM files WHERE uri IN ?;
+
+-- Home's On this day. Both taken_at IS NOT NULL and the COALESCE(...) BETWEEN form: taken_at BETWEEN loses
+-- files_by_kind_time, which indexes the COALESCE expression.
+mediaTakenSince:
+SELECT MIN(COALESCE(taken_at, modified_at)) FROM files WHERE kind = 'PHOTO' AND taken_at IS NOT NULL;
+
+mediaTakenBetween:
+SELECT COUNT(*) AS n,
+       CAST(COALESCE(SUM(kind = 'VIDEO'), 0) AS INTEGER) AS videos,
+       COALESCE(MAX(CASE WHEN kind = 'PHOTO' THEN id END), MAX(id)) AS coverId
+FROM files
+WHERE kind IN ('PHOTO', 'VIDEO') AND taken_at IS NOT NULL
+  AND COALESCE(taken_at, modified_at) BETWEEN :from AND :to;
+
+filesTakenBetween:
+SELECT * FROM files WHERE kind IN ('PHOTO', 'VIDEO') AND taken_at IS NOT NULL
+  AND COALESCE(taken_at, modified_at) BETWEEN :from AND :to
+ORDER BY COALESCE(taken_at, modified_at), id LIMIT :limit OFFSET :offset;
 
 -- A query that is all filters: files of the kinds captured in [from, to), newest capture first.
 filesCaptured:
@@ -206,6 +236,12 @@ SELECT * FROM files WHERE state = 'PENDING'
 AND id IN (SELECT id FROM files WHERE kind = :kind ORDER BY modified_at DESC, id LIMIT :n)
 ORDER BY modified_at DESC;
 
+pendingIn:
+SELECT * FROM files WHERE state = 'PENDING' AND id IN ?;
+
+pendingBytesOfKind:
+SELECT COALESCE(SUM(size), 0) FROM files WHERE state = 'PENDING' AND kind = ?;
+
 setState:
 UPDATE files SET state = ?, attempts = ? WHERE id = ?;
 
@@ -261,6 +297,12 @@ WHERE c.vector IS NULL AND c.tail_attempts < 3
 ORDER BY CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, f.modified_at DESC, c.id
 LIMIT ?;
 
+tailChunksIn:
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts
+FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE c.vector IS NULL AND c.tail_attempts < 3 AND c.file_id IN ?
+ORDER BY c.id;
+
 tailChunkCount:
 SELECT COUNT(*) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
 
@@ -276,10 +318,10 @@ SELECT * FROM chunks WHERE id = ?;
 chunksByIds:
 SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
 
-firstTextAt:
-SELECT text FROM chunks WHERE file_id = ? AND locator = ? AND text IS NOT NULL ORDER BY ordinal LIMIT 1;
+chunkTextsOfFile:
+SELECT id, ordinal, locator, text FROM chunks WHERE file_id = ? AND text IS NOT NULL ORDER BY ordinal, id;
 
--- firstTextAt for many places at once; SQLite returns the text of the row that holds MIN(ordinal).
+-- The first text at each place, for many places at once; SQLite returns the text of the row that holds MIN(ordinal).
 firstTextAtMany:
 SELECT file_id, locator, text, MIN(ordinal) FROM chunks
 WHERE file_id IN :fileIds AND locator IN :locators AND text IS NOT NULL
@@ -322,7 +364,8 @@ searchFileFts:
 SELECT CAST(file_fts.rowid AS INTEGER) AS fileId, CAST(matchinfo(file_fts, 'pcnalx') AS BLOB) AS info, f.kind,
   COALESCE(f.taken_at, f.modified_at) AS at
 FROM file_fts JOIN files f ON f.id = file_fts.rowid
-WHERE file_fts MATCH ?;
+WHERE file_fts MATCH :match AND f.kind IN :kinds AND COALESCE(f.taken_at, f.modified_at) BETWEEN :from AND :to
+ORDER BY file_fts.rowid DESC LIMIT :cap;
 
 chunkCount:
 SELECT COUNT(*) FROM chunks;
@@ -382,7 +425,6 @@ SELECT uri, starred_at, name, size, modified_at FROM starred;
 
 -- A star whose file is gone moves to an unstarred file with the same name, size and modified_at: the same file under a
 -- new uri (a renamed picked folder, a new phone's MediaStore ids). OR IGNORE: two stars never take one file.
--- ponytail: scans files once per orphaned star; index (name, size, modified_at) if orphans pile up.
 relinkStars:
 UPDATE OR IGNORE starred SET uri = COALESCE((
   SELECT f.uri FROM files f
@@ -398,6 +440,13 @@ SELECT s.uri FROM starred s JOIN files f ON f.uri = s.uri;
 
 starredFiles:
 SELECT f.* FROM starred s JOIN files f ON f.uri = s.uri ORDER BY s.starred_at DESC LIMIT ? OFFSET ?;
+
+-- Home strip only: OTHER never shows there, and the count agrees with the strip.
+starredVisible:
+SELECT f.* FROM starred s JOIN files f ON f.uri = s.uri WHERE f.kind != 'OTHER' ORDER BY s.starred_at DESC LIMIT ?;
+
+starredVisibleCount:
+SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri WHERE f.kind != 'OTHER';
 
 starredCount:
 SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri;

@@ -18,8 +18,7 @@ data class ParsedQuery(
      * Said above results when the filters found nothing and were dropped. [scope] is what the search kept, as a plural
      * noun phrase ("starred files", "PDFs"), or null when it kept everything.
      */
-    fun relaxedNote(scope: String?): String =
-        "${missing()}, so here " + if (scope == null) "is everything." else "are all your $scope."
+    fun relaxedNote(scope: String?): String = "${missing()}, so here " + if (scope == null) "is everything." else "are all your $scope."
 
     /** What the filters asked for and found none of: "No PDFs from last week", "Nothing from yesterday". */
     fun missing(): String {
@@ -71,7 +70,12 @@ object QueryParser {
     fun parse(text: String, now: Long, zoneOffsetMs: Long = 0L): ParsedQuery {
         val raw = text.trim().split(WS).filter { it.isNotEmpty() }
         if (raw.isEmpty()) return ParsedQuery("")
-        val w = raw.map { it.lowercase().trim { c -> !c.isLetterOrDigit() && c.category != CharCategory.NON_SPACING_MARK && c.category != CharCategory.COMBINING_SPACING_MARK } }
+        val w = raw.map {
+            it.lowercase().trim { c ->
+                !c.isLetterOrDigit() && c.category != CharCategory.NON_SPACING_MARK &&
+                    c.category != CharCategory.COMBINING_SPACING_MARK
+            }
+        }
         val used = BooleanArray(raw.size)
         val today = (now + zoneOffsetMs).floorDiv(DAY)
         var from: Long? = null
@@ -80,7 +84,10 @@ object QueryParser {
         var i = 0
         while (i < w.size) {
             val hit = if (from == null) dateAt(w, i, today) else null
-            if (hit == null) { i++; continue }
+            if (hit == null) {
+                i++
+                continue
+            }
             for (k in i until i + hit.used) used[k] = true
             if (i > 0 && w[i - 1] in CONNECTORS) used[i - 1] = true
             from = hit.startDay * DAY - zoneOffsetMs
@@ -132,11 +139,13 @@ object QueryParser {
                     val monday = today - (today + 3).mod(7L) - 7L * back
                     return Hit(2, label + "week", monday, monday + 7)
                 }
+
                 in MONTH -> {
                     val (y, m, _) = civil(today)
                     val start = monthStart(y, m - back)
                     return Hit(2, label + "month", start, monthStart(y, m - back + 1))
                 }
+
                 in YEAR -> {
                     val y = civil(today).first - back
                     return Hit(2, label + "year", daysFromCivil(y, 1, 1), daysFromCivil(y + 1, 1, 1))
@@ -191,7 +200,7 @@ object QueryParser {
     /** A month (or day) without a year means its most recent occurrence. */
     private fun namedDate(today: Long, month: Int, day: Int?, year: Int?, used: Int): Hit? {
         val (cy, cm, _) = civil(today)
-        val y = year ?: if (month <= cm) cy else cy - 1
+        val y = year ?: if (if (day != null) daysFromCivil(cy, month, day) <= today else month <= cm) cy else cy - 1
         val name = MONTHS[month - 1].replaceFirstChar { it.uppercase() }
         if (day == null) return Hit(used, if (year != null) "$name $y" else name, monthStart(y, month), monthStart(y, month + 1))
         if (day > daysIn(y, month)) return null

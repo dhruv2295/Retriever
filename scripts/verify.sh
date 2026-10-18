@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APK="$ROOT/androidApp/build/outputs/apk/release/androidApp-release.apk"
+APK_DIR="$ROOT/androidApp/build/outputs/apk/release"
 XCCONFIG="$ROOT/iosApp/Configuration/Config.xcconfig"
 NOTICES="$ROOT/THIRD_PARTY_NOTICES.md"
 PACKAGE_RESOLVED="$ROOT/iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
@@ -15,8 +15,8 @@ PACKAGE_RESOLVED="$ROOT/iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata
 INSPECTIONS_PROFILE="$ROOT/.idea/inspectionProfiles/Project_Default.xml"
 INSPECT_SH="${INSPECT_SH:-/Applications/Android Studio.app/Contents/bin/inspect.sh}"
 
-# Files owned by the relevance-fit branch stay out of the formatters until it merges.
-EXCLUDED='(^|/)(Ranking|Eval|EvalIos|RelevanceDump|DumpIos)\.kt$|(^|/)(EvalMode|DumpMode)\.swift$|(^|/)build/|^\.claude/'
+# Build output and agent scratch stay out of the Swift formatter (ktlint-gradle skips build/ itself).
+EXCLUDED='(^|/)build/|^\.claude/'
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'verify: %s\n' "$*" >&2; return 1; }
@@ -79,12 +79,15 @@ PY
 }
 
 check_16k() {
-  [ -f "$APK" ] || { fail "no release APK at $APK"; return 1; }
-  local za tmp; za="$(zipalign_bin)"
+  local za tmp apk; za="$(zipalign_bin)"
   [ -n "$za" ] || { fail "zipalign not found under the Android SDK build-tools"; return 1; }
-  "$za" -c -P 16 -v 4 "$APK" >/dev/null || { fail "zipalign -P 16 rejected the release APK"; return 1; }
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
-  unzip -q -o "$APK" 'lib/*' -d "$tmp" 2>/dev/null || true
+  for abi in arm64-v8a x86_64; do
+    apk="$APK_DIR/androidApp-$abi-release.apk"
+    [ -f "$apk" ] || { fail "no release APK at $apk"; return 1; }
+    "$za" -c -P 16 -v 4 "$apk" >/dev/null || { fail "zipalign -P 16 rejected $apk"; return 1; }
+    unzip -q -o "$apk" 'lib/*' -d "$tmp/$abi" 2>/dev/null || true
+  done
   check_elf_16k "$tmp"
 }
 
@@ -93,8 +96,7 @@ tracked() { # $1 = extension; tracked and new files, minus the excluded ones
 }
 
 format_check() {
-  command -v ktlint >/dev/null || { fail "ktlint not on PATH (brew install ktlint)"; return 1; }
-  ( cd "$ROOT" && tracked kt | xargs ktlint )
+  "$ROOT/gradlew" -q -p "$ROOT" ktlintCheck
   ( cd "$ROOT" && tracked swift | xargs xcrun swift-format lint --strict --configuration .swift-format )
 }
 
@@ -105,11 +107,13 @@ format_staged() {
   for f in $staged; do
     # A partly staged file would get its unstaged hunks staged by the re-add; leave it for the author.
     if ! git diff --quiet -- "$f"; then echo "pre-commit: $f has unstaged changes, not formatted" >&2; continue; fi
-    case "$f" in *.kt) kt+=("$f");; *.swift) sw+=("$f");; esac
+    case "$f" in *.kt|*.kts) kt+=("$ROOT/$f");; *.swift) sw+=("$f");; esac
   done
   if [ ${#kt[@]} -gt 0 ]; then
-    command -v ktlint >/dev/null || { fail "ktlint not on PATH (brew install ktlint)"; return 1; }
-    ktlint -F "${kt[@]}"; git add -- "${kt[@]}"
+    local IFS=,
+    "$ROOT/gradlew" -q -p "$ROOT" ktlintFormat "-PktlintFiles=${kt[*]}"
+    unset IFS
+    git add -- "${kt[@]}"
   fi
   if [ ${#sw[@]} -gt 0 ]; then
     xcrun swift-format format -i --configuration .swift-format "${sw[@]}"; git add -- "${sw[@]}"

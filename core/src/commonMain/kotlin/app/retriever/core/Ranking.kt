@@ -101,29 +101,3 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
         fun bin(cos: Float): Int = ((cos + 1f) * (BINS / 2)).toInt().coerceIn(0, BINS - 1)
     }
 }
-
-object Tiers {
-    /**
-     * INFERRED, not measured: below this a phone gets names and text only, no model. Meant for 3 GB iPhones
-     * (XR, SE 2) and 2-3 GB Android phones; the M440 is 388 MB on disk plus its runtime working set beside the
-     * app and the OS. Re-measure on a device before moving it.
-     */
-    const val MIN_MODEL_RAM_GB = 4.0
-
-    fun textOnly(ramGb: Double): Boolean = ramGb < MIN_MODEL_RAM_GB
-
-    fun profileFor(
-        imageMs: Double,
-        ramGb: Double,
-        backend: Backend,
-        variant: ModelVariant,
-        maxTokens: Int = 512,
-    ): DeviceProfile = when {
-        imageMs <= 150 && ramGb >= 8 ->
-            DeviceProfile(Tier.FULL, variant, backend, 140, 2, variant.audio, false, maxTokens)
-        imageMs <= 1200 && ramGb >= 6 ->
-            DeviceProfile(Tier.BALANCED, variant, backend, 70, 5, variant.audio, false, maxTokens)
-        // One keyframe per 30 s (still at most MAX_VIDEO_MOMENTS), so a slow phone reads videos without stalling.
-        else -> DeviceProfile(Tier.LIGHT, variant, backend, 70, 30, false, true, maxTokens)
-    }
-}

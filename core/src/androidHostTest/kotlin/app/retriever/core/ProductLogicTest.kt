@@ -15,23 +15,14 @@ private fun newLibraryStore(): Store = newStore()
 
 private fun uriOf(id: String) = "content://t/$id"
 
-private fun sf(
-    id: String,
-    size: Long = 100L,
-    modifiedAt: Long = 1L,
-    name: String = id,
-    folder: String = "",
-    kind: Kind = Kind.DOC,
-) = SourceFile(uriOf(id), name, folder, "text/plain", kind, size, modifiedAt)
+private fun sf(id: String, size: Long = 100L, modifiedAt: Long = 1L, name: String = id, folder: String = "", kind: Kind = Kind.DOC) =
+    SourceFile(uriOf(id), name, folder, "text/plain", kind, size, modifiedAt)
 
 private fun vecOf(sig: Signature) = Vector.of(FloatArray(DIMS) { if (it == 0) 1f else 0f }, sig)
 
 private fun names(files: List<Store.StoredFile>) = files.map { it.file.name }
 
-private class FakeHasher(
-    private val quick: Map<String, String?> = emptyMap(),
-    private val full: Map<String, String?> = emptyMap(),
-) : ContentHasher {
+private class FakeHasher(private val quick: Map<String, String?> = emptyMap(), private val full: Map<String, String?> = emptyMap()) : ContentHasher {
     val quickCalls = mutableListOf<String>()
     val fullCalls = mutableListOf<String>()
 
@@ -187,7 +178,13 @@ class LibrarySyncTest {
     fun changingExcludedFoldersForcesAFullScanAndRemovesKnownExcludedFiles() = runTest {
         val store = newLibraryStore()
         val source = FakeSource().apply {
-            next = Changes(listOf(sf("tg", folder = "Download/Telegram/x"), sf("pic", folder = "Pictures"), sf("tx", folder = "Download/TelegramX")), emptyList(), "tok1", isFullScan = true)
+            next =
+                Changes(
+                    listOf(sf("tg", folder = "Download/Telegram/x"), sf("pic", folder = "Pictures"), sf("tx", folder = "Download/TelegramX")),
+                    emptyList(),
+                    "tok1",
+                    isFullScan = true,
+                )
         }
         var clock = 0L
         val sync = LibrarySync(store, source, now = { clock })
@@ -195,7 +192,13 @@ class LibrarySyncTest {
 
         store.updatePrefs { Prefs(excludedFolders = setOf("Download/Telegram")) }
         clock = HOUR_MS
-        source.next = Changes(listOf(sf("tg", folder = "Download/Telegram/x"), sf("pic", folder = "Pictures"), sf("tx", folder = "Download/TelegramX")), emptyList(), "tok2", isFullScan = true)
+        source.next =
+            Changes(
+                listOf(sf("tg", folder = "Download/Telegram/x"), sf("pic", folder = "Pictures"), sf("tx", folder = "Download/TelegramX")),
+                emptyList(),
+                "tok2",
+                isFullScan = true,
+            )
         val result = sync.sync()
 
         assertNull(source.calls.last(), "a changed exclusion list must rescan from scratch")
@@ -326,15 +329,21 @@ class DuplicateFinderTest {
         val store = newLibraryStore()
         store.upsertFiles(
             listOf(
-                sf("x1", size = 100_000), sf("x2", size = 100_000), sf("x3", size = 100_000),
-                sf("y1", size = 150_000), sf("y2", size = 150_000),
+                sf("x1", size = 100_000),
+                sf("x2", size = 100_000),
+                sf("x3", size = 100_000),
+                sf("y1", size = 150_000),
+                sf("y2", size = 150_000),
             ),
         )
         val hasher = FakeHasher(
             quick = listOf("x1", "x2", "x3", "y1", "y2").associate { uriOf(it) to "q" },
             full = mapOf(
-                uriOf("x1") to "s", uriOf("x2") to "s", uriOf("x3") to "s",
-                uriOf("y1") to "b", uriOf("y2") to "b",
+                uriOf("x1") to "s",
+                uriOf("x2") to "s",
+                uriOf("x3") to "s",
+                uriOf("y1") to "b",
+                uriOf("y2") to "b",
             ),
         )
         val groups = DuplicateFinder(store, hasher).find()
@@ -470,9 +479,13 @@ class ProductStoreTest {
         val store = newLibraryStore()
         store.upsertFiles(
             listOf(
-                sf("x1", size = 200), sf("x2", size = 200), sf("x3", size = 200),
-                sf("y1", size = 100), sf("y2", size = 100),
-                sf("z1", size = 50), sf("z2", size = 50),
+                sf("x1", size = 200),
+                sf("x2", size = 200),
+                sf("x3", size = 200),
+                sf("y1", size = 100),
+                sf("y2", size = 100),
+                sf("z1", size = 50),
+                sf("z2", size = 50),
                 sf("u", size = 300),
             ),
         )
@@ -515,7 +528,11 @@ class ProductStoreTest {
         val extractor = countingExtractor()
         var kinds = setOf(Kind.PDF)
         IndexEngine(
-            store, extractor, FakeEmbedder(), FakeMonitor(), { IndexSettings(PROFILE, kinds) },
+            store,
+            extractor,
+            FakeEmbedder(),
+            FakeMonitor(),
+            { IndexSettings(PROFILE, kinds) },
             onFile = { kinds = Kind.entries.toSet() },
         ).batch()
 

@@ -1,10 +1,12 @@
 package app.retriever.core
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -70,6 +72,51 @@ class RetuneTest {
         assertEquals(profile, f.store.profile())
         assertEquals(emptyList(), f.extractor.names.drop(read).filterNot { it.startsWith("v") }, "no photo or doc read again")
         assertEquals(0L, f.store.countsByState()[FileState.PENDING] ?: 0L, "nothing left queued")
+    }
+
+    private val slow = DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 4.0, false)
+    private val samples = Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList())
+
+    /** Mobile data (or the welcome tap) writes prefs before the first tune; the tier defaults must still land. */
+    @Test
+    fun anEarlierPrefsWriteStillGetsTheLightDefaults() = test {
+        val store = newStore()
+        store.updatePrefs { it.copy(allowMobileData = true) }
+        val r = testRetriever(store, emptyList(), FakeExtractor(), probe = slow)
+        assertEquals(Tier.LIGHT, r.calibrate(samples, tuneAgain = false).profile.tier)
+        val p = store.prefs()
+        assertTrue(p.onlyWhileCharging)
+        assertEquals(Kind.entries.toSet() - Kind.AUDIO, p.kinds)
+        assertTrue(p.allowMobileData)
+    }
+
+    /** A person-set value differs from the old tier's default, so a LIGHT tune leaves it. */
+    @Test
+    fun aPersonSetChargingChoiceSurvivesALightTune() = test {
+        val store = newStore().also { it.setProfile(PROFILE.copy(tier = Tier.BALANCED, bulkOnlyWhenCharging = true)) }
+        store.updatePrefs { it.copy(onlyWhileCharging = false) }
+        val r = testRetriever(store, emptyList(), FakeExtractor(), probe = slow)
+        assertEquals(Tier.LIGHT, r.calibrate(samples, tuneAgain = false).profile.tier)
+        assertFalse(store.prefs().onlyWhileCharging)
+    }
+
+    /** Tune measures at the reference 70 vision tokens, so a FULL phone indexing at 140 is not demoted by Tune again (F030). */
+    @Test
+    fun tuneAgainOnAFullPhoneMeasuresAtTheReferenceTokens() = test {
+        val store = newStore().also { it.setProfile(PROFILE.copy(visionTokens = 140)) }
+        var vt = 0
+        val factory = FakeFactory().apply {
+            fail = { p, _ ->
+                vt = p.visionTokens
+                null
+            }
+            beforeEmbed = { if (vt == 140) delay(200) }
+        }
+        val r = testRetriever(store, emptyList(), FakeExtractor(), factory = factory)
+        val profile = r.calibrate(samples, tuneAgain = true).profile
+        assertEquals(Tier.FULL, profile.tier)
+        assertEquals(140, profile.visionTokens, "Tune again keeps the stored tokens for indexing")
+        assertTrue(factory.opened.all { it.first.visionTokens == 70 })
     }
 
     /** A tier up while photos read (retierFrom) requeues videos as designed, and never a photo. */

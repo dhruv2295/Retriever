@@ -2,6 +2,7 @@
 // "Bringing robust navigation structure to your SwiftUI app" (Apple sample code licence): a NavigationSplitView whose
 // sidebar selection roots the detail column's own stack. Modified for Retriever: the detail column is AppStack, and
 // the selection is read from the one path RootView keeps, so a switch to compact width and back loses nothing.
+// The sidebar holds Search, Status, More on Your iPad and Tidy Up (home-spec-v2 section 6); Home keeps the pictures.
 
 import SwiftUI
 
@@ -10,43 +11,13 @@ struct SplitRoot<Home: View>: View {
     @Binding var path: [Route]
     private let home: Home
 
-    enum Item: Hashable, CaseIterable {
-        case home, folders, duplicates, status, settings
+    /// A sidebar row: Home itself, or a page that roots the detail stack.
+    enum Dest: Hashable {
+        case home
+        case page(Route)
 
-        var title: String {
-            switch self {
-            case .home: "Search"
-            case .folders: "Folders"
-            case .duplicates: "Duplicates"
-            case .status: "Status"
-            case .settings: "Settings"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .home: "magnifyingglass"
-            case .folders: "folder"
-            case .duplicates: "square.on.square"
-            case .status: "clock.arrow.circlepath"
-            case .settings: "gearshape"
-            }
-        }
-
-        /// The page that roots this item; Search is Home itself.
         var route: Route? {
-            switch self {
-            case .home: nil
-            case .folders: .folders
-            case .duplicates: .duplicates
-            case .status: .status
-            case .settings: .settings
-            }
-        }
-
-        init?(_ route: Route) {
-            guard let item = Self.allCases.first(where: { $0.route == route }) else { return nil }
-            self = item
+            if case .page(let route) = self { route } else { nil }
         }
     }
 
@@ -56,9 +27,21 @@ struct SplitRoot<Home: View>: View {
         self.home = home()
     }
 
-    /// A page with a sidebar item first on the stack selects that item (Home's status pill selects Status); the rest
-    /// of the stack is the detail column's.
-    private var selection: Item { path.first.flatMap(Item.init) ?? .home }
+    private var tiles: [HomeTile] {
+        guard let snap = model.snap else { return [] }
+        return HomeTile.make(snap, folders: Int(model.home?.folders ?? 0), foldersAlways: true)
+    }
+
+    private var largeFiles: Int { Int(model.home?.largeCount ?? 0) }
+
+    /// Every page the sidebar lists, so a first page on the stack that is one of them selects its row.
+    private var pages: Set<Route> {
+        Set([Route.status, .settings, .duplicates, HomeTile.largeFiles] + tiles.map(\.route))
+    }
+
+    /// A page with a sidebar row first on the stack selects that row (Home's status pill selects Status); the rest of
+    /// the stack is the detail column's.
+    private var selection: Dest { path.first.flatMap { pages.contains($0) ? Dest.page($0) : nil } ?? .home }
 
     private var detail: Binding<[Route]> {
         Binding(
@@ -69,8 +52,25 @@ struct SplitRoot<Home: View>: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Item.allCases, id: \.self, selection: Binding(get: { selection }, set: choose)) { item in
-                Label(item.title, systemImage: item.icon)
+            List(selection: Binding<Dest?>(get: { selection }, set: choose)) {
+                Section {
+                    Label("Search", systemImage: "magnifyingglass").tag(Dest.home)
+                    Label("Status", systemImage: "clock.arrow.circlepath").tag(Dest.page(.status))
+                    Label("Settings", systemImage: "gearshape").tag(Dest.page(.settings))
+                }
+                if !tiles.isEmpty {
+                    Section("More on Your iPad") {
+                        ForEach(tiles) { tile in
+                            Label(tile.title, systemImage: tile.icon).badge(Copy.count(tile.count)).tag(Dest.page(tile.route))
+                        }
+                    }
+                }
+                Section("Tidy Up") {
+                    if largeFiles > 0 {
+                        Label("Large files", systemImage: "externaldrive").badge(Copy.count(largeFiles)).tag(Dest.page(HomeTile.largeFiles))
+                    }
+                    Label("Duplicates", systemImage: "square.on.square").tag(Dest.page(.duplicates))
+                }
             }
             .navigationTitle("Retriever")
         } detail: {
@@ -79,18 +79,23 @@ struct SplitRoot<Home: View>: View {
         }
     }
 
-    private func choose(_ item: Item?) {
-        guard let item else { return }
-        path = item.route.map { [$0] } ?? []
+    private func choose(_ dest: Dest?) {
+        guard let dest else { return }
+        path = dest.route.map { [$0] } ?? []
     }
 
     @ViewBuilder private var root: some View {
         switch selection {
         case .home: home
-        case .folders: FoldersView(model: model)
-        case .duplicates: DuplicatesView(model: model)
-        case .status: StatusView(model: model)
-        case .settings: SettingsView(model: model)
+        case .page(let route):
+            switch route {
+            case .status: StatusView(model: model)
+            case .settings: SettingsView(model: model)
+            case .folders: FoldersView(model: model)
+            case .duplicates: DuplicatesView(model: model)
+            case .files(let query): FileListView(query: query, services: model.services)
+            case .setup, .view: home
+            }
         }
     }
 }

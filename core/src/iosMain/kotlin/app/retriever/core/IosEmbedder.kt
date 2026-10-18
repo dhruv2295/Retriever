@@ -26,7 +26,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.NSFileManager
+import platform.UIKit.UIGraphicsImageRenderer
 
 class IosEmbedderFactory(
     private val opener: NativeEmbedderOpener,
@@ -37,13 +39,11 @@ class IosEmbedderFactory(
     private val isActive: () -> Boolean,
 ) : EmbedderFactory {
     // No NPU dispatch on iOS; the simulator has no Metal delegate for the model.
-    override fun backends(build: ModelBuild): List<Backend> =
-        if (isSimulator) listOf(Backend.CPU) else listOf(Backend.GPU, Backend.CPU)
+    override fun backends(build: ModelBuild): List<Backend> = if (isSimulator) listOf(Backend.CPU) else listOf(Backend.GPU, Backend.CPU)
 
     // A background task gets CPU: iOS refuses GPU work from a backgrounded app. The key differs, so the
     // foreground reopens on the GPU; the signature has no backend in it, so nothing is read again.
-    override fun backendNow(profile: DeviceProfile): Backend =
-        if (profile.backend == Backend.GPU && !isActive()) Backend.CPU else profile.backend
+    override fun backendNow(profile: DeviceProfile): Backend = if (profile.backend == Backend.GPU && !isActive()) Backend.CPU else profile.backend
 
     @Throws(Throwable::class)
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
@@ -51,10 +51,25 @@ class IosEmbedderFactory(
         // Own cache dir per configuration, or different token configs collide on the compiled program cache.
         val cache = "$cacheDir/${build.fileName.substringBeforeLast('.')}-${profile.backend.name}-vt${profile.visionTokens}-t${profile.maxTokens}"
         NSFileManager.defaultManager.createDirectoryAtPath(cache, true, null, null)
-        val native = opener.open("$modelDir/${build.fileName}", profile.backend == Backend.GPU, profile.visionTokens, profile.maxTokens, cache)
-            ?: throw IllegalStateException(opener.lastMessage ?: "the model didn't open")
+        val gpu = profile.backend == Backend.GPU
+        val native = opener.open("$modelDir/${build.fileName}", gpu, profile.visionTokens, profile.maxTokens, cache)
+        if (native == null) {
+            val message = opener.lastMessage ?: "the model didn't open"
+            // Too little memory now, or a GPU open as the app went to the background: no reason to give up the GPU.
+            if ((opener as? RefusesForNow)?.refusedForNow == true || (gpu && !isActive())) {
+                throw EmbedderClosedException(message, broken = false)
+            }
+            throw IllegalStateException(message)
+        }
         return IosEmbedder(native, profile.backend, Signature.of(build, profile.visionTokens, profile.maxTokens), isActive)
     }
+}
+
+/** An opener that can refuse an open for now, e.g. for too little free memory, rather than failing it. */
+// ponytail: a sub-interface so NativeEmbedderOpener and its test fakes stay as they are; fold it in when that file is next touched.
+interface RefusesForNow : NativeEmbedderOpener {
+    /** The last open returned null as a refusal for now, not a failure. */
+    val refusedForNow: Boolean
 }
 
 /** Logic mirrors MediaPipeEmbedder.kt. */
@@ -71,14 +86,17 @@ private class IosEmbedder(
         val input = parts.map {
             when (it) {
                 is Part.Text -> it.text
+
                 is Part.Image -> it.jpeg.toNSData()
+
                 // Audio is unwired, not unsupported: SDK 1.1.1 exposes embed(audio:). Only image and text reach the model today.
                 else -> throw IllegalArgumentException("no audio on iOS")
             }
         }
         mutex.withLock {
             if (closed) throw EmbedderClosedException()
-            native.embed(input)?.let { return@withLock it.toFloatArray() }
+            // A NaN output is a failure like a null one.
+            native.embed(input)?.toFloatArray()?.takeUnless(::hasNonFinite)?.let { return@withLock it }
             val message = native.lastMessage
             // An over-long input fails the same way on every backend: report it so the caller splits the text.
             if (native.lastError == INPUT_TOO_LONG) throw InputTooLongException(message ?: "input exceeds the model's token window")
@@ -89,7 +107,13 @@ private class IosEmbedder(
                 throw EmbedderClosedException("GPU unavailable in the background: $message", broken = false)
             }
             // One odd input fails only its file. Only when a known-good input fails too is the backend broken.
-            if (native.embed(listOf(PROBE)) != null) throw IllegalArgumentException("model rejected this input", IllegalStateException(message))
+            // The probe matches the failing modality: a broken vision encoder still passes a text probe.
+            val probe: Any = if (probeKindFor(parts) == Modality.IMAGE) PROBE_JPEG else PROBE
+            if (native.embed(listOf(probe))?.toFloatArray()?.let(::hasNonFinite) ==
+                false
+            ) {
+                throw IllegalArgumentException("model rejected this input", IllegalStateException(message))
+            }
             closed = true
             native.close()
             throw EmbedderClosedException("${backend.name} inference failed: $message")
@@ -111,5 +135,6 @@ private class IosEmbedder(
     private companion object {
         const val INPUT_TOO_LONG = 1
         val PROBE = Prefix.query("warm up")
+        val PROBE_JPEG by lazy { UIGraphicsImageRenderer(CGSizeMake(32.0, 32.0)).JPEGDataWithCompressionQuality(0.8) {} }
     }
 }

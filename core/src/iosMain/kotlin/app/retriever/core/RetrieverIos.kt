@@ -17,9 +17,9 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSNumber
 import platform.Foundation.NSTimeZone
+import platform.Foundation.dataWithContentsOfFile
 import platform.Foundation.localTimeZone
 import platform.Foundation.secondsFromGMT
-import platform.Foundation.dataWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
 import kotlin.time.Duration.Companion.seconds
 
@@ -42,10 +42,17 @@ fun createRetriever(
 ): Retriever {
     val logged: (String, Throwable?) -> Unit = { m, t -> log(if (t == null) m else "$m: $t") }
     val store = iosStore(dataDir, logged)
-    val known = KnownFiles { store.fileByUri(it)?.file }
+
+    // Each changes() call gets one map of the stored files, loaded on its first lookup, instead of a query per URI.
+    fun NativeFileSource.snapshotting() = object : NativeFileSource {
+        override fun changes(since: String?, known: KnownFiles): Changes {
+            val files = lazy { store.knownFiles() }
+            return this@snapshotting.changes(since) { files.value[it] }
+        }
+    }.asFileSource { null }
     return Retriever(
         store = store,
-        source = CompositeSource(mapOf("ph://" to photos.asFileSource(known), "folder://" to folders.asFileSource(known))),
+        source = CompositeSource(mapOf("ph://" to photos.snapshotting(), "folder://" to folders.snapshotting())),
         extractor = IosExtractor(extractor),
         factory = IosEmbedderFactory(opener, modelDir, cacheDir, isSimulator) { monitor.active },
         monitor = monitor,
@@ -56,6 +63,8 @@ fun createRetriever(
         log = logged,
         now = { (NSDate().timeIntervalSince1970 * 1000).toLong() },
         zoneOffsetMs = { NSTimeZone.localTimeZone.secondsFromGMT * 1000L },
+        // iOS keeps no exit reasons the app can read at launch, so every unfinished open counts as a crash.
+        lastExitCrashed = { true },
     )
 }
 
@@ -138,6 +147,13 @@ data class RetrieverSnapshot(
     val starred: Set<String>,
     val modelMissing: Boolean,
 )
+
+/** The short read's progress, as [observeAll] delivers its snapshots. */
+fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    scope.launch { tasteProgress().collect { cb(it) } }
+    return AutoCloseable { scope.cancel() }
+}
 
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {

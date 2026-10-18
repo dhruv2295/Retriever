@@ -59,8 +59,12 @@ class ExclusionTest {
 
         assertEquals(scans, f.source.calls.size, "no scan ran")
         assertNull(f.store.fileByUri(bank.uri))
-        assertEquals(listOf(banking.uri), f.store.keywordSearch("statement", 10).map { f.store.chunk(it.chunkId)!!.fileId }
-            .map { f.store.file(it)!!.uri }, "keyword lane: a sibling folder sharing the prefix stays")
+        assertEquals(
+            listOf(banking.uri),
+            f.store.keywordSearch("statement", 10).map { f.store.chunk(it.chunkId)!!.fileId }
+                .map { f.store.file(it)!!.uri },
+            "keyword lane: a sibling folder sharing the prefix stays",
+        )
         assertTrue(f.r.searchNames("ledger").hits.isEmpty(), "names lane, from memory")
         assertFalse(bank.uri in f.uris(f.r.search("statement")), "meaning lane")
         assertTrue(f.r.starred.value.isEmpty(), "the star hides with its file")

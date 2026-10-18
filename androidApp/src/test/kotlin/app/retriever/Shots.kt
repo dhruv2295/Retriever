@@ -11,8 +11,9 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
-import java.io.File
+import app.retriever.ui.RetrieverTheme
 import org.robolectric.RuntimeEnvironment
+import java.io.File
 
 /** Call before setContent: text at 1.5x needs a taller window than the phone's so every fixture row is visible. */
 fun tallWindowForBigText(fontScale: Float) {

@@ -29,8 +29,11 @@ val lintGate: Lint.() -> Unit = {
 }
 lint { lintGate() }
 
-// allWarningsAsErrors stays off for :core main until relevance-fit merges: Eval.kt:16 ("Redundant creation of Json
-// format") sits in a relevance-fit file. Enable it then (see docs/quality.md).
+// Warnings are defects, in tests too; a dependency-forced deprecation is suppressed at its call, with the reason.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    compilerOptions.allWarningsAsErrors.set(true)
+}
+
 kotlin {
     targets.withType<KotlinMultiplatformAndroidLibraryTarget>().configureEach {
         namespace = "app.retriever.core"
@@ -43,7 +46,10 @@ kotlin {
     }
     // iOS targets build the static RetrieverCore framework that the SwiftUI app links.
     listOf(iosArm64(), iosSimulatorArm64()).forEach { t ->
-        t.binaries.framework { baseName = "RetrieverCore"; isStatic = true }
+        t.binaries.framework {
+            baseName = "RetrieverCore"
+            isStatic = true
+        }
         t.binaries.all { linkerOpts("-lsqlite3") }
     }
 
@@ -82,6 +88,10 @@ sqldelight {
             packageName.set("app.retriever.core.db")
             // minSdk 30 ships SQLite 3.28: upsert (3.24) and FTS4 unicode61 remove_diacritics=2 (3.27) work; newer syntax does not.
             dialect("app.cash.sqldelight:sqlite-3-25-dialect:${libs.versions.sqldelight.get()}")
+            // N.db is the schema at version N; verifyCommonMainIndexDbMigration replays every later N.sqm on it and diffs
+            // against Index.sq. verifyMigrations stays off: it compiles the .sqm files from an empty schema, and 1.sqm
+            // alters tables that no migration creates (version 1 was Index.sq itself).
+            schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
         }
     }
 }

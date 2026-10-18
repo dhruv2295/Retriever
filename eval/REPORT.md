@@ -875,9 +875,10 @@ Prefix.document formats. No default changed, so nothing re-indexes.
   queries. Fusion settings, dims and vision tokens only differ on the Hindi letter (Document_04.pdf, outranked by the
   Hindi doctor screenshot) and the name query. To measure dims or tokens the eval needs near-duplicate distractors
   (several invoices, receipts, beach photos, lease drafts) and ~100 queries. INFERRED
-- Phone timings: queued for the device. The Android debug screen now has "Run corpus eval": push `eval/corpus/**` and
-  `eval/queries.json` to `/sdcard/Download/retriever-eval/`, let the app sync, run it, pull
-  `/sdcard/Android/data/app.retriever/files/eval/eval-corpus.txt` (same grid with vision tokens 70/140; its default row
+- Phone timings: queued for the device. The Android debug screen now has "Run corpus eval": push `eval/corpus/**` to
+  `/sdcard/Download/retriever-eval/` and `eval/queries.json` to `/sdcard/Android/data/app.retriever/files/eval/`
+  (outside the scanned folders), let the app sync, run it, pull
+  `/sdcard/Android/data/app.retriever/files/eval/eval-corpus.txt` (and `report-<run>.txt`) (same grid with vision tokens 70/140; its default row
   uses 70 because the facade does not expose the stored tier). Run in wave 4 on the emulator: see "Android: M740 on
   the emulator (wave 4)" at the top.
 

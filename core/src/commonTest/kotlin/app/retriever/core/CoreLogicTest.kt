@@ -1,8 +1,8 @@
 package app.retriever.core
 
-import kotlin.random.Random
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -181,8 +181,7 @@ class CoreLogicTest {
     private class FakeFactory(private val disagree: Backend? = null) : EmbedderFactory {
         val opened = mutableListOf<Pair<DeviceProfile, ModelBuild>>()
 
-        override fun backends(build: ModelBuild) =
-            if (build.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU)
+        override fun backends(build: ModelBuild) = if (build.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU)
 
         override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
             opened += profile to build

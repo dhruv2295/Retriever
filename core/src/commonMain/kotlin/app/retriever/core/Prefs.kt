@@ -21,6 +21,10 @@ data class Prefs(
     val setupStarted: Boolean = false,
     /** The person dismissed the ask for notification access. */
     val notificationsDismissed: Boolean = false,
+    /** How many times the person has seen "No matches"; the screen switches to NO_MATCH_QUIET after a few. */
+    val noMatchSeen: Int = 0,
+    /** Home shows "On this day" unless the person hides it. */
+    val showOnThisDay: Boolean = true,
 ) {
     companion object {
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(
@@ -30,9 +34,12 @@ data class Prefs(
         )
     }
 
-    /** A re-tune moved the defaults from [old]'s to [new]'s: every setting still at the old default takes the new one. */
-    fun retuned(old: DeviceProfile, new: DeviceProfile): Prefs {
-        val from = defaultFor(old)
+    /**
+     * A re-tune moved the defaults from [old]'s to [new]'s: every setting still at the old default takes the new one.
+     * On the first tune there is no [old] profile, so the untouched [Prefs] defaults stand in for it.
+     */
+    fun retuned(old: DeviceProfile?, new: DeviceProfile): Prefs {
+        val from = old?.let(::defaultFor) ?: Prefs()
         val to = defaultFor(new)
         return copy(
             kinds = Kind.entries.filter { k -> if ((k in kinds) == (k in from.kinds)) k in to.kinds else k in kinds }.toSet(),

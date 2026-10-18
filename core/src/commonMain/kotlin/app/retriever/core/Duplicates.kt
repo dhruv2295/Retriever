@@ -13,10 +13,7 @@ data class DuplicateGroup(val size: Long, val files: List<SourceFile>) {
 }
 
 class DuplicateFinder(private val store: Store, private val hasher: ContentHasher) {
-    suspend fun find(
-        minSize: Long = 64L * 1024,
-        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): List<DuplicateGroup> {
+    suspend fun find(minSize: Long = 64L * 1024, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): List<DuplicateGroup> {
         val collisions = store.sizeCollisions(minSize)
         val total = collisions.sumOf { it.size }
         var done = 0

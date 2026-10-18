@@ -3,9 +3,12 @@ package app.retriever.core
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
@@ -14,10 +17,92 @@ class EtaTest {
     // Pixel #3: the photo rate was carried into the video phase.
     @Test
     fun remainingVideosCountAtTheVideoPace() {
-        val left = mapOf(Kind.PHOTO to 100L, Kind.VIDEO to 40L)
-        val pace = mapOf(Kind.PHOTO to 1_000.0, Kind.VIDEO to 10_000.0)
-        assertEquals(9, Retriever.etaMinutes(left, pace, 1_000.0), "500 s, not the 140 s the photo rate gave")
-        assertEquals(3, Retriever.etaMinutes(left, mapOf(Kind.PHOTO to 1_000.0), 1_000.0))
+        val book = SpeedBook().add(Kind.PHOTO, 1_000.0, 1.0).add(Kind.VIDEO, 10_000.0, 1e6)
+        assertEquals(500_000.0, book.ms(mapOf(Kind.PHOTO to 100L, Kind.VIDEO to 40L), 40_000_000L), "500 s, not the 140 s the photo rate gave")
+    }
+
+    // Soak A1: an average of rates let one 50 ms doc outweigh the slow photos queued behind it.
+    @Test
+    fun oneFastDocThenSlowPhotosNeverReadsBelowTheTimeLeft() {
+        val eta = Eta(SpeedBook())
+        eta.start(mapOf(Kind.DOC to 1L, Kind.PHOTO to 100L), 0)
+        eta.add(Kind.DOC, 50.0, 1.0)
+        for (read in 1..100) {
+            eta.add(Kind.PHOTO, 2_000.0, 1.0)
+            val left = (100 - read) * 2_000 / 60_000.0
+            eta.minutes?.let { assertTrue(it >= left, "after $read photos: $it minutes shown, $left left") }
+        }
+        assertEquals(0, eta.minutes)
+    }
+
+    @Test
+    fun nothingShowsBeforeThirtySecondsOfWork() {
+        val eta = Eta(SpeedBook())
+        eta.start(mapOf(Kind.PHOTO to 100L), 0)
+        repeat(14) { eta.add(Kind.PHOTO, 2_000.0, 1.0) }
+        assertNull(eta.minutes)
+        eta.add(Kind.PHOTO, 2_000.0, 1.0)
+        assertEquals(3, eta.minutes) // 85 × 2 s
+    }
+
+    @Test
+    fun oneKindIsWithinTenPercentAfterTenFiles() {
+        val eta = Eta(SpeedBook())
+        eta.start(mapOf(Kind.PDF to 400L), 0)
+        repeat(10) { eta.add(Kind.PDF, if (it % 2 == 0) 3_000.0 else 5_000.0, 6.0) }
+        val left = 390 * 4_000 / 60_000.0
+        assertTrue(abs(eta.minutes!! - left) <= 0.1 * left, "${eta.minutes} vs $left")
+    }
+
+    @Test
+    fun aNewBatchKeepsTheBookAndTheEta() {
+        val eta = photosAtThreeSeconds()
+        val before = assertNotNull(eta.minutes)
+        eta.start(mapOf(Kind.PHOTO to 200L), 0)
+        assertEquals(before, eta.minutes, "shown at once, not after another 30 s")
+    }
+
+    @Test
+    fun oneFastFileAtBatchStartDoesNotSwingIt() {
+        val eta = photosAtThreeSeconds()
+        eta.start(mapOf(Kind.PHOTO to 201L), 0)
+        val before = eta.minutes!!
+        eta.add(Kind.PHOTO, 50.0, 1.0)
+        assertFalse(Eta.moved(before, eta.minutes!!))
+        assertEquals(before, eta.minutes)
+    }
+
+    @Test
+    fun theShownValueMovesPastTenPercentAndTwoMinutes() {
+        assertTrue(Eta.moved(null, 5))
+        assertFalse(Eta.moved(10, 12))
+        assertTrue(Eta.moved(10, 13))
+        assertFalse(Eta.moved(100, 110))
+        assertTrue(Eta.moved(100, 111))
+    }
+
+    /** 20 photos at 3 s each with 200 left: 10 minutes, shown as the 11 set at the 30 s mark. */
+    private fun photosAtThreeSeconds() = Eta(SpeedBook()).apply {
+        start(mapOf(Kind.PHOTO to 220L), 0)
+        repeat(20) { add(Kind.PHOTO, 3_000.0, 1.0) }
+    }
+
+    @Test
+    fun theBookOutlivesTheRetrieverAndIosCountsNightsAfterABackgroundRun() = runTest {
+        val store = newStore().also { it.setProfile(PROFILE) }
+        val ios = PIXEL.copy(platform = Platform.IOS)
+        val files = listOf(testFile("a.txt"), testFile("b.txt"))
+        val extractor = FakeExtractor(mapOf("a.txt" to listOf(textPiece("one")), "b.txt" to listOf(textPiece("two"))))
+        val first = testRetriever(store, files, extractor, probe = ios)
+        assertNull(first.estimateAll(), "nothing measured")
+        first.indexBatch(1.minutes)
+        assertEquals(2L, SpeedBook.decode(store.meta(Retriever.SPEED_KEY)).paces[Kind.DOC]?.files)
+
+        val second = testRetriever(store, files, extractor, probe = ios)
+        val estimate = assertNotNull(second.estimateAll(), "the stored book counts")
+        assertNull(estimate.nightsOnCharger, "no background run yet")
+        second.recordBackgroundRun(files = 400, seconds = 1_800)
+        assertEquals(0, second.estimateAll()?.nightsOnCharger, "nothing left to read")
     }
 
     // Pixel #8: one metric line per file, with no name, path or uri.
@@ -29,7 +114,8 @@ class EtaTest {
             it.next = Changes(listOf(testFile("secret-name.txt")), emptyList(), "tok", isFullScan = true)
         }
         val r = Retriever(
-            store, source, FakeExtractor(), FakeFactory(), FakeMonitor(), object : ContentHasher {
+            store, source, FakeExtractor(), FakeFactory(), FakeMonitor(),
+            object : ContentHasher {
                 override suspend fun quickHash(uri: String, size: Long): String? = null
                 override suspend fun fullHash(uri: String): String? = null
             },

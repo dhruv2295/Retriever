@@ -4,13 +4,13 @@ import android.content.Context
 import android.os.ParcelFileDescriptor
 import androidx.core.net.toUri
 import app.retriever.core.ContentHasher
-import java.io.FileInputStream
-import java.security.MessageDigest
-import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.FileInputStream
+import java.security.MessageDigest
+import kotlin.coroutines.cancellation.CancellationException
 
 class AndroidContentHasher(private val context: Context) : ContentHasher {
 
@@ -31,7 +31,7 @@ class AndroidContentHasher(private val context: Context) : ContentHasher {
                     }
                 }
             } ?: return@withContext null
-            digest.hex()
+            digest.digest().toHexString()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -52,7 +52,7 @@ class AndroidContentHasher(private val context: Context) : ContentHasher {
                     digest.update(buf, 0, n)
                 }
             }
-            digest.hex()
+            digest.digest().toHexString()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -60,10 +60,7 @@ class AndroidContentHasher(private val context: Context) : ContentHasher {
         }
     }
 
-    private fun open(uri: String): ParcelFileDescriptor? =
-        context.contentResolver.openFileDescriptor(uri.toUri(), "r")
-
-    private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
+    private fun open(uri: String): ParcelFileDescriptor? = context.contentResolver.openFileDescriptor(uri.toUri(), "r")
 
     private companion object {
         const val EDGE = 64 * 1024

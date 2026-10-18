@@ -6,7 +6,9 @@ struct SettingsView: View {
     let model: AppModel
     @State private var confirmingFree = false
     @State private var searchesCleared = false
-    var diagnostics: Diagnostics = AppServices.shared.diagnostics
+    /// Overrides the app's own log (previews); nil reads model.services?.diagnostics.
+    var diagnostics: Diagnostics?
+    @State private var problems: (url: URL, count: Int)?
 
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
@@ -48,10 +50,16 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.modelMissing) { await model.loadStorage() }
+        .task {
+            guard let log = diagnostics ?? model.services?.diagnostics else { return }
+            problems = await Task.detached { log.exportURL().map { ($0, log.entries.count) } }.value
+        }
         .confirmationDialog("Remove the search model?", isPresented: $confirmingFree, titleVisibility: .visible) {
             Button("Remove", role: .destructive, action: model.freeUpSpace)
         } message: {
-            Text("Searching by meaning and by what is in photos stops until it downloads again (about \(Copy.bytes(snap.downloadBytes))). Searching by name and words keeps working. Your files and stars are not touched.")
+            Text(
+                "Searching by meaning and by what is in photos stops until it downloads again (about \(Copy.bytes(snap.downloadBytes))). Searching by name and words keeps working. Your files and stars are not touched."
+            )
         }
     }
 
@@ -120,7 +128,7 @@ struct SettingsView: View {
             }
         case .verifying: Busy("Checking the download…")
         case .waitingForWifi: Note("Waiting for Wi-Fi.")
-        case let .failed(reason):
+        case .failed(let reason):
             Failure(reason)
             Button("Try again", action: model.downloadAgain)
         case .ready: EmptyView()
@@ -132,7 +140,7 @@ struct SettingsView: View {
         @ViewBuilder private var testing: some View {
             switch model.tune {
             case .running: Busy("Tuning… about a minute")
-            case let .done(summary): Note(summary)
+            case .done(let summary): Note(summary)
             case .failed: Failure("Tune failed")
             case .idle: EmptyView()
             }
@@ -144,14 +152,16 @@ struct SettingsView: View {
         Section("About") {
             LabeledContent("Version", value: Self.version)
             NavigationLink("Open-source notices") { Notices() }
-            if let url = diagnostics.exportURL() {
-                ShareLink(item: url) { Text("Recent problems (\(diagnostics.entries.count))") }
+            if let problems {
+                ShareLink(item: problems.url) { Text("Recent problems (\(problems.count))") }
             }
             NavigationLink("Privacy") {
                 ScrollView {
-                    Text("Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only network use is downloading the search model.")
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(
+                        "Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only network use is downloading the search model."
+                    )
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .navigationTitle("Privacy")
                 .navigationBarTitleDisplayMode(.inline)
@@ -192,7 +202,8 @@ private struct Notices: View {
         .navigationTitle("Open-source notices")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            let raw = Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            let raw =
+                Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
                 ?? "Retriever is built on open-source software. Its licences couldn't be shown just now."
             text = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(raw)
         }

@@ -191,7 +191,7 @@ class FacadeW5Test {
         f.index()
 
         val h = f.r.home()
-        assertEquals(listOf("new.pdf", "notes.txt", "plan.txt"), h.newDocs.map { it.name })
+        assertEquals(listOf("new.pdf", "notes.txt", "plan.txt", "old.pdf"), h.newDocs.map { it.name })
         assertEquals((12 downTo 3).map { "shot$it.png" }, h.newShots.map { it.name })
         assertEquals(3L, h.folders)
         assertEquals(1L, h.largeCount)
@@ -268,6 +268,7 @@ class FacadeW5Test {
         f.ready = true
         f.r.refreshSetUp()
         assertFalse(f.r.modelMissing.value)
+        f.r.warmSearch() // the search bar's focus; a search itself never opens the model
         assertTrue(f.r.search("wombat").vectorLane)
     }
 }

@@ -19,8 +19,7 @@ private fun engine(
     onFile: (FileMetric) -> Unit = {},
 ) = IndexEngine(store, extractor, embedder, monitor, settingsOf(), onFile)
 
-private suspend fun IndexEngine.batch(requireCharging: Boolean = false, pauseWhenHot: Boolean = true) =
-    runBatch(9.minutes, requireCharging, pauseWhenHot)
+private suspend fun IndexEngine.batch(requireCharging: Boolean = false, pauseWhenHot: Boolean = true) = runBatch(9.minutes, requireCharging, pauseWhenHot)
 
 class OverflowSplitTest {
     /** Rejects any text input longer than 300 chars, the way the runtime rejects inputs over its signature length. */

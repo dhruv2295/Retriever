@@ -30,8 +30,8 @@ fun ocrOrder(languageTags: List<String>): List<OcrScript> {
 
 /** One recognizer's text and its own confidence in it (0 to 1, averaged over the text). */
 class OcrReading(val text: String, val confidence: Float) {
-    /** Too little text, text that looks broken, or text the recognizer itself doubts: worth trying the next script. */
-    val sparse: Boolean get() = text.trim().length < MIN_TEXT_CHARS || looksBroken(text) || confidence < SURE
+    /** Text that looks broken, or that the recognizer itself doubts: worth trying the next script. A short, sure reading is not (a one-line screenshot). */
+    val sparse: Boolean get() = looksBroken(text) || confidence < SURE
 
     companion object {
         val NONE = OcrReading("", 0f)
@@ -44,12 +44,16 @@ class OcrReading(val text: String, val confidence: Float) {
     }
 }
 
-/** Reads with each script of [order] until one gives enough clean, confident text, keeping the best reading so far. */
+/**
+ * Reads with each script of [order] until one gives clean, confident text, keeping the best reading so far. A blank
+ * reading means the image holds no text (or a recognizer is not there yet), so the other scripts are not tried.
+ */
 suspend fun readScripts(order: List<OcrScript>, read: suspend (OcrScript) -> OcrReading): String {
     var best = OcrReading.NONE
     for (script in order) {
-        best = maxOf(best, read(script), compareBy({ !it.sparse }, { it.text.isNotBlank() && !looksBroken(it.text) }, { it.confidence }))
-        if (!best.sparse) break
+        val reading = read(script)
+        best = maxOf(best, reading, compareBy({ !it.sparse }, { it.text.isNotBlank() && !looksBroken(it.text) }, { it.confidence }))
+        if (!best.sparse || reading.text.isBlank()) break
     }
     return best.text
 }

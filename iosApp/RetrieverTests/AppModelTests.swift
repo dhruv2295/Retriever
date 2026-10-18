@@ -1,5 +1,7 @@
 import Photos
+import RetrieverCore
 import XCTest
+
 @testable import Retriever
 
 @MainActor
@@ -8,11 +10,11 @@ final class AppModelTests: XCTestCase {
 
     // The model persists these flags; a test must not leave them for the next run on this simulator.
     override func setUp() {
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
     }
 
     override func tearDown() {
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
     }
 
     func testFixtures() {
@@ -91,6 +93,12 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(offered(.firstRun), "not set up yet")
     }
 
+    func testBackgroundTaskIdsArePermitted() {
+        let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
+        XCTAssertTrue(permitted.contains(IndexTask.id))
+        XCTAssertTrue(permitted.contains(IndexTask.continuedId))
+    }
+
     func testFinishSetupMarksSetupSeen() {
         let model = AppModel(fixture: .firstRun)
         XCTAssertFalse(model.setupSeen)
@@ -104,6 +112,113 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.tune, .running)
         model.retryTune()
         XCTAssertEqual(model.tune, .idle)
+    }
+
+    // MARK: First run
+
+    /// The stored inputs a launch reads: the welcome answered, Photos, set-up, and core's answers about the short read.
+    private func setup(
+        asked: Bool = true, photos: PHAuthorizationStatus = .authorized, setUp: Bool = true,
+        planned: Int? = 79, decided: Bool? = false, trying: Bool = false, committing: Bool = false,
+        download: ModelDownload.State = .ready, tune: AppModel.Tune = .idle, stopped: Bool = false
+    ) -> SetupState {
+        let counts: [Kind: (read: Int, planned: Int)] = planned.map { $0 == 0 ? [:] : [.photo: (read: 3, planned: $0)] } ?? [:]
+        return SetupState(
+            asked: asked, photos: photos, folders: [], downloadBytes: 0, download: download, downloadStopped: stopped, progress: 0,
+            useMobileData: false, tune: tune, setUp: setUp,
+            taste: planned == nil ? nil : TasteSnap(counts: counts), decided: decided, trying: trying, committing: committing
+        )
+    }
+
+    func testStagesFollowStoredStateAndResumeAfterRelaunch() {
+        let table: [(String, SetupState, SetupStage)] = [
+            ("not welcomed", setup(asked: false, photos: .notDetermined, setUp: false), .welcome),
+            ("welcomed, Photos unanswered", setup(photos: .notDetermined, setUp: false), .access),
+            ("Photos denied, nothing else", setup(photos: .denied, setUp: false), .access),
+            ("limited Photos, downloading", setup(photos: .limited, setUp: false, download: .downloading), .waiting),
+            ("tuning", setup(setUp: false, tune: .running), .waiting),
+            ("set up, core has not answered", setup(planned: nil, decided: nil), .waiting),
+            ("short read running", setup(), .readFew),
+            ("Try it now tapped", setup(trying: true), .tryIt),
+            ("Continue tapped", setup(trying: true, committing: true), .commit),
+        ]
+        for (name, state, stage) in table {
+            XCTAssertEqual(state.stage, stage, name)
+            // A relaunch rebuilds the state from the same stored inputs and lands on the same stage.
+            XCTAssertEqual(
+                setup(
+                    asked: state.asked, photos: state.photos, setUp: state.setUp, planned: state.taste?.planned,
+                    decided: state.decided, trying: state.trying, committing: state.committing,
+                    download: state.download, tune: state.tune
+                ).stage, stage, name)
+        }
+    }
+
+    func testAReturningUserNeverSeesTheShortRead() {
+        // Set up before the first run existed: core has no scope key, so it reads as decided, whatever else is stored.
+        XCTAssertEqual(setup(planned: 0, decided: true).stage, .done)
+        XCTAssertEqual(setup(planned: 79, decided: true).stage, .done)
+        // A plan that is still empty (access not answered yet) is not a short read either.
+        XCTAssertEqual(setup(planned: 0, decided: false).stage, .done)
+        XCTAssertFalse(setup(planned: 0, decided: false).firstRun)
+    }
+
+    func testReadEverythingNowSkipsTryAndCommit() {
+        // Read everything writes no scope, so core says decided: stale try-it and commit flags change nothing.
+        XCTAssertEqual(setup(decided: true, trying: true, committing: true).stage, .done)
+        // Both choices still wait on the model before anything is shown.
+        XCTAssertEqual(setup(setUp: false, decided: true).stage, .waiting)
+    }
+
+    func testTheDogShowsWhatIsHappening() {
+        XCTAssertEqual(setup(asked: false, photos: .notDetermined, setUp: false).mood, .welcome)
+        XCTAssertEqual(setup(setUp: false, download: .downloading).mood, .walking)
+        XCTAssertEqual(setup(setUp: false, download: .verifying).mood, .walking)
+        XCTAssertEqual(setup(setUp: false, tune: .running).mood, .walking)
+        XCTAssertEqual(setup(setUp: false, download: .waitingForWifi).mood, .resting)
+        XCTAssertEqual(setup(setUp: false, download: .idle, stopped: true).mood, .resting)
+        XCTAssertEqual(setup(setUp: false, download: .failed("offline")).mood, .trouble)
+        XCTAssertEqual(setup(setUp: false, tune: .failed).mood, .trouble)
+        XCTAssertEqual(setup().mood, .walking)
+        XCTAssertNil(setup(trying: true).mood, "try-it hosts the search")
+        XCTAssertNil(setup(trying: true, committing: true).mood, "the decision is the focal point")
+    }
+
+    func testTasteRowsGroupKindsInReadingOrder() {
+        let taste = TasteSnap(counts: [.photo: (11, 18), .pdf: (8, 12), .doc: (4, 4), .screenshot: (6, 6)], secondsLeft: 70, readyToTry: true)
+        XCTAssertEqual(taste.rows.map(\.name), ["Screenshots", "Documents and PDFs", "Photos"], "kinds with no files have no row")
+        XCTAssertEqual(taste.rows.map(\.done), [true, false, false])
+        XCTAssertEqual(taste.rows[1].read, 12)
+        XCTAssertEqual(taste.rows[1].planned, 16)
+        XCTAssertEqual(taste.read, 29)
+        XCTAssertEqual(taste.planned, 40)
+        XCTAssertEqual(TasteSnap().planned, 0)
+    }
+
+    func testBeginningSetupIsRemembered() {
+        let model = AppModel(fixture: .firstRun)
+        XCTAssertFalse(model.started)
+        model.beginSetup(readEverything: false)
+        XCTAssertTrue(model.started)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "started"))
+    }
+
+    func testSkippingGoesHome() {
+        let model = AppModel(fixture: .downloading(0.3))
+        model.setupSeen = false
+        model.skipSetup()
+        XCTAssertTrue(model.setupSeen)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "setupSeen"))
+    }
+
+    func testAccessCountsPhotosOrAFolder() {
+        XCTAssertFalse(AppModel(fixture: .firstRun).accessGiven)
+        XCTAssertTrue(AppModel(fixture: .photosLimited).accessGiven)
+        XCTAssertTrue(AppModel(fixture: .downloading(0.1)).accessGiven)
+        // Denied Photos with a folder added is still something to read.
+        let denied = AppModel(fixture: .photosDenied)
+        XCTAssertEqual(denied.photos, .denied)
+        XCTAssertEqual(denied.accessGiven, !denied.folders.isEmpty)
     }
 
     func testSetUseMobileDataFlipsTheFlagAndLeavesTheOldKeyAlone() {

@@ -16,13 +16,17 @@ class EvalTest {
         override suspend fun embedRaw(parts: List<Part>): FloatArray {
             val v = FloatArray(768)
             fun add(seed: Int) = Random(seed).let { r -> for (i in v.indices) v[i] += r.nextFloat() - 0.5f }
-            for (p in parts) when (p) {
-                is Part.Text -> {
-                    texts += p.text
-                    p.text.lowercase().split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.isNotEmpty() }.forEach { add(it.hashCode()) }
+            for (p in parts) {
+                when (p) {
+                    is Part.Text -> {
+                        texts += p.text
+                        p.text.lowercase().split(Regex("[^\\p{L}\\p{Nd}]+")).filter { it.isNotEmpty() }.forEach { add(it.hashCode()) }
+                    }
+
+                    is Part.Image -> add(p.jpeg.contentHashCode())
+
+                    is Part.Audio -> add(7)
                 }
-                is Part.Image -> add(p.jpeg.contentHashCode())
-                is Part.Audio -> add(7)
             }
             return v
         }

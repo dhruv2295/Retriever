@@ -29,7 +29,11 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
             if UIApplication.shared.applicationState == .background { self?.retriever.uiVisible = false }
         }
         // The model reopens on the next batch; under pressure the system would sooner kill the app than wait.
-        observe(UIApplication.didReceiveMemoryWarningNotification) { [weak self] in self?.release() }
+        // Not while the app is in front or a continued read goes on: the next batch would only reopen it.
+        observe(UIApplication.didReceiveMemoryWarningNotification) { [weak self] in
+            guard let self, !monitor.active, !keepsReading() else { return }
+            release()
+        }
         observe(UIDevice.batteryStateDidChangeNotification) { [weak self] in self?.readBattery() }
         observe(UIDevice.batteryLevelDidChangeNotification) { [weak self] in self?.readBattery() }
         if UIApplication.shared.applicationState != .background { enterForeground() }

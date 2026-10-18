@@ -32,6 +32,8 @@ struct FileQuery: Hashable {
     var title: String
     /// The files the person starred, newest star first; the sort menu doesn't apply.
     var starredOnly = false
+    /// Photos and videos taken within these times (ms), oldest first; the sort menu doesn't apply.
+    var takenRange: ClosedRange<Int64>?
 }
 
 /// Files a page at a time: pictures as a grid, everything else as rows.
@@ -44,8 +46,12 @@ struct FileListView: View {
     @State private var slow = false
     @State private var exhausted = false
     @State private var generation = 0
+    @State private var failed = false
+    /// The sort the list was last loaded for, so coming back to the screen doesn't throw the pages away.
+    @State private var loadedSort: FileQuery.Sort?
     @Environment(\.openFile) private var openFile
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(AppModel.self) private var model: AppModel?
 
     private static let page: Int32 = 60
 
@@ -62,36 +68,37 @@ struct FileListView: View {
 
     /// Large files sorted another way is just every file.
     private var title: String {
-        query.kind == nil && query.folder == nil && !query.starredOnly && sort != .largest ? "All files" : query.title
+        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest ? "All files" : query.title
     }
 
     private var grid: Bool {
-        query.kind == .photo || query.kind == .screenshot || query.kind == .video
-    }
-
-    /// Starred follows the stars as they change (here, in a viewer), without reloading its pages.
-    private var shown: [Store.StoredFile] {
-        guard query.starredOnly, let starred = Stars.model?.starred else { return files }
-        return files.filter { starred.contains($0.file.uri) }
+        query.kind == .photo || query.kind == .screenshot || query.kind == .video || query.takenRange != nil
     }
 
     var body: some View {
-        let visible = shown
+        // One read of the stars for every row. Starred follows them as they change (here, in a viewer), without reloading its pages.
+        let starred = model?.starred ?? []
+        let visible = query.starredOnly ? files.filter { starred.contains($0.file.uri) } : files
         Group {
             if visible.isEmpty && loading {
                 // Never an empty Group: its modifiers (title, task) would vanish with it.
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if visible.isEmpty && failed {
+                StateView(mood: .trouble, title: "Couldn't load files", message: "Something went wrong reading the list.") {
+                    Button("Try again") { Task { await reload() } }.buttonStyle(.borderedProminent)
+                }
             } else if visible.isEmpty {
                 if query.starredOnly {
-                    StateView(art: "IllusEmpty", title: "Nothing starred yet", message: "Touch and hold any file and choose Star to keep it here.")
+                    StateView(mood: .noMatch, title: "Nothing starred yet", message: "Touch and hold any file and choose Star to keep it here.")
                 } else {
-                    StateView(art: "IllusEmpty", title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
+                    StateView(mood: .noMatch, title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
                 }
             } else if grid {
                 ScrollView {
                     LazyVGrid(columns: gridColumns(typeSize, spacing: 4), spacing: 4) {
                         ForEach(visible, id: \.id) { stored in
-                            ResultCell(file: stored.file, onOpen: { openFile(stored.file) }).onAppear { more(after: stored) }
+                            ResultCell(file: stored.file, starred: starred.contains(stored.file.uri), onOpen: { openFile(stored.file) })
+                                .onAppear { more(after: stored) }
                         }
                     }
                     .padding(4)
@@ -99,15 +106,18 @@ struct FileListView: View {
             } else {
                 List(visible, id: \.id) { stored in
                     let f = stored.file
-                    FileButton(file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))", onOpen: { openFile(f) })
-                        .onAppear { more(after: stored) }
+                    FileButton(
+                        file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))", coverage: Format.coverage(stored),
+                        starred: starred.contains(f.uri), onOpen: { openFile(f) }
+                    )
+                    .onAppear { more(after: stored) }
                 }
                 .listStyle(.plain)
             }
         }
         .navigationTitle(title)
         .toolbar {
-            if !query.starredOnly {
+            if !query.starredOnly && query.takenRange == nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Picker("Sort by", selection: $sort) {
@@ -120,11 +130,8 @@ struct FileListView: View {
             }
         }
         .task(id: sort) {
-            guard services != nil else { return }
-            generation += 1
-            files = []
-            exhausted = false
-            await loadPage()
+            guard loadedSort != sort else { return }
+            await reload()
         }
         .task(id: loading) {
             slow = false
@@ -132,6 +139,15 @@ struct FileListView: View {
             try? await Task.sleep(for: .milliseconds(300))
             slow = !Task.isCancelled && loading
         }
+    }
+
+    private func reload() async {
+        guard services != nil else { return }
+        generation += 1
+        files = []
+        exhausted = false
+        loadedSort = nil
+        await loadPage()
     }
 
     private func more(after stored: Store.StoredFile) {
@@ -144,9 +160,24 @@ struct FileListView: View {
         let gen = generation
         loading = true
         let offset = Int32(files.count)
-        let page = (query.starredOnly ? try? await retriever.starredFiles(limit: Self.page, offset: offset)
-            : try? await retriever.files(kind: query.kind, folder: query.folder, sort: sort.store, limit: Self.page, offset: offset)) ?? []
+        let page: [Store.StoredFile]
+        do {
+            if let range = query.takenRange {
+                page = try await retriever.filesTakenBetween(from: range.lowerBound, to: range.upperBound, limit: Self.page, offset: offset)
+            } else if query.starredOnly {
+                page = try await retriever.starredFiles(limit: Self.page, offset: offset)
+            } else {
+                page = try await retriever.files(kind: query.kind, folder: query.folder, sort: sort.store, limit: Self.page, offset: offset)
+            }
+        } catch {
+            guard gen == generation else { return }
+            failed = true
+            loading = false
+            return
+        }
         guard gen == generation else { return }
+        failed = false
+        loadedSort = sort
         // ponytail: offset paging over a table the indexer changes, so rows can shift; drop repeats by id.
         let seen = Set(files.map(\.id))
         files += page.filter { !seen.contains($0.id) }

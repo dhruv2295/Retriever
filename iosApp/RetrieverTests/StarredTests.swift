@@ -1,4 +1,6 @@
+import SwiftUI
 import XCTest
+
 @testable import Retriever
 
 @MainActor
@@ -21,6 +23,14 @@ final class StarredTests: XCTestCase {
         XCTAssertTrue(model.starred.contains(uri))
         model.setStarred(uri, false)
         XCTAssertFalse(model.starred.contains(uri))
+    }
+
+    func testStarsCrossViewsThroughTheEnvironmentNotAGlobal() {
+        // The Stars and Thumbnails globals are gone: a view reads AppModel and AppServices from the environment.
+        var values = EnvironmentValues()
+        XCTAssertNil(values.services, "nothing until RootView sets it, so fixtures show icons")
+        values.services = services
+        XCTAssertNotNil(values.services)
     }
 
     func testSetStarredWithoutServicesChangesNothing() {

@@ -67,11 +67,22 @@ class SearchBenchTest {
         )
         repeat(3) { queries.forEach { query -> scans.values.forEach { it(query) } } }
         val scanMs = scans.keys.associateWith { mutableMapOf<Query, MutableList<Double>>() }
-        repeat(SCAN_ROUNDS) { queries.forEach { query -> scans.forEach { (name, run) -> scanMs.getValue(name).getOrPut(query) { mutableListOf() } += timed { run(query) } } } }
+        repeat(SCAN_ROUNDS) {
+            queries.forEach { query ->
+                scans.forEach { (name, run) ->
+                    scanMs.getValue(name).getOrPut(query) { mutableListOf() } +=
+                        timed { run(query) }
+                }
+            }
+        }
         val scanP95 = scanMs.mapValues { (name, ms) -> report(name, ms.mapValues { it.value.sorted()[SCAN_ROUNDS / 2] }) }
         val base = scanP95.getValue("vector-wave4")
-        println("SearchBench: vector %+.1f%%, vector+rule %+.1f%% against the wave-4 scan".format(
-            (scanP95.getValue("vector") / base - 1) * 100, (scanP95.getValue("vector+rule") / base - 1) * 100))
+        println(
+            "SearchBench: vector %+.1f%%, vector+rule %+.1f%% against the wave-4 scan".format(
+                (scanP95.getValue("vector") / base - 1) * 100,
+                (scanP95.getValue("vector+rule") / base - 1) * 100,
+            ),
+        )
         assertTrue(scanP95.getValue("vector") <= base * 1.05, "vector p95 ${scanP95.getValue("vector")} ms vs wave 4's $base ms")
         assertTrue(scanP95.getValue("vector") <= LIMIT_MS.getValue("vector"))
 
@@ -197,8 +208,13 @@ class SearchBenchTest {
     private fun build(store: Store, rnd: Random, vocab: List<String>, zipf: Zipf): List<NameEntry> = store.inTransaction {
         // Kind shares of a typical phone; documents carry most of the chunks.
         val mix = listOf(
-            Triple(Kind.PHOTO, 27_500, 1), Triple(Kind.SCREENSHOT, 7_500, 1), Triple(Kind.VIDEO, 2_500, 4),
-            Triple(Kind.AUDIO, 1_000, 3), Triple(Kind.OTHER, 1_500, 3), Triple(Kind.DOC, 6_000, 8), Triple(Kind.PDF, 4_000, 12),
+            Triple(Kind.PHOTO, 27_500, 1),
+            Triple(Kind.SCREENSHOT, 7_500, 1),
+            Triple(Kind.VIDEO, 2_500, 4),
+            Triple(Kind.AUDIO, 1_000, 3),
+            Triple(Kind.OTHER, 1_500, 3),
+            Triple(Kind.DOC, 6_000, 8),
+            Triple(Kind.PDF, 4_000, 12),
         )
         var spare = CHUNKS - mix.sumOf { it.second * it.third }
         val plan = mix.flatMap { (kind, n, chunks) ->
@@ -248,8 +264,10 @@ class SearchBenchTest {
                 vocab[8].take(3), vocab[600].take(4),
             ).map { Query(it) } +
             listOf(
-                Query(vocab[8], setOf(Kind.PDF)), Query(vocab[150], setOf(Kind.DOC, Kind.PDF)),
-                Query(vocab[6000], setOf(Kind.PHOTO)), Query("the", setOf(Kind.SCREENSHOT)),
+                Query(vocab[8], setOf(Kind.PDF)),
+                Query(vocab[150], setOf(Kind.DOC, Kind.PDF)),
+                Query(vocab[6000], setOf(Kind.PHOTO)),
+                Query("the", setOf(Kind.SCREENSHOT)),
                 Query("${vocab[20]} ${vocab[90]}", setOf(Kind.DOC)),
             ) +
             Query("बिजली बिल")

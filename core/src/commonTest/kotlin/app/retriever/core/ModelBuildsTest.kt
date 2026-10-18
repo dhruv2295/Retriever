@@ -9,8 +9,7 @@ class ModelBuildsTest {
     private fun android(soc: String, npu: Boolean = true, sdk: Int = 36, ram: Double = 12.0, vendor: String = "Google") =
         DeviceProbe(Platform.ANDROID, sdk, vendor, soc, ram, oldMaliGpu = false, npuDispatch = npu)
 
-    private fun pick(probe: DeviceProbe, failed: Set<String> = emptySet()) =
-        ModelBuilds.buildFor(ModelBuilds.variantFor(probe), probe, failed)
+    private fun pick(probe: DeviceProbe, failed: Set<String> = emptySet()) = ModelBuilds.buildFor(ModelBuilds.variantFor(probe), probe, failed)
 
     @Test
     fun tensorG3HasNoNpuBuild() = assertEquals(ModelVariant.M740.generic, pick(android("Tensor G3")))

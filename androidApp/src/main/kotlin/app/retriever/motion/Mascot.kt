@@ -51,7 +51,12 @@ import kotlin.coroutines.resume
 fun Mascot(mood: MascotMood, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val frames = remember { MascotFrames(context) }
-    val view = remember { ImageView(context).apply { adjustViewBounds = true; setImageDrawable(frames.still(MascotDirector.still(mood))) } }
+    val view = remember {
+        ImageView(context).apply {
+            adjustViewBounds = true
+            setImageDrawable(frames.still(MascotDirector.still(mood)))
+        }
+    }
     var currentMood by remember { mutableStateOf(mood) }
     currentMood = mood
     var visible by remember { mutableStateOf(false) }
@@ -80,7 +85,9 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier) {
                     val ms = step.seconds?.let { (it * 1000).toLong() } ?: Long.MAX_VALUE
                     withTimeoutOrNull(ms) { moods.first { it != now } }
                 }
+
                 StepKind.ONCE -> frames.anim(step.clip).playToEnd(view, repeat = 0)
+
                 StepKind.LOOP -> {
                     val anim = frames.anim(step.clip)
                     // Ask half a loop early: the request lands inside the last wanted loop, which then finishes.
@@ -110,7 +117,9 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier) {
 
 private const val RECHECK_MS = 10_000L
 
-private class StepHistory { var last: MascotStep? = null }
+private class StepHistory {
+    var last: MascotStep? = null
+}
 
 /** Motion runs only with animations on, Battery Saver off, and the phone below moderate heat. */
 internal fun motionAllowed(animatorsOn: Boolean, powerSave: Boolean, thermalStatus: Int): Boolean =
@@ -122,11 +131,7 @@ private fun motionAllowed(context: Context): Boolean {
 }
 
 /** Starts the drawable with [repeat] and suspends until it ends; [whilePlaying] runs alongside (cancelled at the end). */
-private suspend fun AnimatedImageDrawable.playToEnd(
-    view: ImageView,
-    repeat: Int,
-    whilePlaying: suspend () -> Unit = {},
-) {
+private suspend fun AnimatedImageDrawable.playToEnd(view: ImageView, repeat: Int, whilePlaying: suspend () -> Unit = {}) {
     repeatCount = repeat
     view.setImageDrawable(this)
     try {

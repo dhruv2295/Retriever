@@ -40,9 +40,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** [access] names what the app may see (all files, or which media permissions); the token records it. */
-class MediaStoreSource(private val context: Context, private val access: () -> String = { "" },
-    private val log: (String, Throwable?) -> Unit = { _, _ -> },
-) : FileSource {
+class MediaStoreSource(private val context: Context, private val access: () -> String = { "" }, private val log: (String, Throwable?) -> Unit = { _, _ -> }) :
+    FileSource {
     // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER). 4: folders left out.
     override val rulesVersion = 4
 
@@ -89,8 +88,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
          * The per-volume tokens to resume from. Rows that wider access reveals keep their old generation, so an
          * incremental scan would never list them: tokens taken under other access count as none (a full scan).
          */
-        fun resumable(tokens: Map<String, String>, access: String): Map<String, String> =
-            if (tokens[ACCESS] == access) tokens else emptyMap()
+        fun resumable(tokens: Map<String, String>, access: String): Map<String, String> = if (tokens[ACCESS] == access) tokens else emptyMap()
     }
 
     private fun parse(token: String?): Map<String, String> = runCatching {
@@ -110,12 +108,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
     }
 
     /** On an incremental scan, a changed row that no longer qualifies (now hidden, now empty) goes to [removed]. */
-    private fun query(
-        volume: String,
-        sinceGeneration: Long?,
-        skips: MutableMap<String, Int>,
-        removed: MutableList<String>,
-    ): List<SourceFile> {
+    private fun query(volume: String, sinceGeneration: Long?, skips: MutableMap<String, Int>, removed: MutableList<String>): List<SourceFile> {
         val collection = MediaStore.Files.getContentUri(volume)
         val volumeLabel = volumeLabel(collection)
         val projection = arrayOf(

@@ -6,8 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NpuGateTest {
-    private fun ready(manufacturer: String, vararg libs: String) =
-        ModelBuilds.npuRuntimeReady(manufacturer) { it in libs }
+    private fun ready(manufacturer: String, vararg libs: String) = ModelBuilds.npuRuntimeReady(manufacturer) { it in libs }
 
     @Test
     fun qualcommIsNeverReady() {

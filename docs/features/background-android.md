@@ -1,0 +1,65 @@
+# Background work (Android)
+
+## Purpose
+
+Index the person's files without the app open, without hurting the phone (battery, heat, a person using it), and without
+losing work when Android stops or kills the process. The batch itself is in `indexing-pipeline.md`; this note is the
+scheduling around it.
+
+## Mechanism and why
+
+| Piece | Mechanism | Why it is the accepted one |
+|---|---|---|
+| Scheduling | WorkManager, four unique names owned by `IndexService`: `index-now` (KEEP), `index-continue` (REPLACE), `index-periodic` (6 h, UPDATE, battery not low, charging when the setting says so), `index-media` (content-URI trigger). | The persisted, constraint-aware scheduler for deferrable work. It survives process death and reboot and respects Doze and App Standby. |
+| Init | `RetrieverApp` implements `Configuration.Provider` with `KoinWorkerFactory`; the startup initializer is removed in the manifest. `IndexWorker` is a constructor-injected worker (`workerOf` in `AppModule`). | On-demand initialization is the documented path for a custom configuration; Koin's worker factory removes the service-locator calls. |
+| Work unit | `IndexWorker : CoroutineWorker` runs one `Retriever.indexBatch(8.minutes)`, then `schedule(next)` maps `NextRun` to a follow-up and returns success. A failed batch (`RETRY`) rests like heat through `index-continue`, never `Result.retry()`: NOW work waiting in backoff would make `index-now`'s KEEP drop every Resume and commit. | Stays under the 10 minute deadline of a non-foreground job. Each stop reason maps to the constraint that ends it: charger, idle, or a delay. |
+| Follow-ups | Every follow-up REPLACEs `index-continue`, so the last decision wins and a timed run never waits behind a charger- or idle-gated one. | APPEND_OR_REPLACE chained a SOON run behind a gated one. |
+| Stop and cancel | A stop cancels `doWork`, which cancels the batch (`indexBatch` returns SOON, the file's attempt is given back). `stopReason` is logged on API 31+. | Cooperative cancellation is what `CoroutineWorker` expects (`onStopped` is final). |
+| Foreground | `setForeground` only when set up, the app is visible and no batch already shows one. Type `mediaProcessing` on API 35+, `dataSync` below; both declared in the manifest with their permissions. A refused start is caught. | A foreground service started from a visible state is the documented exemption (develop/background-work/services/fgs). The FGS timeout resets when the app comes to the front. |
+| Progress | Screens and the notification read `Retriever.state`, throttled to once a second for the notification. `setProgress` is not used. | The worker runs in the app's process; the StateFlow carries more than `Data` (ETA, current file, stop reason). |
+| Expedited | Not used. | WorkManager already runs unconstrained work at once while the process lives; expedited has a quota and no charging or idle constraint. |
+| Change trigger | `IndexService.watchMedia` arms a `ContentUriTrigger` on `MediaStore.Files` with a 1 minute update delay and a 10 minute max delay. The media run re-arms with APPEND_OR_REPLACE on its first attempt only. | JobScheduler holds the trigger, so it works with the process gone (the old in-process observer died with it). |
+| Held stops | `ProcessLifecycleOwner.onStart` resumes an UNPLUGGED or BUSY stop; an `ACTION_SCREEN_OFF` receiver resumes a BUSY stop when no batch runs. | Instant resume while the process lives; the constraints cover the rest. |
+| Process death | Attempts are charged before each file, chunks are written per file, WorkManager re-runs the interrupted work. | A file that kills the process is skipped after N tries instead of crash-looping. |
+| Memory | `IndexWorker` releases the model when nothing follows soon and the app is hidden; `onTrimMemory(BACKGROUND)` releases it when no batch runs. | Only one copy of the model is in memory, and none while nothing needs it. |
+
+## Owner files
+
+- `androidApp/src/main/kotlin/app/retriever/IndexWorker.kt`
+- `androidApp/src/main/kotlin/app/retriever/indexing/IndexService.kt`
+- `androidApp/src/main/kotlin/app/retriever/indexing/PauseReceiver.kt`
+- `androidApp/src/main/kotlin/app/retriever/indexing/Notifications.kt`
+- `androidApp/src/main/kotlin/app/retriever/RetrieverApp.kt`
+- `androidApp/src/main/kotlin/app/retriever/di/AppModule.kt`
+- `androidApp/src/main/AndroidManifest.xml`
+- `core/src/commonMain/kotlin/app/retriever/core/Retriever.kt`
+- `core/src/commonMain/kotlin/app/retriever/core/IndexEngine.kt`
+
+## Invariants
+
+1. One batch at a time (`indexLock`); a request made while one runs reaches it through `changedSinceSync`.
+2. A background run without a foreground service finishes inside 10 minutes, sync and model open included.
+3. A follow-up never waits behind a constraint that does not belong to it (all follow-ups REPLACE one name).
+4. A foreground service starts only from a visible state; a refused start is not fatal.
+5. A stop, cancel or Pause gives back the attempt for the file in flight; process death does not.
+6. Pause stops the running batch within one file and cancels `index-now` and `index-continue`; `index-periodic` stays.
+7. The model is never closed under a running batch and never loaded twice.
+8. `uiBusy` is cleared when the app stops, so a screen left mid-typing cannot hold batches back.
+
+## Tests
+
+`IndexWorkerTest` and `IndexServiceTest` (androidApp unit tests), `KoinModuleTest` (the worker graph), and in core
+`RetrieverTest`, `BatchPolicyTest`, `ThermalTest`, `TokenRetryTest`.
+
+## Known limits
+
+- In-memory state (`lastStop`, `uiVisible`, `changedSinceSync`) is lost on process death; a BUSY stop then waits for the
+  idle constraint or the 6 h periodic run.
+- Android 16 job quotas apply even to jobs started while visible; a chain of 8 minute background runs can hit
+  `STOP_REASON_QUOTA` in lower standby buckets (WorkManager re-enqueues). Device queue: measure on an Android 16 phone.
+- In the rare or restricted bucket, background indexing runs about once a day. The app never asks to be exempt from
+  battery optimization (Play policy).
+- SAF folders have no change trigger; they are picked up by the periodic run, app open, or a MediaStore change elsewhere.
+- Tune runs in `AppScope` with no process protection; leaving the app mid-Tune can get the cached process killed.
+- Thermal: current status only (see `indexing-pipeline.md`).
+- Background follow-ups do not check Battery Saver; the engine's 20% battery rule and the charging setting apply.

@@ -13,7 +13,7 @@ Default layers:
 
 1. `./gradlew --rerun-tasks :core:testAndroidHostTest :core:iosSimulatorArm64Test :androidApp:testDebugUnitTest :androidApp:lintDebug :androidApp:lintRelease`
 2. `scripts/ios-unit-tests.sh`
-3. Formatter checks in check mode (`swift format lint`, `ktlint`).
+3. Formatter checks in check mode: `swift format lint` and the Gradle-managed ktlint (`./gradlew ktlintCheck`; the format task is `ktlintFormat`, see the root `build.gradle.kts`).
 4. Notices check: fails when a group in `:androidApp` `releaseRuntimeClasspath`, or a pin in the iOS
    `Package.resolved`, is missing from `THIRD_PARTY_NOTICES.md`.
 5. Version check: the Android `versionName` equals the iOS `MARKETING_VERSION`.
@@ -23,9 +23,13 @@ Default layers:
 and the iOS UI tests.
 
 Warnings are defects. The build fails on them: lint `warningsAsErrors`, and Kotlin `allWarningsAsErrors`
-on `:androidApp` main. `:core` main is warning-clean except `Eval.kt:16` (relevance-fit's file), so its flag is
-off: enable after relevance-fit merges. Test sources may keep a dependency-forced deprecation, documented where it
-occurs. Swift builds in Swift 6 mode with warnings treated as errors.
+on every compilation of `:androidApp` and `:core` (Android and iOS, tests included). A dependency-forced deprecation
+is a targeted `@Suppress("DEPRECATION")` at its call, with the reason. Swift builds in Swift 6 mode with warnings treated as errors.
+
+The lint baseline is empty: `androidApp/lint-baseline.xml` is deleted and no baseline is configured, so any new
+lint issue fails the build. Release builds ship per-ABI APKs (`androidApp-arm64-v8a-release.apk` and
+`androidApp-x86_64-release.apk`, no universal APK) via AGP `splits { abi }`, which satisfies `ChromeOsAbiSupport`;
+the 16 KB check covers both.
 
 Use `--rerun-tasks` only for the final gate. During development, run the tests you touched and compile the
 modules you changed.
@@ -72,7 +76,7 @@ Grep-checked on 2026-10-18 over `androidApp/src/main` and `core/src` main source
 
 ## Hooks
 
-- `pre-commit` runs the formatters on the staged files.
+- `pre-commit` runs the formatters on the staged files (`scripts/verify.sh --format-staged`, which calls `ktlintFormat`).
 - `pre-push` runs `scripts/verify.sh`.
 - `scripts/verify.sh` sets `core.hooksPath` to `.githooks` on its first run.
 

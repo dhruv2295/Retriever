@@ -7,37 +7,47 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.StrictMode
-import androidx.work.Configuration
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.work.Configuration
+import app.retriever.access.Access
+import app.retriever.access.AccessService
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
+import app.retriever.core.Extractor
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.Tier
-import app.retriever.data.AccessService
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
 import app.retriever.di.appModule
+import app.retriever.indexing.IndexService
+import app.retriever.indexing.Notifications
+import app.retriever.setup.SetupFlow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.workmanager.factory.KoinWorkerFactory
 import org.koin.core.context.startKoin
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-class RetrieverApp : Application(), Configuration.Provider {
+class RetrieverApp :
+    Application(),
+    Configuration.Provider {
     // WorkManager builds itself on first use, not at launch (its startup initializer is removed in the manifest).
-    override val workManagerConfiguration: Configuration = Configuration.Builder().build()
+    // Koin builds the workers, so IndexWorker gets its dependencies through its constructor.
+    override val workManagerConfiguration: Configuration = Configuration.Builder().setWorkerFactory(KoinWorkerFactory()).build()
 
     private val retriever: Retriever by inject()
     private val scope: CoroutineScope by inject(AppScope)
+    private val index: IndexService by inject()
 
     override fun onCreate() {
         super.onCreate()
@@ -49,12 +59,13 @@ class RetrieverApp : Application(), Configuration.Provider {
         // First, so building the graph (disk reads) happens here on IO, not on the main thread.
         scope.launch {
             start()
+            // Before setup too: the worker's sync-only batch makes new files searchable by name.
+            index.watchMedia()
             if (retriever.setUp.value == true) {
-                IndexScheduler.schedulePeriodic(this@RetrieverApp, retriever.prefs.value.onlyWhileCharging)
+                index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
             }
         }
         Notifications.createChannel(this)
-        MediaObserver.register(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             /** What the app could see when it was last in front; Settings may have changed it since. */
             private var seen: Access? = null
@@ -70,7 +81,7 @@ class RetrieverApp : Application(), Configuration.Provider {
                     if (retriever.setUp.first { it != null } != true) return@launch
                     // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
                     val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY }
-                    if (held) IndexScheduler.indexNow(this@RetrieverApp)
+                    if (held) index.indexNow()
                     retriever.warmSearch()
                 }
                 scope.launch {
@@ -84,14 +95,18 @@ class RetrieverApp : Application(), Configuration.Provider {
 
             override fun onStop(owner: LifecycleOwner) {
                 retriever.uiVisible = false
+                // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
+                retriever.setUiBusy(false)
             }
         })
-        // A batch that stopped because the phone was in use (BUSY) resumes once the screen goes off.
+        // A batch that stopped because the phone was in use (BUSY) resumes once the screen goes off. Not while one
+        // runs: continueLater replaces index-continue, and so would cancel a running follow-up.
         ContextCompat.registerReceiver(
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    if (retriever.state.value.lastStop == StopReason.BUSY) IndexScheduler.continueLater(context, 10.seconds)
+                    val s = retriever.state.value
+                    if (s.lastStop == StopReason.BUSY && !s.running) index.continueLater(10.seconds)
                 }
             },
             IntentFilter(Intent.ACTION_SCREEN_OFF),
@@ -114,7 +129,11 @@ class RetrieverApp : Application(), Configuration.Provider {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (level >= TRIM_MEMORY_BACKGROUND && !retriever.uiVisible && !retriever.state.value.running) {
-            scope.launch { retriever.release() }
+            scope.launch {
+                retriever.release()
+                // The OCR recognizers come back on the next read that needs them.
+                (get<Extractor>() as? AutoCloseable)?.close()
+            }
         }
     }
 

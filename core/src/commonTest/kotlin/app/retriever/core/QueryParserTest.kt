@@ -88,6 +88,13 @@ class QueryParserTest {
         assertEquals(1790812800000L, lastMonth.to) // 1 Oct 2026
     }
 
+    @Test fun namedDateWithoutYearIsTheMostRecentPastDay() {
+        assertEquals(oct17 - 357 * day, parse("pdf october 25").from) // 25 Oct 2025
+        assertEquals(oct17 - 7 * day, parse("october 10").from) // 10 Oct 2026
+        assertEquals(oct17 - 7 * day, parse("10 october").from)
+        assertEquals(null, parse("29 february").from) // 2026 is not a leap year
+    }
+
     @Test fun nothingToParse() {
         val p = parse("  mortgage   statement ")
         assertEquals(ParsedQuery("mortgage statement"), p)

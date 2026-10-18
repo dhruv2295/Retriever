@@ -36,13 +36,10 @@ const val AUDIO_SAMPLE_RATE = 16_000
 const val AUDIO_WINDOW_SEC = 10
 
 /** A searchable slice of a file: a PDF page, an OCR'd screenshot, a 30 s audio window. */
-data class Piece(
-    val locator: String,
-    val parts: List<Part>,
-    val keywordText: String?,
-)
+data class Piece(val locator: String, val parts: List<Part>, val keywordText: String?)
 
 // Commit-pinned resolve URLs adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt (Apache-2.0). Modified for Retriever: constants instead of a fetched allowlist.
+
 /** Pinned to a Hugging Face commit so a re-export can never swap the file under existing vectors. */
 enum class ModelVariant(
     val repo: String,
@@ -77,13 +74,7 @@ enum class ModelVariant(
 }
 
 /** One downloadable file of a [variant]; [soc] is set for an NPU build compiled for that chip. */
-data class ModelBuild(
-    val variant: ModelVariant,
-    val fileName: String,
-    val sizeBytes: Long,
-    val sha256: String,
-    val soc: String? = null,
-) {
+data class ModelBuild(val variant: ModelVariant, val fileName: String, val sizeBytes: Long, val sha256: String, val soc: String? = null) {
     val url: String get() = "https://huggingface.co/${variant.repo}/resolve/${variant.commit}/$fileName"
     val isNpu: Boolean get() = soc != null
 }
@@ -112,16 +103,13 @@ enum class Thermal { NONE, LIGHT, MODERATE, SEVERE, CRITICAL }
 /** Indexing stops at MODERATE and a rest check resumes it at LIGHT or lower, so a brief spike costs minutes, not a fixed quarter hour. */
 object ThermalRest {
     val RECHECK = 2.minutes
+
+    /** For iOS, whose foreground loop sleeps this long after a cooldown (or a failed batch). */
+    val RECHECK_SECONDS = RECHECK.inWholeSeconds
     val STOP_AT = Thermal.MODERATE
 }
 
-data class DeviceState(
-    val ramGb: Double,
-    val charging: Boolean,
-    val batteryPct: Int,
-    val thermal: Thermal,
-    val screenOn: Boolean = false,
-) {
+data class DeviceState(val ramGb: Double, val charging: Boolean, val batteryPct: Int, val thermal: Thermal, val screenOn: Boolean = false) {
     val hot: Boolean get() = thermal >= ThermalRest.STOP_AT
 }
 

@@ -2,15 +2,14 @@ package app.retriever
 
 import android.content.Context
 import android.os.Build
-import android.os.Environment
 import android.util.Log
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.core.Backend
 import app.retriever.core.DIMS
 import app.retriever.core.Embedder
-import app.retriever.core.Extractor
 import app.retriever.core.EvalSetting
+import app.retriever.core.Extractor
 import app.retriever.core.Kind
 import app.retriever.core.Part
 import app.retriever.core.RetrievalEval
@@ -28,6 +27,7 @@ import app.retriever.core.report
 import app.retriever.core.traced
 import app.retriever.di.AppScope
 import app.retriever.di.ModelDir
+import app.retriever.model.CalibrationSamples
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +64,7 @@ class EvalRunner : KoinComponent {
             val mark = TimeSource.Monotonic.markNow()
             val result = retriever.search(q)
             queryMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
-            val top = result.hits.filterNot { it.file.name.isHarnessFile() }.take(5)
+            val top = result.hits.take(5)
             val hit = top.any { it.file.name.contains(target, ignoreCase = true) }
             if (hit) found++
             out.append(if (hit) "hit  " else "miss ").append(q).append(" -> ").append(top.joinToString(" | ") { it.file.name })
@@ -87,16 +87,14 @@ class EvalRunner : KoinComponent {
 
     /**
      * Corpus mode: core's RetrievalEval, the iOS simulator eval's grid, over the eval corpus and queries.json pushed
-     * to Download/retriever-eval. The app must have synced since the push, so the files are found in the store by folder.
+     * to the app's files/eval folder (see runNamed). The app must have synced since the push, so the files are found in the store by folder.
      * Writes eval-corpus.txt next to eval.txt.
      */
     suspend fun runCorpus(): String = withContext(Dispatchers.Default) {
-        val dir = File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR")
-        val queries = parseEvalQueries(File(dir, "queries.json").readText())
+        val queries = parseEvalQueries(File(evalDir(), "queries.json").readText())
         val corpus = retriever.folders().map { it.first }.filter { CORPUS_DIR in it.split('/') }
             .flatMap { retriever.files(null, it, Store.Sort.NAME, 10_000, 0) }
             .map { it.file }
-            .filterNot { it.name.isHarnessFile() }
             .sortedBy { it.uri }
         // The production path first, as a person meets it: the app's index, ranks, strong counts and latency.
         val queryMs = mutableListOf<Double>()
@@ -104,12 +102,13 @@ class EvalRunner : KoinComponent {
             val mark = TimeSource.Monotonic.markNow()
             retriever.search(q.q).also { queryMs += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS) }
         }
-        // The eval's own manifest and reports sit in the corpus folder and their chunks contain every query: they never take a rank.
-        val ranked = results.map { r -> r.hits.filterNot { it.file.name.isHarnessFile() } }
+        // Only corpus files take a rank or count as strong; anything else the library holds is dropped before ranking.
+        val uris = corpus.mapTo(HashSet()) { it.uri }
+        val ranked = results.map { r -> r.hits.filter { it.file.uri in uris } }
         val production = queries.zip(ranked) { q, hits ->
-            q.file?.let { f -> hits.indexOfFirst { it.file.folder.split('/').contains(CORPUS_DIR) && it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
+            q.file?.let { f -> hits.indexOfFirst { it.file.name == f }.takeIf { it >= 0 }?.plus(1) }
         }
-        val strong = results.map { r -> r.hits.take(r.strongCount).count { !it.file.name.isHarnessFile() } }
+        val strong = results.map { r -> r.hits.take(r.strongCount).count { it.file.uri in uris } }
         // One copy of the model in memory: the eval opens its own per vision-token count.
         retriever.release()
         val build = retriever.requiredBuild.value
@@ -131,7 +130,7 @@ class EvalRunner : KoinComponent {
 
     /**
      * Entry for `adb shell am start -n app.retriever/.DebugActivity --es run corpus|scan|latency|query|stats [--es q text]`.
-     * The report goes to logcat (tag RetrieverBench, ending in "done <run>") and Download/retriever-eval/report-<run>.txt.
+     * The report goes to logcat (tag RetrieverBench, ending in "done <run>") and files/eval/report-<run>.txt, next to the pushed queries.json (adb push it to /sdcard/Android/data/app.retriever/files/eval/).
      */
     suspend fun runNamed(name: String, q: String?): String {
         val text = try {
@@ -151,7 +150,7 @@ class EvalRunner : KoinComponent {
         text.lines().forEach { Log.i(TAG, it) }
         Log.i(TAG, "done $name")
         runCatching {
-            File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR").apply { mkdirs() }.resolve("report-$name.txt").writeText(text)
+            File(evalDir(), "report-$name.txt").writeText(text)
         }.onFailure { Log.w(TAG, "report-$name.txt not written", it) }
         return text
     }
@@ -161,7 +160,15 @@ class EvalRunner : KoinComponent {
         val rnd = Random(42)
         val max = ROWS.max()
         val sig = Signature("bench")
-        val full = VectorTable(LongArray(max) { it + 1L }, LongArray(max) { it.toLong() }, ByteArray(max * DIMS).also(rnd::nextBytes), FloatArray(max) { 1f / 127 })
+        val full = VectorTable(
+            LongArray(max) { it + 1L },
+            LongArray(max) { it.toLong() },
+            ByteArray(max * DIMS).also(rnd::nextBytes),
+            FloatArray(max) {
+                1f /
+                    127
+            },
+        )
         val q = Vector(ByteArray(DIMS).also(rnd::nextBytes), 1f / 127, sig)
         val engine = SearchEngine(
             Store(AndroidSqliteDriver(IndexDb.Schema, app, null)),
@@ -203,7 +210,7 @@ class EvalRunner : KoinComponent {
      * foreground batch running, and the focus-busy window with the batch standing by (push extra photos first).
      */
     private suspend fun searchLatency(): String = withContext(Dispatchers.Default) {
-        val queries = parseEvalQueries(File(Environment.getExternalStorageDirectory(), "Download/$CORPUS_DIR/queries.json").readText()).map { it.q }
+        val queries = parseEvalQueries(File(evalDir(), "queries.json").readText()).map { it.q }
         var keywordOnly = 0
         suspend fun timed(q: String): Double {
             val mark = TimeSource.Monotonic.markNow()
@@ -225,7 +232,13 @@ class EvalRunner : KoinComponent {
 
             Log.i(TAG, "latency: model closed, cold")
             retriever.warmSearch()
-            line("model closed, opened by each search (no warm-up)", sample.map { retriever.release(); timed(it) })
+            line(
+                "model closed, opened by each search (no warm-up)",
+                sample.map {
+                    retriever.release()
+                    timed(it)
+                },
+            )
 
             // What a person meets: the search bar takes focus, warmSearch runs, then they type.
             Log.i(TAG, "latency: model closed, then warmSearch")
@@ -298,9 +311,18 @@ class EvalRunner : KoinComponent {
             result = retriever.search(q)
             times += mark.elapsedNow().toDouble(DurationUnit.MILLISECONDS)
         }
-        out.appendLine("${result.hits.size} hits, ${result.strongCount} strong, vector lane ${result.vectorLane}; search ms, 1st to 3rd: ${times.joinToString { it.f1() }}")
+        out.appendLine(
+            "${result.hits.size} hits, ${result.strongCount} strong, vector lane ${result.vectorLane}; search ms, 1st to 3rd: ${times.joinToString {
+                it.f1()
+            }}",
+        )
         result.hits.forEachIndexed { i, h ->
-            out.appendLine("${i + 1} ${if (i < result.strongCount) "strong" else "weak  "} ${"%.4f".format(Locale.US, h.score)} ${h.file.kind} ${h.file.name} ${h.locator}${if (h.byName) " [name]" else ""}")
+            out.appendLine(
+                "${i + 1} ${if (i < result.strongCount) "strong" else "weak  "} ${"%.4f".format(
+                    Locale.US,
+                    h.score,
+                )} ${h.file.kind} ${h.file.name} ${h.locator}${if (h.byName) " [name]" else ""}",
+            )
         }
         out.toString()
     }
@@ -321,18 +343,24 @@ class EvalRunner : KoinComponent {
             ).value
             val out = StringBuilder("Index stats, ${Build.MODEL}\n")
             out.appendLine("kind state files with_taken_at")
-            rows("SELECT kind, state, COUNT(*), COUNT(taken_at) FROM files GROUP BY kind, state ORDER BY kind, state", 4).forEach { out.appendLine(it.joinToString(" ")) }
-            val (files, taken, chunks) = rows("SELECT (SELECT COUNT(*) FROM files), (SELECT COUNT(taken_at) FROM files), (SELECT COUNT(*) FROM chunks)", 3).single()
+            rows("SELECT kind, state, COUNT(*), COUNT(taken_at) FROM files GROUP BY kind, state ORDER BY kind, state", 4).forEach {
+                out.appendLine(it.joinToString(" "))
+            }
+            val (files, taken, chunks) = rows(
+                "SELECT (SELECT COUNT(*) FROM files), (SELECT COUNT(taken_at) FROM files), (SELECT COUNT(*) FROM chunks)",
+                3,
+            ).single()
             out.appendLine("total: $files files, $taken with taken_at, $chunks chunks")
-            rows("SELECT key, substr(value, 1, 200) FROM index_meta WHERE key IN ('prefs', 'model_signature', 'profile')", 2).forEach { out.appendLine("${it[0]}: ${it[1]}") }
+            rows("SELECT key, substr(value, 1, 200) FROM index_meta WHERE key IN ('prefs', 'model_signature', 'profile')", 2).forEach {
+                out.appendLine("${it[0]}: ${it[1]}")
+            }
             out.toString()
         } finally {
             driver.close()
         }
     }
 
-    private fun median(xs: List<Double>): Double =
-        if (xs.isEmpty()) 0.0 else xs.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
+    private fun median(xs: List<Double>): Double = if (xs.isEmpty()) 0.0 else xs.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 }
 
     /** p50, p95 (nearest rank) and max, in ms. */
     private fun latency(ms: List<Double>): String {
@@ -343,8 +371,8 @@ class EvalRunner : KoinComponent {
 
     private fun Double.f1() = "%.1f".format(Locale.US, this)
 
-    /** The eval's own files in the corpus folder: the query manifest and the reports this runner writes. */
-    private fun String.isHarnessFile() = this == "queries.json" || this == "report.md" || (startsWith("report-") && endsWith(".txt"))
+    /** App-private, so MediaStore never indexes the manifest or the reports. */
+    private fun evalDir() = checkNotNull(app.getExternalFilesDir("eval")) { "external files dir unavailable" }
 
     private companion object {
         const val PER_KIND = 10

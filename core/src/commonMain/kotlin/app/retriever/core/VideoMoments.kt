@@ -24,8 +24,7 @@ const val MARKER_TOKENS = 8
 const val SEQUENCE_TOKENS = 2
 const val MAX_VIDEO_MOMENTS = 8
 
-fun audioWindowSec(maxTokens: Int): Int =
-    ((maxTokens - MARKER_TOKENS - SEQUENCE_TOKENS) / AUDIO_TOKENS_PER_SEC).coerceIn(1, AUDIO_WINDOW_SEC)
+fun audioWindowSec(maxTokens: Int): Int = ((maxTokens - MARKER_TOKENS - SEQUENCE_TOKENS) / AUDIO_TOKENS_PER_SEC).coerceIn(1, AUDIO_WINDOW_SEC)
 
 /** 0 or 1 means moments carry no audio. */
 fun momentAudioSec(maxTokens: Int, visionTokens: Int): Int =
@@ -49,13 +48,12 @@ fun moments(durationMs: Long, everySec: Int, audioSec: Int): List<Moment> {
 }
 
 /** Gallery's TAV layout when audio exists; its frame-only path was trained without timestamps. */
-fun momentParts(frameJpeg: ByteArray, frameMs: Long, audio: ShortArray?): List<Part> =
-    if (audio == null || audio.isEmpty()) {
-        listOf(Part.Image(frameJpeg))
-    } else {
-        val stamp = Part.Text(modelTimestamp(frameMs))
-        listOf(stamp, Part.Audio(audio), stamp, Part.Image(frameJpeg))
-    }
+fun momentParts(frameJpeg: ByteArray, frameMs: Long, audio: ShortArray?): List<Part> = if (audio == null || audio.isEmpty()) {
+    listOf(Part.Image(frameJpeg))
+} else {
+    val stamp = Part.Text(modelTimestamp(frameMs))
+    listOf(stamp, Part.Audio(audio), stamp, Part.Image(frameJpeg))
+}
 
 /** Where a result jumps: the start of what the model heard, else the frame it saw, not the segment start. */
 fun momentLocator(m: Moment, withAudio: Boolean): String = timeLocator(((if (withAudio) m.audioFromMs else m.frameMs) / 1000).toInt())
@@ -67,8 +65,7 @@ fun modelTimestamp(ms: Long): String {
     return if (h > 0) "$h:${pad(s % 3600 / 60)}:${pad(s % 60)}" else "${pad(s / 60)}:${pad(s % 60)}"
 }
 
-/** UI locator ('3:45', '1:02:03'); a moment's locator is where its audio window starts, else its frame. */
-fun timeLocator(sec: Int): String =
-    if (sec >= 3600) "${sec / 3600}:${pad(sec % 3600 / 60L)}:${pad(sec % 60L)}" else "${sec / 60}:${pad(sec % 60L)}"
+/** UI locator ('3:45', '1:02:03'); see [Locator.time]. */
+fun timeLocator(sec: Int): String = Locator.time(sec)
 
 private fun pad(n: Long): String = n.toString().padStart(2, '0')

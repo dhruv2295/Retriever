@@ -18,7 +18,9 @@
 
 package app.retriever.core
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -28,18 +30,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.ceil
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 data class IndexState(
     val running: Boolean = false,
@@ -49,7 +52,7 @@ data class IndexState(
     val current: String? = null,
     val lastStop: StopReason? = null,
     val lastError: String? = null,
-    /** Moving average over the current batch. */
+    /** Files per minute of reading this session. */
     val filesPerMinute: Double = 0.0,
     val etaMinutes: Int? = null,
     val build: ModelBuild? = null,
@@ -58,21 +61,36 @@ data class IndexState(
     val detail: String? = null,
 )
 
-/** Home's facts besides the counts: the newest documents and screenshots, folders, large files, files read by name only. */
+/**
+ * Home's facts besides the counts: the newest pictures, screenshots and documents, starred files, folders, large files,
+ * files read by name only. Never OTHER files: app databases and dumps are not something to show.
+ */
 data class HomeFacts(
-    val newDocs: List<SourceFile>,
+    val newMedia: List<SourceFile>,
     val newShots: List<SourceFile>,
+    val newDocs: List<SourceFile>,
+    val starred: List<SourceFile>,
+    val starredCount: Long,
     val folders: Long,
     val largeCount: Long,
     val largeBytes: Long,
     val nameOnly: Long,
 )
 
+/** The photos and videos taken on one calendar day in [year], with a photo for the cover when there is one. */
+data class YearMemory(val year: Int, val photos: Long, val videos: Long, val cover: SourceFile)
+
+/** One piece of a file's text, in reading order, for the in-app reader. */
+data class ChunkText(val ordinal: Int, val locator: String, val text: String)
+
 /** What a phone with too little memory for the model reads inside: the words in screenshots, PDFs and documents. */
 val textOnlyKinds: Set<Kind> = setOf(Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
 
-/** When the platform should run the next [Retriever.indexBatch]: in 10 s, in 15 min, on power, when idle, or not until something changes. */
-enum class NextRun { SOON, AFTER_COOLDOWN, WHEN_CHARGING, WHEN_IDLE, DONE }
+/**
+ * When the platform should run the next [Retriever.indexBatch]: in 10 s, after a thermal rest, on power, when idle,
+ * after a failed batch ([RETRY]: both platforms rest as for heat), or not until something changes.
+ */
+enum class NextRun { SOON, AFTER_COOLDOWN, WHEN_CHARGING, WHEN_IDLE, RETRY, DONE }
 
 /** The app's one entry point. The constructor touches neither the database nor the model. */
 class Retriever(
@@ -90,6 +108,11 @@ class Retriever(
     /** The local zone's offset from UTC now, so "yesterday" means the person's yesterday. No default: a platform must pass it. */
     private val zoneOffsetMs: () -> Long,
     private val dispatchers: CoreDispatchers = CoreDispatchers(),
+    /**
+     * The process before this one died of a native crash or a signal. Only then does a model open it left unfinished
+     * count against the NPU build or the GPU. The default blames every unfinished open.
+     */
+    lastExitCrashed: () -> Boolean = { true },
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -124,8 +147,17 @@ class Retriever(
     /** Starred URIs, so a row's star is one lookup. */
     val starred: StateFlow<Set<String>> = _starred.asStateFlow()
 
+    /** The first run's planned ids while only they are read (scope SAMPLE); null reads everything. Mirrors Store meta. */
+    private val sampleIds = MutableStateFlow<List<Long>?>(null)
+
+    private fun loadScope(): List<Long>? = store.sampleIds().also { sampleIds.value = it }
+
+    /** The planned ids while only they are read, for a search scoped to them ([search]'s `scope`); null once everything is read. */
+    val scopeIds: StateFlow<List<Long>?> = sampleIds.asStateFlow()
+
+    /** The name-only count and the file-state counts it was taken at, so it is recomputed only when those change. */
     @Volatile
-    private var lastNameOnly = 0L
+    private var nameOnlyAt: Pair<Map<FileState, Long>, Long>? = null
 
     /** A visible app indexes now, on battery too; the user is watching it happen. */
     @Volatile
@@ -139,20 +171,34 @@ class Retriever(
 
     @Volatile
     private var batchJob: Job? = null
-    private var lastFileAt = 0L
-    private var leftByKind = mutableMapOf<Kind, Long>()
-    private val msByKind = mutableMapOf<Kind, Double>()
+
+    /** Read from the store on first use, so the constructor stays off the database. */
+    private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY))).also { savedBook = it.book } }
+    private var savedBook: SpeedBook? = null
+    private var bookSavedAt = 0L
 
     private val indexLock = Mutex()
-    private val embedderLock = Mutex()
-    private var embedder: Embedder? = null
-    private var embedderKey: EmbedderKey? = null
 
-    /** Outlives any one embedder, so a reopen keeps the loaded vector table. */
+    /** Outlives any one embedder, so a reopen keeps the loaded vector table. Read and set under [model]'s lock. */
     private var engine: SearchEngine? = null
 
-    /** Only what the model loads with: a prefs switch (kinds, charging) must not reopen it under a running batch. */
-    private data class EmbedderKey(val build: ModelBuild, val backend: Backend, val visionTokens: Int, val maxTokens: Int)
+    /** The one embedder for indexing and search. Lock order: [indexLock] first, then its lock. */
+    private val model = ModelHost(
+        store, factory, variant, textOnly, requiredBuild, modelReady, log, dispatchers,
+        reload = ::reload,
+        onOpened = { e, build ->
+            engine?.embedder = e
+            _state.update { it.copy(build = build, backend = e.backend, detail = e.detail) }
+        },
+        onClosed = { engine?.embedder = NoModel },
+        lastExitCrashed = lastExitCrashed,
+    )
+
+    /** For the model's open off a search's path: it outlives the search that started it. */
+    private val background = CoroutineScope(SupervisorJob() + dispatchers.default)
+
+    @Volatile
+    private var opening: Job? = null
 
     @Throws(Throwable::class)
     suspend fun refreshSetUp() = withContext(dispatchers.default) {
@@ -162,7 +208,8 @@ class Retriever(
 
     private fun reload() {
         _prefs.value = store.prefs()
-        _requiredBuild.value = ModelBuilds.buildFor(variant, probe, npuFailed())
+        loadScope()
+        _requiredBuild.value = ModelBuilds.buildFor(variant, probe, model.npuFailed())
         // Tune writes the profile with the model present, so it marks a finished setup; losing the file later keeps it.
         val tuned = store.profile() != null
         _modelMissing.value = !textOnly && tuned && !modelReady(_requiredBuild.value)
@@ -205,6 +252,8 @@ class Retriever(
                 }
             }
             _prefs.value = new
+            // Files of a switched-off kind pass by unread in milliseconds: that pace would under-read them once back on.
+            (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> eta.book = eta.book.copy(paces = eta.book.paces - k) }
             // Stars of dropped files stay, hidden until the folder is put back.
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
@@ -212,10 +261,16 @@ class Retriever(
         }
     }
 
-    /** Without the model nothing waits for a vector, so the deepen counts read zero. */
-    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing) { c, missing ->
-        if (textOnly || missing) c.copy(tailChunks = 0, tailFiles = 0) else c
-    }
+    /**
+     * Without the model nothing waits for a vector, so the deepen counts read zero. Under the first run's SAMPLE scope,
+     * pending files outside the plan are [Store.Counts.waiting], not pending, so "All caught up" holds for what was asked.
+     */
+    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing, sampleIds) { c, missing, ids ->
+        val counts = if (textOnly || missing) c.copy(tailChunks = 0, tailFiles = 0) else c
+        if (ids == null) return@combine counts
+        val asked = store.pendingIn(ids).size.toLong()
+        counts.copy(byState = c.byState + (FileState.PENDING to asked), waiting = (c.byState[FileState.PENDING] ?: 0L) - asked)
+    }.flowOn(dispatchers.default)
 
     /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
     @Throws(Throwable::class)
@@ -254,20 +309,66 @@ class Retriever(
     }
 
     private suspend fun runBatch(budget: Duration, mayDeepen: Boolean): NextRun {
+        // The budget covers the sync and the model's open too, so a platform's time limit holds.
+        val started = TimeSource.Monotonic.markNow()
         changedSinceSync = false
-        _state.update { IndexState(running = true, lastStop = it.lastStop, build = it.build, backend = it.backend, detail = it.detail) }
+        // The ETA and pace carry over: a batch boundary is not new information.
+        _state.update {
+            IndexState(
+                running = true,
+                lastStop = it.lastStop,
+                filesPerMinute = it.filesPerMinute,
+                etaMinutes = it.etaMinutes,
+                build = it.build,
+                backend = it.backend,
+                detail = it.detail,
+            )
+        }
         var stop: StopReason? = null
         var error: String? = null
         var used: Embedder? = null
         var build: ModelBuild? = null
+        fun end(reason: StopReason): NextRun {
+            stop = reason
+            return nextRunFor(reason, changedSinceSync)
+        }
         try {
             // Stars follow their files: hidden while a file is gone, back when it returns.
             sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
+            // Not tuned yet: the sync kept names current, and files wait to be read in full.
+            val stored = if (textOnly) textOnlyProfile else store.profile() ?: return end(StopReason.DONE)
+            // Read per file, so a switch flipped mid-batch applies at once.
+            val settings = {
+                val p = batchPrefs()
+                IndexSettings(p.effective(if (textOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
+            }
+            val busy = { monitor.state().screenOn && !uiVisible }
+            // A visible app reads on battery too; hidden, a low battery waits for the charger like the setting does.
+            // An unknown level (a negative value) is not low.
+            val requireCharging = { s: DeviceState -> !uiVisible && (batchPrefs().effective(stored).bulkOnlyWhenCharging || s.batteryPct in 0..LOW_BATTERY) }
+            val device = monitor.state()
+            // The loop's own checks, before the model's seconds-long open and its memory.
+            IndexEngine.stopReason(settings(), device, busy(), requireCharging(device))?.let { return end(it) }
+            // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
+            val ids = loadScope()
+            fun pendingNow(): Pair<Map<Kind, Long>, Long> = if (ids == null) {
+                store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
+            } else {
+                store.pendingIn(ids).byKind().let { (k, bytes) -> k.mapValues { it.value.toLong() } to bytes }
+            }
+            val pending = pendingNow().first
+            // An open app deepens once nothing is pending; in the background only on the charger with the screen off.
+            val deepen = mayDeepen && !textOnly && (uiVisible || (device.charging && !device.screenOn))
+            // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
+            val idle = pending.values.sum() == 0L &&
+                (!deepen || (if (ids == null) store.tailChunkCount() else store.tailChunksIn(ids).size.toLong()) == 0L) &&
+                (textOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
+            if (idle) return end(StopReason.DONE)
             val e = if (textOnly) {
                 null
             } else {
-                // A missing model file returns here: the sync kept names current, and files wait to be read in full.
-                val (opened, b) = embedder() ?: return NextRun.DONE
+                // A missing model file returns here, like the untuned case above.
+                val (opened, b) = model.open() ?: return end(StopReason.DONE)
                 used = opened
                 build = b
                 if (store.signature() != opened.signature) {
@@ -276,45 +377,40 @@ class Retriever(
                 }
                 opened
             }
-            val stored = if (textOnly) textOnlyProfile else store.profile() ?: return NextRun.DONE
-            val device = monitor.state()
-            val pending = store.pendingByKind()
-            leftByKind = pending.toMutableMap()
-            msByKind.clear()
-            _state.update { it.copy(pendingAtStart = pending.values.sum()) }
-            lastFileAt = now()
-            val result = IndexEngine(
-                store,
-                extractor,
-                e,
-                monitor,
-                // Read per file, so a switch flipped mid-batch applies at once.
-                settings = {
-                    val p = batchPrefs()
-                    IndexSettings(p.effective(if (textOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
-                },
-                onFile = ::onFile,
-                busy = { monitor.state().screenOn && !uiVisible },
-                awaitUi = ::awaitUi,
-            ).runBatch(
-                budget,
-                requireCharging = !uiVisible && batchPrefs().effective(stored).bulkOnlyWhenCharging,
-                // An open app deepens once nothing is pending; in the background only on the charger with the screen off.
-                deepen = mayDeepen && !textOnly && (uiVisible || (device.charging && !device.screenOn)),
-            )
-            stop = result.stopReason
-            return nextRunFor(result.stopReason, changedSinceSync)
+            val (left, videoBytes) = pendingNow()
+            eta.start(left, videoBytes)
+            _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes) }
+            val engine = if (ids == null) {
+                IndexEngine(store, extractor, e, monitor, settings, ::onFile, busy, ::awaitUi)
+            } else {
+                val rank = ids.withIndex().associate { it.value to it.index }
+                // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
+                IndexEngine(
+                    store, extractor, e, monitor, settings, ::onFile, busy, ::awaitUi,
+                    pendingPage = { store.pendingIn(ids).sortedBy { rank[it.id] } },
+                    tailPage = { store.tailChunksIn(ids) },
+                )
+            }
+            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
+            return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
         } catch (e: EmbedderClosedException) {
             log("The model closed mid-batch", e)
+            val broke = model.broke(used, build, e)
+            // An open refused for now (too little memory) rests, or the platform loops straight into another refusal.
             // A failed NPU build waits for the generic download; anything else reopens and carries on.
-            return if (embedderBroke(used, build, e) && build?.isNpu == true) NextRun.DONE else NextRun.SOON
+            return when {
+                used == null && !e.broken -> NextRun.AFTER_COOLDOWN
+                broke && build?.isNpu == true -> NextRun.DONE
+                else -> NextRun.SOON
+            }
         } catch (e: Exception) {
             log("Indexing failed", e)
             error = "Something went wrong reading your files. Retriever will try again."
-            return NextRun.AFTER_COOLDOWN
+            return NextRun.RETRY
         } finally {
+            saveBook()
             _state.update { it.copy(running = false, current = null, lastStop = stop ?: it.lastStop, lastError = error) }
         }
     }
@@ -324,26 +420,47 @@ class Retriever(
 
     private fun onFile(m: FileMetric) {
         retierFrom(m)
-        if (!m.ok) log("Couldn't index ${m.file.kind} (${m.file.mime}, ${m.file.size} B): ${m.cause?.let { it::class.simpleName }}", m.cause)
-        else log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
-        val t = now()
-        val gapMs = (t - lastFileAt).coerceAtLeast(1)
-        lastFileAt = t
-        val kind = m.file.kind
-        // A kind's own pace: photos run fast and video slow, so one overall rate misjudges the video still to come.
-        msByKind[kind] = msByKind[kind]?.let { 0.8 * it + 0.2 * gapMs } ?: gapMs.toDouble()
-        leftByKind[kind] = ((leftByKind[kind] ?: 0L) - 1).coerceAtLeast(0)
+        if (!m.ok) {
+            log("Couldn't index ${m.file.kind} (${m.file.mime}, ${m.file.size} B): ${m.cause?.let { it::class.simpleName }}", m.cause)
+        } else {
+            log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
+        }
+        // ponytail: the book isn't reset by Tune again or a retier; its sums drift to the new pace. Reset there if that lags.
+        eta.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m))
+        if (now() - bookSavedAt >= SAVE_EVERY_MS) saveBook()
         _state.update {
-            val rate = 60_000.0 / gapMs
-            val fpm = if (it.filesPerMinute == 0.0) rate else 0.8 * it.filesPerMinute + 0.2 * rate
             it.copy(
                 processed = it.processed + if (m.ok) 1 else 0,
                 failed = it.failed + if (m.ok) 0 else 1,
                 current = m.file.name,
-                filesPerMinute = fpm,
-                etaMinutes = etaMinutes(leftByKind, msByKind, 60_000.0 / fpm),
+                filesPerMinute = eta.filesPerMinute,
+                etaMinutes = eta.minutes,
             )
         }
+    }
+
+    private fun saveBook() {
+        val book = eta.book
+        bookSavedAt = now()
+        if (book == savedBook) return
+        store.setMeta(SPEED_KEY, book.encode())
+        savedBook = book
+    }
+
+    /**
+     * The whole remaining read at this phone's measured pace; null before any file is measured. No hours from it while
+     * [ESTIMATE_CALIBRATED] is false.
+     */
+    @Throws(Throwable::class)
+    suspend fun estimateAll(): ReadEstimate? = io {
+        val ios = probe.platform == Platform.IOS
+        readEstimate(eta.book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
+    }
+
+    /** iOS: one background run read [files] in [seconds]; after the first, [estimateAll] counts nights. */
+    @Throws(Throwable::class)
+    suspend fun recordBackgroundRun(files: Int, seconds: Long) = io {
+        store.setMeta(BG_SPEED_KEY, (BgSpeed.decode(store.meta(BG_SPEED_KEY)) ?: BgSpeed()).add(files, seconds).encode())
     }
 
     private suspend fun awaitUi() {
@@ -351,137 +468,85 @@ class Retriever(
         combine(uiBusy, searching) { busy, n -> !busy && n == 0 }.first { it }
     }
 
+    // --- First run ---
+
+    /** [planTaste] at its 90-second budget; Swift sees no default arguments. */
+    @Throws(Throwable::class)
+    suspend fun planTaste(): TastePlan = planTaste(TASTE_BUDGET)
+
+    /**
+     * Syncs the names, then plans a varied slice of the library that reads in about [budget] at this phone's pace (the
+     * tune's photo time and measured paces, else seeds) and sets the scope to SAMPLE. Writes Store meta, never Prefs, so
+     * the first tune still applies its tier defaults. Text-only phones plan only the kinds they read inside.
+     */
+    @Throws(Throwable::class)
+    suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock {
+        io {
+            sync.sync().let { if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris() }
+            val kinds = store.prefs().kinds intersect readableKinds
+            val files = store.knownFiles().values.filter { it.kind in kinds }
+            // Videos cost by bytes: plan at the library's median video size, the planner prefers small ones anyway.
+            val videoBytes = files.filter { it.kind == Kind.VIDEO }.map { it.size }.sorted().let { it.getOrNull(it.size / 2) } ?: 0L
+            val book = eta.book
+            val plan = FileRules.planTaste(files, kinds.associateWith { book.ms(mapOf(it to 1L), if (it == Kind.VIDEO) videoBytes else 0L) }, budget)
+            val byUri = store.filesByUris(plan.ids)
+            store.setTaste(plan.ids.mapNotNull { byUri[it]?.id })
+            loadScope()
+            plan
+        }
+    }
+
+    /** The short read: one batch of the planned files, which ends DONE once they and their tails are read. */
+    @Throws(Throwable::class)
+    suspend fun taste(): NextRun = indexBatch(TASTE_BATCH)
+
+    /** How far the short read is; re-emits as files are read. */
+    fun tasteProgress(): Flow<TasteProgress> = combine(store.counts(), sampleIds) { _, _ ->
+        val ids = store.tasteIds()
+        val planned = ids.chunked(500).flatMap { store.files(it).values }.groupingBy { it.kind }.eachCount()
+        val (pending, videoBytes) = store.pendingIn(ids).byKind()
+        TasteProgress.of(planned, pending, videoBytes, eta.book)
+    }.distinctUntilChanged().flowOn(dispatchers.default)
+
+    /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
+    @Throws(Throwable::class)
+    suspend fun commit(whileCharging: Boolean) {
+        updatePrefs { it.copy(onlyWhileCharging = whileCharging) }
+        io {
+            store.inTransaction {
+                store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
+                store.setFlag(TASTE_DECIDED_KEY)
+            }
+            loadScope()
+        }
+        // A short read still running ends DONE; this makes it SOON, so the next batch reads the rest.
+        changedSinceSync = true
+    }
+
+    /** "Not yet": decided, and the scope stays SAMPLE. What was read stays searchable; Home offers the choice again. */
+    @Throws(Throwable::class)
+    suspend fun decideLater() = io { store.setFlag(TASTE_DECIDED_KEY) }
+
+    /** True once the person chose (commit or Not yet) or never had a short read: the try-it and commit screens are done. */
+    @Throws(Throwable::class)
+    suspend fun tasteDecided(): Boolean = io { store.tasteScope() == Scope.ALL || store.flag(TASTE_DECIDED_KEY) }
+
+    /** Whether the first full read was celebrated; for the CAUGHT_UP hook. */
+    @Throws(Throwable::class)
+    suspend fun celebrated(): Boolean = io { store.flag(CELEBRATED_KEY) }
+
+    @Throws(Throwable::class)
+    suspend fun markCelebrated() = io { store.setFlag(CELEBRATED_KEY) }
+
     // --- Model ---
 
-    /** One embedder for indexing and search: two copies of the model would double memory. Null when not set up. */
-    private suspend fun embedder(): Pair<Embedder, ModelBuild>? = embedderLock.withLock {
-        withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
-    }
-
-    private suspend fun openLocked(): Embedder? {
-        reload()
-        if (textOnly) return null
-        checkUnfinishedOpens()
-        val build = requiredBuild.value
-        val stored = store.profile()
-        if (!modelReady(build) || stored == null) {
-            closeLocked() // the file went away under an open model: stop answering by meaning, as a reopen would
-            return null
-        }
-        val backend = factory.backendNow(stored)
-        val key = EmbedderKey(build, backend, stored.visionTokens, stored.maxTokens)
-        embedder?.let { if (embedderKey == key) return it }
-        closeLocked()
-        val e = try {
-            countedOpen {
-                factory.open(stored.copy(backend = backend), build).also { opened ->
-                    try {
-                        opened.embedRaw(listOf(Part.Text(Prefix.query("warm up"))))
-                    } catch (t: Throwable) {
-                        opened.close()
-                        throw t
-                    }
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (t: Throwable) {
-            if (!build.isNpu) throw t
-            markNpuFailed(build, t)
-            return null
-        }
-        embedder = e
-        embedderKey = key
-        factory.keepOnly(e)
-        engine?.embedder = e
-        _state.update { it.copy(build = build, backend = e.backend, detail = e.detail) }
-        return e
-    }
-
-    /**
-     * Counts an open that may die natively (SIGSEGV, LMK) in the store. Success, a throw and a cancel all
-     * reset it, so only a process that never came back leaves it counted.
-     */
-    private inline fun <T> countedOpen(open: () -> T): T {
-        store.setMeta(UNFINISHED_OPENS, (unfinishedOpens() + 1).toString())
-        try {
-            return open()
-        } finally {
-            store.setMeta(UNFINISHED_OPENS, "0")
-        }
-    }
-
-    /** Opens that never came back crashed the process: stop using that build, or the GPU. */
-    // ponytail: the counter doesn't record the backend, so a native crash during a background CPU open (iOS) is
-    // blamed on the GPU too; store the backend with the count if that ever shows up in the field.
-    private fun checkUnfinishedOpens() {
-        if (!ModelBuilds.shouldFallBack(unfinishedOpens())) return
-        store.setMeta(UNFINISHED_OPENS, "0")
-        val build = requiredBuild.value
-        if (build.isNpu) {
-            markNpuFailed(build, null)
-            return
-        }
-        log("The model never finished opening twice; using CPU", null)
-        store.setMeta(GPU_UNSAFE, "1")
-        store.profile()?.takeIf { it.backend == Backend.GPU }?.let { store.setProfile(it.copy(backend = Backend.CPU)) }
-    }
-
-    /**
-     * [used] threw [EmbedderClosedException]. If it is still the shared embedder, its backend broke (it closed
-     * itself): retire it and fall back, NPU build to generic or GPU to CPU. If not, release() or a reopen
-     * closed it, which is no failure. True when it broke.
-     */
-    private suspend fun embedderBroke(used: Embedder?, build: ModelBuild?, cause: Throwable): Boolean = embedderLock.withLock {
-        if (used == null || build == null || embedder !== used) return@withLock false
-        // The backend [used] was opened on: a CPU embedder from a background task failing says nothing about the GPU.
-        val onGpu = embedderKey?.backend == Backend.GPU
-        closeLocked()
-        if ((cause as? EmbedderClosedException)?.broken == false) {
-            log("The model can't run right now; it reopens on the next batch", cause)
-            return@withLock false
-        }
-        if (build.isNpu) {
-            markNpuFailed(build, cause)
-        } else if (onGpu) {
-            store.profile()?.takeIf { it.backend == Backend.GPU }?.let {
-                log("GPU inference failed; using CPU from now on", cause)
-                store.setProfile(it.copy(backend = Backend.CPU))
-            }
-        }
-        true
-    }
-
     /** This phone's NPU build failed, so it runs the generic one. Reads the store; call off the main thread. */
-    fun fellBack(): Boolean = npuFailed().any { name -> ModelBuilds.npu.any { it.fileName == name && it.variant == variant } }
-
-    private fun unfinishedOpens(): Int = store.meta(UNFINISHED_OPENS)?.toIntOrNull() ?: 0
-
-    private fun npuFailed(): Set<String> =
-        store.meta(NPU_FAILED)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
-
-    /** The chip's build can't run here: require the generic file from now on, for this and every later launch. */
-    private fun markNpuFailed(build: ModelBuild, cause: Throwable?) {
-        log("NPU build ${build.fileName} failed; falling back to ${ModelBuilds.fallback(build).fileName}", cause)
-        store.setMeta(NPU_FAILED, Json.encodeToString(npuFailed() + build.fileName))
-        // ponytail: picks the generic build's first backend uncalibrated; the unfinished-open counter demotes a crashing GPU.
-        store.profile()?.takeIf { it.backend == Backend.NPU }?.let {
-            store.setProfile(it.copy(backend = factory.backends(ModelBuilds.fallback(build)).first()))
-        }
-        reload()
-    }
-
-    private fun closeLocked() {
-        embedder?.close()
-        embedder = null
-        embedderKey = null
-        engine?.embedder = NoModel
-    }
+    fun fellBack(): Boolean = model.fellBack()
 
     /** Frees the model's memory; the next search or batch opens it again. */
     @Throws(Throwable::class)
     suspend fun release() {
-        embedderLock.withLock { withContext(dispatchers.default) { closeLocked() } }
+        model.release()
     }
 
     // --- Search ---
@@ -501,7 +566,8 @@ class Retriever(
         limit: Int = 20,
         onlyStarred: Boolean = false,
         literal: Boolean = false,
-    ): SearchEngine.SearchResult = searchWith { s -> parsedSearch(q, kinds, limit, onlyStarred, literal, relax = true) { s.search(it) } }
+        scope: List<Long>? = null,
+    ): SearchEngine.SearchResult = searchWith { s -> parsedSearch(q, kinds, limit, onlyStarred, literal, relax = true, scope) { s.search(it) } }
 
     /**
      * Phase one, as the user types: names only, from memory once [warmSearch] built the name index; no model. Never
@@ -514,7 +580,8 @@ class Retriever(
         limit: Int = 20,
         onlyStarred: Boolean = false,
         literal: Boolean = false,
-    ): SearchEngine.SearchResult = io { parsedSearch(q, kinds, limit, onlyStarred, literal, relax = false) { newEngine(NoModel).names(it) } }
+        scope: List<Long>? = null,
+    ): SearchEngine.SearchResult = io { parsedSearch(q, kinds, limit, onlyStarred, literal, relax = false, scope) { newEngine(NoModel).names(it) } }
 
     /**
      * Searches with the filters [q] was understood to ask for. When they leave nothing and [relax], searches once more
@@ -527,10 +594,11 @@ class Retriever(
         onlyStarred: Boolean,
         literal: Boolean,
         relax: Boolean,
+        scope: List<Long>?,
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
         val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs())
-        val ids = starredIds(onlyStarred)
+        val ids = fileIdsFor(onlyStarred, scope)
         // Nothing to search, so nothing by meaning is missing.
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
         val parsedKinds = p.kinds.ifEmpty { null }
@@ -544,8 +612,17 @@ class Retriever(
         return search(req.copy(kinds = uiKinds, from = null, to = null)).copy(parsed = p, relaxed = true)
     }
 
-    private fun starredIds(onlyStarred: Boolean): Set<Long>? =
-        if (onlyStarred) store.starredFiles(Int.MAX_VALUE).mapTo(HashSet()) { it.id } else null
+    private fun starredIds(onlyStarred: Boolean): Set<Long>? = if (onlyStarred) store.starredFiles(Int.MAX_VALUE).mapTo(HashSet()) { it.id } else null
+
+    /** The files a search may return: the starred ones and/or the first run's planned [scope]; null, any. */
+    private fun fileIdsFor(onlyStarred: Boolean, scope: List<Long>?): Set<Long>? {
+        val starred = starredIds(onlyStarred)
+        return when {
+            scope == null -> starred
+            starred == null -> scope.toSet()
+            else -> scope.filterTo(HashSet()) { it in starred }
+        }
+    }
 
     /** A query that was all filters ("screenshots last week"): the newest files that pass them, filtered in SQL. */
     private fun browse(req: SearchRequest): SearchEngine.SearchResult {
@@ -559,8 +636,14 @@ class Retriever(
 
     /** [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. [onlyStarred] keeps starred files only. */
     @Throws(Throwable::class)
-    suspend fun searchImage(jpeg: ByteArray, kinds: Set<Kind>? = null, limit: Int = 20, onlyStarred: Boolean = false): SearchEngine.SearchResult {
-        val ids = io { starredIds(onlyStarred) }
+    suspend fun searchImage(
+        jpeg: ByteArray,
+        kinds: Set<Kind>? = null,
+        limit: Int = 20,
+        onlyStarred: Boolean = false,
+        scope: List<Long>? = null,
+    ): SearchEngine.SearchResult {
+        val ids = io { fileIdsFor(onlyStarred, scope) }
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true)
         return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids) }
     }
@@ -574,7 +657,7 @@ class Retriever(
                     run(engine)
                 } catch (e: EmbedderClosedException) {
                     log("The model closed during a search; keyword results only", e)
-                    embedderBroke(used, build, e)
+                    model.broke(used, build, e)
                     run(newEngine(NoModel))
                 }
             }
@@ -583,23 +666,33 @@ class Retriever(
         }
     }
 
-    /** The search engine with the embedder it uses and that embedder's build (both null: keyword-only). */
-    private suspend fun engine(): Triple<SearchEngine, Embedder?, ModelBuild?> {
-        // The model is opening (seconds) or Tune is measuring: answer from keywords now instead of waiting.
-        if (!embedderLock.tryLock()) return Triple(newEngine(NoModel), null, null)
-        try {
-            val e = try {
-                openLocked()
-            } catch (c: CancellationException) {
-                throw c
-            } catch (t: Exception) {
-                log("Couldn't open the model; keyword results only", t)
-                null
-            }
-            val s = engine ?: newEngine(e ?: NoModel).also { engine = it }
-            return Triple(s, e, e?.let { embedderKey?.build })
+    /**
+     * The search engine with the embedder it uses and that embedder's build (both null: keyword-only). Never opens the
+     * model on the search's path: with none open it answers from keywords now and opens it off the path for the next.
+     */
+    private fun engine(): Triple<SearchEngine, Embedder?, ModelBuild?> {
+        // The model is opening (seconds) or Tune is measuring: answer from keywords now instead of waiting. A model file that
+        // went away under an open embedder stops answering by meaning too, as a reopen would.
+        if (_modelMissing.value || !model.lock.tryLock()) return Triple(newEngine(NoModel), null, null)
+        val found = try {
+            Triple(engine ?: newEngine(model.current ?: NoModel).also { engine = it }, model.current, model.currentBuild)
         } finally {
-            embedderLock.unlock()
+            model.lock.unlock()
+        }
+        // ponytail: two searches at once can both start an open; the second waits on the lock and finds it open.
+        if (found.second == null && !noModel() && opening?.isActive != true) opening = background.launch { openAhead() }
+        return found
+    }
+
+    /** Opens the model ahead of a search, once set up; a failure is logged and the search stays on keywords. */
+    private suspend fun openAhead() {
+        if (_setUp.value != true || textOnly) return
+        try {
+            model.open()
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Exception) {
+            log("Couldn't open the model ahead of a search", t)
         }
     }
 
@@ -613,20 +706,10 @@ class Retriever(
     suspend fun warmSearch() = io {
         // Reads only `files`, which the upgrade left whole, so names answer while the keyword tables are still empty.
         sync.loadNames()
-        val s = embedderLock.withLock { engine ?: newEngine(embedder ?: NoModel).also { engine = it } }
+        val s = model.lock.withLock { engine ?: newEngine(model.current ?: NoModel).also { engine = it } }
         coroutineScope {
             launch { s.refresh() }
-            if (_setUp.value == true && !textOnly) {
-                embedderLock.withLock {
-                    try {
-                        openLocked()
-                    } catch (c: CancellationException) {
-                        throw c
-                    } catch (t: Exception) {
-                        log("Couldn't open the model ahead of a search", t)
-                    }
-                }
-            }
+            openAhead()
         }
         if (ftsRefill.tryLock()) {
             try {
@@ -670,17 +753,55 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun home(): HomeFacts = io {
         val (largeCount, largeBytes) = store.largeFiles(LARGE_FILE)
-        // Reads every file's chunks, and only the caught-up line shows it: counted once nothing waits, else the last count.
-        if ((store.countsByState()[FileState.PENDING] ?: 0L) == 0L) lastNameOnly = store.nameOnlyCount()
+        // Reads every file's chunks, and only the caught-up line shows it: counted once nothing waits and the counts
+        // moved since the last count, else the last count.
+        val byState = store.countsByState()
+        val cached = nameOnlyAt
+        val nameOnly = if ((byState[FileState.PENDING] ?: 0L) == 0L && cached?.first != byState) {
+            store.nameOnlyCount().also { nameOnlyAt = byState to it }
+        } else {
+            cached?.second ?: 0L
+        }
         HomeFacts(
-            newDocs = store.newestFiles(setOf(Kind.PDF, Kind.DOC), 3).map { it.file },
-            newShots = store.files(Kind.SCREENSHOT, limit = 10).map { it.file },
+            newMedia = store.newestFiles(setOf(Kind.PHOTO, Kind.VIDEO), 15).map { it.file },
+            newShots = store.newestFiles(setOf(Kind.SCREENSHOT), 10).map { it.file },
+            newDocs = store.newestFiles(setOf(Kind.PDF, Kind.DOC), 8).map { it.file },
+            starred = store.starredVisible(10).map { it.file },
+            starredCount = store.starredVisibleCount(),
             folders = store.folderCount(),
             largeCount = largeCount,
             largeBytes = largeBytes,
-            nameOnly = lastNameOnly,
+            nameOnly = nameOnly,
         )
     }
+
+    /**
+     * Past years' photos and videos taken on today's date. [days]: (year, local midnight ms, next local midnight ms - 1),
+     * newest year first, built by the platform with real zone rules so core needs no date library. Stops at five years
+     * with something, and skips years older than the oldest photo.
+     */
+    @Throws(Throwable::class)
+    suspend fun onThisDay(days: List<Triple<Int, Long, Long>>): List<YearMemory> = io {
+        val earliest = store.mediaTakenSince() ?: return@io emptyList()
+        val hits = ArrayList<Pair<Int, Store.MediaSpan>>(5)
+        for ((year, from, to) in days) {
+            if (hits.size == 5) break
+            if (to < earliest) continue
+            val span = store.mediaTakenBetween(from, to)
+            if (span.count > 0 && span.coverId != null) hits += year to span
+        }
+        val covers = store.files(hits.map { it.second.coverId!! })
+        hits.mapNotNull { (year, s) -> covers[s.coverId]?.let { YearMemory(year, s.count - s.videos, s.videos, it) } }
+    }
+
+    /** A file's text in reading order: what the in-app reader shows. Empty for files read by name only. */
+    @Throws(Throwable::class)
+    suspend fun fileText(fileId: Long): List<ChunkText> = io {
+        store.chunkTexts(fileId).mapNotNull { c -> c.text?.let { ChunkText(c.ordinal, c.locator, it) } }
+    }
+
+    @Throws(Throwable::class)
+    suspend fun fileCount(): Long = io { store.fileCount() }
 
     /**
      * Up to three "Try searching" examples, each shown once a kind it would find is read in full (some files, none
@@ -704,6 +825,11 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun files(kind: Kind?, folder: String?, sort: Store.Sort, limit: Int, offset: Int): List<Store.StoredFile> =
         io { store.files(kind, folder, sort, limit, offset) }
+
+    /** The photos and videos taken from [from] to [to] (ms, both ends in), oldest first: what a year card of On this day opens. */
+    @Throws(Throwable::class)
+    suspend fun filesTakenBetween(from: Long, to: Long, limit: Int, offset: Int): List<Store.StoredFile> =
+        io { store.filesTakenBetween(from, to, limit, offset) }
 
     @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }
@@ -730,9 +856,9 @@ class Retriever(
         cancelBatch()
         // Holding the model lock keeps searches keyword-only meanwhile, so two copies of the model never load.
         return indexLock.withLock {
-            embedderLock.withLock {
+            model.lock.withLock {
                 io {
-                    closeLocked()
+                    model.closeLocked()
                     calibrateLocked(samples, tuneAgain)
                 }
             }
@@ -741,27 +867,32 @@ class Retriever(
 
     private suspend fun calibrateLocked(samples: Samples, tuneAgain: Boolean): CalibrationResult {
         reload()
-        checkUnfinishedOpens()
+        if (tuneAgain) model.clearGpuUnsafe()
+        model.checkUnfinishedOpens()
         val build = requiredBuild.value
         val stored = store.profile()
-        // A GPU that crashed natively twice is not measured again, so Tune can finish on CPU.
-        val measured = if (store.meta(GPU_UNSAFE) == null) {
-            factory
-        } else {
-            object : EmbedderFactory by factory {
-                override fun backends(build: ModelBuild) = factory.backends(build) - Backend.GPU
-            }
-        }
         val result = try {
-            countedOpen { Calibration(measured).run(samples, build, probe.ramGb, stored?.visionTokens ?: 70) }
+            model.countedOpen { Calibration(model.measurable()).run(samples, build, probe.ramGb) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (build.isNpu) markNpuFailed(build, e)
+            if (build.isNpu) model.markNpuFailed(build, e)
             throw e
         }
+        log(
+            "Tune: " + result.backends.joinToString("; ") {
+                "${it.backend} image ${it.imageMs?.toInt()} ms, query ${it.queryMs?.toInt()} ms" + if (it.ok) "" else " (failed)"
+            } + "; chose ${result.chosen}",
+            null,
+        )
+        // Measured at the reference vision tokens; Tune again keeps the stored ones, or every vector would be stale.
         val profile = if (tuneAgain && stored != null) result.profile.copy(visionTokens = stored.visionTokens) else result.profile
         applyProfile(stored, profile)
+        // Photos not read yet are estimated at the pace Tune measured.
+        result.backends.firstOrNull { it.backend == result.chosen }?.imageMs?.let {
+            eta.book = eta.book.copy(photoSeedMs = it)
+            saveBook()
+        }
         return result.copy(profile = profile)
     }
 
@@ -770,7 +901,10 @@ class Retriever(
         store.setProfile(profile)
         if (!store.hasPrefs()) {
             store.updatePrefs { Prefs.defaultFor(profile) }
-        } else if (stored != null && stored.tier != profile.tier) {
+        } else if (stored == null) {
+            // First tune after an earlier write (mobile data, the welcome tap): each field still untouched takes the tier default.
+            store.updatePrefs { it.retuned(null, profile) }
+        } else if (stored.tier != profile.tier) {
             val old = store.prefs()
             val new = store.updatePrefs { it.retuned(stored, profile) }
             rereadAfterRetune(old, stored, new, profile).takeIf { it.isNotEmpty() }?.let(store::requeue)
@@ -799,25 +933,19 @@ class Retriever(
         applyProfile(stored, seen.copy(visionTokens = stored.visionTokens))
     }
 
-    /** Stands in when no model can open, so search still answers from keywords (its signature never matches). */
-    private object NoModel : Embedder {
-        override val signature = Signature("none")
-        override val backend = Backend.CPU
-
-        override suspend fun embedRaw(parts: List<Part>): FloatArray = throw EmbedderClosedException("no model")
-
-        override fun close() {}
-    }
-
     internal companion object {
-        const val NPU_FAILED = "npu_failed"
-        const val UNFINISHED_OPENS = "unfinished_opens"
-        const val GPU_UNSAFE = "gpu_unsafe"
         const val LARGE_FILE = 100L * 1024 * 1024
 
-        /** Remaining files per kind at that kind's measured pace; a kind not yet seen uses [fallbackMs]. */
-        fun etaMinutes(left: Map<Kind, Long>, msPerFile: Map<Kind, Double>, fallbackMs: Double): Int =
-            ceil(left.entries.sumOf { (k, n) -> n * (msPerFile[k] ?: fallbackMs) } / 60_000).toInt()
+        /** Battery percent at or below which a hidden app waits for the charger. */
+        const val LOW_BATTERY = 20
+
+        const val SPEED_KEY = "speed_by_kind"
+        const val BG_SPEED_KEY = "bg_speed"
+        const val SAVE_EVERY_MS = 30_000L
+
+        /** The short read's plan, and the hard cap of its batch (onboarding §3.2). */
+        val TASTE_BUDGET = 90.seconds
+        val TASTE_BATCH = 120.seconds
 
         /** Photos whose median read time can move the tier up; an odd quick one alone can't. */
         const val RETIER_WINDOW = 5

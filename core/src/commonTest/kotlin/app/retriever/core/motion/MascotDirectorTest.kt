@@ -88,6 +88,8 @@ class MascotDirectorTest {
     @Test
     fun quietNoMatchNeverMoves() {
         assertEquals(MascotStep(HOLD, HUH), MascotDirector.next(MascotMood.NO_MATCH_QUIET, null, 0.0))
+        assertEquals(MascotStep(HOLD, MascotClip.TROUBLE), MascotDirector.next(MascotMood.TROUBLE, null, 0.0))
+        assertEquals(MascotClip.TROUBLE, MascotDirector.still(MascotMood.TROUBLE))
         assertEquals(MascotStep(HOLD, HUH), MascotDirector.next(MascotMood.NO_MATCH_QUIET, MascotStep(LOOP, SNIFF), 3.0))
     }
 

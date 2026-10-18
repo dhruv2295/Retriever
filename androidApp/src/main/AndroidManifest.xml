@@ -60,7 +60,7 @@
                 android:resource="@xml/shortcuts" />
         </activity>
         <receiver
-            android:name=".PauseReceiver"
+            android:name=".indexing.PauseReceiver"
             android:exported="false" />
 
         <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0):
