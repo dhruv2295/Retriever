@@ -369,7 +369,7 @@ private fun QuietRow(title: String, count: String?, second: String?, done: Boole
         leadingContent = when {
             !done -> null
 
-            celebrating -> ({ Mascot(MascotMood.CAUGHT_UP, Modifier.width(56.dp)) })
+            celebrating -> ({ Mascot(MascotMood.CAUGHT_UP, Modifier.width(80.dp)) })
 
             else -> (
                 {

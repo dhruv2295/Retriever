@@ -321,7 +321,7 @@ private struct StatusRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            StatusDog(mood: mood, width: 56, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
+            StatusDog(mood: mood, width: 80, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title).monospacedDigit().multilineTextAlignment(.leading)
                 if let progress = status.progress { ProgressView(value: progress) }
