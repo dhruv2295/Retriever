@@ -105,6 +105,13 @@ internal class Eta(@Volatile var book: SpeedBook) {
     /** Files a minute of work this session. */
     val filesPerMinute: Double get() = if (sessionMs > 0) sessionFiles * 60_000 / sessionMs else 0.0
 
+    fun changeBook(book: SpeedBook) {
+        this.book = book
+        sessionMs = 0.0
+        sessionFiles = 0
+        minutes = null
+    }
+
     fun start(pending: Map<Kind, Long>, videoBytes: Long) {
         left = pending.toMutableMap()
         this.videoBytes = videoBytes

@@ -13,7 +13,7 @@ from real read times.
   compared one to one by index, so the sample order is fixed: images, texts, audio, queries.
 - **Correct before fast.** A backend must agree with the CPU (mean cosine at least 0.98, no NaN) and finish within
   `max(3 x CPU total, 30 s)`; the 30 s floor covers a GPU compiling its kernels on first open. The fastest agreeing
-  backend by median image time wins. The warm-ups are discarded.
+  backend by median image plus query time wins. The warm-ups are discarded.
 - **Tier from time and memory.** `Tiers.profileFor(imageMs, ramGb, ...)`: FULL at 150 ms or less and 8 GB or more, BALANCED at
   1200 ms or less and 6 GB or more, else LIGHT. Calibration measures at the reference 70 vision tokens, so Tune again keeps
   the stored tokens (changing them would make every vector stale).
@@ -58,3 +58,15 @@ from real read times.
 - The backend is picked by image time, not query time. Device queue: measure both.
 - Later (Wave 7, A2): limit Tune's sample scan so Tune again does not walk the whole library to pick its samples.
 - Tier thresholds are measured on few devices; the memory floor (`MIN_MODEL_RAM_GB`) is inferred and needs a device check.
+
+## Rendering and configuration pace
+
+The existing GPU image calls (including warm-ups) also measure main-thread display gaps; see `model-lifecycle.md`.
+The profile stores the maximum-gap decision and both CPU/GPU image medians. The medians seed the corresponding
+vision configuration; real per-kind reads replace those seeds. A mixed text-GPU/vision-CPU image initially uses the
+CPU benchmark as its estimate, then learns its own pace. No additional hybrid benchmark runs.
+
+Paces persist separately as `speed_by_kind_<text>_<vision>`. Changing configuration resets the live ETA smoothing and
+retier window and loads that configuration's book. The planner and trimming use the selected configuration's book;
+ETA counts are refreshed against the *current* trimmed plan. The old unlabelled `speed_by_kind` book is ignored,
+because it cannot say which delegate produced its measurements. Retiering preserves stall decisions and both medians.

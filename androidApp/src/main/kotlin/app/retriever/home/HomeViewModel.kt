@@ -42,6 +42,7 @@ data class HomeUi(
     val counts: Map<Kind, Long>? = null,
     val searchable: Long = 0L,
     val waiting: Long = 0L,
+    val trial: Boolean = false,
     /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
     val rest: Long = 0L,
     /** What reading [rest] takes; null until [ESTIMATE_CALIBRATED], so no hours are drawn before then. */
@@ -64,6 +65,8 @@ data class HomeUi(
     /** The person can hide On this day, here or in Status. */
     val showOnThisDay: Boolean = true,
 ) {
+    val trialTitle: String? get() = if (trial && waiting > 0) "Finishing your trial · ${Format.count(waiting)} files left" else null
+
     /**
      * Where reading stands for [kinds] as a section's subtitle says it: "Ready", "1,200 to go", "Waiting", "Found by
      * name" for kinds whose insides aren't read; null when nothing waits at all.
@@ -141,6 +144,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         searchable = c.byState[FileState.INDEXED] ?: 0L,
                         waiting = c.byState[FileState.PENDING] ?: 0L,
                         rest = c.waiting,
+                        trial = c.trial,
                         pending = c.byKindState.filterKeys { k -> k.second == FileState.PENDING }.mapKeys { e -> e.key.first },
                         suggestions = retriever.suggestions(c.byKindState),
                     )

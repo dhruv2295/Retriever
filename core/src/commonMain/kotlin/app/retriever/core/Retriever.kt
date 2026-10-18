@@ -132,6 +132,7 @@ class Retriever(
      * count against the NPU build or the GPU. The default blames every unfinished open.
      */
     lastExitCrashed: () -> Boolean = { true },
+    private val frames: FrameSource? = null,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -202,6 +203,7 @@ class Retriever(
     /** Read from the store on first use, so the constructor stays off the database. */
     private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY))).also { savedBook = it.book } }
     private var savedBook: SpeedBook? = null
+    private var speedKey = SPEED_KEY
     private var bookSavedAt = 0L
 
     private val indexLock = Mutex()
@@ -220,6 +222,7 @@ class Retriever(
         },
         onClosed = { engine?.embedder = NoModel },
         lastExitCrashed = lastExitCrashed,
+        visible = { uiVisible },
     )
 
     /** For the model's open off a search's path: it outlives the search that started it. */
@@ -310,7 +313,8 @@ class Retriever(
             byState = c.byState + (FileState.PENDING to asked),
             byKindState = c.byKindState.filterKeys { it.second != FileState.PENDING } +
                 Kind.entries.associate { (it to FileState.PENDING) to (perKind[it]?.toLong() ?: 0L) },
-            waiting = (c.byState[FileState.PENDING] ?: 0L) - asked,
+            waiting = ((c.byState[FileState.PENDING] ?: 0L) - asked).coerceAtLeast(0),
+            trial = true,
         )
     }.flowOn(dispatchers.default)
 
@@ -400,12 +404,16 @@ class Retriever(
             // The loop's own checks, before the model's seconds-long open and its memory.
             IndexEngine.stopReason(settings(), device, busy(), requireCharging(device))?.let { return end(it) }
             // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
+            selectPace(factory.profileNow(stored, uiVisible))
             trimTaste()
             val ids = loadScope()
-            fun pendingNow(): Pair<Map<Kind, Long>, Long> = if (ids == null) {
-                store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
-            } else {
-                store.pendingIn(ids).byKind().let { (k, bytes) -> k.mapValues { it.value.toLong() } to bytes }
+            fun pendingNow(): Pair<Map<Kind, Long>, Long> {
+                val currentIds = sampleIds.value
+                return if (currentIds == null) {
+                    store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
+                } else {
+                    store.pendingIn(currentIds).byKind().let { (k, bytes) -> k.mapValues { it.value.toLong() } to bytes }
+                }
             }
             val pending = pendingNow().first
             // An open app deepens once nothing is pending; in the background only on the charger with the screen off.
@@ -428,11 +436,25 @@ class Retriever(
                 }
                 opened
             }
+            val openedProfile = factory.profileNow(stored, uiVisible).copy(
+                backend = e?.backend ?: Backend.CPU,
+                visionBackend = e?.visionBackend ?: Backend.CPU,
+            )
+            selectPace(openedProfile)
+            trimTaste()
+            val configuration = model.currentConfiguration
+            val changedConfiguration = {
+                val current = factory.profileNow(store.profile() ?: stored, uiVisible)
+                !textOnly && configuration != (current.backend to current.visionBackend)
+            }
             val (left, videoBytes) = pendingNow()
             eta.start(left, videoBytes)
-            _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes) }
+            _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes, filesPerMinute = eta.filesPerMinute) }
             val engine = if (ids == null) {
-                IndexEngine(store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi, onCurrent = ::onCurrent)
+                IndexEngine(
+                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    onCurrent = ::onCurrent, configurationChanged = changedConfiguration,
+                )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
@@ -442,6 +464,7 @@ class Retriever(
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
                     onCurrent = ::onCurrent,
+                    configurationChanged = changedConfiguration,
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
@@ -464,7 +487,7 @@ class Retriever(
             return NextRun.RETRY
         } finally {
             saveBook()
-            _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop ?: it.lastStop, lastError = error) }
+            _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error) }
         }
     }
 
@@ -490,7 +513,6 @@ class Retriever(
         } else {
             log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
         }
-        // ponytail: the book isn't reset by Tune again or a retier; its sums drift to the new pace. Reset there if that lags.
         eta.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m))
         if (now() - bookSavedAt >= SAVE_EVERY_MS) saveBook()
         _state.update {
@@ -513,8 +535,35 @@ class Retriever(
         val book = eta.book
         bookSavedAt = now()
         if (book == savedBook) return
-        store.setMeta(SPEED_KEY, book.encode())
+        store.setMeta(speedKey, book.encode())
         savedBook = book
+    }
+
+    private fun paceKey(profile: DeviceProfile): String = if (profile.backend == Backend.CPU) {
+        SPEED_KEY
+    } else {
+        "speed_by_kind_${profile.backend}_${profile.visionBackend ?: profile.backend}"
+    }
+
+    private fun bookFor(profile: DeviceProfile): SpeedBook {
+        val key = paceKey(profile)
+        val book = if (key == speedKey) eta.book else SpeedBook.decode(store.meta(key))
+        val seed = if ((profile.visionBackend ?: profile.backend) == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs
+        return book.copy(photoSeedMs = seed ?: book.photoSeedMs)
+    }
+
+    private fun selectPace(profile: DeviceProfile) {
+        val key = paceKey(profile)
+        val book = bookFor(profile)
+        if (key == speedKey) {
+            eta.book = book
+            return
+        }
+        saveBook()
+        speedKey = key
+        eta.changeBook(book)
+        savedBook = null
+        photoMs.clear()
     }
 
     /**
@@ -524,7 +573,8 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun estimateAll(): ReadEstimate? = io {
         val ios = probe.platform == Platform.IOS
-        readEstimate(eta.book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
+        val book = if (_state.value.running) eta.book else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: eta.book
+        readEstimate(book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
     }
 
     /** iOS: one background run read [files] in [seconds]; after the first, [estimateAll] counts nights. */
@@ -558,6 +608,7 @@ class Retriever(
             }
             val kinds = store.prefs().kinds intersect readableKinds
             val files = store.knownFiles().values.filter { it.kind in kinds }
+            store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
             val plan = FileRules.planTaste(files, eta.book::costMs, budget)
             store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
             val byUri = store.filesByUris(plan.ids)
@@ -807,7 +858,8 @@ class Retriever(
     private suspend fun openAhead() {
         if (_setUp.value != true || textOnly) return
         try {
-            model.open()
+            // A search warm-up must not replace the handle held by a running file or batch.
+            indexLock.withLock { model.open() }
         } catch (c: CancellationException) {
             throw c
         } catch (t: Exception) {
@@ -993,7 +1045,7 @@ class Retriever(
         val build = requiredBuild.value
         val stored = store.profile()
         val result = try {
-            model.countedOpen { Calibration(model.measurable()).run(samples, build, probe.ramGb) }
+            model.countedOpen { Calibration(model.measurable(), frames = frames, visible = { uiVisible }).run(samples, build, probe.ramGb) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1002,18 +1054,18 @@ class Retriever(
         }
         log(
             "Tune: " + result.backends.joinToString("; ") {
-                "${it.backend} image ${it.imageMs?.toInt()} ms, query ${it.queryMs?.toInt()} ms" + if (it.ok) "" else " (failed)"
+                "${it.backend} image ${it.imageMs?.toInt()} ms, query ${it.queryMs?.toInt()} ms, frame gap ${it.maxFrameGapMs.toInt()} ms" +
+                    if (it.ok) "" else " (failed)"
             } + "; chose ${result.chosen}",
             null,
         )
         // Measured at the reference vision tokens; Tune again keeps the stored ones, or every vector would be stale.
         val profile = if (tuneAgain && stored != null) result.profile.copy(visionTokens = stored.visionTokens) else result.profile
         applyProfile(stored, profile)
-        // Photos not read yet are estimated at the pace Tune measured.
-        result.backends.firstOrNull { it.backend == result.chosen }?.imageMs?.let {
-            eta.book = eta.book.copy(photoSeedMs = it)
-            saveBook()
-        }
+        selectPace(factory.profileNow(profile, uiVisible))
+        val vision = factory.profileNow(profile, uiVisible).visionBackend
+        eta.book = eta.book.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs)
+        saveBook()
         trimTaste()
         return result.copy(profile = profile)
     }
@@ -1052,7 +1104,10 @@ class Retriever(
         if (seen.tier >= stored.tier) return
         log("Photos read in ${ms.toInt()} ms each, faster than tuning measured: ${stored.tier} to ${seen.tier}", null)
         photoMs.clear()
-        applyProfile(stored, seen.copy(visionTokens = stored.visionTokens))
+        applyProfile(
+            stored,
+            stored.copy(tier = seen.tier, videoFrameEverySec = seen.videoFrameEverySec, audio = seen.audio, bulkOnlyWhenCharging = seen.bulkOnlyWhenCharging),
+        )
     }
 
     internal companion object {
@@ -1062,7 +1117,7 @@ class Retriever(
         /** Battery percent at or below which a hidden app waits for the charger. */
         const val LOW_BATTERY = 20
 
-        const val SPEED_KEY = "speed_by_kind"
+        const val SPEED_KEY = "speed_by_kind_CPU_CPU"
         const val BG_SPEED_KEY = "bg_speed"
         const val SAVE_EVERY_MS = 30_000L
 

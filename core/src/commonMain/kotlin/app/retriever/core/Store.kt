@@ -62,6 +62,7 @@ class Store(
         val byKindState: Map<Pair<Kind, FileState>, Long> = emptyMap(),
         /** Pending files outside the first run's plan, left out of [byState] and [byKindState]; set by Retriever.counts. */
         val waiting: Long = 0,
+        val trial: Boolean = false,
     )
 
     internal fun <R> inTransaction(body: () -> R): R {

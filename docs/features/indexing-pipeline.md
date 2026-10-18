@@ -89,3 +89,17 @@ iOS: `AppModelTests`.
   a phone before enabling it.
 - Resolved in this wave: a sync-then-open budget, a stuck busy flag when the app stops, and follow-ups that waited behind
   a charging constraint.
+
+## Trial interruption regression
+
+A names-only batch before Tune legitimately returned `DONE` while planned files waited for the model. A later batch
+interrupted by `EmbedderClosedException` returned `SOON`, but `runBatch`'s finally block retained that previous `DONE`
+(`stop ?: it.lastStop`). Home combined it with planned pending files and incorrectly said "new files". Search warm-up
+could cause that interruption by replacing the shared model mid-batch. Warm-up now shares the index lock, and an
+exception no longer inherits a previous batch's stop reason.
+
+The supplied Home snapshot alone does not prove the most recent `indexBatch` returned `DONE`. Regression tests cover
+the stale reason, continuation through remaining files, three-attempt failures, deepen tails, and trimmed plans.
+`PENDING` in the scoped counts is planned work; `Counts.waiting` is outside-plan work (Android maps these to
+`HomeUi.waiting` and `HomeUi.rest` respectively). Both platforms carry explicit trial scope in counts and say
+"Finishing your trial · N files left" while planned files remain, including during a pause or interruption.

@@ -15,7 +15,7 @@
  */
 
 // Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/common/HardwareUtils.kt (Apache-2.0).
-// Modified for Retriever: isOldMaliGpu and the Tensor codename sets feed a DeviceProbe; SoC fields are guarded by SDK_INT.
+// Modified for Retriever: the Tensor codename sets identify NPU builds; SoC fields are guarded by SDK_INT.
 package app.retriever.core.android
 
 import android.app.ActivityManager
@@ -75,7 +75,7 @@ class AndroidDeviceProbe(private val context: Context) {
             socManufacturer = manufacturer,
             socModel = tensorName(socModel) ?: socModel,
             ramGb = nominalRamGb(memoryBytes(context)),
-            oldMaliGpu = isOldMaliGpu(socModel),
+            oldMaliGpu = false,
             // ponytail: file presence, not a dlopen; a wrong yes costs one download and K2's fallback recovers
             npuDispatch = ModelBuilds.npuRuntimeReady(manufacturer) {
                 File(context.applicationInfo.nativeLibraryDir, it).exists()
@@ -93,24 +93,7 @@ class AndroidDeviceProbe(private val context: Context) {
         }
     }
 
-    private fun isOldMaliGpu(socModel: String): Boolean {
-        val model = Build.MODEL.lowercase(Locale.ROOT)
-        val device = Build.DEVICE.lowercase(Locale.ROOT)
-        val board = Build.BOARD.lowercase(Locale.ROOT)
-        val soc = socModel.lowercase(Locale.ROOT)
-        val hardware = Build.HARDWARE.lowercase(Locale.ROOT)
-        // Pixel 9 and later should use GPU.
-        if (model.contains("pixel 9") || device in PIXEL_9_CODENAMES || board in PIXEL_9_CODENAMES ||
-            soc.contains("tensor g4") || hardware.contains("zumapro")
-        ) {
-            return false
-        }
-        val combined = "$hardware $board $soc"
-        return !combined.contains("malibu") && (combined.contains("exynos") || combined.contains("mali"))
-    }
-
     private companion object {
-        val PIXEL_9_CODENAMES = setOf("tokay", "caiman", "komodo", "comet", "tegu")
         val TENSOR_G5 = setOf("frankel", "blazer", "mustang", "rango", "laguna")
         val TENSOR_G6 = setOf("malibu")
     }

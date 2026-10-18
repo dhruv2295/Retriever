@@ -116,7 +116,7 @@ class EvalRunner : KoinComponent {
         val profile = CalibrationSamples.readingProfile(build.variant).copy(backend = retriever.state.value.backend ?: Backend.CPU, videoFrameEverySec = 0)
         val run = RetrievalEval(
             extractor,
-            MediaPipeEmbedderFactory(app, modelDir, retriever.probe),
+            MediaPipeEmbedderFactory(app, modelDir),
             build,
             profile,
             Store(AndroidSqliteDriver(IndexDb.Schema, app, null)),
@@ -136,10 +136,20 @@ class EvalRunner : KoinComponent {
         val text = try {
             when (name) {
                 "corpus" -> runCorpus()
+
                 "scan" -> scan()
+
                 "latency" -> searchLatency()
+
                 "query" -> query(q ?: error("query needs --es q <text>"))
+
                 "stats" -> stats()
+
+                "vision" -> {
+                    DebugVision.set(app, q ?: error("vision needs --es q cpu|gpu|policy"))
+                    "Vision override: $q (applies at the next batch boundary; text stays on GPU)"
+                }
+
                 else -> "Unknown run '$name'. Use corpus, scan, latency, query or stats."
             }
         } catch (e: CancellationException) {
@@ -342,6 +352,10 @@ class EvalRunner : KoinComponent {
                 0,
             ).value
             val out = StringBuilder("Index stats, ${Build.MODEL}\n")
+            val state = retriever.state.value
+            out.appendLine(
+                "runtime: ${state.backend}, ${state.detail ?: "all encoders on selected backend"}; vision override: ${DebugVision.backend(app) ?: "policy"}",
+            )
             out.appendLine("kind state files with_taken_at")
             rows("SELECT kind, state, COUNT(*), COUNT(taken_at) FROM files GROUP BY kind, state ORDER BY kind, state", 4).forEach {
                 out.appendLine(it.joinToString(" "))
@@ -351,7 +365,10 @@ class EvalRunner : KoinComponent {
                 3,
             ).single()
             out.appendLine("total: $files files, $taken with taken_at, $chunks chunks")
-            rows("SELECT key, substr(value, 1, 200) FROM index_meta WHERE key IN ('prefs', 'model_signature', 'profile')", 2).forEach {
+            rows(
+                "SELECT key, CASE WHEN key = 'profile' THEN value ELSE substr(value, 1, 200) END FROM index_meta WHERE key IN ('prefs', 'model_signature', 'profile')",
+                2,
+            ).forEach {
                 out.appendLine("${it[0]}: ${it[1]}")
             }
             out.toString()

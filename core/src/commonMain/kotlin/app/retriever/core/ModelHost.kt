@@ -27,6 +27,7 @@ internal class ModelHost(
     private val onClosed: () -> Unit,
     /** The process before this one died of a native crash or a signal, not a swipe, an update or the low-memory killer. */
     private val lastExitCrashed: () -> Boolean,
+    private val visible: () -> Boolean,
 ) {
     val lock = Mutex()
     private var embedder: Embedder? = null
@@ -38,8 +39,10 @@ internal class ModelHost(
     /** [current]'s build. Read under [lock]. */
     val currentBuild: ModelBuild? get() = embedderKey?.build
 
+    val currentConfiguration: Pair<Backend, Backend?>? get() = embedderKey?.let { it.backend to it.visionBackend }
+
     /** Only what the model loads with: a prefs switch (kinds, charging) must not reopen it under a running batch. */
-    private data class EmbedderKey(val build: ModelBuild, val backend: Backend, val visionTokens: Int, val maxTokens: Int)
+    private data class EmbedderKey(val build: ModelBuild, val backend: Backend, val visionBackend: Backend?, val visionTokens: Int, val maxTokens: Int)
 
     /** The shared embedder and its build, opened if needed. Null when not set up. */
     suspend fun open(): Pair<Embedder, ModelBuild>? = lock.withLock {
@@ -57,13 +60,14 @@ internal class ModelHost(
             closeLocked() // the file went away under an open model: stop answering by meaning, as a reopen would
             return null
         }
-        val backend = factory.backendNow(stored)
-        val key = EmbedderKey(build, backend, stored.visionTokens, stored.maxTokens)
+        val resolved = factory.profileNow(stored, visible())
+        val backend = resolved.backend
+        val key = EmbedderKey(build, backend, resolved.visionBackend, stored.visionTokens, stored.maxTokens)
         embedder?.let { if (embedderKey == key) return it }
         closeLocked()
         val e = try {
             countedOpen {
-                factory.open(stored.copy(backend = backend), build).also { opened ->
+                factory.open(resolved, build).also { opened ->
                     try {
                         opened.embedRaw(listOf(Part.Text(Prefix.query("warm up"))))
                     } catch (t: Throwable) {

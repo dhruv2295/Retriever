@@ -28,6 +28,7 @@ class ModelHostTest {
                 onOpened = { _, _ -> },
                 onClosed = {},
                 lastExitCrashed = { crashed },
+                visible = { true },
             )
         }
     }

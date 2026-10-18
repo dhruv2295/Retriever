@@ -37,6 +37,11 @@ interface EmbedderFactory {
     /** The backend to open [profile] on right now; iOS answers CPU for a GPU profile while the app is in the background. */
     fun backendNow(profile: DeviceProfile): Backend = profile.backend
 
+    fun profileNow(profile: DeviceProfile, visible: Boolean): DeviceProfile {
+        val current = profile.copy(backend = backendNow(profile))
+        return current.copy(visionBackend = visionBackendFor(current, visible))
+    }
+
     /** [build].variant must equal [profile].model. Throws when the model can't load; Swift implements it as `throws`. */
     @Throws(Throwable::class)
     fun open(profile: DeviceProfile, build: ModelBuild): Embedder
@@ -48,6 +53,8 @@ interface EmbedderFactory {
 interface Embedder : AutoCloseable {
     val signature: Signature
     val backend: Backend
+
+    val visionBackend: Backend get() = backend
 
     /** Anything that ran differently from [backend], such as an encoder that fell back to CPU. */
     val detail: String? get() = null

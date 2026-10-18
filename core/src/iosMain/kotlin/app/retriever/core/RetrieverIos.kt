@@ -66,6 +66,7 @@ fun createRetriever(
         dispatchers = CoreDispatchers(indexing = indexingDispatcher),
         // iOS keeps no exit reasons the app can read at launch, so every unfinished open counts as a crash.
         lastExitCrashed = { true },
+        frames = IosFrameSource(),
     )
 }
 

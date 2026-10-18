@@ -19,6 +19,7 @@ final class AppModel {
         var pendingByKind: [Kind: Int] = [:]
         var indexed = 0
         var pending = 0
+        var trial = false
         /// Files outside the first run's short read, left unread until the person chooses (core's `counts.waiting`).
         var waiting = 0
         var skipped = 0
@@ -353,6 +354,7 @@ extension AppModel.Snap {
         indexed = state[FileState.indexed]?.intValue ?? 0
         pending = state[FileState.pending]?.intValue ?? 0
         waiting = Int(s.counts.waiting)
+        trial = s.counts.trial
         skipped = state[FileState.skipped]?.intValue ?? 0
         tailFiles = Int(s.counts.tailFiles)
         running = s.state.running

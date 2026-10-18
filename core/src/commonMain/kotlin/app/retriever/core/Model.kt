@@ -96,6 +96,11 @@ data class DeviceProfile(
     val audio: Boolean,
     val bulkOnlyWhenCharging: Boolean,
     val maxTokens: Int = 512,
+    val gpuVisionStalls: Boolean = false,
+    val cpuImageMs: Double? = null,
+    val gpuImageMs: Double? = null,
+    /** Resolved for an open; null in the stored profile means follow the measured policy. */
+    val visionBackend: Backend? = null,
 )
 
 enum class Thermal { NONE, LIGHT, MODERATE, SEVERE, CRITICAL }

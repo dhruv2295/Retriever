@@ -105,6 +105,13 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun trialCopyUsesOnlyThePlannedPendingFiles() {
+        val trial = HomeUi(trial = true, waiting = 12, rest = 26000)
+        assertEquals("Finishing your trial · 12 files left", trial.trialTitle)
+        assertEquals(null, trial.copy(waiting = 0).trialTitle)
+        assertEquals(null, trial.copy(trial = false).trialTitle)
+    }
+
     @Test fun homeFollowsTheIndexAndAccess() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()

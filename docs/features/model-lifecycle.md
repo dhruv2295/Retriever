@@ -14,14 +14,14 @@ content leaves the phone; only the model download uses the network.
   on-device path for EmbeddingGemma 2 and what the mediapipe-samples `universal_embedder` and Google AI Edge Gallery use.
   The API has no batch call (`embedContent` fuses its parts into one vector), so embedding is one call per piece.
 - **One embedder, owned by `ModelHost`.** Indexing and search share it (two copies would double a 390 to 900 MB memory
-  cost). `ModelHost.open` runs under `ModelHost.lock`; the key is build, backend, vision tokens and max tokens, so a prefs
+  cost). `ModelHost.open` runs under `ModelHost.lock`; the key is build, text backend, vision backend, vision tokens and max tokens, so a prefs
   switch never reopens it. Each open does a text warm-up embed inside `countedOpen`. Search takes the lock with `tryLock`
   and answers from keywords while the model opens or Tune runs.
 - **Compared with Gallery's `OnDeviceEmbedder`** (adapted, Apache-2.0): a coroutine `Mutex` instead of `synchronized` (queries
   queue FIFO without pinning threads); it throws instead of returning null; after a failure a probe embed of known-good
   input separates a bad input (the file fails) from a broken backend (the embedder closes itself and the host records the
   fallback); the compiled-program cache dir comes from `setCacheDir`, keyed by model, delegate, vision tokens and max
-  tokens; the old-Mali vision-on-CPU rule and the NPU dispatch options are copied as is; audio always runs on CPU.
+  tokens; vision placement follows Tune's measured rendering stalls, with no GPU-name rule; audio always runs on CPU.
 - **Fallback ladder.** NPU build to generic build (`markNpuFailed`, `npu_failed` meta, permanent for that file); GPU to
   CPU after a warm-up embed that broke (`demoteGpu`), after a mid-batch break (`broke`), or after two opens that never
   returned (`checkUnfinishedOpens`, `gpu_unsafe`, and only when `lastExitCrashed` says the process died of a crash, not a
@@ -92,14 +92,46 @@ content leaves the phone; only the model download uses the network.
 - No batching: extraction and embedding alternate per file.
 - Shared model CPU pools remain at their original normal priority during indexing too. The wrapper cannot reprioritize
   vendor pools per request, and a second model would double memory. Only owned indexing threads are demoted; GPU
-  scheduling and vendor-created OCR thread priorities still require device measurement. Backend choice is unchanged.
+  scheduling and vendor-created OCR thread priorities still require device measurement. Tune measures display stalls and moves foreground vision to CPU where needed.
 - Query latency has no on-device number; inputs may be padded to the signature length, so a short query may cost a full
   window. Device queue: measure query time on GPU and CPU before choosing a backend by query time instead of image time.
 - A GPU or NPU that never crashes but is slightly wrong is caught only by the 0.98 mean-cosine gate at Tune time; NPU
   builds have no CPU reference.
 - `gpu_unsafe` and CPU demotion are cleared only by Tune again (`clearGpuUnsafe`), not by an OS or driver update.
-- iOS reads the background on CPU and the foreground on GPU into one index; agreement was gated only at 0.98 mean.
+- iOS reads the background on CPU; foreground GPU text can use CPU vision when Tune measures stalls. Agreement is gated at 0.98 mean.
 - M440 versus M740 (decision, deviceQueue): M740 costs about +97 MB download, a 91 MB audio-encoder cache and extra heap even
   with audio off, and text and vision vectors are believed identical to M440 but the signature differs, so a switch
   re-indexes. Needs a device memory measurement and a cosine comparison on the eval corpus before changing the rule.
 - ML Kit has no Arabic, Cyrillic, Thai, Hebrew or Tamil; those screenshots read through the Latin pass. iOS Vision reads them.
+
+## Rendering stalls and repeatable A/B
+
+Tune watches main-thread Choreographer callbacks on Android and CADisplayLink on iOS during the existing GPU image
+warm-ups and samples. A gap over 250 ms sets `DeviceProfile.gpuVisionStalls`; the measured 150 ms GPU-on p99 and
+53 ms paused p99 are below that threshold, while the seconds-long stalls exceed it. Open/compile and text/audio
+benchmarks are excluded. The observer includes the first frame after inference and unsubscribes on failure or
+cancellation. Hidden frames do not count. No extra model inference runs.
+
+For a GPU profile with stalls, foreground vision runs on CPU and text stays on GPU. Android screen-off reading uses
+GPU vision again. iOS already used GPU vision in front (`MediaPipeOpener` set both delegates to GPU), so it has the
+same measurement and split-delegate policy; background iOS remains entirely CPU because iOS forbids background GPU
+work. A visibility/configuration change ends the current batch after its current file; the next batch opens the new
+configuration. Search warm-up also takes the index lock, so it cannot retire a batch's handle. Signatures stay the same.
+
+Debug Android only (persistent across process restarts, applies at the next file/batch boundary):
+
+```sh
+adb shell am start -n app.retriever/.DebugActivity --es run vision --es q cpu
+adb shell am start -n app.retriever/.DebugActivity --es run vision --es q gpu
+adb shell am start -n app.retriever/.DebugActivity --es run vision --es q policy
+adb logcat -s RetrieverBench Retriever
+```
+
+These force the **vision** delegate with text on GPU, or restore measured policy. Release's source-set implementation
+always returns no override, and contains neither the debug activity nor the preference reader/writer.
+
+An offline `profile.backend = CPU` is a calibration result, not an override: an already-running Tune subsequently
+calls `applyProfile` with its winner. `ModelHost` then observes the new key and reopens, previously even via search
+warm-up during a file. `retierFrom` preserves the stored backend; Android's normal factory never promoted CPU to GPU
+by itself. This identifies the overwrite/reopen path, but the reported 32-second event has no trace/DB snapshot in this
+checkout to prove which writer ran then. The separate debug preference survives Tune and retiering.

@@ -262,6 +262,16 @@ private fun Status(
             go(SetupRoute)
         }, clickLabel = "Finish setup")
 
+        ui.trialTitle != null -> StatusCard(
+            colors.surfaceContainer,
+            colors.onSurface,
+            ui.trialTitle!!,
+            body = index.pauseReason ?: "Search works on everything read so far.",
+            mascot = if (index.running) MascotMood.WALKING else MascotMood.RESTING,
+            onClick = { go(StatusRoute) },
+            action = if (ui.paused) "Resume" to onResume else null,
+        )
+
         index.running && index.pendingAtStart > 0L -> StatusCard(
             colors.surfaceContainer,
             colors.onSurface,

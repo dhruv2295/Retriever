@@ -66,6 +66,7 @@ class DebugActivity : ComponentActivity() {
 
     // adb shell "am start -n app.retriever/.DebugActivity --es run corpus|scan|latency|query|stats|first-run-fast [--es q 'some text']"
     //   corpus, scan, latency, query, stats: the eval runs, see EvalRunner.
+    //   vision --es q cpu|gpu|policy: persistent vision override at batch boundaries; text stays on GPU.
     //   first-run-fast: writes a canned CPU profile (no tune), sets the plan budget to 20 s (meta `taste_budget_s`),
     //   clears the first-run meta (taste_scope, taste_ids, taste_decided), resets setupStarted, and restarts the app
     //   into the first run. Debug source set only, so release has no such path.

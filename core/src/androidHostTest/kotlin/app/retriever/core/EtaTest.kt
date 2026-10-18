@@ -81,6 +81,18 @@ class EtaTest {
         assertTrue(Eta.moved(100, 111))
     }
 
+    @Test fun changingConfigurationUsesItsOwnPaceWithoutOldSmoothing() {
+        val eta = photosAtThreeSeconds()
+        val cpu = SpeedBook(photoSeedMs = 10000.0)
+        eta.changeBook(cpu)
+        eta.start(mapOf(Kind.PHOTO to 100L), 0)
+        assertNull(eta.minutes)
+        assertEquals(0.0, eta.filesPerMinute)
+        repeat(3) { eta.add(Kind.PHOTO, 10000.0, 1.0) }
+        assertEquals(17, eta.minutes)
+        assertEquals(6.0, eta.filesPerMinute)
+    }
+
     /** 20 photos at 3 s each with 200 left: 10 minutes, shown as the 11 set at the 30 s mark. */
     private fun photosAtThreeSeconds() = Eta(SpeedBook()).apply {
         start(mapOf(Kind.PHOTO to 220L), 0)

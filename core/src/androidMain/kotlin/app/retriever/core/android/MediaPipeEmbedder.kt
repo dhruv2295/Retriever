@@ -22,7 +22,6 @@ import android.util.Log
 import androidx.core.graphics.createBitmap
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.Backend
-import app.retriever.core.DeviceProbe
 import app.retriever.core.DeviceProfile
 import app.retriever.core.Embedder
 import app.retriever.core.EmbedderClosedException
@@ -57,15 +56,25 @@ import java.io.File
 private fun Throwable.isInputTooLong(): Boolean =
     generateSequence(this) { it.cause }.any { it.message?.contains("exceeds maximum supported signature length") == true }
 
-class MediaPipeEmbedderFactory(private val context: Context, private val modelDir: File, private val probe: DeviceProbe) : EmbedderFactory {
+class MediaPipeEmbedderFactory(private val context: Context, private val modelDir: File, private val visionOverride: () -> Backend? = { null }) :
+    EmbedderFactory {
     // NPU only for SoC-specific builds; the Pixel 8 Pro (Tensor G3) has none.
     override fun backends(build: ModelBuild) = if (build.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU)
+
+    override fun profileNow(profile: DeviceProfile, visible: Boolean): DeviceProfile {
+        val forced = visionOverride()
+        return if (forced != null && profile.backend != Backend.NPU) {
+            profile.copy(backend = Backend.GPU, visionBackend = forced)
+        } else {
+            super.profileNow(profile, visible)
+        }
+    }
 
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
         val file = File(modelDir, build.fileName)
         check(file.exists()) { "Model file missing: ${file.absolutePath}" }
-        return MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, probe.oldMaliGpu)
+        return MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, profile.visionBackend ?: profile.backend)
     }
 
     // Keeps every configuration's cache for models still on disk: a re-tune (vt70 to vt140 on the Pixel) used to
@@ -95,7 +104,7 @@ fun staleEmbedCaches(dirs: Map<String, List<String>>, models: Map<String, String
     entries.filter { it.startsWith("${model}_") && !it.startsWith("$current.") }.map { "$dir/$it" }
 }
 
-// Recovery, model-limit reading, NPU options, per-configuration cache and close adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt (Apache-2.0); old-Mali vision-on-CPU rule from GemmaEmbeddingModelStore.kt in the same directory. Modified for Retriever: coroutine Mutex instead of synchronized, throws instead of returning null, close waits for an in-flight embed, cache dir passed through setCacheDir, no in-place CPU rebuild (a probe input tells a bad input from a broken backend, and the core records the fallback).
+// Recovery, model-limit reading, NPU options, per-configuration cache and close adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt (Apache-2.0); split vision delegate from GemmaEmbeddingModelStore.kt in the same directory. Modified for Retriever: coroutine Mutex instead of synchronized, throws instead of returning null, close waits for an in-flight embed, cache dir passed through setCacheDir, no in-place CPU rebuild (a probe input tells a bad input from a broken backend, and the core records the fallback).
 private class MediaPipeEmbedder(
     private val context: Context,
     private val modelFile: File,
@@ -103,7 +112,7 @@ private class MediaPipeEmbedder(
     override val backend: Backend,
     requestedVisionTokens: Int,
     requestedMaxTokens: Int,
-    oldMaliGpu: Boolean,
+    requestedVisionBackend: Backend,
 ) : Embedder {
     private val model: ModelVariant = modelBuild.variant
     private val delegate = when (backend) {
@@ -133,7 +142,7 @@ private class MediaPipeEmbedder(
     // Own cache dir per configuration, or different token configs collide on the compiled program cache.
     val cache = File(
         context.cacheDir,
-        "embed/${modelBuild.fileName.substringBeforeLast('.')}-${delegate.name}-vt$visionTokens-t$maxTokens",
+        "embed/${modelBuild.fileName.substringBeforeLast('.')}-${delegate.name}-vision${requestedVisionBackend.name}-vt$visionTokens-t$maxTokens",
     )
 
     /** Set when part of the model had to run somewhere other than [backend]. */
@@ -143,26 +152,28 @@ private class MediaPipeEmbedder(
     private val mutex = Mutex()
     private var closed = false
 
-    // Long vision kernels stall EGL fences on old Mali GPUs; run the vision encoder on CPU there.
-    private val oldMaliVision = delegate == Delegate.GPU && model.vision && oldMaliGpu
+    override var visionBackend: Backend = requestedVisionBackend
+        private set
 
     // Remembers a GPU vision compile failure in this configuration's cache dir, so later opens skip the failing compile.
     private val visionCpu = File(cache, "vision-cpu")
 
     private val embedder: UniversalEmbedder = try {
-        val cpuVision = oldMaliVision || (delegate == Delegate.GPU && model.vision && visionCpu.exists())
+        val cpuVision = (requestedVisionBackend == Backend.CPU) || (delegate == Delegate.GPU && model.vision && visionCpu.exists())
         detail = when {
-            oldMaliVision -> "vision on CPU (old Mali GPU)"
-            cpuVision -> "vision encoder on CPU (GPU failed before)"
+            delegate == Delegate.GPU && requestedVisionBackend == Backend.CPU -> "vision on CPU (rendering policy)"
+            delegate == Delegate.GPU && cpuVision -> "vision encoder on CPU (GPU failed before)"
             else -> null
         }
+        visionBackend = if (cpuVision) Backend.CPU else backend
         build(delegate, if (cpuVision) Delegate.CPU else delegate)
     } catch (e: Exception) {
-        // Some GPUs (Tensor G3's Mali) can't compile the vision encoder; keep text on the GPU.
+        // A measured compile failure keeps text on the GPU and retires only this vision configuration.
         if (delegate != Delegate.GPU || !model.vision || detail != null) throw e
         cache.mkdirs()
         visionCpu.createNewFile()
         detail = "vision encoder on CPU (GPU failed: ${e.message?.lineSequence()?.last()?.trim()})"
+        visionBackend = Backend.CPU
         build(delegate, Delegate.CPU)
     }
 

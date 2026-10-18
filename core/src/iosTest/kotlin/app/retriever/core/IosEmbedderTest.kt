@@ -52,7 +52,7 @@ class IosEmbedderTest {
 
     private fun open(native: NativeEmbedder, backend: Backend = Backend.CPU, active: Boolean = true): Embedder {
         val opener = object : NativeEmbedderOpener {
-            override fun open(modelPath: String, gpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String) = native
+            override fun open(modelPath: String, gpu: Boolean, visionGpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String) = native
             override val lastMessage: String? = null
         }
         val variant = ModelVariant.M440
@@ -62,6 +62,25 @@ class IosEmbedderTest {
     }
 
     private fun embed(e: Embedder) = runBlocking { e.embedRaw(listOf(Part.Text("hello"))) }
+
+    @Test fun foregroundVisionCanUseCpuWhileTextKeepsMetalAndBackgroundUsesCpu() {
+        var delegates: Pair<Boolean, Boolean>? = null
+        val opener = object : NativeEmbedderOpener {
+            override val lastMessage: String? = null
+            override fun open(modelPath: String, gpu: Boolean, visionGpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder {
+                delegates = gpu to visionGpu
+                return ScriptedNative(listOf(ok))
+            }
+        }
+        var active = true
+        val factory = IosEmbedderFactory(opener, "/nowhere", cacheDir, false) { active }
+        val p = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.GPU, 70, 5, false, false, gpuVisionStalls = true)
+        factory.open(factory.profileNow(p, true), ModelVariant.M440.generic).close()
+        assertEquals(true to false, delegates)
+        active = false
+        factory.open(factory.profileNow(p, false), ModelVariant.M440.generic).close()
+        assertEquals(false to false, delegates)
+    }
 
     @Test
     fun goodOutputDecodesAsFloats() {
@@ -149,7 +168,8 @@ class IosEmbedderTest {
             val opener = object : RefusesForNow {
                 override val refusedForNow = lowMemory
                 override val lastMessage = "open refused"
-                override fun open(modelPath: String, gpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder? = null
+                override fun open(modelPath: String, gpu: Boolean, visionGpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder? =
+                    null
             }
             val factory = IosEmbedderFactory(opener, "/nowhere", cacheDir, isSimulator = false) { lowMemory }
             val profile = DeviceProfile(Tier.FULL, ModelVariant.M440, Backend.GPU, 70, 0, false, false)

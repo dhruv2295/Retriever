@@ -29,7 +29,7 @@ final class MediaPipeOpener: NSObject, RefusesForNow {
     private static let minAvailableBytes = 390 * 1024 * 1024
     private static let log = Logger(subsystem: "app.retriever", category: "model")
 
-    func open(modelPath: String, gpu: Bool, visionTokens: Int32, maxTokens: Int32, cacheDir: String) -> NativeEmbedder? {
+    func open(modelPath: String, gpu: Bool, visionGpu: Bool, visionTokens: Int32, maxTokens: Int32, cacheDir: String) -> NativeEmbedder? {
         let available = os_proc_available_memory()
         // 0 on the simulator and macOS, where there is no per-process limit to check.
         refusedForNow = available > 0 && available < Self.minAvailableBytes
@@ -43,7 +43,7 @@ final class MediaPipeOpener: NSObject, RefusesForNow {
         // Delegates are per-modality: the text tower encodes strings, the vision tower images.
         let delegate: Delegate = gpu ? .GPU : .CPU
         options.textDelegate = delegate
-        options.visionDelegate = delegate
+        options.visionDelegate = visionGpu ? .GPU : .CPU
         options.maxInputLength = Int(maxTokens)
         options.visionTokensPerImage = Int(visionTokens)
         try? FileManager.default.createDirectory(atPath: cacheDir, withIntermediateDirectories: true)

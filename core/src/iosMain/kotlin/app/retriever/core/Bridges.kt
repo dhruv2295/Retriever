@@ -30,7 +30,7 @@ interface NativeEmbedder {
 
 interface NativeEmbedderOpener {
     /** Null when the model can't load, with the reason in [lastMessage]. */
-    fun open(modelPath: String, gpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder?
+    fun open(modelPath: String, gpu: Boolean, visionGpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String): NativeEmbedder?
 
     val lastMessage: String?
 }

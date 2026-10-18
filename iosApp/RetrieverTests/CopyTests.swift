@@ -35,6 +35,15 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 4), nameOnly: 1)?.detail, "1 of them by name only")
     }
 
+    func testTrialCardNeverCallsPlannedFilesNew() {
+        var snap = AppModel.Snap(setUp: true, indexed: 178, pending: 12, trial: true, lastStop: StopReason.done)
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 12 files left")
+        snap.running = true
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 12 files left")
+        snap.paused = true
+        XCTAssertEqual(Copy.homeStatus(snap)?.phase, .paused)
+    }
+
     func testKindProgressSaysHowFarEachKindIs() {
         XCTAssertEqual(Copy.kindProgress(.pdf, total: 10, pending: 0, reading: true), "Ready")
         XCTAssertEqual(Copy.kindProgress(.photo, total: 10, pending: 4, reading: true), "4 to go")

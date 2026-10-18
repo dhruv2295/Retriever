@@ -49,10 +49,12 @@ class IosEmbedderFactory(
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
         // Own cache dir per configuration, or different token configs collide on the compiled program cache.
-        val cache = "$cacheDir/${build.fileName.substringBeforeLast('.')}-${profile.backend.name}-vt${profile.visionTokens}-t${profile.maxTokens}"
+        val vision = profile.visionBackend ?: profile.backend
+        val stem = build.fileName.substringBeforeLast('.')
+        val cache = "$cacheDir/$stem-${profile.backend.name}-vision${vision.name}-vt${profile.visionTokens}-t${profile.maxTokens}"
         NSFileManager.defaultManager.createDirectoryAtPath(cache, true, null, null)
         val gpu = profile.backend == Backend.GPU
-        val native = opener.open("$modelDir/${build.fileName}", gpu, profile.visionTokens, profile.maxTokens, cache)
+        val native = opener.open("$modelDir/${build.fileName}", gpu, vision == Backend.GPU, profile.visionTokens, profile.maxTokens, cache)
         if (native == null) {
             val message = opener.lastMessage ?: "the model didn't open"
             // Too little memory now, or a GPU open as the app went to the background: no reason to give up the GPU.
@@ -61,7 +63,7 @@ class IosEmbedderFactory(
             }
             throw IllegalStateException(message)
         }
-        return IosEmbedder(native, profile.backend, Signature.of(build, profile.visionTokens, profile.maxTokens), isActive)
+        return IosEmbedder(native, profile.backend, vision, Signature.of(build, profile.visionTokens, profile.maxTokens), isActive)
     }
 }
 
@@ -76,9 +78,12 @@ interface RefusesForNow : NativeEmbedderOpener {
 private class IosEmbedder(
     private val native: NativeEmbedder,
     override val backend: Backend,
+    override val visionBackend: Backend,
     override val signature: Signature,
     private val isActive: () -> Boolean,
 ) : Embedder {
+    override val detail: String? get() = if (backend != visionBackend) "vision on CPU (rendering policy)" else null
+
     private val mutex = Mutex()
     private var closed = false
 

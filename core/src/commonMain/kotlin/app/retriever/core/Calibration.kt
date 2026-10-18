@@ -46,11 +46,17 @@ data class BackendResult(
     val meanCosineVsCpu: Float?,
     val detail: String? = null,
     val queryMs: Double? = null,
+    val maxFrameGapMs: Double = 0.0,
 )
 
 data class CalibrationResult(val backends: List<BackendResult>, val chosen: Backend, val profile: DeviceProfile)
 
-class Calibration(private val factory: EmbedderFactory, private val clock: TimeSource = TimeSource.Monotonic) {
+class Calibration(
+    private val factory: EmbedderFactory,
+    private val clock: TimeSource = TimeSource.Monotonic,
+    private val frames: FrameSource? = null,
+    private val visible: () -> Boolean = { true },
+) {
     private class Measured(val result: BackendResult, val raws: List<FloatArray>?, val totalMs: Double)
 
     private class TooSlow : Exception("much slower than CPU")
@@ -90,7 +96,13 @@ class Calibration(private val factory: EmbedderFactory, private val clock: TimeS
                 "no backend passed: " + results.joinToString("; ") { "${it.backend}: ${it.error}" },
             )
         val chosen = pick.backend
-        return CalibrationResult(results, chosen, Tiers.profileFor(pick.imageMs ?: 9999.0, ramGb, chosen, variant, maxTokens))
+        val gpu = results.firstOrNull { it.backend == Backend.GPU }
+        val profile = Tiers.profileFor(pick.imageMs ?: 9999.0, ramGb, chosen, variant, maxTokens).copy(
+            gpuVisionStalls = stallsRendering(gpu?.maxFrameGapMs ?: 0.0),
+            cpuImageMs = results.firstOrNull { it.backend == Backend.CPU && it.ok }?.imageMs,
+            gpuImageMs = gpu?.takeIf { it.ok }?.imageMs,
+        )
+        return CalibrationResult(results, chosen, profile)
     }
 
     private suspend fun measure(
@@ -111,17 +123,23 @@ class Calibration(private val factory: EmbedderFactory, private val clock: TimeS
             if (budgetMs != null && elapsedMs() > budgetMs) throw TooSlow()
         }
         var loadMs = 0.0
+        val rendering = frames?.takeIf { backend == Backend.GPU }?.let { RenderingStalls(it, visible) }
         try {
             val opened = clock.measureTimedValue { factory.open(profile, build) }
             loadMs = opened.duration.inWholeNanoseconds / 1e6
             val embedder = opened.value
             start = clock.markNow()
             try {
+                suspend fun timedEmbed(parts: List<Part>) = if (parts.any { it is Part.Image } && embedder.visionBackend == Backend.GPU && rendering != null) {
+                    rendering.image { clock.measureTimedValue { embedder.embedRaw(parts) } }
+                } else {
+                    clock.measureTimedValue { embedder.embedRaw(parts) }
+                }
                 // A cold model pages in weights and builds caches on its first calls of each kind; time none of them.
                 for (kind in listOf(images, texts, audio, queries)) {
                     kind.firstOrNull()?.let { parts ->
                         repeat(WARM_UPS) {
-                            embedder.embedRaw(parts)
+                            timedEmbed(parts)
                             checkBudget()
                         }
                     }
@@ -131,7 +149,7 @@ class Calibration(private val factory: EmbedderFactory, private val clock: TimeS
                 val times = all.mapIndexed { i, parts ->
                     checkBudget()
                     val timed = try {
-                        clock.measureTimedValue { embedder.embedRaw(parts) }
+                        timedEmbed(parts)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -178,6 +196,7 @@ class Calibration(private val factory: EmbedderFactory, private val clock: TimeS
                     meanCosineVsCpu = mean,
                     detail = embedder.detail,
                     queryMs = median(times.subList(ni + nt + audio.size, times.size)),
+                    maxFrameGapMs = rendering?.maxGapMs ?: 0.0,
                 )
                 return Measured(result, raws, elapsedMs())
             } finally {
@@ -186,7 +205,10 @@ class Calibration(private val factory: EmbedderFactory, private val clock: TimeS
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val result = BackendResult(backend, false, e.message ?: e::class.simpleName, loadMs, null, null, null, null, null)
+            val result = BackendResult(
+                backend, false, e.message ?: e::class.simpleName, loadMs, null, null, null, null, null,
+                maxFrameGapMs = rendering?.maxGapMs ?: 0.0,
+            )
             return Measured(result, null, elapsedMs())
         }
     }

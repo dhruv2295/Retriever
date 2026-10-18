@@ -46,6 +46,7 @@ import app.retriever.core.android.AndroidContentHasher
 import app.retriever.core.android.AndroidDeviceMonitor
 import app.retriever.core.android.AndroidDeviceProbe
 import app.retriever.core.android.AndroidExtractor
+import app.retriever.core.android.AndroidFrameSource
 import app.retriever.core.android.MediaPipeEmbedderFactory
 import app.retriever.core.android.MediaStoreSource
 import app.retriever.core.android.SafSource
@@ -184,7 +185,10 @@ val appModule = module {
         }
         Store(AndroidSqliteDriver(IndexDb.Schema, app, demo?.dbName ?: Store.DB_NAME, callback = callback), log, userState = userState)
     }
-    single<EmbedderFactory> { get<DemoMode>().parts?.factory ?: MediaPipeEmbedderFactory(androidContext(), get(ModelDir), get()) }
+    single<EmbedderFactory> {
+        get<DemoMode>().parts?.factory
+            ?: MediaPipeEmbedderFactory(androidContext(), get(ModelDir)) { app.retriever.DebugVision.backend(androidContext()) }
+    }
     single<DeviceMonitor> { AndroidDeviceMonitor(androidContext()) }
     single<ContentHasher> { AndroidContentHasher(androidContext()) }
     single {
@@ -203,6 +207,7 @@ val appModule = module {
             now = System::currentTimeMillis,
             zoneOffsetMs = { java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong() },
             dispatchers = CoreDispatchers(indexing = indexingDispatcher),
+            frames = AndroidFrameSource(),
             lastExitCrashed = androidContext().let { app -> { ExitReasons.lastExitCrashed(app) } },
         )
     }

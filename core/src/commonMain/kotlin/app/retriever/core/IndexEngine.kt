@@ -42,6 +42,8 @@ class IndexEngine(
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
     /** Before extraction starts, after any wait for the UI. Null clears the current file, including on cancellation. */
     private val onCurrent: (SourceFile?) -> Unit = {},
+    /** Finish this batch between files so the next one can open the new delegate configuration. */
+    private val configurationChanged: () -> Boolean = { false },
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
     suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
@@ -53,6 +55,7 @@ class IndexEngine(
         val tails = ArrayDeque<Store.TailChunk>()
         while (true) {
             fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
+            if (configurationChanged()) return stop(StopReason.BUDGET)
             if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
             val now = settings()
             val state = monitor.state()

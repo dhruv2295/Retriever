@@ -45,7 +45,7 @@
             }
             let cache = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-embed").path
             let opener = MediaPipeOpener()
-            guard let embedder = opener.open(modelPath: modelPath, gpu: false, visionTokens: 70, maxTokens: 256, cacheDir: cache) else {
+            guard let embedder = opener.open(modelPath: modelPath, gpu: false, visionGpu: false, visionTokens: 70, maxTokens: 256, cacheDir: cache) else {
                 return check("(a) embed", false, "open failed: \(opener.lastMessage ?? "?")")
             }
             let query = { (q: String) in floats(embedder.embed(parts: [Prefix.shared.query(q: q)])) }

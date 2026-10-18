@@ -61,6 +61,12 @@ enum Copy {
                 }
             return HomeStatus(phase: .settingUp, title: "\(step). For now Retriever finds files by name.")
         }
+        if s.trial && s.pending > 0 {
+            return HomeStatus(
+                phase: s.paused ? .paused : (s.running ? .reading : .waiting),
+                title: "Finishing your trial · \(count(s.pending)) files left",
+                detail: stop(s.lastStop).flatMap { s.lastStop == StopReason.done ? nil : $0 } ?? readSoFar)
+        }
         if s.running && s.pendingAtStart == 0 { return HomeStatus(phase: .looking, title: "Looking for new files…") }
         if s.running {
             return HomeStatus(

@@ -19,7 +19,10 @@ class BackendNowTest {
     private var active = false
     private val fake = FakeFactory()
     private val factory = object : EmbedderFactory by fake {
-        override fun backendNow(profile: DeviceProfile) = if (profile.backend == Backend.GPU && !active) Backend.CPU else profile.backend
+        override fun profileNow(profile: DeviceProfile, visible: Boolean): DeviceProfile {
+            val backend = if (profile.backend == Backend.GPU && !active) Backend.CPU else profile.backend
+            return profile.copy(backend = backend, visionBackend = backend)
+        }
     }
     private val store = newStore().also { it.setProfile(PROFILE.copy(backend = Backend.GPU)) }
     private val source = FakeSource().apply {

@@ -27,7 +27,7 @@ class TrialReadTest {
         store.replaceChunks(ids.first(), emptyList())
         val book = SpeedBook().add(Kind.VIDEO, 25_000.0, 5_000_000.0).add(Kind.PHOTO, 1000.0, 1.0)
         store.setMeta(Retriever.SPEED_KEY, book.encode())
-        val r = testRetriever(store, files, FakeExtractor())
+        val r = testRetriever(store, files, FakeExtractor(), factory = FakeFactory { listOf(Backend.CPU) })
         r.calibrate(Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList()), tuneAgain = false)
         val remaining = store.pendingIn(store.tasteIds())
         assertTrue(remaining.sumOf { book.costMs(it.file) } <= 90_000)
