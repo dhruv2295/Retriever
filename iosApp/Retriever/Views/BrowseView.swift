@@ -71,13 +71,13 @@ struct FileListView: View {
             })
     }
 
-    /// Large files sorted another way is just every file. Only full Photos access can call the list "All files".
-    static func title(_ query: FileQuery, sort: FileQuery.Sort, allFiles: Bool) -> String {
-        guard query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest else { return query.title }
-        return allFiles ? "All files" : "Files Retriever can access"
+    /// Large files sorted another way is just every file. On iOS that is Photos plus the folders picked, never "all files".
+    static func title(_ query: FileQuery, sort: FileQuery.Sort) -> String {
+        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest
+            ? "Files Retriever can access" : query.title
     }
 
-    private var title: String { Self.title(query, sort: sort, allFiles: model?.photos == .authorized) }
+    private var title: String { Self.title(query, sort: sort) }
 
     /// An unfiltered list that is empty means nothing is included yet; a kind, folder or day that is empty is just that.
     private var libraryEmpty: Bool { query.kind == nil && query.folder == nil && query.takenRange == nil && !query.starredOnly }

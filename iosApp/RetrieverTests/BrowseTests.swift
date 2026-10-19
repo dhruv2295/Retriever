@@ -5,12 +5,11 @@ import XCTest
 
 @MainActor
 final class BrowseTests: XCTestCase {
-    func testLimitedPhotosNeverCallTheListAllFiles() {
+    func testNoPhotosStateCallsTheListAllFiles() {
         let everything = FileQuery(sort: .largest, title: "Large files")
-        XCTAssertEqual(FileListView.title(everything, sort: .newest, allFiles: true), "All files")
-        XCTAssertEqual(FileListView.title(everything, sort: .newest, allFiles: false), "Files Retriever can access")
-        XCTAssertEqual(FileListView.title(everything, sort: .largest, allFiles: false), "Large files")
-        XCTAssertEqual(FileListView.title(FileQuery(title: "Starred", starredOnly: true), sort: .newest, allFiles: false), "Starred")
+        XCTAssertEqual(FileListView.title(everything, sort: .newest), "Files Retriever can access")
+        XCTAssertEqual(FileListView.title(everything, sort: .largest), "Large files")
+        XCTAssertEqual(FileListView.title(FileQuery(title: "Starred", starredOnly: true), sort: .newest), "Starred")
     }
 
     func testSortsSayWhatTheyOrderBy() {
