@@ -1,5 +1,8 @@
 # Onboarding
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 First run: a welcome that starts the model download at once, access to files, a short read of a planned few files, a

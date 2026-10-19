@@ -81,7 +81,7 @@ class SettingsViewModel(
     private fun fail(e: Exception) {
         // A full disk (SQLiteFullException) lands here too: the person sees it, the app keeps running.
         LogSink.write(BuildConfig.DEBUG, "settings action failed", e)
-        local.update { it.copy(message = "Couldn't save that. Check that the phone has free space, then try again.") }
+        local.update { it.copy(message = "Couldn’t save this change. Try again.") }
     }
 
     /** Like [launchCatching], for work that must outlive the screen. */
@@ -119,9 +119,23 @@ class SettingsViewModel(
         }
     }
 
+    fun setReadingSchedule(value: app.retriever.core.ReadingSchedule) = launchCatching(::fail) {
+        retriever.setReadingSchedule(value)
+        indexer.schedulePeriodic(value == app.retriever.core.ReadingSchedule.CHARGING)
+        indexer.indexNow()
+    }
+
+    fun readNow() = launchCatching(::fail) {
+        retriever.readNow()
+        indexer.indexNow()
+    }
+    fun pause() = launchCatching(::fail) { indexer.pause() }
+    fun resume() = launchCatching(::fail) { indexer.resume() }
+    fun setOnThisDay(on: Boolean) = launchCatching(::fail) { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
+
     fun setOnlyWhileCharging(on: Boolean) {
         launchCatching(::fail) {
-            retriever.updatePrefs { it.copy(onlyWhileCharging = on) }
+            retriever.setReadingSchedule(if (on) app.retriever.core.ReadingSchedule.CHARGING else app.retriever.core.ReadingSchedule.BATTERY)
             indexer.schedulePeriodic(on)
         }
     }

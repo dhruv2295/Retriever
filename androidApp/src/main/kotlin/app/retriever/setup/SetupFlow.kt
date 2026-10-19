@@ -60,7 +60,7 @@ data class SetupUi(
     val ready: Boolean = false,
     /** Null until the user picks mobile data or Wi-Fi. */
     val allowMetered: Boolean? = null,
-    /** The file list was synced in this process, so names are searchable. */
+    /** The file list was synced in this process, so names are findable. */
     val namesSynced: Boolean = false,
     val scheduled: Boolean = false,
     /** The user stopped the download; it waits for them to start it again. */
@@ -73,6 +73,7 @@ data class SetupUi(
     /** The rest of the library at this phone's pace; null until a pace is measured. No files left: the plan was everything. */
     val estimate: ReadEstimate? = null,
     val committing: Boolean = false,
+    val moreFiles: Long? = null,
     /** Skip: Home now, whatever runs carries on. */
     val skipped: Boolean = false,
     /** The shared reading policy's explanation, ready for the setup screen. */
@@ -183,7 +184,8 @@ class SetupFlow(
     private var wasMissing = false
 
     init {
-        scope.launch { retriever.state.collect { s -> _ui.update { it.copy(pauseReason = s.pauseReason) } } }
+        scope.launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = if (s.active) null else s.title) } } }
+        scope.launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
         scope.launch { retriever.prefs.collect { p -> _ui.update { it.copy(started = it.started || p.setupStarted) } } }
         scope.launch {
             models.state.collect { model ->
@@ -212,7 +214,11 @@ class SetupFlow(
                 _ui.update { withTaste(it, p) }
                 if (_ui.value.trying) refreshRest()
                 // "Ready to try" reaches a person who left during the short read; on screen, the button says it.
-                if (p.readyToTry && was.taste?.readyToTry == false && was.firstRun && !retriever.uiVisible) index.notifyReadyToTry(p.read)
+                if (p.readyToTry && was.firstRun && !retriever.uiVisible && notificationsGranted() &&
+                    retriever.claimSampleNotification()
+                ) {
+                    index.notifyReadyToTry(p.read)
+                }
             }
         }
     }
@@ -294,7 +300,7 @@ class SetupFlow(
     fun commit(whileCharging: Boolean) {
         scope.launch {
             retriever.commit(whileCharging)
-            index.schedulePeriodic(whileCharging)
+            index.schedulePeriodic(true)
             index.indexNow()
             _ui.update { it.copy(decided = true) }
             advance()
@@ -305,6 +311,7 @@ class SetupFlow(
     fun decideLater() {
         scope.launch {
             retriever.decideLater()
+            index.cancel()
             _ui.update { it.copy(decided = true) }
             advance()
         }
@@ -312,9 +319,7 @@ class SetupFlow(
 
     /** Home now; the download, tune and short read carry on. Home offers the choice once the short read is done. */
     fun skip() {
-        val firstRun = _ui.value.firstRun
         _ui.update { it.copy(skipped = true) }
-        if (firstRun) decideLater()
     }
 
     fun useMobileData() {
@@ -409,7 +414,7 @@ class SetupFlow(
     private suspend fun step() {
         var s = decide()
         if (s == SetupStep.SYNC_NAMES) {
-            // Both sync the file list, so names are searchable while the model downloads. The plan is made once, here,
+            // Both sync the file list, so names are findable while the model downloads. The plan is made once, here,
             // before the tune; a plan made already (the process died mid-run) is kept, never redrawn.
             val ui = _ui.value
             if (!ui.decided && ui.taste?.byKind.isNullOrEmpty()) plan() else index.indexNow()

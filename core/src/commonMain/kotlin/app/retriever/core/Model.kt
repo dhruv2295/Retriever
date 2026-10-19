@@ -82,7 +82,7 @@ data class ModelBuild(val variant: ModelVariant, val fileName: String, val sizeB
 enum class Backend { NPU, GPU, CPU }
 
 /** How much of a file search can reach: all of it, all by keyword with meaning still being added, or its first part only. */
-enum class ReadExtent { WHOLE, DEEPENING, FIRST_PART }
+enum class ReadExtent { WHOLE, DEEPENING, FIRST_PART, FIRST_PART_DEEPENING, MEANING_LIMITED, FIRST_PART_MEANING_LIMITED }
 
 enum class Tier { FULL, BALANCED, LIGHT }
 

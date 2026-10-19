@@ -497,7 +497,7 @@ struct HomeTile: Equatable, Identifiable {
 
 extension AppModel.Snap {
     /// Whether this phone reads inside files of `kind` (else they are found by name).
-    func reads(_ kind: Kind) -> Bool { kinds.contains(kind) && (!textOnly || Self.insideTextOnly.contains(kind)) }
+    func reads(_ kind: Kind) -> Bool { kind != .audio && kinds.contains(kind) && (!textOnly || Self.insideTextOnly.contains(kind)) }
 }
 
 /// Two tiles to a row, one at accessibility sizes.
@@ -506,33 +506,23 @@ struct HomeTiles: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: typeSize.isAccessibilitySize ? 1 : 2), spacing: 8) {
+        VStack(spacing: 0) {
+            Text("Files Retriever can access").font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
             ForEach(tiles) { tile in
                 NavigationLink(value: tile.route) {
-                    HStack(spacing: 10) {
-                        Image(systemName: tile.icon).font(.subheadline).foregroundStyle(.tint)
-                            .frame(width: 30, height: 30).background(.tint.opacity(0.15), in: .circle)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(Copy.count(tile.count)).font(.title3.bold()).monospacedDigit()
-                            Text(tile.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                            if let detail = tile.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+                    HStack(spacing: 12) {
+                        Image(systemName: tile.icon).frame(width: 28).accessibilityHidden(true)
+                        VStack(alignment: .leading) {
+                            Text(tile.title)
+                            Text("\(Copy.count(tile.count)) \(tile.unit)").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.background.secondary, in: .rect(cornerRadius: 16, style: .continuous))
-                    .contentShape(.rect(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    [tile.title, "\(Copy.count(tile.count))\(tile.unit.isEmpty ? "" : " " + tile.unit)", tile.detail?.lowercased()]
-                        .compactMap { $0 }.joined(separator: ", "))
+                        Spacer()
+                        Image(systemName: "chevron.right").accessibilityHidden(true)
+                    }.frame(minHeight: 44).padding(.vertical, 8).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel([tile.title, "\(Copy.count(tile.count)) \(tile.unit)", tile.detail].compactMap { $0 }.joined(separator: ", "))
             }
-        }
-        .padding(.horizontal, gutter)
-        .padding(.vertical, 8)
+        }.padding(.horizontal, gutter)
+
     }
 }
 
@@ -570,51 +560,63 @@ struct StatusDog: View {
     }
 }
 
-/// Read everything: the same three answers as the first run's commit choice, as a sheet over Home.
+/// The same selection and confirmation on Home and in setup.
+struct ReadingChoice: View {
+    let files: Int?
+    let charging: () -> Void
+    let readNow: () -> Void
+    let notNow: () -> Void
+    @State private var selected = 0
+
+    private var continuation: String {
+        if #available(iOS 26.0, *) { "Can continue after you leave if iOS allows." }
+        else { "Keep Retriever open for this session." }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Search inside more files").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            Text(Copy.commitRest(files: files))
+            Text("From your selected photos and folders").font(.subheadline)
+            Note(Copy.commitNights)
+            Text("When should Retriever read them?").font(.headline)
+            let titles = ["While charging", "Read now for 15 minutes", "Not now"]
+            let details = [
+                "Recommended. Reads while charging when Retriever is open, and in the background when iOS allows.",
+                "Uses battery and may warm your phone. Then continues while charging. Stops after 15 minutes, or sooner if needed. " + continuation,
+                "Keep searching names and the content read so far. Choose a schedule later."
+            ]
+            ForEach(0..<3, id: \.self) { index in
+                Button { selected = index } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: selected == index ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(titles[index]).font(.headline)
+                            Text(details[index]).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.vertical, 8).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityAddTraits(selected == index ? .isSelected : [])
+            }
+            Button {
+                switch selected { case 0: charging(); case 1: readNow(); default: notNow() }
+            } label: {
+                Text(["Use this schedule", "Start reading", "Go to Home"][selected]).frame(maxWidth: .infinity)
+            }.buttonStyle(.borderedProminent).controlSize(.large)
+        }
+    }
+}
+
 struct CommitSheet: View {
     let model: AppModel
     let waiting: Int
     @Environment(\.dismiss) private var dismiss
-
-    private static var continuedReading: Bool {
-        if #available(iOS 26.0, *) { true } else { false }
-    }
-
-    // Scrolls and opens to full height, so at accessibility text sizes no button falls off the sheet.
     var body: some View {
         ScrollView {
-            sheet.frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .presentationDetents([.medium, .large])
-    }
-
-    private var sheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(Copy.commitTitle).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-            Text(Copy.commitRest(files: waiting)).foregroundStyle(.secondary)
-            Note(Copy.commitNights)
-            Button {
-                read(whileCharging: true)
-            } label: {
-                Text(Copy.commitWhileCharging).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.primaryAction)
-            .controlSize(.large)
-            Button {
-                read(whileCharging: false)
-            } label: {
-                Text(Copy.commitReadNow(continued: Self.continuedReading)).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            Button(Copy.commitNotYet) { dismiss() }.frame(maxWidth: .infinity)
-        }
-        .padding(24)
-    }
-
-    private func read(whileCharging: Bool) {
-        model.commit(whileCharging: whileCharging)
-        dismiss()
+            ReadingChoice(files: model.snap?.waiting ?? waiting,
+                charging: { model.commit(whileCharging: true); dismiss() },
+                readNow: { model.commit(whileCharging: false); dismiss() },
+                notNow: { model.decideLater(); dismiss() }).padding(24)
+        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.large])
     }
 }

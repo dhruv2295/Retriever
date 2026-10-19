@@ -64,7 +64,9 @@ import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingPhase
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingProgress
+import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
@@ -83,19 +85,11 @@ import app.retriever.ui.tabular
 import app.retriever.viewer.Opener
 import org.koin.androidx.compose.koinViewModel
 
-internal fun stopCopy(stop: StopReason?): String? = when (stop) {
-    StopReason.DONE -> "All caught up"
-    StopReason.POWER_SAVE -> "Paused: Battery Saver"
-    StopReason.HOT -> "Resting while the phone cools down"
-    StopReason.UNPLUGGED -> "Waiting for the charger"
-    StopReason.BUDGET -> "Taking a short break"
-    StopReason.BUSY -> "Paused while you use your phone"
-    StopReason.PAUSED -> "Paused"
-    null -> null
+internal fun stopCopy(stop: StopReason?): String? = stop?.let {
+    ReadingPolicy.decide(ReadingProgress(scheduled = 1), it, false, false, false).title
 }
 
-/** Why files are still waiting. A batch that ended DONE finished before the newer files arrived. */
-internal fun waitingCopy(stop: StopReason?): String? = if (stop == StopReason.DONE) "Will read the new files soon" else stopCopy(stop)
+internal fun waitingCopy(stop: StopReason?): String? = stopCopy(stop)
 
 class StatusActions(
     val back: () -> Unit = {},
@@ -174,6 +168,7 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
         folderError = ui.folderError,
         error = ui.error,
         celebration = vm.celebration,
+        readingStatus = ui.readingStatus,
     )
 }
 
@@ -193,13 +188,19 @@ fun StatusContent(
     folderError: String? = null,
     error: String? = null,
     celebration: Celebration = Celebration(),
+    readingStatus: ReadingStatus? = null,
 ) {
     val progress = counts?.progress
-    val searchable = progress?.searchable ?: 0
-    val waiting = progress?.pending ?: 0
-    val skipped = progress?.skipped ?: 0
+    val contentRead = progress?.contentRead ?: 0
+    val waiting = progress?.scheduled ?: 0
+    val skipped = progress?.couldntRead ?: 0
     val total = progress?.libraryTotal ?: 0
     val unfinished = progress?.unfinished == true
+    val status =
+        readingStatus
+            ?: progress?.let {
+                ReadingPolicy.decide(it, if (prefs.paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, false)
+            }
 
     Scaffold(
         modifier = modifier,
@@ -207,7 +208,7 @@ fun StatusContent(
             TopAppBar(
                 title = {
                     Text(
-                        progress?.let { readingTitle(it, prefs.paused, index, prefs.caughtUpDismissed) } ?: "Checking your files",
+                        "Reading status",
                     )
                 },
                 navigationIcon = {
@@ -235,25 +236,15 @@ fun StatusContent(
                         else -> null
                     }
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
-                    Text(
-                        Format.searchable(searchable, total),
-                        style = MaterialTheme.typography.titleMedium.tabular(),
-                    )
-                    LinearProgressIndicator(
-                        progress = { if (total > 0) searchable.toFloat() / total else 0f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    when {
-                        index.running && !unfinished -> Muted("Looking for your files…")
-
-                        index.running -> {
-                            index.etaMinutes?.takeIf { waiting > 0 }?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
-                        }
-
-                        // The title already says paused or all caught up.
-                        unfinished && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
+                    Text(status?.title ?: "Checking your files…", style = MaterialTheme.typography.headlineSmall)
+                    status?.detail?.let { Muted(it) }
+                    Text(Format.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.titleMedium.tabular())
+                    Muted("${Format.count(progress?.waiting ?: 0)} waiting to read")
+                    if ((progress?.notScheduled ?: 0) > 0) {
+                        Muted("${Format.count(waiting)} scheduled · ${Format.count(progress?.notScheduled ?: 0)} not scheduled")
                     }
-                    if (index.running) {
+                    if ((progress?.nameOnly ?: 0) > 0) Muted("${Format.count(progress?.nameOnly ?: 0)} name only")
+                    if (status?.active == true && index.currentFile != null) {
                         ReadingNow(index.currentFile, size = 56.dp)
                         RecentlyRead(index.recentFiles, actions.openFile)
                     }
@@ -264,19 +255,19 @@ fun StatusContent(
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     }
                     when {
-                        prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
-                        unfinished -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
+                        prefs.paused -> Button(onClick = actions.resume) { Text("Resume reading") }
+                        unfinished -> OutlinedButton(onClick = actions.pause) { Text("Pause reading") }
                     }
                 }
 
                 if (skipped > 0) {
                     ListItem(
                         headlineContent = {
-                            Text(if (skipped == 1L) "1 file couldn't be read" else "${Format.count(skipped)} files couldn't be read")
+                            Text(if (skipped == 1L) "Couldn’t read 1 file" else "Couldn’t read ${Format.count(skipped)} files")
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(if (skippedOpen) "Hide" else "See which", color = MaterialTheme.colorScheme.primary)
+                                Text(if (skippedOpen) "Hide" else "Review files", color = MaterialTheme.colorScheme.primary)
                                 Icon(painterResource(if (skippedOpen) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null)
                             }
                         },
@@ -297,15 +288,8 @@ fun StatusContent(
                     }
                 }
 
-                if (counts.tailFiles > 0 && !textOnly) {
-                    Muted(
-                        if (counts.tailFiles == 1L) {
-                            "1 long file still being read in depth"
-                        } else {
-                            "${Format.count(counts.tailFiles)} long files still being read in depth"
-                        },
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                if ((progress?.laterPasses ?: 0) > 0) {
+                    Muted("${Format.count(progress?.laterPasses ?: 0)} partly read · more meaning search to come", Modifier.padding(16.dp))
                 }
 
                 if (batteryHint && waiting > 0) {
@@ -321,13 +305,6 @@ fun StatusContent(
                 Coverage(access, folderError, actions)
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                ListItem(
-                    headlineContent = { Text("Show On this day on Home") },
-                    supportingContent = { Text("Photos and videos from this date in past years") },
-                    trailingContent = { Switch(checked = prefs.showOnThisDay, onCheckedChange = null) },
-                    modifier = Modifier.toggleable(prefs.showOnThisDay, role = Role.Switch, onValueChange = actions.setOnThisDay),
-                )
-
                 actions.openSettings?.let { open ->
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     ListItem(
@@ -404,11 +381,5 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
 }
 
 /** Both screens display this title from core's phase, with the platform's reason for waiting. */
-internal fun readingTitle(progress: ReadingProgress, paused: Boolean, index: IndexState, dismissed: Boolean): String {
-    val phase = progress.phase(paused, index.running)
-    return when (phase) {
-        ReadingPhase.WAITING -> waitingCopy(index.lastStop) ?: phase.title
-        ReadingPhase.CAUGHT_UP -> if (dismissed) "Ready to search" else phase.title
-        else -> phase.title
-    }
-}
+internal fun readingTitle(progress: ReadingProgress, paused: Boolean, index: IndexState, dismissed: Boolean): String =
+    ReadingPolicy.decide(progress, if (paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, false).title

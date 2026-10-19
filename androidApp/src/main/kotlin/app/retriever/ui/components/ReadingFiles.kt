@@ -61,11 +61,11 @@ internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Reading now", style = MaterialTheme.typography.titleSmall)
+        Text(if (file == null) pauseReason ?: "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
         if (reduceMotion) {
             ReadingFile(file, pauseReason, size, sweep)
         } else {
-            Crossfade(file, animationSpec = tween(200), label = "Reading file") { current ->
+            Crossfade(file, modifier = Modifier.testTag("reading-crossfade"), animationSpec = tween(200), label = "Reading file") { current ->
                 ReadingFile(current, pauseReason, size, sweep)
             }
         }
@@ -75,13 +75,13 @@ internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp
 @Composable
 private fun ReadingFile(file: SourceFile?, pauseReason: String?, size: Dp, sweep: State<Float>?) {
     if (file == null) {
-        Muted(pauseReason ?: "No file is being read right now.")
         return
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         val modifier = Modifier.clip(MaterialTheme.shapes.medium)
         Thumb(file, size, if (sweep == null) modifier else modifier.readingSweep(size, sweep))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text(Format.kindLabel(file.kind), style = MaterialTheme.typography.titleMedium)
             Muted(Format.date(file.modifiedAt))
         }
@@ -108,7 +108,7 @@ internal fun ReadyFiles(
     onOpen: ((SourceFile) -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Ready to search", style = MaterialTheme.typography.titleSmall)
+        Text("Files you can try", style = MaterialTheme.typography.titleSmall)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

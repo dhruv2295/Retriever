@@ -134,7 +134,7 @@ class SetupStatusShotsTest {
     @Test fun readingDoneLight() {
         three("setup_reading_done", readFew, 0)
         rule.onNodeWithText("Try it now").assertIsDisplayed()
-        rule.onNodeWithText("Everything it reads now stays searchable.").assertIsDisplayed()
+        rule.onNodeWithText("You can keep searching the content read so far.").assertIsDisplayed()
     }
 
     @Test fun readingDoneDark() = three("setup_reading_done", readFew, 1)
@@ -211,8 +211,8 @@ class SetupStatusShotsTest {
 
     @Test fun commitLight() {
         shot("setup_commit_light") { SetupContent(commitUi) }
-        rule.onNodeWithText("Read everything?").assertExists()
-        rule.onNodeWithText("Reading the rest takes hours; Retriever measures this phone as it goes.").assertExists()
+        rule.onNodeWithText("Search inside more files").assertExists()
+        rule.onNodeWithText("A large library can take hours of reading, spread across several sessions. You don’t need to wait.").assertExists()
     }
 
     @Test fun commitDark() = shot("setup_commit_dark", dark = true) { SetupContent(commitUi) }
@@ -223,9 +223,13 @@ class SetupStatusShotsTest {
         val calls = mutableListOf<String>()
         val actions = SetupActions(commit = { calls += "commit($it)" }, decideLater = { calls += "later" })
         shot("setup_commit_buttons") { SetupContent(commitUi, actions = actions) }
-        rule.onNodeWithText("Read while charging").performClick()
-        rule.onNodeWithText("Read now").performClick()
-        rule.onNodeWithText("Not yet").performClick()
+        rule.onNodeWithText("While charging").performClick()
+        assertEquals(emptyList<String>(), calls)
+        rule.onNodeWithText("Use this schedule").performClick()
+        rule.onNodeWithText("Read now for 15 minutes").performClick()
+        rule.onNodeWithText("Start reading").performClick()
+        rule.onNodeWithText("Not now").performClick()
+        rule.onNodeWithText("Go to Home").performClick()
         assertEquals(listOf("commit(true)", "commit(false)", "later"), calls)
     }
 
@@ -249,7 +253,7 @@ class SetupStatusShotsTest {
     @Test fun setupTextOnlyDark() = setup("setup_text_only_dark", lowMemory, dark = true)
 
     private val prefs = Prefs(excludedFolders = setOf("Android/media/WhatsApp/Stickers"))
-    private val reading = Store.Counts(
+    private val reading = app.retriever.readCounts(
         mapOf(FileState.INDEXED to 3_412L, FileState.PENDING to 8_118L, FileState.SKIPPED to 3L),
         mapOf(Kind.PHOTO to 9_000L, Kind.PDF to 2_533L),
         tailChunks = 12,
@@ -293,7 +297,7 @@ class SetupStatusShotsTest {
         )
     }
 
-    private val caughtUp = Store.Counts(mapOf(FileState.INDEXED to 11_530L), mapOf(Kind.PHOTO to 9_000L), 0)
+    private val caughtUp = app.retriever.readCounts(mapOf(FileState.INDEXED to 11_530L), mapOf(Kind.PHOTO to 9_000L), 0)
     private val idle = IndexState(lastStop = StopReason.DONE, backend = Backend.GPU)
     private val mediaOnly = Access(false, Photos.ALL, videos = true, audio = true)
     private val withFolders = Access(
@@ -315,7 +319,7 @@ class SetupStatusShotsTest {
 
     @Test fun statusCoverageFoldersDark() = coverage("status_coverage_folders_dark", withFolders, dark = true)
 
-    private val textOnlyCounts = Store.Counts(mapOf(FileState.INDEXED to 2_140L, FileState.PENDING to 310L), mapOf(Kind.PDF to 900L), 0)
+    private val textOnlyCounts = app.retriever.readCounts(mapOf(FileState.INDEXED to 2_140L, FileState.PENDING to 310L), mapOf(Kind.PDF to 900L), 0)
 
     @Test fun statusTextOnly() = status("status_text_only_light", textOnlyCounts, idle, textOnly = true, tall = true)
 
@@ -348,7 +352,7 @@ class SetupStatusShotsTest {
 
     @Test fun statusCaughtUp() = status(
         "status_caught_up_dark",
-        counts = Store.Counts(mapOf(FileState.INDEXED to 11_530L), mapOf(Kind.PHOTO to 9_000L), 0),
+        counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 11_530L), mapOf(Kind.PHOTO to 9_000L), 0),
         index = IndexState(lastStop = StopReason.DONE, backend = Backend.GPU),
         dark = true,
     )

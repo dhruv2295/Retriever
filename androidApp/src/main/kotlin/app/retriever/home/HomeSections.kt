@@ -501,40 +501,17 @@ internal fun moreTiles(ui: HomeUi): List<KindTile> {
 /** Two tiles to a row, one at large text. */
 @Composable
 internal fun MoreSection(tiles: List<KindTile>, go: (Route) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val big = LocalDensity.current.fontScale >= 1.5f
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column {
         SectionHeader("More on your phone")
-        FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            maxItemsInEachRow = if (big) 1 else 2,
-        ) {
-            for (t in tiles) {
-                key(t.label) {
-                    Surface(
-                        onClick = { go(t.route) },
-                        shape = MaterialTheme.shapes.large,
-                        color = colors.surfaceContainer,
-                        modifier = Modifier.weight(1f).heightIn(min = 64.dp).semantics { contentDescription = t.spoken },
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Box(Modifier.size(40.dp).background(colors.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(painterResource(t.icon), contentDescription = null, Modifier.size(20.dp), tint = colors.onPrimaryContainer)
-                            }
-                            Column {
-                                Text(t.label, style = MaterialTheme.typography.titleSmall, color = colors.onSurface)
-                                Text(t.line, style = MaterialTheme.typography.bodySmall.tabular(), color = colors.onSurfaceVariant)
-                            }
-                        }
-                    }
-                }
-            }
+        Text("Files Retriever can access", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
+        for (tile in tiles) {
+            androidx.compose.material3.ListItem(
+                headlineContent = { Text(tile.label) },
+                supportingContent = { Text(tile.line) },
+                leadingContent = { Icon(painterResource(tile.icon), contentDescription = null) },
+                trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) },
+                modifier = Modifier.clickable { go(tile.route) }.semantics { contentDescription = tile.spoken },
+            )
         }
     }
 }

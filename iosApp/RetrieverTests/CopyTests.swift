@@ -16,39 +16,24 @@ final class CopyTests: XCTestCase {
     }
 
     func testHomeStatusFollowsTheIndex() {
-        func status(_ s: AppModel.Snap?, nameOnly: Int64 = 0) -> HomeStatus? {
-            Copy.homeStatus(s, nameOnly: nameOnly)
-        }
-        XCTAssertNil(status(nil))
-        XCTAssertNil(status(AppModel.Snap(setUp: true, running: true)), "first run says it once, on the screen")
-        XCTAssertNil(status(AppModel.Snap(setUp: true)), "no files: the empty state alone, never \"caught up\" over it")
-        XCTAssertEqual(status(AppModel.Snap(setUp: false))?.title, "Getting ready. For now Retriever finds files by name.")
-        XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 3, running: true, pendingAtStart: 0))?.phase, .looking)
-        XCTAssertEqual(
-            status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, running: true, pendingAtStart: 2, etaMinutes: 150))?.detail, "About 3 hours left")
-        XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
-        XCTAssertEqual(
-            status(AppModel.Snap(setUp: true, indexed: 3, pending: 2, lastStop: StopReason.done))?.title,
-            "Will read the new files soon · 3 of 5 searchable"
-        )
-        XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 4))?.title, "All caught up · 4 files searchable")
-        XCTAssertEqual(status(AppModel.Snap(setUp: true, indexed: 4), nameOnly: 1)?.detail, "1 of them by name only")
+        XCTAssertNil(Copy.homeStatus(nil))
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false))?.title, "Finishing setup. You can search file names now.")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2))?.title, "Waiting for iOS")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 4))?.title, "Up to date")
     }
 
     func testTrialCardNeverCallsPlannedFilesNew() {
-        var snap = AppModel.Snap(setUp: true, indexed: 178, pending: 12, trial: true, lastStop: StopReason.done)
-        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 12 files left")
-        snap.running = true
-        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 12 files left")
+        var snap = AppModel.Snap(setUp: true, indexed: 178, pending: 12, trial: true)
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Waiting for iOS")
         snap.paused = true
-        XCTAssertEqual(Copy.homeStatus(snap)?.phase, .paused)
-        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Trial paused · 12 files left")
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Reading paused")
     }
 
     func testFinishedTrialAndScanningHaveAccurateStatus() {
         let trial = AppModel.Snap(setUp: true, indexed: 24, trial: true, waiting: 200)
-        XCTAssertEqual(Copy.homeStatus(trial)?.title, "Trial ready · Choose when to read the rest")
-        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 24, running: true))?.title, "Up to date · Looking for new files…")
+        XCTAssertEqual(Copy.homeStatus(trial)?.title, "Your sample is ready to try")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 24, running: true))?.title, "Checking for new files…")
     }
 
     func testKindProgressSaysHowFarEachKindIs() {
@@ -62,44 +47,34 @@ final class CopyTests: XCTestCase {
     }
 
     func testStopReasonsReadAsSentences() {
-        let device = Copy.device
-        XCTAssertEqual(Copy.stop(StopReason.done), "All caught up")
-        XCTAssertEqual(Copy.stop(StopReason.hot), "Resting while your \(device) cools down")
-        XCTAssertEqual(Copy.stop(StopReason.unplugged), "Waiting for the charger")
-        XCTAssertEqual(Copy.stop(StopReason.budget), "Taking a short break")
-        XCTAssertEqual(Copy.stop(StopReason.busy), "Paused while you use your \(device)")
-        XCTAssertEqual(Copy.stop(StopReason.paused), "Paused")
+        XCTAssertEqual(Copy.stop(.hot), "Paused to cool down")
+        XCTAssertEqual(Copy.stop(.unplugged), "Waiting to charge")
+        XCTAssertEqual(Copy.stop(.budget), "Waiting for iOS")
+        XCTAssertEqual(Copy.stop(.paused), "Reading paused")
+        XCTAssertEqual(Copy.stop(.powerSave), "Paused for Low Power Mode")
+        XCTAssertEqual(Copy.stop(.lowBattery), "Paused for low battery")
         XCTAssertNil(Copy.stop(nil))
-        // A batch that ended done finished before the newer files arrived.
-        XCTAssertEqual(Copy.waiting(StopReason.done), "Will read the new files soon")
-        XCTAssertEqual(Copy.waiting(StopReason.hot), Copy.stop(StopReason.hot))
-        XCTAssertNil(Copy.waiting(nil))
     }
 
     func testStatusTitle() {
         typealias Snap = AppModel.Snap
-        XCTAssertEqual(Copy.statusTitle(Snap(running: true, pendingAtStart: 0)), "Up to date · Looking for new files…")
-        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, running: true, pendingAtStart: 4)), "Reading your files")
-        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, paused: true)), "Paused")
-        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4)), "Waiting to read")
-        XCTAssertEqual(Copy.statusTitle(Snap(indexed: 4)), "All caught up")
+        XCTAssertEqual(Copy.statusTitle(Snap(running: true)), "Checking for new files…")
+        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, running: true)), "Starting reading…")
+        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, paused: true)), "Reading paused")
+        XCTAssertEqual(Copy.statusTitle(Snap(indexed: 4)), "Up to date")
     }
 
     func testHomeAndStatusUseTheSameCoreCountsWithTrialTails() {
-        let counts = Store.Counts(
-            byState: [FileState.indexed: KotlinLong(value: 58)], byKind: [Kind.doc: KotlinLong(value: 26_230)], tailChunks: 100, tailFiles: 24,
-            byKindState: [:], waiting: 26_172, trial: true)
-        let progress = counts.progress
-        var snap = AppModel.Snap(setUp: true, indexed: Int(progress.searchable), trial: true, waiting: Int(progress.waiting), tailFiles: Int(progress.partlyRead))
-        XCTAssertEqual(Copy.searchable(snap), "58 searchable of 26,230")
+        var snap = AppModel.Snap(setUp: true, indexed: 58, trial: true, waiting: 26_172, tailFiles: 24, partlyRead: 24)
+        XCTAssertEqual(Copy.readCount(snap), "58 files read · 24 partly read")
+        XCTAssertEqual(snap.readProgress.libraryTotal, 26_230)
         for running in [false, true] {
             snap.running = running
-            XCTAssertEqual(Copy.statusTitle(snap), "Trial in progress")
-            XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 24 files partly read")
+            XCTAssertEqual(Copy.statusTitle(snap), Copy.homeStatus(snap)?.title)
             XCTAssertFalse(snap.isCaughtUp)
         }
         snap.tailFiles = 0
-        XCTAssertEqual(Copy.statusTitle(snap), Copy.homeStatus(snap)?.title)
+        XCTAssertEqual(Copy.statusTitle(snap), "Your sample is ready to try")
     }
 
     func testModelSizeUsesNonAdaptiveDownloadFormatter() {
@@ -111,19 +86,9 @@ final class CopyTests: XCTestCase {
     }
 
     func testHomeStatusWhileGettingReadyNamesTheStep() {
-        let snap = AppModel.Snap(setUp: false, pending: 5)
-        let tail = ". For now Retriever finds files by name."
-        func title(_ download: ModelDownload.State, _ progress: Double = 0) -> String? {
-            Copy.homeStatus(snap, download: download, progress: progress)?.title
+        for state in [ModelDownload.State.idle, .verifying, .ready, .waitingForWifi, .failed("offline")] {
+            XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false), download: state)?.title, "Finishing setup. You can search file names now.")
         }
-        XCTAssertEqual(title(.idle), "Getting ready" + tail)
-        XCTAssertEqual(title(.verifying), "Getting ready" + tail)
-        XCTAssertEqual(title(.ready), "Getting ready" + tail)
-        XCTAssertEqual(title(.waitingForWifi), "Waiting for Wi-Fi to download" + tail)
-        XCTAssertEqual(title(.failed("offline")), "The download stopped" + tail)
-        let downloading = title(.downloading, 0.34)
-        XCTAssertTrue(downloading?.hasPrefix("Downloading · 34") == true, downloading ?? "nil")
-        XCTAssertTrue(downloading?.hasSuffix(tail) == true)
     }
 
     func testPhotosAccessIsANoteBesideTheStatusNotInItsPlace() {
@@ -139,9 +104,9 @@ final class CopyTests: XCTestCase {
     }
 
     func testHomeStatusReadingShowsHowFar() {
-        let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true, pendingAtStart: 5))
-        XCTAssertEqual(status?.title, "Reading your files · 5 of 10")
-        XCTAssertEqual(status?.progress, 0.5)
+        let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true))
+        XCTAssertEqual(status?.title, "Starting reading…", "A batch without an active file is still starting")
+        XCTAssertNil(status?.progress, "There is no whole-library percentage")
     }
 
     func testEtaBoundaries() {
@@ -178,15 +143,15 @@ final class CopyTests: XCTestCase {
     }
 
     func testDeepReadingAndTextOnlyNotes() {
-        XCTAssertEqual(Copy.deepReading(1), "1 long file still being read in depth")
-        XCTAssertEqual(Copy.deepReading(12), "12 long files still being read in depth")
+        XCTAssertEqual(Copy.deepReading(1), "1 partly read · more meaning search to come")
+        XCTAssertEqual(Copy.deepReading(12), "12 partly read · more meaning search to come")
         XCTAssertTrue(Copy.textOnlyNote(ramGb: 3.4).contains("3 GB of memory"))
-        XCTAssertEqual(Copy.continuedSubtitle(AppModel.Snap(indexed: 5, pending: 5)), "5 of 10")
+        XCTAssertEqual(Copy.continuedSubtitle(5), "5 files read this session")
     }
 
     func testExtentOnlySpeaksForPartialReads() {
-        XCTAssertEqual(Copy.extent(ReadExtent.firstPart), "Only the first part of this file was read")
-        XCTAssertEqual(Copy.extent(ReadExtent.deepening), "Still reading the rest of this file")
+        XCTAssertEqual(Copy.extent(ReadExtent.firstPart), "Partly read · only the beginning is included")
+        XCTAssertEqual(Copy.extent(ReadExtent.deepening), "Partly read · more meaning search to come")
         XCTAssertNil(Copy.extent(nil))
     }
 
@@ -228,9 +193,9 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.firstRunWaitingTitle, "Getting Retriever ready to read")
         XCTAssertEqual(Copy.firstRunTuneTitle, "Getting to know this \(Copy.device)")
         XCTAssertEqual(Copy.firstRunSearchByName, "Search by name")
-        XCTAssertEqual(Copy.firstRunReadingLine(files: 79, secondsLeft: 70), "79 files · about a minute left")
-        XCTAssertEqual(Copy.firstRunReadingLine(files: 1, secondsLeft: nil), "1 file")
-        XCTAssertEqual(Copy.firstRunReadyToSearch, "Ready to search")
+        XCTAssertEqual(Copy.firstRunReadingLine(files: 79, secondsLeft: 70), "79 files read")
+        XCTAssertEqual(Copy.firstRunReadingLine(files: 1, secondsLeft: nil), "1 file read")
+        XCTAssertEqual(Copy.firstRunReadyToSearch, "Files you can try")
     }
 
     func testTimeLeftRoundsToPlainWords() {
@@ -246,11 +211,11 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.closestIn(79), "Closest in these 79 files")
         XCTAssertEqual(Copy.stillReading(1200), "Still reading 1,200 more")
         XCTAssertEqual(Copy.tryItWords, "Try your own words: something you remember seeing in a photo or a screenshot.")
-        XCTAssertEqual(Copy.commitTitle, "Read everything?")
-        XCTAssertEqual(Copy.commitNights, "iPhone reads more slowly in the background, so this takes several nights on the charger.")
+        XCTAssertEqual(Copy.commitTitle, "Search inside more files")
+        XCTAssertEqual(Copy.commitNights, "A large library can take hours of reading, spread across several sessions. You don’t need to wait.")
         // Uncalibrated: no hours, no night count.
-        XCTAssertEqual(Copy.commitRest(files: 26_214), "Reading the other 26,214 takes hours; Retriever measures this \(Copy.device) as it goes.")
-        XCTAssertEqual(Copy.commitRest(files: nil), "Reading the rest takes hours; Retriever measures this \(Copy.device) as it goes.")
+        XCTAssertEqual(Copy.commitRest(files: 26_214), "26,214 more files can be read. You can already find them by name.")
+        XCTAssertEqual(Copy.commitRest(files: nil), "You can already find your files by name.")
         let figure = /\d+(,\d+)?( to \d+)? (hours?|minutes?|nights?|days?)/
         for text in [Copy.commitRest(files: 26_214), Copy.commitRest(files: nil), Copy.commitNights] {
             XCTAssertNil(text.firstMatch(of: figure), text)
@@ -258,10 +223,10 @@ final class CopyTests: XCTestCase {
     }
 
     func testCommitButtonsFollowTheOS() {
-        XCTAssertEqual(Copy.commitWhileCharging, "Read while charging")
-        XCTAssertEqual(Copy.commitNotYet, "Not yet")
-        XCTAssertEqual(Copy.commitReadNow(continued: true), "Read now")
-        XCTAssertEqual(Copy.commitReadNow(continued: false), "Read while Retriever is open")
+        XCTAssertEqual(Copy.commitWhileCharging, "While charging")
+        XCTAssertEqual(Copy.commitNotYet, "Not now")
+        XCTAssertEqual(Copy.commitReadNow(continued: true), "Read now for 15 minutes")
+        XCTAssertEqual(Copy.commitReadNow(continued: false), "Read now for 15 minutes")
     }
 
     func testNoJargon() {
@@ -293,4 +258,9 @@ final class CopyTests: XCTestCase {
             }
         }
     }
+    func testFailedMeaningSearchKeepsThePartialCoverageExplanation() {
+        XCTAssertEqual(Copy.extent(.meaningLimited), "Partly read · couldn’t finish meaning search")
+        XCTAssertEqual(Copy.extent(.firstPartMeaningLimited), "Partly read · only the beginning is included; couldn’t finish meaning search")
+    }
+
 }

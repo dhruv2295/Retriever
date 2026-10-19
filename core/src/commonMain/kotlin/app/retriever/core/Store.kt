@@ -9,7 +9,10 @@ import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonObject
 
 enum class FileState { PENDING, INDEXED, SKIPPED }
 
@@ -49,9 +52,8 @@ class Store(
         val state: FileState = FileState.PENDING,
         val partial: Boolean = false,
         val extent: ReadExtent? = null,
-    ) {
-        val searchable: Boolean get() = state == FileState.INDEXED
-    }
+        val contentRead: Boolean = false,
+    )
     enum class Sort { NEWEST, LARGEST, NAME }
 
     /** A null [vector] is a text tail chunk: keyword-searchable at once, embedded later by the deepen pass. */
@@ -71,16 +73,11 @@ class Store(
         /** Pending files outside the first run's plan, left out of [byState] and [byKindState]; set by Retriever.counts. */
         val waiting: Long = 0,
         val trial: Boolean = false,
-    ) {
-        val progress: ReadingProgress get() = ReadingProgress(
-            searchable = byState[FileState.INDEXED] ?: 0,
-            pending = byState[FileState.PENDING] ?: 0,
-            skipped = byState[FileState.SKIPPED] ?: 0,
-            partlyRead = tailFiles,
-            waiting = waiting,
-            trial = trial,
-        )
-    }
+        val progress: ReadingProgress = ReadingProgress(),
+        val readByKind: Map<Kind, Long> = emptyMap(),
+        val sampleProgress: ReadingProgress? = null,
+        val sessionRead: Long = 0,
+    )
 
     internal fun <R> inTransaction(body: () -> R): R {
         // restoreUserState writes under the lazy's lock; taking it inside this transaction could deadlock against it.
@@ -152,7 +149,13 @@ class Store(
     /** Bytes still to read of [kind]. */
     fun pendingBytes(kind: Kind): Long = q.pendingBytesOfKind(kind.name).executeAsOne()
 
-    fun skipped(limit: Int): List<StoredFile> = q.skippedFiles(limit.toLong(), ::storedFile).executeAsList()
+    fun skipped(limit: Int, kinds: Set<Kind> = prefs().kinds - Kind.OTHER): List<StoredFile> = q.skippedFiles(
+        kinds.map {
+            it.name
+        },
+        limit.toLong(),
+        ::storedFile,
+    ).executeAsList()
 
     fun requeue(kinds: Set<Kind>) {
         q.requeue(kinds.map { it.name })
@@ -267,7 +270,14 @@ class Store(
     fun readExtents(fileIds: Collection<Long>): Map<Long, ReadExtent> {
         if (fileIds.isEmpty()) return emptyMap()
         val deepening = q.deepeningFiles(fileIds).executeAsList().associateWith { ReadExtent.DEEPENING }
-        return deepening + q.partialFiles(fileIds).executeAsList().associateWith { ReadExtent.FIRST_PART }
+        val extents = deepening + q.failedMeaningFiles(fileIds).executeAsList().associateWith { ReadExtent.MEANING_LIMITED }
+        return extents + q.partialFiles(fileIds).executeAsList().associateWith {
+            when (extents[it]) {
+                ReadExtent.DEEPENING -> ReadExtent.FIRST_PART_DEEPENING
+                ReadExtent.MEANING_LIMITED -> ReadExtent.FIRST_PART_MEANING_LIMITED
+                else -> ReadExtent.FIRST_PART
+            }
+        }
     }
 
     /** Text chunks still waiting for a vector, in queue priority order. */
@@ -468,7 +478,7 @@ class Store(
         if (ids.isEmpty()) emptyMap() else q.filesByIds(ids, ::storedFile).executeAsList().associate { it.id to it.file }
 
     internal fun indexedIn(ids: Collection<Long>): Map<Long, SourceFile> =
-        inChunks(ids) { q.filesByIds(it, ::storedFile).executeAsList() }.filter { it.state == FileState.INDEXED }.associate { it.id to it.file }
+        inChunks(ids) { q.filesWithContent(it, ::storedFile).executeAsList() }.associate { it.id to it.file }
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 
@@ -477,11 +487,20 @@ class Store(
         .filter { it.second == FileState.PENDING }.associate { it.first to it.third }
 
     /** One transaction per invalidation: heads and tails cannot come from different revisions. */
-    fun counts(): Flow<Counts> = combine(q.countByKindState().asFlow(), q.tailChunkCount().asFlow()) { _, _ ->
-        countsNow()
-    }.flowOn(dispatchers.default)
+    internal fun countChanges(): Flow<Unit> = combine(q.countByKindState().asFlow(), q.tailChunkCount().asFlow()) { _, _ -> }
 
-    internal fun countsNow(ids: Collection<Long>? = null, includeTails: Boolean = true): Counts = inTransaction {
+    fun counts(): Flow<Counts> = countChanges().map { countsNow() }.flowOn(dispatchers.default)
+
+    internal fun countsNow(ids: Collection<Long>? = null, includeTails: Boolean = true, kinds: Set<Kind> = prefs().kinds - Kind.OTHER): Counts = inTransaction {
+        val outcomes = q.readingCounts(kinds.map { it.name }, if (includeTails) 1L else 0L, 1L, emptyList()).executeAsList()
+        val scoped = if (ids == null) {
+            outcomes
+        } else {
+            inChunks(ids) {
+                q.readingCounts(kinds.map { it.name }, if (includeTails) 1L else 0L, 0L, it).executeAsList()
+            }
+        }
+        fun count(coverage: String) = outcomes.filter { it.coverage == coverage }.sumOf { it.n }
         val all = q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.executeAsList().toMap()
         val pending = ids?.let { pendingIn(it).groupingBy { file -> file.file.kind }.eachCount() }
         val rows = if (pending == null) {
@@ -490,6 +509,18 @@ class Store(
             all.filterKeys { it.second != FileState.PENDING } +
                 Kind.entries.associate { (it to FileState.PENDING) to (pending[it]?.toLong() ?: 0L) }
         }
+        val scheduled = scoped.filter { it.coverage == "WAITING" }.sumOf { it.n }
+        val progress = ReadingProgress(
+            read = count("READ"),
+            partlyRead = count("PARTIAL"),
+            scheduled = scheduled,
+            notScheduled = count("WAITING") - scheduled,
+            nameOnly = count("NAME"),
+            couldntRead = count("ERROR"),
+            laterPasses = scoped.filter { it.coverage == "PARTIAL" && it.later == 1L }.sumOf { it.n },
+            sample = ids != null,
+            rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
+        )
         val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
         Counts(
             byState = rows.entries.groupingBy { it.key.second }.fold(0L) { n, e -> n + e.value },
@@ -497,8 +528,26 @@ class Store(
             tailChunks = if (!includeTails) 0 else tails?.first ?: q.tailChunkCount().executeAsOne(),
             tailFiles = if (!includeTails) 0 else tails?.second ?: q.tailFileCount().executeAsOne(),
             byKindState = rows,
-            waiting = if (pending == null) 0 else all.filterKeys { it.second == FileState.PENDING }.values.sum() - pending.values.sum(),
+            waiting = progress.notScheduled,
             trial = ids != null,
+            progress = progress,
+            sessionRead = sessionReadCount(kinds),
+            sampleProgress = if (ids == null) {
+                null
+            } else {
+                ReadingProgress(
+                    read = scoped.filter { it.coverage == "READ" }.sumOf { it.n },
+                    partlyRead = scoped.filter { it.coverage == "PARTIAL" }.sumOf { it.n },
+                    scheduled = progress.scheduled,
+                    nameOnly = scoped.filter { it.coverage == "NAME" }.sumOf { it.n },
+                    couldntRead = scoped.filter { it.coverage == "ERROR" }.sumOf { it.n },
+                    laterPasses = progress.laterPasses,
+                    sample = true,
+                    rereads = progress.rereads,
+                )
+            },
+            readByKind = outcomes.filter { it.coverage == "READ" || it.coverage == "PARTIAL" }
+                .groupingBy { Kind.valueOf(it.kind) }.fold(0L) { n, row -> n + row.n },
         )
     }
 
@@ -552,6 +601,18 @@ class Store(
     fun filesTakenBetween(from: Long, to: Long, limit: Int, offset: Int = 0): List<StoredFile> =
         q.filesTakenBetween(from, to, limit.toLong(), offset.toLong(), ::storedFile).executeAsList()
 
+    internal fun lastChunkId(): Long = q.lastChunkId().executeAsOne()
+
+    /** New usable chunks include successful later passes; deleting older library files cannot subtract session work. */
+    internal fun sessionReadCount(kinds: Set<Kind>): Long {
+        val start = meta(SESSION_START_KEY)?.toLongOrNull() ?: return 0
+        return if (prefs().readNowUntil == 0L) {
+            meta(SESSION_READ_KEY)?.toLongOrNull() ?: 0
+        } else {
+            q.sessionReadCount(start, kinds.map { it.name }).executeAsOne()
+        }
+    }
+
     fun chunkCount(): Long = q.chunkCount().executeAsOne()
 
     fun addRecentQuery(query: String, at: Long) {
@@ -584,7 +645,10 @@ class Store(
         val file = userState ?: return
         if (q.getMeta(PREFS_KEY).executeAsOneOrNull() != null) return
         val state = try {
-            file.read()?.let { JSON.decodeFromString<UserState>(it) } ?: return
+            file.read()?.let { raw ->
+                val saved = JSON.parseToJsonElement(raw).jsonObject["prefs"]
+                JSON.decodeFromString<UserState>(raw).copy(prefs = saved?.takeUnless { it == JsonNull }?.let { decodePrefs(it.toString()) })
+            } ?: return
         } catch (e: Exception) {
             // The class only: a parse error quotes the file, and the file holds file names.
             log("user state is unreadable (${e::class.simpleName}); starting without it", null)
@@ -624,7 +688,10 @@ class Store(
 
         /** The key Prefs.kt keeps settings under. */
         private const val PREFS_KEY = "prefs"
-        private val JSON = Json { ignoreUnknownKeys = true }
+        private val JSON = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
         private val NON_WORD = Regex("[^\\p{L}\\p{M}\\p{N}]+")
 
         /** Keyword matches ranked per query; see eval/REPORT.md, "Search speed at scale (wave 4)". */

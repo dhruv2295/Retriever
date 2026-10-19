@@ -35,7 +35,7 @@ extension AppModel {
             stopLoop()
             if tune == .running { tuneLeft = true }
             // Even when caught up: photos taken before the next open get read overnight.
-            if let snap, snap.setUp == true, !snap.paused { IndexTask.schedule() }
+            if let snap, snap.setUp == true { IndexTask.schedule() }
         default:
             break
         }
@@ -83,7 +83,7 @@ extension AppModel {
         let hot = info.thermalState == .serious || info.thermalState == .critical
         let monitor = services?.monitor
         let power = monitor?.charging == true || ((monitor?.batteryPct ?? 100) > 20 && !info.isLowPowerModeEnabled)
-        screenKeptOn = on && !hot && power && (snap?.pending ?? 0) > 0
+        screenKeptOn = on && keepScreenAwakeForSession && (snap?.readNowUntil ?? 0) > Int64(Date.now.timeIntervalSince1970 * 1000) && !hot && power && !info.isLowPowerModeEnabled && (snap?.pending ?? 0) > 0
         UIApplication.shared.isIdleTimerDisabled = screenKeptOn
         Self.log.info("isIdleTimerDisabled \(self.screenKeptOn, privacy: .public)")
     }
@@ -91,7 +91,7 @@ extension AppModel {
     /// Status's "Keep reading after I leave", and Setup's done button: hands reading to a task iOS lets carry on
     /// after the person leaves, with its progress on the Lock Screen.
     func keepReading() {
-        guard #available(iOS 26.0, *), let services, canKeepReading, let snap else { return }
+        guard #available(iOS 26.0, *), let services, active, !continuing, let snap else { return }
         // Submitted in the tap itself: iOS takes it only from an app in front. The task waits for this loop's batch,
         // which stops within its current file.
         do {
@@ -99,6 +99,7 @@ extension AppModel {
             Self.log.info("continued reading submitted")
         } catch {
             Self.log.error("couldn't keep reading after leaving: \(error, privacy: .private)")
+            readingMessage = "iOS couldn’t continue this session in the background. Keep Retriever open, or use your charging schedule."
             return
         }
         continuing = true

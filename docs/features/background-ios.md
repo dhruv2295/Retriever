@@ -1,5 +1,8 @@
 # Background work (iOS)
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 Keep the index growing when the person is not looking at the app, inside iOS's rules: no GPU work in the background,

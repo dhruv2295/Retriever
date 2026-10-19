@@ -21,7 +21,7 @@ struct ReadingNow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reading now").font(.headline).accessibilityAddTraits(.isHeader)
+            Text(file == nil ? pauseReason ?? "Starting reading…" : "Reading now").font(.headline).accessibilityAddTraits(.isHeader)
             ZStack(alignment: .leading) {
                 if let file {
                     HStack(spacing: 12) {
@@ -30,6 +30,7 @@ struct ReadingNow: View {
                             .overlay { if !reduceMotion { ReadingSweep() } }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
+                            Text(file.name).lineLimit(2)
                             Text(Format.kind(file.kind)).font(.headline)
                             Note(Format.date(file.modifiedAt))
                         }
@@ -38,7 +39,7 @@ struct ReadingNow: View {
                     .id(file.uri)
                     .transition(reduceMotion ? .identity : .opacity)
                 } else {
-                    Note(pauseReason ?? "No file is being read right now.")
+                    EmptyView()
                 }
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: file?.uri)

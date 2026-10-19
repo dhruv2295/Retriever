@@ -106,7 +106,7 @@ class StatusViewModelTest {
     }
 }
 
-/** Before the first count arrives the screen shows its title and a progress bar, never "0 of 0" or "All caught up". */
+/** Before the first count arrives the screen shows its title and a progress bar, never "0 of 0" or "Up to date". */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class FirstFrameStatusViewModelTest {
@@ -116,8 +116,8 @@ class FirstFrameStatusViewModelTest {
         rule.setContent {
             ShotTheme(dark = false) { StatusContent(null, Prefs(), IndexState(), emptyList(), skippedOpen = false, batteryHint = false) }
         }
-        rule.onNodeWithText("Checking your files").assertExists()
-        rule.onNodeWithText("All caught up").assertDoesNotExist()
+        rule.onNodeWithText("Reading status").assertExists()
+        rule.onNodeWithText("Up to date").assertDoesNotExist()
         rule.onAllNodesWithText("0 of 0", substring = true).assertCountEquals(0)
     }
 }

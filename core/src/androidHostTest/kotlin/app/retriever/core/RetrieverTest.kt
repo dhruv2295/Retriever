@@ -247,7 +247,7 @@ class RetrieverTest {
         assertEquals(Tier.FULL, now.tier)
         assertEquals(99, now.visionTokens, "vision tokens stay, so no vector goes stale")
         assertTrue(Kind.AUDIO in f.store.prefs().kinds)
-        assertFalse(f.store.prefs().onlyWhileCharging)
+        assertTrue(f.store.prefs().onlyWhileCharging)
     }
 
     @Test
@@ -303,13 +303,15 @@ class RetrieverTest {
     }
 
     @Test
-    fun visibleIndexesOnBatteryBackgroundWaitsForCharging() = test {
+    fun visibleAndBackgroundWaitForChargingUntilExplicitSession() = test {
         val f = fx(monitor = FakeMonitor(DeviceState(8.0, false, 50, Thermal.NONE, screenOn = false)))
         f.r.updatePrefs { it.copy(onlyWhileCharging = true) }
         assertEquals(NextRun.WHEN_CHARGING, f.r.indexBatch(1.minutes))
         assertEquals(1L, f.store.countsByState()[FileState.PENDING])
         f.monitor.state = f.monitor.state.copy(screenOn = true)
         f.r.uiVisible = true
+        assertEquals(NextRun.WHEN_CHARGING, f.r.indexBatch(1.minutes))
+        f.r.readNow()
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         assertEquals(1L, f.store.countsByState()[FileState.INDEXED])
     }
@@ -536,7 +538,7 @@ class RetrieverTest {
     fun prefsStoredBeforeTheSetupFlagsStillDecode() {
         val store = newStore()
         store.setMeta("prefs", """{"kinds":["PHOTO"],"paused":true}""")
-        assertEquals(Prefs(kinds = setOf(Kind.PHOTO), paused = true), store.prefs())
+        assertEquals(Prefs(kinds = setOf(Kind.PHOTO), paused = true, onlyWhileCharging = false), store.prefs())
         assertFalse(store.prefs().setupStarted || store.prefs().notificationsDismissed)
     }
 

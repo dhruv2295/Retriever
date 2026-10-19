@@ -74,7 +74,7 @@ class SearchShotsTest {
     private val readyHome = HomeUi(
         setUp = true,
         counts = counts,
-        searchable = 3_100,
+        contentRead = 3_100,
         waiting = 2_230,
         suggestions = listOf("wifi password", "electricity bill", "notes from the meeting"),
     )
@@ -104,13 +104,23 @@ class SearchShotsTest {
     private fun State(state: String) {
         val none = SearchActions()
         when (state) {
-            "home" -> Screen(ready, readyHome, IndexState(running = true, pendingAtStart = 2_400, etaMinutes = 95), none)
+            "home" -> Screen(
+                ready,
+                readyHome,
+                IndexState(
+                    running = true,
+                    pendingAtStart = 2_400,
+                    etaMinutes = 95,
+                    currentFile = SourceFile("demo:active", "active", "", "text/plain", Kind.DOC, 1, 1),
+                ),
+                none,
+            )
 
             "home_stopped" -> Screen(ready, readyHome, IndexState(lastStop = StopReason.UNPLUGGED), none)
 
             "home_before_setup" -> Screen(SearchUi(), HomeUi(counts = emptyMap()), IndexState(), none)
 
-            "home_caught_up" -> Screen(ready, readyHome.copy(waiting = 0, searchable = 5_330), IndexState(lastStop = StopReason.DONE), none)
+            "home_caught_up" -> Screen(ready, readyHome.copy(waiting = 0, contentRead = 5_330), IndexState(lastStop = StopReason.DONE), none)
 
             "recent" -> Pane(ready.copy(recent = listOf("wifi password", "electricity bill", "passport photo")), none)
 
@@ -173,7 +183,7 @@ class SearchShotsTest {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
         rule.onNodeWithText("Reading your files").assertExists()
-        rule.onNodeWithText("searchable of 5,330", substring = true).assertExists()
+        rule.onNodeWithText("files read", substring = true).assertExists()
     }
 
     @Test fun homeDark() = shot("home", true)
@@ -191,8 +201,8 @@ class SearchShotsTest {
 
     @Test fun homeCaughtUpKeepsAWayToStatus() {
         shot("home_caught_up", false)
-        rule.onNodeWithText("All caught up").assertExists()
-        rule.onNodeWithText("5,330 searchable of", substring = true).assertExists()
+        rule.onNodeWithText("Up to date").assertExists()
+        rule.onNodeWithText("5,330 files read", substring = true).assertExists()
     }
 
     @Test fun homeBeforeCountsShowsNoFirstRunMessage() {
@@ -353,12 +363,12 @@ class SearchShotsTest {
 
     @Test fun resultsFirstPartLight() {
         shot("results_first_part", false)
-        rule.onAllNodesWithText("Only the first part of this file was read").assertCountEquals(1)
-        rule.onNodeWithText("Still reading the rest of this file").assertExists()
+        rule.onAllNodesWithText("Partly read · only the beginning is included").assertCountEquals(1)
+        rule.onNodeWithText("Partly read · more meaning search to come").assertExists()
         rule.onNodeWithContentDescription(
             "Video, Birthday.mp4",
             substring = true,
-        ).assertContentDescriptionContains("Only the first part of this file was read", substring = true)
+        ).assertContentDescriptionContains("Partly read · only the beginning is included", substring = true)
     }
 
     @Test fun resultsFirstPartDark() = shot("results_first_part", true)

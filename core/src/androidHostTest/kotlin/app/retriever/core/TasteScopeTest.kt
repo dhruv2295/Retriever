@@ -100,7 +100,7 @@ class TasteScopeTest {
         assertFalse(r.hasPendingTaste())
         assertTrue(store.tailChunksIn(listOf(id)).isEmpty())
         assertEquals(FileState.PENDING, store.fileByUri(outside.uri)!!.state)
-        assertEquals(1L, r.counts().first().progress.searchable)
+        assertEquals(1L, r.counts().first().progress.contentRead)
         r.release()
     }
 

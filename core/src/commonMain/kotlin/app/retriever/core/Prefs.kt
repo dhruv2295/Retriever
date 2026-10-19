@@ -3,11 +3,18 @@ package app.retriever.core
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
 data class Prefs(
     val kinds: Set<Kind> = Kind.entries.toSet(),
-    val onlyWhileCharging: Boolean = false,
+    val onlyWhileCharging: Boolean = true,
+    val schedule: ReadingSchedule? = null,
+    val readNowUntil: Long = 0,
+    val nameSearchHintDismissed: Boolean = false,
+    val scheduleOfferDismissed: Boolean = false,
     val excludedFolders: Set<String> = emptySet(),
     /** Set by the user's Pause; no indexing runs until "Index now". */
     val paused: Boolean = false,
@@ -29,6 +36,10 @@ data class Prefs(
     val dismissedReadingCycle: Long = -1,
 
 ) {
+    val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
+
+    fun withSchedule(value: ReadingSchedule): Prefs = copy(schedule = value, onlyWhileCharging = value == ReadingSchedule.CHARGING)
+
     val caughtUpDismissed: Boolean get() = dismissedReadingCycle == readingCycle
 
     fun readingStarted(): Prefs = if (caughtUpDismissed) copy(readingCycle = readingCycle + 1) else this
@@ -39,7 +50,7 @@ data class Prefs(
         fun defaultFor(profile: DeviceProfile): Prefs = Prefs(
             // LIGHT keeps video at its sparse 30 s keyframes; audio windows are dense, so they stay off.
             kinds = if (profile.tier == Tier.LIGHT) Kind.entries.toSet() - Kind.AUDIO else Kind.entries.toSet(),
-            onlyWhileCharging = profile.bulkOnlyWhenCharging,
+            onlyWhileCharging = true,
         )
     }
 
@@ -52,7 +63,7 @@ data class Prefs(
         val to = defaultFor(new)
         return copy(
             kinds = Kind.entries.filter { k -> if ((k in kinds) == (k in from.kinds)) k in to.kinds else k in kinds }.toSet(),
-            onlyWhileCharging = if (onlyWhileCharging == from.onlyWhileCharging) to.onlyWhileCharging else onlyWhileCharging,
+
         )
     }
 }
@@ -78,11 +89,20 @@ fun Prefs.effective(profile: DeviceProfile): DeviceProfile = profile.copy(
 
 private const val PREFS_KEY = "prefs"
 
-private val prefsJson = Json { ignoreUnknownKeys = true }
+private val prefsJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+internal fun decodePrefs(value: String): Prefs {
+    val saved = prefsJson.parseToJsonElement(value).jsonObject
+    val decoded = prefsJson.decodeFromString<Prefs>(value)
+    return if ("schedule" in saved) decoded else decoded.copy(onlyWhileCharging = saved["onlyWhileCharging"]?.jsonPrimitive?.booleanOrNull == true)
+}
 
 fun Store.prefs(): Prefs = meta(PREFS_KEY)?.let {
     try {
-        prefsJson.decodeFromString<Prefs>(it)
+        decodePrefs(it)
     } catch (e: Exception) {
         log("stored prefs are unreadable", e)
         null

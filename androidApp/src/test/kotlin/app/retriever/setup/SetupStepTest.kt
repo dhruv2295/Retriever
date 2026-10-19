@@ -13,6 +13,8 @@ import app.retriever.core.CoreDispatchers
 import app.retriever.core.DeviceProfile
 import app.retriever.core.Kind
 import app.retriever.core.ModelVariant
+import app.retriever.core.Part
+import app.retriever.core.Piece
 import app.retriever.core.Retriever
 import app.retriever.core.TasteProgress
 import app.retriever.core.Tier
@@ -154,7 +156,12 @@ class SetupStepTest {
     /** A words-only phone needs no download or tune, so its whole first run plays out here. */
     private fun TestScope.wordsOnly(): Retriever {
         shadowOf(app).grantPermissions(*Access.mediaPermissions(35).toTypedArray())
-        return testRetriever(docs, ramGb = 3.0, dispatchers = core()).apply { uiVisible = true }
+        return testRetriever(docs, ramGb = 3.0, dispatchers = core(), extract = {
+            listOf(Piece("", listOf(Part.Text("read content")), "read content", "read content"))
+        }).apply {
+            uiVisible =
+                true
+        }
     }
 
     @Test fun tryingFirstPlansAtTheNamesSyncAndResumesAfterProcessDeath() = runTest {

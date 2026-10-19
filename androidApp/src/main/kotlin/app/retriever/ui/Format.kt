@@ -47,8 +47,11 @@ object Format {
 
     /** Said under a result whose file was not read whole; null when it was. */
     fun readNote(extent: ReadExtent?): String? = when (extent) {
-        ReadExtent.FIRST_PART -> "Only the first part of this file was read"
-        ReadExtent.DEEPENING -> "Still reading the rest of this file"
+        ReadExtent.FIRST_PART -> "Partly read · only the beginning is included"
+        ReadExtent.MEANING_LIMITED -> "Partly read · couldn’t finish meaning search"
+        ReadExtent.FIRST_PART_MEANING_LIMITED -> "Partly read · only the beginning is included; couldn’t finish meaning search"
+        ReadExtent.FIRST_PART_DEEPENING -> "Partly read · only the beginning is included; more meaning search to come"
+        ReadExtent.DEEPENING -> "Partly read · more meaning search to come"
         else -> null
     }
 
@@ -86,7 +89,8 @@ object Format {
         return parts.joinToString(" ").ifEmpty { "0 seconds" }
     }
 
-    fun searchable(read: Long, total: Long): String = "${count(read)} searchable of ${count(total)}"
+    fun readCount(read: Long, partlyRead: Long = 0): String =
+        "${count(read)} ${if (read == 1L) "file" else "files"} read" + if (partlyRead > 0) " · ${count(partlyRead)} partly read" else ""
 
     fun count(n: Long): String = NumberFormat.getIntegerInstance().format(n)
 

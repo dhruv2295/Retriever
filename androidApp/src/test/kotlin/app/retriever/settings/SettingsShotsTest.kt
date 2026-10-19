@@ -3,11 +3,13 @@ package app.retriever.settings
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -107,7 +109,7 @@ class SettingsShotsTest {
                 SettingsContent(
                     ready,
                     actions = SettingsActions(
-                        setOnlyWhileCharging = { seen += "charging=$it" },
+                        setReadingSchedule = { seen += "schedule=${it.name}" },
                         setRememberSearches = { seen += "remember=$it" },
                         setMobileData = { seen += "mobile=$it" },
                         setDynamicColor = { seen += "dynamic=$it" },
@@ -117,11 +119,13 @@ class SettingsShotsTest {
                 )
             }
         }
-        for (label in listOf("Only read while charging", "Remember searches", "Use mobile data", "Wallpaper colours", "PDFs", "Free up space")) {
+        rule.onNodeWithText("Automatic reading").performScrollTo().performClick()
+        rule.onNodeWithText("Also on battery").performClick()
+        for (label in listOf("Remember searches", "Use mobile data", "Wallpaper colours", "PDFs", "Free up space")) {
             rule.onNodeWithText(label).performScrollTo().performClick()
         }
         assertEquals(
-            listOf("charging=true", "remember=false", "mobile=true", "dynamic=false", "${Kind.PDF.name}=false", "ask"),
+            listOf("schedule=BATTERY", "remember=false", "mobile=true", "dynamic=false", "${Kind.PDF.name}=false", "ask"),
             seen,
         )
     }
@@ -133,7 +137,7 @@ class SettingsShotsTest {
             }
         }
         rule.onNodeWithText("Remember searches").performScrollTo().assertIsOff()
-        rule.onNodeWithText("Only read while charging").performScrollTo().assertIsOn()
+        rule.onNodeWithText("While charging").performScrollTo().assertExists()
         rule.onNodeWithText("Wallpaper colours").performScrollTo().assertIsOn()
     }
 
@@ -146,4 +150,18 @@ class SettingsShotsTest {
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTextCount(text: String) =
         onAllNodes(androidx.compose.ui.test.hasText(text)).fetchSemanticsNodes().size
+
+    @Test
+    @Config(sdk = [30])
+    fun onThisDayCanBeRestoredOnAndroidEleven() {
+        var restored = false
+        rule.setContent {
+            ShotTheme(false) {
+                SettingsContent(ready.copy(prefs = ready.prefs.copy(showOnThisDay = false)), actions = SettingsActions(setOnThisDay = { restored = it }))
+            }
+        }
+        rule.onNodeWithText("Show On this day").performScrollTo().performClick()
+        assertTrue(restored)
+        rule.onAllNodesWithText("Wallpaper colours").assertCountEquals(0)
+    }
 }

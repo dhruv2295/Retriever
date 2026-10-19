@@ -70,10 +70,12 @@ extension AppModel {
             }
             snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
             snap.tailFiles = 3
+            snap.partlyRead = 3
         case .caughtUp:
             break
         case .tailFiles(let n):
             snap.tailFiles = n
+            snap.partlyRead = n
         case .textOnly(let ramGb):
             (snap.textOnly, snap.ramGb, snap.byKind) = (true, ramGb, [.pdf: 64, .doc: 31, .photo: 0])
             (download, tune) = ((.idle, 0), .idle)

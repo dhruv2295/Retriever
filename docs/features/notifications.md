@@ -1,5 +1,8 @@
 # Notifications
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 Tell the person what Retriever is doing in the background, only when it matters: a progress notification while a visible

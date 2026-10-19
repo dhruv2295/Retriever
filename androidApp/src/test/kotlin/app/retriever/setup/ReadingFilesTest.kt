@@ -133,16 +133,16 @@ class ReadingFilesTest {
         rule.onNodeWithTag("reading-sweep").assertDoesNotExist()
     }
 
-    @Test fun reducedMotionSwapsInstantlyWithoutASweep() {
+    @Test fun reducedMotionSwapsWithoutAnimation() {
         val current = mutableStateOf(file(1))
-        rule.mainClock.autoAdvance = false
         rule.setContent { ShotTheme(false, 1f) { ReadingNow(current.value, reduceMotion = true) } }
         rule.onNodeWithText("Photo").assertExists()
         rule.runOnIdle { current.value = file(2, Kind.PDF) }
-        rule.mainClock.advanceTimeBy(32)
+        rule.waitForIdle()
         rule.onNodeWithText("PDF").assertExists()
         rule.onNodeWithText("Photo").assertDoesNotExist()
         rule.onNodeWithTag("reading-sweep").assertDoesNotExist()
+        rule.onNodeWithTag("reading-crossfade").assertDoesNotExist()
     }
 
     @Test fun insertingARecentFileDoesNotRecomposeExistingCellsAcrossRows() {
@@ -209,7 +209,7 @@ class ReadingFilesTest {
         rule.setContent {
             ShotTheme(false, 1f) {
                 StatusContent(
-                    Store.Counts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                    app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
                     Prefs(),
                     index.value,
                     emptyList(),

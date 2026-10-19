@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
+import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.IndexWorker
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
@@ -22,6 +23,7 @@ import app.retriever.core.Retriever
 import app.retriever.core.Signature
 import app.retriever.core.SourceFile
 import app.retriever.core.Tier
+import app.retriever.core.db.IndexDb
 import app.retriever.di.PlatformReady
 import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.NOW
@@ -117,6 +119,10 @@ class IndexWorkerTest {
         embedder = model,
         beforeOpen = beforeOpen,
         profile = DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.CPU, 70, 5, false, false),
+        wrapDriver = {
+            it.close()
+            AndroidSqliteDriver(IndexDb.Schema, context, null)
+        },
     )
 
     @Test fun syncsTheFileListFromTheInjectedRetriever() {
@@ -183,13 +189,17 @@ class IndexWorkerTest {
     @Test fun trialWorkerWaitsForTheDirectBatchAndStartsForegroundWhileHidden() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         var calls = 0
-        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, extract = {
-            if (calls++ == 0) {
-                entered.complete(Unit)
-                awaitCancellation()
-            }
-            emptyList()
-        })
+        val retriever =
+            testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, wrapDriver = {
+                it.close()
+                AndroidSqliteDriver(IndexDb.Schema, context, null)
+            }, extract = {
+                if (calls++ == 0) {
+                    entered.complete(Unit)
+                    awaitCancellation()
+                }
+                emptyList()
+            })
         retriever.planTaste()
         val direct = async { retriever.taste() }
         withTimeout(10.seconds) { entered.await() }

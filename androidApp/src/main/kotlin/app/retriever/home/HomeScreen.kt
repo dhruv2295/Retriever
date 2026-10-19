@@ -103,6 +103,7 @@ fun HomeScreen(
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val index by vm.indexState.collectAsStateWithLifecycle()
+    val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val onResume = remember(vm) { vm::onResume }
     // All-files access is switched in Settings, so the "can't see your files" card clears on return without a restart.
@@ -112,7 +113,9 @@ fun HomeScreen(
     }
     HomeBody(ui, index, rememberCharging(), recent, actions, vm::resume, {
         openAllFilesSettings(context)
-    }, state, padding, side, fill, vm::hideOnThisDay, vm::commit, vm.celebration, vm::dismissCaughtUp)
+    }, state, padding, side, fill, vm::hideOnThisDay, { charging ->
+        requestReading { vm.commit(charging) }
+    }, vm.celebration, vm::dismissCaughtUp, vm::dismissNameSearchHint, vm::dismissScheduleOffer, vm::decideLater)
 }
 
 /**
@@ -171,6 +174,9 @@ internal fun HomeBody(
     onCommit: (whileCharging: Boolean) -> Unit = {},
     celebration: Celebration = Celebration(),
     onDismissCaughtUp: () -> Unit = {},
+    onDismissNameHint: () -> Unit = {},
+    onDismissOffer: () -> Unit = {},
+    onDecideLater: () -> Unit = {},
 ) {
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
@@ -204,7 +210,18 @@ internal fun HomeBody(
                 Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
             }
         }
-        if (ui.hasAccess && ui.setUp && ui.waiting == 0L && ui.rest > 0L) item(key = "commit", span = FullLine) { CommitCard(ui, onCommit) }
+        if (!ui.nameSearchHintDismissed) {
+            item(key = "name-hint", span = FullLine) {
+                ListItem(headlineContent = { Text("You can search every file by name") }, trailingContent = {
+                    IconButton(onClick = onDismissNameHint) { Icon(painterResource(R.drawable.ic_close), "Dismiss name search explanation") }
+                })
+            }
+        }
+        if (ui.hasAccess && ui.setUp && ui.rest > 0L &&
+            !ui.scheduleOfferDismissed
+        ) {
+            item(key = "commit", span = FullLine) { CommitCard(ui, onCommit, onDismissOffer, onDecideLater) }
+        }
         item(key = "folders", span = FullLine) { LibraryFolders(ui, actions.onNavigate) }
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
@@ -255,7 +272,7 @@ private fun Status(
             colors.tertiaryContainer,
             colors.onTertiaryContainer,
             "Retriever can't see your files",
-            body = "Search still works on the ${Format.count(ui.searchable)} files already read. New files won't show up until you allow access.",
+            body = "Search still works on the ${Format.count(ui.contentRead)} files already read. New files won't show up until you allow access.",
             action = "Allow access" to onAllowAccess,
         )
 
@@ -266,23 +283,24 @@ private fun Status(
         else -> {
             val caughtUp = !ui.progress.unfinished && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
             val celebrating = rememberCelebrating(caughtUp, celebration)
-            val detail = if (ui.trial && ui.waiting > 0) {
-                "${Format.count(ui.waiting)} files left"
-            } else if (ui.partlyRead > 0) {
-                "${Format.count(ui.partlyRead)} files partly read"
-            } else if (index.running && index.pendingAtStart > 0) {
-                index.etaMinutes?.let {
-                    Format.eta(it).replaceFirstChar(Char::uppercase) + "." + if (it >= 60 && !charging) " Faster while charging." else ""
-                }
-            } else {
-                null
-            }
+            val detail = ui.readingStatus?.detail
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) }
                     .heightIn(min = 48.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (celebrating) Mascot(MascotMood.CAUGHT_UP, Modifier.width(40.dp))
+                Mascot(
+                    if (celebrating) {
+                        MascotMood.CAUGHT_UP
+                    } else if (ui.readingStatus?.active ==
+                        true
+                    ) {
+                        MascotMood.WALKING
+                    } else {
+                        MascotMood.RESTING
+                    },
+                    Modifier.width(40.dp),
+                )
                 Column(Modifier.weight(1f)) {
                     TitleWithCount(libraryStatus(ui, index), detail, MaterialTheme.typography.bodyMedium)
                     if (caughtUp) {
@@ -291,10 +309,10 @@ private fun Status(
                         }
                     }
                 }
-                if (ui.paused) TextButton(onClick = onResume) { Text("Resume") }
+                if (ui.paused) TextButton(onClick = onResume) { Text("Resume reading") }
                 if (caughtUp) {
                     IconButton(onClick = onDismissCaughtUp) {
-                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss all caught up")
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss reading status")
                     }
                 }
             }
@@ -354,25 +372,30 @@ private fun StatusCard(
 /** The rest of the library waits for a choice: Read everything opens the setup's three answers as a sheet. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CommitCard(ui: HomeUi, onCommit: (Boolean) -> Unit) {
+private fun CommitCard(ui: HomeUi, onCommit: (Boolean) -> Unit, onDismiss: () -> Unit, onDecideLater: () -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
-    val colors = MaterialTheme.colorScheme
-    StatusCard(
-        colors.surfaceContainer,
-        colors.onSurface,
-        "Read the other ${Format.count(ui.rest)}?",
-        count = ui.estimate?.let { "about ${Format.minutesRange(it.lowMin, it.highMin)}" },
-        action = "Read everything" to { open = true },
+    ListItem(
+        headlineContent = { Text("Search inside more files") },
+        supportingContent = { Text("${Format.count(ui.rest)} files still found by name only") },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { open = true }) { Text("Choose when") }
+                IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.ic_close), "Dismiss reading offer") }
+            }
+        },
     )
     if (open) {
         ModalBottomSheet(onDismissRequest = { open = false }) {
             Box(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
                 CommitStage(
-                    SetupUi(estimate = ui.estimate),
+                    SetupUi(estimate = ui.estimate, moreFiles = ui.rest),
                     SetupActions(commit = {
                         open = false
                         onCommit(it)
-                    }, decideLater = { open = false }),
+                    }, decideLater = {
+                        open = false
+                        onDecideLater()
+                    }),
                 )
             }
         }
@@ -446,5 +469,5 @@ private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
 internal fun libraryStatus(ui: HomeUi, index: IndexState): String = when {
     !ui.hasAccess -> "Allow access to find new files"
     !ui.setUp -> "Finishing setup"
-    else -> readingTitle(ui.progress, ui.paused, index, ui.caughtUpDismissed)
+    else -> ui.readingStatus?.title ?: readingTitle(ui.progress, ui.paused, index, ui.caughtUpDismissed)
 }

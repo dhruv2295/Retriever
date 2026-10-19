@@ -62,7 +62,7 @@ class RecompositionTest {
     )
 
     private val ui = SearchUi(setUp = true).answered("bill", hits)
-    private val home = HomeUi(setUp = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), searchable = 4)
+    private val home = HomeUi(setUp = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), contentRead = 4)
 
     private fun show(): Pair<MutableState<SearchUi>, MutableState<HomeUi>> {
         val u = mutableStateOf(ui)
@@ -91,7 +91,7 @@ class RecompositionTest {
         val (_, h) = show()
         assertTrue("tiles never composed: $runs", tileRuns() >= hits.size)
         runs.clear()
-        h.value = home.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), searchable = 6, waiting = 9)
+        h.value = home.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), contentRead = 6, waiting = 9)
         rule.waitForIdle()
         assertEquals("tiles recomposed on a count change: $runs", emptyMap<String, Int>(), runs)
     }

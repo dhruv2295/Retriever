@@ -98,7 +98,7 @@ class HomeFactsTest {
     }
 
     @Test
-    fun nameOnlyCountRunsOnceUntilTheCountsMove() = test {
+    fun nameOnlyCountTracksContentWithoutStateChanges() = test {
         val f = Fx(listOf(testFile("a.txt"), testFile("b.txt")))
         f.index()
         assertEquals(2L, f.r.home().nameOnly)
@@ -106,7 +106,7 @@ class HomeFactsTest {
         // Gives a.txt words behind the cache's back, leaving every state count as it was.
         val a = f.store.fileByUri(testFile("a.txt").uri)!!
         f.store.replaceChunks(a.id, listOf(Store.NewChunk(1, "", "words", null)))
-        assertEquals(2L, f.r.home().nameOnly, "same counts, so the count is not taken again")
+        assertEquals(1L, f.r.home().nameOnly, "usable content changes coverage even with unchanged indexing states")
 
         f.source.next = Changes(listOf(testFile("c.txt")), emptyList(), "tok2")
         f.r.indexBatch(1.minutes)

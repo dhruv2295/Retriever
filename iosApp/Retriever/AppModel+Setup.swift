@@ -62,14 +62,7 @@ extension AppModel {
 
     /// Skip: Home now. The download, tune and short read carry on, and Home asks about the rest. A short read still
     /// waiting on an answer is put off rather than left half-asked.
-    func skipSetup() {
-        setupSeen = true
-        guard let services else { return }
-        Task {
-            let taste = await tasteState(services.retriever)
-            if !taste.decided, taste.planned > 0 { try? await services.retriever.decideLater() }
-        }
-    }
+    func skipSetup() { setupSeen = true }
 
     func stopDownload() { services?.download.stop() }
 
@@ -137,15 +130,12 @@ extension AppModel {
         advance()
     }
 
-    #if DEBUG
-        /// Status's testing section, as on Android: measure again, keeping the photo detail already chosen. Only in
-        /// front, since iOS refuses the graphics chip in the background.
-        func tuneAgain() {
-            guard active, tune != .running else { return }
-            tuningAgain = true
-            Task { await runTune() }
-        }
-    #endif
+    /// User-requested recheck; delegate details remain in Diagnostics.
+    func tuneAgain() {
+        guard active, tune != .running else { return }
+        tuningAgain = true
+        Task { await runTune() }
+    }
 
     private func runTune() async {
         guard let services else { return }

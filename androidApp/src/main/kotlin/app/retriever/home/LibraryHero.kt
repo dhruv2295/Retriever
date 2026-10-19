@@ -40,49 +40,16 @@ internal val libraryKinds = listOf(Kind.PHOTO, Kind.VIDEO, Kind.SCREENSHOT, Kind
 
 @Composable
 internal fun LibraryHero(ui: HomeUi, go: (Route) -> Unit, status: @Composable () -> Unit) {
-    val counts = ui.counts.orEmpty()
-    val total = counts.values.sum()
-    val colors = MaterialTheme.colorScheme
-    val palette = libraryColors()
-    Surface(Modifier.padding(horizontal = 16.dp).fillMaxWidth().testTag("library-hero"), shape = MaterialTheme.shapes.large, color = colors.surfaceContainer) {
+    Surface(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().testTag("library-hero"),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
         Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.padding(horizontal = 16.dp)) {
-                Text("Your library", style = MaterialTheme.typography.titleMedium)
-                Text(Format.searchable(ui.searchable, total), style = MaterialTheme.typography.headlineSmall.tabular())
-            }
-            Canvas(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(16.dp).clip(MaterialTheme.shapes.small)) {
-                val kinds = libraryKinds.filter { (counts[it] ?: 0) > 0 }
-                val minimum = minOf(size.height, size.width / kinds.size.coerceAtLeast(1))
-                val remaining = (size.width - minimum * kinds.size).coerceAtLeast(0f)
-                var x = 0f
-                for (kind in kinds) {
-                    val count = counts.getValue(kind)
-                    val width = minimum + remaining * count / total
-                    val color = palette[libraryKinds.indexOf(kind)]
-                    val read = if (kind in ui.inside && kind != Kind.OTHER) (ui.readByKind[kind] ?: 0).coerceIn(0, count) else 0
-                    drawRect(color.copy(alpha = 0.18f), Offset(x, 0f), Size(width, size.height))
-                    if (read > 0) {
-                        val readWidth = maxOf(size.height / 2, width * read / count).coerceAtMost(width)
-                        drawRect(color, Offset(x, 0f), Size(readWidth, size.height))
-                        if (ui.trial) drawLine(colors.onSurface, Offset(x, size.height), Offset(x + readWidth, size.height), 2.dp.toPx())
-                    }
-                    x += width
-                }
-            }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-                items(libraryKinds.filter { (counts[it] ?: 0L) > 0 }, key = { it.name }) { kind ->
-                    AssistChip(
-                        onClick = {
-                            go(BrowseRoute(kind = kind.name, title = Format.kindLabelPlural(kind)))
-                        },
-                        label = { Text("${Format.kindLabelPlural(kind)} ${Format.count(counts.getValue(kind))}") },
-                        leadingIcon = { Box(Modifier.size(10.dp).background(palette[libraryKinds.indexOf(kind)], CircleShape)) },
-                        modifier = Modifier.semantics {
-                            val read = if (kind in ui.inside && kind != Kind.OTHER) ui.readByKind[kind] ?: 0 else 0
-                            contentDescription = "${Format.kindLabelPlural(kind)}: ${Format.count(read)} of ${Format.count(counts.getValue(kind))} read"
-                        },
-                    )
-                }
+                Text("Your files", style = MaterialTheme.typography.titleMedium)
+                Text("${Format.count(ui.progress.libraryTotal)} files in your library", style = MaterialTheme.typography.headlineSmall.tabular())
+                Text(Format.readCount(ui.contentRead, ui.partlyRead), style = MaterialTheme.typography.bodyMedium.tabular())
             }
             status()
         }

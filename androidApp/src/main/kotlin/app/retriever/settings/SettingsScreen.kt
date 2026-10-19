@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -58,6 +60,7 @@ import app.retriever.core.Backend
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
@@ -104,6 +107,12 @@ data class SettingsUi(
 
 class SettingsActions(
     val back: () -> Unit = {},
+    val setReadingSchedule: (ReadingSchedule) -> Unit = {},
+    val readNow: () -> Unit = {},
+    val pause: () -> Unit = {},
+    val resume: () -> Unit = {},
+    val openStatus: () -> Unit = {},
+    val setOnThisDay: (Boolean) -> Unit = {},
     val setSearchInside: (Kind, Boolean) -> Unit = { _, _ -> },
     val setOnlyWhileCharging: (Boolean) -> Unit = {},
     val removeExcluded: (String) -> Unit = {},
@@ -122,7 +131,8 @@ class SettingsActions(
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = koinViewModel()) {
+fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel()) {
+    val requestReading = app.retriever.indexing.rememberReadingPermission()
     val state by vm.uiState.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
@@ -151,6 +161,9 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = koinViewModel()) 
     val actions = remember(onBack, context) {
         SettingsActions(
             back = onBack,
+            setReadingSchedule = { schedule -> requestReading { vm.setReadingSchedule(schedule) } },
+            readNow = { requestReading { vm.readNow() } },
+            pause = vm::pause, resume = vm::resume, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
             setSearchInside = vm::setSearchInside,
             setOnlyWhileCharging = vm::setOnlyWhileCharging,
             removeExcluded = vm::removeExcluded,
@@ -208,22 +221,84 @@ fun SettingsContent(
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(bottom = 24.dp),
             ) {
-                Header("Read inside")
+                Header("Reading")
+                var schedulesOpen by rememberSaveable { mutableStateOf(false) }
+                ListItem(
+                    headlineContent = { Text("Automatic reading") },
+                    supportingContent = { Text(prefs.automaticReading.title) },
+                    modifier = Modifier.clickable(role = Role.Button) { schedulesOpen = true },
+                )
+                if (schedulesOpen) {
+                    AlertDialog(
+                        onDismissRequest = { schedulesOpen = false },
+                        title = { Text("Automatic reading") },
+                        text = {
+                            Column(Modifier.selectableGroup()) {
+                                ReadingSchedule.entries.forEach { schedule ->
+                                    ListItem(
+                                        headlineContent = {
+                                            Text(schedule.title)
+                                        },
+                                        leadingContent = { androidx.compose.material3.RadioButton(prefs.automaticReading == schedule, null) },
+                                        modifier = Modifier.selectable(prefs.automaticReading == schedule, role = Role.RadioButton) {
+                                            actions.setReadingSchedule(schedule)
+                                            schedulesOpen =
+                                                false
+                                        },
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = { TextButton(onClick = { schedulesOpen = false }) { Text("Done") } },
+                    )
+                }
+                Muted(
+                    when (prefs.automaticReading) {
+                        ReadingSchedule.CHARGING -> "Reads while charging when Retriever is open or your screen is off."
+                        ReadingSchedule.BATTERY -> "Reads while your phone is available, above 20% battery. Pauses for power saving or heat."
+                        ReadingSchedule.MANUAL -> "Choose Read now to start a short reading session."
+                    },
+                    Modifier.padding(horizontal = 16.dp),
+                )
+                ListItem(headlineContent = { Text("Read now for 15 minutes") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.readNow))
+                ListItem(
+                    headlineContent = { Text(if (prefs.paused) "Resume reading" else "Pause reading") },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = if (prefs.paused) actions.resume else actions.pause),
+                )
+                ListItem(headlineContent = { Text("Reading status") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openStatus))
+                if (!ui.textOnly && !ui.modelMissing) {
+                    var adjust by rememberSaveable { mutableStateOf(false) }
+                    ListItem(
+                        headlineContent = {
+                            Text("Adjust reading for this device")
+                        },
+                        supportingContent = { Text("Run the setup check again.") },
+                        modifier = Modifier.clickable {
+                            adjust =
+                                !adjust
+                        },
+                    )
+                    if (adjust) TuneRow(ui.tune, actions.tuneAgain)
+                }
+                var help by rememberSaveable { mutableStateOf(false) }
+                ListItem(headlineContent = { Text("How reading works") }, modifier = Modifier.clickable { help = !help })
+                if (help) {
+                    Muted(
+                        "Retriever reads automatically while charging, when its screen is open or your phone’s screen is off. It pauses while you use another app. You can start a short reading session on battery.",
+                        Modifier.padding(16.dp),
+                    )
+                    Muted(
+                        "Long files are read in stages. Words already read can match now; later passes add meaning search. Some files reach a reading limit and stay partly read.",
+                        Modifier.padding(16.dp),
+                    )
+                }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Header("Read these file types")
                 if (ui.textOnly) Muted(textOnlyNote(ui.ramGb), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 for (kind in SEARCH_INSIDE.filter { it in ui.readable }) {
                     SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
                 }
-                Muted("Everything else is found by name.", Modifier.padding(horizontal = 16.dp))
-
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Reading")
-                SwitchRow(
-                    "Only read while charging",
-                    prefs.onlyWhileCharging,
-                    "Reading uses battery. This waits for the charger, or for when you open the app.",
-                    actions.setOnlyWhileCharging,
-                )
-                if (!ui.textOnly && !ui.modelMissing) TuneRow(ui.tune, actions.tuneAgain)
+                Muted("Turn a type off to search it by name only.", Modifier.padding(horizontal = 16.dp))
 
                 if (prefs.excludedFolders.isNotEmpty()) {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -253,9 +328,10 @@ fun SettingsContent(
                 Header("Storage")
                 Storage(ui, actions)
 
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Header("Appearance")
+                SwitchRow("Show On this day", prefs.showOnThisDay, onChange = actions.setOnThisDay)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Header("Appearance")
                     SwitchRow("Wallpaper colours", prefs.dynamicColor, "Off uses Retriever's warm amber.", actions.setDynamicColor)
                 }
 
@@ -316,14 +392,14 @@ fun SettingsContent(
 @Composable
 private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
     ListItem(
-        headlineContent = { Text("Tune again") },
+        headlineContent = { Text("Run setup check") },
         supportingContent = {
             Text(
                 when (tune) {
                     TuneState.Running -> "Tuning… a few minutes at most"
                     is TuneState.Failed -> "Tune failed: ${tune.message}"
-                    is TuneState.Done -> tune.summary
-                    TuneState.Idle -> "Re-check which chip runs the model fastest. Takes a few minutes."
+                    is TuneState.Done -> "Reading is set up"
+                    TuneState.Idle -> "Reading speed adjusts to your phone."
                 },
                 color = if (tune is TuneState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -381,7 +457,7 @@ private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
         } else if ((ui.storage?.modelBytes ?: 0) > 0) {
             ListItem(
                 headlineContent = { Text("Free up space", color = MaterialTheme.colorScheme.error) },
-                supportingContent = { Text("Removes the search model. Names and words stay searchable.") },
+                supportingContent = { Text("Removes the search model. File names and text already read still work.") },
                 modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
             )
         }

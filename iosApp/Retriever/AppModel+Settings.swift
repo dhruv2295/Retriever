@@ -15,7 +15,7 @@ extension AppModel {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(
-                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging,
+                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging, schedule: charging.map { $0 ? .charging : .battery } ?? p.schedule, readNowUntil: p.readNowUntil, nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed,
                 excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
@@ -39,6 +39,50 @@ extension AppModel {
         snap?.kinds = kinds
         // Core clears a kind turned off and queues one turned on.
         Task { try? await edit(kinds: { on ? $0.union([kind]) : $0.subtracting([kind]) }) }
+    }
+
+    func setReadingSchedule(_ value: ReadingSchedule) {
+        let before = snap?.automaticReading
+        snap?.automaticReading = value
+        Task {
+            do {
+                try await services?.retriever.setReadingSchedule(schedule: value)
+                IndexTask.schedule()
+                wake()
+            } catch {
+                if let before { snap?.automaticReading = before }
+                readingMessage = "Couldn’t save this change. Try again."
+            }
+        }
+    }
+
+    func readNow() {
+        Task {
+            do {
+                try await services?.retriever.readNow()
+                wake()
+                keepReading()
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
+        }
+    }
+
+    func dismissNameSearchHint() {
+        snap?.nameSearchHintDismissed = true
+        Task { try? await services?.retriever.dismissNameSearchHint() }
+    }
+
+    func dismissScheduleOffer() {
+        snap?.scheduleOfferDismissed = true
+        Task { try? await services?.retriever.dismissScheduleOffer() }
+    }
+
+    func decideLater() {
+        Task {
+            do {
+                try await services?.retriever.decideLater()
+                setupSeen = true
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
+        }
     }
 
     func setOnlyWhileCharging(_ on: Bool) {
@@ -170,7 +214,6 @@ extension AppModel {
 
     func finishSetup() {
         setupSeen = true
-        keepReading()
     }
 
     private func startIfReady() {
@@ -190,14 +233,13 @@ extension AppModel {
 
     func pause() {
         guard let services else { return }
-        Task { try? await services.retriever.pause() }
+        Task { do { try await services.retriever.pause() } catch { readingMessage = "Couldn’t save this change. Try again." } }
     }
 
     func resume() {
         guard let services else { return }
         Task {
-            try? await services.retriever.resume()
-            wake()
+            do { try await services.retriever.resume(); wake() } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
     }
 

@@ -19,12 +19,14 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,12 +35,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -70,10 +76,12 @@ data class IndexState(
         null
     } else {
         when (lastStop) {
-            StopReason.BUSY -> "Paused while you use other apps"
-            StopReason.POWER_SAVE -> "Paused: Battery Saver"
-            StopReason.HOT -> "Paused while your device cools down"
-            StopReason.UNPLUGGED -> "Paused until connected to power"
+            StopReason.BUSY -> "Waiting until you put your phone down"
+            StopReason.POWER_SAVE -> "Paused for Battery Saver"
+            StopReason.HOT -> "Paused to cool down"
+            StopReason.UNPLUGGED -> "Waiting to charge"
+            StopReason.LOW_BATTERY -> "Paused for low battery"
+            StopReason.MANUAL -> "Reading stopped for now"
             StopReason.PAUSED -> "Reading paused"
             else -> null
         }
@@ -178,11 +186,7 @@ class Retriever(
     /** The planned ids while only they are read, for a search scoped to them ([search]'s `scope`); null once everything is read. */
     val scopeIds: StateFlow<List<Long>?> = sampleIds.asStateFlow()
 
-    /** The name-only count and the file-state counts it was taken at, so it is recomputed only when those change. */
-    @Volatile
-    private var nameOnlyAt: Pair<Map<FileState, Long>, Long>? = null
-
-    /** A visible app indexes now, on battery too; the user is watching it happen. Showing drops a pending release. */
+    /** Showing drops a pending model release; reading still honors the saved schedule. */
     @Volatile
     var uiVisible: Boolean = false
         set(v) {
@@ -266,13 +270,29 @@ class Retriever(
         changedSinceSync = true
     }
 
+    /** No included source is permitted. Keep preferences and stars, but drop inaccessible file revisions. */
+    @Throws(Throwable::class)
+    suspend fun clearUnavailableLibrary() {
+        cancelBatch()
+        indexLock.withLock {
+            io {
+                sync.remove(store.knownUris().toList())
+                reconcileRecentFiles()
+                _starred.value = store.starredUris()
+            }
+        }
+    }
+
     /** Stops the running batch within one file; that [indexBatch] returns [NextRun.SOON]. */
     fun cancelBatch() {
         batchJob?.cancel()
     }
 
     @Throws(Throwable::class)
-    suspend fun pause() = updatePrefs { it.copy(paused = true) }
+    suspend fun pause() {
+        updatePrefs { endSession(it).copy(paused = true) }
+        if (_state.value.currentFile != null) cancelBatch()
+    }
 
     @Throws(Throwable::class)
     suspend fun resume() = updatePrefs { it.copy(paused = false) }
@@ -302,22 +322,110 @@ class Retriever(
         }
     }
 
-    /**
-     * Without the model nothing waits for a vector, so the deepen counts read zero. Under the first run's SAMPLE scope,
-     * pending files outside the plan are [Store.Counts.waiting], not pending, so "All caught up" holds for what was asked.
-     */
-    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing, sampleIds) { counts, missing, ids ->
-        if (ids == null) {
-            if (textOnly || missing) counts.copy(tailChunks = 0, tailFiles = 0) else counts
-        } else {
-            store.countsNow(ids, includeTails = !textOnly && !missing)
+    /** Counts always describe usable content, including saved text when the model is absent. */
+    fun counts(): Flow<Store.Counts> = combine(store.countChanges(), modelMissing, sampleIds, prefs) { _, missing, ids, p ->
+        store.countsNow(ids, includeTails = !textOnly && !missing, kinds = p.kinds intersect readableKinds)
+    }.distinctUntilChanged().flowOn(dispatchers.default)
+
+    @Volatile
+    private var lowBattery = false
+
+    private fun sampleSession(): Boolean = store.sampleIds() != null && !store.flag(TASTE_DECIDED_KEY)
+
+    /** Called between chunks and by the subscribed UI; expiry and safety stops never renew a session. */
+    private fun readingBlocker(): StopReason? {
+        val device = monitor.state()
+        lowBattery = !device.charging && (
+            device.batteryPct in 0..ReadingPolicy.LOW_BATTERY ||
+                (lowBattery && device.batteryPct in 0..ReadingPolicy.BATTERY_RECOVERED)
+            )
+        var p = store.prefs()
+        if (p.readNowUntil != 0L && (p.readNowUntil <= now() || p.paused || device.powerSave || device.hot)) {
+            p = store.updatePrefs { if (it.readNowUntil == p.readNowUntil) endSession(it) else it }
+            _prefs.value = p
         }
-    }.flowOn(dispatchers.default)
+        return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery)
+    }
+
+    fun readingStatus(): Flow<ReadingStatus> = readingStatus(counts())
+
+    fun readingStatus(counts: Flow<Store.Counts>): Flow<ReadingStatus> = combine(
+        counts,
+        prefs,
+        state,
+        flow {
+            while (true) {
+                emit(readingBlocker())
+                delay(1_000)
+            }
+        }.flowOn(Dispatchers.Default).distinctUntilChanged(),
+    ) { counts, p, state, _ ->
+        ReadingPolicy.decide(
+            counts.progress,
+            if (p.paused) StopReason.PAUSED else readingBlocker(),
+            state.running,
+            state.currentFile != null,
+            probe.platform == Platform.IOS,
+        )
+    }.distinctUntilChanged().flowOn(dispatchers.default)
+
+    private fun startSession(prefs: Prefs): Prefs {
+        store.setMeta(SESSION_START_KEY, store.lastChunkId().toString())
+        store.setMeta(SESSION_READ_KEY, "0")
+        return prefs.copy(paused = false, readNowUntil = now() + ReadingPolicy.SESSION_MS)
+    }
+
+    private fun endSession(prefs: Prefs): Prefs {
+        if (prefs.readNowUntil != 0L) store.setMeta(SESSION_READ_KEY, store.sessionReadCount(prefs.kinds intersect readableKinds).toString())
+        return prefs.copy(readNowUntil = 0)
+    }
+
+    @Throws(Throwable::class)
+    suspend fun readNow() {
+        updatePrefs { startSession(it) }
+        io {
+            store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
+            store.setFlag(TASTE_DECIDED_KEY)
+            loadScope()
+        }
+    }
+
+    @Throws(Throwable::class)
+    suspend fun setReadingSchedule(schedule: ReadingSchedule) {
+        updatePrefs { it.withSchedule(schedule) }
+        if (schedule != ReadingSchedule.MANUAL) {
+            io {
+                store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
+                store.setFlag(TASTE_DECIDED_KEY)
+                loadScope()
+            }
+        }
+        changedSinceSync = true
+    }
+
+    @Throws(Throwable::class)
+    suspend fun dismissNameSearchHint() = updatePrefs { it.copy(nameSearchHintDismissed = true) }
+
+    @Throws(Throwable::class)
+    suspend fun dismissScheduleOffer() = updatePrefs { it.copy(scheduleOfferDismissed = true) }
+
+    /** Claim only when the platform can post; survives process death and worker handoffs. */
+    @Throws(Throwable::class)
+    suspend fun claimSampleNotification(): Boolean = io {
+        store.inTransaction {
+            if (uiVisible || store.tasteScope() != Scope.SAMPLE || store.flag("sample_notified") || store.indexedIn(store.tasteIds()).isEmpty()) {
+                false
+            } else {
+                store.setFlag("sample_notified")
+                true
+            }
+        }
+    }
 
     /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
     @Throws(Throwable::class)
     suspend fun readExtents(fileIds: List<Long>): Map<Long, ReadExtent> = io {
-        store.readExtents(fileIds).let { m -> if (noModel()) m.filterValues { it != ReadExtent.DEEPENING } else m }
+        store.readExtents(fileIds).mapNotNull { (id, extent) -> visibleExtent(extent)?.let { id to it } }.toMap()
     }
 
     /**
@@ -325,7 +433,7 @@ class Retriever(
      * later parts. [waitForLock]: wait for a running batch (being cancelled) instead of returning DONE at once.
      */
     @Throws(Throwable::class)
-    suspend fun indexBatch(budget: Duration, deepen: Boolean = true, waitForLock: Boolean = false): NextRun {
+    suspend fun indexBatch(budget: Duration, deepen: Boolean = true, waitForLock: Boolean = false, sessionOnly: Boolean = false): NextRun {
         if (waitForLock) {
             indexLock.lock()
         } else if (!indexLock.tryLock()) {
@@ -335,14 +443,27 @@ class Retriever(
         batchSoon = false
         try {
             return coroutineScope {
-                val work = async(dispatchers.indexing) { runBatch(budget, deepen) }
+                val work = async(dispatchers.indexing) {
+                    val remaining = store.prefs().readNowUntil - now()
+                    if (remaining <= 0) {
+                        runBatch(budget, deepen, sessionOnly)
+                    } else {
+                        withTimeoutOrNull(minOf(remaining, budget.inWholeMilliseconds).coerceAtLeast(1)) { runBatch(budget, deepen, sessionOnly) }
+                            ?: run {
+                                val reason = readingBlocker() ?: StopReason.BUDGET
+                                _state.update { it.copy(lastStop = reason) }
+                                nextRunFor(reason, changedSinceSync)
+                            }
+                    }
+                }
                 batchJob = work
                 try {
                     work.await()
                 } catch (e: CancellationException) {
                     ensureActive() // the caller was cancelled, not just this batch
-                    _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = StopReason.BUDGET) }
-                    NextRun.SOON
+                    val reason = readingBlocker() ?: StopReason.BUDGET
+                    _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = reason) }
+                    nextRunFor(reason, changedSinceSync)
                 }
             }.also { batchSoon = it == NextRun.SOON }
         } finally {
@@ -352,7 +473,7 @@ class Retriever(
         }
     }
 
-    private suspend fun runBatch(budget: Duration, mayDeepen: Boolean): NextRun {
+    private suspend fun runBatch(budget: Duration, mayDeepen: Boolean, sessionOnly: Boolean): NextRun {
         // The budget covers the sync and the model's open too, so a platform's time limit holds.
         val started = TimeSource.Monotonic.markNow()
         changedSinceSync = false
@@ -373,13 +494,12 @@ class Retriever(
         var error: String? = null
         var used: Embedder? = null
         var build: ModelBuild? = null
+        var watchdog: Job? = null
         fun end(reason: StopReason): NextRun {
             stop = reason
             return nextRunFor(reason, changedSinceSync)
         }
         try {
-            // Battery Saver waits for a power-state change, without walking folders first.
-            if (readingMonitor.state().powerSave) return end(StopReason.POWER_SAVE)
             // Stars follow their files: hidden while a file is gone, back when it returns.
             sync.sync().let {
                 if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
@@ -393,12 +513,20 @@ class Retriever(
                 IndexSettings(p.effective(if (textOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
             val busy = { monitor.state().screenOn && !uiVisible }
-            // A visible app reads on battery too; hidden, a low battery waits for the charger like the setting does.
-            // An unknown level (a negative value) is not low.
-            val requireCharging = { s: DeviceState -> !uiVisible && (batchPrefs().effective(stored).bulkOnlyWhenCharging || s.batteryPct in 0..LOW_BATTERY) }
-            val device = readingMonitor.state()
-            // The loop's own checks, before the model's seconds-long open and its memory.
-            IndexEngine.stopReason(settings(), device, busy(), requireCharging(device))?.let { return end(it) }
+            val requireCharging = { _: DeviceState -> readingBlocker() == StopReason.UNPLUGGED }
+            val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
+            policyStop()?.let { return end(it) }
+            // Cancels cooperative extraction too, including a long PDF before its first embedding chunk.
+            val owner = currentCoroutineContext().job
+            watchdog = background.launch(Dispatchers.Default) {
+                while (isActive) {
+                    delay(1_000)
+                    if (policyStop() != null) {
+                        owner.cancel()
+                        break
+                    }
+                }
+            }
             // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
             selectPace(factory.profileNow(stored, uiVisible))
             trimTaste()
@@ -417,7 +545,7 @@ class Retriever(
             fun canDeepen(): Boolean {
                 val trialInFront = ids != null && uiVisible && !store.flag(TASTE_DECIDED_KEY)
                 val current = readingMonitor.state()
-                return (mayDeepen || trialInFront) && !textOnly && (uiVisible || (current.charging && !current.screenOn))
+                return (mayDeepen || trialInFront) && !textOnly && (!current.screenOn || uiVisible)
             }
             val deepen = canDeepen()
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
@@ -455,7 +583,7 @@ class Retriever(
             val engine = if (ids == null) {
                 IndexEngine(
                     store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
-                    onCurrent = ::onCurrent, configurationChanged = changedConfiguration,
+                    onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
@@ -467,6 +595,7 @@ class Retriever(
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
+                    policyStop = policyStop,
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
@@ -488,17 +617,16 @@ class Retriever(
             error = "Something went wrong reading your files. Retriever will try again."
             return NextRun.RETRY
         } finally {
+            watchdog?.cancel()
             saveBook()
             _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error) }
         }
     }
 
     /** Text-only mode reads screenshots, PDFs and documents; photos, video and audio stay findable by name. */
-    private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect textOnlyKinds) else it }
+    private fun batchPrefs(): Prefs = store.prefs().let { it.copy(kinds = it.kinds intersect readableKinds) }
 
-    private val readingMonitor = object : DeviceMonitor {
-        override fun state(): DeviceState = monitor.state().let { if (uiVisible) it.copy(powerSave = false) else it }
-    }
+    private val readingMonitor = monitor
 
     private fun reconcileRecentFiles() {
         _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
@@ -534,7 +662,7 @@ class Retriever(
             it.copy(
                 processed = it.processed + if (m.ok) 1 else 0,
                 failed = it.failed + if (m.ok) 0 else 1,
-                recentFiles = if (m.ok && store.fileByUri(m.file.uri)?.state == FileState.INDEXED) {
+                recentFiles = if (m.ok && store.fileByUri(m.file.uri)?.let { store.indexedIn(listOf(it.id)).isNotEmpty() } == true) {
                     (listOf(m.file) + it.recentFiles.filterNot { f -> f.uri == m.file.uri }).take(RECENT_FILES)
                 } else {
                     it.recentFiles
@@ -665,7 +793,7 @@ class Retriever(
     }
 
     /** How far the short read is; re-emits as files are read. */
-    fun tasteProgress(): Flow<TasteProgress> = combine(store.counts(), sampleIds) { _, _ ->
+    fun tasteProgress(): Flow<TasteProgress> = combine(store.countChanges(), sampleIds) { _, _ ->
         val ids = store.tasteIds()
         val planned = ids.chunked(500).flatMap { store.files(it).values }.groupingBy { it.kind }.eachCount()
         val (pending, videoBytes) = store.pendingIn(ids).byKind()
@@ -675,7 +803,9 @@ class Retriever(
     /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
     @Throws(Throwable::class)
     suspend fun commit(whileCharging: Boolean) {
-        updatePrefs { it.copy(onlyWhileCharging = whileCharging) }
+        updatePrefs {
+            (if (whileCharging) endSession(it).copy(paused = false) else startSession(it)).withSchedule(ReadingSchedule.CHARGING)
+        }
         io {
             store.inTransaction {
                 store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
@@ -689,7 +819,10 @@ class Retriever(
 
     /** "Not yet": decided, and the scope stays SAMPLE. What was read stays searchable; Home offers the choice again. */
     @Throws(Throwable::class)
-    suspend fun decideLater() = io { store.setFlag(TASTE_DECIDED_KEY) }
+    suspend fun decideLater() {
+        pause()
+        io { store.setFlag(TASTE_DECIDED_KEY) }
+    }
 
     /** True once the person chose (commit or Not yet) or never had a short read: the try-it and commit screens are done. */
     @Throws(Throwable::class)
@@ -943,15 +1076,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun home(): HomeFacts = io {
         val (largeCount, largeBytes) = store.largeFiles(LARGE_FILE)
-        // Reads every file's chunks, and only the caught-up line shows it: counted once nothing waits and the counts
-        // moved since the last count, else the last count.
-        val byState = store.countsByState()
-        val cached = nameOnlyAt
-        val nameOnly = if ((byState[FileState.PENDING] ?: 0L) == 0L && cached?.first != byState) {
-            store.nameOnlyCount().also { nameOnlyAt = byState to it }
-        } else {
-            cached?.second ?: 0L
-        }
+        val nameOnly = store.countsNow(kinds = store.prefs().kinds intersect readableKinds).progress.nameOnly
         HomeFacts(
             newMedia = store.newestFiles(setOf(Kind.PHOTO, Kind.VIDEO), 15).map { it.file },
             newShots = store.newestFiles(setOf(Kind.SCREENSHOT), 10).map { it.file },
@@ -1021,13 +1146,25 @@ class Retriever(
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds
 
     /** The kinds this phone can read inside, and so the switches Settings shows. */
-    val readableKinds: Set<Kind> get() = if (textOnly) textOnlyKinds else Kind.entries.toSet() - Kind.OTHER
+    val readableKinds: Set<Kind> get() = if (textOnly) {
+        textOnlyKinds
+    } else {
+        (Kind.entries.toSet() - Kind.OTHER).let {
+            if (probe.platform ==
+                Platform.IOS
+            ) {
+                it - Kind.AUDIO
+            } else {
+                it
+            }
+        }
+    }
 
     @Throws(Throwable::class)
     suspend fun dismissCaughtUp() = updatePrefs { it.dismissCaughtUp() }
 
     @Throws(Throwable::class)
-    suspend fun storedFile(uri: String): Store.StoredFile? = io { store.fileByUri(uri) }
+    suspend fun storedFile(uri: String): Store.StoredFile? = io { store.fileByUri(uri)?.let { withExtents(listOf(it)).first() } }
 
     private val _fileRevision = MutableStateFlow(0L)
     val fileRevision: StateFlow<Long> = _fileRevision.asStateFlow()
@@ -1062,10 +1199,21 @@ class Retriever(
 
     // --- Browse ---
 
+    private fun visibleExtent(extent: ReadExtent): ReadExtent? = if (!noModel()) {
+        extent
+    } else {
+        when (extent) {
+            ReadExtent.DEEPENING, ReadExtent.MEANING_LIMITED -> null
+            ReadExtent.FIRST_PART_DEEPENING, ReadExtent.FIRST_PART_MEANING_LIMITED -> ReadExtent.FIRST_PART
+            else -> extent
+        }
+    }
+
     private fun withExtents(files: List<Store.StoredFile>): List<Store.StoredFile> {
         val extents = store.readExtents(files.map { it.id })
+        val content = store.indexedIn(files.map { it.id })
         return files.map { file ->
-            file.copy(extent = extents[file.id]?.takeUnless { noModel() && it == ReadExtent.DEEPENING })
+            file.copy(extent = extents[file.id]?.let(::visibleExtent), contentRead = file.id in content)
         }
     }
 
@@ -1085,7 +1233,7 @@ class Retriever(
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }
 
     @Throws(Throwable::class)
-    suspend fun skipped(limit: Int): List<Store.StoredFile> = io { store.skipped(limit) }
+    suspend fun skipped(limit: Int): List<Store.StoredFile> = io { store.skipped(limit, store.prefs().kinds intersect readableKinds) }
 
     @Throws(Throwable::class)
     suspend fun retrySkipped() = io { store.retrySkipped() }
@@ -1209,7 +1357,8 @@ class Retriever(
             StopReason.UNPLUGGED -> NextRun.WHEN_CHARGING
             StopReason.BUSY -> NextRun.WHEN_IDLE
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE
-            StopReason.PAUSED -> NextRun.DONE
+            StopReason.PAUSED, StopReason.MANUAL -> NextRun.DONE
+            StopReason.LOW_BATTERY -> NextRun.WHEN_CHARGING
         }
     }
 }

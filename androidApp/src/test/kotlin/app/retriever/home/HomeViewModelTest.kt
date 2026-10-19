@@ -107,7 +107,7 @@ class HomeViewModelTest {
 
     @Test fun trialCopyUsesOnlyThePlannedPendingFiles() {
         val trial = HomeUi(trial = true, waiting = 12, rest = 26000)
-        assertEquals("Finishing your trial · 12 files left", trial.trialTitle)
+        assertEquals("Reading your sample", trial.trialTitle)
         assertEquals(null, trial.copy(waiting = 0).trialTitle)
         assertEquals(null, trial.copy(trial = false).trialTitle)
     }
@@ -214,7 +214,7 @@ class HomeViewModelTest {
         assertTrue(vm.celebration.due())
         // The screen marks it after the haptic; a relaunch is a new ViewModel over the same store.
         vm.celebration.done()
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(vm.celebration.due())
         assertFalse(vm(retriever).celebration.due())
         // Caught up again after more files arrived: still spent.
@@ -306,18 +306,18 @@ class HomeViewModelTest {
         assertEquals(listOf(2023, 2021), ui.memories.map { it.year })
         assertEquals(2L, ui.memories[0].photos)
         assertEquals(1L, ui.memories[0].videos)
-        advanceUntilIdle()
+        runCurrent()
         val probes = driver.d.memoryProbes
         assertEquals(1, probes)
         // Back to the app on the same date: no second look.
         vm.onResume()
         vm.onResume()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(probes, driver.d.memoryProbes)
         // Past midnight it asks again, for the new date.
         today = noon.plusDays(1)
         vm.onResume()
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(probes + 1, driver.d.memoryProbes)
         assertEquals(LocalDate.of(2026, 10, 18), vm.ui.value.memoriesDay)
     }
@@ -333,7 +333,7 @@ class HomeViewModelTest {
 
         vm.hideOnThisDay()
         assertFalse(vm.ui.value.showOnThisDay)
-        advanceUntilIdle()
+        runCurrent()
         assertFalse(r.prefs.value.showOnThisDay)
 
         StatusViewModel(r, IndexService(app, r), access).also { models += it }.setOnThisDay(true)

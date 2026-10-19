@@ -98,21 +98,16 @@ class BatchPolicyTest {
     }
 
     @Test
-    fun unpluggingMidBatchStopsOnlyAHiddenApp() = test {
+    fun unpluggingMidBatchStopsVisibleAndHiddenReading() = test {
         for (visible in listOf(true, false)) {
             val f = Fx(files = (1..3).map { testFile("f$it.txt", modifiedAt = it.toLong()) })
             f.r.updatePrefs { it.copy(onlyWhileCharging = true) }
             f.r.uiVisible = visible
             f.onExtract = { f.monitor.state = f.monitor.state.copy(charging = false) }
             val next = f.r.indexBatch(1.minutes)
-            if (visible) {
-                assertEquals(NextRun.DONE, next)
-                assertEquals(3L, f.indexed())
-            } else {
-                assertEquals(NextRun.WHEN_CHARGING, next)
-                assertEquals(StopReason.UNPLUGGED, f.r.state.value.lastStop)
-                assertEquals(1L, f.indexed())
-            }
+            assertEquals(NextRun.WHEN_CHARGING, next)
+            assertEquals(StopReason.UNPLUGGED, f.r.state.value.lastStop)
+            assertEquals(0L, f.indexed(), "unplugging before embedding keeps the file pending")
         }
     }
 
@@ -120,12 +115,13 @@ class BatchPolicyTest {
     fun aLowBatteryStopsAHiddenAppWithoutTheChargingSetting() = test {
         val low = Fx(state = plugged.copy(charging = false, batteryPct = 15))
         assertEquals(NextRun.WHEN_CHARGING, low.r.indexBatch(1.minutes))
-        assertEquals(StopReason.UNPLUGGED, low.r.state.value.lastStop)
+        assertEquals(StopReason.LOW_BATTERY, low.r.state.value.lastStop)
         assertTrue(low.factory.opened.isEmpty())
         low.r.uiVisible = true
-        assertEquals(NextRun.DONE, low.r.indexBatch(1.minutes))
+        assertEquals(NextRun.WHEN_CHARGING, low.r.indexBatch(1.minutes))
 
         val unknown = Fx(state = plugged.copy(charging = false, batteryPct = Int.MIN_VALUE))
+        unknown.r.setReadingSchedule(ReadingSchedule.BATTERY)
         assertEquals(NextRun.DONE, unknown.r.indexBatch(1.minutes), "an unknown level is not low")
         assertEquals(1L, unknown.indexed())
     }
@@ -136,7 +132,7 @@ class BatchPolicyTest {
             val f = Fx(state = plugged.copy(screenOn = true))
             f.r.planTaste()
             assertEquals(NextRun.WHEN_IDLE, f.r.taste())
-            assertEquals("Paused while you use other apps", f.r.state.value.pauseReason)
+            assertEquals("Waiting until you put your phone down", f.r.state.value.pauseReason)
             f.r.uiVisible = visible
             f.monitor.state = plugged.copy(screenOn = visible)
             assertEquals(NextRun.DONE, f.r.taste())
@@ -149,7 +145,7 @@ class BatchPolicyTest {
         val cases = listOf(
             plugged.copy(powerSave = true) to StopReason.POWER_SAVE,
             plugged.copy(thermal = Thermal.SEVERE) to StopReason.HOT,
-            plugged.copy(charging = false, batteryPct = 10) to StopReason.UNPLUGGED,
+            plugged.copy(charging = false, batteryPct = 10) to StopReason.LOW_BATTERY,
         )
         for ((state, stop) in cases) {
             val f = Fx(state = state)
@@ -161,7 +157,7 @@ class BatchPolicyTest {
         }
         val f = Fx(state = plugged.copy(powerSave = true))
         f.r.uiVisible = true
-        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes), "Battery Saver governs hidden work")
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes), "Battery Saver also stops visible reading")
     }
 
     @Test

@@ -5,14 +5,18 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import app.retriever.core.Retriever
+import app.retriever.indexing.Notifications
 import app.retriever.nav.AppNav
 import app.retriever.search.LaunchQuery
 import app.retriever.ui.RetrieverTheme
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
+    private var statusRequest by androidx.compose.runtime.mutableIntStateOf(0)
     private val launchQuery: LaunchQuery by inject()
     private val retriever: Retriever by inject()
 
@@ -23,12 +27,21 @@ class MainActivity : ComponentActivity() {
         splash.setKeepOnScreenCondition { retriever.setUp.value == null }
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
+        if (intent.action == Notifications.OPEN_STATUS) statusRequest++
+        Notifications.cancelSample(this)
         launchQuery.from(intent)
-        setContent { RetrieverTheme { AppNav() } }
+        setContent { RetrieverTheme { AppNav(statusRequest = statusRequest) } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Notifications.cancelSample(this)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == Notifications.OPEN_STATUS) statusRequest++
+        Notifications.cancelSample(this)
         launchQuery.from(intent)
     }
 }

@@ -1,5 +1,8 @@
 # Background work (Android)
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 Index the person's files without the app open, without hurting the phone (battery, heat, a person using it), and without

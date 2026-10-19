@@ -36,11 +36,10 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
     ]
     private static let statusText = [
-        "Reading now", "Photo", "9 October 2025", "Recently read",
-        "Retriever keeps your screen on while it reads. Lock your iPhone any time to stop.",
-        "Pause", "Keep reading after I leave", "Your iPhone shows how it's going and lets you stop it any time.",
-        "3 long files still being read in depth", "Show On This Day on Home", "Photos and videos from this date in earlier years.",
-        "Retriever reads your files while it's open, on battery too, and keeps the screen on as it goes. After you leave, it carries on where iPhone allows, mostly overnight on the charger.",
+        "Reading now", "Photo", "9 October 2025", "Recently read", "Pause reading",
+        "Read now for 15 minutes", "Can continue after you leave if iOS allows.",
+        "3 partly read · more meaning search to come",
+        "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start.",
     ]
     private static let routes = [
         "setup.welcome", "setup.photos", "setup.limited", "setup.denied", "setup.folders", "setup.download",
@@ -127,8 +126,8 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTContext.runActivity(named: route) { _ in
                 do {
                     if route.hasPrefix("setup.reading") {
-                        XCTAssertTrue(app.staticTexts["Reading now"].exists)
-                        XCTAssertTrue(app.staticTexts["Ready to search"].exists)
+                        if route == "setup.reading" { XCTAssertTrue(app.staticTexts["Reading now"].exists) }
+                        XCTAssertTrue(app.staticTexts["Files you can try"].exists)
                         XCTAssertTrue(app.staticTexts["+23 more"].exists)
                         for i in 2...8 {
                             XCTAssertTrue(app.descendants(matching: .any)["recent:folder://fixture/reading-\(i)"].firstMatch.exists)
@@ -201,7 +200,9 @@ final class AccessibilityAuditTests: XCTestCase {
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
             return false
         }
-        try app.performAccessibilityAudit(for: .all.subtracting(.contrast)) { issue in
+        // Font resizing can invalidate lazy-list AX frames; run it after every check that uses the original frames.
+        for types in [XCUIAccessibilityAuditType.all.subtracting(.contrast).subtracting(.dynamicType), .dynamicType] {
+        try app.performAccessibilityAudit(for: types) { issue in
             guard let element = issue.element else {
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")
                 return false
@@ -227,6 +228,9 @@ final class AccessibilityAuditTests: XCTestCase {
             // relaunch at AX5, scroll them into view, and assert that each label actually grows.
             if issue.auditType == .dynamicType {
                 if route.hasPrefix("status."), Self.statusText.contains(element.label) { return true }
+                // The cold-launch test below verifies these labels grow and remain fully visible at AX5.
+                if route == "status.paused", element.label == "Resume reading" { return true }
+                if route == "status.tailFiles", element.label == "12 partly read · more meaning search to come" { return true }
                 if route == "home.caughtUp", ["document-name", "document-detail"].contains(element.identifier) { return true }
                 // The taller hero displaces this row during live resizing; testRecentSearchChipsGrowAtTheLargestAccessibilitySize verifies its actual growth.
                 if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
@@ -236,6 +240,29 @@ final class AccessibilityAuditTests: XCTestCase {
             }
             print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
             return false
+        }
+        }
+    }
+
+    func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {
+        for (route, label) in [("status.paused", "Resume reading"), ("status.tailFiles", "12 partly read · more meaning search to come")] {
+            var normal: CGFloat?
+            for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+                let app = XCUIApplication()
+                app.launchArguments = ["-mutedMedia", "-route", route, "-UIPreferredContentSizeCategoryName", category]
+                launch(app)
+                let element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                for _ in 0..<12 {
+                    if element.exists && element.isHittable && app.windows.firstMatch.frame.contains(element.frame) { break }
+                    app.swipeUp()
+                }
+                XCTAssertTrue(element.exists, label)
+                XCTAssertTrue(element.isHittable, label)
+                XCTAssertTrue(app.windows.firstMatch.frame.contains(element.frame), label)
+                if let normal { XCTAssertGreaterThan(element.frame.height, normal, label) }
+                else { normal = element.frame.height }
+                app.terminate()
+            }
         }
     }
 
@@ -296,28 +323,17 @@ final class AccessibilityAuditTests: XCTestCase {
         return viewport.intersects(frame) && (frame.minX < viewport.minX || frame.maxX > viewport.maxX)
     }
 
-    func testKindLegendContrastInBothAppearances() throws {
+    func testLibraryCountsAndStatusContrastInBothAppearances() throws {
         for style in ["light", "dark"] {
             appearance = style
             XCUIDevice.shared.appearance = style == "dark" ? .dark : .light
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp"]
             launch(app)
-            let legend = app.scrollViews["home.library"]
-            XCTAssertTrue(legend.exists)
-            let chips = legend.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "kind-")).allElementsBoundByIndex
-            XCTAssertFalse(chips.isEmpty)
-            for chip in chips {
-                for _ in 0..<(chips.count * 2) {
-                    let viewport = legend.frame
-                    if viewport.insetBy(dx: -1, dy: -1).contains(chip.frame) { break }
-                    let distance = min(max(chip.frame.midX - viewport.midX, -viewport.width / 2), viewport.width / 2)
-                    let start = legend.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                    start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: -distance, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.2)
-                }
-                XCTAssertTrue(legend.frame.insetBy(dx: -1, dy: -1).contains(chip.frame), chip.label)
-                try app.performAccessibilityAudit(for: .contrast) { self.clippedByLegend($0.element, in: app) }
-            }
+            XCTAssertTrue(app.staticTexts["Your files"].exists)
+            XCTAssertTrue(app.staticTexts["3,142 files read"].exists)
+            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "kind-")).firstMatch.exists)
+            try app.performAccessibilityAudit(for: .contrast)
             app.terminate()
         }
     }

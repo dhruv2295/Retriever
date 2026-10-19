@@ -81,6 +81,7 @@ import org.koin.compose.koinInject
 
 @Composable
 fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: SetupFlow = koinInject(), access: AccessService = koinInject()) {
+    val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val ui by flow.ui.collectAsStateWithLifecycle()
     // Set when the user leaves for a permission, so coming back without any can say what to do.
@@ -129,7 +130,7 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
         search = onDone,
         tryNow = flow::tryNow,
         continueToCommit = flow::continueToCommit,
-        commit = flow::commit,
+        commit = { charging -> requestReading { flow.commit(charging) } },
         decideLater = flow::decideLater,
         skip = flow::skip,
     )
@@ -139,7 +140,7 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
     } else {
         SetupContent(ui, filesDenied = askedFiles && !ui.files, folderError = folderError, actions = actions, reading = { read ->
             val index by flow.reading.collectAsStateWithLifecycle()
-            SetupReadingFiles(index.currentFile, index.recentFiles, index.pauseReason, read)
+            SetupReadingFiles(index.currentFile, index.recentFiles, ui.pauseReason, read)
         })
     }
 }

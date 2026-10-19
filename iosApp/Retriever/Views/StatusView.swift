@@ -1,4 +1,5 @@
 import Photos
+import RetrieverCore
 import SwiftUI
 
 /// How reading is going and what couldn't be read. The switches that steer it are in Settings.
@@ -16,7 +17,8 @@ struct StatusView: View {
             screenKeptOn: model.screenKeptOn,
             canKeepReading: model.canKeepReading,
             celebrating: model.caughtUpDue,
-            actions: actions
+            actions: actions,
+            message: model.readingMessage
         )
         .onChange(of: snap.skipped, initial: true) { _, n in
             if n > 0 { model.loadSkipped() }
@@ -31,7 +33,7 @@ struct StatusView: View {
             useMobileData: { model.setUseMobileData(true) },
             chooseMorePhotos: model.chooseMorePhotos,
             openSettings: model.openSettings,
-            keepReading: model.keepReading,
+            keepReading: model.readNow,
             showOnThisDay: model.setShowOnThisDay,
             celebrate: model.celebrate
         )
@@ -61,6 +63,7 @@ struct StatusContent: View {
     /// CAUGHT_UP is due (`AppModel.caughtUpDue`).
     var celebrating = false
     var actions = StatusActions()
+    var message: String?
 
     var body: some View {
         List {
@@ -73,22 +76,13 @@ struct StatusContent: View {
             if snap.skipped > 0 { Section { skipped } }
             if snap.tailFiles > 0 && !snap.textOnly { Section { Note(Copy.deepReading(snap.tailFiles)) } }
             photosSection
-            if snap.setUp == true {
-                Section {
-                    Toggle(isOn: Binding(get: { snap.showOnThisDay }, set: { actions.showOnThisDay($0) })) {
-                        Text("Show On This Day on Home").fixedSize(horizontal: false, vertical: true)
-                    }
-                } footer: {
-                    Text("Photos and videos from this date in earlier years.").foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
-                }
-            }
             Section {
                 NavigationLink("Settings", value: Route.settings)
             } footer: {
                 Text(Copy.backgroundNote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
         }
-        .navigationTitle(Copy.statusTitle(snap))
+        .navigationTitle("Reading status")
     }
 
     @ViewBuilder private var progressSection: some View {
@@ -97,25 +91,28 @@ struct StatusContent: View {
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
-            Text(Copy.searchable(snap))
+            Text(Copy.statusTitle(snap)).font(.title2.bold())
+            if let detail = snap.readingDetail ?? Copy.decision(snap).detail { Note(detail) }
+            Text(Copy.readCount(snap))
                 .font(.headline)
                 .monospacedDigit()
-            ProgressView(value: snap.readProgress.libraryTotal > 0 ? Double(snap.indexed) / Double(snap.readProgress.libraryTotal) : 0)
-                .accessibilityHidden(true)
-            ForEach(detailLines, id: \.self) { Note($0) }
+            Text("\(Copy.count(snap.pending + snap.waiting)) waiting to read")
+            if snap.waiting > 0 { Note("\(Copy.count(snap.pending)) scheduled · \(Copy.count(snap.waiting)) not scheduled") }
+            if snap.nameOnly > 0 { Text("\(Copy.count(snap.nameOnly)) name only") }
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        if snap.running {
+        if (snap.readingActive || Copy.decision(snap).active), snap.reading.current != nil {
             ReadingNow(file: snap.reading.current, size: 56)
             RecentlyRead(files: snap.reading.recent)
         }
         if screenKeptOn { Note(Copy.screenKeptOn) }
         if let error = snap.lastError { Failure(error) }
+        if let message { Failure(message) }
         if snap.paused {
-            Button("Resume", action: actions.resume)
+            Button(action: actions.resume) { Text("Resume reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         } else if snap.readProgress.unfinished {
-            Button("Pause", action: actions.pause)
+            Button(action: actions.pause) { Text("Pause reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         }
         if canKeepReading {
             VStack(alignment: .leading, spacing: 4) {
@@ -125,20 +122,6 @@ struct StatusContent: View {
                 Note(Copy.keepReadingNote)
             }
         }
-    }
-
-    private var detailLines: [String] {
-        if snap.running && !snap.readProgress.unfinished { return ["Looking for your files…"] }
-        if snap.tailFiles > 0 && snap.pending == 0 { return ["\(Copy.count(snap.tailFiles)) files partly read"] }
-        if snap.running {
-            var lines = ["This round: \(Copy.count(snap.processed)) of \(Copy.count(snap.pendingAtStart)) read"]
-            if snap.filesPerMinute >= 1 { lines[0] += " · \(Copy.count(Int(snap.filesPerMinute.rounded()))) files a minute" }
-            if let eta = snap.etaMinutes { lines.append(Copy.eta(eta)) }
-            return lines
-        }
-        // The title already says paused or all caught up.
-        if snap.pending > 0 && !snap.paused, let waiting = Copy.waiting(snap.lastStop) { return [waiting] }
-        return []
     }
 
     @ViewBuilder private var gettingReady: some View {
@@ -170,7 +153,7 @@ struct StatusContent: View {
             }
             Button("Try again", action: actions.retrySkipped)
         } label: {
-            Text(snap.skipped == 1 ? "1 file couldn't be read" : "\(Copy.count(snap.skipped)) files couldn't be read")
+            Text("Couldn’t read \(Copy.count(snap.skipped)) \(snap.skipped == 1 ? "file" : "files")")
         }
     }
 

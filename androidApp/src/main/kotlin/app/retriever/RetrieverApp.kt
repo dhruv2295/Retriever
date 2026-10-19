@@ -61,7 +61,7 @@ class RetrieverApp :
         // First, so building the graph (disk reads) happens here on IO, not on the main thread.
         scope.launch {
             start()
-            // Before setup too: the worker's sync-only batch makes new files searchable by name.
+            // Before setup too: the worker's sync-only batch makes new files findable by name.
             index.watchMedia()
             if (retriever.setUp.value == true) {
                 index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
@@ -93,6 +93,7 @@ class RetrieverApp :
         val now = access.access()
         if (seen != null && seen != now) access.changed()
         seen = now
+        if (!now.ready) scope.launch { retriever.clearUnavailableLibrary() }
         // Warm independently of the trial; leaving cancels even a warm-up waiting for setup or the model lock.
         warmUp?.cancel()
         warmUp = scope.launch {

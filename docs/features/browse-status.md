@@ -1,5 +1,8 @@
 # Browse and Status
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 Two plain screens that answer "what do you have?" and "how far along is reading?".
