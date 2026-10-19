@@ -147,7 +147,7 @@ class EvalRunner : KoinComponent {
 
                 "vision" -> {
                     DebugVision.set(app, q ?: error("vision needs --es q cpu|gpu|policy"))
-                    "Vision override: $q (applies at the next batch boundary; text stays on GPU)"
+                    "Inference override: $q (text and vision; applies at the next batch boundary)"
                 }
 
                 else -> "Unknown run '$name'. Use corpus, scan, latency, query or stats."
@@ -354,7 +354,7 @@ class EvalRunner : KoinComponent {
             val out = StringBuilder("Index stats, ${Build.MODEL}\n")
             val state = retriever.state.value
             out.appendLine(
-                "runtime: ${state.backend}, ${state.detail ?: "all encoders on selected backend"}; vision override: ${DebugVision.backend(app) ?: "policy"}",
+                "runtime: ${state.backend}, ${state.detail ?: "all encoders on selected backend"}; inference override: ${DebugVision.backend(app) ?: "policy"}",
             )
             out.appendLine("kind state files with_taken_at")
             rows("SELECT kind, state, COUNT(*), COUNT(taken_at) FROM files GROUP BY kind, state ORDER BY kind, state", 4).forEach {

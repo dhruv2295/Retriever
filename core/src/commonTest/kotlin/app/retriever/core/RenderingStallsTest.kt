@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -35,12 +36,23 @@ class RenderingStallsTest {
         assertEquals(16.0, gaps.maxGapMs)
     }
 
-    @Test fun onlyStallingForegroundGpuVisionMovesToCpu() {
-        val p = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.GPU, 70, 5, false, false, gpuVisionStalls = true)
-        assertEquals(Backend.CPU, visionBackendFor(p, visible = true))
-        assertEquals(Backend.GPU, visionBackendFor(p, visible = false))
-        assertEquals(Backend.GPU, visionBackendFor(p.copy(gpuVisionStalls = false), visible = true))
-        assertEquals(Backend.CPU, visionBackendFor(p.copy(backend = Backend.CPU), visible = false))
-        assertEquals(Backend.NPU, visionBackendFor(p.copy(backend = Backend.NPU), visible = true))
+    @Test fun stallingForegroundGpuMovesAllInferenceToCpu() {
+        val p = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.GPU, 70, 5, false, false, gpuStallsRendering = true)
+        assertEquals(Backend.CPU, inferenceBackendFor(p, visible = true))
+        assertEquals(Backend.GPU, inferenceBackendFor(p, visible = false))
+        assertEquals(Backend.GPU, inferenceBackendFor(p.copy(gpuStallsRendering = false), visible = true))
+        assertEquals(Backend.CPU, inferenceBackendFor(p.copy(backend = Backend.CPU), visible = false))
+        assertEquals(Backend.NPU, inferenceBackendFor(p.copy(backend = Backend.NPU), visible = true))
+    }
+
+    @Test fun earlierTuneResultsStillProtectRendering() {
+        val saved = """
+            {"tier":"BALANCED","model":"M440","backend":"GPU","visionTokens":70,"videoFrameEverySec":5,
+            "audio":false,"bulkOnlyWhenCharging":false,"gpuVisionStalls":true}
+        """.trimIndent()
+        val profile = Json.decodeFromString<DeviceProfile>(saved)
+        assertTrue(profile.gpuStallsRendering)
+        assertEquals(Backend.CPU, inferenceBackendFor(profile, true))
+        assertEquals(profile, Json.decodeFromString<DeviceProfile>(Json.encodeToString(profile)))
     }
 }

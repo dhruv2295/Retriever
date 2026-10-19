@@ -46,7 +46,7 @@ internal class ModelHost(
 
     /** The shared embedder and its build, opened if needed. Null when not set up. */
     suspend fun open(): Pair<Embedder, ModelBuild>? = lock.withLock {
-        // Native CPU pools are shared with search: create and warm them at normal priority even for an index batch.
+        // The Android factory lowers priority during native creation; warm-up keeps the caller's normal dispatcher.
         withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
     }
 

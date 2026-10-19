@@ -39,7 +39,8 @@ interface EmbedderFactory {
 
     fun profileNow(profile: DeviceProfile, visible: Boolean): DeviceProfile {
         val current = profile.copy(backend = backendNow(profile))
-        return current.copy(visionBackend = visionBackendFor(current, visible))
+        val backend = inferenceBackendFor(current, visible)
+        return current.copy(backend = backend, visionBackend = backend)
     }
 
     /** [build].variant must equal [profile].model. Throws when the model can't load; Swift implements it as `throws`. */

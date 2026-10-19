@@ -20,15 +20,19 @@ class VisionOverrideTest {
     @Test fun overrideSurvivesFactoryRecreationAndProfileWritesUntilPolicyIsRestored() {
         val context = ApplicationProvider.getApplicationContext<Application>()
         fun factory() = MediaPipeEmbedderFactory(context, context.filesDir) { DebugVision.backend(context) }
-        val p = DeviceProfile(Tier.LIGHT, ModelVariant.M440, Backend.GPU, 70, 30, false, true, gpuVisionStalls = true)
+        val p = DeviceProfile(Tier.LIGHT, ModelVariant.M440, Backend.GPU, 70, 30, false, true, gpuStallsRendering = true)
         DebugVision.set(context, "gpu")
-        assertEquals(Backend.GPU, factory().profileNow(p, true).visionBackend)
+        val gpu = factory().profileNow(p, true)
+        assertEquals(Backend.GPU, gpu.backend)
+        assertEquals(Backend.GPU, gpu.visionBackend)
         DebugVision.set(context, "cpu")
         val cpu = factory().profileNow(p.copy(backend = Backend.CPU), false)
-        assertEquals(Backend.GPU, cpu.backend)
+        assertEquals(Backend.CPU, cpu.backend)
         assertEquals(Backend.CPU, cpu.visionBackend)
         DebugVision.set(context, "policy")
+        assertEquals(Backend.CPU, factory().profileNow(p, true).backend)
         assertEquals(Backend.CPU, factory().profileNow(p, true).visionBackend)
+        assertEquals(Backend.GPU, factory().profileNow(p, false).backend)
         assertEquals(Backend.GPU, factory().profileNow(p, false).visionBackend)
     }
 }
