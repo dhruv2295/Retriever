@@ -55,11 +55,11 @@ class IndexEngine(
         val tails = ArrayDeque<Store.TailChunk>()
         while (true) {
             fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
-            if (configurationChanged()) return stop(StopReason.BUDGET)
             if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
             val now = settings()
             val state = monitor.state()
             stopReason(now, state, busy(), requireCharging(state), pauseWhenHot)?.let { return stop(it) }
+            if (configurationChanged()) return stop(StopReason.BUDGET)
             if (files.isEmpty()) files += pendingPage()
             val next = files.removeFirstOrNull()
             if (next != null) {
@@ -82,6 +82,7 @@ class IndexEngine(
         store.setTailAttempts(tail.id, tail.attempts + 1)
         try {
             awaitUi()
+            onCurrent(store.file(tail.fileId))
             store.setChunkVector(tail.id, embedder.embed(listOf(Part.Text(Prefix.document(tail.fileName, tail.text)))))
         } catch (e: InputTooLongException) {
             // Split like add() does, so both halves get a vector instead of the second half being lost.
@@ -95,6 +96,8 @@ class IndexEngine(
             throw e
         } catch (e: Exception) {
             // Counted above; a later pass tries again.
+        } finally {
+            onCurrent(null)
         }
     }
 

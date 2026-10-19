@@ -48,7 +48,7 @@ internal fun LibraryHero(ui: HomeUi, go: (Route) -> Unit, status: @Composable ()
         Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Your library", style = MaterialTheme.typography.titleMedium)
-                Text("${Format.count(ui.searchable)} searchable of ${Format.count(total)}", style = MaterialTheme.typography.headlineSmall.tabular())
+                Text(Format.searchable(ui.searchable, total), style = MaterialTheme.typography.headlineSmall.tabular())
             }
             Canvas(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(16.dp).clip(MaterialTheme.shapes.small)) {
                 val kinds = libraryKinds.filter { (counts[it] ?: 0) > 0 }

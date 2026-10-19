@@ -58,7 +58,7 @@ func quickLookFiles(_ file: SourceFile, among: [SourceFile]) -> [SourceFile] {
 func highlightWords(snippet: String?, query: String?) -> [String] {
     let marked = Format.markedWords(snippet)
     if !marked.isEmpty { return marked }
-    return query.map { Store.Companion.shared.ftsTokens(s: $0) } ?? []
+    return query.map { HighlightKt.highlightTerms(query: $0) } ?? []
 }
 
 @MainActor @ViewBuilder func viewer(_ v: Viewing) -> some View {

@@ -2,14 +2,13 @@ package app.retriever.core
 
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.coroutines.asFlow
-import app.cash.sqldelight.coroutines.mapToList
-import app.cash.sqldelight.coroutines.mapToOne
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.json.Json
 
 enum class FileState { PENDING, INDEXED, SKIPPED }
@@ -43,13 +42,22 @@ class Store(
     private val restored = lazy { restoreUserState() }
 
     /** [partial]: the extractor stopped at a cap, so only the first part of the file is searchable. */
-    data class StoredFile(val id: Long, val file: SourceFile, val attempts: Int, val state: FileState = FileState.PENDING, val partial: Boolean = false)
+    data class StoredFile(
+        val id: Long,
+        val file: SourceFile,
+        val attempts: Int,
+        val state: FileState = FileState.PENDING,
+        val partial: Boolean = false,
+        val extent: ReadExtent? = null,
+    ) {
+        val searchable: Boolean get() = state == FileState.INDEXED
+    }
     enum class Sort { NEWEST, LARGEST, NAME }
 
     /** A null [vector] is a text tail chunk: keyword-searchable at once, embedded later by the deepen pass. */
     data class NewChunk(val ordinal: Int, val locator: String, val text: String?, val vector: Vector?, val contentText: String? = text)
     data class ChunkRow(val id: Long, val fileId: Long, val ordinal: Int, val locator: String, val text: String?)
-    data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0)
+    data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0, val fileId: Long = 0)
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
     data class KeywordHit(val chunkId: Long, val snippet: String?)
 
@@ -63,7 +71,16 @@ class Store(
         /** Pending files outside the first run's plan, left out of [byState] and [byKindState]; set by Retriever.counts. */
         val waiting: Long = 0,
         val trial: Boolean = false,
-    )
+    ) {
+        val progress: ReadingProgress get() = ReadingProgress(
+            searchable = byState[FileState.INDEXED] ?: 0,
+            pending = byState[FileState.PENDING] ?: 0,
+            skipped = byState[FileState.SKIPPED] ?: 0,
+            partlyRead = tailFiles,
+            waiting = waiting,
+            trial = trial,
+        )
+    }
 
     internal fun <R> inTransaction(body: () -> R): R {
         // restoreUserState writes under the lazy's lock; taking it inside this transaction could deadlock against it.
@@ -255,12 +272,12 @@ class Store(
 
     /** Text chunks still waiting for a vector, in queue priority order. */
     fun tailChunks(limit: Int): List<TailChunk> =
-        q.tailChunks(limit.toLong()) { id, _, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt()) }
+        q.tailChunks(limit.toLong()) { id, fileId, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt(), fileId) }
             .executeAsList()
 
     /** [tailChunks] of [fileIds] only, oldest chunk first. */
     fun tailChunksIn(fileIds: Collection<Long>): List<TailChunk> = inChunks(fileIds) { ids ->
-        q.tailChunksIn(ids) { id, _, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt()) }.executeAsList()
+        q.tailChunksIn(ids) { id, fileId, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt(), fileId) }.executeAsList()
     }
 
     fun setTailAttempts(id: Long, attempts: Int) {
@@ -278,6 +295,13 @@ class Store(
             q.deleteFts(id)
             q.deleteChunk(id)
         }
+    }
+
+    fun textPreview(file: SourceFile): String? = q.textPreview(file.uri, file.modifiedAt, file.size).executeAsOneOrNull()?.preview
+
+    internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
+        val counts = inChunks(ids) { listOf(q.tailCountsIn(it) { chunks, files -> chunks to files }.executeAsOne()) }
+        return counts.sumOf { it.first } to counts.sumOf { it.second }
     }
 
     fun tailChunkCount(): Long = q.tailChunkCount().executeAsOne()
@@ -452,19 +476,29 @@ class Store(
     fun pendingByKind(): Map<Kind, Long> = q.countByKindState { kind, state, count -> Triple(Kind.valueOf(kind), state, count) }.executeAsList()
         .filter { it.second == FileState.PENDING }.associate { it.first to it.third }
 
-    /** Re-emits whenever files or chunks change; one scan of files per change. */
-    fun counts(): Flow<Counts> = combine(
-        q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.asFlow().mapToList(dispatchers.default),
-        q.tailChunkCount().asFlow().mapToOne(dispatchers.default),
-        q.tailFileCount().asFlow().mapToOne(dispatchers.default),
-    ) { rows, tail, tailFiles ->
-        val byKindState = rows.toMap()
+    /** One transaction per invalidation: heads and tails cannot come from different revisions. */
+    fun counts(): Flow<Counts> = combine(q.countByKindState().asFlow(), q.tailChunkCount().asFlow()) { _, _ ->
+        countsNow()
+    }.flowOn(dispatchers.default)
+
+    internal fun countsNow(ids: Collection<Long>? = null, includeTails: Boolean = true): Counts = inTransaction {
+        val all = q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.executeAsList().toMap()
+        val pending = ids?.let { pendingIn(it).groupingBy { file -> file.file.kind }.eachCount() }
+        val rows = if (pending == null) {
+            all
+        } else {
+            all.filterKeys { it.second != FileState.PENDING } +
+                Kind.entries.associate { (it to FileState.PENDING) to (pending[it]?.toLong() ?: 0L) }
+        }
+        val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
         Counts(
-            byState = byKindState.entries.groupingBy { it.key.second }.fold(0L) { n, e -> n + e.value },
-            byKind = byKindState.entries.groupingBy { it.key.first }.fold(0L) { n, e -> n + e.value },
-            tailChunks = tail,
-            tailFiles = tailFiles,
-            byKindState = byKindState,
+            byState = rows.entries.groupingBy { it.key.second }.fold(0L) { n, e -> n + e.value },
+            byKind = all.entries.groupingBy { it.key.first }.fold(0L) { n, e -> n + e.value },
+            tailChunks = if (!includeTails) 0 else tails?.first ?: q.tailChunkCount().executeAsOne(),
+            tailFiles = if (!includeTails) 0 else tails?.second ?: q.tailFileCount().executeAsOne(),
+            byKindState = rows,
+            waiting = if (pending == null) 0 else all.filterKeys { it.second == FileState.PENDING }.values.sum() - pending.values.sum(),
+            trial = ids != null,
         )
     }
 

@@ -19,7 +19,6 @@ package app.retriever.setup
 
 import android.Manifest
 import android.os.Build
-import android.text.format.Formatter
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -75,6 +74,7 @@ import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
+import app.retriever.ui.Format
 import app.retriever.ui.components.ReadingNow
 import app.retriever.ui.components.ReadyFiles
 import org.koin.compose.koinInject
@@ -155,7 +155,7 @@ fun SetupContent(
     reading: @Composable (Int) -> Unit = { read -> SetupReadingFiles(null, emptyList(), ui.pauseReason, read) },
 ) {
     val context = LocalContext.current
-    val size = ui.build?.sizeBytes?.takeIf { it > 0 }?.let { Formatter.formatShortFileSize(context, it) }
+    val size = ui.build?.sizeBytes?.takeIf { it > 0 }?.let { Format.downloadSize(context, it) }
     val stage = ui.stage
     val mascotWidth by animateDpAsState(if (stage == SetupStage.WELCOME) 260.dp else 160.dp, spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS))
     Scaffold(modifier.fillMaxSize().safeDrawingPadding(), bottomBar = {

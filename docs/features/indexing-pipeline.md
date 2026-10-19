@@ -29,7 +29,7 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
 - **Attempts are counted before the work.** A file or a tail chunk is charged an attempt first and given it back on
   `CancellationException`, so a process death cannot crash-loop on one file and a stop never charges a file.
 - **Long files deepen.** The head of a long file is embedded first; later parts (tail chunks) read when nothing is pending
-  and the app is visible, or the phone is charging with the screen off.
+  and the app is visible, or the phone is charging with the screen off. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
 - **Idle batches do not open the model.** `runBatch` checks for no pending files, no tail work and a matching signature
   and returns DONE before `ModelHost.open`.
 - **ETA.** `Eta` and `SpeedBook` (Estimate.kt) record time per unit per kind, persisted in store meta, and `readEstimate`
@@ -42,7 +42,7 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   estimate above 1.5 times the budget is trimmed back to the budget, dropping videos then costliest files, retaining
   completed work and at least one pending file until a planned file has been read. If no file fits the initial
   plan, it includes the single cheapest eligible file; only no eligible files produces an empty plan. SAMPLE reads one pending file per page so a trim takes effect before the next file.
-- **Reading state.** `IndexState.currentFile` is set before extraction and cleared on exit. `recentFiles` contains the
+- **Reading state.** `IndexState.currentFile` is set before extraction or tail embedding and cleared on exit. The head-only ETA is cleared when deepening begins. `recentFiles` contains the
   newest 24 successful INDEXED files, preserved across batches and filtered against surviving rows after removal
   or folder exclusion. A fresh process restores them from reversed plan
   order intersected with INDEXED. Both are carried by the existing StateFlow and iOS `observeAll` snapshot;

@@ -270,7 +270,8 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", category]
             launch(app)
             for id in ["document-name", "document-detail"] {
-                let element = app.staticTexts[id].firstMatch
+                // SwiftUI may expose this labelled text as Other at accessibility sizes.
+                let element = app.descendants(matching: .any)[id].firstMatch
                 for _ in 0..<12 {
                     if element.exists && element.isHittable { break }
                     app.swipeUp()

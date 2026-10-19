@@ -78,11 +78,36 @@ final class CopyTests: XCTestCase {
 
     func testStatusTitle() {
         typealias Snap = AppModel.Snap
-        XCTAssertEqual(Copy.statusTitle(Snap(running: true, pendingAtStart: 0)), "Looking for your files")
+        XCTAssertEqual(Copy.statusTitle(Snap(running: true, pendingAtStart: 0)), "Up to date · Looking for new files…")
         XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, running: true, pendingAtStart: 4)), "Reading your files")
         XCTAssertEqual(Copy.statusTitle(Snap(pending: 4, paused: true)), "Paused")
-        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4)), "Reading your files")
+        XCTAssertEqual(Copy.statusTitle(Snap(pending: 4)), "Waiting to read")
         XCTAssertEqual(Copy.statusTitle(Snap(indexed: 4)), "All caught up")
+    }
+
+    func testHomeAndStatusUseTheSameCoreCountsWithTrialTails() {
+        let counts = Store.Counts(
+            byState: [FileState.indexed: KotlinLong(value: 58)], byKind: [Kind.doc: KotlinLong(value: 26_230)], tailChunks: 100, tailFiles: 24,
+            byKindState: [:], waiting: 26_172, trial: true)
+        let progress = counts.progress
+        var snap = AppModel.Snap(setUp: true, indexed: Int(progress.searchable), trial: true, waiting: Int(progress.waiting), tailFiles: Int(progress.partlyRead))
+        XCTAssertEqual(Copy.searchable(snap), "58 searchable of 26,230")
+        for running in [false, true] {
+            snap.running = running
+            XCTAssertEqual(Copy.statusTitle(snap), "Trial in progress")
+            XCTAssertEqual(Copy.homeStatus(snap)?.title, "Finishing your trial · 24 files partly read")
+            XCTAssertFalse(snap.isCaughtUp)
+        }
+        snap.tailFiles = 0
+        XCTAssertEqual(Copy.statusTitle(snap), Copy.homeStatus(snap)?.title)
+    }
+
+    func testModelSizeUsesNonAdaptiveDownloadFormatter() {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.isAdaptive = false
+        XCTAssertEqual(Copy.downloadSize(484_600_000), formatter.string(fromByteCount: 484_600_000))
+        XCTAssertEqual(Copy.downloadSize(484_600_000), "485 MB")
     }
 
     func testHomeStatusWhileGettingReadyNamesTheStep() {

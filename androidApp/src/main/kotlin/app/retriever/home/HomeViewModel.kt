@@ -10,7 +10,9 @@ import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ReadEstimate
+import app.retriever.core.ReadingProgress
 import app.retriever.core.Retriever
+import app.retriever.core.Store
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
 import app.retriever.ui.Format
@@ -41,6 +43,8 @@ data class HomeUi(
     /** null until the store has answered. */
     val counts: Map<Kind, Long>? = null,
     val searchable: Long = 0L,
+    val partlyRead: Long = 0L,
+    val skipped: Long = 0L,
     val readByKind: Map<Kind, Long> = emptyMap(),
     val caughtUpDismissed: Boolean = false,
     val waiting: Long = 0L,
@@ -67,6 +71,20 @@ data class HomeUi(
     /** The person can hide On this day, here or in Status. */
     val showOnThisDay: Boolean = true,
 ) {
+    val progress: ReadingProgress get() = ReadingProgress(searchable, waiting, skipped, partlyRead, rest, trial)
+
+    fun withCounts(c: Store.Counts): HomeUi = copy(
+        counts = c.byKind,
+        readByKind = c.byKindState.filterKeys { it.second == FileState.INDEXED }.mapKeys { it.key.first },
+        searchable = c.progress.searchable,
+        partlyRead = c.progress.partlyRead,
+        skipped = c.progress.skipped,
+        waiting = c.progress.pending,
+        rest = c.waiting,
+        trial = c.trial,
+        pending = c.byKindState.filterKeys { it.second == FileState.PENDING }.mapKeys { it.key.first },
+    )
+
     val trialTitle: String? get() = if (trial && waiting > 0) "Finishing your trial · ${Format.count(waiting)} files left" else null
 
     /**
@@ -147,17 +165,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
         viewModelScope.launch {
             counts.collect { c ->
-                _ui.update {
-                    it.copy(
-                        counts = c.byKind,
-                        readByKind = c.byKindState.filterKeys { k -> k.second == FileState.INDEXED }.mapKeys { e -> e.key.first },
-                        searchable = c.byState[FileState.INDEXED] ?: 0L,
-                        waiting = c.byState[FileState.PENDING] ?: 0L,
-                        rest = c.waiting,
-                        trial = c.trial,
-                        pending = c.byKindState.filterKeys { k -> k.second == FileState.PENDING }.mapKeys { e -> e.key.first },
-                    )
-                }
+                _ui.update { it.withCounts(c) }
             }
         }
         viewModelScope.launch {

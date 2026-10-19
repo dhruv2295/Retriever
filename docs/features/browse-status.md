@@ -7,7 +7,7 @@ Two plain screens that answer "what do you have?" and "how far along is reading?
 - **Browse** is one list route for every way into a set of files: a kind (Photos, Videos, Documents, Audio, Other), a
   folder, the largest files, the Starred list, or the photos and videos of one day (an On this day card). It sorts and
   pages, and every row opens the app's own viewer.
-- **Status** shows reading progress and what Retriever can see: counts of searchable, waiting and skipped files, pause
+- **Status** shares `ReadingProgress` and its phase with Home: a read head is searchable, pending tails are partly read, and both display the same whole-library total. Counts are read in one transaction, including trial scope. Browse uses core read extents. Status shows reading progress and what Retriever can see: counts of searchable, waiting and skipped files, pause
   and resume, the access it has (files, media, picked folders) with ways to add or remove, files it could not read with
   a retry, and the On this day switch.
 

@@ -17,7 +17,9 @@
 
 package app.retriever.ui
 
+import android.content.Context
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.compose.ui.text.TextStyle
 import app.retriever.access.Photos
 import app.retriever.core.ESTIMATE_CALIBRATED
@@ -34,6 +36,8 @@ import kotlin.math.ln
 import kotlin.math.pow
 
 object Format {
+    fun downloadSize(context: Context, bytes: Long): String = Formatter.formatShortFileSize(context, bytes)
+
     fun bytes(n: Long): String {
         if (n < 1000) return "$n B"
         val exp = (ln(n.toDouble()) / ln(1000.0)).toInt()
@@ -81,6 +85,8 @@ object Format {
             .map { (n, unit) -> "$n $unit${if (n == 1L) "" else "s"}" }
         return parts.joinToString(" ").ifEmpty { "0 seconds" }
     }
+
+    fun searchable(read: Long, total: Long): String = "${count(read)} searchable of ${count(total)}"
 
     fun count(n: Long): String = NumberFormat.getIntegerInstance().format(n)
 

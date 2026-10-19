@@ -39,10 +39,15 @@ enum Copy {
         stop == StopReason.done ? "Will read the new files soon" : self.stop(stop)
     }
 
+    static func searchable(_ s: AppModel.Snap) -> String {
+        "\(count(s.indexed)) searchable of \(count(Int(s.readProgress.libraryTotal)))"
+    }
+
     static func statusTitle(_ s: AppModel.Snap) -> String {
-        if s.running && s.pendingAtStart == 0 { return "Looking for your files" }
-        if s.paused { return "Paused" }
-        return s.pending > 0 ? "Reading your files" : "All caught up"
+        let phase = s.readProgress.phase(paused: s.paused, running: s.running)
+        if phase == .waiting { return waiting(s.lastStop) ?? phase.title }
+        if phase == .caughtUp && s.caughtUpDismissed { return "Ready to search" }
+        return phase.title
     }
 
     /// What Home's first row says; nil while the counts load, and while there are no files, when Home says it in one
@@ -61,23 +66,27 @@ enum Copy {
                 }
             return HomeStatus(phase: .settingUp, title: "\(step). For now Retriever finds files by name.")
         }
-        if s.trial && s.pending > 0 {
+        let phase = s.readProgress.phase(paused: s.paused, running: s.running)
+        if s.trial && s.readProgress.unfinished {
             return HomeStatus(
                 phase: s.paused ? .paused : (s.running ? .reading : .waiting),
-                title: "\(s.paused ? "Trial paused" : "Finishing your trial") · \(count(s.pending)) files left",
+                title: "\(s.paused ? "Trial paused" : "Finishing your trial") · \(s.pending > 0 ? "\(count(s.pending)) files left" : "\(count(s.tailFiles)) files partly read")",
                 detail: stop(s.lastStop).flatMap { s.lastStop == StopReason.done ? nil : $0 } ?? readSoFar)
         }
-        if s.trial && s.pending == 0 && s.waiting > 0 {
+        if phase == .trialReady {
             return HomeStatus(phase: .waiting, title: "Trial ready · Choose when to read the rest")
         }
-        if s.running && s.pendingAtStart == 0 { return HomeStatus(phase: .looking, title: "Up to date · Looking for new files…") }
-        if s.running {
+        if phase == .looking { return HomeStatus(phase: .looking, title: "Up to date · Looking for new files…") }
+        if phase == .deepening {
+            return HomeStatus(phase: .reading, title: phase.title, detail: "\(count(s.tailFiles)) files partly read")
+        }
+        if phase == .reading {
             return HomeStatus(
                 phase: .reading, title: "Reading your files · \(of)", detail: s.etaMinutes.map(eta),
                 progress: s.total > 0 ? Double(s.indexed) / Double(s.total) : 0)
         }
-        if s.paused { return HomeStatus(phase: .paused, title: "Paused · \(count(s.indexed)) of \(count(s.total)) searchable", detail: readSoFar) }
-        if s.pending > 0 {
+        if phase == .paused { return HomeStatus(phase: .paused, title: "Paused · \(count(s.indexed)) of \(count(s.total)) searchable", detail: readSoFar) }
+        if phase == .waiting {
             return HomeStatus(phase: .waiting, title: "\(waiting(s.lastStop) ?? "Waiting") · \(of) searchable", detail: readSoFar)
         }
         return HomeStatus(

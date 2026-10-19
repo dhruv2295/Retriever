@@ -208,8 +208,8 @@ class FacadeW5Test {
         f.store.upsertFiles(listOf(testFile("one.txt"), testFile("two.txt")))
         val ids = f.store.pending(2).map { it.id }
         f.store.replaceChunks(ids[0], listOf(Store.NewChunk(0, "", "orchard cedar jasmine marigold", null)))
-        f.store.replaceChunks(ids[1], listOf(Store.NewChunk(0, "", "telescope nebula galaxy comet", null)))
-        assertEquals(setOf("orchard", "cedar", "jasmine", "marigold"), f.r.suggestions(setOf(ids[0])).toSet())
+        f.store.replaceChunks(ids[1], listOf(Store.NewChunk(0, "", "orchard cedar jasmine marigold", null)))
+        assertTrue(f.r.suggestions(setOf(ids[0])).isEmpty(), "terms must recur in two selected files")
         assertEquals(6, f.r.suggestions().size)
         assertTrue(f.r.suggestions(emptySet()).isEmpty())
         assertEquals(1, f.r.readFiles(setOf(ids[0])).size)

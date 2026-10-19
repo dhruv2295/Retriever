@@ -34,10 +34,10 @@ parts are deliberately switched off.
 
 ### What is switched off, and what turns it on
 
-- **Content-derived suggestions.** `Retriever.suggestions(fileIds)` computes four to six TF-IDF terms from read files'
-  `content_text`, against the whole read set. Standard English/Hindi stopwords, numbers and short tokens are excluded.
+- **Content-derived suggestions.** `Retriever.suggestions(fileIds)` computes three to six TF-IDF terms or recurring two-word phrases from read files'
+  `content_text`, against the whole read set. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
   With too little text, try-it offers kind filters. The same shared method feeds Home; no fixed phrases are used.
-  `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer.
+  `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer; document tiles show the filename and first extracted content lines through the shared thumbnail path.
 - **Layout.** Four weighted square cells per row on Android (spacers complete the last row), four flexible columns on
   iOS. URI keys preserve arrival animations. Kind pills wrap, and the ready action stays in the bottom inset.
 - **No hours estimate.** `ESTIMATE_CALIBRATED = false` in `Estimate.kt`. While false, `Format` and Home show the fallback

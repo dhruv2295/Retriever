@@ -61,9 +61,10 @@ import app.retriever.access.Access
 import app.retriever.access.Fix
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
-import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPhase
+import app.retriever.core.ReadingProgress
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
@@ -193,10 +194,12 @@ fun StatusContent(
     error: String? = null,
     celebration: Celebration = Celebration(),
 ) {
-    val searchable = counts?.byState?.get(FileState.INDEXED) ?: 0
-    val waiting = counts?.byState?.get(FileState.PENDING) ?: 0
-    val skipped = counts?.byState?.get(FileState.SKIPPED) ?: 0
-    val total = searchable + waiting + skipped
+    val progress = counts?.progress
+    val searchable = progress?.searchable ?: 0
+    val waiting = progress?.pending ?: 0
+    val skipped = progress?.skipped ?: 0
+    val total = progress?.libraryTotal ?: 0
+    val unfinished = progress?.unfinished == true
 
     Scaffold(
         modifier = modifier,
@@ -204,13 +207,7 @@ fun StatusContent(
             TopAppBar(
                 title = {
                     Text(
-                        when {
-                            counts == null -> "Checking your files"
-                            index.running && index.pendingAtStart == 0L -> "Looking for your files"
-                            prefs.paused -> "Paused"
-                            waiting > 0 -> "Reading your files"
-                            else -> "All caught up"
-                        },
+                        progress?.let { readingTitle(it, prefs.paused, index, prefs.caughtUpDismissed) } ?: "Checking your files",
                     )
                 },
                 navigationIcon = {
@@ -230,16 +227,16 @@ fun StatusContent(
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // The short read being done is not the first full read: counts.waiting is the part nobody chose yet.
-                    val celebrating = rememberCelebrating(waiting == 0L && counts.waiting == 0L && !prefs.paused && !index.running, celebration)
+                    val celebrating = rememberCelebrating(!unfinished && counts.waiting == 0L && !prefs.paused && !index.running, celebration)
                     val mood = when {
                         index.running -> MascotMood.WALKING
                         celebrating -> MascotMood.CAUGHT_UP
-                        waiting > 0 -> MascotMood.RESTING
+                        unfinished -> MascotMood.RESTING
                         else -> null
                     }
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
                     Text(
-                        "${Format.count(searchable)} of ${Format.count(total)} files searchable",
+                        Format.searchable(searchable, total),
                         style = MaterialTheme.typography.titleMedium.tabular(),
                     )
                     LinearProgressIndicator(
@@ -247,14 +244,14 @@ fun StatusContent(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     when {
-                        index.running && index.pendingAtStart == 0L -> Muted("Looking for your files…")
+                        index.running && !unfinished -> Muted("Looking for your files…")
 
                         index.running -> {
-                            index.etaMinutes?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
+                            index.etaMinutes?.takeIf { waiting > 0 }?.let { Muted(Format.eta(it).replaceFirstChar(Char::uppercase)) }
                         }
 
                         // The title already says paused or all caught up.
-                        waiting > 0 && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
+                        unfinished && !prefs.paused -> waitingCopy(index.lastStop)?.let { Muted(it) }
                     }
                     if (index.running) {
                         ReadingNow(index.currentFile, size = 56.dp)
@@ -268,7 +265,7 @@ fun StatusContent(
                     }
                     when {
                         prefs.paused -> Button(onClick = actions.resume) { Text("Resume") }
-                        waiting > 0 -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
+                        unfinished -> OutlinedButton(onClick = actions.pause) { Text("Pause") }
                     }
                 }
 
@@ -404,4 +401,14 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
         )
     }
     Button(onClick = actions.allowAllFiles, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Allow access to all files") }
+}
+
+/** Both screens display this title from core's phase, with the platform's reason for waiting. */
+internal fun readingTitle(progress: ReadingProgress, paused: Boolean, index: IndexState, dismissed: Boolean): String {
+    val phase = progress.phase(paused, index.running)
+    return when (phase) {
+        ReadingPhase.WAITING -> waitingCopy(index.lastStop) ?: phase.title
+        ReadingPhase.CAUGHT_UP -> if (dismissed) "Ready to search" else phase.title
+        else -> phase.title
+    }
 }

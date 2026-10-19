@@ -93,14 +93,14 @@ struct StatusContent: View {
 
     @ViewBuilder private var progressSection: some View {
         // Walking while reading runs, resting while it waits or is paused; CAUGHT_UP once, the first time all is read.
-        StatusDog(mood: snap.running ? .walking : snap.pending > 0 ? .resting : nil, due: celebrating, done: actions.celebrate)
+        StatusDog(mood: snap.running ? .walking : snap.readProgress.unfinished ? .resting : nil, due: celebrating, done: actions.celebrate)
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
-            Text("\(Copy.count(snap.indexed)) of \(Copy.count(snap.total)) files searchable")
+            Text(Copy.searchable(snap))
                 .font(.headline)
                 .monospacedDigit()
-            ProgressView(value: snap.total > 0 ? Double(snap.indexed) / Double(snap.total) : 0)
+            ProgressView(value: snap.readProgress.libraryTotal > 0 ? Double(snap.indexed) / Double(snap.readProgress.libraryTotal) : 0)
                 .accessibilityHidden(true)
             ForEach(detailLines, id: \.self) { Note($0) }
         }
@@ -114,7 +114,7 @@ struct StatusContent: View {
         if let error = snap.lastError { Failure(error) }
         if snap.paused {
             Button("Resume", action: actions.resume)
-        } else if snap.pending > 0 {
+        } else if snap.readProgress.unfinished {
             Button("Pause", action: actions.pause)
         }
         if canKeepReading {
@@ -128,7 +128,8 @@ struct StatusContent: View {
     }
 
     private var detailLines: [String] {
-        if snap.running && snap.pendingAtStart == 0 { return ["Looking for your files…"] }
+        if snap.running && !snap.readProgress.unfinished { return ["Looking for your files…"] }
+        if snap.tailFiles > 0 && snap.pending == 0 { return ["\(Copy.count(snap.tailFiles)) files partly read"] }
         if snap.running {
             var lines = ["This round: \(Copy.count(snap.processed)) of \(Copy.count(snap.pendingAtStart)) read"]
             if snap.filesPerMinute >= 1 { lines[0] += " · \(Copy.count(Int(snap.filesPerMinute.rounded()))) files a minute" }

@@ -304,7 +304,7 @@ fun SettingsContent(
             onDismissRequest = actions.dismissFreeUpSpace,
             title = { Text("Remove the search model?") },
             text = {
-                val size = ui.build?.let { " (about ${Format.bytes(it.sizeBytes)})" }.orEmpty()
+                val size = ui.build?.let { " (about ${Format.downloadSize(LocalContext.current, it.sizeBytes)})" }.orEmpty()
                 Text("Searching by meaning and by what is in photos stops until the model downloads again$size, while names and words keep working.")
             },
             confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text("Remove") } },
@@ -341,9 +341,9 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
 private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
     ValueRow("Search index", ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…")
     if (ui.textOnly) return
-    ValueRow("Search model", ui.storage?.let { if (it.modelBytes > 0) Format.bytes(it.modelBytes) else "Not downloaded" } ?: "…")
+    ValueRow("Search model", ui.storage?.let { if (it.modelBytes > 0) Format.downloadSize(LocalContext.current, it.modelBytes) else "Not downloaded" } ?: "…")
     ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ValueRow("Temporary files", Format.bytes(it)) }
-    val sizeNote = ui.build?.let { "About ${Format.bytes(it.sizeBytes)}. " }.orEmpty()
+    val sizeNote = ui.build?.let { "About ${Format.downloadSize(LocalContext.current, it.sizeBytes)}. " }.orEmpty()
     when (val d = ui.download) {
         is ModelState.Downloading, ModelState.WaitingForWifi, ModelState.Checking -> {
             ListItem(

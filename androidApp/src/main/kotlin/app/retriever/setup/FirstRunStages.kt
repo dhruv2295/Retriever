@@ -17,7 +17,6 @@
 
 package app.retriever.setup
 
-import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -59,6 +58,7 @@ import app.retriever.core.TasteProgress
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.status.textOnlyNote
+import app.retriever.ui.Format
 import app.retriever.ui.components.Muted
 import app.retriever.ui.tabular
 import java.text.NumberFormat
@@ -315,7 +315,7 @@ private fun DownloadProgress(state: ModelState.Downloading, totalBytes: Long?, o
         if (total != null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "${Formatter.formatShortFileSize(context, (progress * total).toLong())} of ${Formatter.formatShortFileSize(context, total)}",
+                    "${Format.downloadSize(context, (progress * total).toLong())} of ${Format.downloadSize(context, total)}",
                     style = MaterialTheme.typography.bodyMedium.tabular(),
                     modifier = Modifier.weight(1f),
                 )

@@ -111,7 +111,8 @@ private val NAME_MATCH = SpanStyle(fontWeight = FontWeight.Bold)
  */
 fun coverageNote(file: Store.StoredFile): String? = when {
     file.state == FileState.SKIPPED -> "Couldn't be read"
-    file.state == FileState.PENDING || file.file.kind == Kind.OTHER -> "Found by name only"
+    !file.searchable || file.file.kind == Kind.OTHER -> "Found by name only"
+    file.extent != null -> Format.readNote(file.extent)
     file.partial -> Format.readNote(ReadExtent.FIRST_PART)
     else -> null
 }
@@ -188,10 +189,10 @@ fun FileRow(
 }
 
 @Composable
-fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "") {
+fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "", preview: suspend (SourceFile) -> String? = ::loadTextPreview) {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { size.roundToPx() }
-    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, px, locator) {
+    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, file.size, px, locator) {
         value = Thumbnails.load(context, file, px, locator)
     }
     Box(
@@ -201,6 +202,8 @@ fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: St
         val shown = bitmap
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
+        } else if (file.kind == Kind.DOC || file.kind == Kind.OTHER) {
+            TextThumbnail(file, preview)
         } else {
             Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -219,7 +222,6 @@ fun ThumbCell(
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null,
 ) {
-    val context = LocalContext.current
     val description = buildString {
         append("${Format.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
         Format.locatorSpoken(locator)?.let { append(if (Locator.pageOf(locator) != null) ", $it" else ", at $it") }
@@ -240,21 +242,7 @@ fun ThumbCell(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        val px = with(LocalDensity.current) { maxWidth.roundToPx() }
-        val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, px, locator) {
-            value = Thumbnails.load(context, file, px, locator)
-        }
-        val shown = bitmap
-        if (shown != null) {
-            Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        } else {
-            Icon(
-                painterResource(kindIcon(file.kind)),
-                contentDescription = null,
-                modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Thumb(file, maxWidth, Modifier.fillMaxSize(), locator)
         if (badge != null) {
             Row(
                 Modifier

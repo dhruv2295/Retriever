@@ -72,6 +72,39 @@ class TasteScopeTest {
     }
 
     @Test
+    fun foregroundTrialResumesWithOnlyTailsAfterABatchBoundary() = test {
+        val store = newStore(sig).also { it.setProfile(PROFILE) }
+        val planned = docs.first()
+        val outside = docs.last()
+        store.upsertFiles(listOf(planned, outside))
+        val id = store.fileByUri(planned.uri)!!.id
+        store.setTaste(listOf(id))
+        store.replaceChunks(id, listOf(Store.NewChunk(1, "", "Later content", null)))
+        val factory = FakeFactory()
+        val r = testRetriever(
+            store,
+            listOf(planned, outside),
+            FakeExtractor(),
+            factory = factory,
+            monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE, screenOn = true)),
+        ).apply { uiVisible = true }
+        r.refreshSetUp()
+        assertTrue(r.hasPendingTaste(), "a searchable head does not finish the trial's work")
+        assertEquals(NextRun.SOON, r.indexBatch(0.seconds))
+        assertTrue(r.hasPendingTaste(), "the next foreground batch must resume tails")
+        var sawReadingFile = false
+        factory.beforeEmbed = { if (r.state.value.currentFile == planned) sawReadingFile = true }
+        // The continued-reading caller's heads-only preference must not strand an undecided foreground trial.
+        assertEquals(NextRun.DONE, r.indexBatch(120.seconds, deepen = false))
+        assertTrue(sawReadingFile, "deepening reports its own file to Reading now")
+        assertFalse(r.hasPendingTaste())
+        assertTrue(store.tailChunksIn(listOf(id)).isEmpty())
+        assertEquals(FileState.PENDING, store.fileByUri(outside.uri)!!.state)
+        assertEquals(1L, r.counts().first().progress.searchable)
+        r.release()
+    }
+
+    @Test
     fun pendingCountsPerKindIncludeOnlyTheRemainingPlan() = test {
         val store = newStore(sig)
         val r = testRetriever(store, files, FakeExtractor())

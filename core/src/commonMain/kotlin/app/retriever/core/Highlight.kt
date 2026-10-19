@@ -9,8 +9,8 @@ private val NAME_WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
 fun nameMatchRanges(name: String, query: String): List<IntRange> {
     val tokens = Store.ftsTokens(query)
     if (tokens.isEmpty()) return emptyList()
-    val words = tokens.toSet()
-    val prefix = tokens.last().takeIf { it.length >= 3 }
+    val words = highlightTerms(query).toSet()
+    val prefix = tokens.last().takeIf { it.length >= 3 && it in words }
     return NAME_WORD.findAll(name).filter { m ->
         val w = m.value.lowercase()
         w in words || (prefix != null && w.startsWith(prefix))
@@ -18,8 +18,15 @@ fun nameMatchRanges(name: String, query: String): List<IntRange> {
 }
 
 /** Unicode letters and combining marks stay together; a query never marks an interior fragment. */
-internal fun wordMatchRanges(text: String, words: List<String>): List<IntRange> = NAME_WORD.findAll(text)
-    .filter { match ->
-        val token = foldLatin(match.value)
-        words.any { word -> token == word || (word.length >= 3 && token.startsWith(word)) }
-    }.map { it.range }.toList()
+fun highlightTerms(query: String): List<String> = highlightable(Store.ftsTokens(query))
+
+private fun highlightable(words: List<String>): List<String> = if (words.size == 1) words else words.filter { it.length > 2 && it !in suggestionStopwords }
+
+internal fun wordMatchRanges(text: String, words: List<String>): List<IntRange> {
+    val meaningful = highlightable(words)
+    return NAME_WORD.findAll(text)
+        .filter { match ->
+            val token = foldLatin(match.value)
+            meaningful.any { word -> token == word || (word.length >= 3 && token.startsWith(word)) }
+        }.map { it.range }.toList()
+}

@@ -60,7 +60,7 @@ struct SettingsView: View {
             Button("Remove", role: .destructive, action: model.freeUpSpace)
         } message: {
             Text(
-                "Searching by meaning and by what is in photos stops until it downloads again (about \(Copy.bytes(snap.downloadBytes))). Searching by name and words keeps working. Your files and stars are not touched."
+                "Searching by meaning and by what is in photos stops until it downloads again (about \(Copy.downloadSize(snap.downloadBytes))). Searching by name and words keeps working. Your files and stars are not touched."
             )
         }
     }
@@ -120,7 +120,7 @@ struct SettingsView: View {
         Section {
             LabeledContent("Search index", value: sizes.map { Copy.bytes($0.index) } ?? "…")
             if !snap.textOnly {
-                LabeledContent("Search model", value: model.modelMissing ? "Not downloaded" : sizes.map { Copy.bytes($0.model) } ?? "…")
+                LabeledContent("Search model", value: model.modelMissing ? "Not downloaded" : sizes.map { Copy.downloadSize($0.model) } ?? "…")
                 if let cache = sizes?.cache, cache > 0, !model.modelMissing {
                     LabeledContent("Temporary files", value: Copy.bytes(cache))
                 }

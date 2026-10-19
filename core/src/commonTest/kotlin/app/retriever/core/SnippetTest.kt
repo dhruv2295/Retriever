@@ -20,7 +20,7 @@ class SnippetTest {
 
     @Test fun highlightingUsesWholeUnicodeWordsAndPrefixes() {
         val marked = SearchEngine.contentSnippet("al kcal calories calorie बिजली बिजलीघर अबिजली", SearchEngine.folded("al cal बिजली"))
-        assertTrue("\u0002al\u0003 kcal \u0002calories\u0003 \u0002calorie\u0003" in marked, marked)
+        assertTrue("al kcal \u0002calories\u0003 \u0002calorie\u0003" in marked, marked)
         assertTrue("\u0002बिजली\u0003 \u0002बिजलीघर\u0003 अबिजली" in marked, marked)
     }
 

@@ -56,7 +56,10 @@ final class AppModel {
         /// Text-only iPhones read the words in documents and screenshots only; which kinds those are is core's.
         static let insideTextOnly: [Kind] = inside.filter { RetrieverKt.textOnlyKinds.contains($0) }
 
-        var total: Int { indexed + pending + skipped }
+        var readProgress: ReadingProgress {
+            ReadingProgress(searchable: Int64(indexed), pending: Int64(pending), skipped: Int64(skipped), partlyRead: Int64(tailFiles), waiting: Int64(waiting), trial: trial)
+        }
+        var total: Int { Int(readProgress.total) }
         var libraryTotal: Int { byKind.values.reduce(0, +) }
 
         /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
@@ -64,7 +67,7 @@ final class AppModel {
         var asksCommit: Bool { waiting > 0 && pending == 0 }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
-        var isCaughtUp: Bool { setUp == true && indexed > 0 && pending == 0 && waiting == 0 && !running && !paused }
+        var isCaughtUp: Bool { setUp == true && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
 
         /// What changes with every file read. `AppModel.snap` leaves it at its defaults, so a tick doesn't redraw the
         /// screens that don't show it; read `AppModel.live` where it is shown.
@@ -370,7 +373,7 @@ extension AppModel.Snap {
         rememberSearches = s.prefs.rememberSearches
         showOnThisDay = s.prefs.showOnThisDay
         kinds = s.prefs.kinds
-        indexed = state[FileState.indexed]?.intValue ?? 0
+        indexed = Int(s.counts.progress.searchable)
         pending = state[FileState.pending]?.intValue ?? 0
         waiting = Int(s.counts.waiting)
         trial = s.counts.trial

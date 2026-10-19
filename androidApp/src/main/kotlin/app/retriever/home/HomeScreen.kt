@@ -76,7 +76,7 @@ import app.retriever.search.SearchActions
 import app.retriever.setup.CommitStage
 import app.retriever.setup.SetupActions
 import app.retriever.setup.SetupUi
-import app.retriever.status.waitingCopy
+import app.retriever.status.readingTitle
 import app.retriever.ui.Format
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.tabular
@@ -264,10 +264,12 @@ private fun Status(
         }, clickLabel = "Finish setup")
 
         else -> {
-            val caughtUp = ui.waiting == 0L && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
+            val caughtUp = !ui.progress.unfinished && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
             val celebrating = rememberCelebrating(caughtUp, celebration)
             val detail = if (ui.trial && ui.waiting > 0) {
                 "${Format.count(ui.waiting)} files left"
+            } else if (ui.partlyRead > 0) {
+                "${Format.count(ui.partlyRead)} files partly read"
             } else if (index.running && index.pendingAtStart > 0) {
                 index.etaMinutes?.let {
                     Format.eta(it).replaceFirstChar(Char::uppercase) + "." + if (it >= 60 && !charging) " Faster while charging." else ""
@@ -444,12 +446,5 @@ private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
 internal fun libraryStatus(ui: HomeUi, index: IndexState): String = when {
     !ui.hasAccess -> "Allow access to find new files"
     !ui.setUp -> "Finishing setup"
-    ui.paused -> "Paused"
-    ui.trial && ui.waiting > 0 -> "Trial in progress"
-    ui.trial && ui.rest > 0 -> "Trial ready · Choose when to read the rest"
-    index.running && index.pendingAtStart > 0 -> "Reading your files"
-    ui.waiting > 0 -> waitingCopy(index.lastStop) ?: "Waiting to read"
-    index.running -> "Up to date · Looking for new files…"
-    ui.caughtUpDismissed -> "Ready to search"
-    else -> "All caught up"
+    else -> readingTitle(ui.progress, ui.paused, index, ui.caughtUpDismissed)
 }

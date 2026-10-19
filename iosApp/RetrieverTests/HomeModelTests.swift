@@ -413,7 +413,7 @@ final class HomeModelTests: XCTestCase {
         func stored(_ kind: Kind, _ state: FileState, partial: Bool = false) -> Store.StoredFile {
             Store.StoredFile(
                 id: 1, file: SourceFile(uri: "folder://t/a", name: "a", folder: "t", mime: "x/y", kind: kind, size: 1, modifiedAt: 0, takenAt: nil),
-                attempts: 0, state: state, partial: partial)
+                attempts: 0, state: state, partial: partial, extent: nil)
         }
         XCTAssertEqual(Format.coverage(stored(.pdf, .skipped)), "Couldn't be read")
         XCTAssertEqual(Format.coverage(stored(.pdf, .pending)), "Found by name only")

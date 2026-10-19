@@ -27,6 +27,20 @@ class HighlightTest {
         assertEquals(listOf("a"), marked("a plan", "a"))
     }
 
+    @Test fun stopwordsAndShortWordsAreNotHighlightedInLongerQueries() {
+        assertEquals(listOf("deposit"), marked("A deposit at the bank", "a deposit at the"))
+        assertEquals(
+            listOf("deposit"),
+            wordMatchRanges("A deposit at the bank", listOf("a", "deposit", "at", "the")).map {
+                "A deposit at the bank".substring(it)
+            },
+        )
+        assertEquals("A \u0002deposit\u0003 at the bank", SearchEngine.contentSnippet("A deposit at the bank", listOf("a", "deposit", "at", "the")))
+        assertEquals(listOf("at"), marked("A deposit at the bank", "at"))
+        assertEquals(listOf("the"), marked("the bank", "the"))
+        assertEquals(listOf("bank"), highlightTerms("the bank at"))
+    }
+
     @Test fun emptyQuery() {
         assertEquals(emptyList(), marked("invoice", "  "))
     }

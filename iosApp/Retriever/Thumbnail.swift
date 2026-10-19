@@ -148,6 +148,12 @@ struct Thumb: View {
     @Environment(\.displayScale) private var scale
     @Environment(\.services) private var services
     @State private var image: UIImage?
+    @State private var text: String?
+
+    // Reserve two lines each for the name and content, plus padding and spacing.
+    private var showsText: Bool {
+        (file.kind == .doc || file.kind == .other) && points >= UIFont.preferredFont(forTextStyle: .caption2).lineHeight * 4 + 20
+    }
 
     private var pixels: CGFloat { bucketed ? Thumbnails.bucket(points * scale) : points * scale }
 
@@ -161,13 +167,30 @@ struct Thumb: View {
             .overlay {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
+                } else if showsText {
+                    ViewThatFits(in: .vertical) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(file.name).font(.caption2.bold()).lineLimit(2)
+                            if let text { Text(text).font(.caption2).lineLimit(2) }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        Image(systemName: Format.icon(file.kind)).font(.title2).foregroundStyle(.secondary)
+                    }
                 } else {
                     Image(systemName: Format.icon(file.kind)).font(.title2).foregroundStyle(.secondary)
                 }
             }
             .clipped()
-            .task(id: Self.requestID(file, locator: locator, pixels: pixels)) {
-                image = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
+            .task(id: Self.requestID(file, locator: locator, pixels: pixels) + "|\(showsText)") {
+                image = nil
+                text = nil
+                if showsText {
+                    text = try? await services?.retriever.textPreview(file: file)
+                } else {
+                    image = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
+                }
             }
             .accessibilityHidden(true)
     }

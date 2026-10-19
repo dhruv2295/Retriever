@@ -16,8 +16,8 @@ enum class Scope { SAMPLE, ALL }
 data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: Set<Kind>, val read: Int, val secondsLeft: Int?, val readyToTry: Boolean) {
     internal companion object {
         /** [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the ETA does. */
-        fun of(planned: Map<Kind, Int>, pending: Map<Kind, Int>, pendingVideoBytes: Long, book: SpeedBook): TasteProgress {
-            val byKind = planned.mapValues { (k, n) -> n - (pending[k] ?: 0) to n }
+        fun of(planned: Map<Kind, Int>, pending: Map<Kind, Int>, pendingVideoBytes: Long, book: SpeedBook, searchable: Map<Kind, Int>): TasteProgress {
+            val byKind = planned.mapValues { (k, n) -> (searchable[k] ?: 0) to n }
             val read = byKind.values.sumOf { it.first }
             val left = pending.values.sum()
             return TasteProgress(

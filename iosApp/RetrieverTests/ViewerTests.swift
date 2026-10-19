@@ -11,6 +11,11 @@ import os
 
 @MainActor
 final class ViewerTests: XCTestCase {
+    func testViewerHighlightTermsShareTheCoreStopwordRule() {
+        XCTAssertEqual(highlightWords(snippet: nil, query: "a deposit at the bank"), ["deposit", "bank"])
+        XCTAssertEqual(highlightWords(snippet: nil, query: "at"), ["at"])
+    }
+
     func testPhotosCancellationCompletesWithoutACallbackAndIgnoresLateResults() async throws {
         let callbacks = OSAllocatedUnfairLock<(@Sendable (sending Int?) -> Void)?>(initialState: nil)
         let cancelled = OSAllocatedUnfairLock<[PHImageRequestID]>(initialState: [])

@@ -89,6 +89,22 @@ class LibraryFeedbackTest {
         assertTrue(store.starredUris().isEmpty())
     }
 
+    @Test fun textTilesUseOnlyTheirOwnContentAndInvalidateAfterEdits() {
+        val store = Store(testDriver())
+        val first = file(Kind.DOC)
+        val second = first.copy(uri = "file:///second", name = "second.xlsx")
+        store.upsertFiles(listOf(first, second))
+        val firstId = store.fileByUri(first.uri)!!.id
+        val secondId = store.fileByUri(second.uri)!!.id
+        store.replaceChunks(firstId, listOf(Store.NewChunk(0, "", "hidden metadata", null, null), Store.NewChunk(1, "", "First file prose", null)))
+        store.replaceChunks(secondId, listOf(Store.NewChunk(1, "", "Second file cells", null)))
+        assertEquals("First file prose", store.textPreview(first))
+        assertEquals("Second file cells", store.textPreview(second))
+        assertNull(store.textPreview(first.copy(modifiedAt = 2)))
+        store.removeFiles(listOf(first.uri))
+        assertNull(store.textPreview(first))
+    }
+
     @Test fun folderCountsEqualBrowseAndIncludeEveryKind() {
         val store = Store(testDriver())
         store.upsertFiles(Kind.entries.map { file(it) })

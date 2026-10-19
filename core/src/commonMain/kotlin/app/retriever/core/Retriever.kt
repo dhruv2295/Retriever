@@ -306,19 +306,12 @@ class Retriever(
      * Without the model nothing waits for a vector, so the deepen counts read zero. Under the first run's SAMPLE scope,
      * pending files outside the plan are [Store.Counts.waiting], not pending, so "All caught up" holds for what was asked.
      */
-    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing, sampleIds) { c, missing, ids ->
-        val counts = if (textOnly || missing) c.copy(tailChunks = 0, tailFiles = 0) else c
-        if (ids == null) return@combine counts
-        val pending = store.pendingIn(ids)
-        val perKind = pending.groupingBy { it.file.kind }.eachCount()
-        val asked = pending.size.toLong()
-        counts.copy(
-            byState = c.byState + (FileState.PENDING to asked),
-            byKindState = c.byKindState.filterKeys { it.second != FileState.PENDING } +
-                Kind.entries.associate { (it to FileState.PENDING) to (perKind[it]?.toLong() ?: 0L) },
-            waiting = ((c.byState[FileState.PENDING] ?: 0L) - asked).coerceAtLeast(0),
-            trial = true,
-        )
+    fun counts(): Flow<Store.Counts> = combine(store.counts(), modelMissing, sampleIds) { counts, missing, ids ->
+        if (ids == null) {
+            if (textOnly || missing) counts.copy(tailChunks = 0, tailFiles = 0) else counts
+        } else {
+            store.countsNow(ids, includeTails = !textOnly && !missing)
+        }
     }.flowOn(dispatchers.default)
 
     /** The files among [fileIds] that search can't reach in full; files read whole are left out. */
@@ -419,11 +412,17 @@ class Retriever(
                 }
             }
             val pending = pendingNow().first
+
             // An open app deepens once nothing is pending; in the background only on the charger with the screen off.
-            val deepen = mayDeepen && !textOnly && (uiVisible || (device.charging && !device.screenOn))
+            fun canDeepen(): Boolean {
+                val trialInFront = ids != null && uiVisible && !store.flag(TASTE_DECIDED_KEY)
+                val current = readingMonitor.state()
+                return (mayDeepen || trialInFront) && !textOnly && (uiVisible || (current.charging && !current.screenOn))
+            }
+            val deepen = canDeepen()
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending.values.sum() == 0L &&
-                (!deepen || (if (ids == null) store.tailChunkCount() else store.tailChunksIn(ids).size.toLong()) == 0L) &&
+                (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
                 (textOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
             if (idle) return end(StopReason.DONE)
             val e = if (textOnly) {
@@ -448,7 +447,7 @@ class Retriever(
             val configuration = model.currentConfiguration
             val changedConfiguration = {
                 val current = factory.profileNow(store.profile() ?: stored, uiVisible)
-                !textOnly && configuration != (current.backend to current.visionBackend)
+                deepen != canDeepen() || (!textOnly && configuration != (current.backend to current.visionBackend))
             }
             val (left, videoBytes) = pendingNow()
             eta.start(left, videoBytes)
@@ -507,7 +506,19 @@ class Retriever(
 
     private fun onCurrent(file: SourceFile?) {
         if (file != null && _prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
-        _state.update { it.copy(current = file?.name, currentFile = file) }
+        _state.update {
+            it.copy(
+                current = file?.name,
+                currentFile = file,
+                etaMinutes = if (file != null &&
+                    store.fileByUri(file.uri)?.state == FileState.INDEXED
+                ) {
+                    null
+                } else {
+                    it.etaMinutes
+                },
+            )
+        }
     }
 
     private fun onFile(m: FileMetric) {
@@ -627,7 +638,9 @@ class Retriever(
     suspend fun taste(): NextRun = indexBatch(TASTE_BATCH, waitForLock = true)
 
     @Throws(Throwable::class)
-    suspend fun hasPendingTaste(): Boolean = io { store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() } == true }
+    suspend fun hasPendingTaste(): Boolean = io {
+        store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) } == true
+    }
 
     /** Under indexLock: keep completed work, drop videos first then the most expensive pending files. */
     internal fun trimTaste() {
@@ -656,7 +669,7 @@ class Retriever(
         val ids = store.tasteIds()
         val planned = ids.chunked(500).flatMap { store.files(it).values }.groupingBy { it.kind }.eachCount()
         val (pending, videoBytes) = store.pendingIn(ids).byKind()
-        TasteProgress.of(planned, pending, videoBytes, eta.book)
+        TasteProgress.of(planned, pending, videoBytes, eta.book, searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount())
     }.distinctUntilChanged().flowOn(dispatchers.default)
 
     /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
@@ -923,7 +936,7 @@ class Retriever(
 
     /** Starred files still in the index, most recently starred first. */
     @Throws(Throwable::class)
-    suspend fun starredFiles(limit: Int = 200, offset: Int = 0): List<Store.StoredFile> = io { store.starredFiles(limit, offset) }
+    suspend fun starredFiles(limit: Int = 200, offset: Int = 0): List<Store.StoredFile> = io { withExtents(store.starredFiles(limit, offset)) }
 
     // --- Home ---
 
@@ -981,6 +994,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
+    /** The first extracted lines for a thumbnail; never metadata or another file's words. */
+    @Throws(Throwable::class)
+    suspend fun textPreview(file: SourceFile): String? = io { store.textPreview(file) }
+
     private val suggestionLock = Mutex()
     private val contentSuggestions = ContentSuggestions()
 
@@ -988,7 +1005,9 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun suggestions(fileIds: Set<Long>? = null): List<String> = io {
         suggestionLock.withLock {
-            contentSuggestions.refresh(store.readContentVersions()) { id -> store.chunkTexts(id).mapNotNull { it.text } }
+            contentSuggestions.refresh(store.readContentVersions(), mime = {
+                store.file(it)?.mime.orEmpty()
+            }) { id -> store.chunkTexts(id).mapNotNull { it.text } }
             contentSuggestions.suggestions(fileIds)
         }
     }
@@ -1043,14 +1062,21 @@ class Retriever(
 
     // --- Browse ---
 
+    private fun withExtents(files: List<Store.StoredFile>): List<Store.StoredFile> {
+        val extents = store.readExtents(files.map { it.id })
+        return files.map { file ->
+            file.copy(extent = extents[file.id]?.takeUnless { noModel() && it == ReadExtent.DEEPENING })
+        }
+    }
+
     @Throws(Throwable::class)
     suspend fun files(kind: Kind?, folder: String?, sort: Store.Sort, limit: Int, offset: Int): List<Store.StoredFile> =
-        io { store.files(kind, folder, sort, limit, offset) }
+        io { withExtents(store.files(kind, folder, sort, limit, offset)) }
 
     /** The photos and videos taken from [from] to [to] (ms, both ends in), oldest first: what a year card of On this day opens. */
     @Throws(Throwable::class)
     suspend fun filesTakenBetween(from: Long, to: Long, limit: Int, offset: Int): List<Store.StoredFile> =
-        io { store.filesTakenBetween(from, to, limit, offset) }
+        io { withExtents(store.filesTakenBetween(from, to, limit, offset)) }
 
     @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }

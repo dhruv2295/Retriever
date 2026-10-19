@@ -30,10 +30,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,20 +56,25 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.core.Kind
 import app.retriever.core.Locator
+import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.android.ImageBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.koin.core.context.GlobalContext
 
 object Thumbnails {
     private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
@@ -168,12 +177,16 @@ fun ThumbnailImage(
     val shown = bitmap
     val fade by animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     Box(modifier.background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
-        Icon(
-            painterResource(kindIcon(file.kind)),
-            contentDescription = null,
-            modifier = Modifier.size(iconSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-        )
+        if (shown == null && (file.kind == Kind.DOC || file.kind == Kind.OTHER)) {
+            TextThumbnail(file)
+        } else {
+            Icon(
+                painterResource(kindIcon(file.kind)),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
+        }
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade })
         }
@@ -186,4 +199,35 @@ internal fun MeasuredThumbnailImage(file: SourceFile, modifier: Modifier = Modif
     var pixels by remember { mutableIntStateOf(0) }
     val edge = with(LocalDensity.current) { pixels.coerceAtLeast(1).toDp() }
     ThumbnailImage(file, edge, modifier.onSizeChanged { pixels = Thumbnails.bucket(maxOf(it.width, it.height)) }, load = pixels > 0)
+}
+
+internal suspend fun loadTextPreview(file: SourceFile): String? = GlobalContext.getOrNull()?.getOrNull<Retriever>()?.textPreview(file)
+
+/** Documents without pictures use their own extracted text; the enclosing card supplies the accessible file name. */
+@Composable
+internal fun TextThumbnail(file: SourceFile, preview: suspend (SourceFile) -> String? = ::loadTextPreview) {
+    val text by produceState<String?>(null, file) {
+        value = try {
+            preview(file)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+    val title = MaterialTheme.typography.labelSmall
+    val body = MaterialTheme.typography.bodySmall
+    val titleHeight = with(LocalDensity.current) { title.lineHeight.toDp() }
+    val bodyHeight = with(LocalDensity.current) { body.lineHeight.toDp() }
+    BoxWithConstraints(Modifier.fillMaxSize().clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+        val lines = ((maxHeight - 16.dp - titleHeight * 2) / bodyHeight).toInt().coerceAtMost(6)
+        if (lines < 2) {
+            Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Column(Modifier.fillMaxSize().padding(8.dp)) {
+                Text(file.name, style = title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                text?.let { Text(it, style = body, maxLines = lines, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+    }
 }

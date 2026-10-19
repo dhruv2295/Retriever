@@ -16,17 +16,17 @@ class TasteProgressTest {
     @Test
     fun readyAtTwentyFilesOrWhenThePlanFinishes() {
         val book = SpeedBook()
-        assertFalse(TasteProgress.of(mapOf(Kind.DOC to 30), mapOf(Kind.DOC to 11), 0, book).readyToTry)
-        val twenty = TasteProgress.of(mapOf(Kind.DOC to 25, Kind.PDF to 5), mapOf(Kind.DOC to 10), 0, book)
+        assertFalse(TasteProgress.of(mapOf(Kind.DOC to 30), mapOf(Kind.DOC to 11), 0, book, mapOf(Kind.DOC to 19)).readyToTry)
+        val twenty = TasteProgress.of(mapOf(Kind.DOC to 25, Kind.PDF to 5), mapOf(Kind.DOC to 10), 0, book, mapOf(Kind.DOC to 15, Kind.PDF to 5))
         assertTrue(twenty.readyToTry)
         assertEquals(20, twenty.read)
         assertEquals(mapOf(Kind.DOC to (15 to 25), Kind.PDF to (5 to 5)), twenty.byKind)
         assertEquals(setOf(Kind.PDF), twenty.readyKinds)
         assertEquals(2, twenty.secondsLeft, "10 docs at the 200 ms seed")
-        val small = TasteProgress.of(mapOf(Kind.PDF to 5), emptyMap(), 0, book)
+        val small = TasteProgress.of(mapOf(Kind.PDF to 5), emptyMap(), 0, book, mapOf(Kind.PDF to 5))
         assertTrue(small.readyToTry, "a five-file plan is done before twenty")
         assertEquals(0, small.secondsLeft)
-        assertEquals(null, TasteProgress.of(emptyMap(), emptyMap(), 0, book).secondsLeft)
+        assertEquals(null, TasteProgress.of(emptyMap(), emptyMap(), 0, book, emptyMap()).secondsLeft)
     }
 
     @Test

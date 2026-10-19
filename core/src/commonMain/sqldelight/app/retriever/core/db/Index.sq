@@ -306,6 +306,9 @@ FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.vector IS NULL AND c.tail_attempts < 3 AND c.file_id IN ?
 ORDER BY c.id;
 
+tailCountsIn:
+SELECT COUNT(*), COUNT(DISTINCT file_id) FROM chunks WHERE vector IS NULL AND tail_attempts < 3 AND file_id IN ?;
+
 tailChunkCount:
 SELECT COUNT(*) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
 
@@ -468,3 +471,10 @@ readContentVersions:
 SELECT files.id, MAX(chunks.id) AS revision FROM files LEFT JOIN chunks ON chunks.file_id = files.id AND chunks.content_text IS NOT NULL
 WHERE files.state = 'INDEXED'
 GROUP BY files.id;
+
+-- Bounded preview of this exact file revision, from extracted content only.
+textPreview:
+SELECT substr(content_text, 1, 400) AS preview FROM chunks JOIN files ON files.id = chunks.file_id
+WHERE files.uri = ? AND files.modified_at = ? AND files.size = ? AND files.state = 'INDEXED'
+AND content_text IS NOT NULL AND trim(content_text) != ''
+ORDER BY ordinal, chunks.id LIMIT 1;

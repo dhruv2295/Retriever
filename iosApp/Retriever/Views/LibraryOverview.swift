@@ -22,7 +22,7 @@ struct LibraryOverview<Status: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Your library").font(.headline).accessibilityAddTraits(.isHeader)
-            Text("\(Copy.count(snap.indexed)) searchable of \(Copy.count(snap.libraryTotal))").font(.title2.bold()).monospacedDigit()
+            Text(Copy.searchable(snap)).font(.title2.bold()).monospacedDigit()
             GeometryReader { bounds in
                 let active = Self.kinds.filter { (snap.byKind[$0] ?? 0) > 0 }
                 let minimum = min(bounds.size.height, bounds.size.width / CGFloat(max(active.count, 1)))
