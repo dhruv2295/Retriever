@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -95,18 +96,19 @@ private fun TryItBody(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Try it on your files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             Text("Search something you remember, or try one of these.", style = MaterialTheme.typography.bodyLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (suggestions.isNotEmpty()) {
-                    for (term in suggestions) SuggestionChip(onClick = { search(term) }, label = { Text(term) })
-                } else {
-                    for (kind in files.map { it.kind }.distinct()) {
-                        val label = Format.kindLabelPlural(kind)
-                        SuggestionChip(onClick = {
-                            searchActions.onChip(kind)
-                            search(label)
-                        }, label = { Text(label) })
+            // One keyed loop: suggestions arrive after the first frame, and two unkeyed branches swapped under each other's
+            // slots (a ClassCastException on the device when the terms replaced the kind chips).
+            val chips: List<Pair<String, () -> Unit>> = suggestions.map { term -> term to { search(term) } }.ifEmpty {
+                files.map { it.kind }.distinct().map { kind ->
+                    val label = Format.kindLabelPlural(kind)
+                    label to {
+                        searchActions.onChip(kind)
+                        search(label)
                     }
                 }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((label, onClick) in chips) key(label) { SuggestionChip(onClick = onClick, label = { Text(label) }) }
             }
             ReadyFiles(files, files.size, onOpen = searchActions.onOpenFile)
         }

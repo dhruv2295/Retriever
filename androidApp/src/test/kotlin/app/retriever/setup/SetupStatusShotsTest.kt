@@ -1,6 +1,7 @@
 package app.retriever.setup
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -164,6 +165,18 @@ class SetupStatusShotsTest {
         rule.onNodeWithText("Search something you remember, or try one of these.").assertExists()
         rule.onNodeWithText("Continue").assertExists()
         rule.onAllNodesWithText("Settings").assertCountEquals(0)
+    }
+
+    /** On the device the suggestions arrived a frame after the kind chips and the swap crashed (ClassCastException). */
+    @Test fun tryItSurvivesSuggestionsArrivingAfterKindChips() {
+        val terms = mutableStateOf(emptyList<String>())
+        val files = listOf(file("IMG_1.jpg", Kind.PHOTO), file("Screenshot_1.png", Kind.SCREENSHOT))
+        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), files = files, suggestions = terms.value) } }
+        rule.onNodeWithText("Photos").assertExists()
+        terms.value = listOf("invoice", "deposit")
+        rule.waitForIdle()
+        rule.onNodeWithText("invoice").assertExists()
+        rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
 
     @Test fun tryItEmptyDark() = shot("setup_tryit_empty_dark", dark = true) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
