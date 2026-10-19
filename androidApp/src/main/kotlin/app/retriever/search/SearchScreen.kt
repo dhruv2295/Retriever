@@ -103,6 +103,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
@@ -151,6 +153,7 @@ fun SearchScreen(onNavigate: (Route) -> Unit, vm: SearchViewModel = koinViewMode
     val ui by vm.ui.collectAsStateWithLifecycle()
     val home by homeVm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
     SearchContent(ui, home, actions) { padding, state, side, fill -> HomeScreen(ui.recent, actions, state, padding, side, fill) }

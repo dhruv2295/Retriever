@@ -5,6 +5,19 @@ import XCTest
 
 @MainActor
 final class BrowseTests: XCTestCase {
+    func testUnfilteredListIsNeverAllFilesOnIOS() {
+        let everything = FileQuery(sort: .largest, title: "Large files")
+        XCTAssertEqual(FileListView.title(everything, sort: .newest), "Files Retriever can access")
+        XCTAssertEqual(FileListView.title(everything, sort: .largest), "Large files")
+        XCTAssertEqual(FileListView.title(FileQuery(title: "Starred", starredOnly: true), sort: .newest), "Starred")
+    }
+
+    func testSortsSayWhatTheyOrderBy() {
+        XCTAssertEqual(FileQuery.Sort.newest.caption, "Newest first · by date modified")
+        XCTAssertEqual(FileQuery.Sort.largest.caption, "Largest first")
+        XCTAssertEqual(FileQuery.Sort.name.caption, "By name, A to Z")
+    }
+
     func testFirstPageFailureIsNotAnEmptyAnswerAndCanRetry() async {
         var attempts = 0
         let pages = FilePages { _, _ in

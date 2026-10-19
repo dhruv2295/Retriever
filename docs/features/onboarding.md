@@ -59,7 +59,7 @@ parts are deliberately switched off.
 
 ## Invariants
 
-1. **Setup never queues the model twice,** and never fetches it unasked after Free up space.
+1. **Setup never queues the model twice,** and never fetches it unasked after Remove search download.
 2. **Every stage resumes after process death** from persisted state.
 3. **Suggestions quote real content only.** Semantic concept suggestions remain parked. Hours stay behind
    `ESTIMATE_CALIBRATED` until the timing evidence exists.

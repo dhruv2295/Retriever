@@ -30,7 +30,7 @@ struct ReadingNow: View {
                             .overlay { if !reduceMotion { ReadingSweep() } }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(file.name).lineLimit(2)
+                            Text(file.name).lineLimit(2).truncationMode(.middle)
                             Text(Words.shared.kindLabel(kind: file.kind)).font(.headline)
                             Note(Format.date(file.modifiedAt))
                         }

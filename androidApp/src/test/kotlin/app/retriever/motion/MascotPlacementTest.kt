@@ -19,7 +19,8 @@ class MascotPlacementTest {
     }
 
     @Test fun emptyStatesGrin() {
-        assertEquals("MascotMood.NO_MATCH", moodOf("browse/BrowseScreen.kt", "Nothing starred yet"))
+        assertEquals("MascotMood.NO_MATCH", moodOf("browse/BrowseScreen.kt", "Keep useful files close"))
+        assertEquals("MascotMood.NO_MATCH", moodOf("browse/BrowseScreen.kt", "Choose files to search"))
         assertEquals("MascotMood.NO_MATCH", moodOf("browse/BrowseScreen.kt", "Nothing here yet"))
         assertEquals("MascotMood.NO_MATCH", moodOf("duplicates/DuplicatesScreen.kt", "No duplicates found"))
         assertEquals("if (loadFailed) MascotMood.TROUBLE else MascotMood.NO_MATCH", moodOf("folders/FoldersScreen.kt", "No folders yet"))

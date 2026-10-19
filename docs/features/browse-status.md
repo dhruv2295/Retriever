@@ -61,6 +61,7 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
 1. **An empty or "done" state shows only after its data has loaded** (`BrowseUi.loading`, `StatusUi.counts`).
 2. **Every view-model coroutine that can throw ends in a visible state** (`launchCatching`, `attempt`).
 3. **Sort and route survive recreation;** changing sort restarts paging and drops answers for the old sort.
+4. **The list says what it is and what it is sorted by.** An unfiltered list is titled "All files" only with all-files access on Android; otherwise, and always on iOS (Photos plus the folders picked), "Files Retriever can access"; a caption under the sort says "Newest first · by date modified", "Largest first" or "By name, A to Z". An empty unfiltered list says "Choose files to search"; an empty Starred list "Keep useful files close".
 4. **A thumbnail key changes when the file changes.**
 5. **A list row says how much of the file is searchable** when it is not all of it.
 6. **Unstarring in the Starred list removes the row at once** (`starred.md`).

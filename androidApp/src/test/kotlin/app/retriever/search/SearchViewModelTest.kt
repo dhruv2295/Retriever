@@ -317,6 +317,15 @@ class SearchViewModelTest {
         assertEquals(listOf("bill"), retriever.recentQueries())
     }
 
+    @Test fun refreshingRecentsDropsSearchesClearedElsewhere() = runTest {
+        retriever.recordQuery("bill")
+        val vm = vm()
+        vm.ui.first { it.recent.isNotEmpty() }
+        retriever.clearRecentQueries()
+        vm.refreshRecent().join()
+        assertEquals(emptyList<String>(), vm.ui.value.recent)
+    }
+
     @Test fun openingAHitDuringAPhotoSearchRecordsNothing() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm(photo = ByteArray(1))

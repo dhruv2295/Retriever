@@ -480,12 +480,16 @@ class SearchEngine(
             }
             val hits = picked.map { (r, file) ->
                 val c = best.getValue(r.first).second
-                val snippet = (content[c.chunkId] ?: pageText[r.first to c.locator])?.let { contentSnippet(it, words) }
+                val raw = (content[c.chunkId] ?: pageText[r.first to c.locator])?.let { contentSnippet(it, words) }
+                // A run of numbers or symbols says nothing: no snippet, and the reason says what matched.
+                val unreadable = raw != null && numericSnippet(raw.filterNot { it == '\u0002' || it == '\u0003' })
+                val snippet = raw.takeUnless { unreadable }
                 val matched = labelMatches[r.first].orEmpty()
-                val reason = if (r.first !in byName && matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet)) {
-                    "Matches: " + matched.joinToString(", ")
-                } else {
-                    null
+                val reason = when {
+                    r.first in byName -> null
+                    matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet) -> "Matches: " + matched.joinToString(", ")
+                    unreadable && '\u0002' in raw.orEmpty() -> "Text matches"
+                    else -> null
                 }
                 Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName, reason)
             }

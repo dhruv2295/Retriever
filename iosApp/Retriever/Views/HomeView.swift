@@ -344,7 +344,7 @@ private struct StatusRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+                if let detail = status.detail { Note(detail) }
             }
         }
         .padding(.vertical, 2)

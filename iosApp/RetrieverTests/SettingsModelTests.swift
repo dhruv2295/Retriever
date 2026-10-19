@@ -214,6 +214,24 @@ final class SettingsModelTests: XCTestCase {
         // simulator has none and no model to tune with, so only the removal itself is checked here.
     }
 
+    func testRemoveDownloadConfirmationNamesTheSizeAndWhatKeepsWorking() {
+        XCTAssertEqual(
+            SettingsView.removeDownloadMessage(size: "388 MB"),
+            "This frees 388 MB. File names and text already read still work. Search by meaning needs the download again.")
+        XCTAssertEqual(
+            SettingsView.removeDownloadMessage(size: nil),
+            "File names and text already read still work. Search by meaning needs the download again.")
+        XCTAssertTrue(SettingsView.includedFilesFooter.hasPrefix("Turning a type off keeps name search"))
+    }
+
+    func testClearingRecentSearchesEmptiesTheListAndKeepsTheSwitch() {
+        let model = AppModel(fixture: .caughtUp)
+        model.recent = ["boarding pass", "lease"]
+        model.clearRecentSearches()
+        XCTAssertEqual(model.recent, [])
+        XCTAssertEqual(model.snap?.rememberSearches, true, "clearing leaves the switch as it was")
+    }
+
     func testFreeUpSpaceDoesNothingOnAFixture() {
         let model = AppModel(fixture: .caughtUp)
         model.freeUpSpace()

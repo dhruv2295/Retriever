@@ -32,7 +32,6 @@ struct StatusView: View {
             useMobileData: { model.setUseMobileData(true) },
             chooseMorePhotos: model.chooseMorePhotos,
             openSettings: model.openSettings,
-            showOnThisDay: model.setShowOnThisDay,
             celebrate: model.celebrate
         )
     }
@@ -45,7 +44,6 @@ struct StatusActions {
     var useMobileData: () -> Void = {}
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
-    var showOnThisDay: (Bool) -> Void = { _ in }
     var celebrate: () -> Void = {}
 }
 
@@ -82,6 +80,16 @@ struct StatusContent: View {
         .navigationTitle("Reading status")
     }
 
+    /// The one reason to show: a failure outranks the schedule's own wait, which follows from the title.
+    static func reason(detail: String?, lastError: String?, message: String?) -> (text: String, failed: Bool)? {
+        if let failure = message ?? lastError { return (failure, true) }
+        return detail.map { ($0, false) }
+    }
+
+    private var reason: (text: String, failed: Bool)? {
+        Self.reason(detail: Copy.reading(snap).detail, lastError: snap.lastError, message: message)
+    }
+
     @ViewBuilder private var progressSection: some View {
         // Walking while reading runs, resting while it waits or is paused; CAUGHT_UP once, the first time all is read.
         StatusDog(mood: snap.running ? .walking : snap.readProgress.unfinished ? .resting : nil, due: celebrating, done: actions.celebrate)
@@ -89,7 +97,7 @@ struct StatusContent: View {
             .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
             Text(Copy.reading(snap).title).font(.title2.bold())
-            if let detail = Copy.reading(snap).detail { Note(detail) }
+            if let reason { if reason.failed { Failure(reason.text) } else { Note(reason.text) } }
             Text(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead)))
                 .font(.headline)
                 .monospacedDigit()
@@ -99,13 +107,10 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        if Copy.reading(snap).active, snap.reading.current != nil {
-            ReadingNow(file: snap.reading.current, size: 56)
-            RecentlyRead(files: snap.reading.recent)
-        }
+        if Copy.reading(snap).active, snap.reading.current != nil { ReadingNow(file: snap.reading.current, size: 56) }
+        // What was read stays on show through a pause or a wait; only the sentence above changes.
+        if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }
         if screenKeptOn { Note(Copy.screenKeptOn) }
-        if let error = snap.lastError { Failure(error) }
-        if let message { Failure(message) }
         if snap.paused {
             Button(action: actions.resume) { Text("Resume reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         } else if snap.readProgress.unfinished {
@@ -135,7 +140,7 @@ struct StatusContent: View {
         DisclosureGroup {
             ForEach(skippedFiles) { file in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(file.name).lineLimit(1)
+                    Text(file.name).lineLimit(2).truncationMode(.middle)
                     Text(file.folder).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)

@@ -15,12 +15,15 @@ extension AppModel {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(
-                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging, schedule: charging.map { $0 ? .charging : .battery } ?? p.schedule, readNowUntil: p.readNowUntil, nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed,
+                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging,
+                schedule: charging.map { $0 ? .charging : .battery } ?? p.schedule, readNowUntil: p.readNowUntil,
+                nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed,
                 excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
-                noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle, dismissedReadingCycle: p.dismissedReadingCycle)
+                noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
+                dismissedReadingCycle: p.dismissedReadingCycle)
         }
     }
 
@@ -146,7 +149,7 @@ extension AppModel {
         return total
     }
 
-    /// Settings' Free up space: the model and what was built from it go, the index stays. Search then runs on names
+    /// Settings' Remove search download: the model and what was built from it go, the index stays. Search then runs on names
     /// and words (modelMissing) until downloadAgain().
     func freeUpSpace() {
         guard let services else { return }
@@ -239,7 +242,10 @@ extension AppModel {
     func resume() {
         guard let services else { return }
         Task {
-            do { try await services.retriever.resume(); wake() } catch { readingMessage = "Couldn’t save this change. Try again." }
+            do {
+                try await services.retriever.resume()
+                wake()
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
     }
 

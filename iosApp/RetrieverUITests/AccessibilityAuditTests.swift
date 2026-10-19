@@ -239,6 +239,8 @@ final class AccessibilityAuditTests: XCTestCase {
                     if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
                     // The same live resize moves the folders row off-screen; its launch-size growth is checked directly below.
                     if route.hasPrefix("home."), element.label == "All folders" { return true }
+                    // The status detail above moves the name-search hint the same way; its growth is checked below too.
+                    if route.hasPrefix("home."), element.label == Self.nameSearchHint { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
                 }
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
@@ -340,12 +342,22 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    private static let nameSearchHint = "You can search every file by name"
+
     func testLibraryFoldersGrowAtTheLargestAccessibilitySize() {
         var normal: CGFloat?
+        var normalHint: CGFloat?
         for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp", "-UIPreferredContentSizeCategoryName", category]
             launch(app)
+            let hint = app.staticTexts[Self.nameSearchHint]
+            for _ in 0..<12 {
+                if hint.exists && hint.isHittable { break }
+                app.swipeUp()
+            }
+            XCTAssertTrue(hint.exists)
+            if let normalHint { XCTAssertGreaterThan(hint.frame.height, normalHint) } else { normalHint = hint.frame.height }
             let folders = app.buttons["All folders"]
             for _ in 0..<12 {
                 if folders.exists && folders.isHittable { break }

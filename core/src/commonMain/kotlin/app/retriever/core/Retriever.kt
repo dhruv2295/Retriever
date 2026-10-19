@@ -19,6 +19,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -436,7 +437,8 @@ class Retriever(
         batchSoon = false
         try {
             return coroutineScope {
-                val work = async(dispatchers.indexing) {
+                // Lazy, so [batchJob] is set before the batch runs: a cancelBatch() from the batch's first files must land.
+                val work = async(dispatchers.indexing, start = CoroutineStart.LAZY) {
                     val remaining = store.prefs().readNowUntil - now()
                     if (remaining <= 0) {
                         runBatch(budget, deepen, sessionOnly)

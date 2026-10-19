@@ -1,6 +1,7 @@
 package app.retriever.settings
 
 import android.app.Application
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
@@ -12,6 +13,7 @@ import app.retriever.duplicates.retrieverOver
 import app.retriever.indexing.IndexService
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
+import app.retriever.search.RecentShortcuts
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -71,8 +74,19 @@ class SettingsViewModelTest {
             StorageService(app, retriever, download, modelDir),
             IndexService(app, retriever),
             appScope,
+            RecentShortcuts(app),
         ) { error("no tuning in this test") }
         return vm to retriever
+    }
+
+    /** The view model saves on a real thread; this lets it and the test dispatcher both run until [done]. */
+    private suspend fun TestScope.until(done: suspend () -> Boolean) {
+        var tries = 0
+        while (!done() && tries++ < 1000) {
+            advanceUntilIdle()
+            Thread.sleep(5)
+        }
+        assertTrue("never happened", done())
     }
 
     @Test fun aToggleIsSavedAndShown() = runTest {
@@ -122,9 +136,35 @@ class SettingsViewModelTest {
 
         vm.freeUpSpace()
 
-        assertEquals("Model removed", vm.uiState.first { it.message != null }.message)
+        assertEquals("Search download removed", vm.uiState.first { it.message != null }.message)
         vm.messageShown()
         assertEquals(null, vm.uiState.first { it.message == null }.message)
+    }
+
+    @Test fun clearingRecentSearchesEmptiesTheListAndTheLauncherShortcuts() = runTest {
+        val (vm, retriever) = viewModel()
+        retriever.recordQuery("boarding pass")
+        RecentShortcuts(app).push(retriever.recentQueries())
+        assertEquals(1, ShortcutManagerCompat.getDynamicShortcuts(app).size)
+
+        vm.clearRecentSearches()
+        until { ShortcutManagerCompat.getDynamicShortcuts(app).isEmpty() }
+
+        assertEquals(emptyList<String>(), retriever.recentQueries())
+        assertEquals(0, ShortcutManagerCompat.getDynamicShortcuts(app).size)
+        assertTrue("clearing keeps the switch as it was", retriever.prefs.value.rememberSearches)
+    }
+
+    @Test fun turningSaveRecentSearchesOffAlsoRemovesTheLauncherShortcuts() = runTest {
+        val (vm, retriever) = viewModel()
+        retriever.recordQuery("boarding pass")
+        RecentShortcuts(app).push(retriever.recentQueries())
+
+        vm.setRememberSearches(false)
+        until { ShortcutManagerCompat.getDynamicShortcuts(app).isEmpty() }
+
+        assertEquals(emptyList<String>(), retriever.recentQueries())
+        assertEquals(0, ShortcutManagerCompat.getDynamicShortcuts(app).size)
     }
 
     @Test fun sampleModeStopsTheRunningBatchAndIndexesAgain() = runTest {

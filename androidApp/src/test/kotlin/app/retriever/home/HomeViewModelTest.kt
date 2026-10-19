@@ -19,7 +19,6 @@ import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.indexing.IndexService
-import app.retriever.status.StatusViewModel
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
@@ -328,7 +327,7 @@ class HomeViewModelTest {
         runCurrent()
         assertFalse(r.prefs.value.showOnThisDay)
 
-        StatusViewModel(r, IndexService(app, r), access).also { models += it }.setOnThisDay(true)
+        r.updatePrefs { it.copy(showOnThisDay = true) }
         assertTrue(vm.ui.first { it.showOnThisDay }.showOnThisDay)
         assertTrue(r.prefs.value.showOnThisDay)
         // The cards that were found are still there: no second look.

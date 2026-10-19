@@ -17,6 +17,15 @@ struct FileQuery: Hashable {
             }
         }
 
+        /// What the order means, said once on the list so "Newest" is the same date the rows show.
+        var caption: String {
+            switch self {
+            case .newest: "Newest first · by date modified"
+            case .largest: "Largest first"
+            case .name: "By name, A to Z"
+            }
+        }
+
         var store: Store.Sort {
             switch self {
             case .newest: Store.Sort.newest
@@ -62,10 +71,16 @@ struct FileListView: View {
             })
     }
 
-    /// Large files sorted another way is just every file.
-    private var title: String {
-        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest ? "All files" : query.title
+    /// Large files sorted another way is just every file. On iOS that is Photos plus the folders picked, never "all files".
+    static func title(_ query: FileQuery, sort: FileQuery.Sort) -> String {
+        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest
+            ? "Files Retriever can access" : query.title
     }
+
+    private var title: String { Self.title(query, sort: sort) }
+
+    /// An unfiltered list that is empty means nothing is included yet; a kind, folder or day that is empty is just that.
+    private var libraryEmpty: Bool { query.kind == nil && query.folder == nil && query.takenRange == nil && !query.starredOnly }
 
     private var grid: Bool {
         query.kind == .photo || query.kind == .screenshot || query.kind == .video || query.takenRange != nil
@@ -85,7 +100,11 @@ struct FileListView: View {
                 }
             } else if visible.isEmpty {
                 if query.starredOnly {
-                    StateView(mood: .noMatch, title: "Nothing starred yet", message: "Touch and hold any file and choose Star to keep it here.")
+                    StateView(mood: .noMatch, title: "Keep useful files close", message: "Tap the star on a file to find it here.")
+                } else if libraryEmpty {
+                    StateView(mood: .noMatch, title: "Choose files to search", message: "Add photos or a folder.") {
+                        NavigationLink("Manage access", value: Route.folders).buttonStyle(.primaryAction)
+                    }
                 } else {
                     StateView(mood: .noMatch, title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
                 }
@@ -115,6 +134,12 @@ struct FileListView: View {
             }
         }
         .navigationTitle(title)
+        .safeAreaInset(edge: .top) {
+            if !query.starredOnly && query.takenRange == nil && !visible.isEmpty {
+                Text(sort.caption).font(.footnote).foregroundStyle(Color.primary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(
+                    .vertical, 4)
+            }
+        }
         .toolbar {
             if !query.starredOnly && query.takenRange == nil {
                 ToolbarItem(placement: .topBarTrailing) {

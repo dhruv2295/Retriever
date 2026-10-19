@@ -169,6 +169,6 @@ class BrowseViewModelTest {
         val loaded = vm.uiState.first { it.files.isNotEmpty() }
         assertEquals(listOf("early.jpg", "clip.mp4", "late.jpg"), loaded.files.map { it.file.name })
         assertTrue(loaded.exhausted)
-        assertEquals("17 October 2023", browseTitle(vm.route, loaded.sort))
+        assertEquals("17 October 2023", browseTitle(vm.route, loaded.sort, allFiles = true))
     }
 }

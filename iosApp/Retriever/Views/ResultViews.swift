@@ -137,7 +137,7 @@ struct FileRowView: View {
 
     private var texts: some View {
         VStack(alignment: .leading, spacing: 3) {
-            FileName(name: file.name, styled: styledName, wrapLines: typeSize.isAccessibilitySize ? 3 : 1)
+            FileName(name: file.name, styled: styledName, wrapLines: typeSize.isAccessibilitySize ? 3 : 2)
             Text(subtitle ?? "\(file.folder) · \(Format.date(file.modifiedAt))")
                 .font(.footnote)
                 .foregroundStyle(Color.primary)
@@ -172,16 +172,14 @@ struct FileRowView: View {
     }
 }
 
-/// A file's name. One with no spaces stays on one line and is cut in the middle so its extension shows; one with
-/// spaces may wrap, between words, up to `wrapLines` lines.
+/// A file's name: up to `wrapLines` lines, cut in the middle when it is longer, so the extension still shows.
 struct FileName: View {
     let name: String
     var styled: AttributedString?
     let wrapLines: Int
 
     var body: some View {
-        let spaced = name.contains(" ")
-        Text(styled ?? AttributedString(name)).lineLimit(spaced ? wrapLines : 1).truncationMode(spaced ? .tail : .middle)
+        Text(styled ?? AttributedString(name)).lineLimit(wrapLines).truncationMode(.middle)
     }
 }
 

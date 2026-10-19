@@ -144,7 +144,8 @@ fun FileRow(
         Thumb(file, 48.dp, locator = locator)
         Column(Modifier.weight(1f)) {
             val title = remember(file.name, query) { if (query != null) nameHighlighted(file.name, query, NAME_MATCH) else AnnotatedString(file.name) }
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Two lines, cut in the middle, so a long name still ends in its extension.
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             Text(
                 subtitle ?: "${Words.kindLabel(file.kind)} · ${Format.bytes(file.size)} · ${Format.date(file.modifiedAt)}",
                 style = MaterialTheme.typography.bodySmall,

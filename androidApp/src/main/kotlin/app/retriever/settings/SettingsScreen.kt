@@ -1,7 +1,9 @@
 package app.retriever.settings
 
+import android.app.NotificationManager
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -49,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -66,6 +70,7 @@ import app.retriever.core.Retriever
 import app.retriever.core.Words
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
+import app.retriever.indexing.Notifications
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.model.tuneSummary
@@ -78,10 +83,17 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
 
-/** The order Settings lists the "Read inside" switches in; which of them show is core's [app.retriever.core.Retriever.readableKinds]. */
-private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.AUDIO, Kind.VIDEO)
+/** The order Settings lists the "Read these file types" switches in (audio is name only, so it has none); which of them show is core's [app.retriever.core.Retriever.readableKinds]. */
+private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.VIDEO)
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
+
+internal const val INCLUDED_FILES_FOOTER =
+    "Turning a type off keeps name search and removes its content from search. Excluding a folder removes it from Retriever. Your original files stay where they are."
+
+/** The confirmation for removing the download; [size] is what is on the phone, null when it can't be read. */
+internal fun removeDownloadMessage(size: String?): String =
+    (if (size != null) "This frees $size. " else "") + "File names and text already read still work. Search by meaning needs the download again."
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
 data class SettingsUi(
@@ -104,6 +116,8 @@ data class SettingsUi(
     val message: String? = null,
     /** Crashes and ANRs the system recorded; read when Settings opens, so the screen sets it. */
     val problems: List<ExitProblem> = emptyList(),
+    /** Whether Android lets Retriever post its reading notification; read when Settings opens and resumes. */
+    val notificationsOn: Boolean = true,
 )
 
 class SettingsActions(
@@ -129,6 +143,9 @@ class SettingsActions(
     val cancelDownload: () -> Unit = {},
     val openNotices: () -> Unit = {},
     val shareProblems: () -> Unit = {},
+    val openAccess: () -> Unit = {},
+    val clearRecentSearches: () -> Unit = {},
+    val openNotificationSettings: () -> Unit = {},
 )
 
 @Composable
@@ -145,13 +162,21 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             vm.messageShown()
         }
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStorage() }
-    // Read from the assets only when asked for: 22 KB nobody opens on most visits.
     val context = LocalContext.current
+    // Read again on return: the person may have changed it in the system's settings page.
+    var notificationsOn by remember { mutableStateOf(true) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        vm.refreshStorage()
+        notificationsOn = context.getSystemService(NotificationManager::class.java).let { nm ->
+            nm.areNotificationsEnabled() && nm.getNotificationChannel(Notifications.CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        }
+    }
+    // Read from the assets only when asked for: 22 KB nobody opens on most visits.
     val notices by produceState<String?>(null, showNotices) {
         if (showNotices) value = withContext(Dispatchers.IO) { context.assets.open(NOTICES_ASSET).bufferedReader().use { it.readText() } }
     }
-    val problems by produceState(emptyList()) { value = withContext(Dispatchers.IO) { ExitReasons.read(context) } }
+    // Diagnostics are for debug builds only.
+    val problems by produceState(emptyList()) { if (BuildConfig.DEBUG) value = withContext(Dispatchers.IO) { ExitReasons.read(context) } }
     if (showNotices) {
         BackHandler { showNotices = false }
         NoticesContent(notices) { showNotices = false }
@@ -182,6 +207,12 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             downloadAgain = vm::downloadAgain,
             cancelDownload = vm::cancelDownload,
             openNotices = { showNotices = true },
+            openAccess = onStatus,
+            clearRecentSearches = vm::clearRecentSearches,
+            openNotificationSettings = {
+                val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                context.startActivity(page)
+            },
             // Only the system share sheet: the person picks where it goes.
             shareProblems = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, ExitReasons.shareText(problems))
@@ -190,7 +221,7 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
         )
     }
     SettingsContent(
-        ui = state.copy(confirmFree = confirmFree, problems = problems),
+        ui = state.copy(confirmFree = confirmFree, problems = problems, notificationsOn = notificationsOn),
         actions = actions,
         snackbar = snackbar,
     )
@@ -294,39 +325,65 @@ fun SettingsContent(
                     )
                 }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Read these file types")
+                Header("Included files")
+                ListItem(headlineContent = { Text("Manage access") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
+                Text(
+                    "Read these file types",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
                 if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 for (kind in SEARCH_INSIDE.filter { it in ui.readable }) {
                     SwitchRow(Words.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
                 }
-                Muted("Turn a type off to search it by name only.", Modifier.padding(horizontal = 16.dp))
-
-                if (prefs.excludedFolders.isNotEmpty()) {
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Header("Folders Retriever skips")
-                    for (folder in prefs.excludedFolders.sorted()) {
-                        ListItem(
-                            headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            trailingContent = {
-                                IconButton(onClick = { actions.removeExcluded(folder) }) {
-                                    Icon(painterResource(R.drawable.ic_close), contentDescription = "Search $folder again")
-                                }
-                            },
-                        )
-                    }
+                // No platform reads audio yet, so there is no switch to offer: only the plain fact.
+                ListItem(headlineContent = { Text("Audio") }, supportingContent = { Text("Name only on this device") })
+                Text(
+                    "Excluded folders",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
+                if (prefs.excludedFolders.isEmpty()) Muted("None", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                for (folder in prefs.excludedFolders.sorted()) {
+                    ListItem(
+                        headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingContent = {
+                            // The visible label repeats on every row, so a screen reader is told which folder.
+                            TextButton(
+                                onClick = { actions.removeExcluded(folder) },
+                                modifier = Modifier.semantics { contentDescription = "Include $folder" },
+                            ) { Text("Include folder") }
+                        },
+                    )
                 }
+                Muted(INCLUDED_FILES_FOOTER, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Privacy")
-                SwitchRow(
-                    "Remember searches",
-                    prefs.rememberSearches,
-                    "Saved on this phone only. Nothing is sent anywhere.",
-                    actions.setRememberSearches,
+                SwitchRow("Save recent searches", prefs.rememberSearches, "Saved on this device. Also used for search shortcuts.", actions.setRememberSearches)
+                var confirmClear by rememberSaveable { mutableStateOf(false) }
+                ListItem(headlineContent = { Text("Clear recent searches") }, modifier = Modifier.clickable(role = Role.Button) { confirmClear = true })
+                if (confirmClear) {
+                    AlertDialog(
+                        onDismissRequest = { confirmClear = false },
+                        title = { Text("Clear recent searches and shortcuts?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmClear = false
+                                actions.clearRecentSearches()
+                            }) { Text("Clear") }
+                        },
+                        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+                    )
+                }
+                ListItem(
+                    headlineContent = { Text("Reading notifications") },
+                    supportingContent = { Text(if (ui.notificationsOn) "On" else "Off") },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotificationSettings),
                 )
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Storage")
+                Header("Storage and downloads")
                 Storage(ui, actions)
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -347,23 +404,24 @@ fun SettingsContent(
                     "Retriever reads your files on this phone. Search, indexing and stars never leave it. The only network use is downloading the search model.",
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                if (ui.problems.isNotEmpty()) {
-                    Header("Recent problems (${ui.problems.size})")
-                    for (p in ui.problems) {
-                        ListItem(
-                            headlineContent = { Text(p.kind) },
-                            supportingContent = { Text("${DateUtils.getRelativeTimeSpanString(p.atMillis)}. ${p.description}") },
-                        )
-                    }
-                    ListItem(
-                        headlineContent = { Text("Share", color = MaterialTheme.colorScheme.primary) },
-                        supportingContent = { Text("Nothing is sent unless you pick an app.") },
-                        modifier = Modifier.clickable(role = Role.Button, onClick = actions.shareProblems),
-                    )
-                }
 
                 // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
                 if (BuildConfig.DEBUG) {
+                    if (ui.problems.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        Header("Diagnostics (${ui.problems.size})")
+                        for (p in ui.problems) {
+                            ListItem(
+                                headlineContent = { Text(p.kind) },
+                                supportingContent = { Text("${DateUtils.getRelativeTimeSpanString(p.atMillis)}. ${p.description}") },
+                            )
+                        }
+                        ListItem(
+                            headlineContent = { Text("Share", color = MaterialTheme.colorScheme.primary) },
+                            supportingContent = { Text("Nothing is sent unless you pick an app.") },
+                            modifier = Modifier.clickable(role = Role.Button, onClick = actions.shareProblems),
+                        )
+                    }
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Header("For testing")
                     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -379,12 +437,9 @@ fun SettingsContent(
     if (ui.confirmFree) {
         AlertDialog(
             onDismissRequest = actions.dismissFreeUpSpace,
-            title = { Text("Remove the search model?") },
-            text = {
-                val size = ui.build?.let { " (about ${Format.downloadSize(LocalContext.current, it.sizeBytes)})" }.orEmpty()
-                Text("Searching by meaning and by what is in photos stops until the model downloads again$size, while names and words keep working.")
-            },
-            confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text("Remove") } },
+            title = { Text("Remove the search download?") },
+            text = { Text(removeDownloadMessage(ui.storage?.modelBytes?.let { Format.downloadSize(LocalContext.current, it) })) },
+            confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text("Remove download") } },
             dismissButton = { TextButton(onClick = actions.dismissFreeUpSpace) { Text("Cancel") } },
         )
     }
@@ -416,54 +471,52 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
 
 @Composable
 private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
-    ValueRow("Search index", ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…")
+    ListItem(headlineContent = { Text("Saved search data · ${ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…"}") })
     if (ui.textOnly) return
-    ValueRow("Search model", ui.storage?.let { if (it.modelBytes > 0) Format.downloadSize(LocalContext.current, it.modelBytes) else "Not downloaded" } ?: "…")
-    ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ValueRow("Temporary files", Format.bytes(it)) }
-    val sizeNote = ui.build?.let { "About ${Format.downloadSize(LocalContext.current, it.sizeBytes)}. " }.orEmpty()
-    when (val d = ui.download) {
-        is ModelState.Downloading, ModelState.WaitingForWifi, ModelState.Checking -> {
-            ListItem(
-                headlineContent = {
-                    Text(
-                        when (d) {
-                            is ModelState.Downloading ->
-                                if (d.indeterminate) "Downloading the search model" else "Downloading the search model, ${(d.progress * 100).toInt()}%"
-
-                            ModelState.WaitingForWifi -> "Waiting for Wi-Fi"
-
-                            else -> "Checking the download"
-                        },
-                    )
+    ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ListItem(headlineContent = { Text("Temporary files · ${Format.bytes(it)}") }) }
+    // Present or not, the entry names what the download is for and what it costs; the optional model is the one download.
+    val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
+    val d = ui.download
+    val busy = d is ModelState.Downloading || d == ModelState.WaitingForWifi || d == ModelState.Checking
+    ListItem(
+        headlineContent = { Text("Search by meaning and what's in your photos · $size") },
+        supportingContent = {
+            Text(
+                when {
+                    d is ModelState.Downloading -> if (d.indeterminate) "Downloading…" else "Downloading, ${(d.progress * 100).toInt()}%"
+                    d == ModelState.WaitingForWifi -> "Waiting for Wi-Fi to download"
+                    d == ModelState.Checking -> "Checking the download…"
+                    ui.modelMissing -> "Not downloaded"
+                    else -> "Downloaded"
                 },
-                trailingContent = if (d == ModelState.Checking) null else ({ TextButton(onClick = actions.cancelDownload) { Text("Cancel") } }),
             )
-            val bar = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            val fraction = (d as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.progress
-            if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = bar) else LinearProgressIndicator(bar)
-        }
-
-        else -> if (ui.modelMissing) {
-            ListItem(
-                headlineContent = { Text("Download again", color = MaterialTheme.colorScheme.primary) },
-                supportingContent = {
-                    val failed = d as? ModelState.Failed
-                    Text(
-                        failed?.reason ?: (sizeNote + "Brings back search by meaning and by what is in photos."),
-                        color = if (failed != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                modifier = Modifier.clickable(role = Role.Button, onClick = actions.downloadAgain),
-            )
-        } else if ((ui.storage?.modelBytes ?: 0) > 0) {
-            ListItem(
-                headlineContent = { Text("Free up space", color = MaterialTheme.colorScheme.error) },
-                supportingContent = { Text("Removes the search model. File names and text already read still work.") },
-                modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
-            )
-        }
+        },
+        trailingContent = if (busy && d != ModelState.Checking) ({ TextButton(onClick = actions.cancelDownload) { Text("Cancel download") } }) else null,
+    )
+    if (busy) {
+        val bar = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        val fraction = (d as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.progress
+        if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = bar) else LinearProgressIndicator(bar)
+    } else if (ui.modelMissing) {
+        ListItem(
+            headlineContent = { Text("Download again", color = MaterialTheme.colorScheme.primary) },
+            supportingContent = {
+                val failed = d as? ModelState.Failed
+                Text(
+                    failed?.reason ?: "Brings back search by meaning and what's in your photos.",
+                    color = if (failed != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            modifier = Modifier.clickable(role = Role.Button, onClick = actions.downloadAgain),
+        )
+    } else if ((ui.storage?.modelBytes ?: 0) > 0) {
+        ListItem(
+            headlineContent = { Text("Remove search download", color = MaterialTheme.colorScheme.error) },
+            supportingContent = { Text("File names and text already read still work.") },
+            modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
+        )
     }
-    SwitchRow("Use mobile data", ui.prefs.allowMobileData, "Off: the search model downloads on Wi-Fi only.", actions.setMobileData)
+    SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
