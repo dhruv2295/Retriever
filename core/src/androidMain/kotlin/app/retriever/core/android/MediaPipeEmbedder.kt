@@ -34,9 +34,9 @@ import app.retriever.core.Part
 import app.retriever.core.Prefix
 import app.retriever.core.Signature
 import app.retriever.core.hasNonFinite
+import app.retriever.core.lowerNewThreads
 import app.retriever.core.probeKindFor
 import app.retriever.core.tracedAsync
-import app.retriever.core.withBackgroundPriority
 import com.google.ai.edge.litertlm.ModelInfo
 import com.google.mediapipe.tasks.components.containers.AudioData
 import com.google.mediapipe.tasks.components.containers.EmbeddingResult
@@ -75,7 +75,7 @@ class MediaPipeEmbedderFactory(private val context: Context, private val modelDi
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
         val file = File(modelDir, build.fileName)
         check(file.exists()) { "Model file missing: ${file.absolutePath}" }
-        return withBackgroundPriority {
+        return lowerNewThreads {
             MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, profile.visionBackend ?: profile.backend)
         }
     }
@@ -154,6 +154,7 @@ private class MediaPipeEmbedder(
 
     private val mutex = Mutex()
     private var closed = false
+    private var warm = false
 
     override var visionBackend: Backend = requestedVisionBackend
         private set
@@ -209,7 +210,8 @@ private class MediaPipeEmbedder(
         currentCoroutineContext().ensureActive()
         if (closed) throw EmbedderClosedException()
         try {
-            vector(tracedAsync("embed.run") { infer(parts) })
+            // The runtime starts more pools on its first inference, so those threads are lowered too.
+            vector(tracedAsync("embed.run") { if (warm) infer(parts) else lowerNewThreads { infer(parts) }.also { warm = true } })
         } catch (e: Exception) {
             // An over-long input fails the same way on every backend: report it so the caller splits the text.
             if (e.isInputTooLong()) throw InputTooLongException("input exceeds the model's token window", e)
