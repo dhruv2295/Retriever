@@ -81,7 +81,7 @@ private fun ReadingFile(file: SourceFile?, pauseReason: String?, size: Dp, sweep
         val modifier = Modifier.clip(MaterialTheme.shapes.medium)
         Thumb(file, size, if (sweep == null) modifier else modifier.readingSweep(size, sweep))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.MiddleEllipsis)
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.MiddleEllipsis)
             Text(Format.kindLabel(file.kind), style = MaterialTheme.typography.titleMedium)
             Muted(Format.date(file.modifiedAt))
         }

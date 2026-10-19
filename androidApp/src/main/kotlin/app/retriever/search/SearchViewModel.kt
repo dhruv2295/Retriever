@@ -334,6 +334,9 @@ class SearchViewModel(
         recentShortcuts.push(_ui.value.recent)
     }
 
+    /** Settings can clear the searches while this screen stays alive behind it. */
+    fun refreshRecent() = launchCatching { loadRecent() }
+
     private suspend fun loadRecent() = _ui.update { it.copy(recent = retriever.recentQueries()) }
 
     fun findSimilar(file: SourceFile) = showSimilar(file.uri, file.name)

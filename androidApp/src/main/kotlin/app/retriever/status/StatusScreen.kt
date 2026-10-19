@@ -276,7 +276,7 @@ fun StatusContent(
                         Column {
                             for (f in skippedFiles) {
                                 ListItem(
-                                    headlineContent = { Text(f.file.name, maxLines = 2, overflow = TextOverflow.MiddleEllipsis) },
+                                    headlineContent = { Text(f.file.name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) },
                                     supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 )
                             }

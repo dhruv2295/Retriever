@@ -69,9 +69,6 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
 
     fun removeFolder(uri: String) = accessService.removeFolder(uri)
 
-    /** The switch "Show On this day on Home". */
-    fun setOnThisDay(on: Boolean) = attempt { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
-
     fun resume() = attempt { indexer.resume() }
 
     fun pause() = attempt { indexer.pause() }

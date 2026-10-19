@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class BrowseTests: XCTestCase {
-    func testNoPhotosStateCallsTheListAllFiles() {
+    func testUnfilteredListIsNeverAllFilesOnIOS() {
         let everything = FileQuery(sort: .largest, title: "Large files")
         XCTAssertEqual(FileListView.title(everything, sort: .newest), "Files Retriever can access")
         XCTAssertEqual(FileListView.title(everything, sort: .largest), "Large files")

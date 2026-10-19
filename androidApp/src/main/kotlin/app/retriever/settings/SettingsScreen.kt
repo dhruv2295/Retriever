@@ -68,6 +68,7 @@ import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
+import app.retriever.indexing.Notifications
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.model.tuneSummary
@@ -165,7 +166,9 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
     var notificationsOn by remember { mutableStateOf(true) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         vm.refreshStorage()
-        notificationsOn = context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+        notificationsOn = context.getSystemService(NotificationManager::class.java).let { nm ->
+            nm.areNotificationsEnabled() && nm.getNotificationChannel(Notifications.CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        }
     }
     // Read from the assets only when asked for: 22 KB nobody opens on most visits.
     val notices by produceState<String?>(null, showNotices) {
@@ -203,13 +206,13 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             downloadAgain = vm::downloadAgain,
             cancelDownload = vm::cancelDownload,
             openNotices = { showNotices = true },
-            // Only the system share sheet: the person picks where it goes.
             openAccess = onStatus,
             clearRecentSearches = vm::clearRecentSearches,
             openNotificationSettings = {
                 val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                 context.startActivity(page)
             },
+            // Only the system share sheet: the person picks where it goes.
             shareProblems = {
                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, ExitReasons.shareText(problems))
                 context.startActivity(Intent.createChooser(send, null))
