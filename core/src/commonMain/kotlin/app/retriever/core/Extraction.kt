@@ -303,12 +303,10 @@ val DocFormat.textEntry: String? get() = when (this) {
     else -> null
 }
 
-/** OCR text is stored once: in its text pieces, or on the image piece when it is too short to chunk. */
-fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int): List<Piece> {
-    val text = textPieces(locator, ocr, maxChars)
-    val keyword = if (text.isEmpty()) ocr.ifBlank { null } else null
-    return listOf(Piece(locator, listOf(Part.Image(jpeg)), keyword, keyword)) + text
-}
+/** OCR stays in text chunks, independently of the image's vector and classifier labels. */
+fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int, labels: String? = null): List<Piece> =
+    listOf(Piece(locator, listOf(Part.Image(jpeg)), null, labels = labels)) +
+        Chunker.chunks(ocr, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it, it) }
 
 /**
  * A PDF's pieces: each page by its text layer ([text]), else rendered and read by OCR ([scanned], given the page

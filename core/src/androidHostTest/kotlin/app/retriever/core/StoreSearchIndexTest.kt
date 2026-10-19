@@ -174,14 +174,16 @@ class StoreTest {
     }
 
     @Test
-    fun resetForModelResetsIndex() {
+    fun resetForModelKeepsContentAndDropsOnlyVectors() {
         val store = newStore(Signature("A"))
         store.upsertFiles(listOf(testFile("a.txt"), testFile("b.txt")))
         val id = store.pending(10).first().id
         store.replaceChunks(id, listOf(Store.NewChunk(0, "", "a", vec(Signature("A")))))
         store.resetForModel(Signature("B"))
-        assertEquals(0L, store.chunkCount())
-        assertEquals(2L, store.countsByState()[FileState.PENDING])
+        assertEquals(1L, store.chunkCount())
+        assertEquals(0, store.vectorCount())
+        assertEquals(1L, store.countsByState()[FileState.PENDING])
+        assertEquals(1L, store.countsByState()[FileState.INDEXED])
         assertEquals(Signature("B"), store.signature())
         assertEquals(1, store.fileKeywordSearch("a", 10).size, "names stay searchable across a model change")
     }

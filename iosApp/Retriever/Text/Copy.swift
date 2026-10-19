@@ -23,7 +23,8 @@ enum Copy {
 
     static func stop(_ stop: StopReason?) -> String? {
         guard let stop else { return nil }
-        let progress = ReadingProgress(read: 0, partlyRead: 0, scheduled: 1, notScheduled: 0, nameOnly: 0, couldntRead: 0, laterPasses: 0, sample: false, rereads: 0)
+        let progress = ReadingProgress(
+            read: 0, partlyRead: 0, scheduled: 1, notScheduled: 0, nameOnly: 0, couldntRead: 0, laterPasses: 0, sample: false, rereads: 0, meaningWaiting: 0)
         return ReadingPolicy.shared.decide(progress: progress, blocker: stop, running: false, reading: false, ios: true).title
     }
     static func waiting(_ stop: StopReason?) -> String? { self.stop(stop) }
@@ -33,7 +34,8 @@ enum Copy {
     }
 
     static func decision(_ s: AppModel.Snap) -> ReadingStatus {
-        ReadingPolicy.shared.decide(progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, ios: true)
+        ReadingPolicy.shared.decide(
+            progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, ios: true)
     }
 
     static func statusTitle(_ s: AppModel.Snap) -> String { s.readingTitle ?? decision(s).title }
@@ -42,7 +44,11 @@ enum Copy {
         guard let s, !(s.readProgress.libraryTotal == 0 && s.setUp == true) else { return nil }
         if s.setUp != true { return HomeStatus(phase: .settingUp, title: "Finishing setup. You can search file names now.") }
         let phase = s.readingPhase ?? decision(s).phase
-        let homePhase: HomeStatus.Phase = phase == .paused ? .paused : (phase == .caughtUp || phase == .limited) ? .caughtUp : phase == .looking ? .looking : (s.readingActive || decision(s).active) ? .reading : .waiting
+        let homePhase: HomeStatus.Phase =
+            phase == .paused
+            ? .paused
+            : (phase == .caughtUp || phase == .limited)
+                ? .caughtUp : phase == .looking ? .looking : (s.readingActive || decision(s).active) ? .reading : .waiting
         return HomeStatus(phase: homePhase, title: statusTitle(s), detail: s.readingDetail ?? decision(s).detail)
     }
 

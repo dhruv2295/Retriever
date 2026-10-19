@@ -12,12 +12,23 @@ class ModelBuildsTest {
     private fun pick(probe: DeviceProbe, failed: Set<String> = emptySet()) = ModelBuilds.buildFor(ModelBuilds.variantFor(probe), probe, failed)
 
     @Test
-    fun tensorG3HasNoNpuBuild() = assertEquals(ModelVariant.M740.generic, pick(android("Tensor G3")))
+    fun anInstalledM740KeepsItsVectorsUntilTheBuildChanges() {
+        val device = android("Tensor G5")
+        val old = ModelVariant.M740.generic
+        val profile = DeviceProfile(Tier.FULL, ModelVariant.M740, Backend.CPU, 70, 5, true, false)
+        val signature = Signature.of(old, 70, 512)
+        assertEquals(old, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { it == old })
+        assertEquals(ModelVariant.M440, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { false }.variant)
+        assertEquals(ModelVariant.M440, ModelBuilds.installedOrSelected(device, profile, Signature("changed"), emptySet()) { true }.variant)
+    }
+
+    @Test
+    fun tensorG3HasNoNpuBuild() = assertEquals(ModelVariant.M440.generic, pick(android("Tensor G3")))
 
     @Test
     fun tensorG5PicksItsNpuBuildPerVariant() {
         assertEquals("Google_Tensor_G5", pick(android("Tensor G5")).soc)
-        assertEquals(ModelVariant.M740, pick(android("Tensor G5")).variant)
+        assertEquals(ModelVariant.M440, pick(android("Tensor G5")).variant)
         val small = pick(android("Tensor G5", ram = 6.0))
         assertEquals(ModelVariant.M440, small.variant)
         assertEquals("embeddinggemma-2-text-vision-440m_Google_Tensor_G5.litertlm", small.fileName)
@@ -25,13 +36,13 @@ class ModelBuildsTest {
 
     @Test
     fun npuNeedsDispatchAndSdk31() {
-        assertEquals(ModelVariant.M740.generic, pick(android("Tensor G5", npu = false)))
-        assertEquals(ModelVariant.M740.generic, pick(android("Tensor G5", sdk = 30)))
+        assertEquals(ModelVariant.M440.generic, pick(android("Tensor G5", npu = false)))
+        assertEquals(ModelVariant.M440.generic, pick(android("Tensor G5", sdk = 30)))
     }
 
     @Test
     fun mediaTekMatchesAndQualcommIsGeneric() {
-        assertEquals(ModelVariant.M740.generic, pick(android("SM8650", vendor = "QTI")))
+        assertEquals(ModelVariant.M440.generic, pick(android("SM8650", vendor = "QTI")))
         assertEquals("MediaTek_MT6991", pick(android("MT6991", vendor = "Mediatek")).soc)
         assertEquals("MediaTek_MT6991", pick(android("MT6991-AB", vendor = "Mediatek")).soc)
     }
@@ -40,15 +51,15 @@ class ModelBuildsTest {
     fun failedNpuFallsBackToGeneric() {
         val npu = pick(android("Tensor G5"))
         assertTrue(npu.isNpu)
-        assertEquals(ModelVariant.M740.generic, pick(android("Tensor G5"), setOf(npu.fileName)))
-        assertEquals(ModelVariant.M740.generic, ModelBuilds.fallback(npu))
+        assertEquals(ModelVariant.M440.generic, pick(android("Tensor G5"), setOf(npu.fileName)))
+        assertEquals(ModelVariant.M440.generic, ModelBuilds.fallback(npu))
     }
 
     @Test
     fun variantByPlatformAndRam() {
         val ios = DeviceProbe(Platform.IOS, 0, "Apple", "iPhone17,1", 8.0, oldMaliGpu = false, npuDispatch = true)
         assertEquals(ModelVariant.M440.generic, pick(ios))
-        assertEquals(ModelVariant.M740, ModelBuilds.variantFor(android("x", ram = 12.0)))
+        assertEquals(ModelVariant.M440, ModelBuilds.variantFor(android("x", ram = 12.0)))
         assertEquals(ModelVariant.M440, ModelBuilds.variantFor(android("x", ram = 6.0)))
     }
 
@@ -67,7 +78,7 @@ class ModelBuildsTest {
             assertTrue(b.fileName.endsWith("_${b.soc}.litertlm"), b.fileName)
             assertTrue(b.sizeBytes > 0)
         }
-        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M740 })
+        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
         assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
     }
 }

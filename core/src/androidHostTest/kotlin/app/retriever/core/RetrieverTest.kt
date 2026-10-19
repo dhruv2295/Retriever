@@ -24,7 +24,7 @@ class RetrieverTest {
     }
 
     private val pixel = DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 8.0, false)
-    private val genericSig = Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens)
+    private val genericSig = Signature.of(ModelVariant.M440.generic, PROFILE.visionTokens, PROFILE.maxTokens)
 
     /** Runs each test and the Retriever under it on one virtual-time scheduler. */
     private val dispatcher = StandardTestDispatcher()
@@ -330,7 +330,7 @@ class RetrieverTest {
     @Test
     fun npuFailureFallsBackToGenericForGood() = test {
         val g5 = DeviceProbe(Platform.ANDROID, 35, "Google", "Tensor G5", 8.0, false, npuDispatch = true)
-        val npuBuild = ModelBuilds.npu.single { it.variant == ModelVariant.M740 && it.soc == "Google_Tensor_G5" }
+        val npuBuild = ModelBuilds.npu.single { it.variant == ModelVariant.M440 && it.soc == "Google_Tensor_G5" }
         val factory = FakeFactory { if (it.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU) }
         factory.fail = { _, b -> if (b.isNpu) IllegalStateException("no dispatch library") else null }
         val f = fx(probe = g5, factory = factory)
@@ -339,13 +339,13 @@ class RetrieverTest {
         assertEquals(npuBuild, f.r.requiredBuild.value)
 
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
-        assertEquals(ModelVariant.M740.generic, f.r.requiredBuild.value)
+        assertEquals(ModelVariant.M440.generic, f.r.requiredBuild.value)
         assertTrue(npuBuild.fileName in f.store.meta("npu_failed")!!)
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
 
         val again = f.retriever()
         again.refreshSetUp()
-        assertEquals(ModelVariant.M740.generic, again.requiredBuild.value)
+        assertEquals(ModelVariant.M440.generic, again.requiredBuild.value)
     }
 
     @Test

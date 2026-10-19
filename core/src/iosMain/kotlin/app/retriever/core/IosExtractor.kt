@@ -18,13 +18,23 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         val uri = file.uri
         val maxChars = chunkChars(profile.maxTokens)
         return when (file.kind) {
-            Kind.PHOTO -> listOf(Piece("", listOf(Part.Image(image(uri))), null))
-            Kind.SCREENSHOT -> imageWithText("", image(uri), ocr(uri, -1), maxChars)
+            Kind.PHOTO, Kind.SCREENSHOT -> imageWithText("", image(uri), ocr(uri, -1), maxChars, native.imageLabels(uri))
             Kind.PDF -> pdf(uri, maxChars)
             Kind.DOC -> doc(file, uri, maxChars)
             Kind.VIDEO -> video(uri, profile)
             else -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
+    }
+
+    override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
+        currentCoroutineContext().ensureActive()
+        val bytes = when (file.kind) {
+            Kind.PHOTO, Kind.SCREENSHOT -> native.imageJpeg(file.uri, 512)
+            Kind.PDF -> native.pdfPageJpeg(file.uri, (Locator.pageOf(locator) ?: return null) - 1, 1024)
+            Kind.VIDEO -> native.videoFrameJpeg(file.uri, Locator.msOf(locator) ?: return null, 512)
+            else -> null
+        }
+        return bytes?.let { Part.Image(it.toByteArray()) }
     }
 
     private fun ocr(uri: String, page: Int): String = native.ocr(uri, page).orEmpty().trim()

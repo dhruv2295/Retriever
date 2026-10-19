@@ -55,12 +55,12 @@ internal class ModelHost(
         if (textOnly) return null
         checkUnfinishedOpens()
         val build = requiredBuild.value
-        val stored = store.profile()
-        if (!modelReady(build) || stored == null) {
+        val stored = store.profile() ?: build.initialProfile()
+        if (!modelReady(build)) {
             closeLocked() // the file went away under an open model: stop answering by meaning, as a reopen would
             return null
         }
-        val resolved = factory.profileNow(stored, visible())
+        val resolved = factory.profileNow(stored.copy(model = build.variant, audio = false), visible())
         val backend = resolved.backend
         val key = EmbedderKey(build, backend, resolved.visionBackend, stored.visionTokens, stored.maxTokens)
         embedder?.let { if (embedderKey == key) return it }

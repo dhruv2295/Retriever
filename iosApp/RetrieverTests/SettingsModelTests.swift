@@ -93,7 +93,7 @@ final class SettingsModelTests: XCTestCase {
     }
 
     func testTextOnlyPhonesOfferOnlyTheKindsTheyCanRead() {
-        XCTAssertEqual(AppModel.Snap.insideTextOnly, [.pdf, .doc, .screenshot])
+        XCTAssertEqual(AppModel.Snap.insideTextOnly, [.pdf, .doc, .screenshot, .photo])
         XCTAssertTrue(Set(AppModel.Snap.insideTextOnly).isSubset(of: AppModel.Snap.inside))
         XCTAssertFalse(AppModel.Snap.inside.contains(.audio), "there is no audio source on iOS")
     }
@@ -157,7 +157,8 @@ final class SettingsModelTests: XCTestCase {
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
         try await services.retriever.updatePrefs { @Sendable in
             $0.doCopy(
-                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, readNowUntil: $0.readNowUntil, nameSearchHintDismissed: $0.nameSearchHintDismissed, scheduleOfferDismissed: $0.scheduleOfferDismissed, excludedFolders: $0.excludedFolders,
+                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, readNowUntil: $0.readNowUntil,
+                nameSearchHintDismissed: $0.nameSearchHintDismissed, scheduleOfferDismissed: $0.scheduleOfferDismissed, excludedFolders: $0.excludedFolders,
                 paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
                 setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,

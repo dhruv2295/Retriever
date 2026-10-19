@@ -10,6 +10,29 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
 class ReadingContractTest {
+    @Test fun keywordReadingCountsAsReadAndWaitingForMeaningIsSeparate() {
+        val store = newStore()
+        val files = listOf(testFile("a.txt"), testFile("b.jpg", Kind.PHOTO), testFile("c.jpg", Kind.PHOTO), testFile("d.txt"))
+        store.upsertFiles(files)
+        val (a, b, c, d) = files.map { store.fileByUri(it.uri)!!.id }
+        val vector = Vector.of(FloatArray(DIMS) { 1f }, SIG)
+        store.replaceChunks(a, listOf(Store.NewChunk(1, "", "words", null)))
+        store.replaceChunks(b, listOf(Store.NewChunk(1, "img", null, null, labels = "beach", visual = true)))
+        store.replaceChunks(c, listOf(Store.NewChunk(1, "img", null, null, visual = true)))
+        store.replaceChunks(d, listOf(Store.NewChunk(1, "", "head", vector), Store.NewChunk(2, "", "tail", null)))
+        val kinds = setOf(Kind.DOC, Kind.PHOTO)
+
+        val keyword = store.countsNow(includeTails = false, kinds = kinds).progress
+        assertEquals(ReadingProgress(read = 3, nameOnly = 1), keyword, "text and labels are read without a model")
+        val model = store.countsNow(kinds = kinds).progress
+        assertEquals(ReadingProgress(read = 2, partlyRead = 1, nameOnly = 1, laterPasses = 1, meaningWaiting = 3), model)
+        assertEquals(keyword.contentRead, model.contentRead, "the meaning upgrade never moves files out of C = F + P")
+
+        store.setTailAttempts(store.tailChunksIn(listOf(a)).single().id, 3)
+        val exhausted = store.countsNow(kinds = kinds).progress
+        assertEquals(ReadingProgress(read = 1, partlyRead = 2, nameOnly = 1, laterPasses = 1, meaningWaiting = 2), exhausted)
+    }
+
     @Test fun realOutcomesPartitionMetadataFailuresTailsAndDisabledKinds() {
         val store = newStore()
         val files = (1..9).map { testFile("$it.txt", if (it == 9) Kind.AUDIO else Kind.DOC) }
@@ -17,7 +40,8 @@ class ReadingContractTest {
         val ids = files.map { store.fileByUri(it.uri)!!.id }
         val vector = Vector.of(FloatArray(DIMS) { 1f }, SIG)
         store.replaceChunks(ids[0], listOf(Store.NewChunk(1, "", "words", vector)))
-        store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "words", null)))
+        // A long file whose tail still waits for a vector beside its embedded head.
+        store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "head", vector), Store.NewChunk(2, "", "words", null)))
         store.replaceChunks(ids[2], listOf(Store.NewChunk(1, "", "words", vector)), partial = true)
         store.replaceChunks(ids[3], listOf(Store.NewChunk(0, "", null, vector)))
         store.replaceChunks(ids[4], emptyList())
@@ -125,10 +149,14 @@ class ReadingContractTest {
         val file = testFile("long.txt")
         store.upsertFiles(listOf(file))
         val id = store.fileByUri(file.uri)!!.id
-        store.replaceChunks(id, listOf(Store.NewChunk(1, "", "content", null)), partial = true)
+        val head = Store.NewChunk(1, "", "head", Vector.of(FloatArray(DIMS) { 1f }, SIG))
+        store.replaceChunks(id, listOf(head, Store.NewChunk(2, "", "content", null)), partial = true)
         assertEquals(ReadExtent.FIRST_PART_DEEPENING, store.readExtents(listOf(id))[id])
         assertEquals(1, store.countsNow().progress.partlyRead)
         assertEquals(1, store.countsNow().progress.laterPasses)
+        // Read without the model: the cap stays Partly read and the vectors wait for the meaning upgrade.
+        store.replaceChunks(id, listOf(Store.NewChunk(1, "", "content", null)), partial = true)
+        assertEquals(ReadingProgress(partlyRead = 1, meaningWaiting = 1), store.countsNow().progress)
     }
 
     @Test fun aFailedRereadWithUsableContentStaysPartial() {

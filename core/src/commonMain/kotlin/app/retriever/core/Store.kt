@@ -57,9 +57,26 @@ class Store(
     enum class Sort { NEWEST, LARGEST, NAME }
 
     /** A null [vector] is a text tail chunk: keyword-searchable at once, embedded later by the deepen pass. */
-    data class NewChunk(val ordinal: Int, val locator: String, val text: String?, val vector: Vector?, val contentText: String? = text)
+    data class NewChunk(
+        val ordinal: Int,
+        val locator: String,
+        val text: String?,
+        val vector: Vector?,
+        val contentText: String? = text,
+        val labels: String? = null,
+        val visual: Boolean = false,
+    )
     data class ChunkRow(val id: Long, val fileId: Long, val ordinal: Int, val locator: String, val text: String?)
-    data class TailChunk(val id: Long, val fileName: String, val text: String, val attempts: Int = 0, val fileId: Long = 0)
+    data class TailChunk(
+        val id: Long,
+        val fileName: String,
+        val text: String?,
+        val attempts: Int = 0,
+        val fileId: Long = 0,
+        val ordinal: Int = 1,
+        val locator: String = "",
+        val visual: Boolean = false,
+    )
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
     data class KeywordHit(val chunkId: Long, val snippet: String?)
 
@@ -77,6 +94,7 @@ class Store(
         val readByKind: Map<Kind, Long> = emptyMap(),
         val sampleProgress: ReadingProgress? = null,
         val sessionRead: Long = 0,
+        val meaning: MeaningCounts = MeaningCounts(),
     )
 
     internal fun <R> inTransaction(body: () -> R): R {
@@ -233,7 +251,7 @@ class Store(
 
     fun signature(): Signature? = meta(SIGNATURE_KEY)?.let { Signature(it) }
 
-    /** Drops every chunk and queues every file again for [sig]. Callers compare [signature] first. */
+    /** Keeps extracted text and labels; queues only missing vectors for [sig]. Callers compare [signature] first. */
     fun resetForModel(sig: Signature) {
         q.transaction {
             q.resetForNewModel()
@@ -258,9 +276,12 @@ class Store(
             q.chunkIdsForFile(fileId).executeAsList().forEach { q.deleteFts(it) }
             q.deleteChunksForFile(fileId)
             for (c in chunks) {
-                q.insertChunk(fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(), c.contentText)
+                q.insertChunk(
+                    fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
+                    c.contentText, c.labels, if (c.visual) 1L else 0L,
+                )
                 val chunkId = q.lastId().executeAsOne()
-                if (c.text != null) q.insertFts(chunkId, c.text)
+                if (c.text != null || c.labels != null) q.insertFts(chunkId, c.text, c.labels)
             }
             q.setIndexed(stored.attempts.toLong(), if (partial) 1L else 0L, fileId)
         }
@@ -280,14 +301,40 @@ class Store(
         }
     }
 
+    fun meaningStates(fileIds: Collection<Long>): Map<Long, MeaningState> = inChunks(fileIds) { q.meaningProgressIn(it, ::meaningRow).executeAsList() }.toMap()
+
+    fun chunkLabels(ids: Collection<Long>): Map<Long, String> =
+        inChunks(ids) { q.chunkLabels(it) { id, labels -> id to labels.orEmpty() }.executeAsList() }.toMap()
+
     /** Text chunks still waiting for a vector, in queue priority order. */
-    fun tailChunks(limit: Int): List<TailChunk> =
-        q.tailChunks(limit.toLong()) { id, fileId, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt(), fileId) }
-            .executeAsList()
+    fun tailChunks(limit: Int): List<TailChunk> = q.tailChunks(limit.toLong()) { id, fileId, ordinal, locator, text, name, attempts, visual ->
+        TailChunk(
+            id,
+            name,
+            text,
+            attempts.toInt(),
+            fileId,
+            ordinal.toInt(),
+            locator,
+            visual != 0L,
+        )
+    }
+        .executeAsList()
 
     /** [tailChunks] of [fileIds] only, oldest chunk first. */
     fun tailChunksIn(fileIds: Collection<Long>): List<TailChunk> = inChunks(fileIds) { ids ->
-        q.tailChunksIn(ids) { id, fileId, _, _, text, name, attempts -> TailChunk(id, name, text.orEmpty(), attempts.toInt(), fileId) }.executeAsList()
+        q.tailChunksIn(ids) { id, fileId, ordinal, locator, text, name, attempts, visual ->
+            TailChunk(
+                id,
+                name,
+                text,
+                attempts.toInt(),
+                fileId,
+                ordinal.toInt(),
+                locator,
+                visual != 0L,
+            )
+        }.executeAsList()
     }
 
     fun setTailAttempts(id: Long, attempts: Int) {
@@ -299,8 +346,8 @@ class Store(
         q.transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (text in parts) {
-                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text })
-                q.insertFts(q.lastId().executeAsOne(), text)
+                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text }, c.labels, 0L)
+                q.insertFts(q.lastId().executeAsOne(), text, c.labels)
             }
             q.deleteFts(id)
             q.deleteChunk(id)
@@ -324,11 +371,11 @@ class Store(
         check(vector.signature == signature()) { "vector signature ${vector.signature.value} does not match index" }
         q.transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
-            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text)
+            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual)
             val newId = q.lastId().executeAsOne()
             q.deleteFts(id)
             q.deleteChunk(id)
-            c.text?.let { q.insertFts(newId, it) }
+            if (c.text != null || c.labels != null) q.insertFts(newId, c.text, c.labels)
         }
     }
 
@@ -519,6 +566,7 @@ class Store(
             couldntRead = count("ERROR"),
             laterPasses = scoped.filter { it.coverage == "PARTIAL" && it.later == 1L }.sumOf { it.n },
             sample = ids != null,
+            meaningWaiting = scoped.filter { it.meaning == 1L }.sumOf { it.n },
             rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
         )
         val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
@@ -543,11 +591,13 @@ class Store(
                     couldntRead = scoped.filter { it.coverage == "ERROR" }.sumOf { it.n },
                     laterPasses = progress.laterPasses,
                     sample = true,
+                    meaningWaiting = progress.meaningWaiting,
                     rereads = progress.rereads,
                 )
             },
             readByKind = outcomes.filter { it.coverage == "READ" || it.coverage == "PARTIAL" }
                 .groupingBy { Kind.valueOf(it.kind) }.fold(0L) { n, row -> n + row.n },
+            meaning = q.meaningCounts(::MeaningCounts).executeAsOne(),
         )
     }
 

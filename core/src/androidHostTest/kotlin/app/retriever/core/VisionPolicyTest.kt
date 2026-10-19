@@ -78,11 +78,13 @@ class VisionPolicyTest {
         val file = testFile("planned.txt")
         val store = newStore()
         val factory = FakeFactory()
-        val r = testRetriever(store, listOf(file), FakeExtractor(), factory = factory).apply { uiVisible = true }
+        var ready = false
+        val r = testRetriever(store, listOf(file), FakeExtractor(), factory = factory, modelReady = { ready }).apply { uiVisible = true }
         r.planTaste()
-        assertEquals(NextRun.DONE, r.taste()) // names sync before Tune
+        assertEquals(NextRun.DONE, r.taste()) // keyword reading before the download
         assertEquals(StopReason.DONE, r.state.value.lastStop)
         store.setProfile(PROFILE)
+        ready = true
         var calls = 0
         factory.beforeEmbed = { if (++calls == 2) throw EmbedderClosedException("model replaced", broken = false) }
         assertEquals(NextRun.SOON, r.taste())

@@ -92,7 +92,7 @@ iOS: `AppModelTests`.
 
 ## Trial interruption regression
 
-A names-only batch before Tune legitimately returned `DONE` while planned files waited for the model. A later batch
+A keyword batch before Tune returns `DONE` after reading planned files without a model. A later batch
 interrupted by `EmbedderClosedException` returned `SOON`, but `runBatch`'s finally block retained that previous `DONE`
 (`stop ?: it.lastStop`). Home combined it with planned pending files and incorrectly said "new files". Search warm-up
 could cause that interruption by replacing the shared model mid-batch. Warm-up now shares the index lock, and an

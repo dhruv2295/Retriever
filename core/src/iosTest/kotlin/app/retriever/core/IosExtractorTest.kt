@@ -26,6 +26,7 @@ class IosExtractorTest {
         }
         override fun imageJpeg(uri: String, maxSide: Int): NSData? = error("unexpected image")
         override fun ocr(uri: String, page: Int): String? = error("unexpected OCR")
+        override fun imageLabels(uri: String): String? = error("unexpected labels")
         override fun pdfPageCount(uri: String): Int = error("unexpected PDF")
         override fun pdfPageText(uri: String, page: Int): String? = error("unexpected PDF")
         override fun pdfPageJpeg(uri: String, page: Int, maxSide: Int): NSData? = error("unexpected PDF")

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Fetch the 390 to 900 MB model file once, over Wi-Fi unless the person allows mobile data, prove it is the pinned file, and
+Optionally fetch the selected M440 build (387.71 MB generic; larger chip-specific builds) once, over Wi-Fi unless the person allows mobile data, prove it is the pinned file, and
 survive the app being suspended, killed or offline. The model is "ready" only when its size and a hash marker match.
 
 ## Mechanism and why

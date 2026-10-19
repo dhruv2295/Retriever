@@ -10,7 +10,11 @@ read (E). Content read is F + P; library size is F + P + Q + N + E. Ordinal-zero
 never count as content. Q separates scheduled files from files outside the sample. Notifications label sample scope;
 otherwise their counts cover the library and persist across batches.
 
-Partly read includes extraction caps and missing meaning-search vectors, including exhausted tail retries. Requeued first passes remain scheduled. Only queued
+Content is extracted text, OCR or classifier labels, or an embedded image; none of these needs the model. Partly read
+includes extraction caps and long-file tails missing vectors beside embedded chunks, including exhausted tail retries.
+Waiting for meaning (`meaningWaiting`, phase "Adding search by meaning") counts files with queued vectors and none yet:
+read without the model, or cleared by a model change. It is a subset count like later passes, so C = F + P is unchanged,
+and it is zero while the model is absent. Requeued first passes remain scheduled. Only queued
 work prevents completion; exhausted passes show their limit. Revoked, deleted, excluded and revised content leaves the old count immediately.
 
 ## Schedule and state
@@ -26,7 +30,8 @@ keeps the existing schedule. Not now persists Pause at a safe boundary and retai
 Decision precedence is manual pause, safety/schedule blocker, actual reading phase, scheduled wait, completion. Both
 platforms stop at low battery (20%, with a recovery margin), power saving or heat. Android also waits while another app
 uses the screen. iOS background starts remain subject to an OS grant. The existing measured vision fallback stays in
-place. Reading rechecks between chunks and reserves one tail opportunity per eight first-pass files.
+place. Reading rechecks between chunks, including keyword-only reading and the meaning pass, and reserves one tail
+opportunity per eight first-pass files.
 
 ## Native surfaces
 
@@ -34,7 +39,7 @@ Setup and Home share three selection rows and one confirmation. Selection alone 
 one-time name-search explanation have persisted dismissal. The library hero retains its status mascot; kind browsing
 uses leading icons. Reading status has a fixed title and separate state, read, partial, waiting and failure counts, with
 no library percentage. Settings' Reading group includes the schedule, one-off session, Pause/Resume, status and collapsed
-help/setup check. iOS audio is name only; video reading covers frames without sound.
+help/setup check. Audio is name only on both platforms; video reading covers frames without sound.
 
 Automatic iOS reading leaves the idle timer alone. Older iOS offers a screen-awake switch for an explicit session;
 iOS 26 requests native continued processing on the starting action. The system's progress units are separate from the

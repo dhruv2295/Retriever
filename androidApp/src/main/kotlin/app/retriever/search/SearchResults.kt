@@ -455,14 +455,17 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
             similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects),
         ) { menu ->
-            ThumbCell(
-                hit.file,
-                onClick = { act.open(hit) },
-                locator = hit.locator,
-                readNote = Format.readNote(extents[hit.fileId]),
-                onLongClick = menu,
-                onLongClickLabel = "More options",
-            )
+            Column {
+                ThumbCell(
+                    hit.file,
+                    onClick = { act.open(hit) },
+                    locator = hit.locator,
+                    readNote = Format.readNote(extents[hit.fileId]),
+                    onLongClick = menu,
+                    onLongClickLabel = "More options",
+                )
+                hit.matchReason?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+            }
         }
     }
 }
@@ -491,7 +494,7 @@ private fun LazyGridScope.docSection(
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
-                readNote = Format.readNote(extents[hit.fileId]),
+                readNote = listOfNotNull(hit.matchReason, Format.readNote(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
                 onLongClick = menu,
                 onLongClickLabel = "More options",
                 onClick = { act.open(hit) },

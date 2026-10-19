@@ -38,12 +38,14 @@ CREATE TABLE chunks (
   ordinal INTEGER NOT NULL,
   locator TEXT NOT NULL DEFAULT '',
   text TEXT,
-  content_text TEXT,
   -- NULL: a text tail chunk, keyword-searchable now, embedded by the deepen pass.
   vector BLOB,
   scale REAL,
   -- Deepen-pass tries, counted before each embed so a chunk that kills the process is given up on.
-  tail_attempts INTEGER NOT NULL DEFAULT 0
+  tail_attempts INTEGER NOT NULL DEFAULT 0,
+  content_text TEXT,
+  labels TEXT,
+  visual INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX chunks_by_file ON chunks(file_id);
@@ -54,7 +56,7 @@ CREATE INDEX chunks_tail ON chunks(file_id, tail_attempts) WHERE vector IS NULL;
 -- folds. unicode61 would otherwise split words at the vowel signs of Indic and Southeast Asian scripts
 -- ('बिजली' would index as ब | जल | ...). Generated, never hand-edited: SchemaV3Test checks it and rewrites it on
 -- request. Same tokenizer on both tables, and in 2.sqm.
-CREATE VIRTUAL TABLE chunk_fts USING fts4(text, tokenize=unicode61 "remove_diacritics=2" "tokenchars=ְֱֲֳִֵֶַָׇֹֺֻּֽֿׁׂًٌٍؘَؙُؚِّْٰܑ֑֖֛֢֣֤֥֦֧֪ׅٕٖٜٟۣ۪ۭܱܴܷܸܹܻܼܾ݂݄݆݈֚֭֮҃҄҅҆҇֒֓֔֕֗֘֙֜֝֞֟֠֡֨֩֫֬֯ׄؐؑؒؓؔؕؖؗٓٔٗ٘ٙٚٛٝٞۖۗۘۙۚۛۜ۟۠ۡۢۤۧۨ۫۬ܰܲܳܵܶܺܽܿ݀݁݃݅݇݉݊ަާިީުޫެޭޮޯްࣰࣱࣲ߲߽࡙࡚࡛࢙࢚࢛࣏࣐࣑࣒࣓ࣣࣦࣩ࣭࣮࣯ࣶࣹࣺ߫߬߭߮߯߰߱߳ࠖࠗ࠘࠙ࠛࠜࠝࠞࠟࠠࠡࠢࠣࠥࠦࠧࠩࠪࠫࠬ࠭ࢗ࢘࢜࢝࢞࢟࣊࣋࣌࣍࣎ࣔࣕࣖࣗࣘࣙࣚࣛࣜࣝࣞࣟ࣠࣡ࣤࣥࣧࣨ࣪࣫࣬ࣳࣴࣵࣷࣸࣻࣼࣽࣾࣿऀँंःऺऻ़ािीुूृॄॅॆेैॉॊोौ्ॎॏ॒॑॓॔ॕॖॗॢॣঁংঃ়ািীুূৃৄেৈোৌ্ৗৢৣ৾ਁਂਃ਼ਾਿੀੁੂੇੈੋੌ੍ੑੰੱੵઁંઃ઼ાિીુૂૃૄૅેૈૉોૌ્ૢૣૺૻૼ૽૾૿ଁଂଃ଼ାିୀୁୂୃୄେୈୋୌ୍୕ୖୗୢୣஂாிீுூெேைொோௌ்ௗఀఁంఃఄ఼ాిీుూృౄెేైొోౌ్ౕౖౢౣಁಂಃ಼ಾಿೀುೂೃೄೆೇೈೊೋೌ್ೕೖೢೣೳഀഁംഃ഻഼ാിീുൂൃൄെേൈൊോൌ്ൗൢൣඁංඃ්ාැෑිීුූෘෙේෛොෝෞෟෲෳัิีึืฺุู็่้๊๋์ํ๎ັິີຶື຺ຸູົຼ່້໊໋໌ໍ໎༹༘༙༵༷༾༿ཱཱཱིིུུྲྀཷླྀཹེཻོཽཾཿ྄ཱྀྀྂྃ྆྇ྍྎྏྐྑྒྒྷྔྕྖྗྙྚྛྜྜྷྞྟྠྡྡྷྣྤྥྦྦྷྨྩྪྫྫྷྭྮྯྰྱྲླྴྵྶྷྸྐྵྺྻྼ࿆ါာိီုူေဲဳဴဵံ့း္်ျြွှၖၗၘၙၞၟၠၢၣၤၧၨၩၪၫၬၭၱၲၳၴႂႃႄႅႆႇႈႉႊႋႌႍႏႚႛႜႝ፝፞፟ᜒᜓ᜔᜕ᜲᜳ᜴ᝒᝓᝲᝳ឴឵ាិីឹឺុូួើឿៀេែៃោៅំះៈ៉៊់៌៍៎៏័៑្៓៝᠋᠌᠍᠏ᢅᢆᢩᤠᤡᤢᤣᤤᤥᤦᤧᤨᤩᤪᤫᤰᤱᤲᤳᤴᤵᤶᤷᤸ᤻ᨘ᤹᤺ᨗᨙᨚᨛᩕᩖᩗᩘᩙᩚᩛᩜᩝᩞ᩠ᩡᩢᩣᩤᩥᩦᩧᩨᩩᩪᩫᩬᩭᩮᩯᩰᩱᩲᩳᩴ᩿᩵᩶᩷᩸᩹᩺᩻᩼ᬀᬁᬂᬃᬄ᬴ᬵᬶᬷᬸᬹᬺᬻᬼᬽᬾᬿᭀᭁᭂᭃ᭄᭬᭫᭭᭮᭯᭰᭱᭲᭳ᮀᮁᮂᮡᮢᮣᮤᮥᮦᮧᮨᮩ᮪᮫ᮬᮭ᯦ᯧᯨᯩᯪᯫᯬᯭᯮᯯᯰᯱ᯲᯳ᰤᰥᰦᰧᰨᰩᰪᰫᰬᰭᰮᰯᰰᰱᰲᰳᰴᰵᰶ᳔᰷᳕᳖᳗᳘᳙᳜᳝᳞᳟᳐᳑᳒᳚᳛᳠᳡᳢᳣᳤᳥᳦᳧᳨᳭᳴᳷゙゚⵿〪〭〮〯〫᳸᳹⳯⳰⳱ⷠⷡⷢⷣⷤⷥⷦⷧⷨⷩⷪⷫⷬⷭⷮⷯⷰⷱⷲⷳⷴⷵⷶⷷⷸⷹⷺⷻⷼⷽⷾⷿ꙯ꙴꙵꙶꙷꙸꙹꙺꙻ꙼꙽ꚞꚟ꛰꛱〬ꠂ꠆ꠋꠣꠤꠥꠦꠧ꠬ꢀꢁꢴꢵꢶꢷꢸꢹꢺꢻꢼꢽꢾꢿꣀꣁꣂꣃ꣄ꣅ꣠꣡꣢꣣꣤꣥꣦꣧꣨꣩꣪꣫꣬꣭꣮꣯꣰꣱ꣿꤦꤧꤨꤩꤪ꤫꤬꤭ꥇꥈꥉꥊꥋꥌꥍꥎꥏꥐꥑꥒ꥓ꦀꦁꦂꦃ꦳ꦴꦵꦶꦷꦸꦹꦺꦻꦼꦽꦾꦿ꧀ꧥꨩꨪꨫꨬꨭꨮꨯꨰꨱꨲꨳꨴꨵꨶꩃꩌꩍꩻꩼꩽꪴꪰꪲꪳꪷꪸꪾ꪿꫁ꫫꫬꫭꫮꫯꫵ꫶ꯣꯤꯥꯦꯧꯨꯩꯪ꯬꯭ﬞ︀︁︂︃︄︅︆︇︈︉︊︋︌︍︎️");
+CREATE VIRTUAL TABLE chunk_fts USING fts4(text, labels, tokenize=unicode61 "remove_diacritics=2" "tokenchars=ְֱֲֳִֵֶַָׇֹֺֻּֽֿׁׂًٌٍؘَؙُؚِّْٰܑ֑֖֛֢֣֤֥֦֧֪ׅٕٖٜٟۣ۪ۭܱܴܷܸܹܻܼܾ݂݄݆݈֚֭֮҃҄҅҆҇֒֓֔֕֗֘֙֜֝֞֟֠֡֨֩֫֬֯ׄؐؑؒؓؔؕؖؗٓٔٗ٘ٙٚٛٝٞۖۗۘۙۚۛۜ۟۠ۡۢۤۧۨ۫۬ܰܲܳܵܶܺܽܿ݀݁݃݅݇݉݊ަާިީުޫެޭޮޯްࣰࣱࣲ߲߽࡙࡚࡛࢙࢚࢛࣏࣐࣑࣒࣓ࣣࣦࣩ࣭࣮࣯ࣶࣹࣺ߫߬߭߮߯߰߱߳ࠖࠗ࠘࠙ࠛࠜࠝࠞࠟࠠࠡࠢࠣࠥࠦࠧࠩࠪࠫࠬ࠭ࢗ࢘࢜࢝࢞࢟࣊࣋࣌࣍࣎ࣔࣕࣖࣗࣘࣙࣚࣛࣜࣝࣞࣟ࣠࣡ࣤࣥࣧࣨ࣪࣫࣬ࣳࣴࣵࣷࣸࣻࣼࣽࣾࣿऀँंःऺऻ़ािीुूृॄॅॆेैॉॊोौ्ॎॏ॒॑॓॔ॕॖॗॢॣঁংঃ়ািীুূৃৄেৈোৌ্ৗৢৣ৾ਁਂਃ਼ਾਿੀੁੂੇੈੋੌ੍ੑੰੱੵઁંઃ઼ાિીુૂૃૄૅેૈૉોૌ્ૢૣૺૻૼ૽૾૿ଁଂଃ଼ାିୀୁୂୃୄେୈୋୌ୍୕ୖୗୢୣஂாிீுூெேைொோௌ்ௗఀఁంఃఄ఼ాిీుూృౄెేైొోౌ్ౕౖౢౣಁಂಃ಼ಾಿೀುೂೃೄೆೇೈೊೋೌ್ೕೖೢೣೳഀഁംഃ഻഼ാിീുൂൃൄെേൈൊോൌ്ൗൢൣඁංඃ්ාැෑිීුූෘෙේෛොෝෞෟෲෳัิีึืฺุู็่้๊๋์ํ๎ັິີຶື຺ຸູົຼ່້໊໋໌ໍ໎༹༘༙༵༷༾༿ཱཱཱིིུུྲྀཷླྀཹེཻོཽཾཿ྄ཱྀྀྂྃ྆྇ྍྎྏྐྑྒྒྷྔྕྖྗྙྚྛྜྜྷྞྟྠྡྡྷྣྤྥྦྦྷྨྩྪྫྫྷྭྮྯྰྱྲླྴྵྶྷྸྐྵྺྻྼ࿆ါာိီုူေဲဳဴဵံ့း္်ျြွှၖၗၘၙၞၟၠၢၣၤၧၨၩၪၫၬၭၱၲၳၴႂႃႄႅႆႇႈႉႊႋႌႍႏႚႛႜႝ፝፞፟ᜒᜓ᜔᜕ᜲᜳ᜴ᝒᝓᝲᝳ឴឵ាិីឹឺុូួើឿៀេែៃោៅំះៈ៉៊់៌៍៎៏័៑្៓៝᠋᠌᠍᠏ᢅᢆᢩᤠᤡᤢᤣᤤᤥᤦᤧᤨᤩᤪᤫᤰᤱᤲᤳᤴᤵᤶᤷᤸ᤻ᨘ᤹᤺ᨗᨙᨚᨛᩕᩖᩗᩘᩙᩚᩛᩜᩝᩞ᩠ᩡᩢᩣᩤᩥᩦᩧᩨᩩᩪᩫᩬᩭᩮᩯᩰᩱᩲᩳᩴ᩿᩵᩶᩷᩸᩹᩺᩻᩼ᬀᬁᬂᬃᬄ᬴ᬵᬶᬷᬸᬹᬺᬻᬼᬽᬾᬿᭀᭁᭂᭃ᭄᭬᭫᭭᭮᭯᭰᭱᭲᭳ᮀᮁᮂᮡᮢᮣᮤᮥᮦᮧᮨᮩ᮪᮫ᮬᮭ᯦ᯧᯨᯩᯪᯫᯬᯭᯮᯯᯰᯱ᯲᯳ᰤᰥᰦᰧᰨᰩᰪᰫᰬᰭᰮᰯᰰᰱᰲᰳᰴᰵᰶ᳔᰷᳕᳖᳗᳘᳙᳜᳝᳞᳟᳐᳑᳒᳚᳛᳠᳡᳢᳣᳤᳥᳦᳧᳨᳭᳴᳷゙゚⵿〪〭〮〯〫᳸᳹⳯⳰⳱ⷠⷡⷢⷣⷤⷥⷦⷧⷨⷩⷪⷫⷬⷭⷮⷯⷰⷱⷲⷳⷴⷵⷶⷷⷸⷹⷺⷻⷼⷽⷾⷿ꙯ꙴꙵꙶꙷꙸꙹꙺꙻ꙼꙽ꚞꚟ꛰꛱〬ꠂ꠆ꠋꠣꠤꠥꠦꠧ꠬ꢀꢁꢴꢵꢶꢷꢸꢹꢺꢻꢼꢽꢾꢿꣀꣁꣂꣃ꣄ꣅ꣠꣡꣢꣣꣤꣥꣦꣧꣨꣩꣪꣫꣬꣭꣮꣯꣰꣱ꣿꤦꤧꤨꤩꤪ꤫꤬꤭ꥇꥈꥉꥊꥋꥌꥍꥎꥏꥐꥑꥒ꥓ꦀꦁꦂꦃ꦳ꦴꦵꦶꦷꦸꦹꦺꦻꦼꦽꦾꦿ꧀ꧥꨩꨪꨫꨬꨭꨮꨯꨰꨱꨲꨳꨴꨵꨶꩃꩌꩍꩻꩼꩽꪴꪰꪲꪳꪷꪸꪾ꪿꫁ꫫꫬꫭꫮꫯꫵ꫶ꯣꯤꯥꯦꯧꯨꯩꯪ꯬꯭ﬞ︀︁︂︃︄︅︆︇︈︉︊︋︌︍︎️");
 
 -- rowid = files.id. Names reach keyword search here as soon as a file is synced, before any embedding.
 CREATE VIRTUAL TABLE file_fts USING fts4(name, folder, tokenize=unicode61 "remove_diacritics=2" "tokenchars=ְֱֲֳִֵֶַָׇֹֺֻּֽֿׁׂًٌٍؘَؙُؚِّْٰܑ֑֖֛֢֣֤֥֦֧֪ׅٕٖٜٟۣ۪ۭܱܴܷܸܹܻܼܾ݂݄݆݈֚֭֮҃҄҅҆҇֒֓֔֕֗֘֙֜֝֞֟֠֡֨֩֫֬֯ׄؐؑؒؓؔؕؖؗٓٔٗ٘ٙٚٛٝٞۖۗۘۙۚۛۜ۟۠ۡۢۤۧۨ۫۬ܰܲܳܵܶܺܽܿ݀݁݃݅݇݉݊ަާިީުޫެޭޮޯްࣰࣱࣲ߲߽࡙࡚࡛࢙࢚࢛࣏࣐࣑࣒࣓ࣣࣦࣩ࣭࣮࣯ࣶࣹࣺ߫߬߭߮߯߰߱߳ࠖࠗ࠘࠙ࠛࠜࠝࠞࠟࠠࠡࠢࠣࠥࠦࠧࠩࠪࠫࠬ࠭ࢗ࢘࢜࢝࢞࢟࣊࣋࣌࣍࣎ࣔࣕࣖࣗࣘࣙࣚࣛࣜࣝࣞࣟ࣠࣡ࣤࣥࣧࣨ࣪࣫࣬ࣳࣴࣵࣷࣸࣻࣼࣽࣾࣿऀँंःऺऻ़ािीुूृॄॅॆेैॉॊोौ्ॎॏ॒॑॓॔ॕॖॗॢॣঁংঃ়ািীুূৃৄেৈোৌ্ৗৢৣ৾ਁਂਃ਼ਾਿੀੁੂੇੈੋੌ੍ੑੰੱੵઁંઃ઼ાિીુૂૃૄૅેૈૉોૌ્ૢૣૺૻૼ૽૾૿ଁଂଃ଼ାିୀୁୂୃୄେୈୋୌ୍୕ୖୗୢୣஂாிீுூெேைொோௌ்ௗఀఁంఃఄ఼ాిీుూృౄెేైొోౌ్ౕౖౢౣಁಂಃ಼ಾಿೀುೂೃೄೆೇೈೊೋೌ್ೕೖೢೣೳഀഁംഃ഻഼ാിീുൂൃൄെേൈൊോൌ്ൗൢൣඁංඃ්ාැෑිීුූෘෙේෛොෝෞෟෲෳัิีึืฺุู็่้๊๋์ํ๎ັິີຶື຺ຸູົຼ່້໊໋໌ໍ໎༹༘༙༵༷༾༿ཱཱཱིིུུྲྀཷླྀཹེཻོཽཾཿ྄ཱྀྀྂྃ྆྇ྍྎྏྐྑྒྒྷྔྕྖྗྙྚྛྜྜྷྞྟྠྡྡྷྣྤྥྦྦྷྨྩྪྫྫྷྭྮྯྰྱྲླྴྵྶྷྸྐྵྺྻྼ࿆ါာိီုူေဲဳဴဵံ့း္်ျြွှၖၗၘၙၞၟၠၢၣၤၧၨၩၪၫၬၭၱၲၳၴႂႃႄႅႆႇႈႉႊႋႌႍႏႚႛႜႝ፝፞፟ᜒᜓ᜔᜕ᜲᜳ᜴ᝒᝓᝲᝳ឴឵ាិីឹឺុូួើឿៀេែៃោៅំះៈ៉៊់៌៍៎៏័៑្៓៝᠋᠌᠍᠏ᢅᢆᢩᤠᤡᤢᤣᤤᤥᤦᤧᤨᤩᤪᤫᤰᤱᤲᤳᤴᤵᤶᤷᤸ᤻ᨘ᤹᤺ᨗᨙᨚᨛᩕᩖᩗᩘᩙᩚᩛᩜᩝᩞ᩠ᩡᩢᩣᩤᩥᩦᩧᩨᩩᩪᩫᩬᩭᩮᩯᩰᩱᩲᩳᩴ᩿᩵᩶᩷᩸᩹᩺᩻᩼ᬀᬁᬂᬃᬄ᬴ᬵᬶᬷᬸᬹᬺᬻᬼᬽᬾᬿᭀᭁᭂᭃ᭄᭬᭫᭭᭮᭯᭰᭱᭲᭳ᮀᮁᮂᮡᮢᮣᮤᮥᮦᮧᮨᮩ᮪᮫ᮬᮭ᯦ᯧᯨᯩᯪᯫᯬᯭᯮᯯᯰᯱ᯲᯳ᰤᰥᰦᰧᰨᰩᰪᰫᰬᰭᰮᰯᰰᰱᰲᰳᰴᰵᰶ᳔᰷᳕᳖᳗᳘᳙᳜᳝᳞᳟᳐᳑᳒᳚᳛᳠᳡᳢᳣᳤᳥᳦᳧᳨᳭᳴᳷゙゚⵿〪〭〮〯〫᳸᳹⳯⳰⳱ⷠⷡⷢⷣⷤⷥⷦⷧⷨⷩⷪⷫⷬⷭⷮⷯⷰⷱⷲⷳⷴⷵⷶⷷⷸⷹⷺⷻⷼⷽⷾⷿ꙯ꙴꙵꙶꙷꙸꙹꙺꙻ꙼꙽ꚞꚟ꛰꛱〬ꠂ꠆ꠋꠣꠤꠥꠦꠧ꠬ꢀꢁꢴꢵꢶꢷꢸꢹꢺꢻꢼꢽꢾꢿꣀꣁꣂꣃ꣄ꣅ꣠꣡꣢꣣꣤꣥꣦꣧꣨꣩꣪꣫꣬꣭꣮꣯꣰꣱ꣿꤦꤧꤨꤩꤪ꤫꤬꤭ꥇꥈꥉꥊꥋꥌꥍꥎꥏꥐꥑꥒ꥓ꦀꦁꦂꦃ꦳ꦴꦵꦶꦷꦸꦹꦺꦻꦼꦽꦾꦿ꧀ꧥꨩꨪꨫꨬꨭꨮꨯꨰꨱꨲꨳꨴꨵꨶꩃꩌꩍꩻꩼꩽꪴꪰꪲꪳꪷꪸꪾ꪿꫁ꫫꫬꫭꫮꫯꫵ꫶ꯣꯤꯥꯦꯧꯨꯩꯪ꯬꯭ﬞ︀︁︂︃︄︅︆︇︈︉︊︋︌︍︎️");
@@ -176,7 +178,8 @@ SELECT COUNT(*), COALESCE(SUM(size), 0) FROM files WHERE size >= ?;
 -- when an embedder ran, so "ordinal > 0" is right in both full and text-only mode.
 nameOnlyCount:
 SELECT COUNT(*) FROM files f WHERE f.state = 'INDEXED'
-AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0);
+AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+  AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)));
 
 filesByIds:
 SELECT * FROM files WHERE id IN ?;
@@ -224,7 +227,7 @@ UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'SKIPPED';
 skippedFiles:
 SELECT f.* FROM files f WHERE f.state = 'SKIPPED' AND f.kind IN :kinds
 AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
-  AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+  AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
 ORDER BY f.name COLLATE NOCASE ASC, f.id LIMIT :limit;
 
 fileById:
@@ -258,7 +261,8 @@ partialFiles:
 SELECT id FROM files WHERE id IN ? AND partial = 1;
 
 deepeningFiles:
-SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND vector IS NULL AND tail_attempts < 3;
+SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND vector IS NULL AND tail_attempts < 3
+AND file_id IN (SELECT id FROM files WHERE state = 'INDEXED');
 
 deleteFileById:
 DELETE FROM files WHERE id = ?;
@@ -279,7 +283,7 @@ deleteChunk:
 DELETE FROM chunks WHERE id = ?;
 
 insertChunk:
-INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text, labels, visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 lastId:
 SELECT last_insert_rowid();
@@ -297,32 +301,33 @@ vectorsDeleted:
 SELECT value FROM index_meta WHERE key = 'vectors_deleted';
 
 tailChunks:
-SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
 FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE c.vector IS NULL AND c.tail_attempts < 3
+WHERE f.state = 'INDEXED' AND c.vector IS NULL AND c.tail_attempts < 3
 ORDER BY CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, f.modified_at DESC, c.id
 LIMIT ?;
 
 tailChunksIn:
-SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
 FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE c.vector IS NULL AND c.tail_attempts < 3 AND c.file_id IN ?
+WHERE f.state = 'INDEXED' AND c.vector IS NULL AND c.tail_attempts < 3 AND c.file_id IN ?
 ORDER BY c.id;
 
 tailCountsIn:
-SELECT COUNT(*), COUNT(DISTINCT file_id) FROM chunks WHERE vector IS NULL AND tail_attempts < 3 AND file_id IN ?;
+SELECT COUNT(*), COUNT(DISTINCT file_id) FROM chunks WHERE file_id IN (SELECT id FROM files WHERE state = 'INDEXED') AND vector IS NULL AND tail_attempts < 3 AND file_id IN ?;
 
 tailChunkCount:
-SELECT COUNT(*) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
+SELECT COUNT(*) FROM chunks WHERE file_id IN (SELECT id FROM files WHERE state = 'INDEXED') AND vector IS NULL AND tail_attempts < 3;
 
 tailFileCount:
-SELECT COUNT(DISTINCT file_id) FROM chunks WHERE vector IS NULL AND tail_attempts < 3;
+SELECT COUNT(DISTINCT file_id) FROM chunks WHERE file_id IN (SELECT id FROM files WHERE state = 'INDEXED') AND vector IS NULL AND tail_attempts < 3;
 
 setTailAttempts:
 UPDATE chunks SET tail_attempts = ? WHERE id = ?;
 
+-- v5 fresh databases put content_text before vector; upgraded ones appended it. Never depend on physical column order.
 chunkById:
-SELECT * FROM chunks WHERE id = ?;
+SELECT id, file_id, ordinal, locator, text, vector, scale, tail_attempts, content_text, labels, visual FROM chunks WHERE id = ?;
 
 chunksByIds:
 SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
@@ -337,7 +342,7 @@ WHERE file_id IN :fileIds AND locator IN :locators AND content_text IS NOT NULL
 GROUP BY file_id, locator;
 
 insertFts:
-INSERT INTO chunk_fts (rowid, text) VALUES (?, ?);
+INSERT INTO chunk_fts (rowid, text, labels) VALUES (?, ?, ?);
 
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
@@ -360,8 +365,9 @@ WHERE chunk_fts MATCH :match AND +rowid IN (SELECT id FROM chunks WHERE file_id 
 ORDER BY rowid DESC LIMIT :limit;
 
 ftsSnippets:
-SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', -1, 12) AS snippet
-FROM chunk_fts WHERE chunk_fts MATCH ? AND rowid IN ?;
+SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', 0, 12) AS snippet
+FROM chunk_fts WHERE chunk_fts MATCH ? AND rowid IN ?
+AND rowid IN (SELECT id FROM chunks WHERE content_text IS NOT NULL);
 
 insertFileFts:
 INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);
@@ -391,17 +397,19 @@ VALUES (:key, CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE
 
 -- After 2.sqm recreated the keyword tables empty. Rows the indexer wrote since then are skipped, not doubled.
 rebuildFts {
-  INSERT INTO chunk_fts (rowid, text) SELECT id, text FROM chunks
-    WHERE text IS NOT NULL AND id NOT IN (SELECT rowid FROM chunk_fts);
+  INSERT INTO chunk_fts (rowid, text, labels) SELECT id, text, labels FROM chunks
+    WHERE (text IS NOT NULL OR labels IS NOT NULL) AND id NOT IN (SELECT rowid FROM chunk_fts);
   INSERT INTO file_fts (rowid, name, folder) SELECT id, name, folder FROM files
     WHERE id NOT IN (SELECT rowid FROM file_fts);
   DELETE FROM index_meta WHERE key = 'fts_rebuild';
 }
 
 resetForNewModel {
-  DELETE FROM chunk_fts;
-  DELETE FROM chunks;
-  UPDATE files SET state = 'PENDING', attempts = 0;
+  INSERT OR REPLACE INTO index_meta (key, value)
+    SELECT 'vectors_deleted', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = 'vectors_deleted'), 0) + COUNT(vector) AS TEXT) FROM chunks;
+  UPDATE chunks SET vector = NULL, scale = NULL, tail_attempts = 0;
+  INSERT INTO chunks (file_id, ordinal, locator)
+    SELECT id, 0, '' FROM files WHERE state = 'INDEXED' AND id NOT IN (SELECT file_id FROM chunks);
 }
 
 addRecentQuery {
@@ -482,32 +490,43 @@ WHERE files.uri = ? AND files.modified_at = ? AND files.size = ? AND files.state
 AND content_text IS NOT NULL AND trim(content_text) != ''
 ORDER BY ordinal, chunks.id LIMIT 1;
 
--- Ordinal zero is a name vector. Metadata text is not extracted content.
+-- Ordinal zero is a name vector. Metadata text is not extracted content. Labels are content even without a model.
+-- A file with no vectors yet but queued meaning work is waiting for the meaning upgrade (meaning = 1): its words are
+-- read, so it is not Partly read for missing vectors. Missing vectors beside existing ones (long-file tails) or exhausted
+-- retries keep Partly read.
 readingCounts:
-SELECT kind, coverage, scheduled, later, COUNT(*) AS n FROM (
-  SELECT f.kind,
+SELECT kind, coverage, scheduled, later, meaning, COUNT(*) AS n FROM (
+  SELECT kind,
     CASE
-      WHEN f.kind NOT IN :kinds THEN 'NAME'
-      WHEN EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
-        AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
-      THEN CASE WHEN f.state != 'INDEXED' OR f.partial = 1 OR (:includeTails = 1 AND EXISTS
-        (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0 AND c.vector IS NULL AND length(trim(c.content_text)) > 0))
-        THEN 'PARTIAL' ELSE 'READ' END
-      WHEN f.state = 'SKIPPED' THEN 'ERROR'
-      WHEN f.state = 'INDEXED' THEN 'NAME'
+      WHEN kind NOT IN :kinds THEN 'NAME'
+      WHEN content = 1 THEN CASE WHEN state != 'INDEXED' OR partial = 1 OR (tails = 1 AND upgrade = 0) THEN 'PARTIAL' ELSE 'READ' END
+      WHEN state = 'SKIPPED' THEN 'ERROR'
+      WHEN state = 'INDEXED' THEN 'NAME'
       ELSE 'WAITING'
     END AS coverage,
     1 AS scheduled,
-    CASE WHEN :includeTails = 1 AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id
-      AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3 AND length(trim(c.content_text)) > 0)
-      THEN 1 ELSE 0 END AS later
-  FROM files f WHERE :allFiles = 1 OR f.id IN :ids
-) GROUP BY kind, coverage, scheduled, later;
+    CASE WHEN queued = 1 AND upgrade = 0 THEN 1 ELSE 0 END AS later,
+    CASE WHEN upgrade = 1 AND kind IN :kinds THEN 1 ELSE 0 END AS meaning
+  FROM (
+    SELECT f.kind, f.state, f.partial,
+      EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+        AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL))) AS content,
+      :includeTails = 1 AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0 AND c.vector IS NULL
+        AND length(trim(c.content_text)) > 0) AS tails,
+      :includeTails = 1 AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0 AND c.vector IS NULL
+        AND c.tail_attempts < 3 AND length(trim(c.content_text)) > 0) AS queued,
+      :includeTails = 1 AND f.state = 'INDEXED'
+        AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
+        AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+          AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(c.content_text)) > 0))) AS upgrade
+    FROM files f WHERE :allFiles = 1 OR f.id IN :ids
+  )
+) GROUP BY kind, coverage, scheduled, later, meaning;
 
 filesWithContent:
 SELECT f.* FROM files f WHERE f.id IN :ids AND EXISTS (
   SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
-  AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL))
+  AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL))
 );
 
 failedMeaningFiles:
@@ -519,4 +538,19 @@ SELECT COALESCE(MAX(id), 0) FROM chunks;
 sessionReadCount:
 SELECT COUNT(DISTINCT f.id) FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.id > :after AND f.kind IN :kinds AND c.ordinal > 0
-AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL));
+AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL));
+
+-- The text/label fields are separate so classifier words can never become content snippets.
+chunkLabels:
+SELECT id, labels FROM chunks WHERE id IN ? AND labels IS NOT NULL;
+
+meaningCounts:
+SELECT CAST(COALESCE(SUM(embedded = 0), 0) AS INTEGER) AS notAdded,
+       CAST(COALESCE(SUM(embedded > 0 AND embedded < total), 0) AS INTEGER) AS partlyAdded,
+       CAST(COALESCE(SUM(embedded > 0 AND embedded = total), 0) AS INTEGER) AS added
+FROM (SELECT COUNT(c.id) AS total, COUNT(c.vector) AS embedded
+      FROM files f LEFT JOIN chunks c ON c.file_id = f.id WHERE f.state = 'INDEXED' GROUP BY f.id);
+
+meaningProgressIn:
+SELECT f.id, f.state, COUNT(c.id) AS total, COUNT(c.vector) AS embedded
+FROM files f LEFT JOIN chunks c ON c.file_id = f.id WHERE f.id IN ? GROUP BY f.id;

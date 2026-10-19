@@ -52,6 +52,16 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         }
     }
 
+    func imageLabels(uri: String) -> String? {
+        autoreleasepool {
+            guard let cg = image(uri, size: CGSize(width: 512, height: 512))?.cgImage else { return nil }
+            let request = VNClassifyImageRequest()
+            guard (try? VNImageRequestHandler(cgImage: cg).perform([request])) != nil else { return nil }
+            return (request.results ?? []).filter { $0.confidence >= 0.7 }
+                .map { $0.identifier.lowercased().replacingOccurrences(of: "_", with: " ") }.joined(separator: "\n")
+        }
+    }
+
     /// What Vision can read on this OS, logged once per OS version (no user data), so a missing script shows up.
     private static let logLanguages: Void = {
         let os = ProcessInfo.processInfo.operatingSystemVersionString
@@ -75,7 +85,11 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             (w, h) = (p[kCGImagePropertyPixelWidth] as? Int ?? 0, p[kCGImagePropertyPixelHeight] as? Int ?? 0)
         }
         guard w > 0, h > 0 else { return CGSize(width: Self.ocrSide, height: Self.ocrSide) }
-        let fit = ExtractionKt.ocrTargetSize(w: Int32(w), h: Int32(h))
+        let screenshot = asset(uri)?.mediaSubtypes.contains(.photoScreenshot) == true
+        let fit =
+            screenshot
+            ? ExtractionKt.ocrTargetSize(w: Int32(w), h: Int32(h))
+            : ExtractionKt.fitSize(w: Int32(w), h: Int32(h), maxShort: 1080, maxLong: 1600)
         return CGSize(width: fit.first!.intValue, height: fit.second!.intValue)
     }
 

@@ -37,7 +37,7 @@ const val AUDIO_SAMPLE_RATE = 16_000
 const val AUDIO_WINDOW_SEC = 10
 
 /** A searchable slice of a file: a PDF page, an OCR'd screenshot, a 30 s audio window. */
-data class Piece(val locator: String, val parts: List<Part>, val keywordText: String?, val contentText: String? = null)
+data class Piece(val locator: String, val parts: List<Part>, val keywordText: String?, val contentText: String? = null, val labels: String? = null)
 
 // Commit-pinned resolve URLs adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/data/ModelAllowlist.kt (Apache-2.0). Modified for Retriever: constants instead of a fetched allowlist.
 
@@ -79,6 +79,9 @@ data class ModelBuild(val variant: ModelVariant, val fileName: String, val sizeB
     val url: String get() = "https://huggingface.co/${variant.repo}/resolve/${variant.commit}/$fileName"
     val isNpu: Boolean get() = soc != null
 }
+
+/** Conservative opening before optional tuning; an NPU build can run only on its own delegate. */
+internal fun ModelBuild.initialProfile() = DeviceProfile(Tier.LIGHT, variant, if (isNpu) Backend.NPU else Backend.CPU, 70, 5, false, false)
 
 enum class Backend { NPU, GPU, CPU }
 

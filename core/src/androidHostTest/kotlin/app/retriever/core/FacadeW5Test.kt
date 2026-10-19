@@ -247,7 +247,7 @@ class FacadeW5Test {
         f.source.next = Changes(listOf(testFile("deed.txt")), emptyList(), "tok2")
         f.r.indexBatch(1.minutes)
         assertEquals(opens, f.factory.opened.size, "batches don't open the model")
-        assertEquals(1L, f.store.countsByState()[FileState.PENDING], "the new file waits to be read in full")
+        assertEquals(2L, f.store.countsByState()[FileState.INDEXED], "new files are read without the missing model")
         assertEquals(listOf("deed.txt"), f.r.search("deed").hits.map { it.file.name }, "but its name is found")
 
         f.ready = true

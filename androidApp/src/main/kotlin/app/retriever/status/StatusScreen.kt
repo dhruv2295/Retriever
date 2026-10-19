@@ -288,6 +288,10 @@ fun StatusContent(
                     }
                 }
 
+                if ((progress?.meaningWaiting ?: 0) > 0) {
+                    Muted("${Format.count(progress?.meaningWaiting ?: 0)} read for words · search by meaning to come", Modifier.padding(16.dp))
+                }
+
                 if ((progress?.laterPasses ?: 0) > 0) {
                     Muted("${Format.count(progress?.laterPasses ?: 0)} partly read · more meaning search to come", Modifier.padding(16.dp))
                 }

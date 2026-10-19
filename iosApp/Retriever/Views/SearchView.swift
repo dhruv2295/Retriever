@@ -397,7 +397,7 @@ private struct ResultsView: View {
                 ForEach(hits, id: \.fileId) { hit in
                     ResultCell(
                         file: hit.file, locator: hit.locator, starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) },
-                        extent: answer.extents[hit.fileId], onFindSimilar: rows.similar)
+                        extent: answer.extents[hit.fileId], onFindSimilar: rows.similar, matchReason: hit.matchReason)
                 }
             }
         }
@@ -414,6 +414,7 @@ private struct ResultsView: View {
                     FileButton(
                         file: hit.file, locator: hit.locator, snippet: hit.snippet, styledName: answer.names[hit.fileId], extent: answer.extents[hit.fileId],
                         starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) }, onFindSimilar: rows.similar)
+                    if let reason = hit.matchReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                     Divider()
                 }
             }

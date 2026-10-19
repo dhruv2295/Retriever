@@ -3,7 +3,7 @@
 ## Purpose
 
 One on-device EmbeddingGemma 2 model turns every piece of a file (text chunk, photo, OCR'd screenshot, PDF page, video
-moment, audio window) and every query into a vector in one shared space, so search matches by meaning beside keywords and
+moment) and every query into a vector in one shared space, so search matches by meaning beside keywords and
 names. This note covers choosing the build, opening, sharing, falling back and releasing the embedder, and the vector
 contract. Download is in `model-download.md`, backend measuring in `calibration.md`, OCR in `extraction.md`. No file
 content leaves the phone; only the model download uses the network.
@@ -28,13 +28,15 @@ content leaves the phone; only the model download uses the network.
   swipe or the low-memory killer). Any other open failure (a missing or truncated file, low memory) is rethrown and the
   batch retries; it says nothing about the GPU. An open refused for now (`broken = false`, on any backend) rests the
   batch (`AFTER_COOLDOWN`) instead of demoting or looping. On iOS `backendNow` runs the CPU in the background.
-- **Variant.** `ModelBuilds.variantFor`: iOS always M440; Android M740 at 7 GB nominal RAM or more, else M440. Under 4 GB
-  (`Tiers.MIN_MODEL_RAM_GB`) the phone runs text-only with no model (`NoModel`). NPU builds are commit-pinned with size and
+- **Variant.** New downloads select M440 on both platforms (387,710,976 bytes generic). A verified installed M740
+  remains selected while its signature owns the index; losing/changing it selects M440. Every device can read words
+  and image labels without a download; under 4 GB (`Tiers.MIN_MODEL_RAM_GB`) it stays keyword-only (`NoModel`). NPU builds are commit-pinned with size and
   sha256, for Tensor G5/G6 and MediaTek MT6991/MT6993 (Qualcomm is left out: the AAR has no QNN libraries).
 - **Vector contract (both platforms).** L2 normalized output, Matryoshka cut to `DIMS` = 256, re-normalized, stored as int8
   with one scale per vector (`Vector.kt`). Text prefixes only: query `task: search result | query: ...`, document
   `title: <name> | text: ...`; images, audio and video moments go in raw (`Prefix` in Chunker.kt). `Signature` =
-  variant/sha8/vision tokens/d256/max tokens; vectors of different signatures never mix and a change re-indexes. The eval
+  variant/sha8/vision tokens/d256/max tokens; vectors of different signatures never mix. A change drops only vectors, then embeds saved text and reloads pixels
+  at saved locators; OCR, document text, FTS and labels stay searchable. The eval
   (`eval/REPORT.md`) found prefixes worth +2 recall@5 and d256 int8 equal to d512 float.
 - **Release.** Android starts a separate foreground warm-up before awaiting its trial. `onStop` cancels it, then asks
   `releaseIfIdle()` to free the hidden model. Batch, search and warm-up
@@ -99,9 +101,8 @@ content leaves the phone; only the model download uses the network.
   builds have no CPU reference.
 - `gpu_unsafe` and CPU demotion are cleared only by Tune again (`clearGpuUnsafe`), not by an OS or driver update.
 - iOS reads the background on CPU; foreground GPU text can use CPU vision when Tune measures stalls. Agreement is gated at 0.98 mean.
-- M440 versus M740 (decision, deviceQueue): M740 costs about +97 MB download, a 91 MB audio-encoder cache and extra heap even
-  with audio off, and text and vision vectors are believed identical to M440 but the signature differs, so a switch
-  re-indexes. Needs a device memory measurement and a cosine comparison on the eval corpus before changing the rule.
+- M440 saves 96.91 MB against generic M740. Vectors are rebuilt on a signature change; no cross-model compatibility
+  is assumed. Audio files are name-only on both platforms. See `optional-model.md` for the UI API and cost measurements.
 - ML Kit has no Arabic, Cyrillic, Thai, Hebrew or Tamil; those screenshots read through the Latin pass. iOS Vision reads them.
 
 ## Rendering stalls and repeatable A/B

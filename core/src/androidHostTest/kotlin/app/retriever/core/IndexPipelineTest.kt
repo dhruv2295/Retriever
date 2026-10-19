@@ -92,6 +92,7 @@ class IndexPipelineTest {
                 mapOf((Kind.DOC to FileState.INDEXED) to 1L),
                 progress = ReadingProgress(partlyRead = 1, laterPasses = 1),
                 readByKind = mapOf(Kind.DOC to 1L),
+                meaning = MeaningCounts(partlyAdded = 1),
             ),
             store.counts().first(),
         )

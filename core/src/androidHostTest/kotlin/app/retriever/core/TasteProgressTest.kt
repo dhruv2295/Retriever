@@ -59,13 +59,16 @@ class TasteProgressTest {
         val store = newStore(sig = null)
         var n = 0
         lateinit var r: Retriever
-        val extractor = FakeExtractor(shots.associate { it.name to listOf(textPiece("words of ${it.name}")) }) { if (++n == 20) r.cancelBatch() }
+        // Labels alone make a photo Read with no model, so all 20 reads count.
+        val pieces = shots.associate { it.name to listOf(textPiece("words of ${it.name}")) } +
+            photos.associate { it.name to imageWithText("", byteArrayOf(1), "", 800, "sky") }
+        val extractor = FakeExtractor(pieces) { if (++n == 20) r.cancelBatch() }
         r = testRetriever(store, shots + photos, extractor, DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 3.0, false), modelReady = { false })
             .apply { uiVisible = true }
         assertTrue(r.textOnly)
         r.refreshSetUp()
         val plan = r.planTaste()
-        assertEquals(setOf(Kind.SCREENSHOT), plan.byKind.keys)
+        assertEquals(setOf(Kind.SCREENSHOT, Kind.PHOTO), plan.byKind.keys)
 
         r.taste()
         val p = r.tasteProgress().first()

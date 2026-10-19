@@ -34,10 +34,22 @@ object ModelBuilds {
     /** A native crash (SIGSEGV) in the NPU delegate throws nothing; opens that never reached a first embed count instead. */
     const val MAX_UNFINISHED_OPENS = 2
 
-    fun variantFor(probe: DeviceProbe): ModelVariant = when {
-        probe.platform == Platform.IOS -> ModelVariant.M440
-        probe.ramGb >= 7.0 -> ModelVariant.M740
-        else -> ModelVariant.M440
+    fun variantFor(@Suppress("UNUSED_PARAMETER") probe: DeviceProbe): ModelVariant = ModelVariant.M440
+
+    /** Keep a downloaded legacy build only while it owns the current vectors. New downloads always select M440. */
+    fun installedOrSelected(
+        probe: DeviceProbe,
+        profile: DeviceProfile?,
+        signature: Signature?,
+        failed: Set<String>,
+        ready: (ModelBuild) -> Boolean,
+    ): ModelBuild {
+        if (profile?.model == ModelVariant.M740) {
+            (listOf(ModelVariant.M740.generic) + npu.filter { it.variant == ModelVariant.M740 }).firstOrNull {
+                it.fileName !in failed && Signature.of(it, profile.visionTokens, profile.maxTokens) == signature && ready(it)
+            }?.let { return it }
+        }
+        return buildFor(ModelVariant.M440, probe, failed)
     }
 
     /** Build key = socKey of the soc after its vendor ('tensorg5', 'sm8650'); a prefix match tolerates 'SM8650-AC'. */

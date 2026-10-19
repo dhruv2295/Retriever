@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(5L, IndexDb.Schema.version)
+        assertEquals(6L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -129,6 +129,83 @@ class MigrationTest {
             assertTrue(ofKind.any { "files_by_kind_time" in it }, ofKind.toString())
         }
         migrated.close()
+    }
+
+    @Test
+    fun version5KeepsExtractedContentAndVectorsThenRebuildsMeaningWithoutRequeueingFiles() {
+        val v5 = File.createTempFile("index-v5", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v5, overwrite = true)
+        JdbcSqliteDriver("jdbc:sqlite:${v5.path}").use { driver ->
+            IndexDb.Schema.migrate(driver, 3, 5).value
+            driver.execute(
+                null,
+                "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) " +
+                    "VALUES (1, 'photo', 'photo.jpg', '', 'image/jpeg', 'PHOTO', 10, 1, 'INDEXED')",
+                0,
+            )
+            driver.execute(
+                null,
+                "INSERT INTO chunks (id, file_id, ordinal, text, content_text, vector, scale) " +
+                    "VALUES (1, 1, 1, 'receipt 48213', 'receipt 48213', X'01', 1.0), (2, 1, 2, NULL, NULL, X'01', 1.0)",
+                0,
+            )
+            driver.execute(null, "INSERT INTO chunk_fts (rowid, text) VALUES (1, 'receipt 48213')", 0)
+            IndexDb.Schema.migrate(driver, 5, IndexDb.Schema.version).value
+            val store = Store(driver)
+            assertEquals(2, store.vectorCount(), "a schema upgrade does not force a model download")
+            assertEquals(1, store.keywordSearch("48213", 10).size)
+            assertEquals("receipt 48213", store.chunkTexts(1).single().text)
+            assertEquals(1L, count(driver, "SELECT visual FROM chunks WHERE id = 2"))
+            store.resetForModel(Signature("new-model"))
+            assertEquals(0, store.vectorCount())
+            assertEquals(2L, store.chunkCount())
+            assertEquals(FileState.INDEXED, store.storedById(1)?.state)
+            assertEquals(1, store.keywordSearch("48213", 10).size)
+            assertEquals(1L, store.countsNow().tailFiles)
+            store.replaceChunks(1, listOf(Store.NewChunk(1, "", null, null, null, "beach", true)))
+            assertEquals(1, store.keywordSearch("beach", 10).size)
+            assertTrue(store.chunkTexts(1).isEmpty())
+        }
+    }
+
+    @Test
+    fun aFreshVersion5DatabaseHasItsOwnColumnOrderAndKeepsItsTextWhenMeaningIsAdded() {
+        val v5 = File.createTempFile("fresh-v5", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v5, overwrite = true)
+        JdbcSqliteDriver("jdbc:sqlite:${v5.path}").use { driver ->
+            IndexDb.Schema.migrate(driver, 3, 5).value
+            // The v5 fresh schema placed content_text in the middle; ALTER TABLE had appended it on upgrades.
+            driver.execute(null, "DROP TABLE chunks", 0)
+            driver.execute(
+                null,
+                "CREATE TABLE chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, " +
+                    "locator TEXT NOT NULL DEFAULT '', text TEXT, content_text TEXT, vector BLOB, scale REAL, " +
+                    "tail_attempts INTEGER NOT NULL DEFAULT 0)",
+                0,
+            )
+            driver.execute(
+                null,
+                "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) " +
+                    "VALUES (1, 'doc', 'doc.txt', '', 'text/plain', 'DOC', 10, 1, 'INDEXED')",
+                0,
+            )
+            driver.execute(
+                null,
+                "INSERT INTO chunks (id, file_id, ordinal, text, content_text) " +
+                    "VALUES (1, 1, 1, 'receipt 48213', 'receipt 48213')",
+                0,
+            )
+            driver.execute(null, "INSERT INTO chunk_fts (rowid, text) VALUES (1, 'receipt 48213')", 0)
+            IndexDb.Schema.migrate(driver, 5, IndexDb.Schema.version).value
+            val store = Store(driver)
+            val signature = Signature("new")
+            store.resetForModel(signature)
+            store.setChunkVector(1, Vector.of(FloatArray(DIMS) { 1f }, signature))
+            assertEquals(1, store.vectorCount())
+            assertEquals("receipt 48213", store.chunkTexts(1).single().text)
+            assertEquals(1, store.keywordSearch("48213", 10).size)
+        }
     }
 
     private fun indexes(driver: SqlDriver): List<String> = strings(driver, "SELECT name FROM sqlite_master WHERE type = 'index'", 0)

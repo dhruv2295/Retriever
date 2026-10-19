@@ -28,6 +28,9 @@ data class Changes(
 interface Extractor {
     /** One file in, searchable pieces out, on the caller's worker context. Chunk 0 is added by the core. */
     suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece>
+
+    /** Re-reads only the pixels at a stored locator, never OCR or document text. */
+    suspend fun visual(file: SourceFile, locator: String): Part.Image? = null
 }
 
 interface EmbedderFactory {

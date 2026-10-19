@@ -48,6 +48,7 @@ data class HomeUi(
     val nameOnly: Long = 0L,
     val laterPasses: Long = 0L,
     val rereads: Long = 0L,
+    val meaningWaiting: Long = 0L,
     val readingStatus: ReadingStatus? = null,
     val nameSearchHintDismissed: Boolean = false,
     val scheduleOfferDismissed: Boolean = false,
@@ -88,6 +89,7 @@ data class HomeUi(
         laterPasses,
         trial,
         rereads,
+        meaningWaiting,
     )
 
     fun withCounts(c: Store.Counts): HomeUi = copy(
@@ -99,6 +101,7 @@ data class HomeUi(
         nameOnly = c.progress.nameOnly,
         laterPasses = c.progress.laterPasses,
         rereads = c.progress.rereads,
+        meaningWaiting = c.progress.meaningWaiting,
         waiting = c.progress.scheduled,
         rest = c.waiting,
         trial = c.trial,

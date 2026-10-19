@@ -12,11 +12,13 @@ data class ReadingProgress(
     val sample: Boolean = false,
     /** A subset of Partly read whose first pass was requeued (for example after a reading setting changed). */
     val rereads: Long = 0,
+    /** Files read without vectors that the model will add search by meaning to; a subset count, never a partition bucket. */
+    val meaningWaiting: Long = 0,
 ) {
     val contentRead: Long get() = read + partlyRead
     val waiting: Long get() = scheduled + notScheduled
     val libraryTotal: Long get() = contentRead + waiting + nameOnly + couldntRead
-    val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0
+    val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0 || meaningWaiting > 0
 }
 
 enum class ReadingSchedule(val title: String) {
@@ -35,6 +37,7 @@ enum class ReadingPhase(val title: String) {
     MANUAL("Reading stopped for now"),
     SAMPLE("Reading your sample"),
     SAMPLE_READY("Your sample is ready to try"),
+    MEANING("Adding search by meaning"),
     DEEPENING("Reading more of your long files"),
     READING("Reading your files"),
     WAITING("Waiting for Android"),
@@ -45,7 +48,8 @@ enum class ReadingPhase(val title: String) {
 }
 
 data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail: String? = null) {
-    val active: Boolean get() = phase == ReadingPhase.READING || phase == ReadingPhase.SAMPLE || phase == ReadingPhase.DEEPENING
+    val active: Boolean get() = phase == ReadingPhase.READING || phase == ReadingPhase.SAMPLE || phase == ReadingPhase.DEEPENING ||
+        phase == ReadingPhase.MEANING
 }
 
 /** Shared by the reader and every progress surface. Opening the app never overrides the saved schedule. */
@@ -82,6 +86,8 @@ object ReadingPolicy {
 
             reading && progress.sample -> ReadingPhase.SAMPLE
 
+            reading && progress.scheduled == 0L && progress.meaningWaiting > 0 -> ReadingPhase.MEANING
+
             reading && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
 
             reading -> ReadingPhase.READING
@@ -104,6 +110,7 @@ object ReadingPolicy {
             phase == ReadingPhase.READING && !reading -> "Starting reading…"
             ios && phase == ReadingPhase.POWER_SAVE -> "Paused for Low Power Mode"
             ios && phase == ReadingPhase.WAITING -> "Waiting for iOS"
+            phase == ReadingPhase.MEANING -> "Adding search by meaning to ${progress.meaningWaiting} files"
             phase == ReadingPhase.DEEPENING -> "Reading more of ${progress.laterPasses} long files"
             else -> phase.title
         }
@@ -116,6 +123,7 @@ object ReadingPolicy {
             ReadingPhase.CHARGING -> "Plug in, or choose Read now for a short session."
             ReadingPhase.MANUAL -> "Keep searching names and the content read so far."
             ReadingPhase.WAITING -> "Progress is saved. Open Retriever to continue when your reading settings allow."
+            ReadingPhase.MEANING -> "Search by words already works for these files."
             ReadingPhase.SAMPLE_READY -> "Choose when to read more."
             ReadingPhase.NO_CONTENT -> "You can still search by name. Review files or choose when to read more."
             ReadingPhase.CAUGHT_UP -> "New files will be read using your schedule."

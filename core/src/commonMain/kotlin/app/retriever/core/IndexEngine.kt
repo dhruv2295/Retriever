@@ -105,11 +105,21 @@ class IndexEngine(
         store.setTailAttempts(tail.id, tail.attempts + 1)
         try {
             checkpoint()
-            onCurrent(store.file(tail.fileId))
-            store.setChunkVector(tail.id, embedder.embed(listOf(Part.Text(Prefix.document(tail.fileName, tail.text)))))
+            val file = store.file(tail.fileId) ?: return
+            onCurrent(file)
+            val parts = when {
+                tail.visual -> listOf(checkNotNull(extractor.visual(file, tail.locator)) { "image unavailable" }) +
+                    listOfNotNull(tail.text?.let { Part.Text(Prefix.document(file.name, it)) })
+
+                tail.ordinal == 0 -> file.namePiece().modelParts(file.name)
+
+                else -> listOf(Part.Text(Prefix.document(file.name, tail.text.orEmpty())))
+            }
+            store.setChunkVector(tail.id, embedder.embed(parts))
         } catch (e: InputTooLongException) {
             // Split like add() does, so both halves get a vector instead of the second half being lost.
-            val halves = Chunker.chunks(tail.text, maxChars = tail.text.length / 2 + 1)
+            val text = tail.text.orEmpty()
+            val halves = if (tail.visual || tail.ordinal == 0) emptyList() else Chunker.chunks(text, maxChars = text.length / 2 + 1)
             if (halves.size > 1) store.splitTailChunk(tail.id, halves) else store.setTailAttempts(tail.id, MAX_TAIL_ATTEMPTS)
         } catch (e: CancellationException) {
             store.setTailAttempts(tail.id, tail.attempts)
@@ -133,7 +143,7 @@ class IndexEngine(
         onCurrent(file)
         // Count the attempt up front so a file that kills the process (OOM, native crash, LMK) still ends up skipped.
         store.markFailed(stored.id, stored.attempts + 1)
-        val readInside = file.kind in settings.kinds
+        val readInside = file.kind in settings.kinds && file.kind != Kind.AUDIO
         try {
             val extracted = measureTimedValue {
                 if (readInside) extractor.extract(file, settings.profile) else emptyList()
@@ -154,10 +164,10 @@ class IndexEngine(
             }
             store.replaceChunks(
                 stored.id,
-                chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText) },
+                chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) },
                 partial = pieces.any { it.locator == CUT_SHORT },
                 // A kind switched mid-read: what was read no longer matches what the setting asks for.
-                stillCurrent = { (file.kind in this.settings().kinds) == readInside },
+                stillCurrent = { (file.kind in this.settings().kinds && file.kind != Kind.AUDIO) == readInside },
             )
             return FileMetric(file, pieces.size, chunks.size, extractMs, embedMs, true, null, state)
         } catch (e: CancellationException) {
@@ -200,14 +210,22 @@ class IndexEngine(
 }
 
 /** One chunk as [draftChunks] decides it; [vector] null leaves it keyword-only. */
-internal class ChunkDraft<V : Any>(val ordinal: Int, val locator: String, val text: String?, val vector: V?, val contentText: String? = null)
+internal class ChunkDraft<V : Any>(
+    val ordinal: Int,
+    val locator: String,
+    val text: String?,
+    val vector: V?,
+    val contentText: String? = null,
+    val labels: String? = null,
+    val visual: Boolean = false,
+)
 
 /**
  * What a file stores, shared by IndexEngine and RetrievalEval so the eval measures production's rules: the first
  * [IndexEngine.HEAD_TEXT_CHUNKS] text pieces get vectors (the rest wait for the deepen pass), an over-long text
  * piece is split in half, and the name gets a vector only when nothing else could be embedded. [embed] returns
  * what the caller keeps: a stored [Vector], or raw floats in the eval. With no [embed] (text-only mode) every
- * piece with words is stored without a vector, and image or audio pieces with none are dropped.
+ * piece is stored without a vector; image locators are kept for a later pixels-only read.
  */
 internal suspend fun <V : Any> draftChunks(
     file: SourceFile,
@@ -223,7 +241,7 @@ internal suspend fun <V : Any> draftChunks(
         // A mixed piece's text parts are model input (a video moment's timestamps), not words to search.
         val text = piece.keywordText ?: if (textOnly) piece.parts.joinToString("\n") { (it as Part.Text).text } else null
         if (embed == null) {
-            if (text != null) chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText)
+            chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText, piece.labels, !textOnly)
             return
         }
         if (textOnly && headText >= IndexEngine.HEAD_TEXT_CHUNKS) {
@@ -243,15 +261,15 @@ internal suspend fun <V : Any> draftChunks(
             return
         }
         if (textOnly) headText++
-        chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector, piece.contentText)
+        chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector, piece.contentText, piece.labels, !textOnly)
     }
     for (piece in pieces) if (piece.parts.isNotEmpty()) add(piece)
 
     // Names reach keyword search through file_fts, so a name vector is only worth a model call when
     // nothing else of the file could be embedded (as Gallery's SmartAlbumIndexingWorker keeps one
     // image-only record per photo).
-    if (embed != null && chunks.none { it.vector != null }) {
-        chunks.add(0, ChunkDraft(0, "", null, embed(file.namePiece().modelParts(file.name, prefixes))))
+    if (chunks.isEmpty()) {
+        chunks.add(0, ChunkDraft(0, "", null, embed?.invoke(file.namePiece().modelParts(file.name, prefixes))))
     }
     return chunks
 }

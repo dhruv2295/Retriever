@@ -210,6 +210,17 @@ object MediaDecoding {
         }
     }
 
+    /** A stored video locator during a model change; no sound or OCR is read again. */
+    fun frameJpeg(context: Context, uri: Uri, ms: Long): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            brightJpeg(retriever, ms, 512)
+        } finally {
+            retriever.release()
+        }
+    }
+
     private fun brightJpeg(retriever: MediaMetadataRetriever, ms: Long, maxSide: Int): ByteArray? {
         val bmp = frameAt(retriever, ms * 1000, maxSide) ?: return null
         return try {

@@ -42,15 +42,19 @@ struct ResultCell: View {
     let onOpen: () -> Void
     var extent: ReadExtent?
     var onFindSimilar: ((SourceFile) -> Void)?
+    var matchReason: String?
 
     var body: some View {
         Button(action: onOpen) {
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .overlay { Thumb(file: file, locator: locator, points: 160) }
-                .overlay(alignment: .bottomLeading) { badge }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay { Thumb(file: file, locator: locator, points: 160) }
+                    .overlay(alignment: .bottomLeading) { badge }
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                if let matchReason { Text(matchReason).font(.caption).foregroundStyle(.secondary) }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -62,6 +66,7 @@ struct ResultCell: View {
         var parts = [Format.kind(file.kind), file.name, Format.date(file.modifiedAt)]
         if let spoken = Format.spoken(locator) { parts.append(spoken) }
         if let note = Copy.extent(extent) { parts.append(note) }
+        if let matchReason { parts.append(matchReason) }
         return parts.joined(separator: ", ")
     }
 

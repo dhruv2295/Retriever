@@ -44,6 +44,11 @@ class ReadingProgressTest {
             assertEquals(ReadingPhase.WAITING, ReadingPolicy.decide(p, null, false, false, false).phase)
         }
         assertEquals(ReadingPhase.DEEPENING, ReadingPolicy.decide(pending.copy(scheduled = 0), null, true, true, false).phase)
+        val upgrade = ReadingProgress(read = 5, meaningWaiting = 5)
+        assertEquals(5, upgrade.contentRead, "waiting for meaning is a subset of Read, never another bucket")
+        assertEquals(ReadingPhase.MEANING, ReadingPolicy.decide(upgrade, null, true, true, false).phase)
+        assertEquals("Adding search by meaning to 5 files", ReadingPolicy.decide(upgrade, null, true, true, false).title)
+        assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(upgrade, StopReason.UNPLUGGED, false, false, false).phase)
         assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, false).phase)
         assertEquals(ReadingPhase.SAMPLE_READY, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, false).phase)
         assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, false).phase)
