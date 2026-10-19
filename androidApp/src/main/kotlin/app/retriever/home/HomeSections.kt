@@ -177,13 +177,7 @@ internal fun DocsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val docs = ui.counts?.get(Kind.DOC) ?: 0L
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(
-            if (pdfs > 0 &&
-                docs > 0
-            ) {
-                "Documents and PDFs"
-            } else {
-                "Documents"
-            },
+            Words.documentsTitle(pdfs, docs),
             ui.sized(Kind.PDF, Kind.DOC)?.let { counted(it, ui.readiness(Kind.PDF, Kind.DOC)) },
         ) {
             val kind = if (pdfs > 0) Kind.PDF else Kind.DOC
@@ -484,8 +478,6 @@ internal fun HomeUi.sized(vararg kinds: Kind): String? {
 
 private fun sized(t: FileTotals) = Words.countAndSize(t, Format.bytes(t.knownBytes))
 
-private const val MORE_FOLDERS = 5
-
 /**
  * Every kind, then the folders with the most files, each with count and size, then All folders. Kinds and folders are
  * two views of the same files, not totals to add.
@@ -496,7 +488,7 @@ internal fun moreTiles(ui: HomeUi): List<KindTile> {
         val label = Words.kindLabelPlural(k)
         tile(kindIcon(k), label, counted(sized(t), ui.readiness(k)), BrowseRoute(kind = k.name, title = label))
     }
-    val folders = ui.folderTotals.take(MORE_FOLDERS).map { f ->
+    val folders = ui.folderTotals.take(Words.MORE_FOLDERS).map { f ->
         val name = f.path.trimEnd('/').substringAfterLast('/').ifBlank { "Files" }
         tile(R.drawable.ic_folder, name, sized(f.totals), BrowseRoute(folder = f.path, title = name))
     }

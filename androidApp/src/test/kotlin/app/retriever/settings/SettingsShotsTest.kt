@@ -18,10 +18,16 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import app.retriever.ShotTheme
 import app.retriever.core.Backend
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Prefs
+import app.retriever.core.UpgradeStage
+import app.retriever.core.Words
 import app.retriever.model.ModelState
+import app.retriever.model.TuneState
+import app.retriever.model.UpgradeActions
+import app.retriever.model.UpgradeUi
 import app.retriever.model.spaceMessage
 import app.retriever.shot
 import app.retriever.ui.Format
@@ -51,6 +57,14 @@ class SettingsShotsTest {
         detail = "the vision encoder runs on the processor",
         storage = storage,
         build = build,
+        upgrade = UpgradeUi(UpgradeStage.DONE, ModelState.Done, sizeBytes = build.sizeBytes),
+    )
+
+    /** No download yet, or removed: the same offer as Try and Home. */
+    private val offered = ready.copy(
+        storage = storage.copy(modelBytes = 0),
+        modelMissing = true,
+        upgrade = UpgradeUi(UpgradeStage.OFFER, ModelState.Missing, sizeBytes = build.sizeBytes),
     )
 
     private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, content: @Composable () -> Unit) {
@@ -83,18 +97,18 @@ class SettingsShotsTest {
 
     @Test fun modelRemoved() = page(
         "settings_model_removed_light",
-        ready.copy(storage = storage.copy(modelBytes = 0, cacheBytes = 0), modelMissing = true),
+        offered.copy(storage = storage.copy(modelBytes = 0, cacheBytes = 0)),
     )
 
     @Test fun downloadingAgain() = page(
         "settings_downloading_dark",
-        ready.copy(storage = storage.copy(modelBytes = 0), modelMissing = true, download = ModelState.Downloading(0.45f, false)),
+        offered.copy(upgrade = offered.upgrade.copy(stage = UpgradeStage.DOWNLOAD, model = ModelState.Downloading(0.45f, false))),
         dark = true,
     )
 
     @Test fun downloadFailed() = page(
         "settings_download_failed_light",
-        ready.copy(modelMissing = true, download = ModelState.Failed(spaceMessage(build))),
+        offered.copy(upgrade = offered.upgrade.copy(stage = UpgradeStage.DOWNLOAD, model = ModelState.Failed(spaceMessage(build)))),
     )
 
     @Test fun textOnlyPhone() = page(
@@ -145,11 +159,21 @@ class SettingsShotsTest {
         rule.onNodeWithText("Wallpaper colours").performScrollTo().assertIsOn()
     }
 
-    @Test fun modelRowsFollowTheModel() {
-        rule.setContent { ShotTheme(dark = false) { SettingsContent(ready.copy(storage = storage.copy(modelBytes = 0), modelMissing = true)) } }
-        rule.onNodeWithText("Not downloaded").assertExists()
-        rule.onNodeWithText("Download again").assertExists()
-        assertTrue(rule.onAllNodesWithTextCount("Remove search download") == 0)
+    @Test fun withNoDownloadSettingsOffersTheUpgradeAndNeverSaysDownloadAgain() {
+        var downloads = 0
+        show(offered, SettingsActions(upgrade = UpgradeActions(download = { downloads++ })))
+        rule.onNodeWithText(Words.UPGRADE_TITLE).performScrollTo().assertExists()
+        rule.onNodeWithText(Words.DOWNLOAD).performScrollTo().performClick()
+        assertEquals(1, downloads)
+        // Settings keeps the offer, so there is nothing to put off.
+        for (gone in listOf(Words.NOT_NOW, "Not downloaded", "Download again", "Remove search download")) {
+            assertEquals(gone, 0, rule.onAllNodesWithTextCount(gone))
+        }
+    }
+
+    @Test fun theTuneShowsInSettingsToo() {
+        show(offered.copy(upgrade = offered.upgrade.copy(stage = UpgradeStage.TUNE, model = ModelState.Done, tune = TuneState.Running)))
+        rule.onNodeWithText(Words.tuneTitle(DeviceWords.ANDROID)).performScrollTo().assertExists()
     }
 
     private fun show(ui: SettingsUi = ready, actions: SettingsActions = SettingsActions()) =
@@ -222,21 +246,21 @@ class SettingsShotsTest {
         show()
         val context = RuntimeEnvironment.getApplication()
         rule.onNodeWithText("Saved search data · ${Format.bytes(storage.indexBytes)}").performScrollTo().assertExists()
-        rule.onNodeWithText("Search by meaning and what's in your photos · ${Format.downloadSize(context, build.sizeBytes)}").assertExists()
+        rule.onNodeWithText("${Words.UPGRADE_TITLE} · ${Format.downloadSize(context, build.sizeBytes)}").assertExists()
         rule.onNodeWithText("Downloaded").assertExists()
     }
 
-    @Test fun theDownloadEntryKeepsItsSizeWhenTheModelIsNotThere() {
-        show(ready.copy(storage = storage.copy(modelBytes = 0), modelMissing = true))
-        val context = RuntimeEnvironment.getApplication()
-        rule.onNodeWithText("Search by meaning and what's in your photos · ${Format.downloadSize(context, build.sizeBytes)}").performScrollTo().assertExists()
-        rule.onNodeWithText("Not downloaded").assertExists()
+    @Test fun theOfferKeepsItsSizeWhenTheModelIsNotThere() {
+        show(offered)
+        val size = Format.downloadSize(RuntimeEnvironment.getApplication(), build.sizeBytes)
+        rule.onNodeWithText(Words.upgradeBody(size, DeviceWords.ANDROID)).performScrollTo().assertExists()
     }
 
-    @Test fun cancellingADownloadSaysCancelDownload() {
+    @Test fun cancellingADownloadGoesThroughTheUpgrade() {
         var cancelled = 0
-        show(ready.copy(modelMissing = true, download = ModelState.Downloading(0.45f, false)), SettingsActions(cancelDownload = { cancelled++ }))
-        rule.onNodeWithText("Cancel download").performScrollTo().performClick()
+        val downloading = offered.upgrade.copy(stage = UpgradeStage.DOWNLOAD, model = ModelState.Downloading(0.45f, false))
+        show(offered.copy(upgrade = downloading), SettingsActions(upgrade = UpgradeActions(cancel = { cancelled++ })))
+        rule.onNodeWithText(Words.CANCEL).performScrollTo().performClick()
         assertEquals(1, cancelled)
     }
 

@@ -415,7 +415,7 @@ private fun CommitCard(ui: HomeUi, onCommit: (Boolean) -> Unit, onDismiss: () ->
         ModalBottomSheet(onDismissRequest = { open = false }) {
             Box(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
                 CommitStage(
-                    SetupUi(estimate = ui.estimate, moreFiles = ui.rest),
+                    SetupUi(moreFiles = ui.rest),
                     SetupActions(commit = {
                         open = false
                         onCommit(it)

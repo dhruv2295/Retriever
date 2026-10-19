@@ -3,10 +3,10 @@ package app.retriever.setup
 import android.util.Log
 import app.retriever.access.Access
 import app.retriever.access.AccessService
-import app.retriever.core.ReadEstimate
 import app.retriever.core.Retriever
 import app.retriever.core.SetupInputs
 import app.retriever.core.SetupMark
+import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
 import app.retriever.core.SetupStep
 import app.retriever.core.TasteProgress
@@ -32,8 +32,7 @@ data class SetupUi(
     val ramGb: Double = 0.0,
     /** The sample's progress, from core; null until first read. */
     val taste: TasteProgress? = null,
-    /** The rest of the library at this phone's pace; null until a pace is measured. No files left: the plan was everything. */
-    val estimate: ReadEstimate? = null,
+    /** Files beyond the sample, core's [app.retriever.core.ReadingProgress.notScheduled]; null until counted. */
     val moreFiles: Long? = null,
     /** The shared reading policy's explanation while reading waits; null while it reads. */
     val pauseReason: String? = null,
@@ -42,8 +41,8 @@ data class SetupUi(
 ) {
     val stage: SetupStage get() = setup.stage
 
-    /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice. */
-    val nothingLeft get() = estimate?.files == 0L
+    /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice; unknown is not nothing. */
+    val nothingLeft get() = moreFiles == 0L
 }
 
 /**
@@ -85,7 +84,6 @@ class SetupFlow(
             retriever.tasteProgress().collect { p ->
                 val sampling = !_ui.value.setup.decided
                 _ui.update { it.copy(taste = p) }
-                if (_ui.value.stage == SetupStage.TRY) refreshRest()
                 // "Ready to try" reaches a person who left during the sample; on screen, the button says it. Claimed while
                 // visible too, so a sample seen on screen is never announced later.
                 if (p.readyToTry && sampling && p.byKind.isNotEmpty() && (retriever.uiVisible || notificationsGranted()) &&
@@ -143,16 +141,13 @@ class SetupFlow(
     fun tryNow() = mark(SetupMark.TRYING)
 
     /** Back from Try to the sample, or from the choice to Try. */
-    fun back() = when (_ui.value.stage) {
-        SetupStage.TRY -> mark(SetupMark.ACCESS_CHOSEN)
-        SetupStage.CHOOSE -> mark(SetupMark.TRYING)
-        else -> Unit
+    fun back() {
+        SetupPolicy.back(_ui.value.stage)?.let(::mark)
     }
 
     /** From Try: the schedule choice, or Home (read everything) when the sample already was everything. */
     fun continueToCommit() = launch {
-        refreshRest()
-        if (_ui.value.nothingLeft) retriever.commitScope() else retriever.setSetupMark(SetupMark.CHOOSING)
+        SetupPolicy.afterTry(_ui.value.nothingLeft)?.let { retriever.setSetupMark(it) } ?: retriever.commitScope()
     }
 
     /** While charging or Read now: the rest is read, and the person is done choosing. */
@@ -179,18 +174,6 @@ class SetupFlow(
                 Log.e("Retriever", "setup action failed", e)
             }
         }
-    }
-
-    private suspend fun refreshRest() {
-        val rest = try {
-            retriever.estimateAll()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e("Retriever", "estimate failed", e)
-            null
-        }
-        _ui.update { if (it.estimate == rest) it else it.copy(estimate = rest) }
     }
 
     /** Once per process: the sample runs here, in sight; hidden, it stops and the worker carries on within the plan. */

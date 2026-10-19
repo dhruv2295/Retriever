@@ -19,6 +19,7 @@ import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
 import app.retriever.core.UpgradeStage
+import app.retriever.core.Words
 import app.retriever.core.android.ImageBytes
 import app.retriever.core.onFull
 import app.retriever.core.onNames
@@ -95,7 +96,7 @@ data class SearchUi(
     val canSearchByPhoto get() = !wordsOnly && (scope == null || photosRead >= PHOTOS_FOR_PHOTO_SEARCH)
 
     /** No model to search by meaning: a words-only phone, or the optional download not in place and tuned. */
-    val wordsOnly get() = textOnly || modelMissing || !setUp
+    val wordsOnly get() = Words.wordsOnly(textOnly, modelMissing, setUp)
 
     /** What the fields ask now. A search by photo ignores the words. */
     val question: Question get() = Question(if (similar != null) "" else query.trim(), chip, similar?.uri, onlyStarred, literal, scope)

@@ -18,6 +18,8 @@ struct RootView: View {
     @State private var search: SearchModel
     /// The pages over Home as one stack shows them; at regular width the first one that has a sidebar item selects it.
     @State private var path: [Route]
+    /// Home was shown this session; setup is decided once, not again when access changes.
+    @State private var homeShown = false
 
     init(model: AppModel) {
         self.model = model
@@ -58,8 +60,9 @@ struct RootView: View {
     }
 
     @ViewBuilder private var main: some View {
-        // Nil for the moment before core has read setup's state: neither screen is known yet.
-        let inHome = model.setup.map { !$0.showSetup }
+        // Nil for the moment before core has read setup's state: neither screen is known yet. Once Home shows it stays
+        // for the session, as on Android: access lost meanwhile is Home's status to explain, not a return to setup.
+        let inHome = homeShown ? true : model.setup.map { !$0.showSetup }
         Group {
             if inHome == true {
                 home { SearchView(model: model, search: search) }
@@ -77,6 +80,9 @@ struct RootView: View {
         }
         // Setup gives way to Home with a fade, or at once with Reduce Motion.
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: inHome)
+        .onChange(of: inHome, initial: true) { _, now in
+            if now == true { homeShown = true }
+        }
     }
 
     /// Sidebar and detail at regular width; today's single stack on iPhone and in narrow windows.

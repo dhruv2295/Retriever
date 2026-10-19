@@ -194,6 +194,9 @@ object Words {
     /** Results this few, without the model, earn the one-line upgrade hint. */
     const val FEW_RESULTS = 3
 
+    /** No model to search by meaning: a phone too small for it, or the optional download not in place and tuned. */
+    fun wordsOnly(textOnly: Boolean, modelMissing: Boolean, setUp: Boolean): Boolean = textOnly || modelMissing || !setUp
+
     fun matches(labels: List<String>): String = "Matches: " + labels.joinToString(", ")
 
     fun searchHint(textOnly: Boolean): String =
@@ -209,6 +212,16 @@ object Words {
     const val MORE_ON_PHONE = "More on your phone"
     const val MORE_ON_PHONE_BODY = "Files Retriever can access"
     const val ALL_FOLDERS = "All folders"
+
+    /** Folder rows in More on your phone before All folders; the folder list has the rest. */
+    const val MORE_FOLDERS = 3
+
+    /** Home's documents section: PDFs and documents together only under a header that names both. */
+    fun documentsTitle(pdfs: Long, docs: Long): String = when {
+        pdfs > 0 && docs > 0 -> "Documents and PDFs"
+        pdfs > 0 -> kindLabelPlural(Kind.PDF)
+        else -> kindLabelPlural(Kind.DOC)
+    }
 
     fun inLibrary(files: Long): String = "${files(files)} in your library"
 
@@ -244,6 +257,11 @@ object Words {
     fun tuneTitle(words: DeviceWords): String = "Setting up reading for this ${words.device}"
 
     fun tuneBody(words: DeviceWords): String = "About a minute. Finding a reading speed that suits this ${words.device}."
+
+    fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up reading for this ${words.device}."
+
+    /** A download bar as a screen reader says it; [percent]: the platform's percent format. */
+    fun downloading(percent: String): String = "Downloading, $percent"
 
     /** The meaning pass: files read so far that have search by meaning, of all files read. */
     fun addingMeaning(progress: ReadingProgress): String =

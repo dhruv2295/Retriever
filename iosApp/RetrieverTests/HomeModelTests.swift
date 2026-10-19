@@ -180,7 +180,7 @@ final class HomeModelTests: XCTestCase {
         let other = tiles([.other: FileTotals(files: 349, knownBytes: 96_000_000, unknownSizes: 0)])
         XCTAssertEqual(other.map(\.detail), ["349 files · \(Copy.bytes(96_000_000)) · Name only"])
         let manyFolders = (1...5).map { FolderTotals(path: "F\($0)", totals: FileTotals(files: 1, knownBytes: 1, unknownSizes: 0)) }
-        XCTAssertEqual(tiles([:], folders: manyFolders, all: 5).count, HomeTile.folderRows + 1, "the rest are in All folders")
+        XCTAssertEqual(tiles([:], folders: manyFolders, all: 5).count, Int(Words.shared.MORE_FOLDERS) + 1, "the rest are in All folders")
         XCTAssertEqual(tiles([:]), [])
         XCTAssertEqual(tiles([:], always: true).map(\.title), ["All folders"], "the sidebar keeps the way to add a folder")
     }

@@ -27,6 +27,22 @@ class SetupTest {
         assertFalse(at(SetupMark.CHOOSING, decided = true).showSetup)
     }
 
+    @Test fun backLeavesTryForTheSampleAndTheChoiceForTry() {
+        assertEquals(SetupMark.ACCESS_CHOSEN, SetupPolicy.back(SetupStage.TRY))
+        assertEquals(SetupMark.TRYING, SetupPolicy.back(SetupStage.CHOOSE))
+        for (stage in listOf(SetupStage.WELCOME, SetupStage.ACCESS, SetupStage.SAMPLE, SetupStage.DONE)) {
+            assertNull(SetupPolicy.back(stage), "$stage has no setup screen behind it")
+        }
+        // Each mark Back sets lands on the screen before.
+        assertEquals(SetupStage.SAMPLE, at(SetupPolicy.back(SetupStage.TRY)!!, planned = 30).stage)
+        assertEquals(SetupStage.TRY, at(SetupPolicy.back(SetupStage.CHOOSE)!!, planned = 30).stage)
+    }
+
+    @Test fun afterTryChoosesOnlyWhenFilesWaitBeyondTheSample() {
+        assertEquals(SetupMark.CHOOSING, SetupPolicy.afterTry(nothingLeft = false))
+        assertNull(SetupPolicy.afterTry(nothingLeft = true), "nothing to choose: read everything")
+    }
+
     @Test fun anEmptyLibraryNeedsNoChoice() {
         // planOrCommit found nothing to plan and read everything: decided with no plan.
         assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.ACCESS_CHOSEN, decided = true).let { it.stage to it.step })
@@ -91,6 +107,14 @@ class SetupTest {
         assertNull(Words.upgradeHint(3, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(0, UpgradeStage.UNAVAILABLE))
         assertEquals("Setting up reading for this iPhone", Words.tuneTitle(DeviceWords.ios("iPhone")))
+        assertEquals("Couldn’t finish setting up reading for this phone.", Words.tuneFailed(android))
+        assertEquals("Documents and PDFs", Words.documentsTitle(2, 3))
+        assertEquals("PDFs", Words.documentsTitle(2, 0), "PDFs alone are never titled Documents")
+        assertEquals("Documents", Words.documentsTitle(0, 3))
+        assertTrue(Words.wordsOnly(textOnly = true, modelMissing = false, setUp = true), "a phone too small for the model")
+        assertTrue(Words.wordsOnly(textOnly = false, modelMissing = true, setUp = false))
+        assertTrue(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = false), "downloaded, not tuned yet")
+        assertFalse(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = true))
     }
 
     @Test fun totalsCountEveryAccessibleFileWithUnknownSizesApart() {

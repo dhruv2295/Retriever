@@ -37,6 +37,7 @@ extension AppModel {
                 wake()
             }
         case .readSample?, .schedule?:
+            if setup?.step == .readSample, sampleStartedAt == nil { sampleStartedAt = .now }
             startLoop()
             if !scheduled {
                 scheduled = true
@@ -77,9 +78,18 @@ extension AppModel {
         Task { try? await retriever.skipFirstRun() }
     }
 
+    /// Nothing waits beyond the sample (core's `counts.waiting`), so Try ends in Go to Home; unknown is not nothing.
+    var nothingLeft: Bool { snap?.waiting == 0 }
+
     /// Try's "Choose when to read more", or, with nothing beyond the sample, reading everything.
     func chooseWhenToReadMore() {
-        if snap?.waiting == 0 { commitScope() } else { setSetupMark(.choosing) }
+        if let mark = SetupPolicy.shared.afterTry(nothingLeft: nothingLeft) { setSetupMark(mark) } else { commitScope() }
+    }
+
+    /// Back from Try to the sample, or from the choice to Try.
+    func setupBack() {
+        guard let stage = setup?.stage, let mark = SetupPolicy.shared.back(stage: stage) else { return }
+        setSetupMark(mark)
     }
 
     /// The sample's planned files: Try searches inside these.
@@ -95,7 +105,7 @@ extension AppModel {
     }
 
     /// Search by meaning, and by photo, works: the model is here and tuned.
-    var meaningSearch: Bool { !textOnly && !modelMissing && setUp }
+    var meaningSearch: Bool { !Words.shared.wordsOnly(textOnly: textOnly, modelMissing: modelMissing, setUp: setUp) }
 
     // MARK: The meaning upgrade
 

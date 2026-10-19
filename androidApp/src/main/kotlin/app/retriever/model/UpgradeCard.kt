@@ -80,7 +80,7 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
                 UpgradeStage.TUNE -> {
                     Title(Words.tuneTitle(DeviceWords.ANDROID))
                     if (ui.tune is TuneState.Failed) {
-                        Text("Couldn’t finish setting up reading.", color = MaterialTheme.colorScheme.error)
+                        Text(Words.tuneFailed(DeviceWords.ANDROID), color = MaterialTheme.colorScheme.error)
                         OutlinedButton(onClick = actions.retryTune) { Text(Words.TRY_AGAIN) }
                     } else {
                         Text(Words.tuneBody(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
@@ -141,7 +141,7 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().semantics {
-                        contentDescription = "Downloading, ${percent.format(progress)}"
+                        contentDescription = Words.downloading(percent.format(progress))
                         progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
                     },
                 )

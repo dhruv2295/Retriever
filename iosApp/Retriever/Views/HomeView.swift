@@ -144,7 +144,8 @@ struct HomeList: View {
                     .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Documents", subtitle: Copy.sectionSubtitle(Copy.totals([.pdf, .doc], in: model.kindTotals), snap.kindProgress([.pdf, .doc])),
+                    title: Words.shared.documentsTitle(pdfs: Int64(pdfs), docs: Int64(snap.byKind[.doc] ?? 0)),
+                    subtitle: Copy.sectionSubtitle(Copy.totals([.pdf, .doc], in: model.kindTotals), snap.kindProgress([.pdf, .doc])),
                     route: .files(FileQuery(kind: pdfs > 0 ? .pdf : .doc, title: pdfs > 0 ? "PDFs" : "Documents")))
             }
         }
@@ -347,8 +348,9 @@ private struct StatusRow: View {
                 Text(status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 if let detail = status.detail { Note(detail) }
-                // Setting up leads back to setup's access step instead.
-                if status.phase != .settingUp {
+                // One remedy at a time, as on Android: Resume while paused, Dismiss when caught up, and setting up leads
+                // back to setup's access step; the whole row still opens Reading status.
+                if ![.settingUp, .paused, .caughtUp].contains(status.phase) {
                     Text(Words.shared.READING_STATUS).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true)
                 }
             }

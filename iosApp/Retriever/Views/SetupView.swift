@@ -149,7 +149,6 @@ private struct AccessStep: View {
 private struct SampleStep: View {
     let model: AppModel
     @State private var taste: TasteSnap
-    @State private var since = Date.now
     @State private var seeingAll = false
 
     init(model: AppModel) {
@@ -159,7 +158,9 @@ private struct SampleStep: View {
 
     var body: some View {
         let preview = model.progress.reading
-        let reading = taste.pending > 0 && preview.pauseReason == nil
+        // Kept on the model, so coming back to this screen never starts the usual time again.
+        let since = model.sampleStartedAt ?? .now
+        let reading = model.snap?.running == true && taste.pending > 0 && preview.pauseReason == nil
         StepPage {
             MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
             Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
@@ -200,17 +201,18 @@ struct SampleMosaic: View {
     let preview: ReadingPreview
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// The file being read, then the newest read; never more than six.
-    static func tiles(_ preview: ReadingPreview) -> [SourceFile] {
-        Array(([preview.current].compactMap { $0 } + preview.recent.filter { $0.uri != preview.current?.uri }).prefix(6))
+    /// The file being read, then the newest read; never more than six, and whole rows only, so no cell is left empty.
+    static func tiles(_ preview: ReadingPreview, columns: Int) -> [SourceFile] {
+        let tiles = Array(([preview.current].compactMap { $0 } + preview.recent.filter { $0.uri != preview.current?.uri }).prefix(6))
+        return tiles.count > 1 ? Array(tiles.prefix(tiles.count / columns * columns)) : tiles
     }
 
     static func columns(_ typeSize: DynamicTypeSize) -> Int { typeSize.isAccessibilitySize ? 1 : 2 }
 
     var body: some View {
-        let tiles = Self.tiles(preview)
-        if preview.recent.isEmpty { Note(Words.shared.SAMPLE_STARTING) }
         let columns = Self.columns(typeSize)
+        let tiles = Self.tiles(preview, columns: columns)
+        if preview.recent.isEmpty { Note(Words.shared.SAMPLE_STARTING) }
         Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 16) {
             ForEach(Array(stride(from: 0, to: tiles.count, by: columns)), id: \.self) { start in
                 GridRow {
@@ -282,9 +284,10 @@ private struct TryStep: View {
     }
 
     var body: some View {
-        let more = model.snap?.waiting != 0
+        let more = !model.nothingLeft
         AppStack(model: model, path: $path) {
             SearchView(model: model, search: search, trial: Trial(ids: model.sampleIds, photoSearch: model.meaningSearch))
+                .toolbar { SetupBack(model: model) }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 8) {
                         Button(action: model.chooseWhenToReadMore) { wide(more ? Words.shared.CHOOSE_WHEN : Words.shared.GO_TO_HOME) }
@@ -311,16 +314,31 @@ private struct ChooseStep: View {
     let model: AppModel
 
     var body: some View {
-        ScrollView {
-            ReadingChoice(
-                files: model.snap?.waiting, charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
-                notNow: model.decideLater
-            )
-            .padding(24)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
+        // A stack of its own, as Try has, so the toolbar's Back shows.
+        NavigationStack {
+            ScrollView {
+                ReadingChoice(
+                    files: model.snap?.waiting, charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
+                    notNow: model.decideLater
+                )
+                .padding(24)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .toolbar { SetupBack(model: model) }
         }
-        .scrollBounceBehavior(.basedOnSize)
+    }
+}
+
+/// Back from Try to the sample, or from the choice to Try, by core's rule.
+private struct SetupBack: ToolbarContent {
+    let model: AppModel
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("Back", systemImage: "chevron.backward", action: model.setupBack)
+        }
     }
 }
 

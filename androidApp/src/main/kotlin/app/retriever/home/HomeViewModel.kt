@@ -4,14 +4,12 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.retriever.access.AccessService
-import app.retriever.core.ESTIMATE_CALIBRATED
 import app.retriever.core.FileState
 import app.retriever.core.FileTotals
 import app.retriever.core.FolderTotals
 import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
-import app.retriever.core.ReadEstimate
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
@@ -61,8 +59,6 @@ data class HomeUi(
     val trial: Boolean = false,
     /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
     val rest: Long = 0L,
-    /** What reading [rest] takes; null until [ESTIMATE_CALIBRATED], so no hours are drawn before then. */
-    val estimate: ReadEstimate? = null,
     /** Files still waiting to be read, by kind. */
     val pending: Map<Kind, Long> = emptyMap(),
     /** "Try searching" examples for the kinds that are fully read. */
@@ -208,9 +204,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         viewModelScope.launch { retriever.starred.collect { s -> _ui.update { it.copy(starred = s.size) } } }
         // At most one reload every 2 s while files are being counted, and always one after the last change.
         viewModelScope.launch {
-            counts.conflate().collect { c ->
+            counts.conflate().collect {
                 launchCatching {
-                    val estimate = if (ESTIMATE_CALIBRATED && c.waiting > 0) retriever.estimateAll() else null
                     val suggestions = retriever.suggestions()
                     val kinds = retriever.kindTotals()
                     val folders = retriever.folderTotals()
@@ -218,7 +213,6 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         _ui.update {
                             it.copy(
                                 home = h.reusing(it.home),
-                                estimate = estimate,
                                 suggestions = suggestions,
                                 kindTotals = if (kinds == it.kindTotals) it.kindTotals else kinds,
                                 folderTotals = if (folders == it.folderTotals) it.folderTotals else folders,

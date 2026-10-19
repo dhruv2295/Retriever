@@ -166,6 +166,8 @@ final class AppModel {
     /// `IndexTask.schedule()` runs once per process for setup's READ_SAMPLE or SCHEDULE step.
     @ObservationIgnored var scheduled = false
     @ObservationIgnored var planning = false
+    /// When this process started reading the sample, for core's time line; nil before.
+    @ObservationIgnored var sampleStartedAt: Date?
     /// The sample's progress on a fixture; a real index streams it (`Retriever.tasteStream`).
     @ObservationIgnored var fixtureTaste = TasteSnap()
 

@@ -478,8 +478,6 @@ struct HomeTile: Equatable, Identifiable {
 
     static var largeFiles: Route { .files(FileQuery(sort: .largest, title: "Large files")) }
     @MainActor static let kinds: [Kind] = [.photo, .video, .screenshot, .pdf, .doc, .audio, .other]
-    /// Folder rows before All folders; the folder list has the rest.
-    static let folderRows = 3
 
     /// Every kind with files in it, the busiest folders (each counting its own files only), then All folders.
     /// `foldersAlways`: a sidebar keeps All folders even when there are none, since it is where a folder gets added.
@@ -493,7 +491,7 @@ struct HomeTile: Equatable, Identifiable {
                 id: title, icon: Format.icon(kind), title: title, count: Int(t.files), detail: Copy.sectionSubtitle(t, snap.kindProgress([kind])),
                 route: .files(FileQuery(kind: kind, title: title)))
         }
-        let byFolder = folders.prefix(folderRows).map { f in
+        let byFolder = folders.prefix(Int(Words.shared.MORE_FOLDERS)).map { f in
             let name = f.path.split(separator: "/").last.map(String.init) ?? f.path
             return HomeTile(
                 id: "folder:\(f.path)", icon: "folder", title: name, count: Int(f.totals.files), detail: Copy.countAndSize(f.totals),

@@ -19,7 +19,6 @@ import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
-import app.retriever.core.ReadEstimate
 import app.retriever.core.SearchEngine
 import app.retriever.core.SetupInputs
 import app.retriever.core.SetupMark
@@ -234,7 +233,7 @@ class SetupStatusShotsTest {
     @Test fun tryItAfterSearchBigText() = shot("setup_tryit_results_text1_5", fontScale = 1.5f) { SearchPane(answered, HomeUi(), SearchActions()) }
 
     @Test fun tryGoesHomeWhenNothingIsLeft() {
-        shot("setup_tryit_done_light") { TryItContent(tryUi.copy(estimate = ReadEstimate(0, 0, 0, 0, true)), scoped, SearchActions(), SetupActions()) }
+        shot("setup_tryit_done_light") { TryItContent(tryUi.copy(moreFiles = 0), scoped, SearchActions(), SetupActions()) }
         rule.onAllNodesWithText(Words.GO_TO_HOME).assertCountEquals(2)
         rule.onAllNodesWithText(Words.CHOOSE_WHEN).assertCountEquals(0)
     }

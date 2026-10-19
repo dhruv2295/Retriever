@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
-import app.retriever.core.UpgradeStage
+import app.retriever.core.UpgradePolicy
 import app.retriever.core.Words
 import app.retriever.home.HomeUi
 import app.retriever.model.UpgradeActions
@@ -64,7 +64,7 @@ fun TryItScreen(
     val up by upgrade.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val searchActions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
-    val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = false) }
+    val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     var suggestions by remember { mutableStateOf(emptyList<String>()) }
     var files by remember { mutableStateOf(emptyList<SourceFile>()) }
     LaunchedEffect(ids, ui.taste?.read) {
@@ -72,8 +72,8 @@ fun TryItScreen(
         files = retriever.readFiles(scope)
         suggestions = retriever.suggestions(scope)
     }
-    // Offered once the person has searched.
-    val offer = up.takeIf { it.stage != UpgradeStage.OFFER || prefs.searchTried }
+    // Home's rule: offered once the person has searched and until Not now, then the download and the tune.
+    val offer = up.takeIf { UpgradePolicy.showOnHome(it.stage, prefs) }
     val shown = remember(search, up.stage) { search.copy(upgrade = up.stage) }
     TryItContent(ui, shown, searchActions, actions, files = files, suggestions = suggestions, upgrade = offer, upgradeActions = upgradeActions)
 }

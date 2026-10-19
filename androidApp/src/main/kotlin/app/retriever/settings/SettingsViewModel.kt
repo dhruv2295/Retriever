@@ -55,16 +55,16 @@ class SettingsViewModel(
     private val running = retriever.state.map { it.facts() }.distinctUntilChanged()
 
     val uiState: StateFlow<SettingsUi> = combine(
-        combine(retriever.prefs, running, models.state, ::Triple),
+        retriever.prefs,
+        running,
         combine(retriever.modelMissing, retriever.requiredBuild, local, ::Triple),
-    ) { (prefs, index, download), (missing, build, l) -> ui(prefs, index, download, missing, build, l) }
+    ) { prefs, index, (missing, build, l) -> ui(prefs, index, missing, build, l) }
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5000),
             ui(
                 retriever.prefs.value,
                 retriever.state.value.facts(),
-                models.state.value,
                 retriever.modelMissing.value,
                 retriever.requiredBuild.value,
                 local.value,
@@ -73,12 +73,11 @@ class SettingsViewModel(
 
     private fun IndexState.facts() = Triple(backend, detail, build)
 
-    private fun ui(prefs: Prefs, facts: Triple<Backend?, String?, ModelBuild?>, download: ModelState, missing: Boolean, build: ModelBuild, l: Local) =
-        SettingsUi(
-            prefs, backend = facts.first, detail = facts.second, loadedBuild = facts.third, tune = l.tune, storage = l.storage, download = download,
-            modelMissing = missing, build = build, textOnly = retriever.textOnly, ramGb = retriever.probe.ramGb,
-            readable = retriever.readableKinds, message = l.message,
-        )
+    private fun ui(prefs: Prefs, facts: Triple<Backend?, String?, ModelBuild?>, missing: Boolean, build: ModelBuild, l: Local) = SettingsUi(
+        prefs, backend = facts.first, detail = facts.second, loadedBuild = facts.third, tune = l.tune, storage = l.storage,
+        modelMissing = missing, build = build, textOnly = retriever.textOnly, ramGb = retriever.probe.ramGb,
+        readable = retriever.readableKinds, message = l.message,
+    )
 
     private fun fail(e: Exception) {
         // A full disk (SQLiteFullException) lands here too: the person sees it, the app keeps running.
@@ -211,8 +210,4 @@ class SettingsViewModel(
         launchCatching(::fail) { models.sync(retriever.requiredBuild.value) }
         launchCatching(::fail) { models.state.drop(1).filter { it == ModelState.Done }.collect { loadStorage() } }
     }
-
-    fun downloadAgain() = models.start(retriever.requiredBuild.value)
-
-    fun cancelDownload() = inApp { models.cancel(retriever.requiredBuild.value) }
 }

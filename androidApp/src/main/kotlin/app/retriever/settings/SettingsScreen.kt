@@ -28,7 +28,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -67,12 +66,17 @@ import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
+import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
 import app.retriever.indexing.Notifications
-import app.retriever.model.ModelState
 import app.retriever.model.TuneState
+import app.retriever.model.UpgradeActions
+import app.retriever.model.UpgradeCard
+import app.retriever.model.UpgradeFlow
+import app.retriever.model.UpgradeUi
+import app.retriever.model.actions
 import app.retriever.model.tuneSummary
 import app.retriever.ui.Format
 import app.retriever.ui.components.Header
@@ -82,6 +86,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /** The order Settings lists the "Read these file types" switches in (audio is name only, so it has none); which of them show is core's [app.retriever.core.Retriever.readableKinds]. */
 private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.VIDEO)
@@ -104,7 +109,8 @@ data class SettingsUi(
     val loadedBuild: ModelBuild? = null,
     val tune: TuneState = TuneState.Idle,
     val storage: StorageUsage? = null,
-    val download: ModelState = ModelState.Missing,
+    /** The one upgrade, the same flow as Try and Home; the screen fills it in. */
+    val upgrade: UpgradeUi = UpgradeUi(),
     val modelMissing: Boolean = false,
     val build: ModelBuild? = null,
     val textOnly: Boolean = false,
@@ -139,8 +145,7 @@ class SettingsActions(
     val askFreeUpSpace: () -> Unit = {},
     val dismissFreeUpSpace: () -> Unit = {},
     val freeUpSpace: () -> Unit = {},
-    val downloadAgain: () -> Unit = {},
-    val cancelDownload: () -> Unit = {},
+    val upgrade: UpgradeActions = UpgradeActions(),
     val openNotices: () -> Unit = {},
     val shareProblems: () -> Unit = {},
     val openAccess: () -> Unit = {},
@@ -149,9 +154,10 @@ class SettingsActions(
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel()) {
+fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val upgrade by upgradeFlow.ui.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -184,7 +190,7 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
     }
     // Built once: a fresh SettingsActions per recomposition would defeat skipping in everything it feeds.
     // Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val actions = remember(onBack, context) {
+    val actions = remember(onBack, context, upgradeFlow) {
         SettingsActions(
             back = onBack,
             setReadingSchedule = { schedule -> requestReading { vm.setReadingSchedule(schedule) } },
@@ -204,8 +210,8 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
                 confirmFree = false
                 vm.freeUpSpace()
             },
-            downloadAgain = vm::downloadAgain,
-            cancelDownload = vm::cancelDownload,
+            // Settings keeps the offer: no Not now.
+            upgrade = upgradeFlow.actions(dismissible = false),
             openNotices = { showNotices = true },
             openAccess = onStatus,
             clearRecentSearches = vm::clearRecentSearches,
@@ -221,7 +227,7 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
         )
     }
     SettingsContent(
-        ui = state.copy(confirmFree = confirmFree, problems = problems, notificationsOn = notificationsOn),
+        ui = state.copy(confirmFree = confirmFree, problems = problems, notificationsOn = notificationsOn, upgrade = upgrade),
         actions = actions,
         snackbar = snackbar,
     )
@@ -474,47 +480,17 @@ private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
     ListItem(headlineContent = { Text("Saved search data · ${ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…"}") })
     if (ui.textOnly) return
     ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ListItem(headlineContent = { Text("Temporary files · ${Format.bytes(it)}") }) }
-    // Present or not, the entry names what the download is for and what it costs; the optional model is the one download.
-    val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
-    val d = ui.download
-    val busy = d is ModelState.Downloading || d == ModelState.WaitingForWifi || d == ModelState.Checking
-    ListItem(
-        headlineContent = { Text("Search by meaning and what's in your photos · $size") },
-        supportingContent = {
-            Text(
-                when {
-                    d is ModelState.Downloading -> if (d.indeterminate) "Downloading…" else "Downloading, ${(d.progress * 100).toInt()}%"
-                    d == ModelState.WaitingForWifi -> "Waiting for Wi-Fi to download"
-                    d == ModelState.Checking -> "Checking the download…"
-                    ui.modelMissing -> "Not downloaded"
-                    else -> "Downloaded"
-                },
-            )
-        },
-        trailingContent = if (busy && d != ModelState.Checking) ({ TextButton(onClick = actions.cancelDownload) { Text("Cancel download") } }) else null,
-    )
-    if (busy) {
-        val bar = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-        val fraction = (d as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.progress
-        if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = bar) else LinearProgressIndicator(bar)
-    } else if (ui.modelMissing) {
-        ListItem(
-            headlineContent = { Text("Download again", color = MaterialTheme.colorScheme.primary) },
-            supportingContent = {
-                val failed = d as? ModelState.Failed
-                Text(
-                    failed?.reason ?: "Brings back search by meaning and what's in your photos.",
-                    color = if (failed != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            modifier = Modifier.clickable(role = Role.Button, onClick = actions.downloadAgain),
-        )
-    } else if ((ui.storage?.modelBytes ?: 0) > 0) {
+    // The same upgrade as Try and Home until it is done; then what it costs and how to remove it.
+    if (ui.upgrade.stage == UpgradeStage.DONE) {
+        val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
+        ListItem(headlineContent = { Text("${Words.UPGRADE_TITLE} · $size") }, supportingContent = { Text("Downloaded") })
         ListItem(
             headlineContent = { Text("Remove search download", color = MaterialTheme.colorScheme.error) },
             supportingContent = { Text("File names and text already read still work.") },
             modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
         )
+    } else {
+        UpgradeCard(ui.upgrade, actions.upgrade, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
     }
     SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
 }

@@ -135,7 +135,7 @@ final class CopyTests: XCTestCase {
                 Copy.reading(setting).title, Copy.reading(AppModel.Snap(paused: true)).title, Copy.reading(AppModel.Snap(running: true)).title,
                 Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
                 Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
-                Copy.backgroundNote, Copy.deepReading(3), Copy.tuneFailed, Copy.filesYouCanTry,
+                Copy.backgroundNote, Copy.deepReading(3), Words.shared.tuneFailed(words: Copy.words), Copy.filesYouCanTry,
                 Words.shared.welcomeBody(words: Copy.words), Words.shared.upgradeBody(size: "388 MB", words: Copy.words),
                 Words.shared.tuneTitle(words: Copy.words), Words.shared.tuneBody(words: Copy.words),
             ] + home(setting) + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))

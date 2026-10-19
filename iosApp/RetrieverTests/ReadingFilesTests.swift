@@ -27,12 +27,15 @@ final class ReadingFilesTests: XCTestCase {
     /// Six tiles at most, the file being read first and then the newest read; never a blank slot or a file twice.
     func testTheSampleMosaicShowsTheReadingFileThenTheNewestRead() {
         let recent = (1...24).reversed().map(file)
-        XCTAssertEqual(
-            SampleMosaic.tiles(ReadingPreview(current: file(25), recent: recent)).map(\.uri), ["demo:25"] + (20...24).reversed().map { "demo:\($0)" })
-        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: file(24), recent: recent)).map(\.uri), (19...24).reversed().map { "demo:\($0)" })
-        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(2)))).count, 2, "paused: what was read stays")
-        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: file(1))).count, 1, "the first file alone, no reserved slots")
-        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview()), [])
+        func tiles(_ preview: ReadingPreview, columns: Int = 2) -> [SourceFile] { SampleMosaic.tiles(preview, columns: columns) }
+        XCTAssertEqual(tiles(ReadingPreview(current: file(25), recent: recent)).map(\.uri), ["demo:25"] + (20...24).reversed().map { "demo:\($0)" })
+        XCTAssertEqual(tiles(ReadingPreview(current: file(24), recent: recent)).map(\.uri), (19...24).reversed().map { "demo:\($0)" })
+        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(2)))).count, 2, "paused: what was read stays")
+        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(5)))).count, 4, "whole rows: no empty half-row")
+        XCTAssertEqual(tiles(ReadingPreview(current: file(25), recent: Array(recent.prefix(2)))).count, 2)
+        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(5))), columns: 1).count, 5, "one column fills every row")
+        XCTAssertEqual(tiles(ReadingPreview(current: file(1))).count, 1, "the first file alone, no reserved slots")
+        XCTAssertEqual(tiles(ReadingPreview()), [])
         XCTAssertEqual(SampleMosaic.columns(.large), 2)
         XCTAssertEqual(SampleMosaic.columns(.accessibility1), 1, "one column of rows at the largest text sizes")
     }
@@ -72,7 +75,7 @@ final class ReadingFilesTests: XCTestCase {
         }
         XCTAssertNotEqual(RecentFileCell(file: before[0]), RecentFileCell(file: after[0]))
     }
-    /// Two tiles share a row on a phone; a third starts the next.
+    /// Two tiles share a row on a phone; a third waits for a fourth, so the next row starts full.
     func testTwoSampleTilesShareOneRowAtSeveralWidths() {
         for width: CGFloat in [320, 375, 430] {
             func height(_ count: Int) -> CGFloat {
@@ -80,8 +83,8 @@ final class ReadingFilesTests: XCTestCase {
                 let host = UIHostingController(rootView: SampleMosaic(preview: preview).environment(\.dynamicTypeSize, .large))
                 return host.sizeThatFits(in: CGSize(width: width, height: 4000)).height
             }
-            XCTAssertGreaterThan(height(3), height(2) + 40)
-            XCTAssertEqual(height(4), height(3), accuracy: 1)
+            XCTAssertEqual(height(3), height(2), accuracy: 1)
+            XCTAssertGreaterThan(height(4), height(2) + 40)
         }
     }
 }

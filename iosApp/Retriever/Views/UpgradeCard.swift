@@ -80,7 +80,7 @@ struct UpgradeCard: View {
     @ViewBuilder private var tune: some View {
         title(Words.shared.tuneTitle(words: Copy.words))
         if case .failed = model.tune {
-            Failure(Copy.tuneFailed)
+            Failure(Words.shared.tuneFailed(words: Copy.words))
             Button(Words.shared.TRY_AGAIN, action: model.retryTune).buttonStyle(.bordered)
         } else {
             Note(Words.shared.tuneBody(words: Copy.words))

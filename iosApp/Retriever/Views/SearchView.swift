@@ -376,11 +376,10 @@ private struct ResultsView: View {
                 }
             }
         }
-        if !textOnly && !model.meaningSearch {
-            // No download yet, or removed in Settings: words only, and the upgrade offered only under few results.
+        if textOnly || !model.meaningSearch {
+            // Core's words-only rule: one note, and the upgrade offered only under few results.
             VStack(alignment: .leading, spacing: 2) {
                 Label(Words.shared.WORDS_ONLY, systemImage: "textformat").font(.footnote.weight(.semibold))
-                Text(Words.shared.SEARCHING_WITHOUT_MODEL).font(.footnote).foregroundStyle(.secondary)
                 if let hint = Words.shared.upgradeHint(results: Int32(answer.hits.count), upgrade: model.upgrade) {
                     Button {
                         upgrading = true
@@ -389,21 +388,15 @@ private struct ResultsView: View {
                     }.font(.footnote)
                 }
             }
-        } else if let note = note(answer) {
+        } else if !answer.vectorLane {
             HStack(spacing: 10) {
                 Image("IllusReading").resizable().scaledToFit().frame(width: 36).accessibilityHidden(true)
-                Text(note).font(.footnote).foregroundStyle(.secondary)
+                Text("Matching exact words for now. Results by meaning will be back shortly.").font(.footnote).foregroundStyle(.secondary)
             }
         }
         if answer.key.scope == .all && (photos == .denied || photos == .restricted) {
             Text("Photos access is off, so these results leave out your photos.").font(.footnote).foregroundStyle(.secondary)
         }
-    }
-
-    private func note(_ answer: SearchModel.Answer) -> String? {
-        if textOnly { return Copy.textOnlySearch }
-        if !answer.vectorLane { return "Matching exact words for now. Results by meaning will be back shortly." }
-        return nil
     }
 
     /// Pictures and documents in rank order as far as a grid allows: the documents ranked above the best picture, then

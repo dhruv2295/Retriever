@@ -110,8 +110,6 @@ enum Copy {
         "\(count(n)) partly read · more meaning search to come"
     }
 
-    static let textOnlySearch = "Retriever finds files here by their names and the words inside them."
-
     /// What the search made of the words: "Showing Screenshots · Last week".
     static func understood(_ labels: [String]) -> String { "Showing \(labels.joined(separator: " · "))" }
     static let exactWords = "Search my exact words"
@@ -163,7 +161,6 @@ enum Copy {
     // MARK: Setup
 
     static let filesYouCanTry = "Files you can try"
-    static let tuneFailed = "Couldn't finish setting up reading for this \(device)."
     /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
     static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
 }

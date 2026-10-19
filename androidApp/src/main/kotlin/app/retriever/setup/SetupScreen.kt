@@ -56,6 +56,7 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.IndexState
 import app.retriever.core.Retriever
+import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
 import app.retriever.core.SourceFile
 import app.retriever.core.motion.MascotMood
@@ -90,7 +91,7 @@ fun SetupScreen(
     if (!ui.setup.showSetup) {
         androidx.compose.runtime.LaunchedEffect(Unit) { onDone() }
     }
-    BackHandler(enabled = ui.stage == SetupStage.TRY || ui.stage == SetupStage.CHOOSE, onBack = flow::back)
+    BackHandler(enabled = SetupPolicy.back(ui.stage) != null, onBack = flow::back)
     val activity = LocalActivity.current
     val mediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {

@@ -52,6 +52,22 @@ data class SetupInputs(
     }
 }
 
+/** The person's moves between setup's screens, the same on both platforms. */
+object SetupPolicy {
+    /** Back: Try returns to the sample, the choice to Try; null where setup has no screen to go back to. */
+    fun back(stage: SetupStage): SetupMark? = when (stage) {
+        SetupStage.TRY -> SetupMark.ACCESS_CHOSEN
+        SetupStage.CHOOSE -> SetupMark.TRYING
+        else -> null
+    }
+
+    /**
+     * Try's last button: the choice of when to read more, or, null, with nothing beyond the sample ([nothingLeft]: core's
+     * [ReadingProgress.notScheduled] is 0, an unknown count is not), read everything with nothing to choose.
+     */
+    fun afterTry(nothingLeft: Boolean): SetupMark? = if (nothingLeft) null else SetupMark.CHOOSING
+}
+
 /**
  * The one upgrade, "Search by meaning and what's in your photos": OFFER, then the platform's download, then the tune,
  * then the meaning pass over content read without the model. UNAVAILABLE on a phone too small for the model.

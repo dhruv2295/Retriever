@@ -378,7 +378,8 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertTrue(app.staticTexts["Your files"].exists)
             XCTAssertTrue(app.staticTexts["3,142 files read"].exists)
             XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "kind-")).firstMatch.exists)
-            try app.performAccessibilityAudit(for: .contrast)
+            // The counts and status sit at the top; what scrolled under the bottom search bar is audited elsewhere.
+            try app.performAccessibilityAudit(for: .contrast) { issue in issue.element.map { self.underBottomBar($0, in: app) } ?? false }
             app.terminate()
         }
     }
@@ -437,12 +438,15 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
-    /// A glyph partly under the pinned setup actions or the bottom search field cannot be measured. Scrolling brings
-    /// it out, and the same tile, row or caption is audited where it is fully visible.
+    /// A glyph cut by the screen's bottom edge, or partly or wholly under the pinned setup actions or the bottom search
+    /// field, cannot be measured: the bar's own text is inside its frame and hittable, content scrolled behind it is not.
+    /// Scrolling brings it out, and the same tile, row or caption is audited where it is fully visible.
     private func underBottomBar(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
-        let midY = app.windows.firstMatch.frame.midY
-        let bars = [app.otherElements["step-actions"], app.searchFields.firstMatch].filter { $0.exists && $0.frame.minY > midY }
-        return bars.contains { $0.frame.intersects(element.frame) && !$0.frame.contains(element.frame) }
+        let window = app.windows.firstMatch.frame
+        let frame = element.frame
+        if frame.minY < window.maxY && frame.maxY > window.maxY { return true }
+        let bars = [app.otherElements["step-actions"], app.searchFields.firstMatch].filter { $0.exists && $0.frame.minY > window.midY }
+        return bars.contains { $0.frame.intersects(frame) && (!$0.frame.contains(frame) || !element.isHittable) }
     }
 
     func testRecentSearchChipsGrowAtTheLargestAccessibilitySize() {
