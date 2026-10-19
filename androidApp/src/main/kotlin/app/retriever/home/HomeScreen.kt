@@ -70,6 +70,7 @@ import app.retriever.core.HomeStatus
 import app.retriever.core.IndexState
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.StopReason
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.nav.BrowseRoute
@@ -288,7 +289,7 @@ private fun Status(
         }, clickLabel = "Finish setup")
 
         else -> {
-            val caughtUp = !ui.progress.unfinished && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
+            val caughtUp = status.phase == HomePhase.CAUGHT_UP && !ui.caughtUpDismissed
             val celebrating = rememberCelebrating(caughtUp, celebration)
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) }
@@ -435,7 +436,7 @@ private fun TidyUp(ui: HomeUi, go: (Route) -> Unit) {
         Card {
             val home = ui.home
             if (home != null && home.largeCount > 0) {
-                TidyRow(R.drawable.ic_storage, "${Format.count(home.largeCount)} files over 100 MB · ${Format.bytes(home.largeBytes)}") {
+                TidyRow(R.drawable.ic_storage, "${Words.largeFiles(home.largeCount)} · ${Format.bytes(home.largeBytes)}") {
                     go(BrowseRoute(sort = "LARGEST", title = "Large files"))
                 }
             }

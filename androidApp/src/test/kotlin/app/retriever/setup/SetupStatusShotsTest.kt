@@ -193,8 +193,8 @@ class SetupStatusShotsTest {
 
     @Test fun tryItAfterSearchLight() {
         shot("setup_tryit_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
-        rule.onNodeWithText("Searching inside 79 sample files").assertExists()
-        rule.onNodeWithText("Reading more sample files").assertExists()
+        rule.onNodeWithText("Closest in these 79 files").assertExists()
+        rule.onNodeWithText("Still reading 31 more").assertExists()
         rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
 

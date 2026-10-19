@@ -142,7 +142,7 @@ struct StatusContent: View {
             }
             Button("Try again", action: actions.retrySkipped)
         } label: {
-            Text("Couldn’t read \(Copy.count(snap.skipped)) \(snap.skipped == 1 ? "file" : "files")")
+            Text("Couldn’t read \(Words.shared.files(n: Int64(snap.skipped)))")
         }
     }
 

@@ -23,7 +23,8 @@ final class WordsFixtureTests: XCTestCase {
                         pending: Dictionary(
                             uniqueKeysWithValues: row[3].split(separator: ",").map {
                                 (kind($0.split(separator: "=")[0]), KotlinLong(value: Int64($0.split(separator: "=")[1])!))
-                            }))
+                            }),
+                        scheduled: Int64(row[4])!)
                 case "spoken": Words.shared.spokenPosition(locator: row[1])
                 case "readCount": Words.shared.readCount(read: Int64(row[1])!, partlyRead: Int64(row[2])!)
                 case "textOnlyNote": Words.shared.textOnlyNote(ramGb: Double(row[1])!, words: words[row[2]]!)
@@ -31,6 +32,6 @@ final class WordsFixtureTests: XCTestCase {
                 }
             XCTAssertEqual(actual, row.last!.isEmpty ? nil : row.last!, row.joined(separator: " | "))
         }
-        XCTAssertEqual(rows.count, 29)
+        XCTAssertEqual(rows.count, 30)
     }
 }

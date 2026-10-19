@@ -118,7 +118,7 @@ class SearchViewModelTest {
         assertEquals(planned.toSet(), names.hits!!.map { it.fileId }.toSet())
         val full = vm.ui.first { it.question.scope == planned && it.done }
         assertEquals(planned.toSet(), full.hits!!.map { it.fileId }.toSet())
-        assertEquals("Searching inside 3 sample files", Words.closestIn(planned.size.toLong()))
+        assertEquals("Closest in these 3 files", Words.closestIn(planned.size.toLong()))
         vm.setScope(null)
         assertEquals(60, vm.ui.first { it.scope == null && it.done && (it.hits?.size ?: 0) == 60 }.hits!!.size)
     }

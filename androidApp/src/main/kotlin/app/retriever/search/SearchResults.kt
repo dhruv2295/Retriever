@@ -168,7 +168,7 @@ internal fun Results(
             if (ui.unread >
                 0
             ) {
-                Text(Words.STILL_READING, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Words.stillReading(ui.unread.toLong()), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

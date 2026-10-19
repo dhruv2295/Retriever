@@ -207,7 +207,7 @@ class HomeShotsTest {
         rule.onNodeWithText("to go", substring = true).assertDoesNotExist()
         rule.onNodeWithText("More on your phone").assertExists()
         rule.onNodeWithText("Tidy up").assertExists()
-        rule.onNodeWithText("212 files over 100 MB · 41.0\u00A0GB").assertExists()
+        rule.onNodeWithText("212 files over 100\u00A0MB · 41.0\u00A0GB").assertExists()
         // Caught up: no per-type progress, and no exact-copy total.
         rule.onAllNodesWithText("waiting to read", substring = true).assertCountEquals(0)
         rule.onNodeWithText("Check for exact copies").assertExists()

@@ -109,7 +109,7 @@ data class HomeUi(
     )
 
     /** A section's reading line: core's rule, so mixed sections such as Documents read the same on iOS. */
-    fun readiness(vararg kinds: Kind): String? = Words.kindProgress(kinds.toList(), inside, pending)
+    fun readiness(vararg kinds: Kind): String? = Words.kindProgress(kinds.toList(), inside, pending, waiting)
 }
 
 /**

@@ -107,9 +107,6 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
     }
 }
 
-/** "1 photo", "22,000 photos". */
-internal fun noun(n: Long, one: String, many: String) = "${Format.count(n)} ${if (n == 1L) one else many}"
-
 /** "158" when nothing waits, "158 · 40 waiting to read" while files do, so a section says where it stands. */
 internal fun counted(count: String, readiness: String?) = if (readiness == null) count else "$count · $readiness"
 
@@ -141,7 +138,7 @@ internal fun MediaSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val photos = ui.counts?.get(Kind.PHOTO) ?: 0L
     val videos = ui.counts?.get(Kind.VIDEO) ?: 0L
     val left = ui.pending[Kind.PHOTO] ?: 0L
-    val subtitle = listOfNotNull(photos.takeIf { it > 0 }?.let { noun(it, "photo", "photos") }, videos.takeIf { it > 0 }?.let { noun(it, "video", "videos") })
+    val subtitle = listOfNotNull(photos.takeIf { it > 0 }?.let { Words.plural(it, "photo") }, videos.takeIf { it > 0 }?.let { Words.plural(it, "video") })
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Photos and videos", subtitle.joinToString(" · ").ifEmpty { null }) {
             actions.onNavigate(
@@ -179,7 +176,7 @@ internal fun ShotsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
 internal fun DocsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val pdfs = ui.counts?.get(Kind.PDF) ?: 0L
     val docs = ui.counts?.get(Kind.DOC) ?: 0L
-    val subtitle = listOfNotNull(pdfs.takeIf { it > 0 }?.let { noun(it, "PDF", "PDFs") }, docs.takeIf { it > 0 }?.let { noun(it, "document", "documents") })
+    val subtitle = listOfNotNull(pdfs.takeIf { it > 0 }?.let { Words.plural(it, "PDF") }, docs.takeIf { it > 0 }?.let { Words.plural(it, "document") })
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Documents", counted(subtitle.joinToString(" · "), ui.readiness(Kind.PDF, Kind.DOC)).ifEmpty { null }) {
             val kind = if (pdfs > 0) Kind.PDF else Kind.DOC
@@ -249,7 +246,7 @@ private fun MosaicCell(file: SourceFile, w: Dp, h: Dp, corner: Dp, reading: Mosa
     val context = LocalContext.current
     val label = remember(file, reading?.pending) {
         val base = "${Words.kindLabel(file.kind)}, ${spokenDate(context, file.takenAt ?: file.modifiedAt)}"
-        if (reading != null && reading.pending > 0) "$base, ${noun(reading.pending, "photo", "photos")} still to read" else base
+        if (reading != null && reading.pending > 0) "$base, ${Words.plural(reading.pending, "photo")} still to read" else base
     }
     Box(
         Modifier
@@ -357,8 +354,8 @@ private fun spokenDate(context: Context, ms: Long): String = DateUtils.formatDat
 
 /** "8 photos", "1 video", "5 photos and videos". */
 internal fun memoryCount(m: YearMemory): String = when {
-    m.videos == 0L -> noun(m.photos, "photo", "photos")
-    m.photos == 0L -> noun(m.videos, "video", "videos")
+    m.videos == 0L -> Words.plural(m.photos, "photo")
+    m.photos == 0L -> Words.plural(m.videos, "video")
     else -> "${Format.count(m.photos + m.videos)} photos and videos"
 }
 
@@ -488,7 +485,7 @@ internal fun moreTiles(ui: HomeUi): List<KindTile> {
             kindIcon(k),
             label,
             counted(Format.count(n), readiness),
-            listOfNotNull(if (n == 1L) "$label, 1 file" else "$label, ${Format.count(n)} files", readiness).joinToString(", "),
+            listOfNotNull("$label, ${Words.files(n)}", readiness).joinToString(", "),
             BrowseRoute(kind = k.name, title = label),
         )
     }

@@ -87,12 +87,6 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.addFolderResult(.failed), "iOS wouldn't let Retriever keep that folder. Try another one.")
     }
 
-    func testHomeFactsReadAsPlainLines() {
-        XCTAssertEqual(Copy.largeFiles(1), "1 file over 100\u{00A0}MB")
-        XCTAssertEqual(Copy.largeFiles(4), "4 files over 100\u{00A0}MB")
-        XCTAssertEqual(Copy.largeFiles(1_200), "\(Copy.count(1_200)) files over 100\u{00A0}MB")
-    }
-
     func testDeepReadingAndTextOnlyNotes() {
         XCTAssertEqual(Copy.deepReading(1), "1 partly read · more meaning search to come")
         XCTAssertEqual(Copy.deepReading(12), "12 partly read · more meaning search to come")
@@ -169,7 +163,7 @@ final class CopyTests: XCTestCase {
                 Copy.reading(setting).title, Copy.reading(AppModel.Snap(paused: true)).title, Copy.reading(AppModel.Snap(running: true)).title,
                 Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
                 Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
-                Copy.backgroundNote, Copy.largeFiles(4), Copy.deepReading(3),
+                Copy.backgroundNote, Copy.deepReading(3),
                 Copy.firstRunWelcomeBody, Copy.firstRunTime(size: nil), Copy.firstRunTextOnlyTime, Copy.firstRunMobileDataMessage(size: nil),
                 Copy.firstRunPhotosNote, Copy.firstRunPhotosOff, Copy.firstRunLimitedNote, Copy.firstRunNothingAllowed,
                 Copy.limitedPhotosFootnote(photos: 4, folders: 1), Copy.firstRunTuneTitle, Copy.firstRunTuneFailed,

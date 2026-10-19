@@ -27,6 +27,7 @@ class WordsFixtureTest {
                     kinds(row[1]),
                     kinds(row[2]).toSet(),
                     row[3].split(',').filter { it.isNotEmpty() }.associate { it.substringBefore('=').let(Kind::valueOf) to it.substringAfter('=').toLong() },
+                    row[4].toLong(),
                 )
 
                 "spoken" -> Words.spokenPosition(row[1])
@@ -39,6 +40,6 @@ class WordsFixtureTest {
             }
             assertEquals(row.toString(), row.last().ifEmpty { null }, actual)
         }
-        assertEquals(29, rows.size)
+        assertEquals(30, rows.size)
     }
 }

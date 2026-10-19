@@ -168,7 +168,8 @@ struct HomeMosaic: View {
                 .contentShape(.rect(cornerRadius: radius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(reading ? "\(kind), \(date), \(Copy.count(pending)) photos still to read" : "\(kind), \(date)")
+        .accessibilityLabel(
+            reading ? "\(kind), \(date), \(Words.shared.plural(n: Int64(pending), one: "photo", many: "photos")) still to read" : "\(kind), \(date)")
     }
 }
 
@@ -340,8 +341,8 @@ enum OnThisDay {
     /// "8 photos", "1 video", "5 photos and videos".
     static func countLine(photos: Int, videos: Int) -> String {
         switch (photos, videos) {
-        case (_, 0): photos == 1 ? "1 photo" : "\(Copy.count(photos)) photos"
-        case (0, _): videos == 1 ? "1 video" : "\(Copy.count(videos)) videos"
+        case (_, 0): Words.shared.plural(n: Int64(photos), one: "photo", many: "photos")
+        case (0, _): Words.shared.plural(n: Int64(videos), one: "video", many: "videos")
         default: "\(Copy.count(photos + videos)) photos and videos"
         }
     }
@@ -473,7 +474,7 @@ struct HomeTile: Equatable, Identifiable {
     /// Core's reading line: "{N} waiting to read" or "Name only".
     let detail: String?
     let route: Route
-    var unit: String { id == "folders" ? "" : "files" }
+    var countText: String { id == "folders" ? Copy.count(count) : Words.shared.files(n: Int64(count)) }
 
     static var largeFiles: Route { .files(FileQuery(sort: .largest, title: "Large files")) }
 
@@ -500,7 +501,8 @@ extension AppModel.Snap {
     /// A section's reading line, by core's rule for mixed sections such as Documents.
     func kindProgress(_ kinds: [Kind]) -> String? {
         Words.shared.kindProgress(
-            kinds: kinds, inside: Set(Kind.entries.filter(reads)), pending: pendingByKind.mapValues { KotlinLong(value: Int64($0)) })
+            kinds: kinds, inside: Set(Kind.entries.filter(reads)), pending: pendingByKind.mapValues { KotlinLong(value: Int64($0)) },
+            scheduled: Int64(pending))
     }
 }
 
@@ -518,13 +520,13 @@ struct HomeTiles: View {
                         Image(systemName: tile.icon).frame(width: 28).accessibilityHidden(true)
                         VStack(alignment: .leading) {
                             Text(tile.title)
-                            Text("\(Copy.count(tile.count)) \(tile.unit)").font(.subheadline).foregroundStyle(.secondary)
+                            Text(tile.countText).font(.subheadline).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").accessibilityHidden(true)
                     }.frame(minHeight: 44).padding(.vertical, 8).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(
-                    [tile.title, "\(Copy.count(tile.count)) \(tile.unit)", tile.detail].compactMap { $0 }.joined(separator: ", "))
+                    [tile.title, tile.countText, tile.detail].compactMap { $0 }.joined(separator: ", "))
             }
         }.padding(.horizontal, gutter)
 
@@ -587,7 +589,7 @@ struct ReadingChoice: View {
             let titles = ["While charging", "Read now for 15 minutes", "Not now"]
             let details = [
                 "Recommended. Reads while charging when Retriever is open, and in the background when iOS allows.",
-                "Uses battery and may warm your phone. Then continues while charging. Stops after 15 minutes, or sooner if needed. " + continuation,
+                "Uses battery and may warm your \(Copy.words.device). Then continues while charging. Stops after 15 minutes, or sooner if needed. \(continuation)",
                 "Keep searching names and the content read so far. Choose a schedule later.",
             ]
             ForEach(0..<3, id: \.self) { index in

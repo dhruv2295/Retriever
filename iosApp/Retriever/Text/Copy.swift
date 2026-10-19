@@ -57,10 +57,6 @@ enum Copy {
         return f
     }()
 
-    static func largeFiles(_ n: Int64) -> String {
-        Words.shared.files(n: n) + " over 100\u{00A0}MB"
-    }
-
     nonisolated static func count(_ n: Int) -> String {
         n.formatted(.number)
     }

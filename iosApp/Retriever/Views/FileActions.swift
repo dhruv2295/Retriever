@@ -164,7 +164,6 @@ enum FileAction: CaseIterable {
             if asset.duration > 0 { info.facts.append(.init("Duration", ViewerCopy.clock(seconds: Int(asset.duration)))) }
         } else if let url = folders.resolve(file.uri) {
             info.path = url.path
-            if let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate { info.facts.append(.init("Created", created.formatted())) }
             if let image = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
                 let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
             {

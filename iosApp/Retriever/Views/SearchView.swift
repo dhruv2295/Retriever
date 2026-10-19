@@ -472,7 +472,7 @@ private struct StillReading: View {
 
     var body: some View {
         if search.stillReading > 0 {
-            Text(Words.shared.STILL_READING).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+            Text(Words.shared.stillReading(files: Int64(search.stillReading))).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
         }
     }
 }

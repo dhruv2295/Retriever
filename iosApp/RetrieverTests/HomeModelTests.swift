@@ -23,7 +23,7 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(home.folders, 12)
         XCTAssertEqual(home.largeCount, 4)
         XCTAssertEqual(home.nameOnly, 0)
-        XCTAssertEqual(Copy.largeFiles(home.largeCount), "4 files over 100\u{00A0}MB")
+        XCTAssertEqual(Words.shared.largeFiles(n: home.largeCount), "4 files over 100\u{00A0}MB")
     }
 
     /// The mosaic's collapse: 0, 1, 2 draw that many; 3 to 5 draw the big cell and the stack; 6 or more the full grid.

@@ -204,7 +204,7 @@ struct HomeList: View {
             if let large = model.home?.largeCount, large > 0 {
                 row(
                     HomeTile.largeFiles,
-                    HomeRow(icon: "externaldrive", title: "Large files", detail: Copy.largeFiles(large)))
+                    HomeRow(icon: "externaldrive", title: "Large files", detail: Words.shared.largeFiles(n: large)))
             }
             row(Route.duplicates, HomeRow(icon: "square.on.square", title: "Duplicates", detail: "Check for exact copies"))
         } header: {
@@ -344,6 +344,7 @@ private struct StatusRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
             }
         }
         .padding(.vertical, 2)

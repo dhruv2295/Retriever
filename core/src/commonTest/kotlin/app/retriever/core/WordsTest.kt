@@ -65,12 +65,13 @@ class WordsTest {
 
     @Test fun aSectionIsNameOnlyOnlyWhenNoneOfItsKindsIsReadInside() {
         val docs = listOf(Kind.PDF, Kind.DOC)
-        assertEquals("3 waiting to read", Words.kindProgress(docs, setOf(Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L)))
-        assertEquals("8 waiting to read", Words.kindProgress(docs, setOf(Kind.PDF, Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L)))
-        assertNull(Words.kindProgress(docs, setOf(Kind.PDF), mapOf(Kind.DOC to 3L)), "nothing readable waits")
-        assertEquals("Name only", Words.kindProgress(docs, emptySet(), mapOf(Kind.PDF to 5L)))
-        assertEquals("Name only", Words.kindProgress(listOf(Kind.OTHER), Kind.entries.toSet() - Kind.OTHER, emptyMap()))
-        assertEquals("1,200 waiting to read", Words.kindProgress(listOf(Kind.PHOTO), setOf(Kind.PHOTO), mapOf(Kind.PHOTO to 1_200L)))
+        assertEquals("3 waiting to read", Words.kindProgress(docs, setOf(Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L), 3))
+        assertEquals("8 waiting to read", Words.kindProgress(docs, setOf(Kind.PDF, Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L), 8))
+        assertNull(Words.kindProgress(docs, setOf(Kind.PDF), mapOf(Kind.DOC to 3L), 3), "nothing readable waits")
+        assertEquals("Name only", Words.kindProgress(docs, emptySet(), mapOf(Kind.PDF to 5L), 5))
+        assertEquals("Name only", Words.kindProgress(listOf(Kind.OTHER), Kind.entries.toSet() - Kind.OTHER, emptyMap(), 0))
+        assertEquals("${formatCount(1_200)} waiting to read", Words.kindProgress(listOf(Kind.PHOTO), setOf(Kind.PHOTO), mapOf(Kind.PHOTO to 1_200L), 1_200))
+        assertNull(Words.kindProgress(listOf(Kind.PHOTO), setOf(Kind.PHOTO), mapOf(Kind.PHOTO to 50L), 0), "pending files already read are not waiting")
     }
 
     @Test fun coverageNamesEveryState() {
@@ -105,11 +106,12 @@ class WordsTest {
     @Test fun pluralsCountsAndUnits() {
         assertEquals("1 file", Words.files(1))
         assertEquals("0 files", Words.files(0))
-        assertEquals("1,200 files", Words.files(1_200))
+        assertEquals("${formatCount(1_200)} files", Words.files(1_200))
         assertEquals("2 PDFs", Words.plural(2, "PDF"))
         assertEquals("1 file read", Words.readCount(1))
         assertEquals("58 files read · 24 partly read", Words.readCount(58, 24))
         assertEquals("200.5 kB", Words.keepTogether("200.5 kB"))
+        assertEquals("1 file over 100${Words.NBSP}MB", Words.largeFiles(1))
         assertEquals("Modified" to "Taken", Words.MODIFIED to Words.TAKEN)
     }
 
@@ -121,8 +123,9 @@ class WordsTest {
         assertEquals("at 2 hours 1 second", Words.spokenPosition("2:00:01"))
         assertEquals("at 0 seconds", Words.spokenPosition("0:00"))
         assertNull(Words.spokenPosition(""))
-        assertEquals("Searching inside 79 sample files", Words.closestIn(79))
-        assertEquals("26,214 more files can be read. You can already find them by name.", Words.moreFiles(26_214))
+        assertEquals("Closest in these 79 files", Words.closestIn(79))
+        assertEquals("Still reading ${formatCount(1_200)} more", Words.stillReading(1_200))
+        assertEquals("${formatCount(26_214)} more files can be read. You can already find them by name.", Words.moreFiles(26_214))
         assertEquals("You can already find your files by name.", Words.moreFiles(null))
         assertEquals(
             "This iPhone has 3 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.",

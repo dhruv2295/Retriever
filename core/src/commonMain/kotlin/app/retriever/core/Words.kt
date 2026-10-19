@@ -31,6 +31,8 @@ object Words {
 
     fun files(n: Long): String = plural(n, "file")
 
+    fun largeFiles(n: Long): String = "${files(n)} over 100${NBSP}MB"
+
     fun readCount(read: Long, partlyRead: Long = 0): String = "${files(read)} read" + if (partlyRead > 0) " · ${formatCount(partlyRead)} partly read" else ""
 
     /** Said under a file that was not read whole; null when it was. */
@@ -78,13 +80,14 @@ object Words {
 
     /**
      * A section of [kinds] under its title: "Name only" when none of them is read inside on this device, "{N} waiting to
-     * read" over the readable ones while any wait, otherwise nothing. Documents (PDF + doc) follows the same rule.
+     * read" over the readable ones while any are [scheduled] (pending also holds files whose content is already read),
+     * otherwise nothing. Documents (PDF + doc) follows the same rule.
      */
-    fun kindProgress(kinds: List<Kind>, inside: Set<Kind>, pending: Map<Kind, Long>): String? {
+    fun kindProgress(kinds: List<Kind>, inside: Set<Kind>, pending: Map<Kind, Long>, scheduled: Long): String? {
         val read = kinds.filter { it in inside && it != Kind.OTHER }
         if (read.isEmpty()) return "Name only"
         val left = read.sumOf { pending[it] ?: 0L }
-        return if (left > 0) "${formatCount(left)} waiting to read" else null
+        return if (scheduled > 0 && left > 0) "${formatCount(left)} waiting to read" else null
     }
 
     /** Where a match is, as a screen reader says it: "page 12", "at 1 minute 5 seconds"; null for no place. */
@@ -98,9 +101,9 @@ object Words {
     }
 
     /** The try-it results header: it names where the search looks, not how good the matches are. */
-    fun closestIn(files: Long): String = "Searching inside ${formatCount(files)} sample files"
+    fun closestIn(files: Long): String = "Closest in these ${formatCount(files)} files"
 
-    const val STILL_READING = "Reading more sample files"
+    fun stillReading(files: Long): String = "Still reading ${formatCount(files)} more"
 
     /** The rest of the library, before anyone chose to read it. No hours: the estimate is not calibrated yet. */
     fun moreFiles(files: Long?): String =

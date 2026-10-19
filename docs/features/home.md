@@ -19,7 +19,7 @@ holds them. The search bar and results are in `search-ui.md`.
 - **Stable lists.** `HomeFacts.reusing` hands back the old list instances for strips that did not change, so the
   `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`.
 - **Fixed order, hide at zero.** Sections never move because a count changed; one with nothing to say is not drawn.
-  `HomeUi.readiness` turns counts into the section subtitle ("Ready", "1,200 to go", "Waiting", "Found by name").
+  `Words.kindProgress` (core, shared by both apps) turns counts into the section subtitle: "Name only", "{N} waiting to read" while files are scheduled, otherwise nothing.
 - **User-facing kinds only, enforced in SQL.** No Home picture or "newest" list can hold an OTHER file; the Starred strip
   and its count use the visible-starred queries, while the full Starred list still holds OTHER stars.
 - **On this day without a date library in core.** The platform computes each past year's local-day range with real zone
