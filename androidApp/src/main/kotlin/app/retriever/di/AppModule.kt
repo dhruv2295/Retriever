@@ -244,7 +244,7 @@ val appModule = module {
     viewModelOf(::StatusViewModel)
     viewModel {
         val calibrator = get<Calibrator>()
-        SettingsViewModel(get(), get(), get(), get(), get(AppScope)) { calibrator.calibrate(tuneAgain = true) }
+        SettingsViewModel(get(), get(), get(), get(), get(AppScope), get()) { calibrator.calibrate(tuneAgain = true) }
     }
     viewModelOf(::SearchViewModel)
     viewModelOf(::HomeViewModel)

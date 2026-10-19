@@ -35,7 +35,14 @@ class BrowseShotsTest {
         contentRead = true,
     )
 
-    private fun content(files: List<Store.StoredFile>, kind: Kind?, dark: Boolean, loading: Boolean = false, starredOnly: Boolean = false) {
+    private fun content(
+        files: List<Store.StoredFile>,
+        kind: Kind?,
+        dark: Boolean,
+        loading: Boolean = false,
+        starredOnly: Boolean = false,
+        filtered: Boolean = false,
+    ) {
         rule.setContent {
             ShotTheme(dark) {
                 BrowseContent(
@@ -46,6 +53,7 @@ class BrowseShotsTest {
                     onLoadMore = {},
                     onOpen = {},
                     starredOnly = starredOnly,
+                    filtered = filtered,
                 )
             }
         }
@@ -77,7 +85,7 @@ class BrowseShotsTest {
     }
 
     @Test fun emptyLight() {
-        content(emptyList(), Kind.PHOTO, dark = false)
+        content(emptyList(), Kind.PHOTO, dark = false, filtered = true)
         rule.onNodeWithText("Nothing here yet").assertExists()
         rule.shot("browse_empty_light")
     }
@@ -91,8 +99,8 @@ class BrowseShotsTest {
 
     @Test fun starredEmptyState() {
         content(emptyList(), null, dark = false, starredOnly = true)
-        rule.onNodeWithText("Nothing starred yet").assertExists()
-        rule.onNodeWithText("Touch and hold a file, or tap the star while viewing it, to keep it here.").assertExists()
+        rule.onNodeWithText("Keep useful files close").assertExists()
+        rule.onNodeWithText("Tap the star on a file to find it here.").assertExists()
         rule.shot("browse_starred_empty_light")
     }
 
@@ -120,9 +128,49 @@ class BrowseShotsTest {
     }
 
     @Test fun titles() {
-        org.junit.Assert.assertEquals("Starred", browseTitle(BrowseRoute(title = "Starred", starredOnly = true), "NEWEST"))
-        org.junit.Assert.assertEquals("All files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "NEWEST"))
-        org.junit.Assert.assertEquals("Large files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "LARGEST"))
+        org.junit.Assert.assertEquals("Starred", browseTitle(BrowseRoute(title = "Starred", starredOnly = true), "NEWEST", allFiles = true))
+        org.junit.Assert.assertEquals("All files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "NEWEST", allFiles = true))
+        org.junit.Assert.assertEquals("Large files", browseTitle(BrowseRoute(sort = "LARGEST", title = "Large files"), "LARGEST", allFiles = true))
+    }
+
+    @Test fun limitedAccessNeverCallsTheListAllFiles() {
+        val everything = BrowseRoute(sort = "LARGEST", title = "Large files")
+        org.junit.Assert.assertEquals("Files Retriever can access", browseTitle(everything, "NEWEST", allFiles = false))
+        org.junit.Assert.assertEquals("Large files", browseTitle(everything, "LARGEST", allFiles = false))
+        org.junit.Assert.assertEquals("Starred", browseTitle(BrowseRoute(title = "Starred", starredOnly = true), "NEWEST", allFiles = false))
+    }
+
+    @Test fun theSortChipsSayWhatTheyOrderBy() {
+        content(listOf(stored(1, Kind.DOC, "docx")), Kind.DOC, dark = false)
+        rule.onNodeWithText("Newest first · by date modified").assertExists()
+        org.junit.Assert.assertEquals("Largest first", sortCaption("LARGEST"))
+        org.junit.Assert.assertEquals("By name, A to Z", sortCaption("NAME"))
+    }
+
+    @Test fun anEmptyLibraryInvitesAndAFilteredEmptyOneStaysQuiet() {
+        var managed = 0
+        rule.setContent {
+            ShotTheme(false) {
+                BrowseContent(ui = BrowseUi(loading = false), kind = null, padding = PaddingValues(), onSort = {
+                }, onLoadMore = {}, onOpen = {}, onManageAccess = { managed++ })
+            }
+        }
+        rule.onNodeWithText("Choose files to search").assertExists()
+        rule.onNodeWithText("Add photos or a folder.").assertExists()
+        rule.onNodeWithText("Manage access").performClick()
+        org.junit.Assert.assertEquals(1, managed)
+        rule.onNodeWithText("Nothing here yet").assertDoesNotExist()
+    }
+
+    @Test fun aFilteredListThatIsEmptyIsNotAnEmptyLibrary() {
+        rule.setContent {
+            ShotTheme(false) {
+                BrowseContent(ui = BrowseUi(loading = false), kind = Kind.PDF, padding = PaddingValues(), onSort = {
+                }, onLoadMore = {}, onOpen = {}, filtered = true)
+            }
+        }
+        rule.onNodeWithText("Nothing here yet").assertExists()
+        rule.onNodeWithText("Choose files to search").assertDoesNotExist()
     }
 
     @Test fun emptyDark() {

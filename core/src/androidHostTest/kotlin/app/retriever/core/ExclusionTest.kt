@@ -70,6 +70,20 @@ class ExclusionTest {
         assertTrue(f.r.starred.value.isEmpty(), "the star hides with its file")
     }
 
+    /** The copy promises that removing access drops results while removing the download keeps them; this is the access half. */
+    @Test
+    fun accessThatGoesAwayDropsTheFilesFromWordsAndNames() = test {
+        val f = folders()
+        assertTrue(bank.uri in f.uris(f.r.search("statement")))
+
+        f.source.next = Changes(listOf(banking), emptyList(), "tok2", isFullScan = true)
+        f.r.indexBatch(1.minutes)
+
+        assertNull(f.store.fileByUri(bank.uri))
+        assertEquals(setOf(banking.uri), f.uris(f.r.search("statement")))
+        assertTrue(f.r.searchNames("ledger").hits.isEmpty())
+    }
+
     @Test
     fun reIncludingAFolderBringsTheStarredFileBackAfterTheNextSync() = test {
         val f = folders()

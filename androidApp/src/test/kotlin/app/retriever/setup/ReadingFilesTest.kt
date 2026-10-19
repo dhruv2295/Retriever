@@ -26,6 +26,8 @@ import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPhase
+import app.retriever.core.ReadingStatus
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
 import app.retriever.core.TasteProgress
@@ -203,7 +205,7 @@ class ReadingFilesTest {
         rule.onNodeWithTag("reading-sweep").assertExists()
     }
 
-    @Test fun statusOpensRecentFilesAndHidesThemWhenReadingStops() {
+    @Test fun statusOpensRecentFilesAndKeepsThemWhenReadingStops() {
         val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF), recentFiles = recent))
         var opened: SourceFile? = null
         rule.setContent {
@@ -225,8 +227,63 @@ class ReadingFilesTest {
         rule.onNodeWithTag("recent:${recent.first().uri}").performClick()
         assertEquals(recent.first(), opened)
         index.value = index.value.copy(running = false, currentFile = null)
+        // The active tile goes; what was already read stays on show, and only the sentence above changes.
         rule.onNodeWithText("Reading now").assertDoesNotExist()
+        rule.onNodeWithText("Recently read").assertExists()
+        index.value = index.value.copy(recentFiles = emptyList())
         rule.onNodeWithText("Recently read").assertDoesNotExist()
+    }
+
+    private fun pausedStatus(index: IndexState, batteryHint: Boolean) = rule.setContent {
+        ShotTheme(false, 1f) {
+            StatusContent(
+                app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                Prefs(paused = true),
+                index,
+                emptyList(),
+                false,
+                batteryHint,
+                Modifier,
+                readingStatus = ReadingStatus(ReadingPhase.PAUSED, "Reading paused", "Search still works. Resume whenever you’re ready."),
+            )
+        }
+    }
+
+    @Test fun aPausedStatusShowsOneReasonAndKeepsWhatWasRead() {
+        pausedStatus(IndexState(recentFiles = recent), batteryHint = true)
+        rule.onNodeWithText("Reading paused").assertExists()
+        rule.onNodeWithText("Search still works. Resume whenever you’re ready.").assertExists()
+        rule.onNodeWithText("Recently read").assertExists()
+        rule.onNodeWithText("Reading now").assertDoesNotExist()
+        // The pause is the reason and Resume the remedy: no second remedy beside them.
+        rule.onNodeWithText("Resume reading").assertExists()
+        rule.onNodeWithText("Let Retriever keep reading in the background").assertDoesNotExist()
+    }
+
+    @Test fun aFailureReplacesTheWaitSentenceInsteadOfJoiningIt() {
+        pausedStatus(IndexState(lastError = "Couldn’t open the search model", recentFiles = recent), batteryHint = true)
+        rule.onNodeWithText("Couldn’t open the search model").assertExists()
+        rule.onNodeWithText("Search still works. Resume whenever you’re ready.").assertDoesNotExist()
+        rule.onNodeWithText("Let Retriever keep reading in the background").assertDoesNotExist()
+    }
+
+    @Test fun theBackgroundHintStaysBesideAScheduleWaitButNotBesideAFailure() {
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                StatusContent(
+                    app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                    Prefs(),
+                    IndexState(),
+                    emptyList(),
+                    false,
+                    true,
+                    Modifier,
+                    readingStatus = ReadingStatus(ReadingPhase.CHARGING, "Waiting to charge", "Plug in, or choose Read now for a short session."),
+                )
+            }
+        }
+        rule.onNodeWithText("Plug in, or choose Read now for a short session.").assertExists()
+        rule.onNodeWithText("Let Retriever keep reading in the background").assertExists()
     }
 }
 

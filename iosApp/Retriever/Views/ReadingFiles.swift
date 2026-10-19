@@ -30,7 +30,7 @@ struct ReadingNow: View {
                             .overlay { if !reduceMotion { ReadingSweep() } }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(file.name).lineLimit(2)
+                            Text(file.name).lineLimit(2).truncationMode(.middle)
                             Text(Format.kind(file.kind)).font(.headline)
                             Note(Format.date(file.modifiedAt))
                         }
@@ -89,9 +89,15 @@ struct ReadyFiles: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(files, id: \.uri) { file in
                     if interactive {
-                        Button { openFile(file, among: files) } label: { RecentFileCell(file: file).equatable() }
-                            .buttonStyle(.plain).accessibilityHint("Open file")
-                    } else { RecentFileCell(file: file).equatable() }
+                        Button {
+                            openFile(file, among: files)
+                        } label: {
+                            RecentFileCell(file: file).equatable()
+                        }
+                        .buttonStyle(.plain).accessibilityHint("Open file")
+                    } else {
+                        RecentFileCell(file: file).equatable()
+                    }
                 }
             }
             .accessibilityElement(children: .contain)

@@ -93,13 +93,13 @@ struct FoldersView: View {
                     .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             if !excluded.isEmpty {
-                Section("Not searched") {
+                Section("Excluded folders") {
                     ForEach(excluded.sorted(), id: \.self) { path in
                         LabeledContent {
                             Button {
                                 model.restoreFolder(path)
                             } label: {
-                                Text("Search again").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                                Text("Include folder").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                             }.buttonStyle(.borderless)
                         } label: {
                             Label(path.split(separator: "/").last.map(String.init) ?? path, systemImage: "eye.slash")

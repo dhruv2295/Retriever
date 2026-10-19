@@ -5,11 +5,16 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 
 ## Purpose
 
-The switches and the few actions that change how Retriever behaves: which kinds are read inside, read only while
-charging, allow mobile data, remember searches, dynamic color, a small "sample" mode, folders the person has excluded,
-tune again, model download state, free up space, and the open-source notices. Every row writes one `Prefs` field and
-shows the result at once. It never starts work by itself beyond what the switch says (turning a kind on re-queues that
-kind; turning charging-only on reschedules).
+The switches and the few actions that change how Retriever behaves. The groups, in order: **Reading** (see
+[Reading](reading.md)), **Included files** (Manage access, Read these file types, Excluded folders), **Privacy** (Save
+recent searches, Clear recent searches, Android's Reading notifications), **Storage and downloads** (Saved search data,
+the optional search download and its removal, mobile data for downloads), **Appearance** (Show On this day, Android's
+wallpaper colours) and **About**. Every row writes one `Prefs` field and shows the result at once. It never starts work by
+itself beyond what the switch says (turning a kind on re-queues that kind; turning charging-only on reschedules).
+Diagnostics (recent problems) and the test and sample modes exist in debug builds only.
+
+Manage access opens Status on Android (its "What Retriever can see" rows change photo access and add folders) and Folders
+on iOS. Audio has no switch on either platform: it reads "Name only on this device".
 
 ## Mechanism and why
 
@@ -43,12 +48,14 @@ kind; turning charging-only on reschedules).
 3. **A tune started here is not cancelled by leaving the screen.**
 4. **Turning "remember searches" off clears the saved searches and the launcher shortcuts built from them.**
 5. **Text-only phones offer only the kinds they can read.**
-6. **Free up space removes the model and its temporary files, and names and words keep searching.**
+6. **Remove search download removes the model and its temporary files, and names and words keep searching.** Removing
+   access is the other direction: affected files leave every lane at once (`ExclusionTest`).
+7. **Clear recent searches, and turning Save recent searches off, empty the list and Android's launcher shortcuts.**
 
 ## Tests
 
 - Android, `SettingsViewModelTest`: `aToggleIsSavedAndShown`, `anIndexingProgressTickDoesNotRebuildTheScreen`,
-  `aFailedSaveBecomesAMessageNotACrash`, `freeingUpSpaceSaysSoOnceThenClears`,
+  `aFailedSaveBecomesAMessageNotACrash`, `freeingUpSpaceSaysSoOnceThenClears`, `clearingRecentSearchesEmptiesTheListAndTheLauncherShortcuts`,
   `sampleModeStopsTheRunningBatchAndIndexesAgain`. Screenshots: `SettingsShotsTest`.
 - Android, `ReadingRulesTest` pins what each reading rule reads (text caps, short reads, one file listed by a folder and
   MediaStore counts once).

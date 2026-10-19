@@ -225,7 +225,7 @@ internal fun TextThumbnail(file: SourceFile, preview: suspend (SourceFile) -> St
             Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Column(Modifier.fillMaxSize().padding(8.dp)) {
-                Text(file.name, style = title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(file.name, style = title, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
                 text?.let { Text(it, style = body, maxLines = lines, overflow = TextOverflow.Ellipsis) }
             }
         }

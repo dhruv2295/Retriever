@@ -130,6 +130,7 @@ struct TextReader: View {
     private struct Reading: View {
         let loaded: Loaded
         @State private var current: Int
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         init(loaded: Loaded) {
             self.loaded = loaded
@@ -149,7 +150,7 @@ struct TextReader: View {
                     .padding()
                 }
                 .onChange(of: current) { _, now in
-                    if let at = loaded.matches.paragraph(now) { withAnimation { proxy.scrollTo(at, anchor: .center) } }
+                    if let at = loaded.matches.paragraph(now) { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(at, anchor: .center) } }
                 }
                 .onAppear { proxy.scrollTo(loaded.opening.paragraph, anchor: .center) }
                 .safeAreaInset(edge: .bottom) { if loaded.matches.total > 0 { bar } }

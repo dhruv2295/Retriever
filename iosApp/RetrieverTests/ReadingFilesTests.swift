@@ -1,6 +1,6 @@
 import RetrieverCore
-import XCTest
 import SwiftUI
+import XCTest
 
 @testable import Retriever
 
@@ -10,6 +10,18 @@ final class ReadingFilesTests: XCTestCase {
         SourceFile(
             uri: "demo:\(i)", name: "\(i).jpg", folder: "Photos", mime: "image/jpeg", kind: .photo,
             size: 100, modifiedAt: Int64(i), takenAt: nil)
+    }
+
+    func testAFailureReplacesTheWaitSentenceAndNeverJoinsIt() {
+        let wait = "Plug in, or choose Read now for a short session."
+        XCTAssertEqual(StatusContent.reason(detail: wait, lastError: nil, message: nil)?.text, wait)
+        XCTAssertEqual(StatusContent.reason(detail: wait, lastError: nil, message: nil)?.failed, false)
+        XCTAssertEqual(StatusContent.reason(detail: wait, lastError: "Couldn’t open the model", message: nil)?.text, "Couldn’t open the model")
+        XCTAssertEqual(
+            StatusContent.reason(detail: wait, lastError: "old", message: "Couldn’t save this change. Try again.")?.text,
+            "Couldn’t save this change. Try again.")
+        XCTAssertEqual(StatusContent.reason(detail: wait, lastError: "x", message: nil)?.failed, true)
+        XCTAssertNil(StatusContent.reason(detail: nil, lastError: nil, message: nil))
     }
 
     func testVisibleCellsKeepNewestFirstAndCountTheRest() {

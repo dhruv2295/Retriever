@@ -16,6 +16,7 @@ import app.retriever.model.ModelRepository
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.model.tuneSummary
+import app.retriever.search.RecentShortcuts
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ class SettingsViewModel(
     private val storage: StorageService,
     private val indexer: IndexService,
     private val appScope: CoroutineScope,
+    private val shortcuts: RecentShortcuts,
     private val tuner: suspend () -> CalibrationResult,
 ) : ViewModel() {
     private data class Local(val tune: TuneState = TuneState.Idle, val storage: StorageUsage? = null, val message: String? = null)
@@ -140,9 +142,19 @@ class SettingsViewModel(
         }
     }
 
-    // Turning it off clears the saved searches; Retriever.updatePrefs does that.
+    // Turning it off clears the saved searches (Retriever.updatePrefs does that) and the launcher shortcuts built from them.
     fun setRememberSearches(on: Boolean) {
-        launchCatching(::fail) { retriever.updatePrefs { it.copy(rememberSearches = on) } }
+        launchCatching(::fail) {
+            retriever.updatePrefs { it.copy(rememberSearches = on) }
+            if (!on) shortcuts.push(emptyList())
+        }
+    }
+
+    fun clearRecentSearches() {
+        launchCatching(::fail) {
+            retriever.clearRecentQueries()
+            shortcuts.push(emptyList())
+        }
     }
 
     fun setMobileData(on: Boolean) {
@@ -187,11 +199,11 @@ class SettingsViewModel(
         }
     }
 
-    /** Removes the model; names and words keep searching. The message clears with [messageShown]. */
+    /** Removes the search download; names and words keep searching. The message clears with [messageShown]. */
     fun freeUpSpace() = inApp {
         storage.freeUpSpace()
         loadStorage()
-        local.update { it.copy(message = "Model removed") }
+        local.update { it.copy(message = "Search download removed") }
     }
 
     init {

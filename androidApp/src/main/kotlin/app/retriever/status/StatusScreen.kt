@@ -103,7 +103,6 @@ class StatusActions(
     val allowAllFiles: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val removeFolder: (String) -> Unit = {},
-    val setOnThisDay: (Boolean) -> Unit = {},
     /** Null hides the link, for a host that has nowhere to go. */
     val openSettings: (() -> Unit)? = null,
 )
@@ -160,7 +159,6 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
             allowAllFiles = { openAllFilesSettings(context) },
             addFolder = { folderLauncher.launch(null) },
             removeFolder = vm::removeFolder,
-            setOnThisDay = vm::setOnThisDay,
             openSettings = onOpenSettings,
         ),
         access = ui.access,
@@ -196,6 +194,7 @@ fun StatusContent(
     val skipped = progress?.couldntRead ?: 0
     val total = progress?.libraryTotal ?: 0
     val unfinished = progress?.unfinished == true
+    val failure = error ?: index.lastError
     val status =
         readingStatus
             ?: progress?.let {
@@ -237,23 +236,21 @@ fun StatusContent(
                     }
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
                     Text(status?.title ?: "Checking your files…", style = MaterialTheme.typography.headlineSmall)
-                    status?.detail?.let { Muted(it) }
+                    // One reason at a time: a failure outranks the schedule's own wait, which follows from the title.
+                    if (failure != null) {
+                        Text(failure, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    } else {
+                        status?.detail?.let { Muted(it) }
+                    }
                     Text(Format.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.titleMedium.tabular())
                     Muted("${Format.count(progress?.waiting ?: 0)} waiting to read")
                     if ((progress?.notScheduled ?: 0) > 0) {
                         Muted("${Format.count(waiting)} scheduled · ${Format.count(progress?.notScheduled ?: 0)} not scheduled")
                     }
                     if ((progress?.nameOnly ?: 0) > 0) Muted("${Format.count(progress?.nameOnly ?: 0)} name only")
-                    if (status?.active == true && index.currentFile != null) {
-                        ReadingNow(index.currentFile, size = 56.dp)
-                        RecentlyRead(index.recentFiles, actions.openFile)
-                    }
-                    index.lastError?.let {
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                    }
-                    error?.let {
-                        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                    }
+                    if (status?.active == true && index.currentFile != null) ReadingNow(index.currentFile, size = 56.dp)
+                    // What was read stays on show through a pause or a wait; only the sentence above changes.
+                    if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, actions.openFile)
                     when {
                         prefs.paused -> Button(onClick = actions.resume) { Text("Resume reading") }
                         unfinished -> OutlinedButton(onClick = actions.pause) { Text("Pause reading") }
@@ -279,7 +276,7 @@ fun StatusContent(
                         Column {
                             for (f in skippedFiles) {
                                 ListItem(
-                                    headlineContent = { Text(f.file.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    headlineContent = { Text(f.file.name, maxLines = 2, overflow = TextOverflow.MiddleEllipsis) },
                                     supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 )
                             }
@@ -296,7 +293,8 @@ fun StatusContent(
                     Muted("${Format.count(progress?.laterPasses ?: 0)} partly read · more meaning search to come", Modifier.padding(16.dp))
                 }
 
-                if (batteryHint && waiting > 0) {
+                // The OS exemption is a different remedy from the schedule's own wait, but not beside a failure or the person's Pause.
+                if (batteryHint && waiting > 0 && failure == null && !prefs.paused) {
                     ListItem(
                         headlineContent = { Text("Let Retriever keep reading in the background") },
                         supportingContent = { Text("Some phones stop apps working in the background.") },

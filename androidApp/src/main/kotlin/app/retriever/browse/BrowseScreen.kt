@@ -43,6 +43,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.access.AccessService
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
@@ -50,11 +51,13 @@ import app.retriever.core.motion.MascotMood
 import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.Route
+import app.retriever.nav.StatusRoute
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
+import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbCell
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.components.coverageNote
@@ -62,20 +65,36 @@ import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /** Start the next page when the last visible item is this close to the end. */
 private const val LOAD_AHEAD = 20
 
 private val GRID_KINDS = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
-/** The Large files entry is every file by size; sorted another way it is just all files. Starred keeps its name. */
-internal fun browseTitle(route: BrowseRoute, sort: String): String =
-    if (route.kind == null && route.folder == null && !route.starredOnly && route.takenFrom == null && sort != "LARGEST") "All files" else route.title
+/**
+ * The Large files entry is every file by size; sorted another way it is just all files. Starred keeps its name. Only
+ * all-files access can call the list "All files": with less (limited Photos, a few folders) it is what Retriever can see.
+ */
+internal fun browseTitle(route: BrowseRoute, sort: String, allFiles: Boolean): String =
+    if (route.kind == null && route.folder == null && !route.starredOnly && route.takenFrom == null && sort != "LARGEST") {
+        if (allFiles) "All files" else "Files Retriever can access"
+    } else {
+        route.title
+    }
+
+/** What the sort chips order by, said once under them, so "Newest" means the same here as the date on each row. */
+internal fun sortCaption(sort: String): String = when (sort) {
+    Store.Sort.LARGEST.name -> "Largest first"
+    Store.Sort.NAME.name -> "By name, A to Z"
+    else -> "Newest first · by date modified"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val vm = koinViewModel<BrowseViewModel>()
+    val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
     val starred by vm.stars.starred.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -93,7 +112,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(browseTitle(route, ui.sort)) },
+                title = { Text(browseTitle(route, ui.sort, access.allFiles)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
@@ -108,6 +127,8 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             kind = if (route.takenFrom != null) Kind.PHOTO else Kind.entries.firstOrNull { it.name == route.kind },
             sortable = route.takenFrom == null,
             starredOnly = route.starredOnly,
+            filtered = route.kind != null || route.folder != null || route.takenFrom != null,
+            onManageAccess = { onNavigate(StatusRoute) },
             padding = padding,
             onSort = vm::setSort,
             onLoadMore = vm::loadMore,
@@ -131,6 +152,9 @@ fun BrowseContent(
     onOpen: (SourceFile) -> Unit,
     modifier: Modifier = Modifier,
     starredOnly: Boolean = false,
+    /** A kind, folder or day narrows the list: its emptiness is not an empty library. */
+    filtered: Boolean = false,
+    onManageAccess: () -> Unit = {},
     sortable: Boolean = true,
     starred: Set<String> = emptySet(),
     onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
@@ -153,6 +177,7 @@ fun BrowseContent(
                     )
                 }
             }
+            Muted(sortCaption(ui.sort), Modifier.padding(horizontal = 16.dp))
         }
 
         if (files.isEmpty() && ui.error != null) {
@@ -171,10 +196,18 @@ fun BrowseContent(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (starredOnly) {
                     EmptyState(
-                        title = "Nothing starred yet",
-                        description = "Touch and hold a file, or tap the star while viewing it, to keep it here.",
+                        title = "Keep useful files close",
+                        description = "Tap the star on a file to find it here.",
                         icon = R.drawable.ic_star_border,
                         mood = MascotMood.NO_MATCH,
+                    )
+                } else if (!filtered) {
+                    EmptyState(
+                        title = "Choose files to search",
+                        description = "Add photos or a folder.",
+                        icon = R.drawable.ic_folder_open,
+                        mood = MascotMood.NO_MATCH,
+                        action = "Manage access" to onManageAccess,
                     )
                 } else {
                     EmptyState(

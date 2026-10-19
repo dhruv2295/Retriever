@@ -23,7 +23,7 @@ offers Undo. Stars are the person's, so they survive a re-index of the file.
   list (`starredFiles`) still returns OTHER stars so a starred backup is not lost.
 - **iOS.** Stars cross views through the SwiftUI environment, not a global; `AppModel.setStarred` updates the local set
   at once and persists through the facade.
-- **Mascot.** An empty list uses `NO_MATCH` ("Nothing starred yet"), counted into `NO_MATCH_QUIET` like other empties.
+- **Mascot.** An empty list uses `NO_MATCH` ("Keep useful files close"), counted into `NO_MATCH_QUIET` like other empties.
 
 ## Owner files
 
