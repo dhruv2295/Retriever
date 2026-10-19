@@ -49,6 +49,10 @@ class PlayerViewModelTest {
         assertEquals(12_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle()).player.currentPosition)
     }
 
+    @Test fun opensPausedSoNothingPlaysUntilPlayIsPressed() {
+        assertFalse(PlayerViewModel(ApplicationProvider.getApplicationContext(), handle()).player.playWhenReady)
+    }
+
     @Test fun stoppingSavesThePositionAndTheRestoredViewModelOpensThere() {
         val h = handle()
         val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), h)

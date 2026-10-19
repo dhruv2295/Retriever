@@ -54,4 +54,30 @@ class ReadingProgressTest {
         assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, false).phase)
         assertEquals("Waiting for iOS", ReadingPolicy.decide(pending, null, false, false, true).title)
     }
+
+    @Test fun aFilesReadingSaysHowFarItWasReadAndAlreadyReadContentStaysRead() {
+        fun label(
+            state: FileState?,
+            content: Boolean = state == FileState.INDEXED,
+            kind: Kind = Kind.PDF,
+            partial: Boolean = false,
+            extent: ReadExtent? = null,
+            inside: Boolean = true,
+        ) = readingLabel(kind, state?.let { Store.StoredFile(1, SourceFile("u", "a.pdf", "", "", kind, 1, 0), 3, it, partial, extent, content) }, inside)
+        assertEquals("Read", label(FileState.INDEXED))
+        assertEquals("Read", label(FileState.INDEXED, extent = ReadExtent.WHOLE))
+        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, partial = true))
+        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, extent = ReadExtent.FIRST_PART_DEEPENING))
+        assertEquals("Partly read · More meaning search to come", label(FileState.INDEXED, extent = ReadExtent.DEEPENING))
+        assertEquals("Partly read · Couldn’t finish meaning search", label(FileState.INDEXED, extent = ReadExtent.MEANING_LIMITED))
+        assertEquals("Partly read · Waiting to read more", label(FileState.PENDING, content = true))
+        assertEquals("Name only · No readable content", label(FileState.INDEXED, content = false))
+        assertEquals("Waiting to read", label(FileState.PENDING))
+        assertEquals("Waiting to read", label(null))
+        assertEquals("Couldn’t read · Retriever tried 3 times", label(FileState.SKIPPED))
+        assertEquals("Read", label(FileState.INDEXED, inside = false))
+        assertEquals("Name only · Reading is off for this type", label(FileState.PENDING, inside = false))
+        assertEquals("Name only · Reading is off for this type", label(FileState.SKIPPED, inside = false))
+        assertEquals("Name only · Reading isn’t supported for this type", label(FileState.INDEXED, kind = Kind.OTHER))
+    }
 }

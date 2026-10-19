@@ -135,3 +135,38 @@ object ReadingPolicy {
 
 internal const val SESSION_START_KEY = "reading_session_start_chunk"
 internal const val SESSION_READ_KEY = "reading_session_read"
+
+/**
+ * Says how far Retriever has read one file, in the reading contract's words, for File info on both platforms. [stored] null is
+ * a file the index has not met yet. Content already read stays read even if reading was switched off since; the index records
+ * no reason for a failure, only how many times it tried.
+ */
+fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): String {
+    val extent = stored?.extent
+    return when {
+        kind == Kind.OTHER -> "Name only · Reading isn’t supported for this type"
+
+        stored?.contentRead == true -> when {
+            stored.state == FileState.PENDING -> "Partly read · Waiting to read more"
+
+            stored.state == FileState.SKIPPED -> "Partly read · Couldn’t finish reading"
+
+            stored.partial || extent == ReadExtent.FIRST_PART || extent == ReadExtent.FIRST_PART_DEEPENING ||
+                extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Partly read · Only the beginning is included"
+
+            extent == ReadExtent.MEANING_LIMITED -> "Partly read · Couldn’t finish meaning search"
+
+            extent == ReadExtent.DEEPENING -> "Partly read · More meaning search to come"
+
+            else -> "Read"
+        }
+
+        !readInside -> "Name only · Reading is off for this type"
+
+        stored?.state == FileState.SKIPPED -> "Couldn’t read · Retriever tried ${stored.attempts} times"
+
+        stored?.state == FileState.INDEXED -> "Name only · No readable content"
+
+        else -> "Waiting to read"
+    }
+}

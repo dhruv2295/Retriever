@@ -141,8 +141,8 @@ enum Copy {
     /// What the search made of the words: "Showing Screenshots · Last week".
     static func understood(_ labels: [String]) -> String { "Showing \(labels.joined(separator: " · "))" }
     static let exactWords = "Search my exact words"
-    static let star = "Star"
-    static let removeStar = "Remove star"
+    static let star = "Add to Starred"
+    static let removeStar = "Remove from Starred"
 
     static let lessLikely = "Less likely matches"
     static func nothingWell(_ q: String) -> String { "Nothing matches “\(q)” well" }

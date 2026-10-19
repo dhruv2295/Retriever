@@ -214,42 +214,17 @@ extension View {
     }
 }
 
-/// Star and Find similar and Share, in the long-press menu and for VoiceOver.
+/// The shared action list, in the long-press menu and for VoiceOver.
 private struct ResultActions: ViewModifier {
     let file: SourceFile
     let starred: Bool
     let similar: ((SourceFile) -> Void)?
-    @Environment(AppModel.self) private var model: AppModel?
 
     func body(content: Content) -> some View {
         content
-            .accessibilityActions {
-                starButton
-                if let similar { Button("Find similar") { similar(file) } }
-                FileActionButtons(file: file)
-            }
-            .contextMenu {
-                starButton
-                if let similar {
-                    Button {
-                        similar(file)
-                    } label: {
-                        Label("Find similar", systemImage: "photo.stack")
-                    }
-                }
-                FileActionButtons(file: file)
-            }
+            .accessibilityActions { FileActionButtons(file: file, starred: starred, similar: similar) }
+            .contextMenu { FileActionButtons(file: file, starred: starred, similar: similar) }
             .sensoryFeedback(trigger: starred) { _, now in now ? .success : .impact(weight: .light) }
-    }
-
-    @ViewBuilder private var starButton: some View {
-        if let model {
-            Button {
-                model.setStarred(file.uri, !starred)
-            } label: {
-                Label(starred ? Copy.removeStar : Copy.star, systemImage: starred ? "star.slash" : "star")
-            }
-        }
     }
 }
 

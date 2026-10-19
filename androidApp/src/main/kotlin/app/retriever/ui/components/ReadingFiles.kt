@@ -150,11 +150,11 @@ internal fun RecentFileCell(file: SourceFile, size: Dp?, reduceMotion: Boolean, 
         if (reduceMotion) arrival.snapTo(1f) else arrival.animateTo(1f, tween(220))
     }
     Box(modifier.then(if (size != null) Modifier.size(size) else Modifier)) {
-        app.retriever.files.FilePressMenu(file) { menu ->
+        app.retriever.files.FilePressMenu(file) { menu, actions ->
             val click = if (onOpen == null) {
                 Modifier
             } else {
-                Modifier.combinedClickable(
+                actions.combinedClickable(
                     role = Role.Button,
                     onClickLabel = "Open",
                     onLongClickLabel = "File actions",

@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -48,6 +47,7 @@ import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
 import app.retriever.core.motion.MascotMood
+import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
@@ -55,7 +55,6 @@ import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
-import app.retriever.ui.components.PressMenu
 import app.retriever.ui.components.ThumbCell
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.components.coverageNote
@@ -202,13 +201,14 @@ fun BrowseContent(
                 ) {
                     items(files, key = { it.id }, contentType = { "file" }) { stored ->
                         val on = stored.file.uri in starred
-                        StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu ->
+                        StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
                             ThumbCell(
                                 file = stored.file,
                                 onClick = { onOpen(stored.file) },
                                 readNote = coverageNote(stored),
                                 onLongClick = menu,
                                 onLongClickLabel = "More options",
+                                modifier = actions,
                             )
                         }
                     }
@@ -226,13 +226,14 @@ fun BrowseContent(
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu ->
+                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
                                     readNote = coverageNote(stored),
                                     onLongClick = menu,
                                     onLongClickLabel = "More options",
+                                    modifier = actions,
                                 )
                             }
                         }
@@ -261,20 +262,10 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
     }
 }
 
-/** A file list's long-press menu: Star or Remove star, as on a search result, so a photo can be unstarred from a list. */
+/** A file list's long-press menu, the shared one; a star here offers Undo through [toggle]. */
 @Composable
-private fun StarMenu(file: SourceFile, on: Boolean, toggle: () -> Unit, content: @Composable (onLongClick: () -> Unit) -> Unit) {
-    PressMenu(content = content) { dismiss ->
-        app.retriever.files.FileActionItems(file, dismiss)
-        DropdownMenuItem(
-            text = { Text(if (on) "Remove star" else "Star") },
-            leadingIcon = { Icon(painterResource(if (on) R.drawable.ic_star_border else R.drawable.ic_star), contentDescription = null) },
-            onClick = {
-                dismiss()
-                toggle()
-            },
-        )
-    }
+private fun StarMenu(file: SourceFile, on: Boolean, toggle: () -> Unit, content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit) {
+    FilePressMenu(file, starred = on, onStar = { toggle() }, content = content)
 }
 
 private fun Store.Sort.label(): String = when (this) {

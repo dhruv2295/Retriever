@@ -12,13 +12,9 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,14 +26,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.net.toUri
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.PhotoRoute
-import app.retriever.starred.StarButton
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
@@ -59,7 +51,6 @@ import java.io.IOException
 fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modifier, queue: ViewerQueue = koinInject()) {
     val context = LocalContext.current
     val stars = koinViewModel<StarHolder>().stars
-    val starred by stars.starred.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)
     val items = remember(route.uri) { queue.itemsFor(route) }
@@ -69,16 +60,7 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text(current.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
-                },
-                actions = {
-                    StarButton(current.uri in starred) { stars.toggle(current.uri) }
-                    app.retriever.files.FileOverflow(current.uri, onBack)
-                },
-            )
+            ViewerTopBar(current.name, current.uri, stars, onBack, subtitle = positionLabel(pager.currentPage, items.size))
         },
     ) { padding ->
         PhotoPager(items, pager, Modifier.padding(padding)) { Opener.view(context, it.uri, it.mime) }

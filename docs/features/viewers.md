@@ -35,23 +35,36 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   checked. Revisit when it is stable; `PdfPageFrame` stays until then.
 - **Video and audio: Media3.** `PlayerViewModel` owns the one `ExoPlayer` of a route, so a rotation keeps it playing and
   the screen only attaches a `PlayerView`; the position is saved on stop and restored, starting at the hit until a
-  position was saved. `ON_STOP` pauses: nothing plays in the background. A player error is a `Failed` state.
+  position was saved. It opens paused: sound starts only at Play. `ON_STOP` pauses: nothing plays in the background. A player error is a `Failed` state.
 - **Text and documents: in-app reader.** `DocViewModel` reads the stored chunks (`Retriever.fileText`), so there is no
   second parser and no file read. The state is `DocUi` (`Loading`, `Text`, `NotReadYet`, `Empty`, `Failed`): a pending
   file with no text yet is `NotReadYet`, never the "couldn't read" `Empty`, and a file the index lacks is `Failed`.
   `loadDoc` picks the paragraph from the hit's locator or the query (a search hit carries its id and the words asked)
-  and the list opens there with the words marked.
-- **File actions.** Star and one overflow menu serve every viewer, including the iOS Quick Look wrapper. The same platform action model supplies long-press menus in Search, Browse and Recently read: Info, Share, Open with, Rename and Delete. Info reads optional dimensions/duration off the UI thread. Native share/open and mutation APIs own access and confirmation; Photos assets omit Rename.
+  and the list opens there with the words marked on a tonal background. The text is selectable. `DocUi.Text.matches` lists every paragraph with the words, and the bar "Match 2 of 5" with Previous / Next match (`stepMatch`, wrapping) scrolls between them.
+- **File actions.** One order everywhere: Add to / Remove from Starred, Share, Open in another app, File info, Rename, a divider, Delete (error colour), each with a `leadingIcon`. On Android `FileAction` is that order (`entries`), `fileActions(uri)` is the availability (a provider Retriever cannot write to gets no Rename or Delete), `FileActionItems` draws the menu and `FilePressMenu` adds the same actions as accessibility custom actions on the row (it hands the content a modifier to apply). Star defaults to the Retriever's set; Browse passes its Undo toggle. Deleting asks "Delete this file?" / "This removes the original from {folder}." (a MediaStore file goes through the system consent sheet instead). iOS: the platform action model supplies the same menu; Photos assets omit Rename.
+- **Viewer bar (Android).** `ViewerTopBar` serves all four viewers: Back, filename over an optional subtitle ("{n} of {count}" for photos, "Match on page {n} · Page {n} of {total}" for PDFs, "Match at {time}" for media), Share, Star (only from 600 dp of window width, `starFitsInBar`; the overflow always has it) and the overflow, which is the shared file menu. A PDF, document or media viewer has a bottom `ViewerStepBar`: Previous file, "2 of 5", Next file, from `ViewerQueue.neighbors` (the list the file was opened from, limited to files of the same viewer: PDFs step to PDFs, audio and video to each other, never to a photo); they replace the viewer in the back stack, so Back still returns to the list and the player is released. Photos swipe instead. `Opener.open` queues the list for every kind when it is given one.
+- **File info (Android).** `FileInfoSheet` (`files/FileInfo.kt`, `ModalBottomSheet` + `ListItem`): preview, selectable name, "PDF · 2.4 MB", Location (folder; full path and Copy path under "Location details"), Modified, Created only when the source says (`takenAt`), dimensions, duration or pages, and Reading from `readingLabel`: Read / Partly read / Waiting to read / Name only / Couldn't read · tried n times (the index records no finer reason).
 - **Index mutations.** A rename holds `Retriever`'s scan lock across the provider operation and the in-place store update. The file id, chunks, read state and star stay; the name index and recent entries follow the new URI. Confirmed deletion removes index chunks and recent entries immediately. Lists observe the action revision; deleting from a viewer closes it.
 - **States.** Every viewer has explicit loading, content, empty and trouble states; failures use `MascotMood.TROUBLE`
   ("Couldn't open this file", "Couldn't play this video", "Couldn't show this photo").
 - **iOS.** `PDFKit` `PDFView` at the matched page with highlighted selections (PDF parse through a `@concurrent` function
-  returning `sending PDFDocument?`), `AVPlayerViewController` seeked to the matched ms, a `TabView` of `ZoomableImage`
-  (a `UIScrollView`) for library photos, Quick Look for the rest.
+  returning `sending PDFDocument?`), `AVPlayerViewController` seeked to the matched ms and left paused (video and
+  folder audio), a `TabView` of `ZoomableImage` (a `UIScrollView`) for library photos, Quick Look for the rest.
+  `viewing()` carries a `Place` (the files of the same viewer in the list it was opened from); PDFs, media and Quick Look
+  documents step with "Previous file" / "Next file" buttons in the bottom bar, never a gesture. The top bar is Share,
+  Star (regular width only, the same rule as Android's 600 dp; the overflow always has it) and one overflow built from `FileActionButtons`. Labels:
+  "Match on page n", "Page n of total", "Match at m:ss" (only when the locator named one) and "n of count" for photos.
+  Missing, no-access, locked and unreadable files are `ViewerProblem`s, each with its own button. `TextReader` is a
+  sheet over Quick Look ("Text from this file") of the stored paragraphs, selectable, with `WordMatcher` marks and
+  "Match n of total" Previous / Next, counting paragraphs that hold the words like the Android reader.
+- **File info (iOS).** `FileInfoSheet`: preview, selectable name and "PDF · 2.4 MB", then Location (folder name; path and
+  Copy path under "Location details"), Modified, Created when known, dimensions, duration or pages, and Reading from
+  `FileInfo.reading`: Read, Partly read, Waiting to read, Name only, Couldn't read.
 
 ## Owner files
 
 - `androidApp/src/main/kotlin/app/retriever/viewer/Opener.kt`, `ViewerQueue.kt`
+- `androidApp/src/main/kotlin/app/retriever/viewer/ViewerTopBar.kt` (bar, neighbours), `androidApp/src/main/kotlin/app/retriever/files/FileActions.kt`, `FileInfo.kt`
 - `androidApp/src/main/kotlin/app/retriever/viewer/PhotoScreen.kt`, `PdfPageScreen.kt`, `PlayerScreen.kt`,
   `PlayerViewModel.kt`, `DocScreen.kt`, `DocViewModel.kt`
 - `androidApp/src/main/kotlin/app/retriever/nav/AppNav.kt` (routes and transitions)
@@ -65,7 +78,7 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
    running.
 3. **The viewers never play in the background.**
 4. **The matched place is the first thing shown:** page, moment or paragraph.
-5. **A failed or missing file is a state with a way out** ("Open in another app"), never a blank screen.
+5. **A failed, locked or missing file is a state with a way out,** never a blank screen: "Open in another app" for a locked ("This PDF needs a password") or unreadable file, "Go back" for a PDF that is "no longer available".
 6. **A photo viewer after process death shows the opened photo alone,** not a stale list.
 7. **Route arguments stay small;** lists travel through the queue, not the route.
 
@@ -83,14 +96,15 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   `aFileWithNoChunksIsEmpty`, `aFileStillWaitingToBeReadSaysSoNotThatItCouldntBeRead`,
   `aSkippedFileWithNoTextIsEmptyAndAMissingOneFailed`, `aFailingReadShowsTheTroubleState`, `loadingShowsNoText`.
 - `SearchViewModelTest.openingADocumentHitCarriesItsIdAndTheQueryToTheReader`.
+- Actions and info: `FileActionsTest` (menu order and availability per source, the star label, `readingLabel` for every state, `infoRows`). `ViewerQueueTest` (`positionLabel`, `neighbors`, `starFitsInBar`); `PdfPageScreenTest.theBarNamesTheMatchedPageAndWhereTheReaderIs`; `DocScreenTest.everyParagraphWithTheWordsIsAMatchAndStepsWrapRound`, `theMatchBarStepsToTheNextMatch`; `PlayerViewModelTest.opensPausedSoNothingPlaysUntilPlayIsPressed`.
 - iOS: `iosApp/RetrieverUITests/AccessibilityAuditTests.swift` audits fixture routes only.
 
 ## Known limits
 
+- Android: a revoked folder grant throws `SecurityException` from `openFileDescriptor` ("Access to this folder has changed" / Manage access) and a password-protected PDF from `PdfRenderer` ("needs a password"); a search opens a viewer without the list it came from (Search passes no siblings), so Previous / Next file appear only for files opened from Browse or Status.
 - The reader shows the text the index holds. The chunker collapses single newlines, so code and CSV lose their line
   layout, and a file read only in part (a read cap) shows only that part.
 - Zoom on the PDF is a re-rendered bucket at a capped scale, not vector zoom (Jetpack PDF would be).
-- iOS: folder images open in Quick Look (zoomable but without the Star and Share toolbar); Quick Look gets one uri, so no
-  swipe between folder results; text documents have no match highlight; the PDF lands on the match after a fixed 0.3 s
-  timer.
+- iOS: folder images open in Quick Look; Quick Look has no match highlight (the "Text from this file" sheet does); PDFs
+  have no previous/next match; the audio route relies on AVPlayer reading the format, with "Open in another app" as the way out.
 - Audio focus is ExoPlayer's own (`setAudioAttributes(AudioAttributes.DEFAULT, true)`); how it behaves against a call or another player is not judged without a device.

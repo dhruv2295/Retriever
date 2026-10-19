@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import app.retriever.ShotTheme
 import app.retriever.core.ChunkText
 import app.retriever.core.FileState
@@ -75,6 +77,23 @@ class DocScreenTest {
     @Test fun loadingShowsNoText() {
         show(DocUi.Loading)
         assertEquals(0, rule.onAllNodesWithTextCount("Couldn't open this file"))
+    }
+
+    @Test fun everyParagraphWithTheWordsIsAMatchAndStepsWrapRound() = runTest {
+        val ui = loadDoc("paragraph", "") { read } as DocUi.Text
+        assertEquals((0..40).toList(), ui.matches)
+        assertEquals(1, stepMatch(ui.matches, 0, 1))
+        assertEquals(0, stepMatch(ui.matches, 40, 1))
+        assertEquals(40, stepMatch(ui.matches, 0, -1))
+        assertEquals(emptyList<Int>(), (loadDoc("zzz", "") { read } as DocUi.Text).matches)
+        assertEquals(null, stepMatch(emptyList(), 0, 1))
+    }
+
+    @Test fun theMatchBarStepsToTheNextMatch() = runTest {
+        show(loadDoc("lease", "") { read })
+        rule.onNodeWithText("Match 1 of 41").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Next match").performClick()
+        rule.onNodeWithText("Match 2 of 41").assertIsDisplayed()
     }
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesWithTextCount(text: String) =

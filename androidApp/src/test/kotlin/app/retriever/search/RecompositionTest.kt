@@ -96,16 +96,16 @@ class RecompositionTest {
         assertEquals("tiles recomposed on a count change: $runs", emptyMap<String, Int>(), runs)
     }
 
-    @Test fun starringOneFileRecomposesNoTile() {
+    @Test fun starringOneFileRecomposesOnlyThatFile() {
         Composer.setTracer(tracer)
         val (u, _) = show()
         rule.onNodeWithText("Notes.docx", substring = true).performTouchInput { longClick() }
-        rule.onNodeWithText("Star").assertExists()
+        rule.onNodeWithText("Add to Starred").assertExists()
         runs.clear()
         u.value = u.value.copy(starredUris = setOf("demo:Notes.docx"))
         rule.waitForIdle()
-        // The open menu follows the star; the grid and its tiles do not run again.
-        rule.onNodeWithText("Remove star").assertExists()
-        assertEquals("tiles recomposed on a star: $runs", emptyMap<String, Int>(), runs)
+        // The open menu follows the star, and so do that file's screen reader actions; no other file's tile runs again.
+        rule.onNodeWithText("Remove from Starred").assertExists()
+        assertEquals("tiles recomposed on a star: $runs", mapOf("HitMenu" to 1, "FileRow" to 1), runs)
     }
 }

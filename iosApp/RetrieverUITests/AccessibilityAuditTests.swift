@@ -95,11 +95,11 @@ final class AccessibilityAuditTests: XCTestCase {
                     screenshot.lifetime = .keepAlways
                     add(screenshot)
                     try app.performAccessibilityAudit(for: .contrast) { issue in
-            // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
-            if self.clippedByLegend(issue.element, in: app) { return true }
-            print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
-            return false
-        }
+                        // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
+                        if self.clippedByLegend(issue.element, in: app) { return true }
+                        print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
+                        return false
+                    }
                 }
             }
         }
@@ -158,9 +158,9 @@ final class AccessibilityAuditTests: XCTestCase {
 
     func testSeededViewerAndBrowseRoutesPassTheAccessibilityAudit() throws {
         let routes = [
-            ("viewer.pdf", "Document_01", "Star"),
-            ("viewer.video", "", "Star"),
-            ("viewer.photo", "IMG_1001", "Star"),
+            ("viewer.pdf", "Document_01", "More actions"),
+            ("viewer.video", "", "More actions"),
+            ("viewer.photo", "IMG_1001", "More actions"),
             ("browse.large", "", "Sort"),
             ("browse.folders", "", "Add a folder"),
             ("browse.duplicates", "", "Duplicates"),
@@ -202,45 +202,45 @@ final class AccessibilityAuditTests: XCTestCase {
         }
         // Font resizing can invalidate lazy-list AX frames; run it after every check that uses the original frames.
         for types in [XCUIAccessibilityAuditType.all.subtracting(.contrast).subtracting(.dynamicType), .dynamicType] {
-        try app.performAccessibilityAudit(for: types) { issue in
-            guard let element = issue.element else {
-                print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")
+            try app.performAccessibilityAudit(for: types) { issue in
+                guard let element = issue.element else {
+                    print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")
+                    return false
+                }
+                // PDFKit paragraphs are document content, not tappable controls. Keep links and app buttons in the audit.
+                if route == "viewer.pdf", issue.auditType == .hitRegion, element.elementType == .other,
+                    app.descendants(matching: .any)["viewer.pdf"].firstMatch.frame.contains(element.frame)
+                {
+                    return true
+                }
+                // These literal source filenames are the correct viewer titles, not missing app-authored labels.
+                if route.hasPrefix("viewer."), issue.auditType == .sufficientElementDescription,
+                    ["Document_01.pdf", "talk-and-show.mp4", "IMG_1001.jpg"].contains(element.label),
+                    app.navigationBars.firstMatch.frame.contains(element.frame)
+                {
+                    return true
+                }
+                // The native field grows and its entire placeholder fits at AX5 (screenshot and typing test below).
+                if issue.auditType == .textClipped, element.elementType == .searchField, element.label == "Search your files" { return true }
+                // These folder Labels are reported as clipped, but the AX5 screenshots below show both full labels.
+                if route == "browse.folders", issue.auditType == .textClipped, ["audit", "Add a folder"].contains(element.label) { return true }
+                // The audit loses these lazy-list elements when resizing scrolls them off screen. The tests below
+                // relaunch at AX5, scroll them into view, and assert that each label actually grows.
+                if issue.auditType == .dynamicType {
+                    if route.hasPrefix("status."), Self.statusText.contains(element.label) { return true }
+                    // The cold-launch test below verifies these labels grow and remain fully visible at AX5.
+                    if route == "status.paused", element.label == "Resume reading" { return true }
+                    if route == "status.tailFiles", element.label == "12 partly read · more meaning search to come" { return true }
+                    if route == "home.caughtUp", ["document-name", "document-detail"].contains(element.identifier) { return true }
+                    // The taller hero displaces this row during live resizing; testRecentSearchChipsGrowAtTheLargestAccessibilitySize verifies its actual growth.
+                    if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
+                    // The same live resize moves the folders row off-screen; its launch-size growth is checked directly below.
+                    if route.hasPrefix("home."), element.label == "All folders" { return true }
+                    if route == "browse.folders", Self.folderText.contains(element.label) { return true }
+                }
+                print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
                 return false
             }
-            // PDFKit paragraphs are document content, not tappable controls. Keep links and app buttons in the audit.
-            if route == "viewer.pdf", issue.auditType == .hitRegion, element.elementType == .other,
-                app.descendants(matching: .any)["viewer.pdf"].firstMatch.frame.contains(element.frame)
-            {
-                return true
-            }
-            // These literal source filenames are the correct viewer titles, not missing app-authored labels.
-            if route.hasPrefix("viewer."), issue.auditType == .sufficientElementDescription,
-                ["Document_01.pdf", "talk-and-show.mp4", "IMG_1001.jpg"].contains(element.label),
-                app.navigationBars.firstMatch.frame.contains(element.frame)
-            {
-                return true
-            }
-            // The native field grows and its entire placeholder fits at AX5 (screenshot and typing test below).
-            if issue.auditType == .textClipped, element.elementType == .searchField, element.label == "Search your files" { return true }
-            // These folder Labels are reported as clipped, but the AX5 screenshots below show both full labels.
-            if route == "browse.folders", issue.auditType == .textClipped, ["audit", "Add a folder"].contains(element.label) { return true }
-            // The audit loses these lazy-list elements when resizing scrolls them off screen. The tests below
-            // relaunch at AX5, scroll them into view, and assert that each label actually grows.
-            if issue.auditType == .dynamicType {
-                if route.hasPrefix("status."), Self.statusText.contains(element.label) { return true }
-                // The cold-launch test below verifies these labels grow and remain fully visible at AX5.
-                if route == "status.paused", element.label == "Resume reading" { return true }
-                if route == "status.tailFiles", element.label == "12 partly read · more meaning search to come" { return true }
-                if route == "home.caughtUp", ["document-name", "document-detail"].contains(element.identifier) { return true }
-                // The taller hero displaces this row during live resizing; testRecentSearchChipsGrowAtTheLargestAccessibilitySize verifies its actual growth.
-                if route.hasPrefix("home."), element.identifier == "recent-search" { return true }
-                // The same live resize moves the folders row off-screen; its launch-size growth is checked directly below.
-                if route.hasPrefix("home."), element.label == "All folders" { return true }
-                if route == "browse.folders", Self.folderText.contains(element.label) { return true }
-            }
-            print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
-            return false
-        }
         }
     }
 
@@ -259,8 +259,7 @@ final class AccessibilityAuditTests: XCTestCase {
                 XCTAssertTrue(element.exists, label)
                 XCTAssertTrue(element.isHittable, label)
                 XCTAssertTrue(app.windows.firstMatch.frame.contains(element.frame), label)
-                if let normal { XCTAssertGreaterThan(element.frame.height, normal, label) }
-                else { normal = element.frame.height }
+                if let normal { XCTAssertGreaterThan(element.frame.height, normal, label) } else { normal = element.frame.height }
                 app.terminate()
             }
         }
@@ -351,8 +350,7 @@ final class AccessibilityAuditTests: XCTestCase {
             }
             XCTAssertTrue(folders.exists)
             XCTAssertTrue(folders.isHittable)
-            if let normal { XCTAssertGreaterThan(folders.frame.height, normal) }
-            else { normal = folders.frame.height }
+            if let normal { XCTAssertGreaterThan(folders.frame.height, normal) } else { normal = folders.frame.height }
             app.terminate()
         }
     }
@@ -439,11 +437,11 @@ final class AccessibilityAuditTests: XCTestCase {
         let names = ["IMG_1001.jpg", "IMG_1003.jpg"]
         let first = names.first { app.navigationBars.staticTexts[$0].exists }
         XCTAssertNotNil(first)
-        XCTAssertTrue(app.buttons["Star"].exists)
+        XCTAssertTrue(app.buttons["More actions"].exists)
         let next = names.first { $0 != first }!
         app.swipeLeft()
         if !app.navigationBars.staticTexts[next].waitForExistence(timeout: 2) { app.swipeRight() }
         XCTAssertTrue(app.navigationBars.staticTexts[next].waitForExistence(timeout: 5), "opening from Browse must pass its photo neighbors")
-        XCTAssertTrue(app.buttons["Star"].exists, "the newly selected photo keeps its toolbar actions")
+        XCTAssertTrue(app.buttons["More actions"].exists, "the newly selected photo keeps its toolbar actions")
     }
 }

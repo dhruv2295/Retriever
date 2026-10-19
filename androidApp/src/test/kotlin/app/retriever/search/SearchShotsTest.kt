@@ -323,15 +323,15 @@ class SearchShotsTest {
             }
         }
         rule.onNodeWithText("Water bill.pdf", substring = true).performTouchInput { longClick() }
-        rule.onNodeWithText("Remove star").assertDoesNotExist()
-        rule.onNodeWithText("Star").performClick()
+        rule.onNodeWithText("Remove from Starred").assertDoesNotExist()
+        rule.onNodeWithText("Add to Starred").performClick()
         assertEquals(listOf(true), stars)
         rule.onNodeWithText("Starred").assertExists()
         rule.onNodeWithText("Undo").performClick()
         assertEquals(listOf(true, false), stars)
         // A starred file offers to remove it.
         rule.onNodeWithText("Old bill.docx", substring = true).performTouchInput { longClick() }
-        rule.onNodeWithText("Remove star").assertExists()
+        rule.onNodeWithText("Remove from Starred").assertExists()
     }
 
     @Test fun aRecordingIsNotUnderDocuments() {
