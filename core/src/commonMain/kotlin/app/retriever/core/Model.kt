@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration.Companion.minutes
 
@@ -96,7 +97,8 @@ data class DeviceProfile(
     val audio: Boolean,
     val bulkOnlyWhenCharging: Boolean,
     val maxTokens: Int = 512,
-    val gpuVisionStalls: Boolean = false,
+    // Keep earlier Tune results: vision stalls alone already justify moving every foreground delegate.
+    @SerialName("gpuVisionStalls") val gpuStallsRendering: Boolean = false,
     val cpuImageMs: Double? = null,
     val gpuImageMs: Double? = null,
     /** Resolved for an open; null in the stored profile means follow the measured policy. */

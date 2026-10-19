@@ -6,7 +6,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Main-thread display callbacks, only subscribed during Tune's existing GPU image calls. Times are milliseconds. */
+/** Main-thread display callbacks, only subscribed during Tune's existing GPU image and text calls. Times are milliseconds. */
 interface FrameSource {
     val refreshRateHz: Double
 
@@ -45,7 +45,7 @@ internal class RenderingStalls(private val source: FrameSource, private val visi
     var stalled = false
         private set
 
-    suspend fun <T> image(block: suspend () -> T): T {
+    suspend fun <T> measure(block: suspend () -> T): T {
         val gaps = FrameGaps()
         var next = CompletableDeferred<Unit>()
         try {
@@ -71,6 +71,6 @@ internal class RenderingStalls(private val source: FrameSource, private val visi
     }
 }
 
-/** Text keeps its selected backend; only measured foreground vision stalls move the vision encoder. */
-fun visionBackendFor(profile: DeviceProfile, visible: Boolean): Backend =
-    if (profile.backend == Backend.GPU && profile.gpuVisionStalls && visible) Backend.CPU else profile.backend
+/** Any measured GPU rendering stall moves all foreground inference to CPU. */
+fun inferenceBackendFor(profile: DeviceProfile, visible: Boolean): Backend =
+    if (profile.backend == Backend.GPU && profile.gpuStallsRendering && visible) Backend.CPU else profile.backend

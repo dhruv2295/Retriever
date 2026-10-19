@@ -36,6 +36,7 @@ import app.retriever.core.Signature
 import app.retriever.core.hasNonFinite
 import app.retriever.core.probeKindFor
 import app.retriever.core.tracedAsync
+import app.retriever.core.withBackgroundPriority
 import com.google.ai.edge.litertlm.ModelInfo
 import com.google.mediapipe.tasks.components.containers.AudioData
 import com.google.mediapipe.tasks.components.containers.EmbeddingResult
@@ -64,7 +65,7 @@ class MediaPipeEmbedderFactory(private val context: Context, private val modelDi
     override fun profileNow(profile: DeviceProfile, visible: Boolean): DeviceProfile {
         val forced = visionOverride()
         return if (forced != null && profile.backend != Backend.NPU) {
-            profile.copy(backend = Backend.GPU, visionBackend = forced)
+            profile.copy(backend = forced, visionBackend = forced)
         } else {
             super.profileNow(profile, visible)
         }
@@ -74,7 +75,9 @@ class MediaPipeEmbedderFactory(private val context: Context, private val modelDi
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
         val file = File(modelDir, build.fileName)
         check(file.exists()) { "Model file missing: ${file.absolutePath}" }
-        return MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, profile.visionBackend ?: profile.backend)
+        return withBackgroundPriority {
+            MediaPipeEmbedder(context, file, build, profile.backend, profile.visionTokens, profile.maxTokens, profile.visionBackend ?: profile.backend)
+        }
     }
 
     // Keeps every configuration's cache for models still on disk: a re-tune (vt70 to vt140 on the Pixel) used to

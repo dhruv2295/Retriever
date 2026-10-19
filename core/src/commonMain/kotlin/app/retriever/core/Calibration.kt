@@ -2,6 +2,7 @@ package app.retriever.core
 
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
+import kotlin.time.TimedValue
 import kotlin.time.measureTimedValue
 
 data class Samples(
@@ -99,7 +100,7 @@ class Calibration(
         val chosen = pick.backend
         val gpu = results.firstOrNull { it.backend == Backend.GPU }
         val profile = Tiers.profileFor(pick.imageMs ?: 9999.0, ramGb, chosen, variant, maxTokens).copy(
-            gpuVisionStalls = gpu?.renderingStalls == true,
+            gpuStallsRendering = gpu?.renderingStalls == true,
             cpuImageMs = results.firstOrNull { it.backend == Backend.CPU && it.ok }?.imageMs,
             gpuImageMs = gpu?.takeIf { it.ok }?.imageMs,
         )
@@ -131,10 +132,16 @@ class Calibration(
             val embedder = opened.value
             start = clock.markNow()
             try {
-                suspend fun timedEmbed(parts: List<Part>) = if (parts.any { it is Part.Image } && embedder.visionBackend == Backend.GPU && rendering != null) {
-                    rendering.image { clock.measureTimedValue { embedder.embedRaw(parts) } }
-                } else {
-                    clock.measureTimedValue { embedder.embedRaw(parts) }
+                suspend fun timedEmbed(parts: List<Part>): TimedValue<FloatArray> {
+                    val usesGpu = parts.any {
+                        (it is Part.Image && embedder.visionBackend == Backend.GPU) ||
+                            (it is Part.Text && embedder.backend == Backend.GPU)
+                    }
+                    return if (usesGpu && rendering != null) {
+                        rendering.measure { clock.measureTimedValue { embedder.embedRaw(parts) } }
+                    } else {
+                        clock.measureTimedValue { embedder.embedRaw(parts) }
+                    }
                 }
                 // A cold model pages in weights and builds caches on its first calls of each kind; time none of them.
                 for (kind in listOf(images, texts, audio, queries)) {

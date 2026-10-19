@@ -46,7 +46,7 @@ class VisionPolicyTest {
                 }
             }
         }
-        val profile = PROFILE.copy(backend = Backend.GPU, gpuVisionStalls = true, cpuImageMs = 2000.0, gpuImageMs = 100.0)
+        val profile = PROFILE.copy(backend = Backend.GPU, gpuStallsRendering = true, cpuImageMs = 2000.0, gpuImageMs = 100.0)
         val store = newStore().also { it.setProfile(profile) }
         val source = FakeSource().apply { next = Changes(listOf(testFile("one.txt"), testFile("two.txt")), emptyList(), "1", true) }
         val monitor = FakeMonitor()
@@ -57,7 +57,7 @@ class VisionPolicyTest {
         r.planTaste()
         val batch = async { r.taste() }
         entered.await()
-        r.uiVisible = false // screen is off; work may continue with GPU vision after this file
+        r.uiVisible = false // screen is off; all inference may use GPU after this file
         val warm = async { r.warmSearch() }
         runCurrent()
         assertFalse(warm.isCompleted)
@@ -68,9 +68,9 @@ class VisionPolicyTest {
         assertTrue(r.hasPendingTaste())
         assertEquals(NextRun.DONE, r.taste())
         assertEquals(listOf(Backend.CPU, Backend.GPU), opened.map { it.visionBackend })
-        assertTrue(opened.all { it.backend == Backend.GPU })
+        assertEquals(listOf(Backend.CPU, Backend.GPU), opened.map { it.backend })
         assertEquals(0L, r.counts().first().byState[FileState.PENDING])
-        assertEquals(1L, SpeedBook.decode(store.meta("speed_by_kind_GPU_CPU")).paces[Kind.DOC]?.files)
+        assertEquals(1L, SpeedBook.decode(store.meta("speed_by_kind_CPU_CPU")).paces[Kind.DOC]?.files)
         assertEquals(1L, SpeedBook.decode(store.meta("speed_by_kind_GPU_GPU")).paces[Kind.DOC]?.files)
     }
 
@@ -120,7 +120,7 @@ class VisionPolicyTest {
 
     @Test fun trialPlannerUsesTheSelectedVisionPaceAndRetierKeepsTheStallMeasurement() = runTest {
         val files = (1..100).map { testFile("photo$it.jpg", Kind.PHOTO, modifiedAt = it * 7200000L) }
-        val p = PROFILE.copy(tier = Tier.LIGHT, backend = Backend.GPU, gpuVisionStalls = true, cpuImageMs = 10000.0, gpuImageMs = 100.0)
+        val p = PROFILE.copy(tier = Tier.LIGHT, backend = Backend.GPU, gpuStallsRendering = true, cpuImageMs = 10000.0, gpuImageMs = 100.0)
         val store = newStore().also { it.setProfile(p) }
         val extractor = FakeExtractor(files.associate { it.name to listOf(Piece("", listOf(Part.Image(byteArrayOf(1))), null)) })
         val r = testRetriever(store, files, extractor).apply { uiVisible = true }
@@ -135,7 +135,7 @@ class VisionPolicyTest {
         r.uiVisible = true
         r.taste()
         assertEquals(Tier.FULL, store.profile()!!.tier)
-        assertTrue(store.profile()!!.gpuVisionStalls)
+        assertTrue(store.profile()!!.gpuStallsRendering)
         assertEquals(10000.0, store.profile()!!.cpuImageMs)
     }
 

@@ -63,7 +63,7 @@ class IosEmbedderTest {
 
     private fun embed(e: Embedder) = runBlocking { e.embedRaw(listOf(Part.Text("hello"))) }
 
-    @Test fun foregroundVisionCanUseCpuWhileTextKeepsMetalAndBackgroundUsesCpu() {
+    @Test fun renderingStallsMoveTextAndVisionToCpuAndBackgroundStillUsesCpu() {
         var delegates: Pair<Boolean, Boolean>? = null
         val opener = object : NativeEmbedderOpener {
             override val lastMessage: String? = null
@@ -74,9 +74,11 @@ class IosEmbedderTest {
         }
         var active = true
         val factory = IosEmbedderFactory(opener, "/nowhere", cacheDir, false) { active }
-        val p = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.GPU, 70, 5, false, false, gpuVisionStalls = true)
+        val p = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.GPU, 70, 5, false, false, gpuStallsRendering = true)
         factory.open(factory.profileNow(p, true), ModelVariant.M440.generic).close()
-        assertEquals(true to false, delegates)
+        assertEquals(false to false, delegates)
+        factory.open(factory.profileNow(p.copy(gpuStallsRendering = false), true), ModelVariant.M440.generic).close()
+        assertEquals(true to true, delegates)
         active = false
         factory.open(factory.profileNow(p, false), ModelVariant.M440.generic).close()
         assertEquals(false to false, delegates)

@@ -3,6 +3,11 @@
 # created if missing. Exits non-zero on a build or test failure. The simulator is shut down at the end.
 set -euo pipefail
 
+# One run at a time across checkouts: worktrees share the named simulator, and two runs on it break each other's UI tests.
+if [ -z "${RETRIEVER_IOS_TESTS_LOCKED:-}" ]; then
+  RETRIEVER_IOS_TESTS_LOCKED=1 exec /usr/bin/lockf -k -t 10800 /tmp/retriever-ios-tests.lock "$0" "$@"
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SIM_NAME="${SIM_NAME:-Retriever-tests}"
 DEVICE_TYPE="${DEVICE_TYPE:-iPhone 18 Pro}"
@@ -62,11 +67,29 @@ for bundle in RetrieverTests RetrieverUITests; do
     case "$test" in "-only-testing:$bundle"|"-only-testing:$bundle/"*) SELECTED+=("$test");; esac
   done
   [ "${#SELECTED[@]}" -gt 0 ] || continue
-  if ! xcodebuild test-without-building -project "$ROOT/iosApp/iosApp.xcodeproj" -scheme Retriever \
-    -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$DERIVED" \
-    -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -collect-test-diagnostics never \
-    "${SELECTED[@]}" 2>&1 | tee -a "$LOG" | tail -n 60; then TEST_STATUS=1; fi
-  grep -q "Test Suite '$bundle.xctest'" "$LOG" || TEST_STATUS=1
+  for attempt in 1 2; do
+    ATTEMPT_LOG="$ROOT/build/ios-$bundle-attempt-$attempt.log"
+    if xcodebuild test-without-building -project "$ROOT/iosApp/iosApp.xcodeproj" -scheme Retriever \
+      -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$DERIVED" \
+      -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -collect-test-diagnostics never \
+      "${SELECTED[@]}" 2>&1 | tee "$ATTEMPT_LOG" | tee -a "$LOG" | tail -n 60; then
+      if grep -q "Test Suite '$bundle.xctest'" "$ATTEMPT_LOG" && grep -Eq 'TEST (EXECUTE )?SUCCEEDED' "$ATTEMPT_LOG"; then break; fi
+    fi
+    # Xcode can put the bootstrap reason only in the result bundle, not its console output.
+    RESULT="$(sed -n 's/^[[:space:]]*\(.*\.xcresult\)$/\1/p' "$ATTEMPT_LOG" | tail -n 1)"
+    if [ -d "$RESULT" ]; then
+      xcrun xcresulttool get test-results summary --path "$RESULT" --compact >>"$ATTEMPT_LOG" 2>/dev/null || true
+    fi
+    # Bootstrap failures precede assertions. Never turn a failed test into a pass by running it again.
+    if [ "$bundle" = RetrieverUITests ] && [ "$attempt" -eq 1 ] &&
+      grep -Eq 'Early unexpected exit, operation never finished bootstrapping|Test crashed with signal term' "$ATTEMPT_LOG" &&
+      ! grep -Eiq 'XCTAssert|Assertion Failure|Expectation failed|recorded an issue|Test Case |Executed [1-9]|error: -\[|testIdentifierURL' "$ATTEMPT_LOG"; then
+      echo "Retrying $bundle once: UI test runner failed to bootstrap (attempt $attempt)." | tee -a "$LOG"
+    else
+      TEST_STATUS=1
+      break
+    fi
+  done
 done
 grep -Eq 'TEST (EXECUTE )?SUCCEEDED' "$LOG" || TEST_STATUS=1
 exit "$TEST_STATUS"
