@@ -155,16 +155,16 @@ enum FileAction: CaseIterable {
     @concurrent private static func details(_ file: SourceFile, stored: Store.StoredFile?, folders: FolderSource, readInside: Bool) async -> FileInfo {
         var info = FileInfo(
             summary: file.size > 0
-                ? "\(Format.kind(file.kind)) · \(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))" : Format.kind(file.kind),
+                ? "\(Words.shared.kindLabel(kind: file.kind)) · \(Copy.bytes(file.size))" : Words.shared.kindLabel(kind: file.kind),
             location: place(file), modified: Date(timeIntervalSince1970: Double(file.modifiedAt) / 1000).formatted(),
             reading: ReadingProgressKt.readingLabel(kind: file.kind, stored: stored, readInside: readInside))
         if file.uri.hasPrefix("ph://"), let asset = PHAsset.fetchAssets(withLocalIdentifiers: [String(file.uri.dropFirst(5))], options: nil).firstObject {
-            info.created = asset.creationDate?.formatted()
+            if let taken = asset.creationDate { info.facts.append(.init(Words.shared.TAKEN, taken.formatted())) }
             info.facts.append(.init("Dimensions", "\(asset.pixelWidth) × \(asset.pixelHeight)"))
             if asset.duration > 0 { info.facts.append(.init("Duration", ViewerCopy.clock(seconds: Int(asset.duration)))) }
         } else if let url = folders.resolve(file.uri) {
             info.path = url.path
-            info.created = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate)?.formatted()
+            if let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate { info.facts.append(.init("Created", created.formatted())) }
             if let image = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
                 let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
             {
@@ -185,13 +185,12 @@ enum FileAction: CaseIterable {
     }
 }
 
-/// What the File info sheet shows. Created and the measured facts appear only when known.
+/// What the File info sheet shows. The taken or created date and the measured facts appear only when known.
 struct FileInfo: Equatable {
     var summary: String
     var location: String
     var path: String?
     var modified: String
-    var created: String?
     var facts: [Fact] = []
     var reading: String
 
@@ -320,8 +319,7 @@ private struct FileInfoSheet: View {
                                 Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
                             }
                         }
-                        LabeledContent("Modified", value: info.modified)
-                        if let created = info.created { LabeledContent("Created", value: created) }
+                        LabeledContent(Words.shared.MODIFIED, value: info.modified)
                         ForEach(info.facts, id: \.label) { LabeledContent($0.label, value: $0.value) }
                         LabeledContent("Reading", value: info.reading)
                     }

@@ -68,12 +68,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import app.retriever.R
-import app.retriever.core.FileState
 import app.retriever.core.Kind
 import app.retriever.core.Locator
-import app.retriever.core.ReadExtent
 import app.retriever.core.SourceFile
-import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.core.nameMatchRanges
 import app.retriever.search.Similar
 import app.retriever.ui.Format
@@ -104,21 +102,6 @@ fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedStr
 }
 
 private val NAME_MATCH = SpanStyle(fontWeight = FontWeight.Bold)
-
-/**
- * One line saying how much of a file is findable, for a list that does not come from a search; null when all of it
- * is. A kind outside [inside] (Retriever.readInside; [Kind.OTHER] never is) counts as Name only, as the reading counts do.
- */
-fun coverageNote(file: Store.StoredFile, inside: Set<Kind> = Kind.entries.toSet() - Kind.OTHER): String? = when {
-    file.file.kind !in inside || (!file.contentRead && file.state == FileState.INDEXED) -> "Name only"
-    !file.contentRead && file.state == FileState.SKIPPED -> "Couldn’t read"
-    !file.contentRead -> "Waiting to read"
-    file.state == FileState.PENDING -> "Partly read · waiting to read more"
-    file.state == FileState.SKIPPED -> "Partly read · couldn’t finish reading"
-    file.extent != null -> Format.readNote(file.extent)
-    file.partial -> Format.readNote(ReadExtent.FIRST_PART)
-    else -> null
-}
 
 private fun clickLabel(locator: String): String = Locator.pageOf(locator)?.let { "Open at page $it" }
     ?: Locator.msOf(locator)?.let { "Play from $locator" }
@@ -163,7 +146,7 @@ fun FileRow(
             val title = remember(file.name, query) { if (query != null) nameHighlighted(file.name, query, NAME_MATCH) else AnnotatedString(file.name) }
             Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                subtitle ?: "${Format.kindLabel(file.kind)} · ${Format.bytes(file.size)} · ${Format.date(file.modifiedAt)}",
+                subtitle ?: "${Words.kindLabel(file.kind)} · ${Format.bytes(file.size)} · ${Format.date(file.modifiedAt)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
@@ -226,8 +209,8 @@ fun ThumbCell(
     onLongClickLabel: String? = null,
 ) {
     val description = buildString {
-        append("${Format.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
-        Format.locatorSpoken(locator)?.let { append(if (Locator.pageOf(locator) != null) ", $it" else ", at $it") }
+        append("${Words.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
+        Words.spokenPosition(locator)?.let { append(", $it") }
         readNote?.let { append(", $it") }
     }
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }

@@ -79,6 +79,7 @@ import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.core.isStale
 import app.retriever.core.motion.MascotMood
 import app.retriever.core.showsEmpty
@@ -147,7 +148,7 @@ internal fun Results(
             }
             if (canStar) item(key = "starred") { KindChip("Starred", ui.onlyStarred) { actions.onStarredOnly(!ui.onlyStarred) } }
             items(kinds, key = { it.name }) { k ->
-                KindChip(Format.kindLabelPlural(k), ui.chip == k || k in wordKinds) {
+                KindChip(Words.kindLabelPlural(k), ui.chip == k || k in wordKinds) {
                     actions.onChip(
                         if (ui.chip ==
                             k
@@ -163,11 +164,11 @@ internal fun Results(
     }
     if (scope != null) {
         Column(Modifier.padding(horizontal = edge, vertical = 8.dp)) {
-            Text(Format.closestIn(scope.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            Text(Words.closestIn(scope.size.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             if (ui.unread >
                 0
             ) {
-                Text(Format.stillReading(ui.unread), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Words.STILL_READING, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -448,7 +449,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     modifier = actions,
                     onClick = { act.open(hit) },
                     locator = hit.locator,
-                    readNote = Format.readNote(extents[hit.fileId]),
+                    readNote = Words.extent(extents[hit.fileId]),
                     onLongClick = menu,
                     onLongClickLabel = "More options",
                 )
@@ -483,7 +484,7 @@ private fun LazyGridScope.docSection(
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
-                readNote = listOfNotNull(hit.matchReason, Format.readNote(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
+                readNote = listOfNotNull(hit.matchReason, Words.extent(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
                 onLongClick = menu,
                 onLongClickLabel = "More options",
                 onClick = { act.open(hit) },

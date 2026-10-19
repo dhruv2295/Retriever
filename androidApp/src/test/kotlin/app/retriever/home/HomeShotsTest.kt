@@ -201,28 +201,28 @@ class HomeShotsTest {
         rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").assertExists()
         rule.onNodeWithContentDescription("Screenshots, 158").assertExists()
         rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
-        rule.onNodeWithText("Today · 2.1 MB").assertExists()
-        rule.onNodeWithContentDescription("PDF, Lease_Agreement_2026.pdf, Today, 2.1 MB").assertExists()
+        rule.onNodeWithText("Today · 2.1\u00A0MB").assertExists()
+        rule.onNodeWithContentDescription("PDF, Lease_Agreement_2026.pdf, Today, 2.1\u00A0MB").assertExists()
         // Caught up: no pill.
         rule.onNodeWithText("to go", substring = true).assertDoesNotExist()
         rule.onNodeWithText("More on your phone").assertExists()
         rule.onNodeWithText("Tidy up").assertExists()
-        rule.onNodeWithText("212 files over 100 MB · 41.0 GB").assertExists()
+        rule.onNodeWithText("212 files over 100 MB · 41.0\u00A0GB").assertExists()
         // Caught up: no per-type progress, and no exact-copy total.
-        rule.onAllNodesWithText("Ready").assertCountEquals(0)
+        rule.onAllNodesWithText("waiting to read", substring = true).assertCountEquals(0)
         rule.onNodeWithText("Check for exact copies").assertExists()
         rule.onNodeWithContentDescription("Folders, 148").assertExists()
         rule.onNodeWithContentDescription("Videos, 1,700 files").assertExists()
         rule.onNodeWithContentDescription("Documents, 125 files").assertExists()
         rule.onNodeWithContentDescription("Audio, 345 files").assertExists()
-        rule.onNodeWithText("372 · Found by name").assertExists()
+        rule.onNodeWithText("372 · Name only").assertExists()
         rule.onNodeWithContentDescription("Starred, 4").assertExists()
         rule.onNodeWithText("On this day").assertExists()
     }
 
-    @Test fun aKindNotReadInsideIsFoundByName() {
+    @Test fun aKindNotReadInsideIsNameOnly() {
         shot("videos_off", false)
-        rule.onNodeWithContentDescription("Videos, 1,700 files, Found by name").assertExists()
+        rule.onNodeWithContentDescription("Videos, 1,700 files, Name only").assertExists()
     }
 
     @Test fun caughtUpDark() = shot("caught_up", true)
@@ -232,15 +232,15 @@ class HomeShotsTest {
         // Only the words are a live region; the count beside them changes without an announcement each time.
         rule.onNode(hasText("Reading your files") and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
         rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
-        rule.onNodeWithContentDescription("Videos, 1,700 files, Waiting").assertExists()
-        rule.onNodeWithContentDescription("Audio, 345 files, 60 to go").assertExists()
+        rule.onNodeWithContentDescription("Videos, 1,700 files, 1,700 waiting to read").assertExists()
+        rule.onNodeWithContentDescription("Audio, 345 files, 60 waiting to read").assertExists()
         // Pictures are never greyed out; the big cell says how many photos are left, and headers say where each stands.
         rule.onNode(described("Photo,") and hasText("14,700 to go")).assertExists()
-        rule.onNodeWithContentDescription("Screenshots, 158, Ready").assertExists()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents, Ready").assertExists()
+        rule.onNodeWithContentDescription("Screenshots, 158").assertExists()
+        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
         rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").assertExists()
         cells().assertCountEquals(6)
-        rule.onNodeWithContentDescription("Other files, 372 files, Found by name").assertExists()
+        rule.onNodeWithContentDescription("Other files, 372 files, Name only").assertExists()
     }
 
     @Test fun readingDark() = shot("reading", true)
@@ -521,7 +521,7 @@ class HomeShotsTest {
         rule.setContent { ShotTheme(false, fontScale = 2f) { Screen(reading, readingIndex) } }
         rule.waitForIdle()
         rule.shot("home_reading_2x")
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents, Ready").assertExists()
+        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
         cells().assertCountEquals(6)
     }
 

@@ -70,23 +70,7 @@ data class IndexState(
     val backend: Backend? = null,
     /** Part of the model running elsewhere than [backend], e.g. the vision encoder on CPU. */
     val detail: String? = null,
-) {
-    /** Shared setup copy; null while reading or when there is no pause to explain. */
-    val pauseReason: String? get() = if (running) {
-        null
-    } else {
-        when (lastStop) {
-            StopReason.BUSY -> "Waiting until you put your phone down"
-            StopReason.POWER_SAVE -> "Paused for Battery Saver"
-            StopReason.HOT -> "Paused to cool down"
-            StopReason.UNPLUGGED -> "Waiting to charge"
-            StopReason.LOW_BATTERY -> "Paused for low battery"
-            StopReason.MANUAL -> "Reading stopped for now"
-            StopReason.PAUSED -> "Reading paused"
-            else -> null
-        }
-    }
-}
+)
 
 /**
  * Home's facts besides the counts: the newest pictures, screenshots and documents, starred files, folders, large files,
@@ -144,6 +128,8 @@ class Retriever(
      */
     lastExitCrashed: () -> Boolean = { true },
     private val frames: FrameSource? = null,
+    /** The device's own names in shared sentences; iOS passes its words. */
+    private val words: DeviceWords = DeviceWords.ANDROID,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -379,7 +365,7 @@ class Retriever(
             if (p.paused) StopReason.PAUSED else readingBlocker(),
             state.running,
             state.currentFile != null,
-            probe.platform == Platform.IOS,
+            words,
         )
     }.distinctUntilChanged().flowOn(dispatchers.default)
 

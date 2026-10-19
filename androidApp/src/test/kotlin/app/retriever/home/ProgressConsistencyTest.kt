@@ -5,8 +5,7 @@ import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.StopReason
 import app.retriever.core.Store
-import app.retriever.status.readingTitle
-import app.retriever.ui.Format
+import app.retriever.core.Words
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -18,9 +17,9 @@ class ProgressConsistencyTest {
         val status = counts.progress
         assertEquals(58L, home.contentRead)
         assertEquals(home.contentRead, status.contentRead)
-        assertEquals(Format.readCount(home.contentRead, home.partlyRead), Format.readCount(status.contentRead, status.partlyRead))
-        assertEquals(libraryStatus(home, index), readingTitle(status, false, index, false))
-        assertEquals("Waiting for Android", libraryStatus(home, index))
+        assertEquals(Words.readCount(home.contentRead, home.partlyRead), Words.readCount(status.contentRead, status.partlyRead))
+        assertEquals(home.progress, status)
+        assertEquals("Waiting for Android", homeStatus(home, index)?.title)
         assertEquals(24L, home.partlyRead)
     }
 }

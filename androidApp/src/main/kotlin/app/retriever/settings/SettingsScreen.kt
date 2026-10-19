@@ -57,17 +57,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.BuildConfig
 import app.retriever.R
 import app.retriever.core.Backend
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.model.tuneSummary
-import app.retriever.status.textOnlyNote
 import app.retriever.ui.Format
 import app.retriever.ui.components.Header
 import app.retriever.ui.components.Muted
@@ -294,9 +295,9 @@ fun SettingsContent(
                 }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Read these file types")
-                if (ui.textOnly) Muted(textOnlyNote(ui.ramGb), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 for (kind in SEARCH_INSIDE.filter { it in ui.readable }) {
-                    SwitchRow(Format.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
+                    SwitchRow(Words.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
                 }
                 Muted("Turn a type off to search it by name only.", Modifier.padding(horizontal = 16.dp))
 

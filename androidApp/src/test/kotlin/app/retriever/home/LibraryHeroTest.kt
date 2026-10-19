@@ -85,11 +85,11 @@ class LibraryHeroTest {
 
     @Test fun subtitleFollowsTheActualReadingState() {
         val idle = IndexState()
-        assertTrue(libraryStatus(ready.copy(trial = true, waiting = 2), idle).startsWith("Waiting for Android"))
-        assertTrue(libraryStatus(ready.copy(trial = true, rest = 5), idle).startsWith("Your sample is ready"))
-        assertEquals("Reading paused", libraryStatus(ready.copy(paused = true), idle))
-        assertEquals("Starting reading…", libraryStatus(ready.copy(waiting = 5), idle.copy(running = true, pendingAtStart = 5)))
-        assertEquals("Up to date", libraryStatus(ready, idle))
+        assertTrue(homeStatus(ready.copy(trial = true, waiting = 2), idle)!!.title.startsWith("Waiting for Android"))
+        assertTrue(homeStatus(ready.copy(trial = true, rest = 5), idle)!!.title.startsWith("Your sample is ready"))
+        assertEquals("Reading paused", homeStatus(ready.copy(paused = true), idle)?.title)
+        assertEquals("Starting reading…", homeStatus(ready.copy(waiting = 5), idle.copy(running = true, pendingAtStart = 5))?.title)
+        assertEquals("Up to date", homeStatus(ready, idle)?.title)
     }
 
     @Test fun heroStaysCompactAtDefaultTextSize() {

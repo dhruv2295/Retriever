@@ -79,34 +79,54 @@ struct SettingsView: View {
 
     private func reading(_ snap: AppModel.Snap) -> some View {
         Section("Reading") {
-                Picker("Automatic reading", selection: Binding<String>(get: { snap.automaticReading.name }, set: { value in
-                    if let schedule = ReadingSchedule.entries.first(where: { $0.name == value }) { model.setReadingSchedule(schedule) }
-                })) {
-                    Text("While charging").tag(ReadingSchedule.charging.name)
-                    Text("Also on battery").tag(ReadingSchedule.battery.name)
-                    Text("When I start it").tag(ReadingSchedule.manual.name)
-                }
-                Text(snap.automaticReading == .charging ? "Reads while charging when Retriever is open, and in the background when iOS allows."
-                     : snap.automaticReading == .manual ? "Choose Read now to start a short reading session."
-                     : "Reads while Retriever is open or when iOS allows, above 20% battery. Pauses for power saving or heat.").font(.footnote)
-                Button("Read now for 15 minutes", action: model.readNow)
-                Button(snap.paused ? "Resume reading" : "Pause reading") { if snap.paused { model.resume() } else { model.pause() } }
-                NavigationLink("Reading status", value: Route.status)
-                if #available(iOS 26.0, *) { EmptyView() } else {
-                    Toggle("Keep screen awake for this session", isOn: Binding(get: { model.keepScreenAwakeForSession }, set: { model.keepScreenAwakeForSession = $0; model.keepScreenOn(model.reading) }))
-                }
-                if !snap.textOnly && !model.modelMissing {
-                    DisclosureGroup("Adjust reading for this device") {
-                        Text("Run the setup check again.")
-                        Button("Run setup check", action: model.tuneAgain)
-                    }
-                }
-                DisclosureGroup("How reading works") {
-                    Text(Copy.backgroundNote)
-                    Text("Long files are read in stages. Words already read can match now; later passes add meaning search. Some files reach a reading limit and stay partly read.")
-                }
-                if let message = model.readingMessage { Text(message).foregroundStyle(.red) }
+            Picker(
+                "Automatic reading",
+                selection: Binding<String>(
+                    get: { snap.automaticReading.name },
+                    set: { value in
+                        if let schedule = ReadingSchedule.entries.first(where: { $0.name == value }) { model.setReadingSchedule(schedule) }
+                    })
+            ) {
+                Text("While charging").tag(ReadingSchedule.charging.name)
+                Text("Also on battery").tag(ReadingSchedule.battery.name)
+                Text("When I start it").tag(ReadingSchedule.manual.name)
             }
+            Text(
+                snap.automaticReading == .charging
+                    ? "Reads while charging when Retriever is open, and in the background when iOS allows."
+                    : snap.automaticReading == .manual
+                        ? "Choose Read now to start a short reading session."
+                        : "Reads while Retriever is open or when iOS allows, above 20% battery. Pauses for power saving or heat."
+            ).font(.footnote)
+            Button("Read now for 15 minutes", action: model.readNow)
+            Button(snap.paused ? "Resume reading" : "Pause reading") { if snap.paused { model.resume() } else { model.pause() } }
+            NavigationLink("Reading status", value: Route.status)
+            if #available(iOS 26.0, *) {
+                EmptyView()
+            } else {
+                Toggle(
+                    "Keep screen awake for this session",
+                    isOn: Binding(
+                        get: { model.keepScreenAwakeForSession },
+                        set: {
+                            model.keepScreenAwakeForSession = $0
+                            model.keepScreenOn(model.reading)
+                        }))
+            }
+            if !snap.textOnly && !model.modelMissing {
+                DisclosureGroup("Adjust reading for this device") {
+                    Text("Run the setup check again.")
+                    Button("Run setup check", action: model.tuneAgain)
+                }
+            }
+            DisclosureGroup("How reading works") {
+                Text(Copy.backgroundNote)
+                Text(
+                    "Long files are read in stages. Words already read can match now; later passes add meaning search. Some files reach a reading limit and stay partly read."
+                )
+            }
+            if let message = model.readingMessage { Text(message).foregroundStyle(.red) }
+        }
     }
 
     private func readInside(_ snap: AppModel.Snap) -> some View {
@@ -118,7 +138,10 @@ struct SettingsView: View {
         } header: {
             Text("Read these file types")
         } footer: {
-            Text(snap.textOnly ? Copy.textOnlyNote(ramGb: snap.ramGb) : "Turn a type off to search it by name only. Videos: frames only, no sound. Audio is name only on this device.")
+            Text(
+                snap.textOnly
+                    ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)
+                    : "Turn a type off to search it by name only. Videos: frames only, no sound. Audio is name only on this device.")
         }
     }
 

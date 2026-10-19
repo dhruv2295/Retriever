@@ -40,6 +40,7 @@ fun createRetriever(
     dataDir: String,
     isSimulator: Boolean,
     platformReady: () -> Boolean,
+    words: DeviceWords,
     log: (String) -> Unit,
 ): Retriever {
     val logged: (String, Throwable?) -> Unit = { m, t -> log(if (t == null) m else "$m: $t") }
@@ -69,6 +70,7 @@ fun createRetriever(
         // iOS keeps no exit reasons the app can read at launch, so every unfinished open counts as a crash.
         lastExitCrashed = { true },
         frames = IosFrameSource(),
+        words = words,
     )
 }
 

@@ -1,0 +1,30 @@
+# Shared copy: core, Android and iOS tests each assert every row. Columns: function, its inputs, the expected text (empty: none).
+stop	PAUSED	android	Reading paused
+stop	POWER_SAVE	android	Paused for Battery Saver
+stop	HOT	android	Paused to cool down
+stop	LOW_BATTERY	android	Paused for low battery
+stop	BUSY	android	Waiting until you put your phone down
+stop	UNPLUGGED	android	Waiting to charge
+stop	MANUAL	android	Reading stopped for now
+stop	DONE	android	Waiting for Android
+stop	BUDGET	android	Waiting for Android
+stop	PAUSED	iphone	Reading paused
+stop	POWER_SAVE	iphone	Paused for Low Power Mode
+stop	HOT	iphone	Paused to cool down
+stop	LOW_BATTERY	iphone	Paused for low battery
+stop	BUSY	iphone	Waiting until you put your iPhone down
+stop	UNPLUGGED	iphone	Waiting to charge
+stop	MANUAL	iphone	Reading stopped for now
+stop	DONE	iphone	Waiting for iOS
+stop	BUDGET	iphone	Waiting for iOS
+kindProgress	PDF,DOC	DOC	DOC=3,PDF=5	3 waiting to read
+kindProgress	PDF,DOC		PDF=5	Name only
+kindProgress	PHOTO	PHOTO		
+kindProgress	SCREENSHOT	SCREENSHOT	SCREENSHOT=1200	1,200 waiting to read
+spoken	p. 12	page 12
+spoken	1:05	at 1 minute 5 seconds
+spoken	1:00:01	at 1 hour 1 second
+readCount	1200	24	1,200 files read · 24 partly read
+readCount	1	0	1 file read
+textOnlyNote	3.4	android	This phone has 3 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.
+textOnlyNote	3.6	ipad	This iPad has 4 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.

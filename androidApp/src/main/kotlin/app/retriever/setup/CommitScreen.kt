@@ -20,7 +20,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import app.retriever.ui.Format
+import app.retriever.core.Words
 
 /** Selection is local; only the confirmation authorizes reading. Shared by setup and the Home sheet. */
 @Composable
@@ -29,8 +29,7 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Search inside more files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         Text(
-            ui.moreFiles?.let { "${Format.count(it)} more files can be read. You can already find them by name." }
-                ?: "You can already find your files by name.",
+            Words.moreFiles(ui.moreFiles),
             style = MaterialTheme.typography.bodyLarge,
         )
         Text("From your selected files and folders", style = MaterialTheme.typography.bodyMedium)

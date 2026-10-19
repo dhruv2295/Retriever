@@ -46,6 +46,7 @@ import app.retriever.R
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
@@ -57,7 +58,6 @@ import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.ThumbCell
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.components.coverageNote
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -205,7 +205,7 @@ fun BrowseContent(
                             ThumbCell(
                                 file = stored.file,
                                 onClick = { onOpen(stored.file) },
-                                readNote = coverageNote(stored, ui.inside),
+                                readNote = Words.coverage(stored, ui.inside),
                                 onLongClick = menu,
                                 onLongClickLabel = "More options",
                                 modifier = actions,
@@ -230,7 +230,7 @@ fun BrowseContent(
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
-                                    readNote = coverageNote(stored, ui.inside),
+                                    readNote = Words.coverage(stored, ui.inside),
                                     onLongClick = menu,
                                     onLongClickLabel = "More options",
                                     modifier = actions,

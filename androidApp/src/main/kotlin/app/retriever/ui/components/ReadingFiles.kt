@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.ui.Format
 
 @Composable
@@ -82,7 +83,7 @@ private fun ReadingFile(file: SourceFile?, pauseReason: String?, size: Dp, sweep
         Thumb(file, size, if (sweep == null) modifier else modifier.readingSweep(size, sweep))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text(Format.kindLabel(file.kind), style = MaterialTheme.typography.titleMedium)
+            Text(Words.kindLabel(file.kind), style = MaterialTheme.typography.titleMedium)
             Muted(Format.date(file.modifiedAt))
         }
     }
@@ -167,7 +168,7 @@ internal fun RecentFileCell(file: SourceFile, size: Dp?, reduceMotion: Boolean, 
                 scaleX = 0.92f + 0.08f * arrival.value
                 scaleY = scaleX
             }.clip(MaterialTheme.shapes.medium).then(click).semantics {
-                contentDescription = "${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
+                contentDescription = "${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
             }.testTag("recent:${file.uri}")
             if (size == null) MeasuredThumbnailImage(file, image) else Thumb(file, size, image)
         }

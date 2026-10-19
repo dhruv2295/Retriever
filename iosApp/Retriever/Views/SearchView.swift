@@ -323,7 +323,7 @@ private struct ResultsView: View {
         if let trial {
             // Nearest-neighbour search always returns something, so the header claims nothing about quality.
             VStack(alignment: .leading, spacing: 2) {
-                Text(Copy.closestIn(trial.ids.count)).font(.subheadline.weight(.semibold))
+                Text(Words.shared.closestIn(files: Int64(trial.ids.count))).font(.subheadline.weight(.semibold))
                 StillReading(search: search)
             }
             .accessibilityElement(children: .combine)
@@ -472,7 +472,7 @@ private struct StillReading: View {
 
     var body: some View {
         if search.stillReading > 0 {
-            Text(Copy.stillReading(search.stillReading)).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+            Text(Words.shared.STILL_READING).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
         }
     }
 }

@@ -93,7 +93,7 @@ class SetupStatusShotsTest {
         three("setup_downloading", downloading.copy(notificationAsk = true), 0)
         rule.onNodeWithText("Skip").assertExists()
         rule.onNodeWithText("Getting Retriever ready to read").assertExists()
-        rule.onNodeWithText("218 MB of 485 MB").assertExists()
+        rule.onNodeWithText("218\u00A0MB of 485\u00A0MB").assertExists()
         rule.onNodeWithText("Stop").assertExists()
         rule.onNodeWithText("Search by name").assertExists()
     }
@@ -193,8 +193,8 @@ class SetupStatusShotsTest {
 
     @Test fun tryItAfterSearchLight() {
         shot("setup_tryit_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
-        rule.onNodeWithText("Closest in these 79 files").assertExists()
-        rule.onNodeWithText("Still reading 31 more").assertExists()
+        rule.onNodeWithText("Searching inside 79 sample files").assertExists()
+        rule.onNodeWithText("Reading more sample files").assertExists()
         rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
 

@@ -31,7 +31,7 @@ struct ReadingNow: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(file.name).lineLimit(2)
-                            Text(Format.kind(file.kind)).font(.headline)
+                            Text(Words.shared.kindLabel(kind: file.kind)).font(.headline)
                             Note(Format.date(file.modifiedAt))
                         }
                     }
@@ -89,9 +89,15 @@ struct ReadyFiles: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                 ForEach(files, id: \.uri) { file in
                     if interactive {
-                        Button { openFile(file, among: files) } label: { RecentFileCell(file: file).equatable() }
-                            .buttonStyle(.plain).accessibilityHint("Open file")
-                    } else { RecentFileCell(file: file).equatable() }
+                        Button {
+                            openFile(file, among: files)
+                        } label: {
+                            RecentFileCell(file: file).equatable()
+                        }
+                        .buttonStyle(.plain).accessibilityHint("Open file")
+                    } else {
+                        RecentFileCell(file: file).equatable()
+                    }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -182,7 +188,7 @@ struct RecentFileCell: View, @MainActor Equatable {
         .scaleEffect(reduceMotion || appeared ? 1 : 0.92)
         .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { appeared = true } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(file.name), \(Format.kind(file.kind)), \(Format.date(file.modifiedAt))")
+        .accessibilityLabel("\(file.name), \(Words.shared.kindLabel(kind: file.kind)), \(Format.date(file.modifiedAt))")
         .accessibilityIdentifier("recent:\(file.uri)")
     }
 }

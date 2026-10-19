@@ -65,7 +65,7 @@ struct StatusContent: View {
         List {
             Section { progressSection }
             if snap.textOnly {
-                Section { Note(Copy.textOnlyNote(ramGb: snap.ramGb)) }
+                Section { Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)) }
             } else if snap.setUp != true {
                 Section("Getting ready") { gettingReady }
             }
@@ -88,9 +88,9 @@ struct StatusContent: View {
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
-            Text(Copy.statusTitle(snap)).font(.title2.bold())
-            if let detail = snap.readingDetail ?? Copy.decision(snap).detail { Note(detail) }
-            Text(Copy.readCount(snap))
+            Text(Copy.reading(snap).title).font(.title2.bold())
+            if let detail = Copy.reading(snap).detail { Note(detail) }
+            Text(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead)))
                 .font(.headline)
                 .monospacedDigit()
             Text("\(Copy.count(snap.pending + snap.waiting)) waiting to read")
@@ -99,7 +99,7 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        if snap.readingActive || Copy.decision(snap).active, snap.reading.current != nil {
+        if Copy.reading(snap).active, snap.reading.current != nil {
             ReadingNow(file: snap.reading.current, size: 56)
             RecentlyRead(files: snap.reading.recent)
         }

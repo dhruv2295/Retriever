@@ -31,10 +31,8 @@ final class AppModel {
         var rereads = 0
         var meaningWaiting = 0
         var nameOnly = 0
-        var readingTitle: String?
-        var readingDetail: String?
-        var readingActive = false
-        var readingPhase: ReadingPhase?
+        /// Core's reading status; nil until the first snapshot, when `Copy.reading` decides the same way.
+        var readingStatus: ReadingStatus?
         var automaticReading: ReadingSchedule = .charging
         var readNowUntil: Int64 = 0
         var nameSearchHintDismissed = false
@@ -410,10 +408,7 @@ extension AppModel.Snap {
         rereads = Int(coverage.rereads)
         meaningWaiting = Int(coverage.meaningWaiting)
         nameOnly = Int(coverage.nameOnly)
-        readingTitle = s.reading.title
-        readingDetail = s.reading.detail
-        readingActive = s.reading.active
-        readingPhase = s.reading.phase
+        readingStatus = s.reading
         automaticReading = s.prefs.automaticReading
         readNowUntil = s.prefs.readNowUntil
         nameSearchHintDismissed = s.prefs.nameSearchHintDismissed

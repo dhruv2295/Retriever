@@ -64,7 +64,12 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.openAllFilesSettings
+import app.retriever.core.DeviceWords
+import app.retriever.core.HomePhase
+import app.retriever.core.HomeStatus
 import app.retriever.core.IndexState
+import app.retriever.core.ReadingPolicy
+import app.retriever.core.StopReason
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.nav.BrowseRoute
@@ -76,7 +81,6 @@ import app.retriever.search.SearchActions
 import app.retriever.setup.CommitStage
 import app.retriever.setup.SetupActions
 import app.retriever.setup.SetupUi
-import app.retriever.status.readingTitle
 import app.retriever.ui.Format
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.tabular
@@ -266,6 +270,7 @@ private fun Status(
     onDismissCaughtUp: () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
+    val status = homeStatus(ui, index)
     // Access first: setUp needs access too, so without it "Finishing setup" would show instead of the way back.
     when {
         !ui.hasAccess -> StatusCard(
@@ -276,33 +281,30 @@ private fun Status(
             action = "Allow access" to onAllowAccess,
         )
 
-        !ui.setUp -> StatusCard(colors.surfaceContainer, colors.onSurface, "Finishing setup. For now Retriever matches file names.", onClick = {
+        status == null -> Unit
+
+        status.phase == HomePhase.SETTING_UP -> StatusCard(colors.surfaceContainer, colors.onSurface, status.title, onClick = {
             go(SetupRoute)
         }, clickLabel = "Finish setup")
 
         else -> {
             val caughtUp = !ui.progress.unfinished && ui.rest == 0L && !ui.paused && !index.running && !ui.caughtUpDismissed
             val celebrating = rememberCelebrating(caughtUp, celebration)
-            val detail = ui.readingStatus?.detail
             Row(
                 Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show reading details") { go(StatusRoute) }
                     .heightIn(min = 48.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Mascot(
-                    if (celebrating) {
-                        MascotMood.CAUGHT_UP
-                    } else if (ui.readingStatus?.active ==
-                        true
-                    ) {
-                        MascotMood.WALKING
-                    } else {
-                        MascotMood.RESTING
+                    when {
+                        celebrating -> MascotMood.CAUGHT_UP
+                        status.phase == HomePhase.READING -> MascotMood.WALKING
+                        else -> MascotMood.RESTING
                     },
                     Modifier.width(40.dp),
                 )
                 Column(Modifier.weight(1f)) {
-                    TitleWithCount(libraryStatus(ui, index), detail, MaterialTheme.typography.bodyMedium)
+                    TitleWithCount(status.title, status.detail, MaterialTheme.typography.bodyMedium)
                     if (caughtUp) {
                         ui.home?.nameOnly?.takeIf { it > 0 }?.let {
                             Text("${Format.count(it)} of them by name only", style = MaterialTheme.typography.bodySmall)
@@ -466,8 +468,16 @@ private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
     )
 }
 
-internal fun libraryStatus(ui: HomeUi, index: IndexState): String = when {
-    !ui.hasAccess -> "Allow access to find new files"
-    !ui.setUp -> "Finishing setup"
-    else -> ui.readingStatus?.title ?: readingTitle(ui.progress, ui.paused, index, ui.caughtUpDismissed)
-}
+/** Core's status row, from the live reading status or, before it arrives, the same decision made here. */
+internal fun homeStatus(ui: HomeUi, index: IndexState): HomeStatus? = ReadingPolicy.homeStatus(
+    ui.setUp,
+    ui.progress.libraryTotal,
+    ui.readingStatus
+        ?: ReadingPolicy.decide(
+            ui.progress,
+            if (ui.paused) StopReason.PAUSED else index.lastStop,
+            index.running,
+            index.currentFile != null,
+            DeviceWords.ANDROID,
+        ),
+)

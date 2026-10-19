@@ -6,6 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+private val IOS = DeviceWords.ios("iPhone")
+
 class ReadingProgressTest {
     private val device = DeviceState(8.0, false, 80, Thermal.NONE)
     private val pending = ReadingProgress(read = 20, partlyRead = 3, scheduled = 8, notScheduled = 9, nameOnly = 2, couldntRead = 1, laterPasses = 2)
@@ -38,21 +40,21 @@ class ReadingProgressTest {
     @Test fun oneStatePrecedenceKeepsBlockersAheadOfActiveSampleAndTails() {
         for (sample in listOf(true, false)) {
             val p = pending.copy(sample = sample)
-            assertEquals(ReadingPhase.PAUSED, ReadingPolicy.decide(p, StopReason.PAUSED, true, true, false).phase)
-            assertEquals("Paused for Low Power Mode", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, true).title)
-            assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(p, StopReason.UNPLUGGED, true, true, false).phase)
-            assertEquals(ReadingPhase.WAITING, ReadingPolicy.decide(p, null, false, false, false).phase)
+            assertEquals(ReadingPhase.PAUSED, ReadingPolicy.decide(p, StopReason.PAUSED, true, true, DeviceWords.ANDROID).phase)
+            assertEquals("Paused for Low Power Mode", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, IOS).title)
+            assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(p, StopReason.UNPLUGGED, true, true, DeviceWords.ANDROID).phase)
+            assertEquals(ReadingPhase.WAITING, ReadingPolicy.decide(p, null, false, false, DeviceWords.ANDROID).phase)
         }
-        assertEquals(ReadingPhase.DEEPENING, ReadingPolicy.decide(pending.copy(scheduled = 0), null, true, true, false).phase)
+        assertEquals(ReadingPhase.DEEPENING, ReadingPolicy.decide(pending.copy(scheduled = 0), null, true, true, DeviceWords.ANDROID).phase)
         val upgrade = ReadingProgress(read = 5, meaningWaiting = 5)
         assertEquals(5, upgrade.contentRead, "waiting for meaning is a subset of Read, never another bucket")
-        assertEquals(ReadingPhase.MEANING, ReadingPolicy.decide(upgrade, null, true, true, false).phase)
-        assertEquals("Adding search by meaning to 5 files", ReadingPolicy.decide(upgrade, null, true, true, false).title)
-        assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(upgrade, StopReason.UNPLUGGED, false, false, false).phase)
-        assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, false).phase)
-        assertEquals(ReadingPhase.SAMPLE_READY, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, false).phase)
-        assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, false).phase)
-        assertEquals("Waiting for iOS", ReadingPolicy.decide(pending, null, false, false, true).title)
+        assertEquals(ReadingPhase.MEANING, ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).phase)
+        assertEquals("Adding search by meaning to 5 files", ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).title)
+        assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(upgrade, StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID).phase)
+        assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, DeviceWords.ANDROID).phase)
+        assertEquals(ReadingPhase.SAMPLE_READY, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, DeviceWords.ANDROID).phase)
+        assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, DeviceWords.ANDROID).phase)
+        assertEquals("Waiting for iOS", ReadingPolicy.decide(pending, null, false, false, IOS).title)
     }
 
     @Test fun aFilesReadingSaysHowFarItWasReadAndAlreadyReadContentStaysRead() {

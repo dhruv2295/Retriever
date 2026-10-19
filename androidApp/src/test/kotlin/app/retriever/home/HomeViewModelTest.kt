@@ -105,13 +105,6 @@ class HomeViewModelTest {
         Dispatchers.resetMain()
     }
 
-    @Test fun trialCopyUsesOnlyThePlannedPendingFiles() {
-        val trial = HomeUi(trial = true, waiting = 12, rest = 26000)
-        assertEquals("Reading your sample", trial.trialTitle)
-        assertEquals(null, trial.copy(waiting = 0).trialTitle)
-        assertEquals(null, trial.copy(trial = false).trialTitle)
-    }
-
     @Test fun homeFollowsTheIndexAndAccess() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
@@ -165,13 +158,12 @@ class HomeViewModelTest {
             pending = mapOf(Kind.PHOTO to 40L),
             inside = Kind.entries.toSet() - Kind.DOC,
         )
-        assertEquals("40 to go", ui.readiness(Kind.PHOTO))
-        assertEquals("Ready", ui.readiness(Kind.PDF))
-        assertEquals("Ready", ui.readiness(Kind.PDF, Kind.DOC))
-        assertEquals("Found by name", ui.readiness(Kind.DOC))
-        assertEquals("Found by name", ui.readiness(Kind.OTHER))
-        assertEquals("Waiting", ui.copy(pending = mapOf(Kind.PHOTO to 100L)).readiness(Kind.PHOTO))
-        assertEquals(null, ui.copy(waiting = 0).readiness(Kind.PHOTO))
+        assertEquals("40 waiting to read", ui.readiness(Kind.PHOTO))
+        assertEquals(null, ui.readiness(Kind.PDF))
+        assertEquals(null, ui.readiness(Kind.PDF, Kind.DOC))
+        assertEquals("Name only", ui.readiness(Kind.DOC))
+        assertEquals("Name only", ui.readiness(Kind.OTHER))
+        assertEquals("100 waiting to read", ui.copy(pending = mapOf(Kind.PHOTO to 100L)).readiness(Kind.PHOTO))
     }
 
     @Test fun starredFilesAreCounted() = runTest {

@@ -53,11 +53,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.access.Fix
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.TasteProgress
+import app.retriever.core.Words
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
-import app.retriever.status.textOnlyNote
 import app.retriever.ui.Format
 import app.retriever.ui.components.Muted
 import app.retriever.ui.tabular
@@ -85,7 +86,7 @@ internal fun ColumnScope.Welcome(ui: SetupUi, size: String?, actions: SetupActio
             Modifier.fillMaxWidth(),
         )
     }
-    if (ui.textOnly) Muted(textOnlyNote(ui.ramGb))
+    if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID))
 }
 
 /** No file content here: only the ways to allow access, and how the download is doing. */
@@ -228,7 +229,7 @@ private fun DownloadReason(icon: Int, headline: String, supporting: String) {
 @Composable
 internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (Int) -> Unit) {
     Text("Reading a few files to try", style = MaterialTheme.typography.headlineSmall)
-    Muted(Format.readCount(taste.read.toLong()))
+    Muted(Words.readCount(taste.read.toLong()))
     reading(taste.read)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((name, kinds) in KIND_ROWS) {
@@ -252,14 +253,6 @@ private val KIND_ROWS = listOf(
     "Photos" to listOf(Kind.PHOTO),
     "Videos" to listOf(Kind.VIDEO),
 )
-
-internal fun timeLeft(seconds: Int?): String? = when {
-    seconds == null || seconds <= 0 -> null
-    seconds <= 10 -> "almost done"
-    seconds < 60 -> "less than a minute left"
-    seconds < 90 -> "about a minute left"
-    else -> "about ${(seconds + 30) / 60} minutes left"
-}
 
 @Composable
 private fun KindRow(name: String, read: Int, of: Int, done: Boolean) {

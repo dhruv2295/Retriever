@@ -27,20 +27,21 @@ enum class ReadingSchedule(val title: String) {
     MANUAL("When I start it"),
 }
 
-enum class ReadingPhase(val title: String) {
-    PAUSED("Reading paused"),
-    POWER_SAVE("Paused for Battery Saver"),
-    HOT("Paused to cool down"),
-    LOW_BATTERY("Paused for low battery"),
-    BUSY("Waiting until you put your phone down"),
-    CHARGING("Waiting to charge"),
-    MANUAL("Reading stopped for now"),
+/** A null title is a stop's: [ReadingPolicy.stopCopy] words it for the device. */
+enum class ReadingPhase(val title: String? = null) {
+    PAUSED,
+    POWER_SAVE,
+    HOT,
+    LOW_BATTERY,
+    BUSY,
+    CHARGING,
+    MANUAL,
     SAMPLE("Reading your sample"),
     SAMPLE_READY("Your sample is ready to try"),
     MEANING("Adding search by meaning"),
     DEEPENING("Reading more of your long files"),
     READING("Reading your files"),
-    WAITING("Waiting for Android"),
+    WAITING,
     LOOKING("Checking for new files…"),
     CAUGHT_UP("Up to date"),
     LIMITED("Scheduled reading finished"),
@@ -51,6 +52,11 @@ data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail:
     val active: Boolean get() = phase == ReadingPhase.READING || phase == ReadingPhase.SAMPLE || phase == ReadingPhase.DEEPENING ||
         phase == ReadingPhase.MEANING
 }
+
+/** Home's status row; each app maps [phase] to its colour and icon. */
+enum class HomePhase { SETTING_UP, READING, LOOKING, PAUSED, WAITING, CAUGHT_UP }
+
+data class HomeStatus(val phase: HomePhase, val title: String, val detail: String? = null)
 
 /** Shared by the reader and every progress surface. Opening the app never overrides the saved schedule. */
 object ReadingPolicy {
@@ -70,7 +76,38 @@ object ReadingPolicy {
         else -> null
     }
 
-    fun decide(progress: ReadingProgress, blocker: StopReason?, running: Boolean, reading: Boolean, ios: Boolean): ReadingStatus {
+    /** Why reading stopped, as every surface says it. */
+    fun stopCopy(stop: StopReason, words: DeviceWords): String = when (stop) {
+        StopReason.PAUSED -> "Reading paused"
+        StopReason.POWER_SAVE -> "Paused for ${words.powerSave}"
+        StopReason.HOT -> "Paused to cool down"
+        StopReason.LOW_BATTERY -> "Paused for low battery"
+        StopReason.BUSY -> "Waiting until you put your ${words.device} down"
+        StopReason.UNPLUGGED -> "Waiting to charge"
+        StopReason.MANUAL -> "Reading stopped for now"
+        StopReason.DONE, StopReason.BUDGET -> "Waiting for ${words.os}"
+    }
+
+    /** Home's first row; null once set up with nothing in the library, where Home shows its empty state instead. */
+    fun homeStatus(setUp: Boolean, libraryTotal: Long, reading: ReadingStatus): HomeStatus? = when {
+        !setUp -> HomeStatus(HomePhase.SETTING_UP, "Finishing setup. For now Retriever matches file names.")
+
+        libraryTotal == 0L -> null
+
+        else -> HomeStatus(
+            when {
+                reading.phase == ReadingPhase.PAUSED -> HomePhase.PAUSED
+                reading.phase == ReadingPhase.CAUGHT_UP || reading.phase == ReadingPhase.LIMITED -> HomePhase.CAUGHT_UP
+                reading.phase == ReadingPhase.LOOKING -> HomePhase.LOOKING
+                reading.active -> HomePhase.READING
+                else -> HomePhase.WAITING
+            },
+            reading.title,
+            reading.detail,
+        )
+    }
+
+    fun decide(progress: ReadingProgress, blocker: StopReason?, running: Boolean, reading: Boolean, words: DeviceWords): ReadingStatus {
         val phase = when {
             blocker == StopReason.PAUSED -> ReadingPhase.PAUSED
 
@@ -108,16 +145,14 @@ object ReadingPolicy {
         }
         val title = when {
             phase == ReadingPhase.READING && !reading -> "Starting reading…"
-            ios && phase == ReadingPhase.POWER_SAVE -> "Paused for Low Power Mode"
-            ios && phase == ReadingPhase.WAITING -> "Waiting for iOS"
             phase == ReadingPhase.MEANING -> "Adding search by meaning to ${progress.meaningWaiting} files"
             phase == ReadingPhase.DEEPENING -> "Reading more of ${progress.laterPasses} long files"
-            else -> phase.title
+            else -> phase.title ?: stopCopy(blocker ?: StopReason.DONE, words)
         }
         val detail = when (phase) {
             ReadingPhase.PAUSED -> "Search still works. Resume whenever you’re ready."
             ReadingPhase.POWER_SAVE -> "Reading can resume when it’s off."
-            ReadingPhase.HOT -> "Reading can resume when your phone cools down."
+            ReadingPhase.HOT -> "Reading can resume when your ${words.device} cools down."
             ReadingPhase.LOW_BATTERY -> "Plug in to continue."
             ReadingPhase.BUSY -> "Reading can continue when the screen is off or Retriever is open."
             ReadingPhase.CHARGING -> "Plug in, or choose Read now for a short session."

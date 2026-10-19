@@ -41,7 +41,7 @@ struct FoldersView: View {
                                 } icon: {
                                     Image(systemName: "folder")
                                 }
-                                Text([Format.files(f.count), f.parent].compactMap { $0 }.joined(separator: " · "))
+                                Text([Words.shared.files(n: Int64(f.count)), f.parent].compactMap { $0 }.joined(separator: " · "))
                                     .font(.footnote)
                                     .foregroundStyle(Color.primary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -134,7 +134,7 @@ struct FoldersView: View {
             Button("Stop searching", role: .destructive) { model.setExcluded(f.path, true) }
             Button("Cancel", role: .cancel) {}
         } message: { f in
-            Text("Retriever will forget the \(Format.files(f.count)) in \(f.name). You can bring it back here.")
+            Text("Retriever will forget the \(Words.shared.files(n: Int64(f.count))) in \(f.name). You can bring it back here.")
         }
         .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) {
             f in

@@ -63,9 +63,9 @@ struct ResultCell: View {
     }
 
     private var label: String {
-        var parts = [Format.kind(file.kind), file.name, Format.date(file.modifiedAt)]
-        if let spoken = Format.spoken(locator) { parts.append(spoken) }
-        if let note = Copy.extent(extent) { parts.append(note) }
+        var parts = [Words.shared.kindLabel(kind: file.kind), file.name, Format.date(file.modifiedAt)]
+        if let spoken = Words.shared.spokenPosition(locator: locator) { parts.append(spoken) }
+        if let note = Words.shared.extent(extent: extent) { parts.append(note) }
         if let matchReason { parts.append(matchReason) }
         return parts.joined(separator: ", ")
     }
@@ -145,7 +145,7 @@ struct FileRowView: View {
             if let snippet, !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
             }
-            if let note = Copy.extent(extent) ?? coverage {
+            if let note = Words.shared.extent(extent: extent) ?? coverage {
                 Text(note).font(.footnote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -163,7 +163,7 @@ struct FileRowView: View {
                 .background(.tint.opacity(0.15), in: Capsule())
                 .foregroundStyle(.tint)
                 .fixedSize()
-                .accessibilityLabel(Format.spoken(locator) ?? badge)
+                .accessibilityLabel(Words.shared.spokenPosition(locator: locator) ?? badge)
         }
     }
 

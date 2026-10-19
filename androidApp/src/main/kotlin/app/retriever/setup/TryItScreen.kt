@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.home.HomeUi
 import app.retriever.nav.Route
 import app.retriever.search.SearchActions
@@ -37,7 +38,6 @@ import app.retriever.search.SearchContent
 import app.retriever.search.SearchUi
 import app.retriever.search.SearchViewModel
 import app.retriever.search.actions
-import app.retriever.ui.Format
 import app.retriever.ui.components.ReadyFiles
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -100,7 +100,7 @@ private fun TryItBody(
             // slots (a ClassCastException on the device when the terms replaced the kind chips).
             val chips: List<Pair<String, () -> Unit>> = suggestions.map { term -> term to { search(term) } }.ifEmpty {
                 files.map { it.kind }.distinct().map { kind ->
-                    val label = Format.kindLabelPlural(kind)
+                    val label = Words.kindLabelPlural(kind)
                     label to {
                         searchActions.onChip(kind)
                         search(label)

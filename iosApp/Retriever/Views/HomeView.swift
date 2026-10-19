@@ -90,14 +90,6 @@ struct HomeList: View {
         if snap.total <= Self.nearlyEmpty { addFolderNudge }
     }
 
-    /// Files waiting, not a quick look for new ones: that would flash "Ready" on every header.
-    private func progress(_ snap: AppModel.Snap, _ kinds: [Kind]) -> String? {
-        let total = kinds.reduce(0) { $0 + (snap.byKind[$1] ?? 0) }
-        let pending = kinds.reduce(0) { $0 + (snap.pendingByKind[$1] ?? 0) }
-        guard snap.pending > 0, let first = kinds.first else { return nil }
-        return Copy.kindProgress(first, total: total, pending: pending, reading: true, readInside: kinds.allSatisfy(snap.reads))
-    }
-
     private var photosOff: Bool { photos == .denied || photos == .restricted }
 
     @ViewBuilder private var chips: some View {
@@ -137,7 +129,7 @@ struct HomeList: View {
                     .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Screenshots", subtitle: Copy.sectionSubtitle(snap.byKind[.screenshot] ?? 0, progress(snap, [.screenshot])),
+                    title: "Screenshots", subtitle: Copy.sectionSubtitle(snap.byKind[.screenshot] ?? 0, snap.kindProgress([.screenshot])),
                     route: .files(FileQuery(kind: .screenshot, title: "Screenshots")))
             }
         }
@@ -152,7 +144,7 @@ struct HomeList: View {
                     .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Documents", subtitle: Copy.documentsSubtitle(pdfs: pdfs, docs: snap.byKind[.doc] ?? 0, detail: progress(snap, [.pdf, .doc])),
+                    title: "Documents", subtitle: Copy.documentsSubtitle(pdfs: pdfs, docs: snap.byKind[.doc] ?? 0, detail: snap.kindProgress([.pdf, .doc])),
                     route: .files(FileQuery(kind: pdfs > 0 ? .pdf : .doc, title: pdfs > 0 ? "PDFs" : "Documents")))
             }
         }
@@ -242,7 +234,7 @@ private struct HomeStatusSection: View {
     }
 
     var body: some View {
-        let status = Copy.homeStatus(shown, download: model.download, progress: model.downloadProgress, nameOnly: model.home?.nameOnly ?? 0)
+        let status = Copy.homeStatus(shown)
         let photosNote = snap.total == 0 ? nil : Copy.photosNote(photos)
         if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit {
             Section {
@@ -257,24 +249,25 @@ private struct HomeStatusSection: View {
                         }
                     }
                     LibraryFolders(folders: model.home?.topFolders ?? [])
-                } else { reading(status) }
-            if snap.asksCommit {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("Search inside more files")
-                        Text("\(Copy.count(snap.waiting)) files still found by name only").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Choose when") { asking = true }.buttonStyle(.borderless)
-                    Button(action: model.dismissScheduleOffer) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
-                        .buttonStyle(.borderless).accessibilityLabel("Dismiss reading offer")
+                } else {
+                    reading(status)
                 }
+                if snap.asksCommit {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Search inside more files")
+                            Text("\(Copy.count(snap.waiting)) files still found by name only").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Choose when") { asking = true }.buttonStyle(.borderless)
+                        Button(action: model.dismissScheduleOffer) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
+                            .buttonStyle(.borderless).accessibilityLabel("Dismiss reading offer")
+                    }
                     .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
-            }
+                }
                 if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
-                    if note.phase == .photosOff { card(note, "Open Settings", model.openSettings) }
-                    else { card(note, "Choose more photos", model.chooseMorePhotos) }
+                    if note.off { card(note, "Open Settings", model.openSettings) } else { card(note, "Choose more photos", model.chooseMorePhotos) }
                 }
             }
         }
@@ -299,10 +292,10 @@ private struct HomeStatusSection: View {
         }
     }
 
-    private func card(_ status: HomeStatus, _ action: String, _ run: @escaping () -> Void) -> some View {
+    private func card(_ status: PhotosNote, _ action: String, _ run: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(status.title).font(.headline)
-            if let detail = status.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+            Text(status.detail).font(.subheadline).foregroundStyle(.secondary)
             Button(action, action: run).buttonStyle(.bordered)
         }
         .padding(.vertical, 4)

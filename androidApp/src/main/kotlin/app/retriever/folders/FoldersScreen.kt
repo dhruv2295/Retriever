@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.Route
@@ -107,7 +108,7 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
         val name = path.substringAfterLast('/').ifEmpty { "Top level" }
         ConfirmDialog(
             title = "Stop searching $name?",
-            message = "The ${countLabel(count)} in $name are removed from search now, and bringing them back means reading them all again. " +
+            message = "The ${Words.files(count)} in $name are removed from search now, and bringing them back means reading them all again. " +
                 "You can bring it back from the status line at the top of Home.",
             confirmLabel = "Stop searching",
             onConfirm = {
@@ -131,7 +132,7 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
             supportingContent = {
                 val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
                 Text(
-                    if (parent.isEmpty()) countLabel(count) else "${countLabel(count)} · $parent",
+                    if (parent.isEmpty()) Words.files(count) else "${Words.files(count)} · $parent",
                     maxLines = 1,
                     overflow = TextOverflow.MiddleEllipsis,
                 )
@@ -161,5 +162,3 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
 }
 
 private const val EXCLUDE_LABEL = "Stop searching this folder"
-
-private fun countLabel(count: Long): String = if (count == 1L) "1 file" else "%,d files".format(count)

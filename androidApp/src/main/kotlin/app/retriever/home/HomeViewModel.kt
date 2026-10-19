@@ -14,9 +14,9 @@ import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
-import app.retriever.ui.Format
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -108,24 +108,8 @@ data class HomeUi(
         pending = c.byKindState.filterKeys { it.second == FileState.PENDING }.mapKeys { it.key.first },
     )
 
-    val trialTitle: String? get() = if (trial && waiting > 0) "Reading your sample" else null
-
-    /**
-     * Where reading stands for [kinds] as a section's subtitle says it: "Ready", "1,200 to go", "Waiting", "Found by
-     * name" for kinds whose insides aren't read; null when nothing waits at all.
-     */
-    fun readiness(vararg kinds: Kind): String? {
-        val read = kinds.filter { it in inside && it != Kind.OTHER }
-        if (read.isEmpty()) return "Found by name"
-        if (waiting == 0L) return null
-        val total = read.sumOf { counts?.get(it) ?: 0L }
-        val left = read.sumOf { pending[it] ?: 0L }
-        return when {
-            left == 0L -> "Ready"
-            left < total -> "${Format.count(left)} to go"
-            else -> "Waiting"
-        }
-    }
+    /** A section's reading line: core's rule, so mixed sections such as Documents read the same on iOS. */
+    fun readiness(vararg kinds: Kind): String? = Words.kindProgress(kinds.toList(), inside, pending)
 }
 
 /**

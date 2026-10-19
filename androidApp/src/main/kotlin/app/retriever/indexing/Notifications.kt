@@ -28,6 +28,7 @@ import app.retriever.MainActivity
 import app.retriever.R
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
+import app.retriever.core.Words
 import app.retriever.ui.Format
 
 object Notifications {
@@ -70,7 +71,7 @@ object Notifications {
         if (files <= 0 || !manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setContentTitle("Try searching inside your files")
-            .setContentText("${Format.readCount(files.toLong())}. Open Retriever to try it.")
+            .setContentText("${Words.readCount(files.toLong())}. Open Retriever to try it.")
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion(context))

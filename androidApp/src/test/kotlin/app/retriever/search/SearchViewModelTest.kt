@@ -25,6 +25,7 @@ import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.Signature
 import app.retriever.core.Tier
+import app.retriever.core.Words
 import app.retriever.core.answerFor
 import app.retriever.core.cutShort
 import app.retriever.core.showsEmpty
@@ -32,7 +33,6 @@ import app.retriever.nav.DocRoute
 import app.retriever.nav.Route
 import app.retriever.testFile
 import app.retriever.testRetriever
-import app.retriever.ui.Format
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -118,7 +118,7 @@ class SearchViewModelTest {
         assertEquals(planned.toSet(), names.hits!!.map { it.fileId }.toSet())
         val full = vm.ui.first { it.question.scope == planned && it.done }
         assertEquals(planned.toSet(), full.hits!!.map { it.fileId }.toSet())
-        assertEquals("Closest in these 3 files", Format.closestIn(planned.size))
+        assertEquals("Searching inside 3 sample files", Words.closestIn(planned.size.toLong()))
         vm.setScope(null)
         assertEquals(60, vm.ui.first { it.scope == null && it.done && (it.hits?.size ?: 0) == 60 }.hits!!.size)
     }

@@ -37,6 +37,7 @@ import app.retriever.core.Kind
 import app.retriever.core.Locator
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.core.readingLabel
 import app.retriever.ui.Format
 import app.retriever.ui.components.Thumb
@@ -45,12 +46,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** "PDF · 2.4 MB". */
-internal fun kindAndSize(file: SourceFile) = "${Format.kindLabel(file.kind)} · ${Format.bytes(file.size)}"
+internal fun kindAndSize(file: SourceFile) = "${Words.kindLabel(file.kind)} · ${Format.bytes(file.size)}"
 
 /** The sheet's rows below the header, in reading order. [measured] is whatever dimensions, duration or pages could be read. */
 internal fun infoRows(file: SourceFile, measured: List<Pair<String, String>>, reading: String): List<Pair<String, String>> = buildList {
-    add("Modified" to Format.date(file.modifiedAt))
-    file.takenAt?.let { add("Created" to Format.date(it)) }
+    add(Words.MODIFIED to Format.date(file.modifiedAt))
+    file.takenAt?.let { add(Words.TAKEN to Format.date(it)) }
     addAll(measured)
     add("Reading" to reading)
 }

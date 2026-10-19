@@ -3,14 +3,11 @@ import Photos
 import RetrieverCore
 import UIKit
 
-/// Home's first row: how reading is going, or what stops Retriever seeing files.
-struct HomeStatus: Equatable {
-    enum Phase { case settingUp, photosOff, photosLimited, reading, looking, paused, waiting, caughtUp }
-
-    var phase: Phase
+/// The note under Home's status while Photos access is off or limited.
+struct PhotosNote: Equatable {
+    var off: Bool
     var title: String
-    var detail: String?
-    var progress: Double?
+    var detail: String
 }
 
 /// Every sentence the shell shows, in plain words from the person's side. Ported from Android's StatusScreen and
@@ -20,58 +17,32 @@ struct HomeStatus: Equatable {
 enum Copy {
     /// What the person holds, as they'd call it.
     static let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    /// The device's names in core's shared sentences.
+    static let words = DeviceWords.companion.ios(device: device)
 
-    static func stop(_ stop: StopReason?) -> String? {
-        guard let stop else { return nil }
-        let progress = ReadingProgress(
-            read: 0, partlyRead: 0, scheduled: 1, notScheduled: 0, nameOnly: 0, couldntRead: 0, laterPasses: 0, sample: false, rereads: 0, meaningWaiting: 0)
-        return ReadingPolicy.shared.decide(progress: progress, blocker: stop, running: false, reading: false, ios: true).title
-    }
-    static func waiting(_ stop: StopReason?) -> String? { self.stop(stop) }
-
-    static func readCount(_ s: AppModel.Snap) -> String {
-        "\(count(s.indexed)) \(s.indexed == 1 ? "file" : "files") read" + (s.partlyRead > 0 ? " · \(count(s.partlyRead)) partly read" : "")
+    /// Core's reading status: the live one, or before it arrives the same decision made here.
+    static func reading(_ s: AppModel.Snap) -> ReadingStatus {
+        s.readingStatus
+            ?? ReadingPolicy.shared.decide(
+                progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words)
     }
 
-    static func decision(_ s: AppModel.Snap) -> ReadingStatus {
-        ReadingPolicy.shared.decide(
-            progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, ios: true)
-    }
-
-    static func statusTitle(_ s: AppModel.Snap) -> String { s.readingTitle ?? decision(s).title }
-
-    static func homeStatus(_ s: AppModel.Snap?, download: ModelDownload.State = .idle, progress: Double = 0, nameOnly: Int64 = 0) -> HomeStatus? {
-        guard let s, !(s.readProgress.libraryTotal == 0 && s.setUp == true) else { return nil }
-        if s.setUp != true { return HomeStatus(phase: .settingUp, title: "Finishing setup. For now Retriever matches file names.") }
-        let phase = s.readingPhase ?? decision(s).phase
-        let homePhase: HomeStatus.Phase =
-            phase == .paused
-            ? .paused
-            : (phase == .caughtUp || phase == .limited)
-                ? .caughtUp : phase == .looking ? .looking : (s.readingActive || decision(s).active) ? .reading : .waiting
-        return HomeStatus(phase: homePhase, title: statusTitle(s), detail: s.readingDetail ?? decision(s).detail)
+    static func homeStatus(_ s: AppModel.Snap?) -> HomeStatus? {
+        s.flatMap { ReadingPolicy.shared.homeStatus(setUp: $0.setUp == true, libraryTotal: $0.readProgress.libraryTotal, reading: reading($0)) }
     }
 
     /// Shown under the status row while Photos access is off or limited; it never takes the status row's place, so
     /// reading progress and Resume stay on Home.
-    static func photosNote(_ photos: PHAuthorizationStatus) -> HomeStatus? {
+    static func photosNote(_ photos: PHAuthorizationStatus) -> PhotosNote? {
         switch photos {
         case .denied, .restricted:
-            HomeStatus(
-                phase: .photosOff, title: "Photos access is off",
+            PhotosNote(
+                off: true, title: "Photos access is off",
                 detail: "Search still works on files already read. Turn it on to search your photos and screenshots too.")
         case .limited:
-            HomeStatus(phase: .photosLimited, title: "Retriever sees only the photos you picked", detail: "It can search just those.")
+            PhotosNote(off: false, title: "Retriever sees only the photos you picked", detail: "It can search just those.")
         default: nil
         }
-    }
-
-    /// One kind's line under its name in Your Files: how far its reading is while files wait, nothing once all is read.
-    static func kindProgress(_ kind: Kind, total: Int, pending: Int, reading: Bool, readInside: Bool = true) -> String? {
-        if kind == .other || !readInside { return "Found by name" }
-        guard reading else { return nil }
-        if pending == 0 { return "Ready" }
-        return pending >= total ? "Waiting" : "\(count(pending)) to go"
     }
 
     /// "Today", "Yesterday" or the date, in the person's language.
@@ -87,7 +58,7 @@ enum Copy {
     }()
 
     static func largeFiles(_ n: Int64) -> String {
-        n == 1 ? "1 file over 100 MB" : "\(count(Int(n))) files over 100 MB"
+        Words.shared.files(n: n) + " over 100\u{00A0}MB"
     }
 
     nonisolated static func count(_ n: Int) -> String {
@@ -95,18 +66,7 @@ enum Copy {
     }
 
     nonisolated static func bytes(_ n: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
-    }
-
-    static func eta(_ minutes: Int) -> String {
-        switch minutes {
-        case ..<1: "Less than a minute left"
-        case 1: "About a minute left"
-        case ..<60: "About \(minutes) minutes left"
-        case ..<90: "About an hour left"
-        case ..<(48 * 60): "About \((minutes + 30) / 60) hours left"
-        default: "About \((minutes + 12 * 60) / (24 * 60)) days left"
-        }
+        Words.shared.keepTogether(size: ByteCountFormatter.string(fromByteCount: n, countStyle: .file))
     }
 
     static func addFolderResult(_ result: FolderSource.AddResult) -> String {
@@ -136,10 +96,6 @@ enum Copy {
         "\(count(n)) partly read · more meaning search to come"
     }
 
-    static func textOnlyNote(ramGb: Double) -> String {
-        "This \(device) has \(Int(ramGb.rounded())) GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them."
-    }
-
     static let textOnlySearch = "Retriever finds files here by their names and the words inside them."
 
     /// What the search made of the words: "Showing Screenshots · Last week".
@@ -153,17 +109,6 @@ enum Copy {
     static let closestFiles = "These are the closest files, but they may not be what you're looking for."
     static let closestFilesShort = "These are the closest files."
 
-    static func extent(_ extent: ReadExtent?) -> String? {
-        switch extent {
-        case ReadExtent.firstPart: "Partly read · only the beginning is included"
-        case ReadExtent.meaningLimited: "Partly read · couldn’t finish meaning search"
-        case ReadExtent.firstPartMeaningLimited: "Partly read · only the beginning is included; couldn’t finish meaning search"
-        case ReadExtent.firstPartDeepening: "Partly read · only the beginning is included; more meaning search to come"
-        case ReadExtent.deepening: "Partly read · more meaning search to come"
-        default: nil
-        }
-    }
-
     /// The Lock Screen's progress for a read that carries on after the person leaves.
     nonisolated static let continuedTitle = "Reading your files"
 
@@ -173,7 +118,7 @@ enum Copy {
 
     // MARK: Home sections
 
-    /// A section header's second line: the count, then how far its reading is while files wait ("1,716 · 1,200 to go").
+    /// A section header's second line: the count, then its reading line from core ("1,716 · 1,200 waiting to read").
     static func sectionSubtitle(_ n: Int, _ detail: String? = nil) -> String {
         [count(n), detail].compactMap { $0 }.joined(separator: " · ")
     }
@@ -181,16 +126,16 @@ enum Copy {
     /// "22,000 photos · 1,733 videos"; a kind with none is left out.
     static func mediaSubtitle(photos: Int, videos: Int) -> String {
         [
-            photos > 0 ? (photos == 1 ? "1 photo" : "\(count(photos)) photos") : nil,
-            videos > 0 ? (videos == 1 ? "1 video" : "\(count(videos)) videos") : nil,
+            photos > 0 ? Words.shared.plural(n: Int64(photos), one: "photo", many: "photos") : nil,
+            videos > 0 ? Words.shared.plural(n: Int64(videos), one: "video", many: "videos") : nil,
         ].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// "1,591 PDFs · 125 documents"; a kind with none is left out.
     static func documentsSubtitle(pdfs: Int, docs: Int, detail: String? = nil) -> String {
         [
-            pdfs > 0 ? (pdfs == 1 ? "1 PDF" : "\(count(pdfs)) PDFs") : nil,
-            docs > 0 ? (docs == 1 ? "1 document" : "\(count(docs)) documents") : nil, detail,
+            pdfs > 0 ? Words.shared.plural(n: Int64(pdfs), one: "PDF", many: "PDFs") : nil,
+            docs > 0 ? Words.shared.plural(n: Int64(docs), one: "document", many: "documents") : nil, detail,
         ].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -221,7 +166,7 @@ enum Copy {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         formatter.isAdaptive = false
-        return formatter.string(fromByteCount: bytes)
+        return Words.shared.keepTogether(size: formatter.string(fromByteCount: bytes))
     }
 
     static func firstRunTime(size: String?) -> String {
@@ -288,22 +233,6 @@ enum Copy {
     static let firstRunTryNow = "Try it now"
     static let firstRunStaysSearchable = "You can keep searching the content read so far."
 
-    /// "79 files · about a minute left"
-    static func firstRunReadingLine(files: Int, secondsLeft: Int?) -> String {
-        "\(count(files)) \(files == 1 ? "file" : "files") read"
-    }
-
-    /// The short read's time left, from measured per-file cost.
-    nonisolated static func timeLeft(_ seconds: Int?) -> String? {
-        guard let seconds, seconds > 0 else { return nil }
-        return switch seconds {
-        case ...10: "almost done"
-        case ..<60: "less than a minute left"
-        case ..<90: "about a minute left"
-        default: "about \((seconds + 30) / 60) minutes left"
-        }
-    }
-
     // MARK: Try it and the commit choice (onboarding-spec 2.5, 2.6)
 
     static let tryItTitle = "Try it on your files"
@@ -311,19 +240,12 @@ enum Copy {
     static let tryItWordsTextOnly = "Try a word you remember from a screenshot or a PDF."
     static let tryItContinue = "Continue"
     static let tryItDone = "Done"
-    static func closestIn(_ files: Int) -> String { "Closest in these \(count(files)) files" }
-    static func stillReading(_ files: Int) -> String { "Still reading \(count(files)) more" }
 
     static let commitTitle = "Search inside more files"
     static let commitWhileCharging = "While charging"
     static let commitNotYet = "Not now"
     /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
     static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
-
-    /// No hours, while the estimate is uncalibrated. `files` is what is left beyond the short read, when known.
-    static func commitRest(files: Int?) -> String {
-        files.map { "\(count($0)) more files can be read. You can already find them by name." } ?? "You can already find your files by name."
-    }
 
     /// iOS 26 and later keep reading after the person leaves; before that, only while the app is open.
     nonisolated static func commitReadNow(continued: Bool) -> String {

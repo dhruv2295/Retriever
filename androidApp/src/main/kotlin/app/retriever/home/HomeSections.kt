@@ -55,6 +55,7 @@ import app.retriever.R
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.core.YearMemory
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.FoldersRoute
@@ -90,7 +91,7 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
             .padding(horizontal = 16.dp)
             .semantics(mergeDescendants = true) {
                 heading()
-                // Spoken with commas, not the visual dot: "Screenshots, 158, Ready".
+                // Spoken with commas, not the visual dot: "Screenshots, 158, 40 waiting to read".
                 contentDescription = if (subtitle == null) title else "$title, ${subtitle.replace(" · ", ", ")}"
             },
         verticalAlignment = Alignment.CenterVertically,
@@ -109,7 +110,7 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
 /** "1 photo", "22,000 photos". */
 internal fun noun(n: Long, one: String, many: String) = "${Format.count(n)} ${if (n == 1L) one else many}"
 
-/** "158" when everything is read, "158 · Ready" while reading, so a section says where it stands. */
+/** "158" when nothing waits, "158 · 40 waiting to read" while files do, so a section says where it stands. */
 internal fun counted(count: String, readiness: String?) = if (readiness == null) count else "$count · $readiness"
 
 /** One row of the person's last searches, or, before any, a few things worth trying; [fill] puts one in the field and runs it. */
@@ -165,7 +166,7 @@ internal fun ShotsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val n = ui.counts?.get(Kind.SCREENSHOT) ?: home.newShots.size.toLong()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Screenshots", counted(Format.count(n), ui.readiness(Kind.SCREENSHOT))) {
-            actions.onNavigate(BrowseRoute(kind = Kind.SCREENSHOT.name, title = Format.kindLabelPlural(Kind.SCREENSHOT)))
+            actions.onNavigate(BrowseRoute(kind = Kind.SCREENSHOT.name, title = Words.kindLabelPlural(Kind.SCREENSHOT)))
         }
         ShotsStrip(home.newShots) { f ->
             Opener.queue(home.newShots)
@@ -182,7 +183,7 @@ internal fun DocsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Documents", counted(subtitle.joinToString(" · "), ui.readiness(Kind.PDF, Kind.DOC)).ifEmpty { null }) {
             val kind = if (pdfs > 0) Kind.PDF else Kind.DOC
-            actions.onNavigate(BrowseRoute(kind = kind.name, title = Format.kindLabelPlural(kind)))
+            actions.onNavigate(BrowseRoute(kind = kind.name, title = Words.kindLabelPlural(kind)))
         }
         DocsStrip(home.newDocs, ui.hasAccess, actions.onOpenFile)
     }
@@ -247,7 +248,7 @@ internal fun Mosaic(media: List<SourceFile>, reading: MosaicReading?, onOpen: (S
 private fun MosaicCell(file: SourceFile, w: Dp, h: Dp, corner: Dp, reading: MosaicReading?, onOpen: (SourceFile) -> Unit) {
     val context = LocalContext.current
     val label = remember(file, reading?.pending) {
-        val base = "${Format.kindLabel(file.kind)}, ${spokenDate(context, file.takenAt ?: file.modifiedAt)}"
+        val base = "${Words.kindLabel(file.kind)}, ${spokenDate(context, file.takenAt ?: file.modifiedAt)}"
         if (reading != null && reading.pending > 0) "$base, ${noun(reading.pending, "photo", "photos")} still to read" else base
     }
     Box(
@@ -330,7 +331,7 @@ internal fun DocsStrip(docs: List<SourceFile>, pictures: Boolean, onOpen: (Sourc
                 Modifier
                     .width(112.dp)
                     .clip(shape)
-                    .semantics(mergeDescendants = true) { contentDescription = "${Format.kindLabel(f.kind)}, ${f.name}, ${line.replace(" · ", ", ")}" }
+                    .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, ${line.replace(" · ", ", ")}" }
                     .clickable(onClickLabel = "Open") { onOpen(f) },
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -425,7 +426,7 @@ internal fun StarredSection(ui: HomeUi, home: HomeFacts, actions: SearchActions)
                     Modifier
                         .size(112.dp)
                         .clip(shape)
-                        .semantics(mergeDescendants = true) { contentDescription = "${Format.kindLabel(f.kind)}, ${f.name}, starred" }
+                        .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, starred" }
                         .clickable(onClickLabel = "Open") {
                             Opener.queue(home.starred)
                             actions.onOpenFile(f)
@@ -481,7 +482,7 @@ internal fun moreTiles(ui: HomeUi): List<KindTile> {
     fun kind(k: Kind): KindTile? {
         val n = counts[k] ?: 0L
         if (n == 0L || (k == Kind.DOC && (counts[Kind.PDF] ?: 0L) == 0L)) return null
-        val label = Format.kindLabelPlural(k)
+        val label = Words.kindLabelPlural(k)
         val readiness = ui.readiness(k)
         return KindTile(
             kindIcon(k),

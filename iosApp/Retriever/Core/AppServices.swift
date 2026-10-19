@@ -72,6 +72,8 @@ final class AppServices: Sendable {
             isSimulator: Self.isSimulator,
             // Retriever's own folder in Files is always readable, so a person who keeps Photos off is set up too.
             platformReady: { @Sendable in KotlinBoolean(bool: true) },
+            // UIDevice is main-actor only; the shared instance is made on main, as EvalMode and SelfTest note.
+            words: Thread.isMainThread ? MainActor.assumeIsolated { Copy.words } : DeviceWords.companion.ios(device: "iPhone"),
             // Core's messages hold no names, paths or queries.
             log: { @Sendable in logger.info("\($0, privacy: .public)") }
         )

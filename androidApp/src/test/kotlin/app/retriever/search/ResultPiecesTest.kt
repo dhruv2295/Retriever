@@ -19,6 +19,7 @@ import app.retriever.core.ParsedQuery
 import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.home.HomeUi
 import app.retriever.nav.DocRoute
 import app.retriever.nav.PdfRoute
@@ -117,34 +118,6 @@ class ResultPiecesTest {
         assertNull(Format.locatorLabel("chapter 2"))
     }
 
-    @Test fun locatorSpoken() {
-        assertEquals("page 12", Format.locatorSpoken("p. 12"))
-        assertEquals("3 minutes 41 seconds", Format.locatorSpoken("3:41"))
-        assertEquals("1 hour 2 minutes 3 seconds", Format.locatorSpoken("1:02:03"))
-        assertEquals("1 minute 1 second", Format.locatorSpoken("1:01"))
-        assertEquals("2 minutes", Format.locatorSpoken("2:00"))
-        assertNull(Format.locatorSpoken(""))
-    }
-
-    @Test fun readNotes() {
-        assertEquals("Partly read · only the beginning is included", Format.readNote(ReadExtent.FIRST_PART))
-        assertEquals("Partly read · more meaning search to come", Format.readNote(ReadExtent.DEEPENING))
-        assertNull(Format.readNote(ReadExtent.WHOLE))
-        assertNull(Format.readNote(null))
-    }
-
-    @Test fun etaBoundaries() {
-        assertEquals("less than a minute left", Format.eta(0))
-        assertEquals("about a minute left", Format.eta(1))
-        assertEquals("about 2 minutes left", Format.eta(2))
-        assertEquals("about 59 minutes left", Format.eta(59))
-        assertEquals("about an hour left", Format.eta(60))
-        assertEquals("about an hour left", Format.eta(89))
-        assertEquals("about 2 hours left", Format.eta(90))
-        assertEquals("about 47 hours left", Format.eta(47 * 60))
-        assertEquals("about 2 days left", Format.eta(48 * 60))
-    }
-
     @Test fun routeForOpensTheMatch() {
         assertEquals(PdfRoute(pdf.uri, 12, pdf.name, matched = true), Opener.routeFor(pdf, "p. 12"))
         // Opened from a list or found by name: page 1, and nothing says a search matched there.
@@ -198,7 +171,7 @@ class ResultPiecesTest {
 
     @Test fun thumbCellSaysWhenOnlyPartWasRead() {
         rule.setContent {
-            ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Format.readNote(ReadExtent.FIRST_PART)) }
+            ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART)) }
         }
         rule.onNodeWithContentDescription(
             "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Partly read · only the beginning is included",
@@ -206,7 +179,7 @@ class ResultPiecesTest {
     }
 
     @Test fun fileRowShowsItsReadNote() {
-        rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Format.readNote(ReadExtent.DEEPENING), onClick = {}) } }
+        rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Words.extent(ReadExtent.DEEPENING), onClick = {}) } }
         rule.onNodeWithText("Partly read · more meaning search to come").assertExists()
     }
 

@@ -40,11 +40,11 @@ class FileActionsTest {
         assertEquals("Top level", friendlyFolder(""))
     }
 
-    @Test fun theInfoRowsShowCreatedOnlyWhenKnownAndEndWithReading() {
+    @Test fun theInfoRowsShowTakenOnlyWhenKnownAndEndWithReading() {
         val rows = infoRows(pdf, listOf("Pages" to "12"), "Read")
         assertEquals(listOf("Modified", "Pages", "Reading"), rows.map { it.first })
         val taken = infoRows(pdf.copy(takenAt = 1_700_000_000_000), emptyList(), "Waiting to read")
-        assertEquals(listOf("Modified", "Created", "Reading"), taken.map { it.first })
-        assertEquals("PDF · 2.4 MB", kindAndSize(pdf))
+        assertEquals(listOf("Modified", "Taken", "Reading"), taken.map { it.first })
+        assertEquals("PDF · 2.4\u00A0MB", kindAndSize(pdf))
     }
 }

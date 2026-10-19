@@ -23,7 +23,7 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(home.folders, 12)
         XCTAssertEqual(home.largeCount, 4)
         XCTAssertEqual(home.nameOnly, 0)
-        XCTAssertEqual(Copy.largeFiles(home.largeCount), "4 files over 100 MB")
+        XCTAssertEqual(Copy.largeFiles(home.largeCount), "4 files over 100\u{00A0}MB")
     }
 
     /// The mosaic's collapse: 0, 1, 2 draw that many; 3 to 5 draw the big cell and the stack; 6 or more the full grid.
@@ -62,8 +62,8 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(Copy.mediaSubtitle(photos: 22_000, videos: 1_733), "22,000 photos · 1,733 videos")
         XCTAssertEqual(Copy.mediaSubtitle(photos: 1, videos: 0), "1 photo")
         XCTAssertEqual(Copy.documentsSubtitle(pdfs: 1_591, docs: 125), "1,591 PDFs · 125 documents")
-        XCTAssertEqual(Copy.documentsSubtitle(pdfs: 0, docs: 1, detail: "Ready"), "1 document · Ready")
-        XCTAssertEqual(Copy.sectionSubtitle(1_716, "1,200 to go"), "1,716 · 1,200 to go")
+        XCTAssertEqual(Copy.documentsSubtitle(pdfs: 0, docs: 1, detail: "1 waiting to read"), "1 document · 1 waiting to read")
+        XCTAssertEqual(Copy.sectionSubtitle(1_716, "1,200 waiting to read"), "1,716 · 1,200 waiting to read")
         XCTAssertEqual(Copy.photosToGo(14_700, paused: true), "14,700 to go · Paused")
     }
 
@@ -161,7 +161,7 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(HomeTile.make(snap, folders: 12).map(\.title), ["Videos", "Documents", "Folders"], "no audio or other files in the fixture")
         snap.byKind = [.video: 3, .doc: 2, .audio: 4, .other: 349, .pdf: 1, .photo: 9, .screenshot: 5]
         XCTAssertEqual(HomeTile.make(snap, folders: 148).map(\.title), ["Videos", "Documents", "Audio", "Other files", "Folders"])
-        XCTAssertEqual(HomeTile.make(snap, folders: 148).first { $0.title == "Other files" }?.detail, "Found by name")
+        XCTAssertEqual(HomeTile.make(snap, folders: 148).first { $0.title == "Other files" }?.detail, "Name only")
         snap.byKind[.pdf] = nil
         XCTAssertFalse(HomeTile.make(snap, folders: 0).map(\.title).contains("Documents"), "without PDFs the header opens Documents")
         XCTAssertEqual(HomeTile.make(snap, folders: 0).map(\.title), ["Videos", "Audio", "Other files"], "photos, screenshots and PDFs have headers")
@@ -175,8 +175,8 @@ final class HomeModelTests: XCTestCase {
         snap.pending = 120
         snap.pendingByKind = [.video: 95, .doc: 20]
         let tiles = HomeTile.make(snap, folders: 0)
-        XCTAssertEqual(tiles.first { $0.title == "Videos" }?.detail, "Waiting")
-        XCTAssertEqual(tiles.first { $0.title == "Documents" }?.detail, "20 to go")
+        XCTAssertEqual(tiles.first { $0.title == "Videos" }?.detail, "95 waiting to read")
+        XCTAssertEqual(tiles.first { $0.title == "Documents" }?.detail, "20 waiting to read")
     }
 
     func testEmptyLibraryIsOneMessageNotSections() async throws {
@@ -414,23 +414,6 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(bold(Format.name("Concatenate notes.pdf", query: "cat")), [], "inside a word is not a match")
         XCTAssertEqual(bold(Format.name("Invoice printing.pdf", query: "in")), [])
         XCTAssertEqual(bold(Format.name("Lease agreement.pdf", query: "agree")), ["agreement"], "the last word matches by prefix from three letters")
-    }
-
-    func testCoverageLineSaysWhatIsSearchable() {
-        func stored(_ kind: Kind, _ state: FileState, partial: Bool = false) -> Store.StoredFile {
-            Store.StoredFile(
-                id: 1, file: SourceFile(uri: "folder://t/a", name: "a", folder: "t", mime: "x/y", kind: kind, size: 1, modifiedAt: 0, takenAt: nil),
-                attempts: 0, state: state, partial: partial, extent: nil, contentRead: state == .indexed && kind != .other)
-        }
-        let all = Set(AppModel.Snap.inside)
-        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped), inside: all), "Couldn’t read")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .pending), inside: all), "Waiting to read")
-        XCTAssertEqual(Format.coverage(stored(.other, .indexed), inside: all), "Name only")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .indexed, partial: true), inside: all), Copy.extent(.firstPart))
-        XCTAssertNil(Format.coverage(stored(.pdf, .indexed), inside: all))
-        XCTAssertEqual(Format.coverage(stored(.other, .skipped), inside: all), "Name only", "an unreadable kind is Name only, as on Android")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .pending), inside: [.doc]), "Name only", "a kind whose reading is off is Name only")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped), inside: [.doc]), "Name only")
     }
 
     // MARK: Rendering

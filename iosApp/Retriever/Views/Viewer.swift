@@ -492,7 +492,7 @@ private struct PhotoPage: View {
                 ZoomableImage(image: image)
                     .accessibilityIdentifier("viewer.photo")
                     .ignoresSafeArea()
-                    .accessibilityLabel("\(Format.kind(file.kind)), \(file.name)")
+                    .accessibilityLabel("\(Words.shared.kindLabel(kind: file.kind)), \(file.name)")
                     .accessibilityAddTraits(.isImage)
             } else if failed, [.denied, .restricted].contains(PHPhotoLibrary.authorizationStatus(for: .readWrite)) {
                 StateView(art: "IllusWelcome", title: "Photos access is off", message: "Turn it on in Settings to see your photos here.") {

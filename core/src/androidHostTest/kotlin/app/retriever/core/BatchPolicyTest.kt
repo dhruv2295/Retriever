@@ -132,7 +132,7 @@ class BatchPolicyTest {
             val f = Fx(state = plugged.copy(screenOn = true))
             f.r.planTaste()
             assertEquals(NextRun.WHEN_IDLE, f.r.taste())
-            assertEquals("Waiting until you put your phone down", f.r.state.value.pauseReason)
+            assertEquals(StopReason.BUSY, f.r.state.value.lastStop)
             f.r.uiVisible = visible
             f.monitor.state = plugged.copy(screenOn = visible)
             assertEquals(NextRun.DONE, f.r.taste())
@@ -153,7 +153,6 @@ class BatchPolicyTest {
             f.r.taste()
             assertEquals(stop, f.r.state.value.lastStop)
             assertEquals(0L, f.indexed())
-            assertTrue(f.r.state.value.pauseReason != null)
         }
         val f = Fx(state = plugged.copy(powerSave = true))
         f.r.uiVisible = true

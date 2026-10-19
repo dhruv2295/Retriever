@@ -29,6 +29,7 @@ import app.retriever.core.Prefs
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
 import app.retriever.core.TasteProgress
+import app.retriever.core.Words
 import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
 import app.retriever.ui.Format
@@ -115,7 +116,7 @@ class ReadingFilesTest {
         }
         recent.take(2).forEach { file ->
             rule.onNodeWithTag("recent:${file.uri}")
-                .assertContentDescriptionEquals("${file.name}, ${Format.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}")
+                .assertContentDescriptionEquals("${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}")
         }
     }
 

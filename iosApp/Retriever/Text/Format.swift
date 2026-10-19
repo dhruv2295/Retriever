@@ -3,18 +3,6 @@ import SwiftUI
 
 /// Words and numbers as the person reads them.
 enum Format {
-    static func kind(_ kind: Kind) -> String {
-        switch kind {
-        case .pdf: "PDF"
-        case .doc: "Document"
-        case .screenshot: "Screenshot"
-        case .photo: "Photo"
-        case .audio: "Audio"
-        case .video: "Video"
-        default: "File"
-        }
-    }
-
     static func icon(_ kind: Kind) -> String {
         switch kind {
         case .pdf: "doc.richtext"
@@ -36,21 +24,10 @@ enum Format {
         return Locator.shared.msOf(l: locator) != nil ? locator : nil
     }
 
-    /// How VoiceOver says where the match is.
-    static func spoken(_ locator: String) -> String? {
-        if let page = Locator.shared.pageOf(l: locator)?.intValue { return "page \(page)" }
-        guard let ms = Locator.shared.msOf(l: locator)?.int64Value else { return nil }
-        return "at " + Duration.milliseconds(ms).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
-    }
-
     static func openHint(_ locator: String) -> String {
         if let page = Locator.shared.pageOf(l: locator)?.intValue { return "Opens at page \(page)" }
         if Locator.shared.msOf(l: locator) != nil { return "Plays from \(locator)" }
         return "Opens"
-    }
-
-    static func files(_ n: Int) -> String {
-        n == 1 ? "1 file" : "\(Copy.count(n)) files"
     }
 
     /// The \u{2}...\u{3} words bold on a tinted background. An unclosed span runs to the end.
@@ -111,15 +88,4 @@ enum Format {
         return out
     }
 
-    /// One line on how much of a listed file is searchable; nil when all of it is. Same words as Android's `coverageNote`:
-    /// a kind outside `inside` (`Retriever.readInside()`; other never is) counts as Name only, as the reading counts do.
-    @MainActor static func coverage(_ stored: Store.StoredFile, inside: Set<Kind>) -> String? {
-        if !inside.contains(stored.file.kind) || (!stored.contentRead && stored.state == .indexed) { return "Name only" }
-        if !stored.contentRead && stored.state == .skipped { return "Couldn’t read" }
-        if !stored.contentRead { return "Waiting to read" }
-        if stored.state == .pending { return "Partly read · waiting to read more" }
-        if stored.state == .skipped { return "Partly read · couldn’t finish reading" }
-        if let extent = stored.extent { return Copy.extent(extent) }
-        return stored.partial ? Copy.extent(.firstPart) : nil
-    }
 }

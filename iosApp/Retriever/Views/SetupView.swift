@@ -331,7 +331,7 @@ struct SetupContent: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             if let ramGb = state.ramGb {
-                Note(Copy.textOnlyNote(ramGb: ramGb)).multilineTextAlignment(.center)
+                Note(Words.shared.textOnlyNote(ramGb: ramGb, words: Copy.words)).multilineTextAlignment(.center)
             }
         }
     }
@@ -477,7 +477,7 @@ struct SetupContent: View {
         let taste = state.taste ?? TasteSnap()
         return VStack(alignment: .leading, spacing: 16) {
             Text(Copy.firstRunReadingHeadline).font(.title2.bold())
-            Note(Copy.firstRunReadingLine(files: taste.read, secondsLeft: reading().pauseReason == nil ? taste.secondsLeft : nil))
+            Note(Words.shared.readCount(read: Int64(taste.read), partlyRead: 0))
             SetupReadingFiles(reading: reading, read: taste.read)
             WrappingLayout { ForEach(taste.rows) { KindRow(row: $0) } }
         }

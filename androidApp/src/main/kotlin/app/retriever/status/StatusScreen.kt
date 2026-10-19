@@ -61,16 +61,16 @@ import app.retriever.access.Access
 import app.retriever.access.Fix
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
+import app.retriever.core.DeviceWords
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
-import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingPolicy
-import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
 import app.retriever.home.rememberCelebrating
@@ -84,12 +84,6 @@ import app.retriever.ui.components.RecentlyRead
 import app.retriever.ui.tabular
 import app.retriever.viewer.Opener
 import org.koin.androidx.compose.koinViewModel
-
-internal fun stopCopy(stop: StopReason?): String? = stop?.let {
-    ReadingPolicy.decide(ReadingProgress(scheduled = 1), it, false, false, false).title
-}
-
-internal fun waitingCopy(stop: StopReason?): String? = stopCopy(stop)
 
 class StatusActions(
     val back: () -> Unit = {},
@@ -107,12 +101,6 @@ class StatusActions(
     /** Null hides the link, for a host that has nowhere to go. */
     val openSettings: (() -> Unit)? = null,
 )
-
-/** Why a text-only phone reads less, in its own numbers. */
-internal fun textOnlyNote(ramGb: Double): String =
-    "This phone has %.0f GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.".format(
-        ramGb,
-    )
 
 @Composable
 fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings: (() -> Unit)? = null, vm: StatusViewModel = koinViewModel()) {
@@ -199,7 +187,7 @@ fun StatusContent(
     val status =
         readingStatus
             ?: progress?.let {
-                ReadingPolicy.decide(it, if (prefs.paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, false)
+                ReadingPolicy.decide(it, if (prefs.paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, DeviceWords.ANDROID)
             }
 
     Scaffold(
@@ -238,7 +226,7 @@ fun StatusContent(
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
                     Text(status?.title ?: "Checking your files…", style = MaterialTheme.typography.headlineSmall)
                     status?.detail?.let { Muted(it) }
-                    Text(Format.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.titleMedium.tabular())
+                    Text(Words.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.titleMedium.tabular())
                     Muted("${Format.count(progress?.waiting ?: 0)} waiting to read")
                     if ((progress?.notScheduled ?: 0) > 0) {
                         Muted("${Format.count(waiting)} scheduled · ${Format.count(progress?.notScheduled ?: 0)} not scheduled")
@@ -263,7 +251,7 @@ fun StatusContent(
                 if (skipped > 0) {
                     ListItem(
                         headlineContent = {
-                            Text(if (skipped == 1L) "Couldn’t read 1 file" else "Couldn’t read ${Format.count(skipped)} files")
+                            Text("Couldn’t read ${Words.files(skipped)}")
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -383,7 +371,3 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
     }
     Button(onClick = actions.allowAllFiles, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Allow access to all files") }
 }
-
-/** Both screens display this title from core's phase, with the platform's reason for waiting. */
-internal fun readingTitle(progress: ReadingProgress, paused: Boolean, index: IndexState, dismissed: Boolean): String =
-    ReadingPolicy.decide(progress, if (paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, false).title

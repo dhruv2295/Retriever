@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.core.Kind
+import app.retriever.core.Words
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
@@ -49,7 +50,7 @@ internal fun LibraryHero(ui: HomeUi, go: (Route) -> Unit, status: @Composable ()
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Your files", style = MaterialTheme.typography.titleMedium)
                 Text("${Format.count(ui.progress.libraryTotal)} files in your library", style = MaterialTheme.typography.headlineSmall.tabular())
-                Text(Format.readCount(ui.contentRead, ui.partlyRead), style = MaterialTheme.typography.bodyMedium.tabular())
+                Text(Words.readCount(ui.contentRead, ui.partlyRead), style = MaterialTheme.typography.bodyMedium.tabular())
             }
             status()
         }

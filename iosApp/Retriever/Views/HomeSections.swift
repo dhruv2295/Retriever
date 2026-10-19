@@ -28,7 +28,7 @@ struct SectionLink: View {
             .textCase(nil)
         }
         .accessibilityElement(children: .ignore)
-        // Spoken with commas, not the visual dot: "Screenshots, 158, Ready".
+        // Spoken with commas, not the visual dot: "Screenshots, 158, 40 waiting to read".
         .accessibilityLabel("\(title), \(subtitle.replacingOccurrences(of: " · ", with: ", "))")
         .accessibilityHint("Shows all")
         .accessibilityAddTraits(.isHeader)
@@ -273,7 +273,7 @@ struct DocStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(Format.kind(file.kind)), \(file.name), \(Copy.cardLine(file))")
+                    .accessibilityLabel("\(Words.shared.kindLabel(kind: file.kind)), \(file.name), \(Copy.cardLine(file))")
                     .resultActions(file, starred: starred.contains(file.uri), nil)
                 }
             }
@@ -437,7 +437,7 @@ struct StarredStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(Format.kind(file.kind)), \(file.name), starred")
+                    .accessibilityLabel("\(Words.shared.kindLabel(kind: file.kind)), \(file.name), starred")
                     .resultActions(file, starred: starred.contains(file.uri), nil)
                 }
             }
@@ -470,7 +470,7 @@ struct HomeTile: Equatable, Identifiable {
     let icon: String
     let title: String
     let count: Int
-    /// Reading progress, or "Found by name".
+    /// Core's reading line: "{N} waiting to read" or "Name only".
     let detail: String?
     let route: Route
     var unit: String { id == "folders" ? "" : "files" }
@@ -480,14 +480,12 @@ struct HomeTile: Equatable, Identifiable {
     /// Videos, Documents (only beside PDFs, whose header opens PDFs), Audio, Other files, Folders; each with files in it.
     /// `foldersAlways`: a sidebar keeps Folders even when empty, since it is where a folder gets added.
     @MainActor static func make(_ snap: AppModel.Snap, folders: Int, foldersAlways: Bool = false) -> [HomeTile] {
-        let reading = snap.pending > 0
-        let kinds: [(Kind, String)] = [(.video, "Videos"), (.doc, "Documents"), (.audio, "Audio"), (.other, "Other files")]
-        let tiles = kinds.compactMap { kind, title -> HomeTile? in
+        let tiles = [Kind.video, .doc, .audio, .other].compactMap { kind -> HomeTile? in
             let total = snap.byKind[kind] ?? 0
             guard total > 0, kind != .doc || (snap.byKind[.pdf] ?? 0) > 0 else { return nil }
+            let title = Words.shared.kindLabelPlural(kind: kind)
             return HomeTile(
-                id: title, icon: Format.icon(kind), title: title, count: total,
-                detail: Copy.kindProgress(kind, total: total, pending: snap.pendingByKind[kind] ?? 0, reading: reading, readInside: snap.reads(kind)),
+                id: title, icon: Format.icon(kind), title: title, count: total, detail: snap.kindProgress([kind]),
                 route: .files(FileQuery(kind: kind, title: title)))
         }
         guard folders > 0 || foldersAlways else { return tiles }
@@ -498,6 +496,12 @@ struct HomeTile: Equatable, Identifiable {
 extension AppModel.Snap {
     /// Whether this phone reads inside files of `kind` (else they are found by name).
     func reads(_ kind: Kind) -> Bool { kind != .audio && kinds.contains(kind) && (!textOnly || Self.insideTextOnly.contains(kind)) }
+
+    /// A section's reading line, by core's rule for mixed sections such as Documents.
+    func kindProgress(_ kinds: [Kind]) -> String? {
+        Words.shared.kindProgress(
+            kinds: kinds, inside: Set(Kind.entries.filter(reads)), pending: pendingByKind.mapValues { KotlinLong(value: Int64($0)) })
+    }
 }
 
 /// Two tiles to a row, one at accessibility sizes.
@@ -519,7 +523,8 @@ struct HomeTiles: View {
                         Spacer()
                         Image(systemName: "chevron.right").accessibilityHidden(true)
                     }.frame(minHeight: 44).padding(.vertical, 8).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel([tile.title, "\(Copy.count(tile.count)) \(tile.unit)", tile.detail].compactMap { $0 }.joined(separator: ", "))
+                }.buttonStyle(.plain).accessibilityLabel(
+                    [tile.title, "\(Copy.count(tile.count)) \(tile.unit)", tile.detail].compactMap { $0 }.joined(separator: ", "))
             }
         }.padding(.horizontal, gutter)
 
@@ -569,14 +574,13 @@ struct ReadingChoice: View {
     @State private var selected = 0
 
     private var continuation: String {
-        if #available(iOS 26.0, *) { "Can continue after you leave if iOS allows." }
-        else { "Keep Retriever open for this session." }
+        if #available(iOS 26.0, *) { "Can continue after you leave if iOS allows." } else { "Keep Retriever open for this session." }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search inside more files").font(.title2.bold()).accessibilityAddTraits(.isHeader)
-            Text(Copy.commitRest(files: files))
+            Text(Words.shared.moreFiles(files: files.map { KotlinLong(value: Int64($0)) }))
             Text("From your selected photos and folders").font(.subheadline)
             Note(Copy.commitNights)
             Text("When should Retriever read them?").font(.headline)
@@ -584,10 +588,12 @@ struct ReadingChoice: View {
             let details = [
                 "Recommended. Reads while charging when Retriever is open, and in the background when iOS allows.",
                 "Uses battery and may warm your phone. Then continues while charging. Stops after 15 minutes, or sooner if needed. " + continuation,
-                "Keep searching names and the content read so far. Choose a schedule later."
+                "Keep searching names and the content read so far. Choose a schedule later.",
             ]
             ForEach(0..<3, id: \.self) { index in
-                Button { selected = index } label: {
+                Button {
+                    selected = index
+                } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: selected == index ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
@@ -599,7 +605,11 @@ struct ReadingChoice: View {
                 }.buttonStyle(.plain).accessibilityAddTraits(selected == index ? .isSelected : [])
             }
             Button {
-                switch selected { case 0: charging(); case 1: readNow(); default: notNow() }
+                switch selected {
+                case 0: charging()
+                case 1: readNow()
+                default: notNow()
+                }
             } label: {
                 Text(["Use this schedule", "Start reading", "Go to Home"][selected]).frame(maxWidth: .infinity)
             }.buttonStyle(.borderedProminent).controlSize(.large)
@@ -613,10 +623,21 @@ struct CommitSheet: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         ScrollView {
-            ReadingChoice(files: model.snap?.waiting ?? waiting,
-                charging: { model.commit(whileCharging: true); dismiss() },
-                readNow: { model.commit(whileCharging: false); dismiss() },
-                notNow: { model.decideLater(); dismiss() }).padding(24)
+            ReadingChoice(
+                files: model.snap?.waiting ?? waiting,
+                charging: {
+                    model.commit(whileCharging: true)
+                    dismiss()
+                },
+                readNow: {
+                    model.commit(whileCharging: false)
+                    dismiss()
+                },
+                notNow: {
+                    model.decideLater()
+                    dismiss()
+                }
+            ).padding(24)
         }.scrollBounceBehavior(.basedOnSize).presentationDetents([.large])
     }
 }
