@@ -34,7 +34,9 @@ data class Prefs(
     val showOnThisDay: Boolean = true,
     val readingCycle: Long = 0,
     val dismissedReadingCycle: Long = -1,
-
+    /** The person has run a search; Home offers the meaning upgrade only after that. */
+    val searchTried: Boolean = false,
+    val upgradeOfferDismissed: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

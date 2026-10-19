@@ -62,6 +62,7 @@ import app.retriever.indexing.IndexService
 import app.retriever.model.Calibrator
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
+import app.retriever.model.UpgradeFlow
 import app.retriever.search.LaunchQuery
 import app.retriever.search.RecentShortcuts
 import app.retriever.search.SearchViewModel
@@ -225,15 +226,28 @@ val appModule = module {
     single {
         val app = androidContext()
         val calibrator = get<Calibrator>()
-        SetupFlow(
-            get(), get(), get(), get(), get(), get(AppScope),
+        UpgradeFlow(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(AppScope),
             onMeteredNetwork = { app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
+            calibrate = { calibrator.calibrate(tuneAgain = false) },
+        )
+    }
+    single {
+        val app = androidContext()
+        SetupFlow(
+            get(),
+            get(),
+            get(),
+            get(AppScope),
             // Below Android 13 notifications need no permission, so there is nothing to ask.
             notificationsGranted = {
                 Build.VERSION.SDK_INT < 33 ||
                     ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             },
-            calibrate = { calibrator.calibrate(tuneAgain = false) },
         )
     }
 

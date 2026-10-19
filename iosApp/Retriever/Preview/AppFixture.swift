@@ -6,9 +6,17 @@ import SwiftUI
 
 /// Pinned for screenshots and previews: each case is a whole-app state, no index needed.
 enum AppFixture {
-    case firstRun, photosLimited, photosDenied
+    /// Setup: the welcome, then access with nothing chosen, limited or denied Photos, or a folder added.
+    case firstRun, access, photosLimited, photosDenied, folderAdded
+    /// Setup's sample read with no download: reading, paused, or done; then Try and the choice of when to read more.
+    case sampleReading, samplePaused, sampleDone
+    case trying(suggestions: Bool)
+    case choosing
+    /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
+    case noModel
     case downloading(Double)
     case waitingForWifi, downloadFailed, tuning
+    case meaning(Int)
     case reading(done: Int, total: Int)
     case caughtUp, paused
     case skipped(Int)
@@ -25,49 +33,65 @@ extension AppModel {
         var photos = PHAuthorizationStatus.authorized
         var download: (ModelDownload.State, Double) = (.ready, 1)
         var tune = Tune.done(Copy.tuneSummary(.cpu, imageMs: 410))
-        var started = true
+        var setup = SetupInputs(mark: .accessChosen, skipped: false, decided: true, planned: 0, accessGiven: false)
+        var folders = ["Work"]
+        var modelMissing = false
         var skipped: [SkippedFile] = []
-        func gettingReady() {
-            snap.setUp = false
-            snap.indexed = 0
-            snap.pending = 3_142
-            snap.lastStop = nil
-            tune = .idle
+        var taste = TasteSnap()
+        var suggestions = ["wifi password", "boarding pass", "electricity bill"]
+        let files = Self.readingFiles
+        /// Before access is chosen: nothing read, no download.
+        func inSetup(_ mark: SetupMark, _ access: PHAuthorizationStatus, folders picked: [String] = []) {
+            (snap.setUp, snap.indexed, snap.pending, snap.lastStop, snap.accessChosen) = (false, 0, 0, nil, false)
+            (photos, download, tune, modelMissing, folders) = (access, (.idle, 0), .idle, true, picked)
+            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 0, accessGiven: false)
+        }
+        /// The sample, read with no download: 30 of 54 files so far.
+        func inSample(_ mark: SetupMark, done: Bool = false) {
+            (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, done ? 54 : 30, done ? 0 : 24, 3_088, true)
+            (download, tune, modelMissing) = ((.idle, 0), .idle, true)
+            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 54, accessGiven: false)
+            taste = TasteSnap(
+                counts: [
+                    .screenshot: .init(read: 6, planned: 6), .pdf: .init(read: done ? 8 : 4, planned: 8),
+                    .photo: .init(read: done ? 40 : 20, planned: 40),
+                ], readyToTry: true, pending: done ? 0 : 24)
+            snap.reading = ReadingPreview(current: done ? nil : files[0], recent: Array(files.dropFirst()))
+        }
+        /// Set up and read with no download: the meaning upgrade is still to come.
+        func withoutModel(_ state: (ModelDownload.State, Double)) {
+            (snap.setUp, modelMissing, download, tune) = (false, true, state, .idle)
         }
         switch fixture {
-        case .firstRun:
-            gettingReady()
-            (photos, started, download) = (.notDetermined, false, (.idle, 0))
-        case .photosLimited:
-            gettingReady()
-            photos = .limited
-            download = (.downloading, 0.12)
-        case .photosDenied:
-            gettingReady()
-            (photos, download) = (.denied, (.downloading, 0.05))
-        case .downloading(let p):
-            gettingReady()
-            download = (.downloading, p)
-        case .waitingForWifi:
-            gettingReady()
-            download = (.waitingForWifi, 0)
-        case .downloadFailed:
-            gettingReady()
-            download = (.failed("The download stopped: The Internet connection appears to be offline. It picks up where it left off when you try again."), 0.41)
+        case .firstRun: inSetup(.none, .notDetermined)
+        case .access: inSetup(.started, .notDetermined)
+        case .photosLimited: inSetup(.started, .limited)
+        case .photosDenied: inSetup(.started, .denied)
+        case .folderAdded: inSetup(.started, .notDetermined, folders: ["Work"])
+        case .sampleReading: inSample(.accessChosen)
+        case .samplePaused:
+            inSample(.accessChosen)
+            snap.reading.current = nil
+            snap.reading.pauseReason = "Paused while you use other apps. It carries on when you come back."
+        case .sampleDone: inSample(.accessChosen, done: true)
+        case .trying(let offered):
+            inSample(.trying, done: true)
+            if !offered { suggestions = [] }
+        case .choosing: inSample(.choosing, done: true)
+        case .noModel: withoutModel((.idle, 0))
+        case .downloading(let p): withoutModel((.downloading, p))
+        case .waitingForWifi: withoutModel((.waitingForWifi, 0))
+        case .downloadFailed: withoutModel((.failed(Words.shared.DOWNLOAD_FAILED), 0.41))
         case .tuning:
-            gettingReady()
-            tune = .running
+            withoutModel((.ready, 1))
+            (modelMissing, tune) = (false, .running)
+        case .meaning(let n): snap.meaningWaiting = n
         case .reading(let done, let total):
             (snap.indexed, snap.pending, snap.running, snap.lastStop) = (done, total - done, true, nil)
             (snap.processed, snap.pendingAtStart, snap.filesPerMinute) = (120, total - done + 120, 38)
             snap.etaMinutes = Int((Double(total - done) / 38).rounded(.up))
             snap.pendingByKind = [.photo: total - done]
             snap.current = "Photo 2026-09-14 at 18.42.07"
-            let files = (1...8).map { i in
-                SourceFile(
-                    uri: "folder://fixture/reading-\(i)", name: "Photo \(i).jpg", folder: "Photos", mime: "image/jpeg", kind: .photo,
-                    size: 240_000, modifiedAt: 1_760_000_000_000, takenAt: nil)
-            }
             snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
             snap.tailFiles = 3
             snap.partlyRead = 3
@@ -79,6 +103,8 @@ extension AppModel {
         case .textOnly(let ramGb):
             (snap.textOnly, snap.ramGb, snap.byKind) = (true, ramGb, [.pdf: 64, .doc: 31, .photo: 0])
             (download, tune) = ((.idle, 0), .idle)
+            // Setup shows its welcome, with what this phone reads; Status ignores setup.
+            setup = SetupInputs(mark: .none, skipped: false, decided: false, planned: 0, accessGiven: false)
         case .paused:
             (snap.indexed, snap.pending, snap.paused, snap.lastStop) = (1_904, 1_238, true, .paused)
             snap.pendingByKind = [.photo: 1_238]
@@ -94,7 +120,9 @@ extension AppModel {
         }
         snap.readByKind = snap.byKind.mapValues { $0 }
         for (kind, pending) in snap.pendingByKind { snap.readByKind[kind] = max(0, (snap.byKind[kind] ?? 0) - pending) }
-        self.init(snap: snap, photos: photos, download: download, tune: tune, started: started, skipped: skipped)
+        snap.prefs = Self.prefs(searchTried: true)
+        self.init(snap: snap, photos: photos, download: download, tune: tune, setup: setup, folders: folders, modelMissing: modelMissing, skipped: skipped)
+        fixtureTaste = taste
         func file(_ name: String, _ kind: Kind, _ folder: String, size: Int64, daysAgo: Double) -> SourceFile {
             SourceFile(
                 uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: size,
@@ -111,8 +139,42 @@ extension AppModel {
             newDocs: docs,
             starred: [docs[0], docs[2]], starredCount: 2,
             folders: 12, largeCount: 4, largeBytes: 6_400_000_000, nameOnly: 0, topFolders: [])
+        // Photos never says a size on iOS; folder files do.
+        kindTotals = snap.byKind.filter { $0.value > 0 }.mapValues { n in
+            FileTotals(files: Int64(n), knownBytes: 0, unknownSizes: Int64(n))
+        }
+        .merging([.pdf: FileTotals(files: 64, knownBytes: 120_000_000, unknownSizes: 0), .doc: FileTotals(files: 31, knownBytes: 8_400_000, unknownSizes: 0)]) {
+            _, folder in folder
+        }
+        folderTotals = [
+            FolderTotals(path: "Retriever/Download", totals: FileTotals(files: 64, knownBytes: 120_000_000, unknownSizes: 0)),
+            FolderTotals(path: "Retriever/Documents", totals: FileTotals(files: 31, knownBytes: 8_400_000, unknownSizes: 0)),
+        ]
         storage = Storage(index: 412_000_000, model: ModelVariant.m440.generic.sizeBytes, cache: 38_000_000)
         starred = ["folder://fixture/Lease agreement 2026.pdf", "folder://fixture/Trip itinerary.docx"]
-        suggestions = ["wifi password", "boarding pass", "electricity bill"]
+        self.suggestions = suggestions
+    }
+
+    /// What reading shows: the file being read, then the newest read. A mix of kinds, as a sample reads them.
+    private static let readingFiles: [SourceFile] = (1...8).map { i in
+        let (name, kind, mime) =
+            switch i {
+            case 3: ("Lease notes.docx", Kind.doc, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            case 4: ("Electricity bill.pdf", .pdf, "application/pdf")
+            case 5: ("Screenshot \(i).png", .screenshot, "image/png")
+            default: ("Photo \(i).jpg", .photo, "image/jpeg")
+            }
+        return SourceFile(
+            uri: "folder://fixture/reading-\(i)", name: name, folder: "Photos", mime: mime, kind: kind, size: 240_000, modifiedAt: 1_760_000_000_000,
+            takenAt: nil)
+    }
+
+    /// Prefs as a fresh install keeps them, with a first search made.
+    private static func prefs(searchTried: Bool) -> Prefs {
+        Prefs(
+            kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, readNowUntil: 0, nameSearchHintDismissed: false,
+            scheduleOfferDismissed: false, excludedFolders: [], paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
+            dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
+            dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false)
     }
 }

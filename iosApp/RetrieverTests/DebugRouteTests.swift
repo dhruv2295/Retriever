@@ -6,11 +6,14 @@
     @MainActor
     final class DebugRouteTests: XCTestCase {
         private static let fixtureRoutes: [(raw: String, fixture: String)] = [
-            ("setup.welcome", "firstRun"), ("setup.photos", "firstRun"), ("setup.limited", "photosLimited"),
-            ("setup.denied", "photosDenied"), ("setup.folders", "downloading(0.08)"), ("setup.download", "downloading(0.34)"),
-            ("setup.waitingWifi", "waitingForWifi"), ("setup.failed", "downloadFailed"), ("setup.tuning", "tuning"),
-            ("setup.reading", "reading(done: 1204, total: 5310)"), ("setup.readingPaused", "reading(done: 1204, total: 5310)"),
+            ("setup.welcome", "firstRun"), ("setup.photos", "access"), ("setup.limited", "photosLimited"),
+            ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"),
+            ("setup.reading", "sampleReading"), ("setup.readingPaused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
+            ("setup.try", "trying(suggestions: true)"), ("setup.tryNoSuggestions", "trying(suggestions: false)"), ("setup.choose", "choosing"),
             ("setup.textOnly", "textOnly(ramGb: 3.0)"),
+            ("upgrade.offer", "noModel"), ("upgrade.download", "downloading(0.34)"), ("upgrade.waitingWifi", "waitingForWifi"),
+            ("upgrade.failed", "downloadFailed"), ("upgrade.tuning", "tuning"), ("upgrade.meaning", "meaning(1204)"),
+            ("home.upgrade", "noModel"), ("search.noModel", "noModel"),
             ("status.reading", "reading(done: 1204, total: 5310)"), ("status.caughtUp", "caughtUp"),
             ("status.paused", "paused"), ("status.skipped", "skipped(6)"),
             ("status.textOnly", "textOnly(ramGb: 3.0)"), ("status.tailFiles", "tailFiles(12)"),
@@ -59,6 +62,8 @@
 
         func testUnknownRouteDoesNotParse() {
             XCTAssertNil(DebugRoute(rawValue: "setup.nowhere"))
+            // The download left onboarding for the meaning upgrade.
+            XCTAssertNil(DebugRoute(rawValue: "setup.download"))
             // Browse was folded into Home; its old route names are gone.
             XCTAssertNil(DebugRoute(rawValue: "browse"))
         }

@@ -106,19 +106,19 @@ class SearchViewModelTest {
 
     @After fun tearDown() = Dispatchers.resetMain()
 
-    @Test fun scopeKeepsEverySearchInsideThePlannedFiles() = runTest {
+    /** Try: names cover the whole library; the words inside, only the sample. */
+    @Test fun scopeKeepsTheWordsInsideThePlannedFilesAndNamesEverywhere() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         vm.setQuery("bill")
         val everything = vm.ui.first { it.hits?.size == 60 }.hits!!
         val planned = everything.take(3).map { it.fileId }
         vm.setScope(planned)
-        // Both the names answer and the full one carry the ids: whichever answers, nothing else is in it.
-        val names = vm.ui.first { it.scope == planned && it.hits != null && it.question.scope == planned }
-        assertEquals(planned.toSet(), names.hits!!.map { it.fileId }.toSet())
-        val full = vm.ui.first { it.question.scope == planned && it.done }
-        assertEquals(planned.toSet(), full.hits!!.map { it.fileId }.toSet())
-        assertEquals("Closest in these 3 files", Words.closestIn(planned.size.toLong()))
+        val full = vm.ui.first { it.question.scope == planned && it.done }.hits!!
+        assertTrue(full.map { it.fileId }.containsAll(planned))
+        // Outside the sample, a file is found by its name only.
+        assertTrue(full.filter { it.fileId !in planned }.all { it.byName })
+        assertEquals("Searching inside 3 sample files", Words.searchingSample(planned.size.toLong()))
         vm.setScope(null)
         assertEquals(60, vm.ui.first { it.scope == null && it.done && (it.hits?.size ?: 0) == 60 }.hits!!.size)
     }

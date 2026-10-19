@@ -85,6 +85,7 @@ import app.retriever.core.motion.MascotMood
 import app.retriever.core.showsEmpty
 import app.retriever.home.HomeUi
 import app.retriever.motion.Mascot
+import app.retriever.nav.SettingsRoute
 import app.retriever.ui.Format
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
@@ -164,7 +165,7 @@ internal fun Results(
     }
     if (scope != null) {
         Column(Modifier.padding(horizontal = edge, vertical = 8.dp)) {
-            Text(Words.closestIn(scope.size.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            Text(Words.searchingSample(scope.size.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             if (ui.unread >
                 0
             ) {
@@ -189,12 +190,17 @@ internal fun Results(
             )
         }
     }
+    val hits = shown?.hits.orEmpty()
     val note = when {
+        // Name matches are up; the words inside are still being searched.
+        ui.searching && hits.isNotEmpty() && !stale -> Words.SEARCHING_CONTENTS
+
         ui.similar != null && !ui.vectorLane -> "Search by photo works once setup finishes."
-        !ui.setUp -> "Matching file names only until setup finishes."
-        !ui.vectorLane && ui.textOnly -> "Retriever finds files here by their names and the words inside them."
-        !ui.vectorLane && ui.modelMissing -> "Matching names and words. Download the search model again in Settings to search by meaning."
+
+        ui.wordsOnly -> Words.WORDS_ONLY
+
         !ui.vectorLane -> "Matching exact words for now. Results by meaning will be back shortly."
+
         else -> null
     }
     note?.let {
@@ -205,7 +211,10 @@ internal fun Results(
             modifier = Modifier.padding(horizontal = edge, vertical = 8.dp),
         )
     }
-    val hits = shown?.hits.orEmpty()
+    // Few results without the model: one line to the upgrade, in Settings' Storage and downloads.
+    Words.upgradeHint(hits.size, ui.upgrade).takeIf { results != null && !ui.searching && ui.similar == null }?.let {
+        TextButton(onClick = { actions.onNavigate(SettingsRoute) }, modifier = Modifier.padding(horizontal = edge - 12.dp)) { Text(it) }
+    }
     val chip = ui.chip
     val mood = if (ui.quietNoMatch) MascotMood.NO_MATCH_QUIET else MascotMood.NO_MATCH
     val searchAll = {
@@ -217,10 +226,10 @@ internal fun Results(
     when {
         phase is SearchPhase.Failed && !stale -> Message {
             EmptyState(
-                "Search hit a snag",
+                Words.SEARCH_FAILED,
                 "Something went wrong. Try again.",
                 R.drawable.ic_warning_amber,
-                action = "Try again" to actions.onRetry,
+                action = Words.TRY_AGAIN to actions.onRetry,
                 mood = MascotMood.TROUBLE,
             )
         }
@@ -242,16 +251,14 @@ internal fun Results(
 
         empty -> Message {
             val words = q.split(Regex("\\s+"))
-            val unread = Format.count(ui.unread.toLong())
-            val read = "${Format.count(home.contentRead)} of ${Format.count(home.counts?.values?.sum() ?: 0L)}"
-            val message = when {
-                scope != null && ui.unread > 0 -> "Nothing yet. Retriever is still reading $unread more files, so try again in a moment, or try other words."
-                scope != null -> "Nothing for “$q” in these files. Try other words."
-                home.waiting > 0 -> "Retriever has read $read files so far. Try again later, or try other words."
-                else -> "Try other or fewer words."
-            }
+            val waiting = if (scope != null) ui.unread > 0 else home.waiting > 0
+            val message = listOfNotNull(
+                Words.NO_MATCHES_DETAIL,
+                Words.MORE_WAITING.takeIf { waiting },
+                Words.SEARCHING_WITHOUT_MODEL.takeIf { ui.wordsOnly },
+            ).joinToString(" ")
             EmptyState(
-                "No matches for “$q”",
+                Words.NO_MATCHES,
                 message,
                 R.drawable.ic_search_off,
                 action = if (words.size >= 2) "Try fewer words" to { useText(words.dropLast(1).joinToString(" ")) } else null,
@@ -453,7 +460,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     onLongClick = menu,
                     onLongClickLabel = "More options",
                 )
-                hit.matchReason?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                hit.reason?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             }
         }
     }
@@ -484,7 +491,7 @@ private fun LazyGridScope.docSection(
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
-                readNote = listOfNotNull(hit.matchReason, Words.extent(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
+                readNote = listOfNotNull(hit.reason, Words.extent(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
                 onLongClick = menu,
                 onLongClickLabel = "More options",
                 onClick = { act.open(hit) },
@@ -499,3 +506,6 @@ private fun Modifier.bleed(by: Dp): Modifier = layout { measurable, constraints 
     val placeable = measurable.measure(constraints.copy(minWidth = constraints.minWidth + extra, maxWidth = constraints.maxWidth + extra))
     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
 }
+
+/** Why the hit matched, as far as its provenance says: core's reason, or that its name matched. */
+private val SearchEngine.Hit.reason: String? get() = matchReason ?: Words.NAME_MATCHES.takeIf { byName }

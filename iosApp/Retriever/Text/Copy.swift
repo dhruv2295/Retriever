@@ -28,7 +28,7 @@ enum Copy {
     }
 
     static func homeStatus(_ s: AppModel.Snap?) -> HomeStatus? {
-        s.flatMap { ReadingPolicy.shared.homeStatus(setUp: $0.setUp == true, libraryTotal: $0.readProgress.libraryTotal, reading: reading($0)) }
+        s.flatMap { ReadingPolicy.shared.homeStatus(libraryChosen: $0.accessChosen, libraryTotal: $0.readProgress.libraryTotal, reading: reading($0)) }
     }
 
     /// Shown under the status row while Photos access is off or limited; it never takes the status row's place, so
@@ -41,6 +41,16 @@ enum Copy {
                 detail: "Search still works on files already read. Turn it on to search your photos and screenshots too.")
         case .limited:
             PhotosNote(off: false, title: "Retriever sees only the photos you picked", detail: "It can search just those.")
+        default: nil
+        }
+    }
+
+    /// Setup's Photos row: the authorization as it stands; nil before it is asked.
+    static func photosAccess(_ photos: PHAuthorizationStatus) -> String? {
+        switch photos {
+        case .authorized: Words.shared.ALL_PHOTOS
+        case .limited: Words.shared.SELECTED_PHOTOS
+        case .denied, .restricted: "Photos access is off"
         default: nil
         }
     }
@@ -63,6 +73,14 @@ enum Copy {
 
     nonisolated static func bytes(_ n: Int64) -> String {
         Words.shared.keepTogether(size: ByteCountFormatter.string(fromByteCount: n, countStyle: .file))
+    }
+
+    /// Whole megabytes, as a download is quoted: "388 MB".
+    nonisolated static func downloadSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.isAdaptive = false
+        return Words.shared.keepTogether(size: formatter.string(fromByteCount: bytes))
     }
 
     static func addFolderResult(_ result: FolderSource.AddResult) -> String {
@@ -114,30 +132,27 @@ enum Copy {
 
     // MARK: Home sections
 
-    /// A section header's second line: the count, then its reading line from core ("1,716 · 1,200 waiting to read").
-    static func sectionSubtitle(_ n: Int, _ detail: String? = nil) -> String {
-        [count(n), detail].compactMap { $0 }.joined(separator: " · ")
+    /// "120 files · 640 MB", "At least …" or "Size unavailable" (Photos never says its sizes), by core's rule.
+    static func countAndSize(_ totals: FileTotals) -> String {
+        Words.shared.countAndSize(totals: totals, knownSize: bytes(totals.knownBytes))
     }
 
-    /// "22,000 photos · 1,733 videos"; a kind with none is left out.
-    static func mediaSubtitle(photos: Int, videos: Int) -> String {
-        [
-            photos > 0 ? Words.shared.plural(n: Int64(photos), one: "photo", many: "photos") : nil,
-            videos > 0 ? Words.shared.plural(n: Int64(videos), one: "video", many: "videos") : nil,
-        ].compactMap { $0 }.joined(separator: " · ")
+    /// The files of these kinds as one group: Home's sections cover one kind or two.
+    static func totals(_ kinds: [Kind], in byKind: [Kind: FileTotals]) -> FileTotals {
+        let parts = kinds.compactMap { byKind[$0] }
+        return FileTotals(
+            files: parts.reduce(0) { $0 + $1.files }, knownBytes: parts.reduce(0) { $0 + $1.knownBytes },
+            unknownSizes: parts.reduce(0) { $0 + $1.unknownSizes })
     }
 
-    /// "1,591 PDFs · 125 documents"; a kind with none is left out.
-    static func documentsSubtitle(pdfs: Int, docs: Int, detail: String? = nil) -> String {
-        [
-            pdfs > 0 ? Words.shared.plural(n: Int64(pdfs), one: "PDF", many: "PDFs") : nil,
-            docs > 0 ? Words.shared.plural(n: Int64(docs), one: "document", many: "documents") : nil, detail,
-        ].compactMap { $0 }.joined(separator: " · ")
+    /// A section header's second line: count and size, then its reading line from core ("812 files · 1.2 GB · 40 waiting to read").
+    static func sectionSubtitle(_ totals: FileTotals, _ detail: String? = nil) -> String {
+        [countAndSize(totals), detail].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// The mosaic's reading pill.
-    static func photosToGo(_ n: Int, paused: Bool) -> String {
-        "\(count(n)) to go" + (paused ? " · Paused" : "")
+    /// The mosaic's reading pill: "14,700 waiting to read".
+    static func photosWaiting(_ n: Int, paused: Bool) -> String {
+        Words.shared.waitingToRead(files: Int64(n)) + (paused ? " · Paused" : "")
     }
 
     /// "Today · 2.1 MB" under a document's page.
@@ -145,106 +160,10 @@ enum Copy {
         [day(f.modifiedAt), bytes(f.size)].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    // MARK: First run (onboarding-spec section 4)
+    // MARK: Setup
 
-    static let firstRunHeadline = "Find anything by what's inside it"
-    static let firstRunWelcomeBody =
-        "Search your photos, screenshots, PDFs and documents in your own words. Everything is read on this \(device) and stays on it."
-    static let firstRunTry = "Try it on a few files first"
-    static let firstRunReadAll = "Read everything now"
-    static let firstRunTextOnlyTime = "Ready in a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
-    static func firstRunExamples(textOnly: Bool) -> [String] {
-        let examples = ["“sunset at the beach”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”"]
-        return textOnly ? Array(examples.dropFirst()) : examples
-    }
-
-    nonisolated static func downloadSize(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        formatter.isAdaptive = false
-        return Words.shared.keepTogether(size: formatter.string(fromByteCount: bytes))
-    }
-
-    static func firstRunTime(size: String?) -> String {
-        "A one-time \(size.map { "\($0) " } ?? "")download, then a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
-    }
-
-    static let firstRunMobileDataTitle = "Download over mobile data?"
-    static let firstRunUseMobileData = "Use mobile data"
-    static let firstRunWaitForWifi = "Wait for Wi-Fi"
-    static func firstRunMobileDataMessage(size: String?) -> String {
-        "The download is \(size ?? "large"). On Wi-Fi it won't use your data."
-    }
-
-    static let firstRunAccessTitle = "Allow access to your files"
-    static let firstRunAllowPhotos = "Allow access to Photos"
-    static let firstRunPhotosNote = "Retriever looks inside your photos and screenshots so you can find them by what's in them."
-    static let firstRunPhotosOff = "Photos access is off, so Retriever can't search your photos. You can turn it on in Settings."
-    static let firstRunLimitedNote = "Retriever can see the photos you picked. Choose more to search them too."
-    static let firstRunAddFolder = "Add a folder"
-    static let firstRunFolderNote = "Files you put in Retriever's folder in the Files app are always included."
-    static let firstRunNothingAllowed = "Nothing is allowed yet. Any one of these is enough to start."
-
-    /// The limited-Photos footnote: what Retriever can see, and where to change it.
-    static func limitedPhotosFootnote(photos: Int, folders: Int) -> String {
-        let pictures = photos == 1 ? "the photo you chose" : "the \(count(photos)) photos you chose"
-        let places = folders == 0 ? "" : folders == 1 ? " and 1 folder" : " and \(count(folders)) folders"
-        return "Retriever can see \(pictures)\(places). You can change this in Settings."
-    }
-
-    /// The access screen's one-line download status.
-    static func firstRunDownloadLine(_ progress: Double) -> String { "Downloading · \(percent(progress)) %" }
-    static func firstRunDownloadA11y(_ progress: Double) -> String { "Downloading, \(percent(progress)) percent" }
-    private static func percent(_ progress: Double) -> Int { Int((progress * 100).rounded()) }
-
-    static let firstRunWaitingTitle = "Getting Retriever ready to read"
-    static let firstRunTuneTitle = "Getting to know this \(device)"
-    static let firstRunTuneBody = "About a minute. Retriever times a few reads to pick the fastest way to run on this \(device)."
-    static let firstRunWhyDownload = "Why this download"
-    static let firstRunUnderstandsTitle = "It understands what's inside"
-    static let firstRunUnderstandsBody = "So “sunset at the beach” finds the photo, even when the file is called IMG_2041."
-    static let firstRunOnDeviceTitle = "It runs on this \(device)"
-    static let firstRunOnDeviceBody = "Everything is read on this \(device) and stays on it. That's why it's big: the whole model lives here."
-    static let firstRunDownloadOnceTitle = "You download it once"
-    static func firstRunDownloadOnceBody(size: String?) -> String {
-        "\(size.map { "\($0), one time." } ?? "A one-time download.") Search works without the internet after this."
-    }
-    static let firstRunWhileWaiting = "While you wait"
-    static let firstRunTuneFailed = "Couldn't finish getting to know this \(device)."
-    static let firstRunWaitingForWifi = "Waiting for Wi-Fi. It starts by itself when you're on Wi-Fi."
-    static let firstRunStopped = "Download stopped."
-    static let firstRunStop = "Stop"
-    static let firstRunChecking = "Checking the download…"
-    static let firstRunDownloaded = "Downloaded"
-    static let firstRunDownload = "Download"
-    static let firstRunTryAgain = "Try again"
-    static let firstRunNamesNow = "You can search file names now."
-    static let firstRunSearchByName = "Search by name"
-    static let firstRunSkip = "Skip"
-    static let firstRunDone = "Retriever is set up."
-    static let firstRunStartSearching = "Start searching"
-
-    static let firstRunReadingHeadline = "Reading a few files to try"
-    static let firstRunReadyToSearch = "Files you can try"
-    static let firstRunTryNow = "Try it now"
-    static let firstRunStaysSearchable = "You can keep searching the content read so far."
-
-    // MARK: Try it and the commit choice (onboarding-spec 2.5, 2.6)
-
-    static let tryItTitle = "Try it on your files"
-    static let tryItWords = "Try your own words: something you remember seeing in a photo or a screenshot."
-    static let tryItWordsTextOnly = "Try a word you remember from a screenshot or a PDF."
-    static let tryItContinue = "Continue"
-    static let tryItDone = "Done"
-
-    static let commitTitle = "Search inside more files"
-    static let commitWhileCharging = "While charging"
-    static let commitNotYet = "Not now"
+    static let filesYouCanTry = "Files you can try"
+    static let tuneFailed = "Couldn't finish setting up reading for this \(device)."
     /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
     static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
-
-    /// iOS 26 and later keep reading after the person leaves; before that, only while the app is open.
-    nonisolated static func commitReadNow(continued: Bool) -> String {
-        "Read now for 15 minutes"
-    }
 }

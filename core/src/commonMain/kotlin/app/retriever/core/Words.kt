@@ -87,7 +87,7 @@ object Words {
         val read = kinds.filter { it in inside && it != Kind.OTHER }
         if (read.isEmpty()) return "Name only"
         val left = read.sumOf { pending[it] ?: 0L }
-        return if (scheduled > 0 && left > 0) "${formatCount(left)} waiting to read" else null
+        return if (scheduled > 0 && left > 0) waitingToRead(left) else null
     }
 
     /** Where a match is, as a screen reader says it: "page 12", "at 1 minute 5 seconds"; null for no place. */
@@ -111,4 +111,141 @@ object Words {
 
     fun textOnlyNote(ramGb: Double, words: DeviceWords): String =
         "This ${words.device} has ${ramGb.roundToInt()}${NBSP}GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them."
+
+    fun waitingToRead(files: Long): String = "${formatCount(files)} waiting to read"
+
+    // Shared actions.
+    const val GO_TO_HOME = "Go to Home"
+    const val CONTINUE = "Continue"
+    const val TRY_AGAIN = "Try again"
+    const val DOWNLOAD = "Download"
+    const val NOT_NOW = "Not now"
+    const val CANCEL = "Cancel"
+
+    // Welcome. No download note: reading needs none.
+    const val WELCOME_TITLE = "Find files by what’s inside"
+    const val GET_STARTED = "Get started"
+    const val SEARCH_BY_NAME = "Search by name"
+
+    fun welcomeBody(words: DeviceWords): String = "Remember what it says or shows, even if you’ve forgotten the name. Reading happens on this ${words.device}."
+
+    // Access.
+    const val CHOOSE_ACCESS = "Choose what Retriever can search"
+    const val ACCESS_BODY = "You can change this later. Files inside other apps’ private storage aren’t available."
+    const val FILES_AND_FOLDERS = "Files and folders"
+    const val SHARED_FILES_AND_FOLDERS = "Shared files and folders"
+    const val PHOTOS_AND_VIDEOS = "Photos and videos"
+    const val CHOOSE_FILE_ACCESS = "Choose file access"
+    const val ADD_FOLDER = "Add a folder"
+    const val FOLDERS = "Folders"
+    const val SELECTED_PHOTOS = "Selected photos"
+    const val ALL_PHOTOS = "All photos"
+    const val CHOOSE_MORE_PHOTOS = "Choose more photos"
+    const val ONLY_SELECTED_PHOTOS = "Only the photos you selected are included."
+    const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
+
+    // The sample.
+    const val SAMPLE_TITLE = "Reading a few files to try"
+    const val SAMPLE_STARTING = "Starting with a few of your files…"
+    const val READING_NOW = "Reading now"
+    const val TRY_SEARCH = "Try search"
+    const val PREVIEW_UNAVAILABLE = "Preview unavailable"
+
+    fun seeAll(files: Long): String = "See all ${files(files)}"
+
+    /**
+     * The sample's time line, only while it reads: the usual time, then, past the sample's batch, that it is slow here.
+     * Null when paused or done, so no stale time is left on screen.
+     */
+    fun sampleTime(reading: Boolean, elapsedMs: Long, words: DeviceWords): String? = when {
+        !reading -> null
+        elapsedMs > Retriever.TASTE_BATCH.inWholeMilliseconds -> "This is taking longer on your ${words.device}. You can try the files read so far."
+        else -> "Usually 1–2 minutes. You can try search before this finishes."
+    }
+
+    /** For a screen reader, never on screen: "12 of 40 photos read". */
+    fun kindRead(read: Long, planned: Long, kind: Kind): String =
+        "${formatCount(read)} of ${formatCount(planned)} ${kindLabelPlural(kind).let { if (kind == Kind.PDF) it else it.lowercase() }} read"
+
+    // Try.
+    const val TRY_TITLE = "Try searching inside"
+    const val TRY_BODY = "Describe something you remember, or choose a suggestion."
+    const val TRY_WITHOUT_SUGGESTIONS = "Open a file, then try a word you remember from it."
+    const val CHOOSE_WHEN = "Choose when to read more"
+
+    /** Names are searched everywhere; this says where the words inside are. */
+    fun searchingSample(files: Long): String = "Searching inside ${plural(files, "sample file")}"
+
+    // Search.
+    const val SEARCH_FIELD = "Search your files"
+    const val NAME_SEARCH_HINT = "You can search every file by name"
+    const val NAME_MATCHES = "Name matches"
+    const val TEXT_MATCHES = "Text matches"
+    const val RELATED = "Related to your search"
+    const val WORDS_ONLY = "Words only"
+    const val SEARCHING_CONTENTS = "Searching file contents…"
+    const val NO_MATCHES = "No matches yet"
+    const val NO_MATCHES_DETAIL = "Try another description or a file name."
+    const val MORE_WAITING = "More files are waiting to be read."
+    const val SEARCH_FAILED = "Search couldn’t finish"
+    const val SHOWING_NAME_MATCHES = "Showing name matches"
+    const val SEARCHING_WITHOUT_MODEL = "Searching names and text already read"
+
+    /** Results this few, without the model, earn the one-line upgrade hint. */
+    const val FEW_RESULTS = 3
+
+    fun matches(labels: List<String>): String = "Matches: " + labels.joinToString(", ")
+
+    fun searchHint(textOnly: Boolean): String =
+        if (textOnly) "Try a file name or words from a document." else "Try a file name, words from a document, or something in a photo."
+
+    /** The one-line hint under few results while the upgrade is on offer; null otherwise. */
+    fun upgradeHint(results: Int, upgrade: UpgradeStage): String? =
+        "Download for meaning search".takeIf { upgrade == UpgradeStage.OFFER && results < FEW_RESULTS }
+
+    // Home and More on your phone.
+    const val YOUR_FILES = "Your files"
+    const val READING_STATUS = "Reading status"
+    const val MORE_ON_PHONE = "More on your phone"
+    const val MORE_ON_PHONE_BODY = "Files Retriever can access"
+    const val ALL_FOLDERS = "All folders"
+
+    fun inLibrary(files: Long): String = "${files(files)} in your library"
+
+    /** "120 files · 640 MB", "At least" when some sizes are unknown, "Size unavailable" when none is known. [knownSize]: the platform's format of [FileTotals.knownBytes]. */
+    fun countAndSize(totals: FileTotals, knownSize: String): String = files(totals.files) + " · " + when {
+        totals.unknownSizes == 0L -> keepTogether(knownSize)
+        totals.unknownSizes < totals.files -> "At least ${keepTogether(knownSize)}"
+        else -> "Size unavailable"
+    }
+
+    fun sizeUnavailableFor(files: Long): String = "Size unavailable for ${files(files)}"
+
+    // The meaning upgrade.
+    const val UPGRADE_TITLE = "Search by meaning and what’s in your photos"
+    const val WAITING_FOR_WIFI = "Waiting for Wi-Fi to download"
+    const val USE_MOBILE_DATA = "Use mobile data"
+    const val WAIT_FOR_WIFI = "Wait for Wi-Fi"
+    const val CHECKING_DOWNLOAD = "Checking the download…"
+    const val DOWNLOAD_FAILED = "Download interrupted. Check your connection and try again."
+    const val NO_SPACE = "Not enough free space to download"
+    const val TUNE_LEAVING = "You can search names now. Reading setup resumes when you return."
+
+    /** [size]: the platform's format of [Retriever.modelDownloadBytes]. */
+    fun upgradeBody(size: String, words: DeviceWords): String = "One download of ${keepTogether(size)} on Wi-Fi. " +
+        "Then a search like ‘sunset at the beach’ finds photos even without those words. Everything stays on this ${words.device}."
+
+    fun downloadProgress(done: String, total: String, percent: Int): String = "${keepTogether(done)} of ${keepTogether(total)} · $percent%"
+
+    fun mobileDataAsk(size: String): String = "Download ${keepTogether(size)} using mobile data?"
+
+    fun freeUp(size: String): String = "Free up ${keepTogether(size)} to continue"
+
+    fun tuneTitle(words: DeviceWords): String = "Setting up reading for this ${words.device}"
+
+    fun tuneBody(words: DeviceWords): String = "About a minute. Finding a reading speed that suits this ${words.device}."
+
+    /** The meaning pass: files read so far that have search by meaning, of all files read. */
+    fun addingMeaning(progress: ReadingProgress): String =
+        "Adding search by meaning · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"
 }

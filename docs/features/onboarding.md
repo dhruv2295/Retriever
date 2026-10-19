@@ -5,41 +5,41 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 
 ## Purpose
 
-First run: a welcome that starts the model download at once, access to files, a short read of a planned few files, a
-"try it" screen that runs the real search over those files, and a commit choice for the rest of the library. A person
-who skips lands on Home with the work carrying on. The flow, copy and timing decisions are in the onboarding spec and
-build plan (see the scratchpad inputs listed in the wave brief); this note records how the code holds them and which
-parts are deliberately switched off.
+First run, with no download: a welcome ("Get started" or "Search by name"), access to files, a short read of a planned
+few files shown as a live mosaic of real previews, a "try it" screen that runs the real search, and a choice of when to
+read the rest. "Go to Home" (and "Search by name") leaves setup for good, after the access step, with the sample still
+reading. The model download and tune are not part of first run; they are the separate upgrade, "Search by meaning and
+what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)), offered after the person has searched.
 
 ## Mechanism and why
 
-- **One app-scoped flow, not a ViewModel.** `SetupFlow` is a Koin singleton holding `SetupUi`. Setup has to outlive the
-  screen and survive process death, so every stage is derived from persisted state (Prefs and Store meta), never kept
-  only in memory.
-- **A pure step machine.** `SetupFlow.stage` maps the state to a `SetupStage` (`WELCOME`, `ACCESS`, `WAITING`, `READ_FEW`,
-  `TRY`, `COMMIT`, `DONE`) and the top-level `nextStep(ui, hasSpace, metered, profileExists)` picks the next action
-  (`SetupStep`). Because it is a plain function, `SetupStepTest` covers every branch without a screen.
-- **The download starts on the welcome tap.** Either welcome button starts it, before the access question, so most of the
-  wait happens while the person decides. It goes to the platform's download service (Android `DownloadManager`, a
-  background `URLSession` on iOS), the right tool for a large file that must survive process death.
-- **First tune keeps tier defaults.** Scope lives in Store meta (`Scope.SAMPLE` or `ALL`), not Prefs, so choosing a short
-  read does not write Prefs before the tune and cost a slow phone its tier defaults; a plan made before the tune keeps
-  the light defaults.
+- **One stage machine, in core.** `Setup.kt` maps `SetupInputs` (the persisted `SetupMark`, skipped, decided, planned,
+  plus the app's own access state via `withAccess`) to a `SetupStage` (`WELCOME`, `ACCESS`, `SAMPLE`, `TRY`, `CHOOSE`,
+  `DONE`), `showSetup` for launch routing, and the next `SetupStep` (`PLAN`, `READ_SAMPLE`, `SCHEDULE`). Both apps follow
+  `Retriever.setup`; neither keeps its own stage logic. Every input is persisted (Store meta and Prefs), so each stage
+  resumes after process death.
+- **The apps run only the native side effects.** Android's `SetupFlow` and iOS's `AppModel+Setup` call `planOrCommit()`
+  on `PLAN` (it syncs names first, and commits to everything when nothing is eligible), and start the sample read or the
+  schedule once per process on `READ_SAMPLE` / `SCHEDULE`. Buttons map to `setSetupMark`, `skipFirstRun`, `commit` and
+  `decideLater`.
+- **Installs set up before this flow count as done.** `Prefs.setupStarted` (or a saved profile, or saved prefs on a phone
+  too small for the model) marks them; apps no longer write it.
 - **The short read is a plan, not a sample of whatever is first.** `FileRules.planTaste` picks a deterministic set within
   a time budget that covers the oldest bin and the newest; `Retriever.scopeIds` scopes try-it's search to those files, and
   `TasteProgress` reports per-kind progress, readiness (`TRY_AFTER_FILES` read or the plan done) and seconds left.
 - **Try it is the real Search.** `TryItScreen` hosts `SearchContent` with a scope, so empty, searching and failure states
-  are the ones in `search-ui.md`; nothing is faked.
+  are the ones in `search-ui.md`; nothing is faked. Names match across the whole library; words and meaning only inside
+  the sample ("Searching inside {C} sample files").
 - **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE` and leaves a commit
-  card on Home. A returning user (no plan) never sees `READ_FEW`.
-- **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, `WALKING` while downloading, tuning and reading, `RESTING`
-  when paused, `TROUBLE` on download, space and tune failures.
+  card on Home. A returning user (no plan) never sees the sample.
+- **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`
+  when paused.
 
 ### What is switched off, and what turns it on
 
-- **Content-derived suggestions.** `Retriever.suggestions(fileIds)` computes three to six TF-IDF terms or recurring two-word phrases from read files'
+- **Content-derived suggestions.** `Retriever.suggestions(fileIds)` returns exactly three TF-IDF terms or recurring two-word phrases from read files'
   `content_text`, against the whole read set. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
-  With too little text, try-it offers kind filters. The same shared method feeds Home; no fixed phrases are used.
+  With fewer than three, it returns none and try-it shows preview tiles instead. The same shared method feeds Home; no fixed phrases are used.
   `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer; document tiles show the filename and first extracted content lines through the shared thumbnail path.
 - **Layout.** Four weighted square cells per row on Android (spacers complete the last row), four flexible columns on
   iOS. URI keys preserve arrival animations. Kind pills wrap, and the ready action stays in the bottom inset.
@@ -51,7 +51,8 @@ parts are deliberately switched off.
 
 ## Owner files
 
-- `androidApp/src/main/kotlin/app/retriever/setup/SetupFlow.kt`: `SetupFlow`, `SetupStage`, `SetupStep`, `nextStep`
+- `core/src/commonMain/kotlin/app/retriever/core/Setup.kt`: `SetupMark`, `SetupInputs`, `SetupStage`, `SetupStep`
+- `androidApp/src/main/kotlin/app/retriever/setup/SetupFlow.kt`: the native side effects for each `SetupStep`
 - `androidApp/src/main/kotlin/app/retriever/setup/SetupScreen.kt`, `FirstRunStages.kt`, `TryItScreen.kt`, `CommitScreen.kt`
 - `core/src/commonMain/kotlin/app/retriever/core/Taste.kt` (`Scope`, `TasteProgress`), `Estimate.kt`
   (`ESTIMATE_CALIBRATED`, `ReadEstimate`), `FileRules.kt` (`planTaste`)
@@ -59,27 +60,27 @@ parts are deliberately switched off.
 
 ## Invariants
 
-1. **Setup never queues the model twice,** and never fetches it unasked after Remove search download.
-2. **Every stage resumes after process death** from persisted state.
+1. **First run never downloads the model;** only the upgrade's Download does.
+2. **Every stage resumes after process death** from persisted state, and Go to Home is remembered across launches.
 3. **Suggestions quote real content only.** Semantic concept suggestions remain parked. Hours stay behind
    `ESTIMATE_CALIBRATED` until the timing evidence exists.
 4. **The short read reads only its plan,** then stops; every other file is still found by name.
 5. **"Read everything now" skips try-it and commit;** a returning user never sees the short read.
 6. **Names are searchable from the moment access is granted,** before any model exists.
-7. **Skip lands on Home** with the download and reading carrying on.
+7. **Go to Home lands on Home** with the sample reading carrying on; it never skips the access step.
 
 ## Tests
 
-- Android, `SetupStepTest`: `welcomeTapDownloadsBeforeAskingForFiles`, `theWelcomeTapQueuesTheDownloadWithoutFileAccess`,
-  `aPlannedShortReadRunsThroughItsStages`, `tryingFirstPlansAtTheNamesSyncAndResumesAfterProcessDeath`,
-  `readEverythingNeverSeesTryOrCommit`, `aReturningUserNeverSeesTheShortRead`, `meteredAsksBeforeAnything`,
-  `failedDownloadWaitsForTryAgain`, `tuneFailedDoesNotLoop`, `textOnlyNeverDownloadsOrTunes`.
-  Screenshots: `SetupStatusShotsTest`.
+- Core: `SetupTest` (every stage and step transition) and the host `SetupFlowTest` (persistence, the plan made once,
+  Go to Home, pre-flow installs, Try's name and word scope, the upgrade offer).
+- Android: `SetupFlowTest` (Get started, Search by name, Go to Home, the upgrade and mobile data) and
+  `UpgradeCardTest`. Screenshots: `SetupStatusShotsTest`.
 - Core: `FileRulesTest` (`planTasteIsDeterministicAndWithinBudget`, `planTasteCoversOldestBinAndNewest`),
   `TasteScopeTest` (`aShortReadReadsOnlyThePlanThenCommitReadsTheRestOnce`, `aPlanBeforeTheTuneKeepsTheLightDefaults`,
   `celebratedOnlyOnceMarked`), `TasteProgressTest` (`readyAtTwentyFilesOrWhenThePlanFinishes`), `EstimateTest`
   (`noHoursShipUncalibrated`).
-- iOS: `iosApp/RetrieverTests/CopyTests.swift` and `AppModelTests.swift` for the stage copy and state.
+- iOS: `iosApp/RetrieverTests/CopyTests.swift` and `AppModelTests.swift` for the stage copy and state;
+  `AccessibilityAuditTests` audits every `setup.*` and `upgrade.*` fixture route.
 
 ## Known limits
 

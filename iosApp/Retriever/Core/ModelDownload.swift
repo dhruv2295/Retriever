@@ -25,8 +25,6 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     private(set) var state: State = .idle
     /// 0...1 while downloading.
     private(set) var progress: Double = 0
-    /// The person pressed Stop: setup leaves the download alone until they start it again.
-    private(set) var stopped = false
 
     /// Set from the app delegate's handleEventsForBackgroundURLSession; called once the session's events are in.
     /// Setting it reconnects the session on a cold relaunch, so the pending events reach this delegate.
@@ -67,7 +65,6 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
 
     /// [allowCellular] false waits for Wi-Fi, as Android's "wait for Wi-Fi" does: the model is about 390 MB.
     func start(_ build: ModelBuild, allowCellular: Bool) {
-        stopped = false
         if RetrieverIosKt.modelReady(modelDir: dir.path, build: build) { return set(.ready) }
         // A whole file with no marker (the app closed while checking a finished download): check it, don't fetch it again.
         let size = (try? dir.appendingPathComponent(build.fileName).resourceValues(forKeys: [.fileSizeKey]))?.fileSize
@@ -84,10 +81,9 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     private func download(_ build: ModelBuild, allowCellular: Bool) {
         let free = (try? dir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage ?? 0
         if free < build.sizeBytes + Self.headroom {
-            let needed = ByteCountFormatter.string(fromByteCount: build.sizeBytes + Self.headroom, countStyle: .file)
-            return set(.failed("Retriever needs about \(needed) free to download its search model. Free up some space and try again."))
+            return set(.failed(Words.shared.freeUp(size: Copy.downloadSize(build.sizeBytes + Self.headroom - free))))
         }
-        guard let url = URL(string: build.url) else { return set(.failed("The download link is not valid.")) }
+        guard let url = URL(string: build.url) else { return set(.failed(Words.shared.DOWNLOAD_FAILED)) }
         try? FileManager.default.removeItem(at: marker(build.fileName))
         let description = [build.fileName, build.sha256, allowCellular ? "1" : "0"].joined(separator: "|")
         let session = session
@@ -133,9 +129,8 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         set(.idle)
     }
 
-    /// The person's Stop. The bytes so far are kept, so starting again carries on from there.
+    /// The person's Cancel. The bytes so far are kept, so starting again carries on from there.
     func stop() {
-        stopped = true
         session.getAllTasks { tasks in
             for task in tasks.compactMap({ $0 as? URLSessionDownloadTask }) {
                 let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
@@ -146,12 +141,6 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
             }
         }
         set(.idle)
-    }
-
-    /// On mobile data or a data-saving network right now: a Wi-Fi-only download would wait.
-    var isMetered: Bool {
-        let path = pathMonitor.currentPath
-        return path.isExpensive || path.isConstrained
     }
 
     /// For a file already in place (copied in, or an earlier run that stopped before checking). Slow: call off main.
@@ -194,7 +183,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         let parts = (downloadTask.taskDescription ?? "").split(separator: "|").map(String.init)
         guard parts.count >= 2 else { return }
         if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            return set(.failed("The download didn't finish (error \(http.statusCode)). Try again in a moment."))
+            return set(.failed(Words.shared.DOWNLOAD_FAILED))
         }
         // The system deletes `location` when this returns, so move it now and check it afterwards.
         let file = dir.appendingPathComponent(parts[0])
@@ -202,14 +191,11 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
             try? FileManager.default.removeItem(at: file)
             try FileManager.default.moveItem(at: location, to: file)
         } catch {
-            return set(.failed("Retriever couldn't save its search model. Free up some space and try again."))
+            return set(.failed(Words.shared.NO_SPACE))
         }
         set(.verifying)
         DispatchQueue.global(qos: .utility).async {
-            self.set(
-                self.verify(file, fileName: parts[0], sha256: parts[1])
-                    ? .ready
-                    : .failed("The download came through damaged. Try again."))
+            self.set(self.verify(file, fileName: parts[0], sha256: parts[1]) ? .ready : .failed(Words.shared.DOWNLOAD_FAILED))
         }
     }
 
@@ -217,15 +203,10 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         guard let error = error as? URLError, error.code != .cancelled else { return }
         let parts = (task.taskDescription ?? "").split(separator: "|").map(String.init)
         // Kept so the next start() carries on from here instead of fetching all of it again.
-        let kept =
-            parts.count == 3
-            && error.downloadTaskResumeData.map { data in
-                (try? data.write(to: resumeFile(parts[0], parts[2] == "1"), options: .atomic)) != nil
-            } == true
-        set(
-            .failed(
-                "The download stopped: \(error.localizedDescription) "
-                    + (kept ? "It picks up where it left off when you try again." : "Try again to start it over.")))
+        if parts.count == 3, let data = error.downloadTaskResumeData {
+            try? data.write(to: resumeFile(parts[0], parts[2] == "1"), options: .atomic)
+        }
+        set(.failed(Words.shared.DOWNLOAD_FAILED))
     }
 
     nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

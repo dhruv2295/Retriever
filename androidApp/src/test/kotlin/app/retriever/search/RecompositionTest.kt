@@ -62,7 +62,7 @@ class RecompositionTest {
     )
 
     private val ui = SearchUi(setUp = true).answered("bill", hits)
-    private val home = HomeUi(setUp = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), contentRead = 4)
+    private val home = HomeUi(libraryChosen = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), contentRead = 4)
 
     private fun show(): Pair<MutableState<SearchUi>, MutableState<HomeUi>> {
         val u = mutableStateOf(ui)

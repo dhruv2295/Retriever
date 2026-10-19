@@ -120,7 +120,7 @@ struct SettingsView: View {
                             model.keepScreenOn(model.reading)
                         }))
             }
-            if !snap.textOnly && !model.modelMissing {
+            if model.meaningSearch {
                 DisclosureGroup("Adjust reading for this device") {
                     Text("Run the setup check again.")
                     Button("Run setup check", action: model.tuneAgain)
@@ -182,16 +182,16 @@ struct SettingsView: View {
                 if let cache = sizes?.cache, cache > 0, !model.modelMissing {
                     Text("Temporary files · \(Copy.bytes(cache))")
                 }
-                // Present or not, the entry names what the download is for and what it costs.
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Search by meaning and what's in your photos · \(modelSize(snap, sizes))")
-                    Text(model.modelMissing ? "Not downloaded" : "Downloaded").font(.footnote).foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                if model.modelMissing {
-                    downloadAgain
-                } else if snap.setUp == true {
+                // The same upgrade as Try and Home until it is done; then what it costs and how to remove it.
+                if model.upgrade == .done {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(Words.shared.UPGRADE_TITLE) · \(modelSize(snap, sizes))")
+                        Text("Downloaded").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                     Button("Remove search download", role: .destructive) { confirmingFree = true }
+                } else {
+                    UpgradeCard(model: model)
                 }
                 Toggle("Use mobile data for downloads", isOn: Binding(get: { model.useMobileData }, set: model.setUseMobileData))
             }
@@ -205,24 +205,6 @@ struct SettingsView: View {
     private func modelSize(_ snap: AppModel.Snap, _ sizes: AppModel.Storage?) -> String {
         let onDisk = sizes?.model ?? 0
         return Copy.downloadSize(onDisk > 0 ? onDisk : snap.downloadBytes)
-    }
-
-    @ViewBuilder private var downloadAgain: some View {
-        switch model.download {
-        case .downloading:
-            ProgressView(value: model.downloadProgress) {
-                Text("Downloading").font(.subheadline)
-            } currentValueLabel: {
-                Text(model.downloadProgress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
-            }
-        case .verifying: Busy("Checking the download…")
-        case .waitingForWifi: Note("Waiting for Wi-Fi to download")
-        case .failed(let reason):
-            Failure(reason)
-            Button("Try again", action: model.downloadAgain)
-        case .ready: EmptyView()
-        case .idle: Button("Download again", action: model.downloadAgain)
-        }
     }
 
     #if DEBUG

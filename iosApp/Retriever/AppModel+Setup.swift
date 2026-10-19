@@ -6,7 +6,8 @@ import SwiftUI
 import UIKit
 import os
 
-/// Setup: download, then tune. It lives on the model, so leaving the screen never stops it.
+/// Setup runs core's stage machine (`SetupInputs`); the meaning upgrade runs the download, then the tune. Both live on
+/// the model, so leaving a screen never stops them.
 extension AppModel {
     func watchDownload() {
         guard let download = services?.download else { return }
@@ -14,96 +15,114 @@ extension AppModel {
             _ = download.state
         } onChange: { [weak self] in
             Task { @MainActor in
+                // A finished download makes the model present; core says so once it looks again.
+                try? await self?.services?.retriever.refreshSetUp()
                 self?.advance()
                 self?.watchDownload()
             }
         }
     }
 
-    /// The next setup step; safe to call any time. The download starts as soon as the welcome is answered (it needs no
-    /// file access); the short read is planned once access is.
+    /// Runs setup's next step and the upgrade's tune; safe to call any time.
     func advance() {
-        guard let services, started else { return }
-        Task { if await planIfNeeded(services) { wake() } }
-        guard !services.retriever.textOnly else { return }
-        Task {
-            try? await services.retriever.refreshSetUp()
-            if tuneLeft, active, tune != .running { return await runTune() }
-            guard services.retriever.setUpNow?.boolValue != true else { return }
-            let build = services.retriever.requiredBuildNow
-            Self.log.info(
-                "setup: download \(String(describing: services.download.state), privacy: .public), tune \(String(describing: self.tune), privacy: .public)")
-            switch services.download.state {
-            case .idle: if !services.download.stopped { services.download.start(build, allowCellular: useMobileData) }
-            // Only on screen: iOS refuses the graphics chip in the background, so a tune there would settle on the
-            // processor for good. Coming back to the front calls advance() again.
-            case .ready: if tune == .idle, active { await runTune() }
-            default: break
-            }
-        }
-    }
-
-    /// The welcome tap: the download starts now, while access is asked for. Trying first writes the short read's scope
-    /// at once (an empty plan until files are allowed), so the choice outlives the process; Read everything writes
-    /// nothing, which core reads as everything.
-    func beginSetup(readEverything: Bool) {
-        started = true
         guard let services else { return }
-        advance()
-        startLoop()
-        guard !readEverything else { return }
-        Task {
-            _ = try? await services.retriever.planTaste()
-            // Files already allowed (a reinstall): plan them now, or read everything when there are none.
-            advance()
-            wake()
+        switch setup?.step {
+        case .plan?:
+            guard !planning else { break }
+            planning = true
+            Task {
+                // Core reloads its inputs, so the snapshot after this asks for the next step.
+                try? await services.retriever.planOrCommit()
+                planning = false
+                wake()
+            }
+        case .readSample?, .schedule?:
+            startLoop()
+            if !scheduled {
+                scheduled = true
+                IndexTask.schedule()
+            }
+        default: break
         }
-    }
-
-    /// Skip: Home now. The download, tune and short read carry on, and Home asks about the rest. A short read still
-    /// waiting on an answer is put off rather than left half-asked.
-    func skipSetup() { setupSeen = true }
-
-    func stopDownload() { services?.download.stop() }
-
-    /// On mobile data with a download ahead: ask before the welcome starts it.
-    var asksMobileData: Bool {
-        guard let services else { return false }
-        return !useMobileData && !services.retriever.textOnly && services.retriever.setUpNow != true && services.download.isMetered
+        // Only on screen: iOS refuses the graphics chip in the background, so a tune there would settle on the
+        // processor for good. Coming back to the front calls advance() again.
+        guard !textOnly, active, tune != .running, tune == .idle || tuneLeft, !modelMissing, services.retriever.setUpNow?.boolValue != true
+        else { return }
+        Task { await runTune() }
     }
 
     /// Photos answered yes (all or some) or a folder added: there is something to read.
     var accessGiven: Bool { photos == .authorized || photos == .limited || !folders.isEmpty }
 
-    /// False once the person chose (or never had a short read); true when a plan waits on their answer.
-    func tasteDecided() async -> Bool {
-        guard let retriever = services?.retriever else { return true }
-        return (try? await retriever.tasteDecided().boolValue) ?? true
+    // MARK: Setup answers
+
+    /// Get started, Continue, Try search, Choose when to read more: the person's answer on a setup screen.
+    func setSetupMark(_ mark: SetupMark) {
+        guard let retriever = services?.retriever else { return }
+        Task { try? await retriever.setSetupMark(mark: mark) }
     }
 
-    private func tasteState(_ retriever: Retriever) async -> (decided: Bool, planned: Int) {
-        let decided = (try? await retriever.tasteDecided().boolValue) ?? true
-        for await taste in retriever.tasteStream() { return (decided, taste.planned) }
-        return (decided, 0)
-    }
-
-    /// Plans the short read once access is answered, unless it is planned or decided already. A library with nothing in
-    /// it has nothing to try, so it reads everything as files arrive. True when it changed what will be read.
-    private func planIfNeeded(_ services: AppServices) async -> Bool {
-        guard accessGiven else { return false }
-        let taste = await tasteState(services.retriever)
-        guard !taste.decided, taste.planned == 0 else { return false }
-        let plan = try? await services.retriever.planTaste()
-        // An empty plan means only "no eligible files".
-        if plan?.ids.isEmpty == true {
-            try? await services.retriever.commitScope()
+    /// Search by name: past the welcome to access, then Home; the sample still reads.
+    func searchByName() {
+        guard let retriever = services?.retriever else { return }
+        Task {
+            _ = try? await retriever.setSetupMark(mark: .started)
+            _ = try? await retriever.skipFirstRun()
         }
-        return true
     }
 
-    func retryDownload() {
+    /// Go to Home: setup ends at launch; the sample keeps reading.
+    func goHome() {
+        guard let retriever = services?.retriever else { return }
+        Task { try? await retriever.skipFirstRun() }
+    }
+
+    /// Try's "Choose when to read more", or, with nothing beyond the sample, reading everything.
+    func chooseWhenToReadMore() {
+        if snap?.waiting == 0 { commitScope() } else { setSetupMark(.choosing) }
+    }
+
+    /// The sample's planned files: Try searches inside these.
+    var sampleIds: [Int64] {
+        guard let services else { return (0..<Int64(fixtureTaste.planned)).map { $0 } }
+        return (services.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value) ?? []
+    }
+
+    /// The sample's files read so far, for "See all" and Try's previews.
+    func sampleFiles() async -> [SourceFile] {
+        guard let retriever = services?.retriever else { return progress.reading.recent }
+        return (try? await retriever.readFiles(fileIds: Set(sampleIds.map { KotlinLong(value: $0) }))) ?? []
+    }
+
+    /// Search by meaning, and by photo, works: the model is here and tuned.
+    var meaningSearch: Bool { !textOnly && !modelMissing && setUp }
+
+    // MARK: The meaning upgrade
+
+    /// Where "Search by meaning and what's in your photos" stands, by core's rule.
+    var upgrade: UpgradeStage {
+        UpgradePolicy.shared.stage(
+            textOnly: textOnly, modelPresent: !textOnly && !modelMissing, downloading: download != .idle, setUp: setUp,
+            meaningWaiting: Int64(snap?.meaningWaiting ?? 0))
+    }
+
+    /// Home's compact row: the offer after a first search until dismissed, then the download and the tune.
+    var upgradeOnHome: Bool {
+        snap?.prefs.map { UpgradePolicy.shared.showOnHome(stage: upgrade, prefs: $0) } ?? false
+    }
+
+    /// Download, or Try again: the platform's background download; the tune follows once it is checked.
+    func downloadModel() {
         guard let services else { return }
         services.download.start(services.retriever.requiredBuildNow, allowCellular: useMobileData)
+    }
+
+    /// Cancel: the bytes so far are kept, so a later Download carries on from them.
+    func cancelDownload() { services?.download.stop() }
+
+    /// Not now: the next snapshot's prefs take the row away, on this launch and the next.
+    func dismissUpgradeOffer() {
+        Task { try? await services?.retriever.dismissUpgradeOffer() }
     }
 
     /// The old UserDefaults key moves into Prefs once, then goes. A write that fails leaves the key for the next launch.
@@ -122,8 +141,6 @@ extension AppModel {
             migratingMobileData = false
         }
     }
-
-    func downloadAgain() { retryDownload() }
 
     func retryTune() {
         tune = .idle
@@ -175,57 +192,41 @@ extension AppModel {
     }
 }
 
-/// The short read's progress as Swift values: one row per group of kinds, in reading order.
+/// The sample's progress as Swift values: read and planned files per kind.
 struct TasteSnap: Equatable, Sendable {
-    struct Row: Equatable, Identifiable, Sendable {
-        let name: String
-        let read: Int
-        let planned: Int
-        let done: Bool
-        var id: String { name }
+    struct Count: Equatable, Sendable {
+        var read: Int
+        var planned: Int
     }
 
-    /// Screenshots first: the cheap kinds finish first, as the reading does.
-    private static let groups: [(name: String, kinds: [Kind])] = [
-        ("Screenshots", [.screenshot]), ("Documents and PDFs", [.doc, .pdf]), ("Photos", [.photo]), ("Videos", [.video]),
-    ]
-
-    var rows: [Row] = []
-    var secondsLeft: Int?
+    var counts: [Kind: Count] = [:]
     var readyToTry = false
     /// Planned files still waiting to be read. A Name only file is done without ever counting as read.
     var pending = 0
 
-    var read: Int { rows.reduce(0) { $0 + $1.read } }
-    var planned: Int { rows.reduce(0) { $0 + $1.planned } }
+    var read: Int { counts.values.reduce(0) { $0 + $1.read } }
+    var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
 
-    init(
-        counts: [Kind: (read: Int, planned: Int)] = [:], ready: Set<Kind>? = nil, pending: Int = 0, secondsLeft: Int? = nil,
-        readyToTry: Bool = false
-    ) {
-        rows = Self.groups.compactMap { group in
-            let found = group.kinds.compactMap { counts[$0] }
-            let planned = found.reduce(0) { $0 + $1.planned }
-            guard planned > 0 else { return nil }
-            let read = found.reduce(0) { $0 + $1.read }
-            let done = ready.map { r in group.kinds.allSatisfy { counts[$0] == nil || r.contains($0) } } ?? (read == planned)
-            return Row(name: group.name, read: read, planned: planned, done: done)
-        }
-        self.pending = pending
-        self.secondsLeft = secondsLeft
-        self.readyToTry = readyToTry
+    /// For a screen reader only: "6 of 6 screenshots read, 4 of 8 PDFs read".
+    var spoken: String {
+        counts.sorted { $0.key.ordinal < $1.key.ordinal }
+            .map { Words.shared.kindRead(read: Int64($0.value.read), planned: Int64($0.value.planned), kind: $0.key) }
+            .joined(separator: ", ")
+    }
+
+    init(counts: [Kind: Count] = [:], readyToTry: Bool = false, pending: Int = 0) {
+        (self.counts, self.readyToTry, self.pending) = (counts, readyToTry, pending)
     }
 
     init(_ p: TasteProgress) {
         self.init(
-            counts: p.byKind.mapValues { ($0.first?.intValue ?? 0, $0.second?.intValue ?? 0) },
-            ready: Set(p.readyKinds), pending: Int(p.pending),
-            secondsLeft: p.secondsLeft?.intValue, readyToTry: p.readyToTry)
+            counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) }, readyToTry: p.readyToTry,
+            pending: Int(p.pending))
     }
 }
 
 extension Retriever {
-    /// The short read's progress, until the loop that reads it is cancelled.
+    /// The sample's progress, until the task that reads it is cancelled.
     func tasteStream() -> AsyncStream<TasteSnap> {
         AsyncStream { continuation in
             let handle = observeTasteProgress { @Sendable p in continuation.yield(TasteSnap(p)) }

@@ -33,19 +33,27 @@
         case setupLimited = "setup.limited"
         case setupDenied = "setup.denied"
         case setupFolders = "setup.folders"
-        case setupDownload = "setup.download"
-        case setupWaitingWifi = "setup.waitingWifi"
-        case setupFailed = "setup.failed"
-        case setupTuning = "setup.tuning"
         case statusReading = "status.reading"
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
         case statusSkipped = "status.skipped"
         case setupReading = "setup.reading"
         case setupReadingPaused = "setup.readingPaused"
+        case setupSampleDone = "setup.sampleDone"
+        case setupTry = "setup.try"
+        case setupTryNoSuggestions = "setup.tryNoSuggestions"
+        case setupChoose = "setup.choose"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
+        case upgradeOffer = "upgrade.offer"
+        case upgradeDownload = "upgrade.download"
+        case upgradeWaitingWifi = "upgrade.waitingWifi"
+        case upgradeFailed = "upgrade.failed"
+        case upgradeTuning = "upgrade.tuning"
+        case upgradeMeaning = "upgrade.meaning"
+        case homeUpgrade = "home.upgrade"
+        case searchNoModel = "search.noModel"
         case searchLessLikely = "search.lessLikely"
         case searchNothingWell = "search.nothingWell"
         case searchFirstPart = "search.firstPart"
@@ -114,15 +122,24 @@
 
         var fixture: AppFixture {
             switch self {
-            case .setupWelcome, .setupPhotos: .firstRun
+            case .setupWelcome: .firstRun
+            case .setupPhotos: .access
             case .setupLimited: .photosLimited
             case .setupDenied: .photosDenied
-            case .setupFolders: .downloading(0.08)
-            case .setupDownload: .downloading(0.34)
-            case .setupWaitingWifi: .waitingForWifi
-            case .setupFailed: .downloadFailed
-            case .setupTuning: .tuning
-            case .setupReading, .setupReadingPaused, .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
+            case .setupFolders: .folderAdded
+            case .setupReading: .sampleReading
+            case .setupReadingPaused: .samplePaused
+            case .setupSampleDone: .sampleDone
+            case .setupTry: .trying(suggestions: true)
+            case .setupTryNoSuggestions: .trying(suggestions: false)
+            case .setupChoose: .choosing
+            case .upgradeOffer, .homeUpgrade, .searchNoModel: .noModel
+            case .upgradeDownload: .downloading(0.34)
+            case .upgradeWaitingWifi: .waitingForWifi
+            case .upgradeFailed: .downloadFailed
+            case .upgradeTuning: .tuning
+            case .upgradeMeaning: .meaning(1_204)
+            case .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
             case .statusPaused: .paused
             case .statusSkipped: .skipped(6)
             case .statusTailFiles: .tailFiles(12)
@@ -134,12 +151,12 @@
 
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
-            case .setupReading, .setupReadingPaused:
-                readingSetup(model, paused: self == .setupReadingPaused)
-            case .setupWelcome:
+            case .setupWelcome, .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupReading, .setupReadingPaused, .setupSampleDone,
+                .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
                 SetupView(model: model)
-            case .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupDownload, .setupWaitingWifi, .setupFailed, .setupTuning, .setupTextOnly:
-                SetupView(model: model, asked: true, onDone: {})
+            case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
+                // Settings' Storage and downloads entry, alone: the same card as Try's and Home's.
+                NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
@@ -169,24 +186,12 @@
             }
         }
 
-        @MainActor private func readingSetup(_ model: AppModel, paused: Bool) -> some View {
-            var preview = model.progress.reading
-            if paused {
-                preview.current = nil
-                preview.pauseReason = "Paused while you use other apps. It carries on when you come back."
-            }
-            let state = SetupState(
-                asked: true, photos: .authorized, folders: [], downloadBytes: 0, download: .ready, progress: 1,
-                useMobileData: false, tune: .done("Ready"), setUp: true,
-                taste: TasteSnap(counts: [.screenshot: (6, 6), .pdf: (4, 8), .photo: (20, 40)], secondsLeft: 70, readyToTry: true),
-                decided: false)
-            return SetupContent(state: state, reading: { preview })
-        }
-
         @MainActor @ViewBuilder private func fixtureSearch(_ model: AppModel) -> some View {
             switch self {
-            case .homeCaughtUp:
+            case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
+            case .searchNoModel:
+                SearchView(model: model, search: .fixture(text: "security deposit", hits: Array(Fixtures.hits.prefix(1)), vectorLane: false), presented: true)
             case .homeReading:
                 SearchView(model: model, search: .fixture(), snap: AppModel.Snap(setUp: true, running: true))
             case .homeEmpty:

@@ -1,316 +1,205 @@
-/*
- * Copyright 2025 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-// DownloadProgress adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt (Apache-2.0). Modified for Retriever: only the in-progress download branch, driven by ModelDownload's polled progress.
-
 package app.retriever.setup
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.retriever.R
-import app.retriever.access.Fix
+import app.retriever.access.Photos
 import app.retriever.core.DeviceWords
+import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.SourceFile
 import app.retriever.core.TasteProgress
 import app.retriever.core.Words
-import app.retriever.model.ModelState
-import app.retriever.model.TuneState
-import app.retriever.ui.Format
+import app.retriever.ui.components.MeasuredThumbnailImage
 import app.retriever.ui.components.Muted
-import app.retriever.ui.tabular
-import java.text.NumberFormat
+import app.retriever.ui.components.kindIcon
+import kotlinx.coroutines.delay
 
-/** Two choices and no Skip: either tap starts the download. */
 @Composable
-internal fun ColumnScope.Welcome(ui: SetupUi, size: String?, actions: SetupActions) {
-    Text("Find anything by what's inside it", style = MaterialTheme.typography.headlineMedium)
-    Text(
-        "Search your photos, screenshots, PDFs and documents in your own words. Everything is read on this phone and stays on it.",
-        style = MaterialTheme.typography.bodyLarge,
-    )
+internal fun ColumnScope.Welcome(ui: SetupUi, actions: SetupActions) {
+    Text(Words.WELCOME_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+    Text(Words.welcomeBody(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyLarge)
     WelcomeExamples(ui.textOnly)
-    Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text("Try it on a few files first") }
-    TextButton(onClick = actions.readEverything, modifier = Modifier.fillMaxWidth()) { Text("Read everything now") }
-    MaterialTheme(typography = MaterialTheme.typography.copy(bodyMedium = MaterialTheme.typography.bodyMedium.copy(textAlign = TextAlign.Center))) {
-        Muted(
-            if (ui.textOnly) {
-                "Ready in a few minutes on a handful of your files. Reading everything takes hours, and you choose when."
-            } else {
-                "A one-time ${size?.let { "$it " } ?: ""}download, then a few minutes on a handful of your files. " +
-                    "Reading everything takes hours, and you choose when."
-            },
-            Modifier.fillMaxWidth(),
-        )
-    }
+    Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth()) { Text(Words.GET_STARTED) }
+    TextButton(onClick = actions.searchByName, modifier = Modifier.fillMaxWidth()) { Text(Words.SEARCH_BY_NAME) }
     if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID))
 }
 
-/** No file content here: only the ways to allow access, and how the download is doing. */
+/** One row per kind of access, each opening its own system screen; Continue once any is given. */
 @Composable
 internal fun ColumnScope.AccessStage(ui: SetupUi, filesDenied: Boolean, folderError: String?, actions: SetupActions) {
-    Text("Allow access to your files", style = MaterialTheme.typography.headlineSmall)
-    Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth()) { Text("Allow access to all files") }
-    Muted("Recommended: Retriever can then search your documents, downloads and everything else.")
-    OutlinedButton(onClick = actions.allowMedia, modifier = Modifier.fillMaxWidth()) { Text("Only photos, videos and audio") }
-    OutlinedButton(onClick = actions.addFolder, modifier = Modifier.fillMaxWidth()) { Text("Add a folder of documents") }
-    if (filesDenied) Muted("Nothing is allowed yet. Any one of these is enough to start.")
-    Muted("Files inside other apps' private folders can't be searched.")
+    val a = ui.access
+    Text(Words.CHOOSE_ACCESS, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+    Text(Words.ACCESS_BODY, style = MaterialTheme.typography.bodyMedium)
+    Column {
+        AccessRow(R.drawable.ic_storage, Words.FILES_AND_FOLDERS, a.allFiles, actions.allowFiles)
+        AccessRow(R.drawable.ic_image, Words.PHOTOS_AND_VIDEOS, a.allFiles || (a.photos != Photos.NONE && a.videos), actions.allowMedia)
+        AccessRow(kindIcon(Kind.AUDIO), Words.kindLabelPlural(Kind.AUDIO), a.allFiles || a.audio, actions.allowMedia)
+        AccessRow(R.drawable.ic_folder_open, Words.ADD_FOLDER, false, actions.addFolder, a.folders.joinToString(" · ") { it.name }.ifEmpty { null })
+    }
+    if (filesDenied && !a.ready) Muted(Words.NOTHING_SELECTED)
     folderError?.let { ErrorText(it) }
-    if (!ui.textOnly) DownloadLine(ui)
-}
-
-/** One line at the foot of the access screen: the download runs while the person decides. */
-@Composable
-private fun DownloadLine(ui: SetupUi) {
-    when (val m = ui.model) {
-        is ModelState.Downloading -> {
-            val percent = percentFormat().format(m.progress)
-            Muted(if (m.indeterminate) "Downloading" else "Downloading · $percent")
-            DownloadBar(m, Modifier.fillMaxWidth())
-        }
-
-        ModelState.WaitingForWifi -> Muted("Waiting for Wi-Fi")
-
-        ModelState.Checking -> Muted("Checking the download…")
-
-        ModelState.Done -> Muted("Downloaded")
-
-        is ModelState.Failed -> ErrorText(m.reason)
-
-        ModelState.Missing -> if (ui.downloadStopped) Muted("Download stopped.")
-    }
-}
-
-/** The download, then the tune. Names are findable throughout. */
-@Composable
-internal fun Waiting(ui: SetupUi, size: String?, folderError: String?, actions: SetupActions) {
-    val downloading = ui.model != ModelState.Done
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            if (downloading) "Getting Retriever ready to read" else "Getting to know this phone",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                when (val m = ui.model) {
-                    is ModelState.Downloading -> DownloadProgress(m, ui.build?.sizeBytes, actions.stopDownload)
-
-                    ModelState.WaitingForWifi -> {
-                        Muted("Waiting for Wi-Fi. It starts by itself when you're on Wi-Fi.")
-                        TextButton(onClick = actions.useMobileData, modifier = Modifier.align(Alignment.End)) { Text("Use mobile data") }
-                    }
-
-                    ModelState.Checking -> Muted("Checking the download…")
-
-                    is ModelState.Failed -> {
-                        ErrorText(m.reason)
-                        OutlinedButton(onClick = actions.retry) { Text("Try again") }
-                    }
-
-                    ModelState.Missing -> if (ui.downloadStopped) {
-                        Muted("Download stopped.")
-                        OutlinedButton(onClick = actions.retry) { Text("Download") }
-                    }
-
-                    ModelState.Done -> if (ui.tune is TuneState.Failed) {
-                        ErrorText("Couldn't finish getting to know this phone.")
-                        OutlinedButton(onClick = actions.retry) { Text("Try again") }
-                    } else {
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Getting to know this phone" },
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        )
-                        Muted("About a minute. Retriever times a few reads to pick the fastest way to run on this phone.")
-                    }
-                }
-                if (ui.fellBack && downloading) {
-                    Muted(
-                        "This phone's AI chip couldn't run it, so Retriever will use the graphics chip instead. " +
-                            "That needs one more download${size?.let { " ($it)" } ?: ""}.",
-                    )
-                }
-            }
-        }
-        if (downloading) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Why this download", style = MaterialTheme.typography.titleSmall)
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-                    DownloadReason(
-                        R.drawable.ic_search,
-                        "It understands what's inside",
-                        "So “sunset at the beach” finds the photo, even when the file is called IMG_2041.",
-                    )
-                    DownloadReason(
-                        R.drawable.ic_lock,
-                        "It runs on this phone",
-                        "Everything is read on this phone and stays on it. That's why it's big: the whole model lives here.",
-                    )
-                    DownloadReason(
-                        R.drawable.ic_download_done,
-                        "You download it once",
-                        "${size?.let { "$it, one time." } ?: "A one-time download."} Search works without the internet after this.",
-                    )
-                }
-            }
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("While you wait", style = MaterialTheme.typography.titleSmall)
-            Muted("You can search file names now.")
-            FilledTonalButton(onClick = actions.search) { Text("Search by name") }
-            if (!ui.access.allFiles) {
-                val lines = ui.access.coverage()
-                val covered = lines.filter { !it.gap }.map { it.text } + ui.access.folders.map { it.name }
-                Muted("Retriever can search: " + covered.joinToString(" · "))
-                if (lines.any { it.fix == Fix.ALLOW_MEDIA }) {
-                    OutlinedButton(onClick = actions.allowMedia) { Text("Allow photos, videos and music") }
-                }
-                OutlinedButton(onClick = actions.addFolder) { Text("Add a folder of documents") }
-                folderError?.let { ErrorText(it) }
-            }
-        }
-    }
+    Button(onClick = actions.continueFromAccess, enabled = a.ready, modifier = Modifier.fillMaxWidth()) { Text(Words.CONTINUE) }
 }
 
 @Composable
-private fun DownloadReason(icon: Int, headline: String, supporting: String) {
+private fun AccessRow(icon: Int, label: String, given: Boolean, onClick: () -> Unit, supporting: String? = null) {
     ListItem(
-        headlineContent = { Text(headline) },
-        supportingContent = { Text(supporting) },
-        leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        headlineContent = { Text(label) },
+        supportingContent = supporting?.let { { Text(it) } },
+        leadingContent = { Icon(painterResource(icon), contentDescription = null) },
+        trailingContent = {
+            Icon(
+                painterResource(if (given) R.drawable.ic_check_circle else R.drawable.ic_keyboard_arrow_right),
+                contentDescription = if (given) "Allowed" else null,
+                tint = if (given) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(role = Role.Button, onClickLabel = if (label == Words.ADD_FOLDER) label else Words.CHOOSE_FILE_ACCESS, onClick = onClick),
     )
 }
 
-/** The file being read, the files ready to search, and progress through each kind. */
+/**
+ * The sample: what has been read, as real previews, with the file being read first. A bounded FlowRow, not a lazy
+ * grid: it sits in setup's scrolling column, and six tiles need no laziness.
+ */
 @Composable
-internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (Int) -> Unit) {
-    Text("Reading a few files to try", style = MaterialTheme.typography.headlineSmall)
-    Muted(Words.readCount(taste.read.toLong()))
-    reading(taste.read)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for ((name, kinds) in KIND_ROWS) {
-            val (read, of) = kinds.mapNotNull(taste.byKind::get).fold(0 to 0) { (r, n), (a, b) -> r + a to n + b }
-            if (of > 0) KindRow(name, read, of, done = kinds.all { it !in taste.byKind || it in taste.readyKinds })
+internal fun ColumnScope.SampleStage(ui: SetupUi, taste: TasteProgress, index: () -> IndexState, actions: SetupActions) {
+    Text(Words.SAMPLE_TITLE, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+    val spoken = (listOf(Words.readCount(taste.read.toLong())) + taste.byKind.map { (k, n) -> Words.kindRead(n.first.toLong(), n.second.toLong(), k) })
+        .joinToString(", ")
+    Text(Words.readCount(taste.read.toLong()), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { contentDescription = spoken })
+    val s = index()
+    val done = taste.byKind.isNotEmpty() && taste.readyKinds.size == taste.byKind.size
+    val reading = s.running && ui.pauseReason == null && !done
+    SampleTime(reading, ui.sampleStartedAt)
+    if (!done) ui.pauseReason?.let { Muted(it) }
+    val current = s.currentFile.takeIf { !done }
+    val read = s.recentFiles.filter { it.uri != current?.uri }
+    if (read.isEmpty()) Muted(Words.SAMPLE_STARTING)
+    // Six at most, and whole rows, so no slot is ever left blank.
+    val tiles = (listOfNotNull(current) + read).take(SAMPLE_TILES).let { if (it.size > 1) it.take(it.size / 2 * 2) else it }
+    val oneColumn = LocalDensity.current.fontScale > LARGE_TEXT
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        maxItemsInEachRow = if (oneColumn) 1 else 2,
+    ) {
+        for (f in tiles) {
+            androidx.compose.runtime.key(f.uri) { SampleTile(f, reading = f.uri == current?.uri, row = oneColumn, Modifier.weight(1f)) }
+        }
+    }
+    if (taste.read > tiles.size) TextButton(onClick = actions.seeAll) { Text(Words.seeAll(taste.read.toLong())) }
+}
+
+/** Core's time line while the sample reads, which turns to "taking longer" once the usual time has passed. */
+@Composable
+private fun SampleTime(reading: Boolean, startedAt: Long) {
+    // Only this line redraws as time passes, and only while the sample reads.
+    val elapsed by produceState(0L, reading, startedAt) {
+        while (reading && startedAt > 0) {
+            value = System.currentTimeMillis() - startedAt
+            delay(TIME_TICK_MS)
+        }
+    }
+    Words.sampleTime(reading, elapsed, DeviceWords.ANDROID)?.let { Muted(it) }
+}
+
+/** A real preview with the file's name and type: a picture, a PDF's first page, or a document's own text. */
+@Composable
+private fun SampleTile(file: SourceFile, reading: Boolean, row: Boolean, modifier: Modifier = Modifier) {
+    val kind = Words.kindLabel(file.kind)
+    val label = listOfNotNull(Words.READING_NOW.takeIf { reading }, file.name, kind).joinToString(", ")
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription =
+                label
+        },
+    ) {
+        val preview = @Composable { m: Modifier ->
+            Box(m.clip(MaterialTheme.shapes.small)) {
+                MeasuredThumbnailImage(file, Modifier.fillMaxSize())
+                if (reading) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                    ) { Text(Words.READING_NOW, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) }
+                }
+            }
+        }
+        val name = @Composable {
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            Text(kind, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (row) {
+            Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                preview(Modifier.size(72.dp))
+                Column(Modifier.weight(1f)) { name() }
+            }
+        } else {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                preview(Modifier.fillMaxWidth().aspectRatio(1f))
+                name()
+            }
         }
     }
 }
 
+/** The sample's footer: Try search once enough is read, and the way to Home throughout. */
 @Composable
-internal fun TryNow(onTry: () -> Unit) {
+internal fun SampleFooter(canTry: Boolean, actions: SetupActions) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Button(onClick = onTry, modifier = Modifier.fillMaxWidth()) { Text("Try it now") }
-        Muted("You can keep searching the content read so far.")
+        if (canTry) Button(onClick = actions.tryNow, modifier = Modifier.fillMaxWidth()) { Text(Words.TRY_SEARCH) }
+        TextButton(onClick = actions.skip, modifier = Modifier.fillMaxWidth()) { Text(Words.GO_TO_HOME) }
     }
 }
 
-private val KIND_ROWS = listOf(
-    "Screenshots" to listOf(Kind.SCREENSHOT),
-    "Documents and PDFs" to listOf(Kind.DOC, Kind.PDF),
-    "Photos" to listOf(Kind.PHOTO),
-    "Videos" to listOf(Kind.VIDEO),
-)
+private const val SAMPLE_TILES = 6
 
-@Composable
-private fun KindRow(name: String, read: Int, of: Int, done: Boolean) {
-    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 8.dp).semantics(mergeDescendants = true) {},
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text("$name $read/$of", style = MaterialTheme.typography.labelLarge.tabular())
-            if (done) Icon(painterResource(R.drawable.ic_check_circle), contentDescription = "Ready to search", tint = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
+private const val TIME_TICK_MS = 15_000L
+
+/** Font scale past which tiles become one-column rows. */
+private const val LARGE_TEXT = 1.3f
 
 @Composable
 internal fun ErrorText(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-}
-
-@Composable
-private fun DownloadBar(state: ModelState.Downloading, modifier: Modifier = Modifier) {
-    val percent = percentFormat().format(state.progress)
-    val bar = modifier.semantics {
-        contentDescription = if (state.indeterminate) "Starting the download" else "Downloading, $percent"
-        if (!state.indeterminate) progressBarRangeInfo = ProgressBarRangeInfo(state.progress, 0f..1f)
-    }
-    if (state.indeterminate) {
-        LinearProgressIndicator(modifier = bar, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
-    } else {
-        LinearProgressIndicator(progress = { state.progress }, modifier = bar, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
-    }
-}
-
-@Composable
-private fun DownloadProgress(state: ModelState.Downloading, totalBytes: Long?, onStop: () -> Unit) {
-    val context = LocalContext.current
-    val total = totalBytes?.takeIf { it > 0 }
-    val progress = state.progress.coerceIn(0f, 1f)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (total != null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "${Format.downloadSize(context, (progress * total).toLong())} of ${Format.downloadSize(context, total)}",
-                    style = MaterialTheme.typography.bodyMedium.tabular(),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(percentFormat().format(progress), style = MaterialTheme.typography.bodyMedium.tabular())
-                TextButton(onClick = onStop) { Text("Stop") }
-            }
-        }
-        DownloadBar(state.copy(progress = progress, indeterminate = total == null || state.indeterminate), Modifier.fillMaxWidth())
-        if (total == null) TextButton(onClick = onStop, modifier = Modifier.align(Alignment.End)) { Text("Stop") }
-    }
-}
-
-@Composable
-private fun percentFormat(): NumberFormat {
-    val locale = LocalConfiguration.current.locales[0]
-    return remember(locale) { NumberFormat.getPercentInstance(locale) }
 }

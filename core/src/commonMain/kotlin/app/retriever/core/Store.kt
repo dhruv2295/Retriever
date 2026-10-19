@@ -207,6 +207,12 @@ class Store(
 
     fun folders(): List<Pair<String, Long>> = q.folderCounts { folder, n -> folder to n }.executeAsList()
 
+    fun kindTotals(): Map<Kind, FileTotals> =
+        q.kindTotals { kind, n, bytes, unknown -> Kind.valueOf(kind) to FileTotals(n, bytes, unknown) }.executeAsList().toMap()
+
+    /** Most files first. */
+    fun folderTotals(): List<FolderTotals> = q.folderTotals { path, n, bytes, unknown -> FolderTotals(path, FileTotals(n, bytes, unknown)) }.executeAsList()
+
     /** Groups of two or more files with the same size, at least [minSize] bytes, largest size first. */
     fun sizeCollisions(minSize: Long): List<List<StoredFile>> = q.sizeCollisions(minSize, ::storedFile).executeAsList().groupBy { it.file.size }.values.toList()
 

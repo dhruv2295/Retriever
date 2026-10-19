@@ -88,9 +88,12 @@ object ReadingPolicy {
         StopReason.DONE, StopReason.BUDGET -> "Waiting for ${words.os}"
     }
 
-    /** Home's first row; null once set up with nothing in the library, where Home shows its empty state instead. */
-    fun homeStatus(setUp: Boolean, libraryTotal: Long, reading: ReadingStatus): HomeStatus? = when {
-        !setUp -> HomeStatus(HomePhase.SETTING_UP, "Finishing setup. For now Retriever matches file names.")
+    /**
+     * Home's first row; null with nothing in the library, where Home shows its empty state instead. [libraryChosen]:
+     * [SetupInputs.libraryChosen]; before it, the row leads back to setup's access step. Reading needs no model download.
+     */
+    fun homeStatus(libraryChosen: Boolean, libraryTotal: Long, reading: ReadingStatus): HomeStatus? = when {
+        !libraryChosen -> HomeStatus(HomePhase.SETTING_UP, Words.CHOOSE_ACCESS)
 
         libraryTotal == 0L -> null
 

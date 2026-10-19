@@ -73,7 +73,7 @@ class IndexWorker(
         if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
-        // Before setup finishes a batch only syncs the file list, so names are findable while the model downloads.
+        // Before setup finishes a batch only syncs the file list, so names are findable before reading starts.
         if (!platformReady()) {
             retriever.clearUnavailableLibrary()
             return@withContext Result.success()
@@ -83,7 +83,7 @@ class IndexWorker(
                 // A trial handoff owns its foreground service before waiting for the direct batch to stop. A run that can't read
                 // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
                 val trial = inputData.getBoolean(IndexService.TRIAL, false)
-                val foreground = retriever.setUp.value == true && (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
+                val foreground = (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes, waitForLock = trial).also { progress?.cancel() }

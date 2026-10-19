@@ -210,7 +210,7 @@ class FacadeW5Test {
         f.store.replaceChunks(ids[0], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
         f.store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
         assertTrue(f.r.suggestions(setOf(ids[0])).isEmpty(), "terms must recur in two selected files")
-        assertEquals(6, f.r.suggestions().size)
+        assertEquals(3, f.r.suggestions().size)
         assertTrue(f.r.suggestions(emptySet()).isEmpty())
         assertEquals(1, f.r.readFiles(setOf(ids[0])).size)
     }

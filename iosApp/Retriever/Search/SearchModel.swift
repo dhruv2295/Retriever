@@ -335,10 +335,14 @@ final class SearchModel {
         Task {
             try? await retriever.updatePrefs { @Sendable p in
                 p.doCopy(
-                    kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging, schedule: p.schedule, readNowUntil: p.readNowUntil, nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed, excludedFolders: p.excludedFolders, paused: p.paused,
+                    kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging, schedule: p.schedule, readNowUntil: p.readNowUntil,
+                    nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed, excludedFolders: p.excludedFolders,
+                    paused: p.paused,
                     sampleSize: p.sampleSize, allowMobileData: p.allowMobileData, rememberSearches: p.rememberSearches,
                     dynamicColor: p.dynamicColor, setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
-                    noMatchSeen: p.noMatchSeen + 1, showOnThisDay: p.showOnThisDay, readingCycle: p.readingCycle, dismissedReadingCycle: p.dismissedReadingCycle)
+                    noMatchSeen: p.noMatchSeen + 1, showOnThisDay: p.showOnThisDay, readingCycle: p.readingCycle,
+                    dismissedReadingCycle: p.dismissedReadingCycle,
+                    searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed)
             }
         }
     }
@@ -374,9 +378,9 @@ final class SearchModel {
         Task { try? await retriever.clearRecentQueries() }
     }
 
-    /// "Find similar", or nil on a words-only phone, where there is no model to match a photo with.
-    func similar(textOnly: Bool) -> ((SourceFile) -> Void)? {
-        textOnly ? nil : { [weak self] file in self?.findSimilar(file) }
+    /// "Find similar", or nil without search by meaning (`AppModel.meaningSearch`): no model to match a photo with.
+    func similar(_ meaning: Bool) -> ((SourceFile) -> Void)? {
+        meaning ? { [weak self] file in self?.findSimilar(file) } : nil
     }
 
     func findSimilar(_ file: SourceFile) {

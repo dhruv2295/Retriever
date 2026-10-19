@@ -1,5 +1,7 @@
 package app.retriever.nav
 
+import android.animation.ValueAnimator
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -78,7 +80,7 @@ private val fastEffects = spring<Float>(1f, 3800f)
 fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
     val koin = getKoin()
     val setUp by retriever.setUp.collectAsStateWithLifecycle()
-    val ready = setUp ?: return
+    if (setUp == null) return
     val navController = rememberNavController()
     androidx.compose.runtime.LaunchedEffect(statusRequest) {
         if (statusRequest > 0) navController.navigate(StatusRoute) { launchSingleTop = true }
@@ -92,13 +94,14 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
         val current = navController.currentBackStackEntry?.destination?.id
         if (settled() && current != null) navController.navigate(route) { popUpTo(current) { inclusive = true } }
     }
-    // Names are findable once files are allowed, so Home opens while the rest of setup carries on.
-    // SetupFlow is built here, after setUp settles, so it seeds from the stored prefs.
-    val start: Route = remember { if (ready || koin.get<SetupFlow>().ui.value.canSearch) HomeRoute else SetupRoute }
+    // Core's machine decides; SetupFlow is built here, after setUp settles, so it seeds from the stored setup.
+    val start: Route = remember { if (koin.get<SetupFlow>().ui.value.setup.showSetup) SetupRoute else HomeRoute }
+    // Reduce motion: setup gives way to Home with no fade or growth.
+    val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     app.retriever.files.FileActionsHost(retriever) {
         NavHost(navController, startDestination = start) {
             // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
-            composable<SetupRoute>(exitTransition = { fadeOut(fastEffects) }) {
+            composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
                 // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
                 SetupScreen(onNavigate = go, onDone = {
                     navController.navigate(HomeRoute) {
@@ -110,7 +113,11 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
             // The expanded search bar is its own window; Home must leave at once, or it covers the PDF or player while fading.
             composable<HomeRoute>(
                 enterTransition = {
-                    if (initialState.destination.hasRoute<SetupRoute>()) fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) else null
+                    when {
+                        !initialState.destination.hasRoute<SetupRoute>() -> null
+                        reduceMotion -> EnterTransition.None
+                        else -> fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f)
+                    }
                 },
                 exitTransition = {
                     val to = targetState.destination

@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -87,24 +88,51 @@ class ReadingFilesTest {
         assertEquals(recent[0], opened)
     }
 
-    @Test fun setupShowsCurrentFileAndNonInteractiveReadyCells() {
+    private fun sample(index: IndexState, ui: SetupUi = SetupUi(taste = taste), fontScale: Float = 1f, seeAll: () -> Unit = {}) {
         rule.setContent {
-            ShotTheme(false, 1f) {
-                Column {
-                    ReadingFew(taste) { read ->
-                        ReadingNow(file(5, Kind.PDF), reduceMotion = true)
-                        ReadyFiles(recent, read, reduceMotion = true)
-                    }
-                }
+            ShotTheme(false, fontScale) {
+                Column { SampleStage(ui, taste, { index }, SetupActions(seeAll = seeAll)) }
             }
         }
-        rule.onNodeWithText("Reading now").assertExists()
-        rule.onNodeWithText("PDF").assertExists()
-        rule.onNodeWithText("+26 more").assertExists()
-        rule.onNodeWithText("Photos 30/40").assertExists()
-        rule.onAllNodes(SemanticsMatcher("recent cell") { it.config.getOrElse(SemanticsProperties.TestTag) { "" }.startsWith("recent:") })
-            .assertCountEquals(4)
-        recent.forEach { rule.onNodeWithTag("recent:${it.uri}").assertHasNoClickAction() }
+    }
+
+    /** The mosaic: the file being read first, then what has been read, in whole rows of two; no slash counters on screen. */
+    @Test fun sampleShowsTheFileBeingReadAndTheFilesRead() {
+        var opened = false
+        sample(IndexState(running = true, currentFile = file(5, Kind.PDF), recentFiles = recent), seeAll = { opened = true })
+        rule.onNodeWithText(Words.SAMPLE_TITLE).assertExists()
+        rule.onNodeWithText("30 files read").assertExists()
+        rule.onAllNodes(SemanticsMatcher("slash counter") { n -> n.config.getOrElse(SemanticsProperties.Text) { emptyList() }.any { '/' in it.text } })
+            .assertCountEquals(0)
+        rule.onNodeWithContentDescription("${Words.READING_NOW}, 5.jpg, PDF").assertExists()
+        rule.onNodeWithContentDescription("1.jpg, Photo").assertExists()
+        // The plan's progress is said, not drawn.
+        rule.onNodeWithText("30 files read").assertContentDescriptionEquals("30 files read, 30 of 40 photos read")
+        rule.onNodeWithText(Words.seeAll(30)).performClick()
+        assertTrue(opened)
+    }
+
+    /** Paused: the reason, no time line, and the previews read so far stay. */
+    @Test fun pausedSampleKeepsItsPreviews() {
+        sample(IndexState(recentFiles = recent), SetupUi(taste = taste, pauseReason = "Waiting to charge"))
+        rule.onNodeWithText("Waiting to charge").assertExists()
+        rule.onNodeWithText("Usually 1–2 minutes. You can try search before this finishes.").assertDoesNotExist()
+        rule.onNodeWithContentDescription("1.jpg, Photo").assertExists()
+    }
+
+    /** Nothing read yet: one line and the file being read, never empty slots. */
+    @Test fun aSampleStartsWithOneTile() {
+        sample(IndexState(running = true, currentFile = file(5)))
+        rule.onNodeWithText(Words.SAMPLE_STARTING).assertExists()
+        rule.onNodeWithContentDescription("${Words.READING_NOW}, 5.jpg, Photo").assertExists()
+    }
+
+    /** At the largest text sizes the tiles become one-column rows. */
+    @Test fun largeTextStacksTheTiles() {
+        sample(IndexState(recentFiles = recent), fontScale = 2f)
+        val a = rule.onNodeWithContentDescription("1.jpg, Photo").fetchSemanticsNode().boundsInRoot
+        val b = rule.onNodeWithContentDescription("2.jpg, Photo").fetchSemanticsNode().boundsInRoot
+        assertTrue(b.top >= a.bottom)
     }
 
     @Test fun recentAndReadyCellsAnnounceNameKindAndDate() {
@@ -123,15 +151,7 @@ class ReadingFilesTest {
     }
 
     @Test fun pauseReasonReplacesTheFileAndSweep() {
-        rule.setContent {
-            ShotTheme(false, 1f) {
-                Column {
-                    ReadingFew(taste) { read ->
-                        SetupReadingFiles(null, recent, "Paused while you use other apps. It carries on when you come back.", read)
-                    }
-                }
-            }
-        }
+        rule.setContent { ShotTheme(false, 1f) { ReadingNow(null, "Paused while you use other apps. It carries on when you come back.") } }
         rule.onNodeWithText("Paused while you use other apps. It carries on when you come back.").assertExists()
         rule.onNodeWithTag("reading-sweep").assertDoesNotExist()
     }

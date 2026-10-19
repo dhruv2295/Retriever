@@ -18,6 +18,7 @@ import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
+import app.retriever.core.UpgradeStage
 import app.retriever.core.android.ImageBytes
 import app.retriever.core.onFull
 import app.retriever.core.onNames
@@ -70,7 +71,10 @@ data class SearchUi(
     val quietNoMatch: Boolean = false,
     /** The model was removed in Settings: names and words answer until it downloads again. */
     val modelMissing: Boolean = false,
+    /** The model is in place and tuned ([Retriever.setUp]); before that, reading adds no meaning. */
     val setUp: Boolean = false,
+    /** The meaning upgrade's stage, for the hint under few results; the screen fills it in. */
+    val upgrade: UpgradeStage = UpgradeStage.UNAVAILABLE,
     val recent: List<String> = emptyList(),
     val starredUris: Set<String> = emptySet(),
     /** Only starred files. */
@@ -88,7 +92,10 @@ data class SearchUi(
     val photosRead: Int = 0,
 ) {
     /** Searching by photo needs the model and, on the first run, enough photos read for it to mean something. */
-    val canSearchByPhoto get() = !textOnly && (scope == null || photosRead >= PHOTOS_FOR_PHOTO_SEARCH)
+    val canSearchByPhoto get() = !wordsOnly && (scope == null || photosRead >= PHOTOS_FOR_PHOTO_SEARCH)
+
+    /** No model to search by meaning: a words-only phone, or the optional download not in place and tuned. */
+    val wordsOnly get() = textOnly || modelMissing || !setUp
 
     /** What the fields ask now. A search by photo ignores the words. */
     val question: Question get() = Question(if (similar != null) "" else query.trim(), chip, similar?.uri, onlyStarred, literal, scope)

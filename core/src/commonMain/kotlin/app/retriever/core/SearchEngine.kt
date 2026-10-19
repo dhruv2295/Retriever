@@ -10,7 +10,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * One search. [from] (inclusive) and [to] (exclusive) are epoch ms, matched against a file's capture time (taken, else
  * modified); [fileIds] keeps only those files, e.g. the starred ones. Null: no such filter. [onlyStarred] says
- * [fileIds] are the starred files, so the keyword lane can filter by them in SQL before its cut.
+ * [fileIds] are the starred files, so the keyword lane can filter by them in SQL before its cut. [contentIds] narrows
+ * only the words and meaning lanes (the sample), so names still cover every file [fileIds] allows.
  */
 data class SearchRequest(
     val text: String,
@@ -21,6 +22,7 @@ data class SearchRequest(
     val limit: Int = 20,
     val mode: SearchEngine.Mode = SearchEngine.Mode.MERGED,
     val onlyStarred: Boolean = false,
+    val contentIds: Set<Long>? = null,
 )
 
 /** Whether sorted [a] holds [x]; common Kotlin has no binarySearch on primitive arrays. */
@@ -204,7 +206,7 @@ class SearchEngine(
             val l = loaded ?: return Lane(emptyList(), Source.MEANING)
             val histogram = rule?.histogram()
             val dead = l.dead.takeIf { l.anyDead }
-            val top = traced("vec.scan") { scan(q, CANDIDATES, l.view, f.allowed, f.days, f.ids, histogram, dead) }
+            val top = traced("vec.scan") { scan(q, CANDIDATES, l.view, f.allowed, f.days, f.contentIds, histogram, dead) }
             val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkIds[it] }) }
             // A picked row whose chunk is gone was deleted after the load: mark it and scan again, so it frees its slot.
             var missed = false
@@ -238,7 +240,7 @@ class SearchEngine(
             traced("kw.fts") {
                 val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
                 val rows = store.chunks(hits.map { it.chunkId })
-                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admits(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
             }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
@@ -386,9 +388,14 @@ class SearchEngine(
         // admit up to a day too much at the edges, never too little, and [admits] then cuts by the exact time.
         val days = dates?.let { day(it.first)..day(it.last) }
         val ids = req.fileIds?.toLongArray()?.apply { sort() }
+
+        /** What the words and meaning lanes may return: [ids] narrowed to the request's content ids. */
+        val contentIds = req.contentIds?.filter { admits(it) }?.toLongArray()?.apply { sort() } ?: ids
         val onlyStarred = req.onlyStarred
 
         fun admits(fileId: Long) = ids == null || sortedHas(ids, fileId)
+
+        fun admitsContent(fileId: Long) = contentIds == null || sortedHas(contentIds, fileId)
 
         fun admits(file: SourceFile) = (kinds == null || file.kind in kinds) && (dates == null || (file.takenAt ?: file.modifiedAt) in dates)
 
@@ -485,10 +492,13 @@ class SearchEngine(
                 val unreadable = raw != null && numericSnippet(raw.filterNot { it == '\u0002' || it == '\u0003' })
                 val snippet = raw.takeUnless { unreadable }
                 val matched = labelMatches[r.first].orEmpty()
+                // Not in the words lane and not by name: found by meaning alone, with no word of the query to highlight.
+                val related = r.first !in labelMatches && '\u0002' !in snippet.orEmpty()
                 val reason = when {
                     r.first in byName -> null
-                    matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet) -> "Matches: " + matched.joinToString(", ")
-                    unreadable && '\u0002' in raw.orEmpty() -> "Text matches"
+                    matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet) -> Words.matches(matched)
+                    unreadable && '\u0002' in raw.orEmpty() -> Words.TEXT_MATCHES
+                    related -> Words.RELATED
                     else -> null
                 }
                 Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName, reason)

@@ -1,5 +1,6 @@
 package app.retriever.home
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,17 +11,22 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import app.retriever.ShotTheme
 import app.retriever.access.Photos
+import app.retriever.core.FileTotals
+import app.retriever.core.FolderTotals
 import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
@@ -28,7 +34,11 @@ import app.retriever.core.Prefs
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
+import app.retriever.core.UpgradeStage
+import app.retriever.core.Words
 import app.retriever.core.YearMemory
+import app.retriever.model.UpgradeActions
+import app.retriever.model.UpgradeUi
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
@@ -114,7 +124,7 @@ class HomeShotsTest {
     private val memories = listOf(memory(2023, 8, 0), memory(2021, 0, 1), memory(2019, 3, 2))
 
     private val caughtUp = HomeUi(
-        setUp = true,
+        libraryChosen = true,
         counts = counts,
         readByKind = counts,
         contentRead = 26_300,
@@ -122,6 +132,12 @@ class HomeShotsTest {
         starred = 4,
         memories = memories,
         memoriesDay = day,
+        // A megabyte a file, so sizes read plainly.
+        kindTotals = counts.mapValues { (_, n) -> FileTotals(n, n * 1_000_000, 0) },
+        folderTotals = listOf(
+            FolderTotals("/storage/emulated/0/Download", FileTotals(420, 1_800_000_000, 0)),
+            FolderTotals("/storage/emulated/0/DCIM/Camera", FileTotals(300, 0, 300)),
+        ),
     )
 
     @Composable
@@ -165,13 +181,13 @@ class HomeShotsTest {
 
             "waiting" -> Screen(reading.copy(), IndexState(lastStop = StopReason.UNPLUGGED), actions)
 
-            "no_access" -> Screen(caughtUp.copy(hasAccess = false, setUp = false), IndexState(lastStop = StopReason.DONE), actions)
+            "no_access" -> Screen(caughtUp.copy(hasAccess = false, libraryChosen = false), IndexState(lastStop = StopReason.DONE), actions)
 
             "videos_off" -> Screen(reading.copy(inside = Kind.entries.toSet() - Kind.VIDEO), readingIndex, actions)
 
-            "first_run" -> Screen(HomeUi(setUp = true, counts = emptyMap()), IndexState(running = true), actions)
+            "first_run" -> Screen(HomeUi(libraryChosen = true, counts = emptyMap()), IndexState(running = true), actions)
 
-            "empty_phone" -> Screen(HomeUi(setUp = true, counts = emptyMap()), IndexState(), actions)
+            "empty_phone" -> Screen(HomeUi(libraryChosen = true, counts = emptyMap()), IndexState(), actions)
 
             else -> error("no state $state")
         }
@@ -198,31 +214,31 @@ class HomeShotsTest {
         // One chip row, no header and no Clear on Home.
         rule.onNodeWithText("Recent searches").assertDoesNotExist()
         rule.onNodeWithText("passport scan").assertExists()
-        rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").assertExists()
-        rule.onNodeWithContentDescription("Screenshots, 158").assertExists()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
+        rule.onNodeWithContentDescription("Photos and videos, 23,700 files, 23.7\u00A0GB").assertExists()
+        rule.onNode(hasContentDescription("Screenshots, 158 files, 158.0\u00A0MB") and isHeading()).assertExists()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").assertExists()
         rule.onNodeWithText("Today · 2.1\u00A0MB").assertExists()
         rule.onNodeWithContentDescription("PDF, Lease_Agreement_2026.pdf, Today, 2.1\u00A0MB").assertExists()
         // Caught up: no pill.
-        rule.onNodeWithText("to go", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("waiting to read", substring = true).assertDoesNotExist()
         rule.onNodeWithText("More on your phone").assertExists()
         rule.onNodeWithText("Tidy up").assertExists()
         rule.onNodeWithText("212 files over 100\u00A0MB · 41.0\u00A0GB").assertExists()
         // Caught up: no per-type progress, and no exact-copy total.
         rule.onAllNodesWithText("waiting to read", substring = true).assertCountEquals(0)
         rule.onNodeWithText("Check for exact copies").assertExists()
-        rule.onNodeWithContentDescription("Folders, 148").assertExists()
-        rule.onNodeWithContentDescription("Videos, 1,700 files").assertExists()
-        rule.onNodeWithContentDescription("Documents, 125 files").assertExists()
-        rule.onNodeWithContentDescription("Audio, 345 files").assertExists()
-        rule.onNodeWithText("372 · Name only").assertExists()
+        rule.onNodeWithContentDescription("All folders, 2 folders").assertExists()
+        rule.onNodeWithContentDescription("Videos, 1,700 files, 1.7\u00A0GB").assertExists()
+        rule.onNodeWithContentDescription("Documents, 125 files, 125.0\u00A0MB").assertExists()
+        rule.onNodeWithContentDescription("Audio, 345 files, 345.0\u00A0MB").assertExists()
+        rule.onNodeWithText("372 files · 372.0\u00A0MB · Name only").assertExists()
         rule.onNodeWithContentDescription("Starred, 4").assertExists()
         rule.onNodeWithText("On this day").assertExists()
     }
 
     @Test fun aKindNotReadInsideIsNameOnly() {
         shot("videos_off", false)
-        rule.onNodeWithContentDescription("Videos, 1,700 files, Name only").assertExists()
+        rule.onNodeWithContentDescription("Videos, 1,700 files, 1.7\u00A0GB, Name only").assertExists()
     }
 
     @Test fun caughtUpDark() = shot("caught_up", true)
@@ -232,15 +248,15 @@ class HomeShotsTest {
         // Only the words are a live region; the count beside them changes without an announcement each time.
         rule.onNode(hasText("Reading your files") and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
         rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
-        rule.onNodeWithContentDescription("Videos, 1,700 files, 1,700 waiting to read").assertExists()
-        rule.onNodeWithContentDescription("Audio, 345 files, 60 waiting to read").assertExists()
+        rule.onNodeWithContentDescription("Videos, 1,700 files, 1.7\u00A0GB, 1,700 waiting to read").assertExists()
+        rule.onNodeWithContentDescription("Audio, 345 files, 345.0\u00A0MB, 60 waiting to read").assertExists()
         // Pictures are never greyed out; the big cell says how many photos are left, and headers say where each stands.
-        rule.onNode(described("Photo,") and hasText("14,700 to go")).assertExists()
-        rule.onNodeWithContentDescription("Screenshots, 158").assertExists()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
-        rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").assertExists()
+        rule.onNode(described("Photo,") and hasText("14,700 waiting to read")).assertExists()
+        rule.onNode(hasContentDescription("Screenshots, 158 files, 158.0\u00A0MB") and isHeading()).assertExists()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").assertExists()
+        rule.onNodeWithContentDescription("Photos and videos, 23,700 files, 23.7\u00A0GB").assertExists()
         cells().assertCountEquals(6)
-        rule.onNodeWithContentDescription("Other files, 372 files, Name only").assertExists()
+        rule.onNodeWithContentDescription("Other files, 372 files, 372.0\u00A0MB, Name only").assertExists()
     }
 
     @Test fun readingDark() = shot("reading", true)
@@ -357,8 +373,8 @@ class HomeShotsTest {
         rule.onNodeWithText("Allow access").assertExists()
         // Pictures cannot load without access: no mosaic or screenshots, documents stay as icon cards.
         cells().assertCountEquals(0)
-        rule.onNodeWithContentDescription("Screenshots, 158").assertDoesNotExist()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
+        rule.onNode(hasContentDescription("Screenshots, 158 files, 158.0\u00A0MB") and isHeading()).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").assertExists()
         rule.onNodeWithText("Up to date", substring = true).assertDoesNotExist()
         rule.onNodeWithText("Finishing setup", substring = true).assertDoesNotExist()
     }
@@ -403,9 +419,9 @@ class HomeShotsTest {
                 )
             }
         }
-        rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").assertDoesNotExist()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertDoesNotExist()
-        rule.onNodeWithContentDescription("Screenshots, 158").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Photos and videos, 23,700 files, 23.7\u00A0GB").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").assertDoesNotExist()
+        rule.onNode(hasContentDescription("Screenshots, 158 files, 158.0\u00A0MB") and isHeading()).assertDoesNotExist()
         rule.onNodeWithText("Starred").assertDoesNotExist()
         rule.onNodeWithText("More on your phone").assertExists()
     }
@@ -442,9 +458,9 @@ class HomeShotsTest {
     @Test fun headersAreDoorwaysToTheirLists() {
         val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { Screen(caughtUp, IndexState(), SearchActions(onNavigate = { went += it })) } }
-        rule.onNodeWithContentDescription("Photos and videos, 22,000 photos, 1,700 videos").performClick()
-        rule.onNodeWithContentDescription("Screenshots, 158").performClick()
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").performClick()
+        rule.onNodeWithContentDescription("Photos and videos, 23,700 files, 23.7\u00A0GB").performClick()
+        rule.onNode(hasContentDescription("Screenshots, 158 files, 158.0\u00A0MB") and isHeading()).performClick()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").performClick()
         assertEquals(
             listOf<Route>(
                 BrowseRoute(kind = "PHOTO", title = "Photos"),
@@ -501,13 +517,13 @@ class HomeShotsTest {
 
     @Test fun theMosaicHasNoPillWhenPhotosAreRead() {
         rule.setContent { ShotTheme(false) { Screen(reading.copy(pending = mapOf(Kind.VIDEO to 100L)), readingIndex) } }
-        rule.onNode(described("Photo,") and hasText("to go", substring = true)).assertDoesNotExist()
+        rule.onNode(described("Photo,") and hasText("waiting to read", substring = true)).assertDoesNotExist()
     }
 
     @Test fun thePillSaysPausedAndIsPartOfTheBigCell() {
         rule.setContent { ShotTheme(false) { Screen(reading.copy(paused = true), IndexState(lastStop = StopReason.PAUSED)) } }
-        rule.onNode(described("Photo,") and hasText("14,700 to go · Paused")).assertExists()
-        rule.onNode(hasContentDescription("14,700 photos still to read", substring = true)).assertExists()
+        rule.onNode(described("Photo,") and hasText("14,700 waiting to read · Paused")).assertExists()
+        rule.onNode(described("Photo,") and hasContentDescription("14,700 waiting to read", substring = true)).assertExists()
     }
 
     @Test fun aVideoHasABadge() {
@@ -521,7 +537,7 @@ class HomeShotsTest {
         rule.setContent { ShotTheme(false, fontScale = 2f) { Screen(reading, readingIndex) } }
         rule.waitForIdle()
         rule.shot("home_reading_2x")
-        rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
+        rule.onNodeWithContentDescription("Documents and PDFs, 1,725 files, 1.7\u00A0GB").assertExists()
         cells().assertCountEquals(6)
     }
 
@@ -597,16 +613,51 @@ class HomeShotsTest {
         assertEquals(listOf(true), set)
     }
 
-    @Test fun moreOnYourPhoneListsOnlyKindsWithFilesInAFixedOrder() {
-        val order = { ui: HomeUi -> moreTiles(ui).map { it.label } }
-        assertEquals(listOf("Videos", "Documents", "Audio", "Other files", "Folders"), order(caughtUp))
-        // Documents only beside PDFs; the others drop out at zero.
-        assertEquals(listOf("Videos", "Audio", "Other files", "Folders"), order(caughtUp.copy(counts = counts + (Kind.PDF to 0L))))
+    @Test fun moreOnYourPhoneListsKindsThenFoldersWithCountAndSize() {
+        val tiles = moreTiles(caughtUp)
         assertEquals(
-            listOf("Audio", "Other files"),
-            order(caughtUp.copy(counts = counts + (Kind.VIDEO to 0L) + (Kind.DOC to 0L), home = facts.copy(folders = 0))),
+            listOf("Photos", "Videos", "Screenshots", "PDFs", "Documents", "Audio", "Other files", "Download", "Camera", Words.ALL_FOLDERS),
+            tiles.map { it.label },
         )
-        assertEquals(emptyList<String>(), order(caughtUp.copy(counts = mapOf(Kind.PHOTO to 5L), home = facts.copy(folders = 0))))
+        assertEquals("420 files · 1.8 GB", tiles.first { it.label == "Download" }.line)
+        // Unknown sizes never read as 0 B.
+        assertEquals("300 files · Size unavailable", tiles.first { it.label == "Camera" }.line)
+        // Kinds with no files drop out, and no folders means no folder rows.
+        val few = caughtUp.copy(kindTotals = mapOf(Kind.AUDIO to FileTotals(2, 0, 2), Kind.VIDEO to FileTotals(0, 0, 0)), folderTotals = emptyList())
+        assertEquals(listOf("Audio"), moreTiles(few).map { it.label })
+    }
+
+    @Test fun moreOnYourPhoneOpensTheTappedRow() {
+        val went = mutableListOf<Route>()
+        rule.setContent { ShotTheme(false) { Column { MoreSection(moreTiles(caughtUp), go = { went += it }) } } }
+        rule.shot("home_more_on_phone")
+        rule.onNodeWithContentDescription("Download, 420 files, 1.8 GB").performClick()
+        assertEquals(BrowseRoute(folder = "/storage/emulated/0/Download", title = "Download"), went.single())
+    }
+
+    @Test fun theUpgradeRowShowsUnderTheStatus() {
+        rule.setContent {
+            ShotTheme(false) {
+                SearchContent(SearchUi(), caughtUp, SearchActions()) { padding, state, side, fill ->
+                    HomeBody(
+                        caughtUp, IndexState(lastStop = StopReason.DONE), false, emptyList(), SearchActions(), {}, {}, state, padding, side, fill,
+                        upgrade = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976), upgradeActions = UpgradeActions(notNow = {}),
+                    )
+                }
+            }
+        }
+        rule.shot("home_upgrade_offer")
+        rule.onNodeWithText(Words.UPGRADE_TITLE).assertExists()
+        rule.onNodeWithText(Words.NOT_NOW).assertExists()
+    }
+
+    @Test fun theSearchFieldSitsAtTheBottomAndSettingsAtTheTop() {
+        rule.setContent { ShotTheme(false) { Screen(caughtUp, IndexState(lastStop = StopReason.DONE)) } }
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val field = rule.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot
+        val settings = rule.onNodeWithContentDescription("Settings").fetchSemanticsNode().boundsInRoot
+        assertTrue("search in the bottom half", field.top > root.height / 2)
+        assertTrue("settings in the top bar", settings.bottom < root.height / 4)
     }
 
     @Test fun gearOpensSettings() {

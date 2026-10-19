@@ -24,16 +24,26 @@ final class ReadingFilesTests: XCTestCase {
         XCTAssertNil(StatusContent.reason(detail: nil, lastError: nil, message: nil))
     }
 
-    func testVisibleCellsKeepNewestFirstAndCountTheRest() {
-        let files = (1...24).reversed().map(file)
-        let reading = ReadingPreview(current: file(25), recent: files)
-        XCTAssertEqual(reading.recent.map(\.uri), files.map(\.uri))
-        XCTAssertEqual(reading.current?.uri, "demo:25")
-        XCTAssertEqual(reading.more(read: 71), "+47 more")
-        XCTAssertNil(reading.more(read: 24))
-        XCTAssertNil(reading.more(read: 23), "a lagging count never shows a negative remainder")
-        XCTAssertNil(ReadingPreview().more(read: 0))
-        XCTAssertEqual(ReadingPreview().more(read: 5), "+5 more")
+    /// Six tiles at most, the file being read first and then the newest read; never a blank slot or a file twice.
+    func testTheSampleMosaicShowsTheReadingFileThenTheNewestRead() {
+        let recent = (1...24).reversed().map(file)
+        XCTAssertEqual(
+            SampleMosaic.tiles(ReadingPreview(current: file(25), recent: recent)).map(\.uri), ["demo:25"] + (20...24).reversed().map { "demo:\($0)" })
+        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: file(24), recent: recent)).map(\.uri), (19...24).reversed().map { "demo:\($0)" })
+        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(2)))).count, 2, "paused: what was read stays")
+        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview(current: file(1))).count, 1, "the first file alone, no reserved slots")
+        XCTAssertEqual(SampleMosaic.tiles(ReadingPreview()), [])
+        XCTAssertEqual(SampleMosaic.columns(.large), 2)
+        XCTAssertEqual(SampleMosaic.columns(.accessibility1), 1, "one column of rows at the largest text sizes")
+    }
+
+    func testTheSampleIsSpokenByKindNotShownAsSlashCounts() {
+        let taste = TasteSnap(counts: [.photo: .init(read: 12, planned: 40), .pdf: .init(read: 3, planned: 5)], readyToTry: true, pending: 30)
+        XCTAssertEqual(taste.read, 15)
+        XCTAssertEqual(taste.planned, 45)
+        XCTAssertTrue(taste.spoken.contains("12 of 40 photos read"), taste.spoken)
+        XCTAssertTrue(taste.spoken.contains("3 of 5 PDFs read"), taste.spoken)
+        XCTAssertFalse(taste.spoken.contains("/"))
     }
 
     func testFileProgressDoesNotInvalidateTheSettledSnapshot() throws {
@@ -62,14 +72,16 @@ final class ReadingFilesTests: XCTestCase {
         }
         XCTAssertNotEqual(RecentFileCell(file: before[0]), RecentFileCell(file: after[0]))
     }
-    func testFourCellsShareOneRowAtSeveralWidths() {
-        for width: CGFloat in [239, 280, 327, 430] {
+    /// Two tiles share a row on a phone; a third starts the next.
+    func testTwoSampleTilesShareOneRowAtSeveralWidths() {
+        for width: CGFloat in [320, 375, 430] {
             func height(_ count: Int) -> CGFloat {
-                let host = UIHostingController(rootView: ReadyFiles(files: (1...count).map(file), read: count))
-                return host.sizeThatFits(in: CGSize(width: width, height: 2000)).height
+                let preview = ReadingPreview(current: file(count), recent: (1..<count).map(file))
+                let host = UIHostingController(rootView: SampleMosaic(preview: preview).environment(\.dynamicTypeSize, .large))
+                return host.sizeThatFits(in: CGSize(width: width, height: 4000)).height
             }
-            XCTAssertEqual(height(1), height(4), accuracy: 1)
-            XCTAssertGreaterThan(height(5), height(4))
+            XCTAssertGreaterThan(height(3), height(2) + 40)
+            XCTAssertEqual(height(4), height(3), accuracy: 1)
         }
     }
 }

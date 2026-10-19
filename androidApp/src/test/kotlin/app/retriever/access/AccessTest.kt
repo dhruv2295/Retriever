@@ -6,6 +6,7 @@ import android.Manifest.permission.READ_MEDIA_IMAGES
 import android.Manifest.permission.READ_MEDIA_VIDEO
 import android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
 import app.retriever.core.Kind
+import app.retriever.core.Words
 import app.retriever.core.android.MediaStoreSource
 import app.retriever.core.android.SafSource
 import org.junit.Assert.assertEquals
@@ -53,7 +54,7 @@ class AccessTest {
     }
 
     @Test fun coverageLines() {
-        assertEquals(listOf(CoverageLine("All files on this phone")), Access(true, folders = listOf(work)).coverage())
+        assertEquals(listOf(CoverageLine(Words.SHARED_FILES_AND_FOLDERS)), Access(true, folders = listOf(work)).coverage())
         assertEquals(
             listOf(
                 CoverageLine("Photos and videos"),

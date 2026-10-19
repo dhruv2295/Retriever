@@ -32,8 +32,8 @@ class ContentSuggestionsTest {
     @Test fun termsAndPhrasesNeedTwoDistinctFilesInTheSelectedRead() {
         val files = mapOf(1L to frequencies(listOf(prose, prose, "Unique telescope nebula.")), 2L to frequencies(listOf(prose)))
         val suggestions = distinctiveTerms(files)
-        assertTrue(suggestions.size >= 3)
-        assertTrue("security deposit" in suggestions, suggestions.toString())
+        assertEquals(3, suggestions.size, "Try shows at most three")
+        assertTrue(suggestions.any { ' ' in it }, suggestions.toString())
         assertFalse(suggestions.any { it.contains("telescope") || it.contains("nebula") })
         assertTrue(distinctiveTerms(files, setOf(1)).isEmpty(), "repeated chunks in one file do not count twice")
     }

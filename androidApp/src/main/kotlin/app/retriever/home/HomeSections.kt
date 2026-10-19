@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.retriever.R
+import app.retriever.core.FileTotals
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
@@ -138,9 +139,8 @@ internal fun MediaSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val photos = ui.counts?.get(Kind.PHOTO) ?: 0L
     val videos = ui.counts?.get(Kind.VIDEO) ?: 0L
     val left = ui.pending[Kind.PHOTO] ?: 0L
-    val subtitle = listOfNotNull(photos.takeIf { it > 0 }?.let { Words.plural(it, "photo") }, videos.takeIf { it > 0 }?.let { Words.plural(it, "video") })
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Photos and videos", subtitle.joinToString(" · ").ifEmpty { null }) {
+        SectionHeader("Photos and videos", ui.sized(Kind.PHOTO, Kind.VIDEO)) {
             actions.onNavigate(
                 if (photos > 0 ||
                     videos == 0L
@@ -160,9 +160,8 @@ internal fun MediaSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
 
 @Composable
 internal fun ShotsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
-    val n = ui.counts?.get(Kind.SCREENSHOT) ?: home.newShots.size.toLong()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Screenshots", counted(Format.count(n), ui.readiness(Kind.SCREENSHOT))) {
+        SectionHeader("Screenshots", ui.sized(Kind.SCREENSHOT)?.let { counted(it, ui.readiness(Kind.SCREENSHOT)) }) {
             actions.onNavigate(BrowseRoute(kind = Kind.SCREENSHOT.name, title = Words.kindLabelPlural(Kind.SCREENSHOT)))
         }
         ShotsStrip(home.newShots) { f ->
@@ -176,9 +175,17 @@ internal fun ShotsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
 internal fun DocsSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
     val pdfs = ui.counts?.get(Kind.PDF) ?: 0L
     val docs = ui.counts?.get(Kind.DOC) ?: 0L
-    val subtitle = listOfNotNull(pdfs.takeIf { it > 0 }?.let { Words.plural(it, "PDF") }, docs.takeIf { it > 0 }?.let { Words.plural(it, "document") })
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Documents", counted(subtitle.joinToString(" · "), ui.readiness(Kind.PDF, Kind.DOC)).ifEmpty { null }) {
+        SectionHeader(
+            if (pdfs > 0 &&
+                docs > 0
+            ) {
+                "Documents and PDFs"
+            } else {
+                "Documents"
+            },
+            ui.sized(Kind.PDF, Kind.DOC)?.let { counted(it, ui.readiness(Kind.PDF, Kind.DOC)) },
+        ) {
             val kind = if (pdfs > 0) Kind.PDF else Kind.DOC
             actions.onNavigate(BrowseRoute(kind = kind.name, title = Words.kindLabelPlural(kind)))
         }
@@ -246,7 +253,7 @@ private fun MosaicCell(file: SourceFile, w: Dp, h: Dp, corner: Dp, reading: Mosa
     val context = LocalContext.current
     val label = remember(file, reading?.pending) {
         val base = "${Words.kindLabel(file.kind)}, ${spokenDate(context, file.takenAt ?: file.modifiedAt)}"
-        if (reading != null && reading.pending > 0) "$base, ${Words.plural(reading.pending, "photo")} still to read" else base
+        if (reading != null && reading.pending > 0) "$base, ${Words.waitingToRead(reading.pending)}" else base
     }
     Box(
         Modifier
@@ -269,7 +276,7 @@ private fun VideoBadge(modifier: Modifier = Modifier) {
     }
 }
 
-/** "14,700 to go" on a scrim along the big cell's bottom, with a 3 dp line of how much is read. */
+/** "14,700 waiting to read" on a scrim along the big cell's bottom, with a 3 dp line of how much is read. */
 @Composable
 private fun BoxScope.ReadingPill(reading: MosaicReading) {
     Box(
@@ -283,7 +290,7 @@ private fun BoxScope.ReadingPill(reading: MosaicReading) {
         modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 14.dp),
     ) {
         Text(
-            "${Format.count(reading.pending)} to go${if (reading.paused) " · Paused" else ""}",
+            Words.waitingToRead(reading.pending) + if (reading.paused) " · Paused" else "",
             style = MaterialTheme.typography.labelLarge.tabular(),
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
@@ -332,15 +339,14 @@ internal fun DocsStrip(docs: List<SourceFile>, pictures: Boolean, onOpen: (Sourc
                     .clickable(onClickLabel = "Open") { onOpen(f) },
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                val page = Modifier.size(112.dp, 150.dp).clip(shape).border(1.dp, colors.outlineVariant, shape)
-                if (f.kind == Kind.PDF) {
-                    ThumbnailImage(f, 150.dp, page, load = pictures, container = colors.surfaceContainerLowest)
-                } else {
-                    Column(page.background(colors.surfaceContainerLowest), Arrangement.Center, Alignment.CenterHorizontally) {
-                        Icon(painterResource(kindIcon(f.kind)), contentDescription = null, Modifier.size(28.dp), tint = colors.primary)
-                        Text(f.name.substringAfterLast('.', "").uppercase().take(5), style = MaterialTheme.typography.labelLarge, color = colors.onSurface)
-                    }
-                }
+                // A PDF's first page; a document's own text (the thumbnail's text tile).
+                ThumbnailImage(
+                    f,
+                    150.dp,
+                    Modifier.size(112.dp, 150.dp).clip(shape).border(1.dp, colors.outlineVariant, shape),
+                    load = pictures,
+                    container = colors.surfaceContainerLowest,
+                )
                 Text(f.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurface, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
                 Text(line, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
             }
@@ -470,45 +476,51 @@ internal fun StarredSection(ui: HomeUi, home: HomeFacts, actions: SearchActions)
 @Immutable
 internal data class KindTile(val icon: Int, val label: String, val line: String, val spoken: String, val route: Route)
 
-/**
- * Videos, Documents (only beside PDFs: with none, the Documents header opens them), Audio, Other files and Folders, in
- * that order, each only when something is there. Photos, screenshots and PDFs have their sections' headers.
- */
-internal fun moreTiles(ui: HomeUi): List<KindTile> {
-    val counts = ui.counts ?: return emptyList()
-    fun kind(k: Kind): KindTile? {
-        val n = counts[k] ?: 0L
-        if (n == 0L || (k == Kind.DOC && (counts[Kind.PDF] ?: 0L) == 0L)) return null
-        val label = Words.kindLabelPlural(k)
-        val readiness = ui.readiness(k)
-        return KindTile(
-            kindIcon(k),
-            label,
-            counted(Format.count(n), readiness),
-            listOfNotNull("$label, ${Words.files(n)}", readiness).joinToString(", "),
-            BrowseRoute(kind = k.name, title = label),
-        )
-    }
-    val folders = ui.home?.folders ?: 0L
-    return listOfNotNull(kind(Kind.VIDEO), kind(Kind.DOC), kind(Kind.AUDIO), kind(Kind.OTHER)) +
-        listOfNotNull(
-            if (folders > 0) KindTile(R.drawable.ic_folder_open, "Folders", Format.count(folders), "Folders, ${Format.count(folders)}", FoldersRoute) else null,
-        )
+/** "120 files · 640 MB" for [kinds] together; null until the totals are loaded or with none of these files. */
+internal fun HomeUi.sized(vararg kinds: Kind): String? {
+    val t = kinds.mapNotNull(kindTotals::get).takeIf { it.isNotEmpty() } ?: return null
+    return sized(FileTotals(t.sumOf { it.files }, t.sumOf { it.knownBytes }, t.sumOf { it.unknownSizes })).takeIf { t.any { it.files > 0 } }
 }
 
-/** Two tiles to a row, one at large text. */
+private fun sized(t: FileTotals) = Words.countAndSize(t, Format.bytes(t.knownBytes))
+
+private const val MORE_FOLDERS = 5
+
+/**
+ * Every kind, then the folders with the most files, each with count and size, then All folders. Kinds and folders are
+ * two views of the same files, not totals to add.
+ */
+internal fun moreTiles(ui: HomeUi): List<KindTile> {
+    val kinds = libraryKinds.mapNotNull { k ->
+        val t = ui.kindTotals[k]?.takeIf { it.files > 0 } ?: return@mapNotNull null
+        val label = Words.kindLabelPlural(k)
+        tile(kindIcon(k), label, counted(sized(t), ui.readiness(k)), BrowseRoute(kind = k.name, title = label))
+    }
+    val folders = ui.folderTotals.take(MORE_FOLDERS).map { f ->
+        val name = f.path.trimEnd('/').substringAfterLast('/').ifBlank { "Files" }
+        tile(R.drawable.ic_folder, name, sized(f.totals), BrowseRoute(folder = f.path, title = name))
+    }
+    val all = ui.folderTotals.size.toLong().takeIf {
+        it > 0
+    }?.let { tile(R.drawable.ic_folder_open, Words.ALL_FOLDERS, Words.plural(it, "folder"), FoldersRoute) }
+    return kinds + folders + listOfNotNull(all)
+}
+
+private fun tile(icon: Int, label: String, line: String, route: Route) = KindTile(icon, label, line, "$label, ${line.replace(" · ", ", ")}", route)
+
+/** One list: kinds and folders with count and size, each row opening its files. */
 @Composable
 internal fun MoreSection(tiles: List<KindTile>, go: (Route) -> Unit) {
     Column {
-        SectionHeader("More on your phone")
-        Text("Files Retriever can access", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
+        SectionHeader(Words.MORE_ON_PHONE)
+        Text(Words.MORE_ON_PHONE_BODY, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium)
         for (tile in tiles) {
             androidx.compose.material3.ListItem(
                 headlineContent = { Text(tile.label) },
-                supportingContent = { Text(tile.line) },
+                supportingContent = { Text(tile.line, style = MaterialTheme.typography.bodyMedium.tabular()) },
                 leadingContent = { Icon(painterResource(tile.icon), contentDescription = null) },
                 trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) },
-                modifier = Modifier.clickable { go(tile.route) }.semantics { contentDescription = tile.spoken },
+                modifier = Modifier.clickable(onClickLabel = "Show all") { go(tile.route) }.semantics { contentDescription = tile.spoken },
             )
         }
     }

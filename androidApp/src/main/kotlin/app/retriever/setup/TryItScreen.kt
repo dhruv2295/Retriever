@@ -3,7 +3,6 @@ package app.retriever.setup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,31 +24,47 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.home.HomeUi
+import app.retriever.model.UpgradeActions
+import app.retriever.model.UpgradeCard
+import app.retriever.model.UpgradeFlow
+import app.retriever.model.UpgradeUi
+import app.retriever.model.actions
 import app.retriever.nav.Route
 import app.retriever.search.SearchActions
 import app.retriever.search.SearchContent
 import app.retriever.search.SearchUi
 import app.retriever.search.SearchViewModel
 import app.retriever.search.actions
+import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ReadyFiles
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
-/** Try it: the real Search, with every question kept inside the files the short read planned. */
+/** Try: the real Search; names cover the whole library, the words inside only the sample. */
 @Composable
-fun TryItScreen(ui: SetupUi, actions: SetupActions, onNavigate: (Route) -> Unit, retriever: Retriever = koinInject(), vm: SearchViewModel = koinViewModel()) {
+fun TryItScreen(
+    ui: SetupUi,
+    actions: SetupActions,
+    onNavigate: (Route) -> Unit,
+    retriever: Retriever = koinInject(),
+    upgrade: UpgradeFlow = koinInject(),
+    vm: SearchViewModel = koinViewModel(),
+) {
     val ids by retriever.scopeIds.collectAsStateWithLifecycle()
     LaunchedEffect(ids) { vm.setScope(ids) }
     val search by vm.ui.collectAsStateWithLifecycle()
+    val prefs by retriever.prefs.collectAsStateWithLifecycle()
+    val up by upgrade.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val searchActions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
+    val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = false) }
     var suggestions by remember { mutableStateOf(emptyList<String>()) }
     var files by remember { mutableStateOf(emptyList<SourceFile>()) }
     LaunchedEffect(ids, ui.taste?.read) {
@@ -57,7 +72,10 @@ fun TryItScreen(ui: SetupUi, actions: SetupActions, onNavigate: (Route) -> Unit,
         files = retriever.readFiles(scope)
         suggestions = retriever.suggestions(scope)
     }
-    TryItContent(ui, search, searchActions, actions, files = files, suggestions = suggestions)
+    // Offered once the person has searched.
+    val offer = up.takeIf { it.stage != UpgradeStage.OFFER || prefs.searchTried }
+    val shown = remember(search, up.stage) { search.copy(upgrade = up.stage) }
+    TryItContent(ui, shown, searchActions, actions, files = files, suggestions = suggestions, upgrade = offer, upgradeActions = upgradeActions)
 }
 
 @Composable
@@ -69,49 +87,35 @@ fun TryItContent(
     modifier: Modifier = Modifier,
     files: List<SourceFile> = emptyList(),
     suggestions: List<String> = emptyList(),
+    upgrade: UpgradeUi? = null,
+    upgradeActions: UpgradeActions = UpgradeActions(),
 ) {
     SearchContent(
         search,
         HomeUi(suggestions = suggestions),
         searchActions,
         modifier,
-        topBarAction = { TextButton(onClick = actions.skip) { Text("Skip") } },
+        topBarAction = { TextButton(onClick = actions.skip) { Text(Words.GO_TO_HOME) } },
     ) { padding, _, side, fill ->
-        TryItBody(ui, padding, side, actions, files, suggestions, searchActions) { fill(it, true) }
-    }
-}
-
-@Composable
-private fun TryItBody(
-    ui: SetupUi,
-    padding: PaddingValues,
-    side: Dp,
-    actions: SetupActions,
-    files: List<SourceFile>,
-    suggestions: List<String>,
-    searchActions: SearchActions,
-    search: (String) -> Unit,
-) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp + side, vertical = 16.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Try it on your files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-            Text("Search something you remember, or try one of these.", style = MaterialTheme.typography.bodyLarge)
-            // One keyed loop: suggestions arrive after the first frame, and two unkeyed branches swapped under each other's
-            // slots (a ClassCastException on the device when the terms replaced the kind chips).
-            val chips: List<Pair<String, () -> Unit>> = suggestions.map { term -> term to { search(term) } }.ifEmpty {
-                files.map { it.kind }.distinct().map { kind ->
-                    val label = Words.kindLabelPlural(kind)
-                    label to {
-                        searchActions.onChip(kind)
-                        search(label)
-                    }
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp + side, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(Words.TRY_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+            Text(Words.TRY_BODY, style = MaterialTheme.typography.bodyLarge)
+            search.scope?.let { Muted(Words.searchingSample(it.size.toLong())) }
+            if (suggestions.isEmpty()) {
+                Text(Words.TRY_WITHOUT_SUGGESTIONS, style = MaterialTheme.typography.bodyMedium)
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
                 }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for ((label, onClick) in chips) key(label) { SuggestionChip(onClick = onClick, label = { Text(label) }) }
-            }
             ReadyFiles(files, files.size, onOpen = searchActions.onOpenFile)
+            Button(onClick = actions.continueToCommit, modifier = Modifier.fillMaxWidth()) {
+                Text(if (ui.nothingLeft) Words.GO_TO_HOME else Words.CHOOSE_WHEN)
+            }
+            upgrade?.let { UpgradeCard(it, upgradeActions) }
         }
-        Button(onClick = actions.continueToCommit, modifier = Modifier.fillMaxWidth()) { Text(if (ui.nothingLeft) "Done" else "Continue") }
     }
 }

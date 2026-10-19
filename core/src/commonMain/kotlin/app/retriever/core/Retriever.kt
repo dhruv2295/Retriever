@@ -92,6 +92,11 @@ data class HomeFacts(
 
 data class FolderCount(val path: String, val count: Long)
 
+/** A group of files: how many, the sum of the sizes known, and how many have no known size (iOS Photos). */
+data class FileTotals(val files: Long, val knownBytes: Long, val unknownSizes: Long)
+
+data class FolderTotals(val path: String, val totals: FileTotals)
+
 /** The photos and videos taken on one calendar day in [year], with a photo for the cover when there is one. */
 data class YearMemory(val year: Int, val photos: Long, val videos: Long, val cover: SourceFile)
 
@@ -174,10 +179,47 @@ class Retriever(
     /** The first run's planned ids while only they are read (scope SAMPLE); null reads everything. Mirrors Store meta. */
     private val sampleIds = MutableStateFlow<List<Long>?>(null)
 
-    private fun loadScope(): List<Long>? = store.sampleIds().also { sampleIds.value = it }
+    private fun loadScope(): List<Long>? = store.sampleIds().also {
+        sampleIds.value = it
+        loadSetup()
+    }
 
     /** The planned ids while only they are read, for a search scoped to them ([search]'s `scope`); null once everything is read. */
     val scopeIds: StateFlow<List<Long>?> = sampleIds.asStateFlow()
+
+    private val _setup = MutableStateFlow<SetupInputs?>(null)
+
+    /** Setup's persisted inputs, null until [refreshSetUp] loads them; the platform adds [SetupInputs.withAccess]. */
+    val setup: StateFlow<SetupInputs?> = _setup.asStateFlow()
+
+    private fun loadSetup(): SetupInputs {
+        val saved = store.meta(SETUP_MARK_KEY)?.let { m -> SetupMark.entries.firstOrNull { it.name == m } }
+        // Set up before this setup existed: past access and done with setup, a sample still running included. A text-only
+        // phone never tunes, and from before setupStarted it shows only as saved prefs.
+        val legacy = saved == null && (store.prefs().setupStarted || store.profile() != null || (textOnly && store.hasPrefs()))
+        val scope = store.meta(TASTE_SCOPE_KEY)
+        return SetupInputs(
+            mark = if (legacy) SetupMark.ACCESS_CHOSEN else saved ?: SetupMark.NONE,
+            skipped = legacy || store.flag(SETUP_SKIPPED_KEY),
+            // No scope yet reads as ALL elsewhere; here it is a plan still to make, unless setup predates plans.
+            decided = store.flag(TASTE_DECIDED_KEY) || scope == Scope.ALL.name || (scope == null && legacy),
+            planned = store.tasteIds().size,
+        ).also { _setup.value = it }
+    }
+
+    /** The person's answer on a setup screen: Get started, Continue, Try search, Choose when to read more (or back). */
+    @Throws(Throwable::class)
+    suspend fun setSetupMark(mark: SetupMark) = io {
+        store.setMeta(SETUP_MARK_KEY, mark.name)
+        loadSetup()
+    }
+
+    /** Go to Home, or Search by name: setup ends at launch; a sample keeps reading, and Home offers what comes after it. */
+    @Throws(Throwable::class)
+    suspend fun skipFirstRun() = io {
+        store.setFlag(SETUP_SKIPPED_KEY)
+        loadSetup()
+    }
 
     /** Showing drops a pending model release; reading still honors the saved schedule. */
     @Volatile
@@ -253,7 +295,8 @@ class Retriever(
         _setUp.value = platformReady() && (textOnly || tuned)
     }
 
-    private fun noModel() = textOnly || !modelReady(requiredBuild.value)
+    /** Reading adds no meaning until the tune: an untuned open could pick other vision tokens and redo every vector. */
+    private fun noModel() = textOnly || _setUp.value != true || !modelReady(requiredBuild.value)
 
     fun setUiBusy(busy: Boolean) {
         uiBusy.value = busy
@@ -321,8 +364,9 @@ class Retriever(
     }
 
     /** Counts always describe usable content, including saved text when the model is absent. */
-    fun counts(): Flow<Store.Counts> = combine(store.countChanges(), modelMissing, sampleIds, prefs) { _, missing, ids, p ->
-        store.countsNow(ids, includeTails = !textOnly && !missing, kinds = p.kinds intersect readableKinds)
+    fun counts(): Flow<Store.Counts> = combine(store.countChanges(), modelMissing, setUp, sampleIds, prefs) { _, missing, setUp, ids, p ->
+        // Meaning work waits for the model and its tune, as reading does.
+        store.countsNow(ids, includeTails = !textOnly && !missing && setUp == true, kinds = p.kinds intersect readableKinds)
     }.distinctUntilChanged().flowOn(dispatchers.default)
 
     @Volatile
@@ -742,22 +786,42 @@ class Retriever(
      * the first tune still applies its tier defaults. Text-only phones plan only the kinds they read inside.
      */
     @Throws(Throwable::class)
-    suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock {
-        io {
-            sync.sync().let {
-                if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
-                if (it.removed > 0) reconcileRecentFiles()
+    suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock { io { planLocked(budget) } }
+
+    /**
+     * [SetupStep.PLAN]: plans the sample once access is chosen, or, with nothing eligible to read, reads everything as files
+     * arrive. A plan already made or a choice already taken is kept, so a second call does nothing.
+     */
+    @Throws(Throwable::class)
+    suspend fun planOrCommit() {
+        val nothingToRead = indexLock.withLock {
+            io {
+                val s = loadSetup()
+                if (s.decided || s.planned > 0) {
+                    false
+                } else {
+                    planLocked(TASTE_BUDGET)
+                    store.tasteIds().isEmpty()
+                }
             }
-            val kinds = store.prefs().kinds intersect readableKinds
-            val files = store.knownFiles().values.filter { it.kind in kinds }
-            store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
-            val plan = FileRules.planTaste(files, eta.book::costMs, budget)
-            store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
-            val byUri = store.filesByUris(plan.ids)
-            store.setTaste(plan.ids.mapNotNull { byUri[it]?.id })
-            loadScope()
-            plan
         }
+        if (nothingToRead) commitScope()
+    }
+
+    private suspend fun planLocked(budget: Duration): TastePlan {
+        sync.sync().let {
+            if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
+            if (it.removed > 0) reconcileRecentFiles()
+        }
+        val kinds = store.prefs().kinds intersect readableKinds
+        val files = store.knownFiles().values.filter { it.kind in kinds }
+        store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
+        val plan = FileRules.planTaste(files, eta.book::costMs, budget)
+        store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
+        val byUri = store.filesByUris(plan.ids)
+        store.setTaste(plan.ids.mapNotNull { byUri[it]?.id })
+        loadScope()
+        return plan
     }
 
     /** The short read: one batch of the planned files, which ends DONE once they and their tails are read. */
@@ -831,7 +895,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun decideLater() {
         pause()
-        io { store.setFlag(TASTE_DECIDED_KEY) }
+        io {
+            store.setFlag(TASTE_DECIDED_KEY)
+            loadSetup()
+        }
     }
 
     /** True once the person chose (commit or Not yet) or never had a short read: the try-it and commit screens are done. */
@@ -886,7 +953,8 @@ class Retriever(
 
     /**
      * [q] is parsed: kind words and dates become filters on top of the UI's [kinds]. [literal] searches the words as typed.
-     * [onlyStarred] keeps starred files only.
+     * [onlyStarred] keeps starred files only. [scope] (the sample's [scopeIds]) narrows what is found by words and
+     * meaning; names always cover the whole library.
      */
     @Throws(Throwable::class)
     suspend fun search(
@@ -900,7 +968,8 @@ class Retriever(
 
     /**
      * Phase one, as the user types: names only, from memory once [warmSearch] built the name index; no model. Never
-     * relaxed: names alone finding nothing under a filter says nothing about what the full search will find.
+     * relaxed: names alone finding nothing under a filter says nothing about what the full search will find. Names cover
+     * the whole library, so [scope] changes nothing here; it is taken so both phases are called alike.
      */
     @Throws(Throwable::class)
     suspend fun searchNames(
@@ -927,12 +996,12 @@ class Retriever(
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
         val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs())
-        val ids = fileIdsFor(onlyStarred, scope)
+        val ids = starredIds(onlyStarred)
         // Nothing to search, so nothing by meaning is missing.
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
         val parsedKinds = p.kinds.ifEmpty { null }
         val kinds = if (parsedKinds == null) uiKinds else uiKinds?.intersect(parsedKinds) ?: parsedKinds
-        val req = SearchRequest(p.text, kinds, p.from, p.to, ids, limit, onlyStarred = onlyStarred)
+        val req = SearchRequest(p.text, kinds, p.from, p.to, ids, limit, onlyStarred = onlyStarred, contentIds = scope?.toSet())
         val filtered = parsedKinds != null || p.from != null
         val search: suspend (SearchRequest) -> SearchEngine.SearchResult = if (p.text.isBlank()) ::browse else run
         if (p.text.isBlank() && !filtered) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
@@ -1055,9 +1124,15 @@ class Retriever(
 
     private val ftsRefill = Mutex()
 
-    /** Does nothing while the person has turned remembering searches off. */
+    /** Marks that the person has searched; the query is kept only while remembering searches is on. */
     @Throws(Throwable::class)
-    suspend fun recordQuery(q: String) = io { if (store.prefs().rememberSearches) store.addRecentQuery(q, now()) }
+    suspend fun recordQuery(q: String) {
+        if (!prefs.value.searchTried) updatePrefs { it.copy(searchTried = true) }
+        io { if (store.prefs().rememberSearches) store.addRecentQuery(q, now()) }
+    }
+
+    @Throws(Throwable::class)
+    suspend fun dismissUpgradeOffer() = updatePrefs { it.copy(upgradeOfferDismissed = true) }
 
     @Throws(Throwable::class)
     suspend fun recentQueries(): List<String> = io { store.recentQueries() }
@@ -1226,6 +1301,14 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }
+
+    /** More on your phone, by kind: every file Retriever can access, OTHER included. Kinds with no files are absent. */
+    @Throws(Throwable::class)
+    suspend fun kindTotals(): Map<Kind, FileTotals> = io { store.kindTotals() }
+
+    /** More on your phone, by folder (each folder alone, not its subfolders), most files first. */
+    @Throws(Throwable::class)
+    suspend fun folderTotals(): List<FolderTotals> = io { store.folderTotals() }
 
     @Throws(Throwable::class)
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }

@@ -21,10 +21,12 @@ import app.retriever.di.AppScope
 import app.retriever.indexing.IndexService
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
+import app.retriever.model.UpgradeFlow
 import app.retriever.setup.SetupFlow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -90,11 +92,10 @@ class ModelLifecycleTest {
         val index = IndexService(context, r)
         val access = AccessService(context, demo = true)
         val download = ModelDownload(context, context.cacheDir.resolve("lifecycle-models"))
-        // Seed an unstarted setup before setUp settles, so this test drives only the lifecycle's trial.
-        val setup = SetupFlow(
-            r, ModelRepository(context, download, r, backgroundScope), access, index,
-            download, backgroundScope, { false }, { true }, { error("no calibration") },
-        )
+        // Inert setup and upgrade (their scope is cancelled), so this test drives only the lifecycle's trial.
+        val inert = CoroutineScope(Job().apply { cancel() })
+        val setup = SetupFlow(r, access, index, inert, { true })
+        val upgrade = UpgradeFlow(r, ModelRepository(context, download, r, inert), access, index, inert, { false }, { error("no calibration") })
         r.planTaste()
         r.refreshSetUp()
         val scope = this
@@ -105,6 +106,7 @@ class ModelLifecycleTest {
                     single { index }
                     single { access }
                     single { setup }
+                    single { upgrade }
                     single<CoroutineScope>(AppScope) { scope }
                 },
             )

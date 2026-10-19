@@ -14,7 +14,7 @@ class LowEndTest {
     private val threeGb = DeviceProbe(Platform.IOS, 18, "Apple", "iPhone12,8", 3.0, false)
 
     @Test
-    fun anUntunedNpuDownloadOpensOnItsOwnDelegate() = runBlocking {
+    fun anNpuDownloadWaitsForTheTuneThenOpensOnItsOwnDelegate() = runBlocking {
         val store = newStore(sig = null)
         val probe = PIXEL.copy(socModel = "Tensor G5", npuDispatch = true)
         val file = testFile("notes.txt")
@@ -28,13 +28,16 @@ class LowEndTest {
         }
         val r = testRetriever(store, listOf(file), extractor, probe, factory).apply { uiVisible = true }
         assertEquals(NextRun.DONE, r.indexBatch(1.minutes, deepen = true))
+        assertTrue(factory.opened.isEmpty(), "the words are read; meaning waits for the tune")
+        store.setProfile(r.requiredBuild.value.initialProfile())
+        assertEquals(NextRun.DONE, r.indexBatch(1.minutes, deepen = true))
         assertEquals(1, factory.opened.size)
         assertEquals(Backend.NPU, factory.opened.single().first.backend)
         assertEquals(1, store.vectorCount())
     }
 
     @Test
-    fun anUntunedEightGigabytePhoneReadsAndSearchesBeforeDownloadThenAddsMeaning() = runBlocking {
+    fun anEightGigabytePhoneReadsAndSearchesBeforeDownloadThenAddsMeaningAfterTheTune() = runBlocking {
         val store = newStore(sig = null)
         val file = testFile("camera.jpg", Kind.PHOTO)
         var reads = 0
@@ -63,6 +66,9 @@ class LowEndTest {
         ready = true
         r.refreshSetUp()
         assertTrue(r.modelPresent.value)
+        r.indexBatch(1.minutes, deepen = true)
+        assertTrue(factory.opened.isEmpty(), "downloaded but not tuned: no meaning yet")
+        store.setProfile(PROFILE)
         r.indexBatch(1.minutes, deepen = true)
         assertEquals(1, reads)
         assertEquals(1, images)

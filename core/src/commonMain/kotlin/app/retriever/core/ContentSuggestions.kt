@@ -89,6 +89,6 @@ internal fun distinctiveTerms(files: Map<Long, Map<String, Int>>, ids: Set<Long>
             scores[term] = maxOf(scores[term] ?: 0.0, score)
         }
     }
-    return scores.keys.sortedWith(compareByDescending<String> { scores.getValue(it) }.thenBy { it }).take(6)
+    return scores.keys.sortedWith(compareByDescending<String> { scores.getValue(it) }.thenBy { it }).take(3)
         .takeIf { it.size >= 3 }.orEmpty()
 }

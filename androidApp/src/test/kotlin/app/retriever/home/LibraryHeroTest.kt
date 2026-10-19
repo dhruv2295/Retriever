@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
 class LibraryHeroTest {
     @get:Rule val rule = createComposeRule()
-    private val ready = HomeUi(setUp = true, counts = mapOf(Kind.DOC to 10L), contentRead = 10, readByKind = mapOf(Kind.DOC to 10L))
+    private val ready = HomeUi(libraryChosen = true, counts = mapOf(Kind.DOC to 10L), contentRead = 10, readByKind = mapOf(Kind.DOC to 10L))
     private var dismissed = false
     private var destination: Route? = null
 

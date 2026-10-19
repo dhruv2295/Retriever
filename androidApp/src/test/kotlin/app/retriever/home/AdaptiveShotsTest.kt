@@ -37,14 +37,13 @@ import org.robolectric.annotation.GraphicsMode
 abstract class AdaptiveShotsTest(private val size: String) {
     @get:Rule val rule = createComposeRule()
 
-    private val build = ModelBuilds.npu.first().variant.generic
     private val counts = mapOf(Kind.PHOTO to 4_210L, Kind.SCREENSHOT to 812L, Kind.VIDEO to 96L, Kind.PDF to 143L, Kind.DOC to 57L, Kind.AUDIO to 12L)
 
     private fun file(name: String, kind: Kind, days: Int = 1) =
         SourceFile("demo:$name", name, "Documents", "application/octet-stream", kind, 1_200_000, 1_760_000_000_000 - days * 86_400_000L)
 
     private val ready = SearchUi(setUp = true)
-    private val readyHome = HomeUi(setUp = true, counts = counts, contentRead = 3_100, waiting = 2_230)
+    private val readyHome = HomeUi(libraryChosen = true, counts = counts, contentRead = 3_100, waiting = 2_230)
 
     private val photoHits = (1..12).map { i ->
         SearchEngine.Hit(file("IMG_20250914_%02d.jpg".format(i), Kind.PHOTO), i.toLong(), 0L, "", null, 1.0 / i)
@@ -117,7 +116,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
     }
 
     @Test fun setupFirstStep() = shot("adaptive_setup_first_step_$size") {
-        SetupContent(SetupUi(build = build))
+        SetupContent(SetupUi())
     }
 
     @Test fun statusReading() = shot("adaptive_status_reading_$size") {

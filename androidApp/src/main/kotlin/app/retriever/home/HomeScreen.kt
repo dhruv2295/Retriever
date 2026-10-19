@@ -69,9 +69,16 @@ import app.retriever.core.HomePhase
 import app.retriever.core.HomeStatus
 import app.retriever.core.IndexState
 import app.retriever.core.ReadingPolicy
+import app.retriever.core.Retriever
 import app.retriever.core.StopReason
+import app.retriever.core.UpgradePolicy
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.model.UpgradeActions
+import app.retriever.model.UpgradeCard
+import app.retriever.model.UpgradeFlow
+import app.retriever.model.UpgradeUi
+import app.retriever.model.actions
 import app.retriever.motion.Mascot
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.DuplicatesRoute
@@ -87,6 +94,7 @@ import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.tabular
 import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 // Home: what to look for, whether search is complete, what is new, where everything is. Colour tokens only, so
 // wallpaper colours and the warm palette both work. Spec: the Home design in the wave 5 notes.
@@ -105,9 +113,14 @@ fun HomeScreen(
     side: Dp,
     fill: (String, Boolean) -> Unit,
     vm: HomeViewModel = koinViewModel(),
+    upgrade: UpgradeFlow = koinInject(),
+    retriever: Retriever = koinInject(),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val index by vm.indexState.collectAsStateWithLifecycle()
+    val up by upgrade.ui.collectAsStateWithLifecycle()
+    val prefs by retriever.prefs.collectAsStateWithLifecycle()
+    val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val onResume = remember(vm) { vm::onResume }
@@ -116,11 +129,14 @@ fun HomeScreen(
         onResume()
         onPauseOrDispose {}
     }
-    HomeBody(ui, index, rememberCharging(), recent, actions, vm::resume, {
-        openAllFilesSettings(context)
-    }, state, padding, side, fill, vm::hideOnThisDay, { charging ->
-        requestReading { vm.commit(charging) }
-    }, vm.celebration, vm::dismissCaughtUp, vm::dismissNameSearchHint, vm::dismissScheduleOffer, vm::decideLater)
+    HomeBody(
+        ui, index, rememberCharging(), recent, actions, vm::resume, {
+            openAllFilesSettings(context)
+        }, state, padding, side, fill, vm::hideOnThisDay, { charging ->
+            requestReading { vm.commit(charging) }
+        }, vm.celebration, vm::dismissCaughtUp, vm::dismissNameSearchHint, vm::dismissScheduleOffer, vm::decideLater,
+        upgrade = up.takeIf { UpgradePolicy.showOnHome(it.stage, prefs) }, upgradeActions = upgradeActions,
+    )
 }
 
 /**
@@ -182,12 +198,15 @@ internal fun HomeBody(
     onDismissNameHint: () -> Unit = {},
     onDismissOffer: () -> Unit = {},
     onDecideLater: () -> Unit = {},
+    /** The upgrade's compact row, when core says Home shows it. */
+    upgrade: UpgradeUi? = null,
+    upgradeActions: UpgradeActions = UpgradeActions(),
 ) {
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
     val chips = remember(recent) { recent.take(5) }
     val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions else emptyList() }
-    val tiles = remember(ui.counts, ui.pending, ui.waiting, ui.inside, ui.home?.folders) { moreTiles(ui) }
+    val tiles = remember(ui.kindTotals, ui.folderTotals, ui.pending, ui.waiting, ui.inside) { moreTiles(ui) }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Adaptive(380.dp),
         state = state,
@@ -200,7 +219,7 @@ internal fun HomeBody(
         val total = counts.values.sum()
         if (total == 0L) {
             // Still looking while setup runs; "nothing" only once a finished look found nothing.
-            val looking = index.running || !ui.setUp
+            val looking = index.running || !ui.libraryChosen
             if (ui.hasAccess) {
                 item(key = "empty", span = FullLine) {
                     EmptyHome(looking)
@@ -211,23 +230,23 @@ internal fun HomeBody(
             return@LazyVerticalStaggeredGrid
         }
         item(key = "hero", span = FullLine) {
-            LibraryHero(ui, actions.onNavigate) {
+            LibraryHero(ui) {
                 Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
             }
         }
         if (!ui.nameSearchHintDismissed) {
             item(key = "name-hint", span = FullLine) {
-                ListItem(headlineContent = { Text("You can search every file by name") }, trailingContent = {
+                ListItem(headlineContent = { Text(Words.NAME_SEARCH_HINT) }, trailingContent = {
                     IconButton(onClick = onDismissNameHint) { Icon(painterResource(R.drawable.ic_close), "Dismiss name search explanation") }
                 })
             }
         }
-        if (ui.hasAccess && ui.setUp && ui.rest > 0L &&
+        if (ui.hasAccess && ui.libraryChosen && ui.rest > 0L &&
             !ui.scheduleOfferDismissed
         ) {
             item(key = "commit", span = FullLine) { CommitCard(ui, onCommit, onDismissOffer, onDecideLater) }
         }
-        item(key = "folders", span = FullLine) { LibraryFolders(ui, actions.onNavigate) }
+        if (upgrade != null) item(key = "upgrade", span = FullLine) { UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp)) }
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
         // Pictures need the files themselves: without access they would only fail to load.
@@ -272,7 +291,7 @@ private fun Status(
 ) {
     val colors = MaterialTheme.colorScheme
     val status = homeStatus(ui, index)
-    // Access first: setUp needs access too, so without it "Finishing setup" would show instead of the way back.
+    // Access first: without it the way back to the files comes before the way back to setup.
     when {
         !ui.hasAccess -> StatusCard(
             colors.tertiaryContainer,
@@ -312,7 +331,12 @@ private fun Status(
                         }
                     }
                 }
-                if (ui.paused) TextButton(onClick = onResume) { Text("Resume reading") }
+                // One remedy at a time: Resume, Dismiss, or the way to Reading status the whole row already is.
+                if (ui.paused) {
+                    TextButton(onClick = onResume) { Text("Resume reading") }
+                } else if (!caughtUp) {
+                    Text(Words.READING_STATUS, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                }
                 if (caughtUp) {
                     IconButton(onClick = onDismissCaughtUp) {
                         Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss reading status")
@@ -471,7 +495,7 @@ private fun TidyRow(@DrawableRes icon: Int, text: String, onClick: () -> Unit) {
 
 /** Core's status row, from the live reading status or, before it arrives, the same decision made here. */
 internal fun homeStatus(ui: HomeUi, index: IndexState): HomeStatus? = ReadingPolicy.homeStatus(
-    ui.setUp,
+    ui.libraryChosen,
     ui.progress.libraryTotal,
     ui.readingStatus
         ?: ReadingPolicy.decide(

@@ -29,7 +29,8 @@ struct SplitRoot<Home: View>: View {
 
     private var tiles: [HomeTile] {
         guard let snap = model.snap else { return [] }
-        return HomeTile.make(snap, folders: Int(model.home?.folders ?? 0), foldersAlways: true)
+        return HomeTile.make(
+            snap, totals: model.kindTotals, folders: model.folderTotals, allFolders: Int(model.home?.folders ?? 0), foldersAlways: true)
     }
 
     private var largeFiles: Int { Int(model.home?.largeCount ?? 0) }
@@ -59,7 +60,7 @@ struct SplitRoot<Home: View>: View {
                     Label("Settings", systemImage: "gearshape").tag(Dest.page(.settings))
                 }
                 if !tiles.isEmpty {
-                    Section("More on Your iPad") {
+                    Section("More on your \(Copy.device)") {
                         ForEach(tiles) { tile in
                             Label(tile.title, systemImage: tile.icon).badge(Copy.count(tile.count)).tag(Dest.page(tile.route))
                         }

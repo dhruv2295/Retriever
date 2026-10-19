@@ -29,6 +29,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import app.retriever.core.Kind
+import app.retriever.core.Words
 import app.retriever.core.android.SafSource
 import java.net.URLDecoder
 
@@ -100,7 +101,7 @@ data class Access(
 
     /** Status's plain lines, folders aside (they get their own rows). */
     fun coverage(): List<CoverageLine> {
-        if (allFiles) return listOf(CoverageLine("All files on this phone"))
+        if (allFiles) return listOf(CoverageLine(Words.SHARED_FILES_AND_FOLDERS))
         return buildList {
             when {
                 photos == Photos.ALL && videos -> add(CoverageLine("Photos and videos"))

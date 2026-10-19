@@ -144,6 +144,7 @@ val Retriever.requiredBuildNow: ModelBuild get() = requiredBuild.value
 val Retriever.stateNow: IndexState get() = state.value
 val Retriever.setUpNow: Boolean? get() = setUp.value
 val Retriever.modelMissingNow: Boolean get() = modelMissing.value
+val Retriever.setupNow: SetupInputs? get() = setup.value
 
 /** Calibration samples from Swift; iOS ships no audio model. */
 fun samples(images: List<NSData>, texts: List<String>): Samples = Samples(images.map { it.toByteArray() }, texts, emptyList())
@@ -157,6 +158,8 @@ data class RetrieverSnapshot(
     val starred: Set<String>,
     val modelMissing: Boolean,
     val reading: ReadingStatus,
+    /** Add Photos and folder access with [SetupInputs.withAccess]. */
+    val setup: SetupInputs?,
 )
 
 /** The short read's progress, as [observeAll] delivers its snapshots. */
@@ -176,11 +179,11 @@ fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
             prefs,
             requiredBuild,
             sharedCounts,
-            combine(state, starred, modelMissing, readingStatus(sharedCounts)) { i, st, m, reading ->
-                Triple(i, st, m) to reading
+            combine(state, starred, modelMissing, readingStatus(sharedCounts), setup) { i, st, m, reading, setup ->
+                Triple(i, st, m) to (reading to setup)
             },
-        ) { s, p, b, c, (live, reading) ->
-            RetrieverSnapshot(s, p, b, c, live.first, live.second, live.third, reading)
+        ) { s, p, b, c, (live, rest) ->
+            RetrieverSnapshot(s, p, b, c, live.first, live.second, live.third, rest.first, rest.second)
         }.collect { cb(it) }
     }
     return AutoCloseable { scope.cancel() }

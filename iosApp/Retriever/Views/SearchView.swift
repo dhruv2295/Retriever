@@ -13,10 +13,10 @@ import os
 
 // MARK: Screen
 
-/// First run's try-it: this same screen with every search kept to the files the short read planned.
+/// First run's Try: this same screen, words inside the sample's planned files and names everywhere.
 struct Trial: Equatable {
     var ids: [Int64]
-    /// The field's photo button, once enough photos are read for a likeness to mean something.
+    /// The field's photo button: search by photo needs the meaning upgrade.
     var photoSearch: Bool
 }
 
@@ -46,12 +46,16 @@ struct SearchView: View {
 
     /// Read here and not `model.snap`, so the counts that change as files are read don't redraw this screen.
     private var textOnly: Bool { fixedSnap?.textOnly ?? model.textOnly }
-    private var setUp: Bool { fixedSnap.map { $0.setUp == true } ?? model.setUp }
+
+    /// The system's bottom search field on iOS 26, within reach of a thumb; the bar's drawer before it.
+    private static var placement: SearchFieldPlacement {
+        if #available(iOS 26.0, *) { .automatic } else { .navigationBarDrawer(displayMode: .always) }
+    }
 
     var body: some View {
         Group {
             if search.active {
-                ResultsView(search: search, textOnly: textOnly, setUp: setUp, pinned: fixedSnap, photos: model.photos, model: model, trial: trial, open: open)
+                ResultsView(search: search, textOnly: textOnly, pinned: fixedSnap, photos: model.photos, model: model, trial: trial, open: open)
             } else if trial != nil {
                 TryItIntro(search: search, model: model, ids: trial?.ids ?? [])
             } else {
@@ -66,10 +70,10 @@ struct SearchView: View {
             }
         }
         .modifier(WarmOnSearch(retriever: model.services?.retriever))
-        .navigationTitle(trial == nil ? "Retriever" : Copy.tryItTitle)
+        .navigationTitle(trial == nil ? "Retriever" : Words.shared.TRY_TITLE)
         .searchable(
-            text: Binding(get: { search.text }, set: search.setText), isPresented: $presented,
-            placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your files"
+            text: Binding(get: { search.text }, set: search.setText), isPresented: $presented, placement: Self.placement,
+            prompt: Words.shared.SEARCH_FIELD
         )
         .searchScopes($search.scope, activation: .onSearchPresentation) {
             // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
@@ -80,8 +84,8 @@ struct SearchView: View {
         .onSubmit(of: .search) { search.record() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                // Matching a photo needs the understanding that text-only leaves out.
-                if !textOnly, trial?.photoSearch ?? true {
+                // Matching a photo needs the meaning upgrade.
+                if trial?.photoSearch ?? model.meaningSearch {
                     PhotosPicker(selection: $picked, matching: .images) {
                         Label("Search by photo", systemImage: "photo.badge.magnifyingglass")
                     }
@@ -202,7 +206,6 @@ private struct WarmOnSearch: ViewModifier {
 private struct ResultsView: View {
     let search: SearchModel
     let textOnly: Bool
-    let setUp: Bool
     /// A screenshot's fixed snapshot; nil when live.
     let pinned: AppModel.Snap?
     let photos: PHAuthorizationStatus
@@ -210,6 +213,7 @@ private struct ResultsView: View {
     let trial: Trial?
     let open: (SearchEngine.Hit) -> Void
     @State private var expanded = false
+    @State private var upgrading = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -217,8 +221,13 @@ private struct ResultsView: View {
         Group {
             switch screen {
             case .failed:
-                StateView(mood: .trouble, title: "Search hit a snag", message: "Something went wrong searching. Try again.") {
-                    Button("Try again", action: search.retry).buttonStyle(.primaryAction)
+                // Name matches already found for these words stay, with the way to try the rest again.
+                if let answer = search.answer, answer.key.query == search.query, !answer.hits.isEmpty {
+                    list(answer)
+                } else {
+                    StateView(mood: .trouble, title: Words.shared.SEARCH_FAILED, message: "Something went wrong searching.") {
+                        Button(Words.shared.TRY_AGAIN, action: search.retry).buttonStyle(.primaryAction)
+                    }
                 }
             case .empty:
                 if let answer = search.answer {
@@ -247,6 +256,9 @@ private struct ResultsView: View {
         .animation(.easeOut(duration: 0.15), value: screen)
         .overlay(alignment: .top) {
             if search.slow { ProgressView().progressViewStyle(.linear) }
+        }
+        .sheet(isPresented: $upgrading) {
+            UpgradeCard(model: model).padding(24).presentationDetents([.medium])
         }
     }
 
@@ -291,13 +303,13 @@ private struct ResultsView: View {
         } else if search.photo != nil {
             StateView(mood: search.noMatchMood, title: "Nothing like this yet", message: "Try another photo.")
         } else {
-            NoMatches(query: q, mood: search.noMatchMood, pinned: pinned, model: model)
+            NoMatches(mood: search.noMatchMood, pinned: pinned, model: model)
         }
     }
 
     private func list(_ answer: SearchModel.Answer) -> some View {
         // One read of the stars and of "find similar" for every row.
-        let rows = Rows(starred: model.starred, similar: search.similar(textOnly: textOnly))
+        let rows = Rows(starred: model.starred, similar: search.similar(model.meaningSearch))
         // A search by photo ranks by likeness alone, so all of it is one list.
         let strong = min(max(answer.strongCount, 1), answer.hits.count)
         let weak = Array(answer.hits.dropFirst(strong))
@@ -321,12 +333,21 @@ private struct ResultsView: View {
 
     @ViewBuilder private func header(_ answer: SearchModel.Answer) -> some View {
         if let trial {
-            // Nearest-neighbour search always returns something, so the header claims nothing about quality.
+            // Names come from the whole library; this says where the words inside are looked for.
             VStack(alignment: .leading, spacing: 2) {
-                Text(Words.shared.closestIn(files: Int64(trial.ids.count))).font(.subheadline.weight(.semibold))
+                Text(Words.shared.searchingSample(files: Int64(trial.ids.count))).font(.subheadline.weight(.semibold))
                 StillReading(search: search)
             }
             .accessibilityElement(children: .combine)
+        }
+        switch search.screen {
+        case .searching: Text(Words.shared.SEARCHING_CONTENTS).font(.footnote).foregroundStyle(.secondary)
+        case .failed:
+            HStack {
+                Text(Words.shared.SHOWING_NAME_MATCHES).font(.footnote).foregroundStyle(.secondary)
+                Button(Words.shared.TRY_AGAIN, action: search.retry).font(.footnote)
+            }
+        default: EmptyView()
         }
         if let photo = search.photo {
             HStack(spacing: 8) {
@@ -355,7 +376,20 @@ private struct ResultsView: View {
                 }
             }
         }
-        if let note = note(answer) {
+        if !textOnly && !model.meaningSearch {
+            // No download yet, or removed in Settings: words only, and the upgrade offered only under few results.
+            VStack(alignment: .leading, spacing: 2) {
+                Label(Words.shared.WORDS_ONLY, systemImage: "textformat").font(.footnote.weight(.semibold))
+                Text(Words.shared.SEARCHING_WITHOUT_MODEL).font(.footnote).foregroundStyle(.secondary)
+                if let hint = Words.shared.upgradeHint(results: Int32(answer.hits.count), upgrade: model.upgrade) {
+                    Button {
+                        upgrading = true
+                    } label: {
+                        Text(hint).frame(minHeight: 44)
+                    }.font(.footnote)
+                }
+            }
+        } else if let note = note(answer) {
             HStack(spacing: 10) {
                 Image("IllusReading").resizable().scaledToFit().frame(width: 36).accessibilityHidden(true)
                 Text(note).font(.footnote).foregroundStyle(.secondary)
@@ -367,9 +401,7 @@ private struct ResultsView: View {
     }
 
     private func note(_ answer: SearchModel.Answer) -> String? {
-        // Removed in Settings: meaning comes back only with the download, not "shortly".
-        if textOnly || model.modelMissing { return Copy.textOnlySearch }
-        if !setUp { return "Matching file names only until setup finishes." }
+        if textOnly { return Copy.textOnlySearch }
         if !answer.vectorLane { return "Matching exact words for now. Results by meaning will be back shortly." }
         return nil
     }
@@ -428,7 +460,8 @@ private struct ResultsView: View {
     }
 }
 
-/// Under the field before the first word of the first run's try-it: what to try. The title is the navigation bar's.
+/// Under the field before the first word of Try: up to three suggestions from what was read, or else the files
+/// themselves to open and remember a word from. The title is the navigation bar's.
 private struct TryItIntro: View {
     let search: SearchModel
     let model: AppModel
@@ -439,29 +472,35 @@ private struct TryItIntro: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Search something you remember, or try one of these.").font(.body)
-                WrappingLayout {
-                    if !suggestions.isEmpty {
-                        ForEach(suggestions, id: \.self) { term in
-                            Button(term) { search.setText(term) }.buttonStyle(.bordered)
+                Text(suggestions.isEmpty ? Words.shared.TRY_WITHOUT_SUGGESTIONS : Words.shared.TRY_BODY)
+                Text(Words.shared.searchingSample(files: Int64(ids.count))).font(.subheadline.weight(.semibold))
+                StillReading(search: search)
+                if suggestions.isEmpty {
+                    ReadyFiles(files: files)
+                } else {
+                    ForEach(suggestions, id: \.self) { term in
+                        Button {
+                            search.setText(term)
+                        } label: {
+                            Label(term, systemImage: "magnifyingglass")
                         }
-                    } else {
-                        ForEach(Array(Set(files.map(\.kind))).sorted { $0.name < $1.name }, id: \.self) { kind in
-                            let title = LibraryOverview<EmptyView>.title(kind)
-                            Button(title) { search.setText(title) }.buttonStyle(.bordered)
-                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Searches for this")
                     }
                 }
-                StillReading(search: search)
-                ReadyFiles(files: files, read: files.count, interactive: true)
+                // In the scrolling content, not the pinned actions, so it never squeezes them at large text sizes.
+                if model.upgradeOnHome { UpgradeCard(model: model, compact: true).padding(.top, 8) }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24).padding(.top, 16)
         }
         .task(id: [ids.count, model.snap?.indexed ?? 0]) {
-            guard let retriever = model.services?.retriever else { return }
-            let scope = Set(ids.map { KotlinLong(value: $0) })
-            files = (try? await retriever.readFiles(fileIds: scope)) ?? []
-            suggestions = (try? await retriever.suggestions(fileIds: scope)) ?? []
+            files = await model.sampleFiles()
+            guard let retriever = model.services?.retriever else {
+                suggestions = model.suggestions
+                return
+            }
+            suggestions = (try? await retriever.suggestions(fileIds: Set(ids.map { KotlinLong(value: $0) }))) ?? []
         }
     }
 }
@@ -477,26 +516,18 @@ private struct StillReading: View {
     }
 }
 
-/// "Nothing yet" for a search that found nothing: while files are still being read it says how far, so it is not
-/// taken for "nothing here". Own view, so the counts redraw it and not the results.
+/// "No matches yet" for a search that found nothing; while files wait to be read it says so, so it is not taken for
+/// "nothing here". Own view, so the counts redraw it and not the results.
 private struct NoMatches: View {
-    let query: String
     let mood: MascotMood
     let pinned: AppModel.Snap?
     let model: AppModel
 
     var body: some View {
-        if let snap = pinned ?? model.snap, snap.pending > 0 {
-            StateView(
-                mood: .walking, title: "No matches for “\(query)” yet",
-                message: "Retriever has read \(Copy.count(snap.indexed)) of \(Copy.count(snap.total)) files so far. Try again later, or try other words."
-            ) {
-                ProgressView(value: snap.total > 0 ? Double(snap.indexed) / Double(snap.total) : 0).frame(width: 220)
-                    .accessibilityHidden(true)  // The message already gives the same counts.
-            }
-        } else {
-            StateView(mood: mood, title: "No matches for “\(query)”", message: "Try other or fewer words.")
-        }
+        let waiting = ((pinned ?? model.snap)?.pending ?? 0) > 0
+        StateView(
+            mood: waiting ? .walking : mood, title: Words.shared.NO_MATCHES,
+            message: [Words.shared.NO_MATCHES_DETAIL, waiting ? Words.shared.MORE_WAITING : nil].compactMap { $0 }.joined(separator: " "))
     }
 }
 

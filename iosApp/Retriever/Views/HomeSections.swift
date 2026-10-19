@@ -169,7 +169,7 @@ struct HomeMosaic: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            reading ? "\(kind), \(date), \(Words.shared.plural(n: Int64(pending), one: "photo", many: "photos")) still to read" : "\(kind), \(date)")
+            reading ? "\(kind), \(date), \(Words.shared.waitingToRead(files: Int64(pending)))" : "\(kind), \(date)")
     }
 }
 
@@ -185,7 +185,7 @@ private struct VideoBadge: View {
     }
 }
 
-/// "14,700 to go" over a scrim, with a thin line along the bottom edge for how many photos have been read.
+/// "14,700 waiting to read" over a scrim, with a thin line along the bottom edge for how many photos have been read.
 private struct ReadingPill: View {
     let pending: Int
     let total: Int
@@ -193,7 +193,7 @@ private struct ReadingPill: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(Copy.photosToGo(pending, paused: paused))
+            Text(Copy.photosWaiting(pending, paused: paused))
                 .font(.subheadline.weight(.medium))
                 .monospacedDigit()
                 .padding(.horizontal, 12)
@@ -265,7 +265,8 @@ struct DocStrip: View {
                                 .frame(width: width, height: width * 4 / 3)
                                 .clipShape(.rect(cornerRadius: 12, style: .continuous))
                                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
-                            Text(file.name).font(.caption).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                            Text(file.name).font(.caption).lineLimit(2).multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("document-name")
                             Text(Copy.cardLine(file)).font(.caption2).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("document-detail")
@@ -465,32 +466,41 @@ struct StarredStrip: View {
 
 // MARK: More on your phone
 
-/// A way into the files Home has no strip for. Shown only when there is something in it.
+/// More on your phone: one row per kind and per busiest folder, each with count and size, then All folders.
 struct HomeTile: Equatable, Identifiable {
     let id: String
     let icon: String
     let title: String
     let count: Int
-    /// Core's reading line: "{N} waiting to read" or "Name only".
+    /// "120 files · 640 MB", then core's reading line ("Name only", "{N} waiting to read").
     let detail: String?
     let route: Route
-    var countText: String { id == "folders" ? Copy.count(count) : Words.shared.files(n: Int64(count)) }
 
     static var largeFiles: Route { .files(FileQuery(sort: .largest, title: "Large files")) }
+    @MainActor static let kinds: [Kind] = [.photo, .video, .screenshot, .pdf, .doc, .audio, .other]
+    /// Folder rows before All folders; the folder list has the rest.
+    static let folderRows = 3
 
-    /// Videos, Documents (only beside PDFs, whose header opens PDFs), Audio, Other files, Folders; each with files in it.
-    /// `foldersAlways`: a sidebar keeps Folders even when empty, since it is where a folder gets added.
-    @MainActor static func make(_ snap: AppModel.Snap, folders: Int, foldersAlways: Bool = false) -> [HomeTile] {
-        let tiles = [Kind.video, .doc, .audio, .other].compactMap { kind -> HomeTile? in
-            let total = snap.byKind[kind] ?? 0
-            guard total > 0, kind != .doc || (snap.byKind[.pdf] ?? 0) > 0 else { return nil }
+    /// Every kind with files in it, the busiest folders (each counting its own files only), then All folders.
+    /// `foldersAlways`: a sidebar keeps All folders even when there are none, since it is where a folder gets added.
+    @MainActor static func make(
+        _ snap: AppModel.Snap, totals: [Kind: FileTotals], folders: [FolderTotals], allFolders: Int, foldersAlways: Bool = false
+    ) -> [HomeTile] {
+        let byKind = kinds.compactMap { kind -> HomeTile? in
+            guard let t = totals[kind], t.files > 0 else { return nil }
             let title = Words.shared.kindLabelPlural(kind: kind)
             return HomeTile(
-                id: title, icon: Format.icon(kind), title: title, count: total, detail: snap.kindProgress([kind]),
+                id: title, icon: Format.icon(kind), title: title, count: Int(t.files), detail: Copy.sectionSubtitle(t, snap.kindProgress([kind])),
                 route: .files(FileQuery(kind: kind, title: title)))
         }
-        guard folders > 0 || foldersAlways else { return tiles }
-        return tiles + [HomeTile(id: "folders", icon: "folder", title: "Folders", count: folders, detail: nil, route: .folders)]
+        let byFolder = folders.prefix(folderRows).map { f in
+            let name = f.path.split(separator: "/").last.map(String.init) ?? f.path
+            return HomeTile(
+                id: "folder:\(f.path)", icon: "folder", title: name, count: Int(f.totals.files), detail: Copy.countAndSize(f.totals),
+                route: .files(FileQuery(folder: f.path, title: name)))
+        }
+        guard allFolders > 0 || foldersAlways else { return byKind + byFolder }
+        return byKind + byFolder + [HomeTile(id: "folders", icon: "folder", title: Words.shared.ALL_FOLDERS, count: allFolders, detail: nil, route: .folders)]
     }
 }
 
@@ -503,33 +513,6 @@ extension AppModel.Snap {
         Words.shared.kindProgress(
             kinds: kinds, inside: Set(Kind.entries.filter(reads)), pending: pendingByKind.mapValues { KotlinLong(value: Int64($0)) },
             scheduled: Int64(pending))
-    }
-}
-
-/// Two tiles to a row, one at accessibility sizes.
-struct HomeTiles: View {
-    let tiles: [HomeTile]
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text("Files Retriever can access").font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(tiles) { tile in
-                NavigationLink(value: tile.route) {
-                    HStack(spacing: 12) {
-                        Image(systemName: tile.icon).frame(width: 28).accessibilityHidden(true)
-                        VStack(alignment: .leading) {
-                            Text(tile.title)
-                            Text(tile.countText).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").accessibilityHidden(true)
-                    }.frame(minHeight: 44).padding(.vertical, 8).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel(
-                    [tile.title, tile.countText, tile.detail].compactMap { $0 }.joined(separator: ", "))
-            }
-        }.padding(.horizontal, gutter)
-
     }
 }
 
@@ -600,7 +583,7 @@ struct ReadingChoice: View {
                         Image(systemName: selected == index ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(titles[index]).font(.headline)
-                            Text(details[index]).font(.subheadline).foregroundStyle(.secondary)
+                            Text(details[index]).font(.subheadline)
                         }
                         Spacer(minLength: 0)
                     }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.vertical, 8).contentShape(Rectangle())
@@ -614,7 +597,7 @@ struct ReadingChoice: View {
                 }
             } label: {
                 Text(["Use this schedule", "Start reading", "Go to Home"][selected]).frame(maxWidth: .infinity)
-            }.buttonStyle(.borderedProminent).controlSize(.large)
+            }.buttonStyle(.primaryAction).controlSize(.large)
         }
     }
 }

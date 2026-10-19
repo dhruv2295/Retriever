@@ -11,6 +11,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
 import app.retriever.indexing.Notifications
@@ -57,7 +58,7 @@ class AppLaunchTest {
         assertNull(koin.get<DemoMode>().parts)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             rule.waitUntil(10_000) { koin.get<Retriever>().setUp.value != null }
-            rule.onNodeWithText("Find anything by what's inside it").assertIsDisplayed()
+            rule.onNodeWithText(Words.WELCOME_TITLE).assertIsDisplayed()
             scenario.onActivity { assertEquals(Lifecycle.State.RESUMED, it.lifecycle.currentState) }
             app.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
             rule.waitForIdle()

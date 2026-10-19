@@ -32,15 +32,17 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.plus
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -72,6 +74,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -115,6 +118,7 @@ import app.retriever.core.SourceFile
 import app.retriever.home.HomeScreen
 import app.retriever.home.HomeUi
 import app.retriever.home.HomeViewModel
+import app.retriever.model.UpgradeFlow
 import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
@@ -123,6 +127,7 @@ import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 /** What the search screen can ask for; every default does nothing, so a test passes only what it checks. */
 class SearchActions(
@@ -149,9 +154,16 @@ class SearchActions(
 internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
 @Composable
-fun SearchScreen(onNavigate: (Route) -> Unit, vm: SearchViewModel = koinViewModel(), homeVm: HomeViewModel = koinViewModel()) {
-    val ui by vm.ui.collectAsStateWithLifecycle()
+fun SearchScreen(
+    onNavigate: (Route) -> Unit,
+    vm: SearchViewModel = koinViewModel(),
+    homeVm: HomeViewModel = koinViewModel(),
+    upgrade: UpgradeFlow = koinInject(),
+) {
+    val search by vm.ui.collectAsStateWithLifecycle()
     val home by homeVm.ui.collectAsStateWithLifecycle()
+    val stage by upgrade.stage.collectAsStateWithLifecycle()
+    val ui = remember(search, stage) { search.copy(upgrade = stage) }
     val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
@@ -315,22 +327,26 @@ fun SearchContent(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            // Opaque, as a top app bar is: Home scrolls under it, and its rows must not show through the status bar.
+            TopAppBar(title = {}, actions = {
+                if (topBarAction != null) {
+                    topBarAction()
+                } else {
+                    IconButton(onClick = {
+                        actions.onNavigate(SettingsRoute)
+                    }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings") }
+                }
+            })
+        },
+        bottomBar = {
+            // Docked at the bottom, in a thumb's reach; opaque, so Home's rows never show through it. safeDrawing holds
+            // the navigation bar and the keyboard.
             Box(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-                    .windowInsetsPadding(WindowInsets.statusBars).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Row(Modifier.widthIn(max = 808.dp + 48.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    SearchBar(state = bar, inputField = inputField, modifier = Modifier.weight(1f))
-                    if (topBarAction != null) {
-                        topBarAction()
-                    } else {
-                        IconButton(onClick = {
-                            actions.onNavigate(SettingsRoute)
-                        }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings") }
-                    }
-                }
+                SearchBar(state = bar, inputField = inputField, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
             }
         },
     ) { padding ->

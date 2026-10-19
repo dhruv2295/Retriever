@@ -58,13 +58,20 @@ final class HomeModelTests: XCTestCase {
         XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, paused: true), started: true), "an empty paused library is not looking")
     }
 
-    func testSectionSubtitlesDropWhatIsZero() {
-        XCTAssertEqual(Copy.mediaSubtitle(photos: 22_000, videos: 1_733), "22,000 photos · 1,733 videos")
-        XCTAssertEqual(Copy.mediaSubtitle(photos: 1, videos: 0), "1 photo")
-        XCTAssertEqual(Copy.documentsSubtitle(pdfs: 1_591, docs: 125), "1,591 PDFs · 125 documents")
-        XCTAssertEqual(Copy.documentsSubtitle(pdfs: 0, docs: 1, detail: "1 waiting to read"), "1 document · 1 waiting to read")
-        XCTAssertEqual(Copy.sectionSubtitle(1_716, "1,200 waiting to read"), "1,716 · 1,200 waiting to read")
-        XCTAssertEqual(Copy.photosToGo(14_700, paused: true), "14,700 to go · Paused")
+    func testSectionSubtitlesSayCountAndSize() {
+        let documents = Copy.totals(
+            [.pdf, .doc],
+            in: [
+                .pdf: FileTotals(files: 1_591, knownBytes: 600_000_000, unknownSizes: 0), .doc: FileTotals(files: 125, knownBytes: 40_000_000, unknownSizes: 0),
+                .photo: FileTotals(files: 9, knownBytes: 0, unknownSizes: 9),
+            ])
+        XCTAssertEqual(documents, FileTotals(files: 1_716, knownBytes: 640_000_000, unknownSizes: 0))
+        XCTAssertEqual(Copy.sectionSubtitle(documents, "1,200 waiting to read"), "1,716 files · \(Copy.bytes(640_000_000)) · 1,200 waiting to read")
+        // Photos never reports a size on iOS: never "0 B".
+        XCTAssertEqual(Copy.countAndSize(FileTotals(files: 8_420, knownBytes: 0, unknownSizes: 8_420)), "8,420 files · Size unavailable")
+        XCTAssertEqual(
+            Copy.countAndSize(FileTotals(files: 420, knownBytes: 1_800_000_000, unknownSizes: 12)), "420 files · At least \(Copy.bytes(1_800_000_000))")
+        XCTAssertEqual(Copy.photosWaiting(14_700, paused: true), "14,700 waiting to read · Paused")
     }
 
     func testThumbnailSizesShareBuckets() {
@@ -119,16 +126,16 @@ final class HomeModelTests: XCTestCase {
         // Status, the chip row, the mosaic, screenshots, documents, starred, the tiles, tidy up.
         let layout = try await layout(model, search: .fixture(recent: ["passport scan"]))
         XCTAssertEqual(layout.headers, 6)
-        // The hero and folders; one chip row; the mosaic; the strip of screenshots; the strip of documents; the strip of
-        // starred files; the grid of tiles (one row); Large files + Duplicates.
-        XCTAssertEqual(layout.items, [3, 1, 1, 1, 1, 1, 1, 2])
+        // The hero and the name search note; one chip row; the mosaic; the strip of screenshots; the strip of documents;
+        // the strip of starred files; five kinds, two folders and All folders; Large files + Duplicates.
+        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 8, 2])
     }
 
     func testPicturesHideWithoutPhotosAccessAndDocumentsStay() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         let denied = try await layout(model, search: .fixture(recent: ["a"]), photos: .denied)
         XCTAssertEqual(
-            denied.items, [4, 1, 1, 1, 1, 2],
+            denied.items, [3, 1, 1, 1, 8, 2],
             "status and the Photos note; no mosaic or screenshots; documents come from added folders; starred, tiles, tidy up stay")
     }
 
@@ -136,7 +143,7 @@ final class HomeModelTests: XCTestCase {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         XCTAssertEqual(model.suggestions.count, 3)
         let layout = try await layout(model, search: .fixture())
-        XCTAssertEqual(layout.items, [3, 1, 1, 1, 1, 1, 1, 2], "still one chip row, of suggestions")
+        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 8, 2], "still one chip row, of suggestions")
     }
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
@@ -152,31 +159,40 @@ final class HomeModelTests: XCTestCase {
         // screenshots have strips and headers of their own). What is left is the status, the nudge to add a folder
         // (5 files is nearly empty), and Duplicates.
         XCTAssertEqual(layout.headers, 1)
-        XCTAssertEqual(layout.items, [3, 1, 1])
+        XCTAssertEqual(layout.items, [2, 1, 1])
     }
 
-    /// Videos, Documents (beside PDFs), Audio, Other files, Folders, in that order and only with something in them.
-    func testTilesAreFixedOrderAndOnlyForCountsAboveZero() throws {
-        var snap = try XCTUnwrap(AppModel(fixture: .caughtUp).snap)
-        XCTAssertEqual(HomeTile.make(snap, folders: 12).map(\.title), ["Videos", "Documents", "Folders"], "no audio or other files in the fixture")
-        snap.byKind = [.video: 3, .doc: 2, .audio: 4, .other: 349, .pdf: 1, .photo: 9, .screenshot: 5]
-        XCTAssertEqual(HomeTile.make(snap, folders: 148).map(\.title), ["Videos", "Documents", "Audio", "Other files", "Folders"])
-        XCTAssertEqual(HomeTile.make(snap, folders: 148).first { $0.title == "Other files" }?.detail, "Name only")
-        snap.byKind[.pdf] = nil
-        XCTAssertFalse(HomeTile.make(snap, folders: 0).map(\.title).contains("Documents"), "without PDFs the header opens Documents")
-        XCTAssertEqual(HomeTile.make(snap, folders: 0).map(\.title), ["Videos", "Audio", "Other files"], "photos, screenshots and PDFs have headers")
-        snap.byKind = [.pdf: 64]
-        XCTAssertEqual(HomeTile.make(snap, folders: 0), [])
-        XCTAssertEqual(HomeTile.make(snap, folders: 0, foldersAlways: true).map(\.title), ["Folders"], "the sidebar keeps the way to add a folder")
+    /// More on your phone: every kind with files in it in a fixed order, the busiest folders, then All folders.
+    func testMoreOnYourPhoneListsKindsThenFoldersWithCountAndSize() throws {
+        let model = AppModel(fixture: .caughtUp)
+        let snap = try XCTUnwrap(model.snap)
+        func tiles(_ totals: [Kind: FileTotals], folders: [FolderTotals] = [], all: Int = 0, always: Bool = false) -> [HomeTile] {
+            HomeTile.make(snap, totals: totals, folders: folders, allFolders: all, foldersAlways: always)
+        }
+        let made = tiles(model.kindTotals, folders: model.folderTotals, all: 12)
+        XCTAssertEqual(
+            made.map(\.title), ["Photos", "Videos", "Screenshots", "PDFs", "Documents", "Download", "Documents", "All folders"],
+            "kinds, then each folder by name, then the folder list")
+        XCTAssertEqual(made.first?.detail, "2,140 files · Size unavailable", "Photos never says 0 B")
+        XCTAssertEqual(made[3].detail, "64 files · \(Copy.bytes(120_000_000))")
+        XCTAssertEqual(made[5].route, .files(FileQuery(folder: "Retriever/Download", title: "Download")))
+        XCTAssertEqual(made.last?.route, .folders)
+        let other = tiles([.other: FileTotals(files: 349, knownBytes: 96_000_000, unknownSizes: 0)])
+        XCTAssertEqual(other.map(\.detail), ["349 files · \(Copy.bytes(96_000_000)) · Name only"])
+        let manyFolders = (1...5).map { FolderTotals(path: "F\($0)", totals: FileTotals(files: 1, knownBytes: 1, unknownSizes: 0)) }
+        XCTAssertEqual(tiles([:], folders: manyFolders, all: 5).count, HomeTile.folderRows + 1, "the rest are in All folders")
+        XCTAssertEqual(tiles([:]), [])
+        XCTAssertEqual(tiles([:], always: true).map(\.title), ["All folders"], "the sidebar keeps the way to add a folder")
     }
 
     func testTilesSayHowReadingIsGoing() throws {
-        var snap = try XCTUnwrap(AppModel(fixture: .caughtUp).snap)
+        let model = AppModel(fixture: .caughtUp)
+        var snap = try XCTUnwrap(model.snap)
         snap.pending = 120
         snap.pendingByKind = [.video: 95, .doc: 20]
-        let tiles = HomeTile.make(snap, folders: 0)
-        XCTAssertEqual(tiles.first { $0.title == "Videos" }?.detail, "95 waiting to read")
-        XCTAssertEqual(tiles.first { $0.title == "Documents" }?.detail, "20 waiting to read")
+        let tiles = HomeTile.make(snap, totals: model.kindTotals, folders: [], allFolders: 0)
+        XCTAssertEqual(tiles.first { $0.title == "Videos" }?.detail, "95 files · Size unavailable · 95 waiting to read")
+        XCTAssertEqual(tiles.first { $0.title == "Documents" }?.detail, "31 files · \(Copy.bytes(8_400_000)) · 20 waiting to read")
     }
 
     func testEmptyLibraryIsOneMessageNotSections() async throws {
@@ -197,15 +213,15 @@ final class HomeModelTests: XCTestCase {
         XCTAssertTrue(
             AppModel.Snap(setUp: true, indexed: 40, pending: 38, waiting: 26_214, running: true).asksCommit, "a schedule can be chosen before the sample ends")
         XCTAssertFalse(AppModel.Snap(setUp: true, indexed: 26_292).asksCommit, "scope ALL or nothing left")
-        XCTAssertFalse(AppModel.Snap(setUp: false, indexed: 78, waiting: 26_214).asksCommit, "no offer before setup finishes")
-        XCTAssertFalse(AppModel.Snap(waiting: 26_214).asksCommit, "no offer while setup is unknown")
+        XCTAssertTrue(AppModel.Snap(setUp: false, indexed: 78, waiting: 26_214).asksCommit, "reading needs no download, so neither does the offer")
+        XCTAssertFalse(AppModel.Snap(waiting: 26_214, accessChosen: false).asksCommit, "no offer before access is chosen")
         let model = AppModel(fixture: .caughtUp)
         let plain = try await layout(model, search: .fixture())
         var asking = try XCTUnwrap(model.snap)
         asking.waiting = 26_214
         let card = try await layout(model, snap: asking, search: .fixture())
-        XCTAssertEqual(plain.items.first, 3, "hero and folders")
-        XCTAssertEqual(card.items.first, 4, "the commit choice stays below the compact hero and folders")
+        XCTAssertEqual(plain.items.first, 2, "the hero and the name search note")
+        XCTAssertEqual(card.items.first, 3, "the commit choice stays below the compact hero")
         XCTAssertEqual(Array(card.items.dropFirst()), Array(plain.items.dropFirst()))
     }
 
@@ -215,7 +231,7 @@ final class HomeModelTests: XCTestCase {
         for waiting in [
             AppModel.Snap(setUp: true, indexed: 10, waiting: 5), AppModel.Snap(setUp: true, indexed: 10, pending: 1),
             AppModel.Snap(setUp: true, indexed: 10, running: true), AppModel.Snap(setUp: true, indexed: 10, paused: true),
-            AppModel.Snap(setUp: true), AppModel.Snap(setUp: false, indexed: 10),
+            AppModel.Snap(setUp: true), AppModel.Snap(indexed: 10, accessChosen: false),
         ] {
             XCTAssertFalse(waiting.isCaughtUp)
         }

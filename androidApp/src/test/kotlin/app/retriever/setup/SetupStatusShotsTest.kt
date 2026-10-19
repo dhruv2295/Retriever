@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -16,18 +18,19 @@ import app.retriever.core.Backend
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
-import app.retriever.core.ModelBuilds
 import app.retriever.core.Prefs
 import app.retriever.core.ReadEstimate
 import app.retriever.core.SearchEngine
+import app.retriever.core.SetupInputs
+import app.retriever.core.SetupMark
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.TasteProgress
+import app.retriever.core.UpgradeStage
+import app.retriever.core.Words
 import app.retriever.home.HomeUi
-import app.retriever.model.ModelState
-import app.retriever.model.TuneState
-import app.retriever.model.spaceMessage
+import app.retriever.model.UpgradeUi
 import app.retriever.search.SearchActions
 import app.retriever.search.SearchPane
 import app.retriever.search.SearchUi
@@ -53,9 +56,6 @@ import org.robolectric.annotation.GraphicsMode
 class SetupStatusShotsTest {
     @get:Rule val rule = createComposeRule()
 
-    private val build = ModelBuilds.npu.first().variant.generic
-    private val going = SetupUi(started = true, access = Access.ALL, namesSynced = true, build = build)
-
     /** [tall] fits a whole Status page, so the sections below the fold are in the shot too. */
     private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, tall: Boolean = false, settleMs: Long = 0, content: @Composable () -> Unit) {
         tallWindowForBigText(fontScale)
@@ -65,12 +65,18 @@ class SetupStatusShotsTest {
         rule.shot(name)
     }
 
-    private fun setup(name: String, ui: SetupUi, dark: Boolean = false, fontScale: Float = 1f) =
-        shot(name, dark, fontScale, settleMs = if (ui.stage == SetupStage.WELCOME) 4_000 else 0) {
-            SetupContent(ui, reading = { read ->
-                SetupReadingFiles(if (read < 71) previewFiles.first() else null, previewFiles.take(read), null, read)
-            })
-        }
+    private fun setup(
+        name: String,
+        ui: SetupUi,
+        dark: Boolean = false,
+        fontScale: Float = 1f,
+        actions: SetupActions = SetupActions(),
+        filesDenied: Boolean = false,
+    ) = shot(name, dark, fontScale, settleMs = if (ui.stage == app.retriever.core.SetupStage.WELCOME) 4_000 else 0) {
+        val read = ui.taste?.read ?: 0
+        val index = IndexState(running = read < 71, currentFile = previewFiles.first().takeIf { read < 71 }, recentFiles = previewFiles.drop(1).take(read))
+        SetupContent(ui, filesDenied = filesDenied, actions = actions, index = { index }, reduceMotion = true)
+    }
 
     /** Light, dark and 1.5x text of one first-run state. */
     private fun three(name: String, ui: SetupUi, variant: Int) = when (variant) {
@@ -79,109 +85,134 @@ class SetupStatusShotsTest {
         else -> setup("${name}_text1_5", ui, fontScale = 1.5f)
     }
 
-    private val welcome = SetupUi(build = build)
+    private val welcome = SetupUi()
 
-    @Test fun welcomeLight() = three("setup_welcome", welcome, 0)
+    @Test fun welcomeLight() {
+        three("setup_welcome", welcome, 0)
+        rule.onNodeWithText(Words.WELCOME_TITLE).assertExists()
+        rule.onNodeWithText(Words.GET_STARTED).assertExists()
+        rule.onNodeWithText(Words.SEARCH_BY_NAME).assertExists()
+        // No download on the way in.
+        rule.onAllNodesWithText("MB", substring = true).assertCountEquals(0)
+        rule.onAllNodesWithText("download", substring = true, ignoreCase = true).assertCountEquals(0)
+    }
 
     @Test fun welcomeDark() = three("setup_welcome", welcome, 1)
 
     @Test fun welcomeBigText() = three("setup_welcome", welcome, 2)
 
-    private val downloading = going.copy(model = ModelState.Downloading(0.45f, false), decided = false, taste = progress(0))
-
-    @Test fun downloadingLight() {
-        three("setup_downloading", downloading.copy(notificationAsk = true), 0)
-        rule.onNodeWithText("Skip").assertExists()
-        rule.onNodeWithText("Getting Retriever ready to read").assertExists()
-        rule.onNodeWithText("218\u00A0MB of 485\u00A0MB").assertExists()
-        rule.onNodeWithText("Stop").assertExists()
-        rule.onNodeWithText("Search by name").assertExists()
+    @Test fun welcomeButtonsCallTheirActions() {
+        val calls = mutableListOf<String>()
+        setup("setup_welcome_buttons", welcome, actions = SetupActions(getStarted = { calls += "start" }, searchByName = { calls += "names" }))
+        rule.onNodeWithText(Words.GET_STARTED).performClick()
+        rule.onNodeWithText(Words.SEARCH_BY_NAME).performClick()
+        assertEquals(listOf("start", "names"), calls)
     }
 
-    @Test fun downloadingDark() = three("setup_downloading", downloading, 1)
+    private val access = SetupUi(setup = SetupInputs(SetupMark.STARTED))
+    private val accessGiven = SetupUi(setup = SetupInputs(SetupMark.STARTED, accessGiven = true), access = Access(false, Photos.ALL, videos = true))
 
-    @Test fun downloadingBigText() = three("setup_downloading", downloading, 2)
+    @Test fun accessWaitsForAChoice() {
+        setup("setup_access_light", access)
+        rule.onNodeWithText(Words.CHOOSE_ACCESS).assertExists()
+        rule.onNodeWithText(Words.FILES_AND_FOLDERS).assertExists()
+        rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).assertExists()
+        rule.onNodeWithText(Words.ADD_FOLDER).assertExists()
+        rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
+    }
 
-    private val wifi = downloading.copy(model = ModelState.WaitingForWifi)
+    @Test fun accessDark() = setup("setup_access_dark", accessGiven, dark = true)
 
-    @Test fun wifiLight() = three("setup_wifi", wifi, 0)
+    @Test fun accessBigText() = setup("setup_access_text1_5", accessGiven, fontScale = 1.5f)
 
-    @Test fun wifiDark() = three("setup_wifi", wifi, 1)
+    @Test fun accessDeniedSaysWhatToDo() {
+        setup("setup_access_denied_light", access, filesDenied = true)
+        rule.onNodeWithText(Words.NOTHING_SELECTED).assertExists()
+    }
 
-    @Test fun wifiBigText() = three("setup_wifi", wifi, 2)
+    @Test fun accessGivenContinues() {
+        var continued = false
+        setup("setup_access_given_light", accessGiven, actions = SetupActions(continueFromAccess = { continued = true }))
+        rule.onNodeWithText(Words.CONTINUE).assertIsEnabled().performClick()
+        assertEquals(true, continued)
+    }
 
-    /** 14 of a 71-file plan read: no "Try it now" yet. */
+    /** [read] of a 71-file plan. */
     private fun progress(read: Int): TasteProgress {
         val plan = linkedMapOf(Kind.SCREENSHOT to 15, Kind.DOC to 12, Kind.PDF to 10, Kind.PHOTO to 32, Kind.VIDEO to 2)
         var left = read
         val byKind = plan.mapValues { (_, n) -> minOf(left, n).also { left -= it } to n }
         return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, if (read >= 71) 0 else 75, read >= 20)
     }
-    private val readingFew = going.copy(model = ModelState.Done, ready = true, decided = false, taste = progress(14))
+    private val chosen = SetupInputs(SetupMark.ACCESS_CHOSEN, planned = 71, accessGiven = true)
+    private val readingFew = SetupUi(setup = chosen, access = Access.ALL, taste = progress(4))
     private val readFew = readingFew.copy(taste = progress(71))
 
-    @Test fun readingMidLight() {
-        three("setup_reading_mid", readingFew, 0)
-        rule.onAllNodesWithText("Try it now").assertCountEquals(0)
-        rule.onNodeWithText("Reading now").assertExists()
-        rule.onNodeWithText("Screenshots 14/15").assertExists()
+    @Test fun sampleReadingLight() {
+        three("setup_sample_reading", readingFew, 0)
+        rule.onAllNodesWithText(Words.TRY_SEARCH).assertCountEquals(0)
+        rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
+        rule.onNodeWithText(Words.READING_NOW).assertExists()
+        rule.onAllNodesWithText("/", substring = true).assertCountEquals(0)
     }
 
-    @Test fun readingMidDark() = three("setup_reading_mid", readingFew, 1)
+    @Test fun sampleReadingDark() = three("setup_sample_reading", readingFew, 1)
 
-    @Test fun readingMidBigText() = three("setup_reading_mid", readingFew, 2)
+    @Test fun sampleReadingBigText() = three("setup_sample_reading", readingFew, 2)
 
-    @Test fun readingDoneLight() {
-        three("setup_reading_done", readFew, 0)
-        rule.onNodeWithText("Try it now").assertIsDisplayed()
-        rule.onNodeWithText("You can keep searching the content read so far.").assertIsDisplayed()
+    @Test fun samplePaused() {
+        setup("setup_sample_paused_light", readingFew.copy(pauseReason = "Waiting to charge"))
+        rule.onNodeWithText("Waiting to charge").assertExists()
     }
 
-    @Test fun readingDoneDark() = three("setup_reading_done", readFew, 1)
+    @Test fun sampleDoneLight() {
+        var tried = false
+        setup("setup_sample_done_light", readFew, actions = SetupActions(tryNow = { tried = true }))
+        rule.onNodeWithText(Words.TRY_SEARCH).assertIsDisplayed().performClick()
+        assertEquals(true, tried)
+    }
 
-    @Test fun readingDoneBigText() = three("setup_reading_done", readFew, 2)
+    @Test fun sampleDoneDark() = three("setup_sample_done", readFew, 1)
 
-    @Test fun setupTuning() = setup("setup_tuning_dark", going.copy(model = ModelState.Done, tune = TuneState.Running), dark = true)
-
-    @Test fun setupTuneFailed() = setup("setup_tune_failed_light", going.copy(model = ModelState.Done, tune = TuneState.Failed("x")))
-
-    @Test fun setupFailed() = setup("setup_failed_light", going.copy(model = ModelState.Failed(spaceMessage(build))))
-
-    @Test fun setupFilesDenied() = shot("setup_files_denied_light") { SetupContent(SetupUi(started = true, build = build), filesDenied = true) }
-
-    @Test fun setupFellBack() = setup("setup_fellback_dark", going.copy(fellBack = true, model = ModelState.Downloading(0.1f, false)), dark = true)
-
-    @Test fun setupFallbackOffer() = setup("setup_fallback_offer_light", going.copy(fellBack = true, downloadStopped = true))
+    @Test fun sampleDoneBigText() = three("setup_sample_done", readFew, 2)
 
     // --- Try it and the commit choice ---
 
-    private val tryUi = readFew.copy(trying = true, estimate = null)
+    private val tryUi = readFew.copy(setup = chosen.copy(mark = SetupMark.TRYING))
     private val scoped = SearchUi(setUp = true, scope = (1L..79L).toList(), unread = 31, photosRead = 12)
     private fun file(name: String, kind: Kind) = SourceFile("demo:$name", name, "Pictures", "image/png", kind, 120_000, 1_760_000_000_000)
 
-    @Test fun tryItEmptyLight() {
+    @Test fun tryWithoutSuggestionsLight() {
         shot("setup_tryit_empty_light") { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
-        rule.onNodeWithText("Try it on your files").assertExists()
-        rule.onNodeWithText("Search something you remember, or try one of these.").assertExists()
-        rule.onNodeWithText("Continue").assertExists()
+        rule.onNodeWithText(Words.TRY_TITLE).assertExists()
+        rule.onNodeWithText(Words.searchingSample(79)).assertExists()
+        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
+        rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
+        rule.onNodeWithText(Words.GO_TO_HOME).assertExists()
         rule.onAllNodesWithText("Settings").assertCountEquals(0)
     }
 
-    /** On the device the suggestions arrived a frame after the kind chips and the swap crashed (ClassCastException). */
-    @Test fun tryItSurvivesSuggestionsArrivingAfterKindChips() {
+    @Test fun tryWithSuggestionsShowsThree() {
         val terms = mutableStateOf(emptyList<String>())
-        val files = listOf(file("IMG_1.jpg", Kind.PHOTO), file("Screenshot_1.png", Kind.SCREENSHOT))
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), files = files, suggestions = terms.value) } }
-        rule.onNodeWithText("Photos").assertExists()
-        terms.value = listOf("invoice", "deposit")
+        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
+        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
+        terms.value = listOf("invoice", "deposit", "lease")
         rule.waitForIdle()
         rule.onNodeWithText("invoice").assertExists()
-        rule.onAllNodesWithText("Photos").assertCountEquals(0)
+        rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
+        rule.shot("setup_tryit_suggestions_light")
     }
 
-    @Test fun tryItEmptyDark() = shot("setup_tryit_empty_dark", dark = true) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
+    @Test fun tryOffersTheUpgradeOnceSearched() {
+        shot("setup_tryit_upgrade_light") {
+            TryItContent(tryUi, scoped, SearchActions(), SetupActions(), upgrade = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976))
+        }
+        rule.onNodeWithText(Words.UPGRADE_TITLE).assertExists()
+    }
 
-    @Test fun tryItEmptyBigText() = shot("setup_tryit_empty_text1_5", fontScale = 1.5f) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
+    @Test fun tryEmptyDark() = shot("setup_tryit_empty_dark", dark = true) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
+
+    @Test fun tryEmptyBigText() = shot("setup_tryit_empty_text1_5", fontScale = 1.5f) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
 
     private val answered = scoped.answered(
         "boarding pass",
@@ -193,7 +224,7 @@ class SetupStatusShotsTest {
 
     @Test fun tryItAfterSearchLight() {
         shot("setup_tryit_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
-        rule.onNodeWithText("Closest in these 79 files").assertExists()
+        rule.onNodeWithText(Words.searchingSample(79)).assertExists()
         rule.onNodeWithText("Still reading 31 more").assertExists()
         rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
@@ -202,12 +233,13 @@ class SetupStatusShotsTest {
 
     @Test fun tryItAfterSearchBigText() = shot("setup_tryit_results_text1_5", fontScale = 1.5f) { SearchPane(answered, HomeUi(), SearchActions()) }
 
-    @Test fun tryItDoneWhenNothingIsLeft() {
+    @Test fun tryGoesHomeWhenNothingIsLeft() {
         shot("setup_tryit_done_light") { TryItContent(tryUi.copy(estimate = ReadEstimate(0, 0, 0, 0, true)), scoped, SearchActions(), SetupActions()) }
-        rule.onNodeWithText("Done").assertExists()
+        rule.onAllNodesWithText(Words.GO_TO_HOME).assertCountEquals(2)
+        rule.onAllNodesWithText(Words.CHOOSE_WHEN).assertCountEquals(0)
     }
 
-    private val commitUi = tryUi.copy(committing = true)
+    private val commitUi = tryUi.copy(setup = chosen.copy(mark = SetupMark.CHOOSING))
 
     @Test fun commitLight() {
         shot("setup_commit_light") { SetupContent(commitUi) }
@@ -236,17 +268,11 @@ class SetupStatusShotsTest {
     @Test fun continueAsksForTheCommitChoice() {
         var continued = false
         shot("setup_tryit_continue") { TryItContent(tryUi, scoped, SearchActions(), SetupActions(continueToCommit = { continued = true })) }
-        rule.onNodeWithText("Continue").performClick()
+        rule.onNodeWithText(Words.CHOOSE_WHEN).performClick()
         assertEquals(true, continued)
     }
 
-    private val choosing = SetupUi(started = true, build = build)
-
-    @Test fun setupAccessChoice() = setup("setup_access_choice_light", choosing)
-
-    @Test fun setupAccessChoiceDark() = setup("setup_access_choice_dark", choosing, dark = true)
-
-    private val lowMemory = SetupUi(build = build, textOnly = true, ramGb = 3.0)
+    private val lowMemory = SetupUi(textOnly = true, ramGb = 3.0)
 
     @Test fun setupTextOnly() = setup("setup_text_only_light", lowMemory)
 

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import app.retriever.access.AccessService
 import app.retriever.core.ESTIMATE_CALIBRATED
 import app.retriever.core.FileState
+import app.retriever.core.FileTotals
+import app.retriever.core.FolderTotals
 import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
@@ -72,7 +74,11 @@ data class HomeUi(
     /** Some access to files; false once it was taken away in Settings. */
     val hasAccess: Boolean = true,
     val starred: Int = 0,
-    val setUp: Boolean = false,
+    /** Setup's access step is done: core's [app.retriever.core.SetupInputs.libraryChosen]. */
+    val libraryChosen: Boolean = false,
+    /** Count and size by kind, and by folder, for section subtitles and More on your phone; empty until loaded. */
+    val kindTotals: Map<Kind, FileTotals> = emptyMap(),
+    val folderTotals: List<FolderTotals> = emptyList(),
     /** Past years' photos and videos on [memoriesDay], newest year first. */
     val memories: List<YearMemory> = emptyList(),
     val memoriesDay: LocalDate? = null,
@@ -170,7 +176,11 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     init {
         viewModelScope.launch { retriever.readingStatus(counts).collect { s -> _ui.update { it.copy(readingStatus = s) } } }
         viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
-        viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
+        viewModelScope.launch {
+            combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready).libraryChosen }.collect { c ->
+                _ui.update { it.copy(libraryChosen = c) }
+            }
+        }
         viewModelScope.launch {
             counts.collect { c ->
                 _ui.update { it.withCounts(c) }
@@ -202,7 +212,19 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 launchCatching {
                     val estimate = if (ESTIMATE_CALIBRATED && c.waiting > 0) retriever.estimateAll() else null
                     val suggestions = retriever.suggestions()
-                    retriever.home().let { h -> _ui.update { it.copy(home = h.reusing(it.home), estimate = estimate, suggestions = suggestions) } }
+                    val kinds = retriever.kindTotals()
+                    val folders = retriever.folderTotals()
+                    retriever.home().let { h ->
+                        _ui.update {
+                            it.copy(
+                                home = h.reusing(it.home),
+                                estimate = estimate,
+                                suggestions = suggestions,
+                                kindTotals = if (kinds == it.kindTotals) it.kindTotals else kinds,
+                                folderTotals = if (folders == it.folderTotals) it.folderTotals else folders,
+                            )
+                        }
+                    }
                 }
                 // Photos from past years can arrive today (a restored phone): look again while there are none.
                 ui.value.let { u ->

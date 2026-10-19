@@ -23,7 +23,7 @@ extension AppModel {
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
-                dismissedReadingCycle: p.dismissedReadingCycle)
+                dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed)
         }
     }
 
@@ -31,7 +31,7 @@ extension AppModel {
         useMobileData = on
         Task { try? await edit(mobileData: on) }
         // The network rule is part of the request, so a download waiting for Wi-Fi starts again under the new one.
-        if on, case .waitingForWifi = download { retryDownload() }
+        if on, case .waitingForWifi = download { downloadModel() }
     }
 
     // MARK: Settings actions. Each shows its new value at once; the next snapshot confirms it.
@@ -83,7 +83,6 @@ extension AppModel {
         Task {
             do {
                 try await services?.retriever.decideLater()
-                setupSeen = true
             } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
     }
@@ -93,7 +92,7 @@ extension AppModel {
         Task {
             try? await edit(charging: on)
             // The request waiting with iOS keeps the old rule until it is submitted again.
-            if services != nil, let snap, snap.setUp == true, !snap.paused { IndexTask.schedule() }
+            if services != nil, let snap, snap.accessChosen, !snap.paused { IndexTask.schedule() }
         }
     }
 
@@ -150,7 +149,7 @@ extension AppModel {
     }
 
     /// Settings' Remove search download: the model and what was built from it go, the index stays. Search then runs on names
-    /// and words (modelMissing) until downloadAgain().
+    /// and words (modelMissing) until the meaning upgrade downloads it again.
     func freeUpSpace() {
         guard let services else { return }
         let build = services.retriever.requiredBuildNow
@@ -180,7 +179,7 @@ extension AppModel {
         Task {
             photos = await services.photos.requestAccess()
             services.lifecycle?.observePhotos()
-            startIfReady()
+            accessChanged()
         }
     }
 
@@ -208,23 +207,13 @@ extension AppModel {
         guard let services else { return [] }
         let results = urls.map(services.folders.addFolder)
         folders = Self.pickedFolders(services)
-        if results.contains(where: { if case .added = $0 { true } else { false } }) {
-            started = true
-            startIfReady()
-        }
+        if results.contains(where: { if case .added = $0 { true } else { false } }) { accessChanged() }
         return results
     }
 
-    func finishSetup() {
-        setupSeen = true
-    }
-
-    private func startIfReady() {
-        // A no starts too: Retriever's own folder in the Files app is always searched.
-        if services?.photos.isReady == true || photos == .denied || photos == .restricted { started = true }
-        guard started else { return }
+    /// Photos answered or a folder added: setup's stage and step follow from access.
+    private func accessChanged() {
         advance()
-        startLoop()
         wake()
     }
 
@@ -280,10 +269,14 @@ extension AppModel {
         if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
         guard !Task.isCancelled, let facts = try? await services.retriever.home() else { return }
         let terms = try? await services.retriever.suggestions(fileIds: nil)
+        let byKind = try? await services.retriever.kindTotals()
+        let byFolder = try? await services.retriever.folderTotals()
         guard !Task.isCancelled else { return }
         homeLoadedAt = .now
         home = facts
         if let terms, suggestions != terms { suggestions = terms }
+        if let byKind, kindTotals != byKind { kindTotals = byKind }
+        if let byFolder, folderTotals != byFolder { folderTotals = byFolder }
     }
 
     /// The same date in past years, asked of core with this calendar's real day lengths. Not throttled: it is a few

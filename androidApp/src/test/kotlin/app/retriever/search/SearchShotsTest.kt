@@ -29,8 +29,12 @@ import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
+import app.retriever.core.UpgradeStage
+import app.retriever.core.Words
 import app.retriever.home.HomeBody
 import app.retriever.home.HomeUi
+import app.retriever.nav.Route
+import app.retriever.nav.SettingsRoute
 import app.retriever.shot
 import app.retriever.tallWindowForBigText
 import org.junit.Assert.assertEquals
@@ -72,7 +76,7 @@ class SearchShotsTest {
     private val ready = SearchUi(setUp = true)
 
     private val readyHome = HomeUi(
-        setUp = true,
+        libraryChosen = true,
         counts = counts,
         contentRead = 3_100,
         waiting = 2_230,
@@ -206,7 +210,7 @@ class SearchShotsTest {
     }
 
     @Test fun homeBeforeCountsShowsNoFirstRunMessage() {
-        rule.setContent { ShotTheme(false, 1f) { Screen(SearchUi(setUp = true), HomeUi(setUp = true), IndexState(), SearchActions()) } }
+        rule.setContent { ShotTheme(false, 1f) { Screen(SearchUi(setUp = true), HomeUi(libraryChosen = true), IndexState(), SearchActions()) } }
         rule.onNodeWithText("Looking for your files").assertDoesNotExist()
         rule.onNodeWithText("Nothing to search yet").assertDoesNotExist()
     }
@@ -382,8 +386,39 @@ class SearchShotsTest {
         rule.setContent {
             ShotTheme(false, 1f) { Pane(ready.copy(vectorLane = false, textOnly = true).answered("bill", mixedHits), SearchActions()) }
         }
-        rule.onNodeWithText("Retriever finds files here by their names and the words inside them.").assertExists()
+        rule.onNodeWithText(Words.WORDS_ONLY).assertExists()
         rule.onNodeWithText("back shortly", substring = true).assertDoesNotExist()
+    }
+
+    /** No model yet: "Words only", why each result matched, and under few results one line to the upgrade. */
+    @Test fun withoutTheModelResultsSayWordsOnlyAndOfferTheUpgrade() {
+        val went = mutableListOf<Route>()
+        val hits = listOf(
+            SearchEngine.Hit(file("Water bill.pdf", Kind.PDF), 1, 0, "", null, 1.0, byName = true),
+            SearchEngine.Hit(file("IMG_2041.jpg", Kind.PHOTO), 2, 0, "", null, 0.5, byName = false, matchReason = Words.matches(listOf("beach"))),
+        )
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                Pane(
+                    SearchUi(setUp = false, vectorLane = false, upgrade = UpgradeStage.OFFER).answered("bill", hits),
+                    SearchActions(onNavigate = {
+                        went += it
+                    }),
+                )
+            }
+        }
+        rule.shot("search_words_only_light")
+        rule.onNodeWithText(Words.WORDS_ONLY).assertExists()
+        rule.onNodeWithText(Words.NAME_MATCHES, substring = true).assertExists()
+        rule.onNodeWithText("Matches: beach").assertExists()
+        rule.onNodeWithText(Words.upgradeHint(2, UpgradeStage.OFFER)!!).performClick()
+        assertEquals(listOf<Route>(SettingsRoute), went)
+    }
+
+    /** With the model in place, no hint. */
+    @Test fun noUpgradeHintWithTheModel() {
+        rule.setContent { ShotTheme(false, 1f) { Pane(ready.copy(upgrade = UpgradeStage.DONE).answered("bill", mixedHits.take(1)), SearchActions()) } }
+        rule.onNodeWithText("Download for meaning search").assertDoesNotExist()
     }
 
     @Test fun tappingTheSelectedKindChipClearsIt() {
@@ -420,7 +455,7 @@ class SearchShotsTest {
 
     @Test fun errorLight() {
         shot("error", false)
-        rule.onNodeWithText("Search hit a snag").assertExists()
+        rule.onNodeWithText(Words.SEARCH_FAILED).assertExists()
     }
 
     @Test fun errorDark() = shot("error", true)

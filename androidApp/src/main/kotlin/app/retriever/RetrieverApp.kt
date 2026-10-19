@@ -27,9 +27,11 @@ import app.retriever.di.DemoMode
 import app.retriever.di.appModule
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
+import app.retriever.model.UpgradeFlow
 import app.retriever.setup.SetupFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
@@ -63,9 +65,7 @@ class RetrieverApp :
             start()
             // Before setup too: the worker's sync-only batch makes new files findable by name.
             index.watchMedia()
-            if (retriever.setUp.value == true) {
-                index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
-            }
+            if (libraryChosen()) index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
         }
         Notifications.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
@@ -84,6 +84,9 @@ class RetrieverApp :
         )
     }
 
+    /** Access was given and confirmed in setup, so there is a library to read; waits for the store. */
+    private suspend fun libraryChosen(): Boolean = retriever.setup.filterNotNull().first().withAccess(get<AccessService>().access().ready).libraryChosen
+
     /** What the app could see when it was last in front; Settings may have changed it since. */
     private var seen: Access? = null
 
@@ -97,21 +100,23 @@ class RetrieverApp :
         // Warm independently of the trial; leaving cancels even a warm-up waiting for setup or the model lock.
         warmUp?.cancel()
         warmUp = scope.launch {
-            if (retriever.setUp.first { it != null } == true && retriever.uiVisible) retriever.warmSearch()
+            // Names and words search with no model, so warming waits only for the store.
+            retriever.setup.first { it != null }
+            if (retriever.uiVisible) retriever.warmSearch()
         }
-        // setUp is null until start() settles it, which a cold start's first onStart beats.
+        // The setup is null until start() settles it, which a cold start's first onStart beats.
         scope.launch {
-            if (retriever.setUp.first { it != null } != true || !retriever.uiVisible) return@launch
+            if (!libraryChosen() || !retriever.uiVisible) return@launch
             // A batch held back for the charger, a busy phone or Battery Saver runs now, if the saved schedule allows it.
             val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY || it == StopReason.POWER_SAVE }
             if (!index.readTrial() && held && retriever.readingBlocker() == null) index.indexNow()
         }
         scope.launch {
-            // Picks the setup chain up where it stopped, whichever screen the user comes back to. Built once
-            // setUp settles, so it seeds from the stored prefs.
-            retriever.setUp.first { it != null }
-            val setup = get<SetupFlow>()
-            if (setup.ui.value.started) setup.refresh()
+            // Picks setup and the upgrade up where they stopped, whichever screen the user comes back to. Built once
+            // the setup settles, so they seed from what is stored.
+            retriever.setup.first { it != null }
+            get<SetupFlow>().refresh()
+            get<UpgradeFlow>().refresh()
         }
     }
 

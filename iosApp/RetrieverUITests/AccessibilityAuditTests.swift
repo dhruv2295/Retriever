@@ -41,11 +41,12 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start.",
     ]
     private static let routes = [
-        "setup.welcome", "setup.photos", "setup.limited", "setup.denied", "setup.folders", "setup.download",
-        "setup.waitingWifi", "setup.failed", "setup.tuning", "setup.textOnly", "setup.reading", "setup.readingPaused",
+        "setup.welcome", "setup.photos", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.reading",
+        "setup.readingPaused", "setup.sampleDone", "setup.try", "setup.tryNoSuggestions", "setup.choose",
+        "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
-        "home.caughtUp", "home.reading", "home.empty", "search.empty", "search.wordsOnly", "search.lessLikely",
-        "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
+        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "search.empty", "search.wordsOnly", "search.noModel",
+        "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
     ]
 
     func testEveryFixtureRoutePassesTheAccessibilityAudit() throws {
@@ -58,22 +59,40 @@ final class AccessibilityAuditTests: XCTestCase {
         try auditFixtures()
     }
 
-    func testDownloadCardKeepsProgressAndStopAccessibleInBothAppearances() throws {
+    func testDownloadCardKeepsProgressAndCancelAccessibleInBothAppearances() throws {
         for style in ["light", "dark"] {
             appearance = style
             XCUIDevice.shared.appearance = style == "dark" ? .dark : .light
             let app = XCUIApplication()
-            app.launchArguments = ["-mutedMedia", "-route", "setup.limited"]
+            app.launchArguments = ["-mutedMedia", "-route", "upgrade.download"]
             launch(app)
             let progress = app.staticTexts["download-amount"]
-            let stop = app.buttons["Stop"]
+            let cancel = app.buttons["Cancel"]
             XCTAssertTrue(progress.exists)
-            XCTAssertGreaterThanOrEqual(stop.frame.height, 44)
-            XCTAssertGreaterThanOrEqual(stop.frame.width, 44)
-            XCTAssertEqual(progress.frame.midY, stop.frame.midY, accuracy: 14)
-            try audit(app, route: "setup.limited")
+            // Rounded: the frame comes back in floating point, e.g. 43.99999999999997 for a 44 pt minimum.
+            XCTAssertGreaterThanOrEqual(cancel.frame.height.rounded(), 44)
+            XCTAssertGreaterThanOrEqual(cancel.frame.width.rounded(), 44)
+            XCTAssertEqual(progress.frame.midY, cancel.frame.midY, accuracy: 14)
+            try audit(app, route: "upgrade.download")
             app.terminate()
         }
+    }
+
+    /// The limited-Photos access screen shows "Choose more photos" whole, not cut by the scroll view's edge.
+    func testLimitedPhotosAccessShowsChooseMorePhotosWhole() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mutedMedia", "-route", "setup.limited"]
+        launch(app)
+        defer { app.terminate() }
+        let more = app.buttons["Choose more photos"]
+        for _ in 0..<6 {
+            if more.exists && more.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(more.isHittable)
+        let continueButton = app.buttons["Continue"]
+        XCTAssertTrue(continueButton.isHittable)
+        XCTAssertLessThanOrEqual(more.frame.maxY, continueButton.frame.minY, "the footer never covers it")
     }
 
     func testPhotoCaptionsAndUnavailablePhotoContrastInBothAppearances() throws {
@@ -125,16 +144,30 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTContext.runActivity(named: route) { _ in
                 do {
                     if route.hasPrefix("setup.reading") {
-                        if route == "setup.reading" { XCTAssertTrue(app.staticTexts["Reading now"].exists) }
-                        XCTAssertTrue(app.staticTexts["Files you can try"].exists)
-                        XCTAssertTrue(app.staticTexts["+23 more"].exists)
-                        for i in 2...8 {
+                        // Six real previews at most, the file being read first; no slash counters.
+                        for i in 2...6 {
                             XCTAssertTrue(app.descendants(matching: .any)["recent:folder://fixture/reading-\(i)"].firstMatch.exists)
                         }
-                        if route == "setup.readingPaused" {
+                        XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-8"].firstMatch.exists)
+                        XCTAssertTrue(app.buttons["Try search"].exists)
+                        XCTAssertTrue(app.buttons["Go to Home"].exists)
+                        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '/'")).firstMatch.exists)
+                        if route == "setup.reading" {
+                            XCTAssertEqual(app.descendants(matching: .any)["recent:folder://fixture/reading-1"].firstMatch.value as? String, "Reading now")
+                        } else {
                             XCTAssertTrue(app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists)
                         }
                     }
+                    if route.hasPrefix("setup.try") {
+                        XCTAssertTrue(app.staticTexts["Searching inside 54 sample files"].exists)
+                        XCTAssertTrue(app.buttons["Choose when to read more"].exists)
+                        XCTAssertTrue(app.buttons["Go to Home"].exists)
+                    }
+                    if route == "search.noModel" {
+                        XCTAssertTrue(app.staticTexts["Words only"].exists)
+                        XCTAssertTrue(app.buttons["Download for meaning search"].exists, "one result is few: the hint shows")
+                    }
+                    if route == "home.upgrade" { XCTAssertTrue(app.buttons["Not now"].exists) }
                     if route == "status.reading" { XCTAssertTrue(app.staticTexts["Recently read"].exists) }
                     if route == "status.paused" { XCTAssertFalse(app.staticTexts["Recently read"].exists) }
                     try audit(app, route: route)
@@ -181,10 +214,11 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     private func audit(_ app: XCUIApplication, route: String) throws {
-        // Contrast needs complete glyphs: the shorter download card can leave a footer action partly below the fold.
+        // Contrast needs complete glyphs: a button in the scrolling content can sit partly below the fold. The actions
+        // pinned under it (safeAreaInset) are never clipped, so only the content's own buttons count.
         let scroll = app.scrollViews.firstMatch
         if route.hasPrefix("setup."), scroll.exists,
-            let clipped = app.buttons.allElementsBoundByIndex.first(where: {
+            let clipped = scroll.buttons.allElementsBoundByIndex.first(where: {
                 $0.frame.minY >= scroll.frame.midY && $0.frame.minY < scroll.frame.maxY && $0.frame.maxY > scroll.frame.maxY - $0.frame.height
             })
         {
@@ -197,6 +231,7 @@ final class AccessibilityAuditTests: XCTestCase {
         try app.performAccessibilityAudit(for: .contrast) { issue in
             // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
             if self.clippedByLegend(issue.element, in: app) { return true }
+            if let element = issue.element, self.underBottomBar(element, in: app) { return true }
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
             return false
         }
@@ -216,6 +251,10 @@ final class AccessibilityAuditTests: XCTestCase {
                 {
                     return true
                 }
+                if issue.auditType != .hitRegion, self.underBottomBar(element, in: app) { return true }
+                // A document preview's miniature page: hidden from VoiceOver and sized to its tile like a photo, falling
+                // back to the kind's icon when its text no longer fits. The tile's own name and label carry the text.
+                if [.textClipped, .dynamicType].contains(issue.auditType), element.identifier == "thumb-text" { return true }
                 // These literal source filenames are the correct viewer titles, not missing app-authored labels.
                 if route.hasPrefix("viewer."), issue.auditType == .sufficientElementDescription,
                     ["Document_01.pdf", "talk-and-show.mp4", "IMG_1001.jpg"].contains(element.label),
@@ -241,6 +280,8 @@ final class AccessibilityAuditTests: XCTestCase {
                     if route.hasPrefix("home."), element.label == "All folders" { return true }
                     // The status detail above moves the name-search hint the same way; its growth is checked below too.
                     if route.hasPrefix("home."), element.label == Self.nameSearchHint { return true }
+                    // The upgrade row below them moves the same way; testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize checks it.
+                    if route == "home.upgrade", Self.upgradeText.contains(where: element.label.hasPrefix) { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
                 }
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
@@ -368,6 +409,40 @@ final class AccessibilityAuditTests: XCTestCase {
             if let normal { XCTAssertGreaterThan(folders.frame.height, normal) } else { normal = folders.frame.height }
             app.terminate()
         }
+    }
+
+    /// Label prefixes, top to bottom (the growth test only scrolls down); the body joins its size with a no-break space.
+    private static let upgradeText = ["Search by meaning and what’s in your photos", "One download of", "Download", "Not now"]
+
+    /// Home's upgrade row grows at AX5, the growth the live-resize audit loses when the taller hero scrolls the row away.
+    func testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize() {
+        var normal: [String: CGFloat] = [:]
+        for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", "home.upgrade", "-UIPreferredContentSizeCategoryName", category]
+            launch(app)
+            for label in Self.upgradeText {
+                let element = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
+                // At AX5 the body is taller than the space above the search field, so wait only for its top to show.
+                let window = app.windows.firstMatch.frame
+                for _ in 0..<12 {
+                    if element.exists && element.frame.minY >= window.minY && element.frame.minY < window.maxY * 0.75 { break }
+                    app.swipeUp()
+                }
+                XCTAssertTrue(element.exists, label)
+                let height = element.frame.height
+                if let before = normal[label] { XCTAssertGreaterThan(height, before, label) } else { normal[label] = height }
+            }
+            app.terminate()
+        }
+    }
+
+    /// A glyph partly under the pinned setup actions or the bottom search field cannot be measured. Scrolling brings
+    /// it out, and the same tile, row or caption is audited where it is fully visible.
+    private func underBottomBar(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        let midY = app.windows.firstMatch.frame.midY
+        let bars = [app.otherElements["step-actions"], app.searchFields.firstMatch].filter { $0.exists && $0.frame.minY > midY }
+        return bars.contains { $0.frame.intersects(element.frame) && !$0.frame.contains(element.frame) }
     }
 
     func testRecentSearchChipsGrowAtTheLargestAccessibilitySize() {

@@ -34,15 +34,12 @@ class WelcomeExamplesTest {
         try {
             assertFalse(ValueAnimator.areAnimatorsEnabled())
             rule.mainClock.autoAdvance = false
-            rule.setContent { MaterialTheme { Column { Welcome(SetupUi(), "485 MB", SetupActions()) } } }
+            rule.setContent { MaterialTheme { Column { Welcome(SetupUi(), SetupActions()) } } }
             queries.forEach { query ->
                 val text = rule.onNodeWithText(query).fetchSemanticsNode().config[SemanticsProperties.Text].single()
                 assertEquals(query, text.text)
                 assertTrue(text.spanStyles.none { it.item.color == Color.Transparent })
             }
-            rule.onNodeWithText(
-                "A one-time 485 MB download, then a few minutes on a handful of your files. Reading everything takes hours, and you choose when.",
-            ).assertExists()
         } finally {
             ReflectionHelpers.callStaticMethod<Void>(
                 ValueAnimator::class.java,

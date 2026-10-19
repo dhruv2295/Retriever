@@ -55,7 +55,7 @@ struct HomeList: View {
     }
 
     @ViewBuilder private func empty(_ snap: AppModel.Snap) -> some View {
-        let looking = Self.isLooking(snap, started: model.started)
+        let looking = Self.isLooking(snap, started: model.setup?.libraryChosen == true)
         let photosOff = photos == .notDetermined || photos == .denied || photos == .restricted
         Section {
             StateView(
@@ -105,17 +105,16 @@ struct HomeList: View {
     @ViewBuilder private func mosaic(_ snap: AppModel.Snap) -> some View {
         if !photosOff, let media = model.home?.newMedia, !media.isEmpty {
             let photoCount = snap.byKind[.photo] ?? 0
-            let videoCount = snap.byKind[.video] ?? 0
             Section {
                 HomeMosaic(
-                    files: media, pending: snap.setUp == true ? snap.pendingByKind[.photo] ?? 0 : 0, total: photoCount, paused: snap.paused,
+                    files: media, pending: snap.accessChosen ? snap.pendingByKind[.photo] ?? 0 : 0, total: photoCount, paused: snap.paused,
                     open: { openFile($0, among: media) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Photos and Videos", subtitle: Copy.mediaSubtitle(photos: photoCount, videos: videoCount),
+                    title: "Photos and Videos", subtitle: Copy.sectionSubtitle(Copy.totals([.photo, .video], in: model.kindTotals)),
                     route: .files(FileQuery(kind: photoCount > 0 ? .photo : .video, title: photoCount > 0 ? "Photos" : "Videos")))
             }
         }
@@ -124,12 +123,13 @@ struct HomeList: View {
     @ViewBuilder private func screenshots(_ snap: AppModel.Snap) -> some View {
         if !photosOff, let shots = model.home?.newShots, !shots.isEmpty {
             Section {
-                ShotStrip(files: shots, starred: model.starred, similar: search.similar(textOnly: snap.textOnly), open: { openFile($0, among: shots) })
+                ShotStrip(files: shots, starred: model.starred, similar: search.similar(model.meaningSearch), open: { openFile($0, among: shots) })
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Screenshots", subtitle: Copy.sectionSubtitle(snap.byKind[.screenshot] ?? 0, snap.kindProgress([.screenshot])),
+                    title: "Screenshots",
+                    subtitle: Copy.sectionSubtitle(Copy.totals([.screenshot], in: model.kindTotals), snap.kindProgress([.screenshot])),
                     route: .files(FileQuery(kind: .screenshot, title: "Screenshots")))
             }
         }
@@ -144,7 +144,7 @@ struct HomeList: View {
                     .listRowBackground(Color.clear)
             } header: {
                 SectionLink(
-                    title: "Documents", subtitle: Copy.documentsSubtitle(pdfs: pdfs, docs: snap.byKind[.doc] ?? 0, detail: snap.kindProgress([.pdf, .doc])),
+                    title: "Documents", subtitle: Copy.sectionSubtitle(Copy.totals([.pdf, .doc], in: model.kindTotals), snap.kindProgress([.pdf, .doc])),
                     route: .files(FileQuery(kind: pdfs > 0 ? .pdf : .doc, title: pdfs > 0 ? "PDFs" : "Documents")))
             }
         }
@@ -176,14 +176,15 @@ struct HomeList: View {
     }
 
     @ViewBuilder private func moreFiles(_ snap: AppModel.Snap) -> some View {
-        let tiles = HomeTile.make(snap, folders: Int(model.home?.folders ?? 0))
+        let tiles = HomeTile.make(snap, totals: model.kindTotals, folders: model.folderTotals, allFolders: Int(model.home?.folders ?? 0))
         if !tiles.isEmpty {
             Section {
-                HomeTiles(tiles: tiles)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                ForEach(tiles) { tile in NavigationLink(value: tile.route) { HomeRow(icon: tile.icon, title: tile.title, detail: tile.detail) } }
             } header: {
-                SectionHeader("More on Your \(Copy.device)")
+                VStack(alignment: .leading, spacing: 2) {
+                    SectionHeader("More on your \(Copy.device)")
+                    Text(Words.shared.MORE_ON_PHONE_BODY).textCase(nil)
+                }
             }
         }
     }
@@ -235,23 +236,24 @@ private struct HomeStatusSection: View {
 
     var body: some View {
         let status = Copy.homeStatus(shown)
-        let photosNote = snap.total == 0 ? nil : Copy.photosNote(photos)
-        if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit {
+        // One remedy at a time: Resume while paused, else what Photos access needs.
+        let photosNote = snap.total == 0 || status?.phase == .paused ? nil : Copy.photosNote(photos)
+        if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit || model.upgradeOnHome {
             Section {
                 if snap.libraryTotal > 0 {
                     LibraryOverview(snap: snap) { reading(status) }
                     if !snap.nameSearchHintDismissed {
                         HStack {
-                            Text("You can search every file by name")
+                            Text(Words.shared.NAME_SEARCH_HINT)
                             Spacer()
                             Button(action: model.dismissNameSearchHint) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
                                 .buttonStyle(.borderless).accessibilityLabel("Dismiss name search explanation")
                         }
                     }
-                    LibraryFolders(folders: model.home?.topFolders ?? [])
                 } else {
                     reading(status)
                 }
+                if model.upgradeOnHome { UpgradeCard(model: model, compact: true) }
                 if snap.asksCommit {
                     HStack {
                         VStack(alignment: .leading) {
@@ -279,7 +281,7 @@ private struct HomeStatusSection: View {
                 HStack {
                     NavigationLink(value: status.phase == .settingUp ? Route.setup : Route.status) {
                         StatusRow(status: status, due: model.caughtUpDue, celebrate: model.celebrate)
-                    }.buttonStyle(.plain).accessibilityHint("Shows reading details")
+                    }.buttonStyle(.plain)
                     if status.phase == .caughtUp {
                         Button(action: model.dismissCaughtUp) {
                             Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
@@ -332,7 +334,7 @@ private struct HomeRow: View {
     }
 }
 
-/// The status as one row: an icon, what is happening, how far, and what it means for search.
+/// The status as one row: the dog, what is happening and what it means for search, then the way to Reading status.
 private struct StatusRow: View {
     let status: HomeStatus
     var due = false
@@ -340,33 +342,27 @@ private struct StatusRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            StatusDog(mood: mood, width: 40, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
+            StatusDog(mood: mood, width: 56, icon: "checkmark.circle.fill", due: due && status.phase == .caughtUp, done: celebrate)
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 if let detail = status.detail { Note(detail) }
+                // Setting up leads back to setup's access step instead.
+                if status.phase != .settingUp {
+                    Text(Words.shared.READING_STATUS).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 
-    /// Walking while files are read, resting while that waits; setup and "all caught up" keep their icon.
+    /// Walking while files are read, resting otherwise; "all caught up" plays its pose once, then keeps a check.
     private var mood: MascotMood? {
         switch status.phase {
         case .reading, .looking: .walking
-        case .paused, .waiting: .resting
-        default: nil
-        }
-    }
-
-    private var icon: String {
-        switch status.phase {
-        case .caughtUp: "checkmark.circle.fill"
-        case .paused: "pause.circle.fill"
-        case .waiting: "clock.fill"
-        case .settingUp: "arrow.down.circle.fill"
-        default: "doc.text.magnifyingglass"
+        case .caughtUp: nil
+        default: .resting
         }
     }
 }

@@ -2,599 +2,325 @@ import Photos
 import RetrieverCore
 import SwiftUI
 
-/// First run, and the place Home's status line sends a person while the download or tune is still going. The stage
-/// follows from stored state alone (see `SetupState.stage`), so every stage resumes after the app is closed.
+/// First run on core's stage machine (`SetupInputs.stage`): welcome, access, the sample read with no download, Try,
+/// then when to read more. Every stage follows from stored state, so each resumes after the app is closed.
 struct SetupView: View {
     let model: AppModel
-    /// Goes on to Home; offered once Retriever has something to read.
-    let onDone: (() -> Void)?
-    /// Opened past the welcome (Home's setup details, previews).
-    private let asked: Bool
-    @State private var picking = false
-    @State private var folderNote: String?
-    @State private var askMobileData = false
-    @State private var readEverything = false
-    /// Nil until core has answered, so a relaunch mid-way is never taken for "nothing to try".
-    @State private var taste: TasteSnap?
-    @State private var decided: Bool?
-    /// The short read's planned files, once core has them: the try-it search stays inside them.
-    @State private var planIds: [Int64]?
-    @State private var trySearch: SearchModel
-    @State private var trialPath: [Route] = []
-    /// Files beyond the short read, for the commit sentence; nil until counted.
-    @State private var restFiles: Int?
-    @AppStorage("firstRunTrying") private var trying = false
-    @AppStorage("firstRunCommitting") private var committing = false
-
-    init(model: AppModel, asked: Bool = false, onDone: (() -> Void)? = nil) {
-        self.model = model
-        self.onDone = onDone
-        self.asked = asked
-        let fixture = model.services == nil
-        _taste = State(initialValue: fixture ? TasteSnap() : nil)
-        _decided = State(initialValue: fixture ? true : nil)
-        _trySearch = State(initialValue: SearchModel(services: model.services))
-    }
+    /// In Home's stack (its status row leads here): back to Home once setup has nothing left to ask.
+    var onDone: (() -> Void)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let state = state
+        let stage = model.setup?.stage ?? .welcome
         Group {
-            if state.stage == .tryIt, let planIds {
-                tryIt(planIds, state)
-            } else {
-                SetupContent(state: state, actions: actions, reading: { model.progress.reading })
+            switch stage {
+            case .welcome: WelcomeStep(model: model)
+            case .access: AccessStep(model: model)
+            case .try_: TryStep(model: model)
+            case .choose: ChooseStep(model: model)
+            default: SampleStep(model: model)
+            }
+        }
+        .id(stage)
+        .transition(reduceMotion ? .opacity : .push(from: .trailing))
+        .animation(reduceMotion ? nil : .snappy, value: stage)
+        .onChange(of: stage, initial: true) { _, stage in
+            if stage == .done { onDone?() }
+        }
+    }
+}
+
+/// One setup screen: its content scrolls, its actions stay at the bottom.
+private struct StepPage<Content: View, Actions: View>: View {
+    @ViewBuilder let content: Content
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) { content }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) { actions }
+                .controlSize(.large)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+                // Opaque: text over a material takes on what scrolls behind it, and the previews would show through.
+                .background(.background)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("step-actions")
+        }
+    }
+}
+
+/// A button's label filling the footer's width.
+private func wide(_ title: String) -> some View {
+    Text(title).frame(maxWidth: .infinity)
+}
+
+private struct WelcomeStep: View {
+    let model: AppModel
+
+    var body: some View {
+        StepPage {
+            MascotView(mood: .welcome, settles: false).frame(width: 260).frame(maxWidth: .infinity)
+            Text(Words.shared.WELCOME_TITLE).font(.title.bold()).accessibilityAddTraits(.isHeader)
+            Text(Words.shared.welcomeBody(words: Copy.words))
+            if let snap = model.snap, snap.textOnly {
+                Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words))
+            }
+        } actions: {
+            Button {
+                model.setSetupMark(.started)
+            } label: {
+                wide(Words.shared.GET_STARTED)
+            }.buttonStyle(.primaryAction)
+            Button(action: model.searchByName) { wide(Words.shared.SEARCH_BY_NAME) }
+        }
+    }
+}
+
+/// Photos (selected or all) and folders; Continue once either gives Retriever something to read.
+private struct AccessStep: View {
+    let model: AppModel
+    @State private var picking = false
+    @State private var folderNote: String?
+
+    var body: some View {
+        StepPage {
+            MascotView(mood: .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
+            Text(Words.shared.CHOOSE_ACCESS).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+            Text(Words.shared.ACCESS_BODY)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    LabeledContent {
+                        if let state = Copy.photosAccess(model.photos) { Text(state).foregroundStyle(.primary) }
+                    } label: {
+                        Label("Photos", systemImage: "photo.on.rectangle")
+                    }
+                    switch model.photos {
+                    case .notDetermined:
+                        Button("Allow access to Photos", action: model.requestPhotos).buttonStyle(.bordered)
+                    case .limited:
+                        Note(Words.shared.ONLY_SELECTED_PHOTOS)
+                        Button(Words.shared.CHOOSE_MORE_PHOTOS, action: model.chooseMorePhotos).buttonStyle(.bordered)
+                    case .denied, .restricted:
+                        Button("Open Settings", action: model.openSettings).buttonStyle(.bordered)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label(Words.shared.FOLDERS, systemImage: "folder")
+                    ForEach(model.folders, id: \.self) { Text($0) }
+                    if let folderNote { Note(folderNote) }
+                    Button(Words.shared.ADD_FOLDER) { picking = true }.buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !model.accessGiven { Note(Words.shared.NOTHING_SELECTED) }
+        } actions: {
+            // Shown once something is chosen; until then the note above says what to do.
+            if model.accessGiven {
+                Button {
+                    model.setSetupMark(.accessChosen)
+                } label: {
+                    wide(Words.shared.CONTINUE)
+                }.buttonStyle(.primaryAction)
             }
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             folderNote = model.addFolders(urls).map(Copy.addFolderResult).joined(separator: "\n")
         }
-        .alert(Copy.firstRunMobileDataTitle, isPresented: $askMobileData) {
-            Button(Copy.firstRunUseMobileData) {
-                model.setUseMobileData(true)
-                model.beginSetup(readEverything: readEverything)
+    }
+}
+
+/// Reading a few files with no download: real previews of what is read, and Try search once enough is.
+private struct SampleStep: View {
+    let model: AppModel
+    @State private var taste: TasteSnap
+    @State private var since = Date.now
+    @State private var seeingAll = false
+
+    init(model: AppModel) {
+        self.model = model
+        _taste = State(initialValue: model.fixtureTaste)
+    }
+
+    var body: some View {
+        let preview = model.progress.reading
+        let reading = taste.pending > 0 && preview.pauseReason == nil
+        StepPage {
+            MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
+            Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityValue(taste.spoken)
+            Text(Words.shared.readCount(read: Int64(taste.read), partlyRead: 0)).monospacedDigit()
+            // Time only while reading; past the sample's batch it says so rather than repeating a stale estimate.
+            TimelineView(.periodic(from: since, by: 15)) { context in
+                let elapsed = Int64(context.date.timeIntervalSince(since) * 1000)
+                if let time = Words.shared.sampleTime(reading: reading, elapsedMs: elapsed, words: Copy.words) { Note(time) }
             }
-            Button(Copy.firstRunWaitForWifi) { model.beginSetup(readEverything: readEverything) }
-        } message: {
-            Text(Copy.firstRunMobileDataMessage(size: state.size))
+            if let reason = preview.pauseReason { Note(reason) }
+            SampleMosaic(preview: preview)
+            if taste.read > 0 {
+                Button(Words.shared.seeAll(files: Int64(taste.read))) { seeingAll = true }
+            }
+        } actions: {
+            if taste.readyToTry {
+                Button {
+                    model.setSetupMark(.trying)
+                } label: {
+                    wide(Words.shared.TRY_SEARCH)
+                }.buttonStyle(.primaryAction)
+            }
+            Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) }
         }
         .task {
             guard let retriever = model.services?.retriever else { return }
             for await snap in retriever.tasteStream() { taste = snap }
         }
-        .task(id: taste?.planned) {
-            decided = await model.tasteDecided()
-            planIds = (model.services?.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value)
-        }
-    }
-
-    private var actions: SetupActions {
-        SetupActions(
-            begin: begin,
-            allowPhotos: model.requestPhotos,
-            chooseMorePhotos: model.chooseMorePhotos,
-            openSettings: model.openSettings,
-            addFolder: { picking = true },
-            setUseMobileData: model.setUseMobileData,
-            stopDownload: model.stopDownload,
-            retryDownload: model.retryDownload,
-            retryTune: model.retryTune,
-            tryNow: { trying = true },
-            continueToCommit: continueFromTryIt,
-            readWhileCharging: { model.commit(whileCharging: true) },
-            readNow: { model.commit(whileCharging: false) },
-            notNow: model.decideLater,
-            skip: model.skipSetup,
-            done: onDone
-        )
-    }
-
-    /// The real search over the files just read. Inside Home's stack (setup details) it uses that stack's bar.
-    @ViewBuilder private func tryIt(_ ids: [Int64], _ state: SetupState) -> some View {
-        let taste = state.taste ?? TasteSnap()
-        let page = SearchView(model: model, search: trySearch, trial: Trial(ids: ids, photoSearch: !state.textOnly && taste.photosRead >= 5))
-            .toolbar {
-                if state.canSkip {
-                    ToolbarItem(placement: .topBarTrailing) { Button(Copy.firstRunSkip, action: model.skipSetup) }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Button(action: continueFromTryIt) {
-                    Text(restFiles == 0 ? Copy.tryItDone : Copy.tryItContinue).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.primaryAction)
-                .controlSize(.large)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-            .onChange(of: taste.pending, initial: true) { _, left in trySearch.stillReading = left }
-            .task { await refreshRest() }
-        if asked { page } else { AppStack(model: model, path: $trialPath) { page } }
-    }
-
-    /// Continue: the commit choice, or Done when the short read already was everything.
-    private func continueFromTryIt() {
-        Task {
-            await refreshRest()
-            if restFiles == 0 { model.commitScope() } else { committing = true }
-        }
-    }
-
-    /// Files still unread beyond the short read; nil while no pace is measured.
-    private func refreshRest() async {
-        guard let retriever = model.services?.retriever else { return }
-        restFiles = (try? await retriever.estimateAll()).map { Int($0.files) }
-    }
-
-    private func begin(readEverything: Bool) {
-        self.readEverything = readEverything
-        if model.asksMobileData { askMobileData = true } else { model.beginSetup(readEverything: readEverything) }
-    }
-
-    private var state: SetupState {
-        SetupState(
-            asked: asked || model.started,
-            photos: model.photos,
-            folders: model.folders,
-            folderNote: folderNote,
-            downloadBytes: model.snap?.downloadBytes ?? 0,
-            download: model.download,
-            downloadStopped: model.services?.download.stopped ?? false,
-            progress: model.downloadProgress,
-            useMobileData: model.useMobileData,
-            tune: model.tune,
-            setUp: model.setUp,
-            ramGb: model.snap.flatMap { $0.textOnly ? $0.ramGb : nil },
-            chosenPhotos: (model.snap?.byKind[.photo] ?? 0) + (model.snap?.byKind[.screenshot] ?? 0),
-            taste: taste,
-            decided: decided,
-            trying: trying,
-            committing: committing,
-            canSkip: !model.setupSeen,
-            restFiles: restFiles,
-            moreFiles: model.snap?.waiting
-        )
+        .sheet(isPresented: $seeingAll) { SampleList(model: model) }
     }
 }
 
-enum SetupStage: Equatable {
-    case welcome, access, waiting, readFew, tryIt, commit, done
-}
+/// Up to six real previews, the file being read first. Six tiles need no lazy loading, so a plain Grid: two columns,
+/// one at accessibility sizes, each tile as tall as its own preview and name, so nothing is reserved for files not read yet.
+struct SampleMosaic: View {
+    let preview: ReadingPreview
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-struct SetupState {
-    var asked: Bool
-    var photos: PHAuthorizationStatus
-    var folders: [String]
-    var folderNote: String?
-    var downloadBytes: Int64
-    var download: ModelDownload.State
-    var downloadStopped = false
-    var progress: Double
-    var useMobileData: Bool
-    var tune: AppModel.Tune
-    var setUp: Bool
-    /// The memory of an iPhone too small for the model; nil when the model runs.
-    var ramGb: Double?
-    /// Photos and screenshots in the limited selection, once counted.
-    var chosenPhotos = 0
-    /// Nil until core has answered.
-    var taste: TasteSnap?
-    /// True when no short read waits on the person; nil until core has answered.
-    var decided: Bool?
-    var trying = false
-    var committing = false
-    var canSkip = false
-    /// Files left beyond the short read, for the commit sentence; nil until counted.
-    var restFiles: Int?
-    /// Files beyond the short read that are not yet scheduled; what the commit sentence counts.
-    var moreFiles: Int?
-
-    var photosReady: Bool { photos == .authorized || photos == .limited }
-    var accessGiven: Bool { photosReady || !folders.isEmpty }
-    /// A later launch never restarts a finished download, so its state stays idle: set-up says it's done.
-    var downloaded: Bool { download == .ready || setUp }
-    var size: String? { downloadBytes > 0 ? Copy.downloadSize(downloadBytes) : nil }
-    var textOnly: Bool { ramGb != nil }
-    /// A short read is planned and the person has not answered what comes after it.
-    var firstRun: Bool { decided == false && (taste?.planned ?? 0) > 0 }
-
-    /// What shows. Every input is stored (UserDefaults, Photos, the model file, core's meta), so it survives the process.
-    var stage: SetupStage {
-        if !asked { return .welcome }
-        if !accessGiven { return .access }
-        // Until core has answered, a set-up phone could still have a short read to show.
-        if !setUp || decided == nil || taste == nil { return .waiting }
-        guard firstRun else { return .done }
-        return committing ? .commit : trying ? .tryIt : .readFew
+    /// The file being read, then the newest read; never more than six.
+    static func tiles(_ preview: ReadingPreview) -> [SourceFile] {
+        Array(([preview.current].compactMap { $0 } + preview.recent.filter { $0.uri != preview.current?.uri }).prefix(6))
     }
 
-    /// The dog is the stage's state: trotting while work runs, resting when nothing moves, sheepish on a failure.
-    /// The commit choice and the try-it search have no mascot.
-    var mood: MascotMood? {
-        switch stage {
-        case .welcome: return .welcome
-        case .tryIt, .commit: return nil
-        case .done: return .resting
-        case .access, .waiting, .readFew:
-            if !downloaded, case .failed = download { return .trouble }
-            if case .failed = tune { return .trouble }
-            if !downloaded, download == .waitingForWifi || downloadStopped { return .resting }
-            return .walking
-        }
-    }
-}
-
-struct SetupActions {
-    var begin: (_ readEverything: Bool) -> Void = { _ in }
-    var allowPhotos: () -> Void = {}
-    var chooseMorePhotos: () -> Void = {}
-    var openSettings: () -> Void = {}
-    var addFolder: () -> Void = {}
-    var setUseMobileData: (Bool) -> Void = { _ in }
-    var stopDownload: () -> Void = {}
-    var retryDownload: () -> Void = {}
-    var retryTune: () -> Void = {}
-    var tryNow: () -> Void = {}
-    var continueToCommit: () -> Void = {}
-    var readWhileCharging: () -> Void = {}
-    var readNow: () -> Void = {}
-    var notNow: () -> Void = {}
-    var skip: () -> Void = {}
-    var done: (() -> Void)?
-}
-
-struct SetupContent: View {
-    let state: SetupState
-    var actions = SetupActions()
-    var reading: () -> ReadingPreview = { ReadingPreview() }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    static func columns(_ typeSize: DynamicTypeSize) -> Int { typeSize.isAccessibilitySize ? 1 : 2 }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if state.canSkip, state.stage != .welcome, state.stage != .done {
-                    Button(Copy.firstRunSkip, action: actions.skip).frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                if let mood = state.mood {
-                    MascotView(mood: mood, settles: false)
-                        .frame(width: state.stage == .welcome ? 260 : 160)
-                        .frame(maxWidth: .infinity)
-                }
-                stageBody
-                    .id(state.stage)
-                    .transition(reduceMotion ? .opacity : .push(from: .trailing))
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
-            .animation(reduceMotion ? .default : .snappy, value: state.stage)
-        }
-        .safeAreaInset(edge: .bottom) {
-            if state.stage == .readFew, state.taste?.readyToTry == true {
-                VStack(alignment: .leading, spacing: 4) {
-                    Button(action: actions.tryNow) { Text(Copy.firstRunTryNow).frame(maxWidth: .infinity) }
-                        .buttonStyle(.primaryAction).controlSize(.large)
-                    Note(Copy.firstRunStaysSearchable)
-                }
-                .padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
-            }
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .clipped()
-    }
-
-    @ViewBuilder private var stageBody: some View {
-        switch state.stage {
-        case .welcome: welcome
-        case .access: access
-        case .waiting: waiting
-        case .readFew: readFew
-        // The search itself is SetupView's (it needs the model); this is the moment before core has the planned files.
-        case .tryIt: ProgressView().frame(maxWidth: .infinity)
-        case .commit: commit
-        case .done: done
-        }
-    }
-
-    // MARK: Stages
-
-    private var welcome: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(Copy.firstRunHeadline).font(.title.bold()).fixedSize(horizontal: false, vertical: true)
-            Text(Copy.firstRunWelcomeBody).fixedSize(horizontal: false, vertical: true)
-            let examples = Copy.firstRunExamples(textOnly: state.textOnly)
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(examples.enumerated()), id: \.element) { index, query in
-                    ExampleQuery(query: query, delay: 400 + examples.prefix(index).reduce(0) { $0 + $1.count * 35 + 250 })
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-            Button {
-                actions.begin(false)
-            } label: {
-                Text(Copy.firstRunTry).frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.primaryAction)
-            .controlSize(.large)
-            .padding(.top, 8)
-            Button {
-                actions.begin(true)
-            } label: {
-                Text(Copy.firstRunReadAll).frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            Note(state.textOnly ? Copy.firstRunTextOnlyTime : Copy.firstRunTime(size: state.size))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-            if let ramGb = state.ramGb {
-                Note(Words.shared.textOnlyNote(ramGb: ramGb, words: Copy.words)).multilineTextAlignment(.center)
-            }
-        }
-    }
-
-    /// No file content here: only the ways to allow access, and how the download is doing.
-    private var access: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(Copy.firstRunAccessTitle).font(.title2.bold())
-            if state.photos == .denied || state.photos == .restricted {
-                Note(Copy.firstRunPhotosOff)
-                Button("Open Settings", action: actions.openSettings).buttonStyle(.bordered)
-                Failure(Copy.firstRunNothingAllowed)
-            } else {
-                Button(Copy.firstRunAllowPhotos, action: actions.allowPhotos).buttonStyle(.primaryAction).controlSize(.large)
-                Note(Copy.firstRunPhotosNote)
-            }
-            ForEach(state.folders, id: \.self) { Label($0, systemImage: "folder") }
-            if let note = state.folderNote { Note(note) }
-            Button(Copy.firstRunAddFolder, action: actions.addFolder).buttonStyle(.bordered)
-            Note(Copy.firstRunFolderNote)
-            if !state.textOnly { downloadLine }
-        }
-    }
-
-    /// One line at the foot of the access screen: the download runs while the person decides.
-    @ViewBuilder private var downloadLine: some View {
-        switch state.download {
-        case .downloading:
-            Note(Copy.firstRunDownloadLine(state.progress)).monospacedDigit()
-            ProgressView(value: state.progress).accessibilityLabel(Copy.firstRunDownloadA11y(state.progress))
-        case .waitingForWifi: Note("Waiting for Wi-Fi")
-        case .verifying: Note(Copy.firstRunChecking)
-        case .ready: Note(Copy.firstRunDownloaded)
-        case .failed(let reason): Failure(reason)
-        case .idle: if state.downloadStopped { Note(Copy.firstRunStopped) }
-        }
-    }
-
-    /// The download, then the tune. Names are searchable throughout.
-    private var waiting: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(state.downloaded ? Copy.firstRunTuneTitle : Copy.firstRunWaitingTitle).font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    if state.downloaded { tuneBody } else { downloadBody }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !state.downloaded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(Copy.firstRunWhyDownload).font(.subheadline.bold()).accessibilityAddTraits(.isHeader)
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 16) {
-                            DownloadReason(icon: "sparkle.magnifyingglass", headline: Copy.firstRunUnderstandsTitle, supporting: Copy.firstRunUnderstandsBody)
-                            DownloadReason(icon: "lock", headline: Copy.firstRunOnDeviceTitle, supporting: Copy.firstRunOnDeviceBody)
-                            DownloadReason(
-                                icon: "checkmark.circle", headline: Copy.firstRunDownloadOnceTitle, supporting: Copy.firstRunDownloadOnceBody(size: state.size))
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        let tiles = Self.tiles(preview)
+        if preview.recent.isEmpty { Note(Words.shared.SAMPLE_STARTING) }
+        let columns = Self.columns(typeSize)
+        Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 16) {
+            ForEach(Array(stride(from: 0, to: tiles.count, by: columns)), id: \.self) { start in
+                GridRow {
+                    ForEach(tiles[start..<min(start + columns, tiles.count)], id: \.uri) { file in
+                        SampleTile(file: file, readingNow: file.uri == preview.current?.uri)
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text(Copy.firstRunWhileWaiting).font(.subheadline.bold()).accessibilityAddTraits(.isHeader)
-                Note(Copy.firstRunNamesNow)
-                Button(Copy.firstRunSearchByName, action: actions.skip).buttonStyle(.bordered)
-                accessSummary
-            }
-        }
-    }
-
-    @ViewBuilder private var downloadBody: some View {
-        switch state.download {
-        case .downloading:
-            let progress = min(max(state.progress, 0), 1)
-            let amount = state.size.map { "\(Copy.downloadSize(Int64(progress * Double(state.downloadBytes)))) of \($0)" }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(amount ?? "Downloading").font(.subheadline).monospacedDigit()
-                    .accessibilityIdentifier("download-amount")
-                Spacer(minLength: 0)
-                if amount != nil {
-                    Text(progress, format: .percent.precision(.fractionLength(0))).font(.subheadline).monospacedDigit()
-                }
-                Button(action: actions.stopDownload) {
-                    Text(Copy.firstRunStop).frame(minWidth: 44, minHeight: 44)
-                }
-            }
-            Group {
-                if amount != nil { ProgressView(value: progress) } else { ProgressView().progressViewStyle(.linear) }
-            }
-            .accessibilityHidden(true)
-
-        case .waitingForWifi:
-            Note(Copy.firstRunWaitingForWifi)
-            Button(Copy.firstRunUseMobileData) { actions.setUseMobileData(true) }.buttonStyle(.bordered)
-        case .verifying: Note(Copy.firstRunChecking)
-        case .failed(let reason):
-            Failure(reason).transition(.opacity)
-            Button(Copy.firstRunTryAgain, action: actions.retryDownload).buttonStyle(.bordered)
-        case .idle:
-            if state.downloadStopped {
-                Note(Copy.firstRunStopped)
-                Button(Copy.firstRunDownload, action: actions.retryDownload).buttonStyle(.bordered)
-            } else if !state.textOnly {
-                Note("Starting…")
-            }
-        case .ready: EmptyView()
-        }
-    }
-
-    @ViewBuilder private var tuneBody: some View {
-        if case .failed = state.tune {
-            Failure(Copy.firstRunTuneFailed).transition(.opacity)
-            Button(Copy.firstRunTryAgain, action: actions.retryTune).buttonStyle(.bordered)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                ProgressView().progressViewStyle(.linear)
-                Note(Copy.firstRunTuneBody)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Copy.firstRunTuneTitle)
-            .accessibilityValue(Copy.firstRunTuneBody)
-        }
-    }
-
-    /// What Photos access means for the search, only when it is partial or off.
-    @ViewBuilder private var accessSummary: some View {
-        switch state.photos {
-        case .limited:
-            Note(state.chosenPhotos > 0 ? Copy.limitedPhotosFootnote(photos: state.chosenPhotos, folders: state.folders.count) : Copy.firstRunLimitedNote)
-            Button("Choose more photos", action: actions.chooseMorePhotos).buttonStyle(.bordered).foregroundStyle(.primary)
-        case .denied, .restricted:
-            Note(Copy.firstRunPhotosOff)
-            Button("Open Settings", action: actions.openSettings).buttonStyle(.bordered).foregroundStyle(.primary)
-        default:
-            EmptyView()
-        }
-    }
-
-    /// The file being read, the files ready to search, and progress through each kind.
-    private var readFew: some View {
-        let taste = state.taste ?? TasteSnap()
-        return VStack(alignment: .leading, spacing: 16) {
-            Text(Copy.firstRunReadingHeadline).font(.title2.bold())
-            Note(Words.shared.readCount(read: Int64(taste.read), partlyRead: 0))
-            SetupReadingFiles(reading: reading, read: taste.read)
-            WrappingLayout { ForEach(taste.rows) { KindRow(row: $0) } }
-        }
-        .animation(reduceMotion ? nil : .snappy, value: taste.readyToTry)
-    }
-
-    /// One sentence about the rest, the nights, and three one-tap answers. No mascot: the decision is the focal point.
-    private var commit: some View {
-        ReadingChoice(files: state.moreFiles, charging: actions.readWhileCharging, readNow: actions.readNow, notNow: actions.notNow)
-    }
-
-    /// iOS 26 keeps a started read going after the person leaves; before it, only the open app reads.
-    private static var continuedReading: Bool {
-        if #available(iOS 26.0, *) { true } else { false }
-    }
-
-    /// Everything is ready and nothing waits on an answer: Home's setup details, or the read-everything path's way in.
-    private var done: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(Copy.firstRunDone).font(.title2.bold())
-            if let done = actions.done {
-                Button(action: done) { Text(Copy.firstRunStartSearching).frame(maxWidth: .infinity) }
-                    .buttonStyle(.primaryAction)
-                    .controlSize(.large)
-            }
         }
     }
 }
 
-/// Per-row state keeps each character update out of the rest of setup.
-private struct ExampleQuery: View {
-    let query: String
-    let delay: Int
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @SceneStorage private var played: Bool
-    @State private var typed: Int?
-
-    init(query: String, delay: Int) {
-        self.query = query
-        self.delay = delay
-        _played = SceneStorage(wrappedValue: false, "setup.example.\(query)")
-    }
-
-    private var text: AttributedString {
-        var result = AttributedString(query)
-        let count = reduceMotion ? query.count : typed ?? (played ? query.count : 0)
-        let tail = result.characters.index(result.startIndex, offsetBy: count)
-        result[tail...].foregroundColor = .clear
-        return result
-    }
+/// A preview, the file's name and its kind; "Reading now" on the file being read.
+private struct SampleTile: View {
+    let file: SourceFile
+    let readingNow: Bool
 
     var body: some View {
-        Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            Thumb(file: file, points: 200, bucketed: true)
+                .aspectRatio(4 / 3, contentMode: .fit)
+                .clipShape(.rect(cornerRadius: 12, style: .continuous))
+                .overlay(alignment: .topLeading) {
+                    if readingNow {
+                        Text(Words.shared.READING_NOW).font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.regularMaterial, in: .capsule)
+                            .padding(6)
+                    }
+                }
+            Text(file.name).font(.subheadline).lineLimit(2).truncationMode(.middle)
+            Text(Words.shared.kindLabel(kind: file.kind)).font(.caption)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(query)
-        .task(id: reduceMotion) {
-            guard !played, !reduceMotion else {
-                typed = query.count
-                played = true
-                return
-            }
-            typed = 0
-            played = true
-            do {
-                try await Task.sleep(for: .milliseconds(delay))
-                for count in 1...query.count {
-                    typed = count
-                    try await Task.sleep(for: .milliseconds(35))
+        .accessibilityLabel("\(file.name), \(Words.shared.kindLabel(kind: file.kind)), \(Format.date(file.modifiedAt))")
+        .accessibilityValue(readingNow ? Words.shared.READING_NOW : "")
+        .accessibilityIdentifier("recent:\(file.uri)")
+    }
+}
+
+/// "See all": every sample file read so far, each opening in the viewer.
+private struct SampleList: View {
+    let model: AppModel
+    @State private var files: [SourceFile] = []
+    @State private var path: [Route] = []
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        AppStack(model: model, path: $path) {
+            ScrollView { ReadyFiles(files: files).padding() }
+                .navigationTitle(Words.shared.SAMPLE_TITLE)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                .task(id: model.snap?.indexed) { files = await model.sampleFiles() }
+        }
+    }
+}
+
+/// The real search, names over the whole library and words inside the sample.
+private struct TryStep: View {
+    let model: AppModel
+    @State private var search: SearchModel
+    @State private var path: [Route] = []
+
+    init(model: AppModel) {
+        self.model = model
+        _search = State(initialValue: SearchModel(services: model.services))
+    }
+
+    var body: some View {
+        let more = model.snap?.waiting != 0
+        AppStack(model: model, path: $path) {
+            SearchView(model: model, search: search, trial: Trial(ids: model.sampleIds, photoSearch: model.meaningSearch))
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 8) {
+                        Button(action: model.chooseWhenToReadMore) { wide(more ? Words.shared.CHOOSE_WHEN : Words.shared.GO_TO_HOME) }
+                            .buttonStyle(.primaryAction)
+                        if more { Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) } }
+                    }
+                    .controlSize(.large)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
+                    .background(.background)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("step-actions")
                 }
-            } catch {
-                // Disappearing cancels the typing.
-            }
         }
-        .onDisappear {
-            typed = nil
-            played = false
+        .task {
+            guard let retriever = model.services?.retriever else { return }
+            for await taste in retriever.tasteStream() { search.stillReading = taste.pending }
         }
     }
 }
 
-private struct DownloadReason: View {
-    let icon: String
-    let headline: String
-    let supporting: String
+/// When to read the rest; no mascot, the decision is the focal point.
+private struct ChooseStep: View {
+    let model: AppModel
 
     var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(headline).font(.subheadline.bold())
-                Note(supporting)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: icon).foregroundStyle(.secondary)
+        ScrollView {
+            ReadingChoice(
+                files: model.snap?.waiting, charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
+                notNow: model.decideLater
+            )
+            .padding(24)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
         }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Counts and the bar move without easing; a finished kind swaps its circle for a check once.
-private struct KindRow: View {
-    let row: TasteSnap.Row
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text("\(row.name) \(row.read)/\(row.planned)").font(.subheadline).monospacedDigit()
-            if row.done { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor) }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.fill.quaternary, in: Capsule())
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(row.done ? Copy.firstRunReadyToSearch : "")
+        .scrollBounceBehavior(.basedOnSize)
     }
 }
 
@@ -612,13 +338,13 @@ struct Failure: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Label {
-            Text(text).foregroundStyle(.primary)
-        } icon: {
+        // An HStack, not a Label: in a List row the Label's text stopped growing with the type size and was cut off.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Text(text).fixedSize(horizontal: false, vertical: true)
         }
         .font(.subheadline)
-        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -639,29 +365,10 @@ struct Busy: View {
     SetupView(model: AppModel(fixture: .firstRun))
 }
 
-#Preview("Downloading") {
-    SetupView(model: AppModel(fixture: .downloading(0.34)), asked: true)
-}
-
-#Preview("Tuning") {
-    SetupView(model: AppModel(fixture: .tuning), asked: true)
-}
-
-#Preview("Download failed") {
-    SetupView(model: AppModel(fixture: .downloadFailed), asked: true)
+#Preview("Access, limited Photos") {
+    SetupView(model: AppModel(fixture: .photosLimited))
 }
 
 #Preview("Reading a few files") {
-    SetupContent(
-        state: SetupState(
-            asked: true, photos: .authorized, folders: [], downloadBytes: 0, download: .ready, progress: 1, useMobileData: false,
-            tune: .done("Using the processor"), setUp: true,
-            taste: TasteSnap(counts: [.screenshot: (6, 6), .pdf: (8, 12), .doc: (3, 4), .photo: (11, 18), .video: (0, 2)], secondsLeft: 70, readyToTry: true),
-            decided: false, canSkip: true
-        ))
-}
-
-extension TasteSnap {
-    /// Photos read so far; screenshots are their own row.
-    fileprivate var photosRead: Int { rows.first { $0.name == "Photos" }?.read ?? 0 }
+    SetupView(model: AppModel(fixture: .sampleReading))
 }

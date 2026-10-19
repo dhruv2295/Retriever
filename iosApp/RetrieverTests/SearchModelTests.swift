@@ -204,8 +204,13 @@ final class SearchModelTests: XCTestCase {
 
     func testFindSimilarNeedsTheModel() {
         let model = SearchModel(services: nil)
-        XCTAssertNil(model.similar(textOnly: true), "no model on this phone to match a photo with")
-        XCTAssertNotNil(model.similar(textOnly: false))
+        XCTAssertNil(model.similar(false), "no model to match a photo with")
+        XCTAssertNotNil(model.similar(true))
+        // Search by photo and Find similar wait for the meaning upgrade, which a sample read never needs.
+        XCTAssertFalse(AppModel(fixture: .noModel).meaningSearch)
+        XCTAssertFalse(AppModel(fixture: .tuning).meaningSearch, "downloaded, not tuned yet")
+        XCTAssertFalse(AppModel(fixture: .textOnly(ramGb: 3)).meaningSearch)
+        XCTAssertTrue(AppModel(fixture: .caughtUp).meaningSearch)
     }
 
     func testRecentSearchesCanBeRemovedOrCleared() {

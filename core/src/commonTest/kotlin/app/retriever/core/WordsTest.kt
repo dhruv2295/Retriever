@@ -43,7 +43,7 @@ class WordsTest {
             ReadingPolicy.homeStatus(true, progress.libraryTotal.coerceAtLeast(1), ReadingPolicy.decide(progress, blocker, running, reading, android))
 
         assertEquals(
-            HomeStatus(HomePhase.SETTING_UP, "Finishing setup. For now Retriever matches file names."),
+            HomeStatus(HomePhase.SETTING_UP, "Choose what Retriever can search"),
             ReadingPolicy.homeStatus(false, 0, ReadingStatus(ReadingPhase.CAUGHT_UP, "")),
         )
         assertNull(ReadingPolicy.homeStatus(true, 0, ReadingStatus(ReadingPhase.CAUGHT_UP, "Up to date")), "an empty library shows Home's empty state")

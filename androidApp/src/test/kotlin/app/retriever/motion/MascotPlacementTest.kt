@@ -24,13 +24,13 @@ class MascotPlacementTest {
         assertEquals("MascotMood.NO_MATCH", moodOf("browse/BrowseScreen.kt", "Nothing here yet"))
         assertEquals("MascotMood.NO_MATCH", moodOf("duplicates/DuplicatesScreen.kt", "No duplicates found"))
         assertEquals("if (loadFailed) MascotMood.TROUBLE else MascotMood.NO_MATCH", moodOf("folders/FoldersScreen.kt", "No folders yet"))
-        assertEquals("mood", moodOf("search/SearchResults.kt", "No matches for"))
+        assertEquals("mood", moodOf("search/SearchResults.kt", "Words.NO_MATCHES,"))
         assertEquals("mood", moodOf("search/SearchResults.kt", "Nothing like this yet"))
         assertEquals("mood", moodOf("search/SearchResults.kt", "No matches in your"))
     }
 
     @Test fun failuresUseTroubleNeverNoMatch() {
-        assertEquals("MascotMood.TROUBLE", moodOf("search/SearchResults.kt", "Search hit a snag"))
+        assertEquals("MascotMood.TROUBLE", moodOf("search/SearchResults.kt", "Words.SEARCH_FAILED,"))
         assertEquals("MascotMood.TROUBLE", moodOf("duplicates/DuplicatesScreen.kt", "Couldn't look for duplicates"))
         assertEquals("MascotMood.TROUBLE", moodOf("browse/BrowseScreen.kt", "Couldn't load your files"))
         for ((f, t) in listOf(

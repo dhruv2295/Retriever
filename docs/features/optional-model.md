@@ -11,7 +11,8 @@ OCR is content; classifier labels occupy `chunks.labels` and a separate FTS colu
 `content_text`, previews and snippets. Label-only matches expose `Hit.matchReason`, for example `Matches: beach`.
 
 Schema 6 preserves existing chunks, content provenance, FTS rows and vectors. A later signature change clears only
-vectors and their attempt counts. The existing deepen queue embeds saved text and reloads images at saved locators,
+vectors and their attempt counts. Meaning waits for the tune: a downloaded but untuned model adds no vectors, and the
+counts leave meaning work out until the tune finishes. Then the existing deepen queue embeds saved text and reloads images at saved locators,
 including PDF pages and video moments. No OCR, classification or document extraction repeats during this pass.
 Name-only files get a name-vector placeholder. The vector deletion counter invalidates a warm search's old vectors.
 Each missing vector gets at most three attempts, and cancellation gives its attempt back. Files stay `INDEXED`, so

@@ -60,6 +60,10 @@ final class AppModel {
         /// What Retriever reads inside; the rest is found by name. Settings offers `Snap.inside`.
         var kinds = Set(Snap.inside)
         var downloadBytes: Int64 = 0
+        /// Access was chosen in setup (core's mark, not whether it is still granted); reading and its offers follow it.
+        var accessChosen = true
+        /// For core's policies that read them whole (`UpgradePolicy.showOnHome`); nil on most fixtures.
+        var prefs: Prefs?
 
         /// The kinds iOS reads inside, in the order Settings lists them. There is no audio source on iOS.
         static let inside: [Kind] = [.pdf, .doc, .screenshot, .photo, .video]
@@ -77,10 +81,10 @@ final class AppModel {
 
         /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
         /// under the short read's scope, so this is `scope == SAMPLE && waiting > 0`.
-        var asksCommit: Bool { setUp == true && waiting > 0 && !scheduleOfferDismissed }
+        var asksCommit: Bool { accessChosen && waiting > 0 && !scheduleOfferDismissed }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
-        var isCaughtUp: Bool { setUp == true && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
+        var isCaughtUp: Bool { accessChosen && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
 
         /// What changes with every file read. `AppModel.snap` leaves it at its defaults, so a tick doesn't redraw the
         /// screens that don't show it; read `AppModel.live` where it is shown.
@@ -155,15 +159,15 @@ final class AppModel {
     var folders: [String] = []
     var tune: Tune = .idle
     var skippedFiles: [SkippedFile] = []
-    /// Photos access was answered or a folder added: the download and reading start.
-    var started: Bool {
-        didSet { UserDefaults.standard.set(started, forKey: Self.startedKey) }
-    }
-
-    /// The person left setup for Home; until then setup stays on screen while the download and tune run.
-    var setupSeen: Bool {
-        didSet { UserDefaults.standard.set(setupSeen, forKey: Self.setupSeenKey) }
-    }
+    /// Core's setup inputs, without access; nil until core has loaded them. `setup` adds access.
+    var setupInputs: SetupInputs?
+    /// Setup's stage and next step, with Photos and folder access added.
+    var setup: SetupInputs? { setupInputs?.withAccess(given: accessGiven) }
+    /// `IndexTask.schedule()` runs once per process for setup's READ_SAMPLE or SCHEDULE step.
+    @ObservationIgnored var scheduled = false
+    @ObservationIgnored var planning = false
+    /// The sample's progress on a fixture; a real index streams it (`Retriever.tasteStream`).
+    @ObservationIgnored var fixtureTaste = TasteSnap()
 
     /// Prefs.allowMobileData, kept here so the toggle answers at once.
     var useMobileData: Bool
@@ -178,6 +182,9 @@ final class AppModel {
     /// Home's newest files, folder count and large files; nil until the first load.
     var fileRevision = 0
     var home: HomeFacts?
+    /// More on your phone: count and size by kind and by folder, loaded with `home`.
+    var kindTotals: [Kind: FileTotals] = [:]
+    var folderTotals: [FolderTotals] = []
     /// Past years' photos on today's date (`refreshOnThisDay`); Home draws them while `Snap.showOnThisDay`.
     var memories: [OnThisDay.Card] = []
     @ObservationIgnored var homeLoadedAt = Date.distantPast
@@ -195,7 +202,7 @@ final class AppModel {
     /// Status offers to keep reading after the person leaves: iOS 26 and files waiting.
     var canKeepReading: Bool {
         guard #available(iOS 26.0, *), let snap else { return false }
-        return snap.setUp == true && snap.readProgress.unfinished && !snap.paused && !continuing
+        return snap.accessChosen && snap.readProgress.unfinished && !snap.paused && !continuing
     }
 
     private let fixtureDownload: (ModelDownload.State, Double)
@@ -225,8 +232,6 @@ final class AppModel {
     /// The running tune is a Tune again (DEBUG), so it keeps the stored photo detail.
     @ObservationIgnored var tuningAgain = false
 
-    private static let startedKey = "started"
-    private static let setupSeenKey = "setupSeen"
     /// Where mobile data was kept before it moved into Prefs.
     static let legacyMobileDataKey = "useMobileData"
     static let log = Logger(subsystem: "app.retriever", category: "app")
@@ -234,8 +239,7 @@ final class AppModel {
     init(services: AppServices) {
         self.services = services
         photos = services.photos.status
-        started = UserDefaults.standard.bool(forKey: Self.startedKey) || services.photos.isReady
-        setupSeen = UserDefaults.standard.bool(forKey: Self.setupSeenKey)
+        setupInputs = services.retriever.setupNow
         // The pref is read once the snapshot arrives; until then, and for a download that starts first, the old key answers.
         useMobileData = UserDefaults.standard.bool(forKey: Self.legacyMobileDataKey)
         fixtureDownload = (.idle, 0)
@@ -246,8 +250,11 @@ final class AppModel {
             let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
             Task { @MainActor in
                 self?.apply(snap, starred: snapshot.starred, modelMissing: snapshot.modelMissing, suggestions: self?.suggestions ?? [])
+                self?.applySetup(snapshot.setup)
             }
         }
+        // Setup's inputs load with it; a first launch has nothing else that would.
+        Task { try? await services.retriever.refreshSetUp() }
         readCelebrated = { (try? await services.retriever.celebrated().boolValue) ?? true }
         markCelebrated = { try? await services.retriever.markCelebrated() }
         migrateMobileData(services)
@@ -281,7 +288,10 @@ final class AppModel {
     }
 
     /// Fixture state; see init(fixture:).
-    init(snap: Snap, photos: PHAuthorizationStatus, download: (ModelDownload.State, Double), tune: Tune, started: Bool, skipped: [SkippedFile]) {
+    init(
+        snap: Snap, photos: PHAuthorizationStatus, download: (ModelDownload.State, Double), tune: Tune, setup: SetupInputs, folders: [String],
+        modelMissing: Bool, skipped: [SkippedFile]
+    ) {
         services = nil
         self.snap = snap.settled
         progress = snap.progress
@@ -290,10 +300,10 @@ final class AppModel {
         self.photos = photos
         fixtureDownload = download
         self.tune = tune
-        self.started = started
-        setupSeen = started
+        setupInputs = setup
+        self.modelMissing = modelMissing
         skippedFiles = skipped
-        folders = started ? ["Work"] : []
+        self.folders = folders
         useMobileData = false
         screenKeptOn = false
     }
@@ -320,6 +330,13 @@ final class AppModel {
         // Tuned in an earlier launch: say so rather than "starts after the download".
         if tune == .idle { tune = .done(new.backend.map { Copy.tuneSummary($0, imageMs: nil) } ?? "Tuned for this \(Copy.device)") }
         wake()
+    }
+
+    /// Core's setup inputs changed: run the step they ask for.
+    func applySetup(_ inputs: SetupInputs?) {
+        guard let inputs, inputs != setupInputs else { return }
+        setupInputs = inputs
+        advance()
     }
 
     func filesChanged() async {
@@ -363,7 +380,6 @@ final class AppModel {
                 try await retriever.commitScope()
                 IndexTask.schedule()
                 wake()
-                setupSeen = true
             } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
     }
@@ -377,7 +393,6 @@ final class AppModel {
                 try await retriever.commit(whileCharging: whileCharging)
                 IndexTask.schedule()
                 wake()
-                setupSeen = true
                 if !whileCharging { keepReading() }
             } catch { readingMessage = "Couldn’t save this change. Try again." }
 
@@ -431,5 +446,7 @@ extension AppModel.Snap {
         paused = s.prefs.paused
         excludedFolders = s.prefs.excludedFolders
         downloadBytes = s.requiredBuild.sizeBytes
+        accessChosen = s.setup?.withAccess(given: true).libraryChosen ?? false
+        prefs = s.prefs
     }
 }

@@ -6,11 +6,6 @@ struct ReadingPreview: Equatable {
     var current: SourceFile?
     var recent: [SourceFile] = []
     var pauseReason: String?
-
-    func more(read: Int) -> String? {
-        let count = read - recent.count
-        return count > 0 ? "+\(count) more" : nil
-    }
 }
 
 struct ReadingNow: View {
@@ -63,81 +58,27 @@ private struct ReadingSweep: View {
     }
 }
 
-struct SetupReadingFiles: View {
-    let reading: () -> ReadingPreview
-    let read: Int
-
-    var body: some View {
-        let preview = reading()
-        ReadingNow(file: preview.current, pauseReason: preview.pauseReason)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16))
-        ReadyFiles(files: preview.recent, read: read)
-    }
-}
-
+/// The sample's files read so far, each opening in the viewer: Try's fallback and "See all".
 struct ReadyFiles: View {
     let files: [SourceFile]
-    let read: Int
-    var interactive = false
     @Environment(\.openFile) private var openFile
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(Copy.firstRunReadyToSearch).font(.headline).accessibilityAddTraits(.isHeader)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            Text(Copy.filesYouCanTry).font(.headline).accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: gridColumns(typeSize, spacing: 8), spacing: 8) {
                 ForEach(files, id: \.uri) { file in
-                    if interactive {
-                        Button {
-                            openFile(file, among: files)
-                        } label: {
-                            RecentFileCell(file: file).equatable()
-                        }
-                        .buttonStyle(.plain).accessibilityHint("Open file")
-                    } else {
+                    Button {
+                        openFile(file, among: files)
+                    } label: {
                         RecentFileCell(file: file).equatable()
                     }
+                    .buttonStyle(.plain).accessibilityHint("Open file")
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(Copy.firstRunReadyToSearch)
-            if read > files.count { Note("+\(read - files.count) more") }
-        }
-    }
-}
-
-/// SwiftUI has no flow container; each pill is measured at its actual font and available width.
-struct WrappingLayout: Layout {
-    var spacing: CGFloat = 8
-
-    private func frames(width: CGFloat, subviews: Subviews) -> [CGRect] {
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        return subviews.map { view in
-            let size = view.sizeThatFits(ProposedViewSize(width: width, height: nil))
-            if x > 0 && x + size.width > width {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            let frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-            return frame
-        }
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.reduce(0, +)
-        let frames = frames(width: width, subviews: subviews)
-        return CGSize(width: width, height: frames.map(\.maxY).max() ?? 0)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (view, frame) in zip(subviews, frames(width: bounds.width, subviews: subviews)) {
-            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
+            .accessibilityLabel(Copy.filesYouCanTry)
         }
     }
 }

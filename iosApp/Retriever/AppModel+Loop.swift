@@ -30,12 +30,11 @@ extension AppModel {
                 recent = (try? await services.retriever.recentQueries()) ?? recent
             }
             advance()
-            startLoop()
         case .background:
             stopLoop()
             if tune == .running { tuneLeft = true }
             // Even when caught up: photos taken before the next open get read overnight.
-            if let snap, snap.setUp == true { IndexTask.schedule() }
+            if snap?.accessChosen == true { IndexTask.schedule() }
         default:
             break
         }
@@ -44,7 +43,7 @@ extension AppModel {
     // MARK: Foreground loop
 
     func startLoop() {
-        guard let services, active, started, !continuing, loop == nil else { return }
+        guard let services, active, setup?.libraryChosen == true, !continuing, loop == nil else { return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 self?.keepScreenOn(true)
@@ -83,7 +82,9 @@ extension AppModel {
         let hot = info.thermalState == .serious || info.thermalState == .critical
         let monitor = services?.monitor
         let power = monitor?.charging == true || ((monitor?.batteryPct ?? 100) > 20 && !info.isLowPowerModeEnabled)
-        screenKeptOn = on && keepScreenAwakeForSession && (snap?.readNowUntil ?? 0) > Int64(Date.now.timeIntervalSince1970 * 1000) && !hot && power && !info.isLowPowerModeEnabled && (snap?.pending ?? 0) > 0
+        screenKeptOn =
+            on && keepScreenAwakeForSession && (snap?.readNowUntil ?? 0) > Int64(Date.now.timeIntervalSince1970 * 1000) && !hot && power
+            && !info.isLowPowerModeEnabled && (snap?.pending ?? 0) > 0
         UIApplication.shared.isIdleTimerDisabled = screenKeptOn
         Self.log.info("isIdleTimerDisabled \(self.screenKeptOn, privacy: .public)")
     }

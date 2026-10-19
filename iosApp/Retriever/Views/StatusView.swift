@@ -11,8 +11,8 @@ struct StatusView: View {
         StatusContent(
             snap: snap,
             photos: model.photos,
-            download: model.download,
-            progress: model.downloadProgress,
+            // The download and tune under way; meaning added later has its own line.
+            upgrade: model.upgrade == .download || model.upgrade == .tune ? UpgradeCard(model: model) : nil,
             skippedFiles: model.skippedFiles,
             screenKeptOn: model.screenKeptOn,
             celebrating: model.caughtUpDue,
@@ -29,7 +29,6 @@ struct StatusView: View {
             pause: model.pause,
             resume: model.resume,
             retrySkipped: model.retrySkipped,
-            useMobileData: { model.setUseMobileData(true) },
             chooseMorePhotos: model.chooseMorePhotos,
             openSettings: model.openSettings,
             celebrate: model.celebrate
@@ -41,7 +40,6 @@ struct StatusActions {
     var pause: () -> Void = {}
     var resume: () -> Void = {}
     var retrySkipped: () -> Void = {}
-    var useMobileData: () -> Void = {}
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
     var celebrate: () -> Void = {}
@@ -50,8 +48,7 @@ struct StatusActions {
 struct StatusContent: View {
     let snap: AppModel.Snap
     let photos: PHAuthorizationStatus
-    let download: ModelDownload.State
-    let progress: Double
+    var upgrade: UpgradeCard?
     let skippedFiles: [AppModel.SkippedFile]
     var screenKeptOn = false
     /// CAUGHT_UP is due (`AppModel.caughtUpDue`).
@@ -64,8 +61,8 @@ struct StatusContent: View {
             Section { progressSection }
             if snap.textOnly {
                 Section { Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)) }
-            } else if snap.setUp != true {
-                Section("Getting ready") { gettingReady }
+            } else if let upgrade {
+                Section { upgrade }
             }
             if snap.skipped > 0 { Section { skipped } }
             if snap.meaningWaiting > 0 && !snap.textOnly { Section { Note(Copy.meaningWaiting(snap.meaningWaiting)) } }
@@ -101,7 +98,7 @@ struct StatusContent: View {
             Text(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead)))
                 .font(.headline)
                 .monospacedDigit()
-            Text("\(Copy.count(snap.pending + snap.waiting)) waiting to read")
+            Text(Words.shared.waitingToRead(files: Int64(snap.pending + snap.waiting)))
             if snap.waiting > 0 { Note("\(Copy.count(snap.pending)) scheduled · \(Copy.count(snap.waiting)) not scheduled") }
             if snap.nameOnly > 0 { Text("\(Copy.count(snap.nameOnly)) name only") }
         }
@@ -116,24 +113,6 @@ struct StatusContent: View {
         } else if snap.readProgress.unfinished {
             Button(action: actions.pause) { Text("Pause reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         }
-    }
-
-    @ViewBuilder private var gettingReady: some View {
-        Note("Until Retriever is ready, search finds files by their names. It reads inside them once setup finishes.")
-        switch download {
-        case .downloading:
-            ProgressView(value: progress) {
-                Text("Downloading").font(.subheadline)
-            } currentValueLabel: {
-                Text(progress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
-            }
-        case .waitingForWifi:
-            Note("Waiting for Wi-Fi.")
-            Button("Use mobile data", action: actions.useMobileData)
-        case .failed(let reason): Failure(reason)
-        default: EmptyView()
-        }
-        NavigationLink("Setup details", value: Route.setup)
     }
 
     private var skipped: some View {

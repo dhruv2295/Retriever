@@ -13,6 +13,7 @@ enum Route: Hashable {
 struct RootView: View {
     let model: AppModel
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Held above the sidebar and the size-class switch, so neither throws away the search or the open pages.
     @State private var search: SearchModel
     /// The pages over Home as one stack shows them; at regular width the first one that has a sidebar item selects it.
@@ -57,9 +58,10 @@ struct RootView: View {
     }
 
     @ViewBuilder private var main: some View {
-        let inHome = model.started && model.setupSeen
+        // Nil for the moment before core has read setup's state: neither screen is known yet.
+        let inHome = model.setup.map { !$0.showSetup }
         Group {
-            if inHome {
+            if inHome == true {
                 home { SearchView(model: model, search: search) }
                     // A search from Shortcuts or Siri shows over whatever page was open: back to Search first (on iPad
                     // the empty path selects it), where SearchView takes the words.
@@ -67,12 +69,14 @@ struct RootView: View {
                         if pending?.isEmpty == false { path = [] }
                     }
                     .transition(.opacity)
+            } else if inHome == false {
+                SetupView(model: model).readableSetup(true).transition(.opacity)
             } else {
-                SetupView(model: model, onDone: model.finishSetup).readableSetup(true).transition(.opacity)
+                Color(.systemBackground).ignoresSafeArea()
             }
         }
-        // Setup gives way to Home with a fade.
-        .animation(.easeInOut(duration: 0.3), value: inHome)
+        // Setup gives way to Home with a fade, or at once with Reduce Motion.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: inHome)
     }
 
     /// Sidebar and detail at regular width; today's single stack on iPhone and in narrow windows.
@@ -136,7 +140,7 @@ struct AppStack<Root: View>: View {
         case .status:
             StatusView(model: model)
         case .setup:
-            SetupView(model: model, asked: true) { path = [] }
+            SetupView(model: model) { path = [] }
                 .navigationTitle("Setup")
                 .navigationBarTitleDisplayMode(.inline)
         case .settings:

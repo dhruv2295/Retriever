@@ -168,14 +168,18 @@ struct Thumb: View {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else if showsText {
+                    // As many lines of what it says as the tile holds, five down to two, else the kind's icon.
                     ViewThatFits(in: .vertical) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(file.name).font(.caption2.bold()).lineLimit(2)
-                            if let text { Text(text).font(.caption2).lineLimit(2) }
+                        ForEach([5, 3, 2], id: \.self) { lines in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(file.name).font(.caption2.bold()).lineLimit(2)
+                                if let text { Text(text).font(.caption2).lineLimit(lines) }
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .accessibilityIdentifier("thumb-text")
                         }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
                         Image(systemName: Format.icon(file.kind)).font(.title2).foregroundStyle(.secondary)
                     }
                 } else {

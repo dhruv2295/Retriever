@@ -82,6 +82,15 @@ class MeaningUpgradeTest {
             assertEquals(0L, store.countsNow().tailFiles)
         }
         assertEquals(6, visualReads, "only the three stored image locations are reopened per generation")
+
+        val ones = object : Embedder {
+            override val signature = Signature("replacement")
+            override val backend = Backend.CPU
+            override suspend fun embedRaw(parts: List<Part>) = FloatArray(DIMS) { 1f }
+            override fun close() = Unit
+        }
+        val related = SearchEngine(store, ones).search("sunset").hits
+        assertTrue(related.isNotEmpty() && related.all { it.matchReason == Words.RELATED }, "found by meaning alone: $related")
     }
 
     @Test fun aWarmSearchDropsOldVectorsAsSoonAsTheSignatureChanges() = runTest {

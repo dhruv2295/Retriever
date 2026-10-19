@@ -1,30 +1,17 @@
-/*
- * Copyright 2025 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt and ui/common/Utils.kt (Apache-2.0). Modified for Retriever: the download branch moved to FirstRunStages.kt; notification permission uses the same check-then-RequestPermission pattern as Utils.kt.
-
 package app.retriever.setup
 
-import android.Manifest
+import android.animation.ValueAnimator
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -32,7 +19,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,20 +27,19 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -69,29 +54,43 @@ import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
+import app.retriever.core.IndexState
+import app.retriever.core.Retriever
+import app.retriever.core.SetupStage
+import app.retriever.core.SourceFile
 import app.retriever.core.motion.MascotMood
-import app.retriever.model.ModelState
-import app.retriever.model.TuneState
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
-import app.retriever.ui.Format
-import app.retriever.ui.components.ReadingNow
-import app.retriever.ui.components.ReadyFiles
+import app.retriever.ui.components.FileRow
+import app.retriever.viewer.Opener
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: SetupFlow = koinInject(), access: AccessService = koinInject()) {
+fun SetupScreen(
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+    onNavigate: (Route) -> Unit = {},
+    flow: SetupFlow = koinInject(),
+    access: AccessService = koinInject(),
+    retriever: Retriever = koinInject(),
+) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val ui by flow.ui.collectAsStateWithLifecycle()
+    val index = flow.reading.collectAsStateWithLifecycle()
     // Set when the user leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }
     var folderError by rememberSaveable { mutableStateOf<String?>(null) }
+    var all by remember { mutableStateOf<List<SourceFile>?>(null) }
+    val scope = rememberCoroutineScope()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { flow.refresh() }
-    val leave = ui.stage == SetupStage.DONE
-    LaunchedEffect(leave) { if (leave) onDone() }
-    val notificationLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { flow.refresh() }
+    // Leaves once setup is done or skipped; access is never skipped.
+    if (!ui.setup.showSetup) {
+        androidx.compose.runtime.LaunchedEffect(Unit) { onDone() }
+    }
+    BackHandler(enabled = ui.stage == SetupStage.TRY || ui.stage == SetupStage.CHOOSE, onBack = flow::back)
     val activity = LocalActivity.current
     val mediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -104,8 +103,8 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
         flow.refresh()
     }
     val actions = SetupActions(
-        getStarted = { flow.getStarted() },
-        readEverything = { flow.getStarted(readEverything = true) },
+        getStarted = flow::getStarted,
+        searchByName = flow::searchByName,
         allowFiles = {
             askedFiles = true
             openAllFilesSettings(context)
@@ -119,16 +118,9 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
             folderError = null
             folderLauncher.launch(null)
         },
-        allowNotifications = {
-            if (Build.VERSION.SDK_INT >= 33) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        },
-        dismissNotifications = flow::dismissNotificationAsk,
-        useMobileData = flow::useMobileData,
-        waitForWifi = flow::waitForWifi,
-        retry = flow::retry,
-        stopDownload = flow::cancelDownload,
-        search = onDone,
+        continueFromAccess = flow::continueFromAccess,
         tryNow = flow::tryNow,
+        seeAll = { scope.launch { all = retriever.readFiles(retriever.scopeIds.value.orEmpty().toSet()) } },
         continueToCommit = flow::continueToCommit,
         commit = { charging -> requestReading { flow.commit(charging) } },
         decideLater = flow::decideLater,
@@ -138,10 +130,14 @@ fun SetupScreen(onDone: () -> Unit, onNavigate: (Route) -> Unit = {}, flow: Setu
     if (ui.stage == SetupStage.TRY) {
         TryItScreen(ui, actions, onNavigate)
     } else {
-        SetupContent(ui, filesDenied = askedFiles && !ui.files, folderError = folderError, actions = actions, reading = { read ->
-            val index by flow.reading.collectAsStateWithLifecycle()
-            SetupReadingFiles(index.currentFile, index.recentFiles, ui.pauseReason, read)
-        })
+        SetupContent(ui, modifier, filesDenied = askedFiles, folderError = folderError, actions = actions, index = { index.value })
+    }
+    all?.let { files ->
+        ModalBottomSheet(onDismissRequest = { all = null }) {
+            LazyColumn {
+                items(files, key = { it.uri }) { f -> FileRow(f) { Opener.open(context, f, "", onNavigate) } }
+            }
+        }
     }
 }
 
@@ -153,73 +149,58 @@ fun SetupContent(
     filesDenied: Boolean = false,
     actions: SetupActions = SetupActions(),
     folderError: String? = null,
-    reading: @Composable (Int) -> Unit = { read -> SetupReadingFiles(null, emptyList(), ui.pauseReason, read) },
+    index: () -> IndexState = { IndexState() },
+    reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
 ) {
-    val context = LocalContext.current
-    val size = ui.build?.sizeBytes?.takeIf { it > 0 }?.let { Format.downloadSize(context, it) }
     val stage = ui.stage
-    val mascotWidth by animateDpAsState(if (stage == SetupStage.WELCOME) 260.dp else 160.dp, spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS))
+    val taste = ui.taste
+    val mascotWidth by animateDpAsState(
+        if (stage == SetupStage.WELCOME) 260.dp else 160.dp,
+        if (reduceMotion) snap() else spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS),
+    )
     Scaffold(modifier.fillMaxSize().safeDrawingPadding(), bottomBar = {
-        if (stage == SetupStage.READ_FEW && ui.taste?.readyToTry == true) {
-            Surface { TryNow(actions.tryNow) }
-        }
+        if (stage == SetupStage.SAMPLE) Surface { SampleFooter(taste?.readyToTry == true, actions) }
     }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            Column(
-                // Capped inside the scroll, so the gutters scroll too.
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                if (stage != SetupStage.COMMIT) {
-                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
-                }
-                val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
-                val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
-                // Shared axis X: the first run only moves forward.
-                AnimatedContent(
-                    stage,
-                    transitionSpec = {
+        Column(
+            // Capped inside the scroll, so the gutters scroll too.
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
+                .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            if (stage != SetupStage.CHOOSE) {
+                Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
+            }
+            val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
+            val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
+            // Shared axis X, the first run moving forward; with animations off, the next stage simply replaces this one.
+            AnimatedContent(
+                stage,
+                transitionSpec = {
+                    if (reduceMotion) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
                         (slideInHorizontally(spatial) { it / 8 } + fadeIn(effects)) togetherWith
                             (slideOutHorizontally(spatial) { -it / 8 } + fadeOut(effects))
-                    },
-                    label = "stage",
-                ) { s ->
-                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                        when (s) {
-                            SetupStage.WELCOME -> Welcome(ui, size, actions)
+                    }
+                },
+                label = "stage",
+            ) { s ->
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    when (s) {
+                        SetupStage.WELCOME -> Welcome(ui, actions)
 
-                            SetupStage.ACCESS -> AccessStage(ui, filesDenied, folderError, actions)
+                        SetupStage.ACCESS -> AccessStage(ui, filesDenied, folderError, actions)
 
-                            SetupStage.WAITING -> Waiting(ui, size, folderError, actions)
+                        SetupStage.SAMPLE -> taste?.let { SampleStage(ui, it, index, actions) }
 
-                            SetupStage.READ_FEW -> ui.taste?.let { ReadingFew(it, reading) }
+                        SetupStage.CHOOSE -> CommitStage(ui, actions)
 
-                            SetupStage.COMMIT -> CommitStage(ui, actions)
-
-                            // TRY is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
-                            SetupStage.TRY, SetupStage.DONE -> Unit
-                        }
+                        // TRY is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
+                        SetupStage.TRY, SetupStage.DONE -> Unit
                     }
                 }
             }
-            if (stage == SetupStage.WAITING || stage == SetupStage.READ_FEW) {
-                TextButton(
-                    onClick = actions.skip,
-                    modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(8.dp),
-                ) { Text("Skip") }
-            }
         }
-    }
-
-    if (ui.askMobileData) {
-        AlertDialog(
-            onDismissRequest = actions.waitForWifi,
-            title = { Text("Download over mobile data?") },
-            text = { Text(if (size != null) "The download is $size. On Wi-Fi it won't use your data." else "On Wi-Fi it won't use your data.") },
-            confirmButton = { TextButton(onClick = actions.useMobileData) { Text("Use mobile data") } },
-            dismissButton = { TextButton(onClick = actions.waitForWifi) { Text("Wait for Wi-Fi") } },
-        )
     }
 }
 
@@ -228,19 +209,9 @@ private const val SPATIAL_DAMPING = 0.9f
 private const val SPATIAL_STIFFNESS = 700f
 private const val EFFECTS_STIFFNESS = 1600f
 
-/** The motion is the state: it walks while something runs, rests while it waits, and looks sheepish on a failure. */
+/** The motion is the state: it walks while the sample reads and rests once it is done. */
 internal fun SetupUi.mood(): MascotMood = when {
     stage == SetupStage.WELCOME -> MascotMood.WELCOME
-    stage == SetupStage.READ_FEW -> if (taste?.readyKinds?.size == taste?.byKind?.size) MascotMood.RESTING else MascotMood.WALKING
-    model is ModelState.Failed || tune is TuneState.Failed -> MascotMood.TROUBLE
-    model == ModelState.WaitingForWifi || downloadStopped || textOnly -> MascotMood.RESTING
-    else -> MascotMood.WALKING
-}
-
-@Composable
-internal fun SetupReadingFiles(current: app.retriever.core.SourceFile?, recent: List<app.retriever.core.SourceFile>, pauseReason: String?, read: Int) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) { ReadingNow(current, pauseReason) }
-    }
-    ReadyFiles(recent, read)
+    stage == SetupStage.SAMPLE && taste?.readyKinds?.size != taste?.byKind?.size -> MascotMood.WALKING
+    else -> MascotMood.RESTING
 }

@@ -25,9 +25,13 @@ holds them. The search bar and results are in `search-ui.md`.
 - **On this day without a date library in core.** The platform computes each past year's local-day range with real zone
   rules (`onThisDayRanges`, `dayRange` on Android; `Calendar` on iOS) and core answers with `Retriever.onThisDay`. The
   result is asked once per local date and again when the date changes. The person can hide it (`showOnThisDay`).
-- **Library hero.** The prominent count is “N searchable of M”. Distinct light/dark kind hues and matching legend dots
-  identify each segment; measured minimum widths keep a small read visible, with an underline during a trial.
-  The status follows the actual trial/reading/paused/caught-up state. Folders and the commit choice sit outside the compact hero. Whole-library `byKind` totals feed the count, kind chips and proportional bar. Solid portions use INDEXED counts for kinds read inside, never total minus the trial-scoped pending count. A trial labels the whole-library total explicitly. The six largest `folderCounts` (indexed by `files_by_folder`) and All folders open existing Browse/Folder routes.
+- **Library hero.** Compact: "Your files", "{L} files in your library", "{C} files read · {P} partly read", and one
+  status row with the mascot and a "Reading status" link; no kind bar. The status follows the actual
+  reading/paused/caught-up state, one reason and one remedy at a time, and waits on `SetupInputs.libraryChosen`.
+  The upgrade row sits under the status. The commit choice sits outside the hero.
+- **More on your phone.** A list with count and size per kind (`kindTotals`, every kind including Other), then the
+  largest folders (`folderTotals`, each folder's own files, most first) and All folders, opening existing Browse/Folder
+  routes. Unknown sizes are counted apart: "Size unavailable", never "0 B".
 - **Status and commit choice.** The existing status mapping and mascot sit inside the hero. The
   commit card shows only when the first run's short read is done and files still wait; "Read everything" opens the
   setup's three answers as a sheet. The hours estimate is `null` until `ESTIMATE_CALIBRATED` (see `onboarding.md`).
