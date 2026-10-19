@@ -172,10 +172,10 @@ class ModelHostTest {
 
         assertNull(f.host.open())
         assertTrue(npu.fileName in f.store.meta("npu_failed")!!)
-        assertEquals(ModelVariant.M740.generic, f.required.value)
+        assertEquals(ModelVariant.M440.generic, f.required.value)
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
         assertTrue(f.host.fellBack())
-        assertEquals(ModelVariant.M740.generic, f.host.open()!!.second)
+        assertEquals(ModelVariant.M440.generic, f.host.open()!!.second)
     }
 
     @Test

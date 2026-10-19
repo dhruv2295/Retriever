@@ -71,7 +71,7 @@ fun rereadAfterRetune(old: Prefs, oldProfile: DeviceProfile, new: Prefs, newProf
 fun Prefs.excludes(folder: String): Boolean = excludedFolders.any { folder == it || folder.startsWith(it + "/") }
 
 fun Prefs.effective(profile: DeviceProfile): DeviceProfile = profile.copy(
-    audio = profile.model.audio && (Kind.AUDIO in kinds || Kind.VIDEO in kinds),
+    audio = false,
     videoFrameEverySec = if (Kind.VIDEO in kinds) (profile.videoFrameEverySec.takeIf { it > 0 } ?: 5) else 0,
     bulkOnlyWhenCharging = onlyWhileCharging,
 )

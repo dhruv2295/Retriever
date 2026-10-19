@@ -84,7 +84,14 @@ class IndexPipelineTest {
         assertEquals(12L, store.tailChunkCount())
         assertEquals(IndexEngine.HEAD_TEXT_CHUNKS, embedder.received.size)
         assertEquals(
-            Store.Counts(mapOf(FileState.INDEXED to 1L), mapOf(Kind.DOC to 1L), 12L, 1L, mapOf((Kind.DOC to FileState.INDEXED) to 1L)),
+            Store.Counts(
+                mapOf(FileState.INDEXED to 1L),
+                mapOf(Kind.DOC to 1L),
+                12L,
+                1L,
+                mapOf((Kind.DOC to FileState.INDEXED) to 1L),
+                meaning = MeaningCounts(partlyAdded = 1),
+            ),
             store.counts().first(),
         )
         val keyword = search.search("zebra", SearchEngine.Mode.KEYWORD).hits.single()

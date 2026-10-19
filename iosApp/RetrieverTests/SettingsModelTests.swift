@@ -93,7 +93,7 @@ final class SettingsModelTests: XCTestCase {
     }
 
     func testTextOnlyPhonesOfferOnlyTheKindsTheyCanRead() {
-        XCTAssertEqual(AppModel.Snap.insideTextOnly, [.pdf, .doc, .screenshot])
+        XCTAssertEqual(AppModel.Snap.insideTextOnly, [.pdf, .doc, .screenshot, .photo])
         XCTAssertTrue(Set(AppModel.Snap.insideTextOnly).isSubset(of: AppModel.Snap.inside))
         XCTAssertFalse(AppModel.Snap.inside.contains(.audio), "there is no audio source on iOS")
     }

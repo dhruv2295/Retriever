@@ -42,6 +42,9 @@ interface NativeExtractor {
     /** [page] -1 OCRs the image itself; otherwise a PDF page index, rendered about 1600 px. */
     fun ocr(uri: String, page: Int): String?
 
+    /** Classifier labels only, never OCR/content text. */
+    fun imageLabels(uri: String): String?
+
     /** -1 when locked or unreadable. */
     fun pdfPageCount(uri: String): Int
 

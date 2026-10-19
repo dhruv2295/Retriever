@@ -3,6 +3,7 @@ package app.retriever.core.android
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.pdf.PdfRenderer
@@ -33,15 +34,12 @@ import app.retriever.core.Piece
 import app.retriever.core.SourceFile
 import app.retriever.core.TEXT_BYTES
 import app.retriever.core.ZipBudget
-import app.retriever.core.audioWindowSec
-import app.retriever.core.audioWindows
 import app.retriever.core.betterPageText
 import app.retriever.core.chunkChars
 import app.retriever.core.cutShort
 import app.retriever.core.docFormat
 import app.retriever.core.fitSize
 import app.retriever.core.imageWithText
-import app.retriever.core.momentAudioSec
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
@@ -59,6 +57,8 @@ import app.retriever.core.xlsxText
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -75,8 +75,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-private const val AUDIO_FILE_SECONDS = 300
 private const val PDF_PREV_EXTENSION = 13
 
 private class PdfPg(val width: Int, val height: Int, val text: String, val render: (Bitmap) -> Unit, page: AutoCloseable) : AutoCloseable by page
@@ -125,6 +125,7 @@ private fun openPdfPreV(fd: ParcelFileDescriptor): PdfDoc = PdfRendererPreV(fd).
 class AndroidExtractor(private val context: Context, private val log: MediaLog) :
     Extractor,
     AutoCloseable {
+    private val labeler = lazy { ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.7f).build()) }
     private val recognizers = ConcurrentHashMap<OcrScript, TextRecognizer>()
 
     private fun recognizer(script: OcrScript): TextRecognizer = recognizers.computeIfAbsent(script) {
@@ -142,6 +143,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
     override fun close() {
         recognizers.values.forEach { it.close() }
         recognizers.clear()
+        if (labeler.isInitialized()) labeler.value.close()
     }
 
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
@@ -150,26 +152,57 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         val maxChars = chunkChars(profile.maxTokens)
         val ctx = currentCoroutineContext()
         return when (file.kind) {
-            Kind.PHOTO -> photo(uri)
-            Kind.SCREENSHOT -> screenshot(uri, maxChars)
+            Kind.PHOTO, Kind.SCREENSHOT -> picture(uri, maxChars, file.kind == Kind.PHOTO)
             Kind.PDF -> pdf(uri, maxChars)
             Kind.DOC -> doc(file, uri, maxChars)
-            Kind.AUDIO -> if (profile.audio && profile.model.audio) audio(uri, profile, ctx) else emptyList()
+            Kind.AUDIO -> emptyList()
             Kind.VIDEO -> video(uri, profile, ctx)
             Kind.OTHER -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
     }
 
-    private fun photo(uri: Uri): List<Piece> {
+    private suspend fun picture(uri: Uri, maxChars: Int, photo: Boolean): List<Piece> {
         val jpeg = ImageBytes.jpeg(context, uri, 512) ?: return emptyList()
-        return listOf(Piece("", listOf(Part.Image(jpeg)), null))
+        // GC owns these pixels: native ML Kit tasks may still hold them after coroutine cancellation.
+        val bitmap = ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX)
+        val text = bitmap?.let { ocr(it) }.orEmpty()
+        val labels = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { labels(it) }
+        return imageWithText("", jpeg, text, maxChars, labels)
     }
 
-    private suspend fun screenshot(uri: Uri, maxChars: Int): List<Piece> {
-        val jpeg = ImageBytes.jpeg(context, uri, 512) ?: return emptyList()
-        // Not recycled: ML Kit may still hold the pixels when a cancelled read returns; the GC frees them.
-        val ocr = ImageBytes.bitmap(context, uri, MAX_PAGE_PX, maxShort = OCR_SHORT_PX)?.let { ocr(it) }.orEmpty()
-        return imageWithText("", jpeg, ocr, maxChars)
+    private suspend fun labels(bitmap: Bitmap): String = suspendCancellableCoroutine { cont ->
+        labeler.value.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { labels -> cont.resume(labels.joinToString("\n") { it.text.lowercase() }) }
+            .addOnFailureListener { cont.resumeWithException(it) }
+    }
+
+    override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
+        currentCoroutineContext().ensureActive()
+        val uri = file.uri.toUri()
+        val bytes = when (file.kind) {
+            Kind.PHOTO, Kind.SCREENSHOT -> ImageBytes.jpeg(context, uri, 512)
+
+            Kind.PDF -> {
+                val page = Locator.pageOf(locator)?.minus(1) ?: return null
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+                    PdfRenderer(fd).use { pdf ->
+                        if (page >= pdf.pageCount) return null
+                        pdf.openPage(page).use { pg ->
+                            val (w, h) = fitSize(pg.width, pg.height, 512, 1024)
+                            val bitmap = createBitmap(w, h)
+                            bitmap.eraseColor(Color.WHITE)
+                            pg.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            ImageBytes.compress(bitmap)
+                        }
+                    }
+                }
+            }
+
+            Kind.VIDEO -> MediaDecoding.frameJpeg(context, uri, Locator.msOf(locator) ?: return null)
+
+            else -> null
+        }
+        return bytes?.let { Part.Image(it) }
     }
 
     private val languageTags get() = LocaleList.getDefault().let { list -> List(list.size()) { list[it].toLanguageTag() } }
@@ -280,16 +313,8 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         xlsx: Boolean = false,
     ): String = context.contentResolver.openInputStream(uri)?.use { zipText(it, order, onCut, strip, single, xlsx) }.orEmpty()
 
-    private fun audio(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext): List<Piece> {
-        val pcm = MediaDecoding.audioAt(context, uri, 0, AUDIO_FILE_SECONDS * 1000L, ctx, log)
-        val pieces = audioWindows(pcm, audioWindowSec(profile.maxTokens)).map { (start, samples) ->
-            Piece(Locator.time(start), listOf(Part.Audio(samples)), null)
-        }
-        return if (MediaDecoding.durationMs(context, uri, log) > AUDIO_FILE_SECONDS * 1000L) pieces + cutShort() else pieces
-    }
-
     private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext): List<Piece> {
-        val audioSec = if (profile.audio && profile.model.audio) momentAudioSec(profile.maxTokens, profile.visionTokens) else 0
+        val audioSec = 0
         return MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, audioSec, ctx, log).map { (m, jpeg) ->
             val audio = if (audioSec > 1) MediaDecoding.audioAt(context, uri, m.audioFromMs, m.audioToMs, ctx, log) else null
             Piece(momentLocator(m, audio != null), momentParts(jpeg, m.frameMs, audio), null)
@@ -368,7 +393,7 @@ object ImageBytes {
         if (w != info.size.width || h != info.size.height) decoder.setTargetSize(w, h)
     }
 
-    private fun compress(bitmap: Bitmap): ByteArray = try {
+    internal fun compress(bitmap: Bitmap): ByteArray = try {
         ByteArrayOutputStream().also { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)) }.toByteArray()
     } finally {
         bitmap.recycle()

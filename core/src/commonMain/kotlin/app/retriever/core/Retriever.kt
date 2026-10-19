@@ -106,7 +106,7 @@ data class YearMemory(val year: Int, val photos: Long, val videos: Long, val cov
 data class ChunkText(val ordinal: Int, val locator: String, val text: String)
 
 /** What a phone with too little memory for the model reads inside: the words in screenshots, PDFs and documents. */
-val textOnlyKinds: Set<Kind> = setOf(Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
+val textOnlyKinds: Set<Kind> = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.PDF, Kind.DOC)
 
 /**
  * When the platform should run the next [Retriever.indexBatch]: in 10 s, after a thermal rest, on power, when idle,
@@ -160,7 +160,13 @@ class Retriever(
     private val _prefs = MutableStateFlow(Prefs())
     val prefs: StateFlow<Prefs> = _prefs.asStateFlow()
 
-    private val _modelMissing = MutableStateFlow(false)
+    private val _modelMissing = MutableStateFlow(!textOnly)
+    private val _modelPresent = MutableStateFlow(false)
+
+    /** Downloaded bytes are present; tuning/opening is a separate concern. Refreshed by refreshSetUp and each batch. */
+    val modelPresent: StateFlow<Boolean> = _modelPresent.asStateFlow()
+    val modelDownloadBytes: Long get() = requiredBuild.value.sizeBytes
+    val audioContentSupported: Boolean get() = false
 
     /** Set up, but the model file is gone (freed, or a fallback build not downloaded yet): names and words search only. */
     val modelMissing: StateFlow<Boolean> = _modelMissing.asStateFlow()
@@ -248,14 +254,15 @@ class Retriever(
             val indexed = store.indexedIn(ids)
             _state.update { it.copy(recentFiles = ids.asReversed().mapNotNull(indexed::get).take(RECENT_FILES)) }
         }
-        _requiredBuild.value = ModelBuilds.buildFor(variant, probe, model.npuFailed())
+        _requiredBuild.value = ModelBuilds.installedOrSelected(probe, store.profile(), store.signature(), model.npuFailed(), modelReady)
         // Tune writes the profile with the model present, so it marks a finished setup; losing the file later keeps it.
         val tuned = store.profile() != null
-        _modelMissing.value = !textOnly && tuned && !modelReady(_requiredBuild.value)
+        _modelPresent.value = modelReady(_requiredBuild.value)
+        _modelMissing.value = !textOnly && !_modelPresent.value
         _setUp.value = platformReady() && (textOnly || tuned)
     }
 
-    private fun noModel() = textOnly || _modelMissing.value
+    private fun noModel() = textOnly || !modelReady(requiredBuild.value)
 
     fun setUiBusy(busy: Boolean) {
         uiBusy.value = busy
@@ -385,12 +392,13 @@ class Retriever(
                 if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
                 if (it.removed > 0) reconcileRecentFiles()
             }
-            // Not tuned yet: the sync kept names current, and files wait to be read in full.
-            val stored = if (textOnly) textOnlyProfile else store.profile() ?: return end(StopReason.DONE)
+            reload()
+            val keywordOnly = noModel()
+            val stored = if (keywordOnly) textOnlyProfile else store.profile() ?: requiredBuild.value.initialProfile()
             // Read per file, so a switch flipped mid-batch applies at once.
             val settings = {
                 val p = batchPrefs()
-                IndexSettings(p.effective(if (textOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
+                IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
             val busy = { monitor.state().screenOn && !uiVisible }
             // A visible app reads on battery too; hidden, a low battery waits for the charger like the setting does.
@@ -417,15 +425,15 @@ class Retriever(
             fun canDeepen(): Boolean {
                 val trialInFront = ids != null && uiVisible && !store.flag(TASTE_DECIDED_KEY)
                 val current = readingMonitor.state()
-                return (mayDeepen || trialInFront) && !textOnly && (uiVisible || (current.charging && !current.screenOn))
+                return (mayDeepen || trialInFront) && !keywordOnly && (uiVisible || (current.charging && !current.screenOn))
             }
             val deepen = canDeepen()
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending.values.sum() == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
-                (textOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
+                (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
             if (idle) return end(StopReason.DONE)
-            val e = if (textOnly) {
+            val e = if (keywordOnly) {
                 null
             } else {
                 // A missing model file returns here, like the untuned case above.
@@ -433,7 +441,7 @@ class Retriever(
                 used = opened
                 build = b
                 if (store.signature() != opened.signature) {
-                    log("Model signature changed from ${store.signature()?.value} to ${opened.signature.value}; indexing everything again", null)
+                    log("Model signature changed from ${store.signature()?.value} to ${opened.signature.value}; adding meaning to saved content", null)
                     store.resetForModel(opened.signature)
                 }
                 opened
@@ -447,7 +455,7 @@ class Retriever(
             val configuration = model.currentConfiguration
             val changedConfiguration = {
                 val current = factory.profileNow(store.profile() ?: stored, uiVisible)
-                deepen != canDeepen() || (!textOnly && configuration != (current.backend to current.visionBackend))
+                deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
             val (left, videoBytes) = pendingNow()
             eta.start(left, videoBytes)
@@ -493,8 +501,13 @@ class Retriever(
         }
     }
 
-    /** Text-only mode reads screenshots, PDFs and documents; photos, video and audio stay findable by name. */
-    private fun batchPrefs(): Prefs = store.prefs().let { if (textOnly) it.copy(kinds = it.kinds intersect textOnlyKinds) else it }
+    /** Reading words and labels never requires the optional model; audio is always name-only. */
+    private fun batchPrefs(): Prefs = store.prefs().let {
+        it.copy(kinds = if (textOnly) it.kinds intersect textOnlyKinds else it.kinds - Kind.AUDIO)
+    }
+
+    @Throws(Throwable::class)
+    suspend fun meaningStates(fileIds: List<Long>): Map<Long, MeaningState> = io { store.meaningStates(fileIds) }
 
     private val readingMonitor = object : DeviceMonitor {
         override fun state(): DeviceState = monitor.state().let { if (uiVisible) it.copy(powerSave = false) else it }
@@ -1021,7 +1034,7 @@ class Retriever(
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds
 
     /** The kinds this phone can read inside, and so the switches Settings shows. */
-    val readableKinds: Set<Kind> get() = if (textOnly) textOnlyKinds else Kind.entries.toSet() - Kind.OTHER
+    val readableKinds: Set<Kind> get() = if (textOnly) textOnlyKinds else Kind.entries.toSet() - setOf(Kind.OTHER, Kind.AUDIO)
 
     @Throws(Throwable::class)
     suspend fun dismissCaughtUp() = updatePrefs { it.dismissCaughtUp() }

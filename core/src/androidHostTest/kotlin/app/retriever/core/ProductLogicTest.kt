@@ -381,7 +381,7 @@ class PrefsTest {
     }
 
     @Test
-    fun effectiveTurnsAudioAndVideoFramesOnFromKinds() {
+    fun effectiveKeepsAudioOffAndEnablesVideoFramesFromKinds() {
         val base = PROFILE.copy(audio = false, videoFrameEverySec = 0, bulkOnlyWhenCharging = false)
 
         val photos = Prefs(kinds = setOf(Kind.PHOTO), onlyWhileCharging = true).effective(base)
@@ -390,11 +390,11 @@ class PrefsTest {
         assertTrue(photos.bulkOnlyWhenCharging)
 
         val audio = Prefs(kinds = setOf(Kind.AUDIO)).effective(base)
-        assertTrue(audio.audio)
+        assertFalse(audio.audio)
         assertEquals(0, audio.videoFrameEverySec)
 
         val video = Prefs(kinds = setOf(Kind.VIDEO)).effective(base)
-        assertTrue(video.audio)
+        assertFalse(video.audio)
         assertEquals(5, video.videoFrameEverySec)
     }
 

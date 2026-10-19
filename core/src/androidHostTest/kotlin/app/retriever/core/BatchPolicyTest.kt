@@ -12,7 +12,7 @@ import kotlin.time.Duration.Companion.seconds
 /** What [Retriever.indexBatch] decides before and around the model: budget, eligibility, the charging rule, failures. */
 class BatchPolicyTest {
     private val dispatcher = StandardTestDispatcher()
-    private val genericSig = Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens)
+    private val genericSig = Signature.of(ModelVariant.M440.generic, PROFILE.visionTokens, PROFILE.maxTokens)
 
     /** On the charger, screen off, cool: every check passes. */
     private val plugged = DeviceState(8.0, charging = true, batteryPct = 80, thermal = Thermal.NONE)
@@ -183,11 +183,11 @@ class BatchPolicyTest {
     }
 
     @Test
-    fun textOnlyCommitsAPhotoByNameInOnePass() = test {
+    fun textOnlyReadsAPhotoInOnePass() = test {
         val f = Fx(files = listOf(testFile("cat.jpg", Kind.PHOTO)), ramGb = 3.0)
         assertTrue(f.r.textOnly)
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         assertEquals(1L, f.indexed())
-        assertTrue(f.extractor.names.isEmpty(), "a photo is not read inside without the model")
+        assertEquals(listOf("cat.jpg"), f.extractor.names, "photo words and labels do not need the model")
     }
 }

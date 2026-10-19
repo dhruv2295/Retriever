@@ -63,6 +63,7 @@ class SearchEngine(
         val score: Double,
         /** Found by its name or folder, so the matched words are in the name. */
         val byName: Boolean,
+        val matchReason: String? = null,
     ) {
         // Swift gets no default arguments, so six-argument callers (the iOS fixtures) use this one.
         constructor(file: SourceFile, fileId: Long, chunkId: Long, locator: String, snippet: String?, score: Double) :
@@ -466,10 +467,27 @@ class SearchEngine(
             // Only extractor-proven content may become a snippet; keyword and embedding text may be metadata.
             val content = store.contentTexts(picked.map { best.getValue(it.first.first).second.chunkId })
             val pageText = store.firstTextAt(picked.map { (r, _) -> r.first to best.getValue(r.first).second.locator })
+            val keywordCandidates = lanes.filter { it.source == Source.WORDS }.flatMap { it.hits }
+            val labels = store.chunkLabels(keywordCandidates.map { it.chunkId })
+            val keywordContent = store.contentTexts(keywordCandidates.map { it.chunkId })
+            val labelMatches = keywordCandidates.groupBy { it.fileId }.mapValues { (_, candidates) ->
+                if (candidates.any { wordMatchRanges(keywordContent[it.chunkId].orEmpty(), words).isNotEmpty() }) {
+                    emptyList()
+                } else {
+                    candidates.flatMap { labels[it.chunkId]?.split("\n").orEmpty() }
+                        .filter { wordMatchRanges(it, words).isNotEmpty() }.distinct()
+                }
+            }
             val hits = picked.map { (r, file) ->
                 val c = best.getValue(r.first).second
                 val snippet = (content[c.chunkId] ?: pageText[r.first to c.locator])?.let { contentSnippet(it, words) }
-                Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName)
+                val matched = labelMatches[r.first].orEmpty()
+                val reason = if (r.first !in byName && matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet)) {
+                    "Matches: " + matched.joinToString(", ")
+                } else {
+                    null
+                }
+                Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName, reason)
             }
             val (s, weak) = hits.partition { it.fileId in strong }
             (s + weak) to s.size

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Read one file into pieces the embedder can take: text chunks, an image, audio windows, video moments, within fixed caps, on
+Read one file into pieces the embedder can take: text chunks, images, video moments, within fixed caps, on
 the phone, with no network. OCR feeds both the text lane and the keyword index. Also the content hasher that Duplicates uses.
 
 ## Mechanism and why
@@ -11,10 +11,11 @@ the phone, with no network. OCR feeds both the text lane and the keyword index. 
 |---|---|---|
 | PDF (Android) | Text layer via `PdfRenderer.Page.textContents` (API 35+) or `PdfRendererPreV` (S-extension 13, API 31 to 34). OCR only for thin or broken pages, at most 30 (`PDF_OCR_PAGES`); at most 1000 text pages. Scanned pages render `OCR_WIDTH` wide with the height capped (`MAX_PAGE_PX`). | Platform APIs; Jetpack `androidx.pdf` uses the same `PdfRendererPreV` gate, so it adds nothing for extraction. |
 | PDF (iOS) | PDFKit `page.string`, a render for OCR, a one-entry document cache. | Standard. |
-| OCR (Android) | ML Kit text recognition v2: Latin and Devanagari bundled, Chinese/Japanese/Korean through Play services (`ModuleInstall` requested once). `readScripts` tries recognizers in the phone's locale order until a reading is not sparse. Images are scaled to `OCR_SHORT_PX` on the short side (`ocrTargetSize`), so tall screenshots keep readable text. | The official on-device OCR. |
-| OCR (iOS) | Vision `VNRecognizeTextRequest(.accurate)` with automatic language detection. | The official on-device OCR. |
+| OCR (Android) | ML Kit text recognition v2: Latin and Devanagari bundled, Chinese/Japanese/Korean through Play services (`ModuleInstall` requested once). `readScripts` tries recognizers in the phone's locale order until a reading is not sparse. Photos and screenshots are read. Photos fit 1080 px short / 1600 px long; screenshots keep their 4096 px long cap. Empty readings stop additional scripts. | The official on-device OCR. |
+| OCR (iOS) | Vision `VNRecognizeTextRequest(.accurate)` with automatic language detection on photos and screenshots, with the same photo bounds. | The official on-device OCR. |
+| Image labels | Bundled ML Kit Image Labeling 17.0.9 (Android), Vision `VNClassifyImageRequest` (iOS), confidence >= 0.7, 512 px input. Both photos and screenshots; a separate FTS labels field, never content/snippets. | Platform/base models, no embedding download. |
 | Documents | DOCX/ODF one entry, PPTX slides, XLSX (shared strings first, then sheets), EPUB chapters, HTML/RTF/text head. Android streams `ZipInputStream`, iOS uses random-access ZIPFoundation; one 8 MB `ZipBudget` per zip, with a reserve so shared strings always fit. | No heavy dependency (POI, Tika); stripping XML is enough for search text. |
-| Media (Android) | `MediaExtractor` and `MediaCodec` to 16 kHz mono (Gallery `VideoAudioExtractor`), `MediaMetadataRetriever` key frames, at most 8 moments, black-frame skip. Decode loops check cancellation. | Gallery's proven path (Apache-2.0). |
+| Media (Android) | `MediaMetadataRetriever` key frames, at most 8 moments, black-frame skip. Decode loops check cancellation. | Gallery's proven path (Apache-2.0). |
 | Media (iOS) | `AVAssetImageGenerator`, frames only; no audio. PhotoKit waits have a 20 s timeout and cancel the request. | Standard. |
 | Hasher | SHA-256 of size, the first 64 KB and the last 64 KB, then a full SHA-256 in 1 MB chunks only inside a group that matches on the quick hash. | Standard two-stage duplicate detection. |
 
@@ -34,7 +35,7 @@ the phone, with no network. OCR feeds both the text lane and the keyword index. 
 
 ## Invariants
 
-1. Extraction is bounded: 1000 text pages, 30 OCR pages, a 2 MB text head, 8 MB per zip, 300 s of audio, 8 video moments. A
+1. Extraction is bounded: 1000 text pages, 30 OCR pages, a 2 MB text head, 8 MB per zip, 8 video moments. A
    file that is cut short is recorded `partial` and its remainder can be deepened later.
 2. A stop never charges a file: `CancellationException` gives the attempt back, and every extractor rethrows it.
 3. A bad input fails one file, never the batch.
@@ -46,18 +47,17 @@ the phone, with no network. OCR feeds both the text lane and the keyword index. 
 
 `ExtractionTest`, `ZipTextTest`, `PdfPiecesTest`, `OcrSizeTest`, `DocFormatTest`, `RtfTest`, `TextQualityTest`,
 `OcrScriptsTest`, `VideoMomentsTest`, `ChunkerCapTest`, `DuplicateFinderTest` (duplicate grouping with fake hashers). iOS
-extraction is covered only by the on-device `SelfTest.swift`.
+extraction is covered by `SelfTest.swift`; the cross-platform `MeaningUpgradeTest` proves stored content survives model changes.
 
 ## Known limits
 
 - Android 12 to 14 without S-extension 13 has no PDF text layer, so only the first 30 pages are read by OCR.
 - ML Kit has no Arabic, Cyrillic, Thai, Hebrew or Tamil; those screenshots read through the Latin pass and store
   low-confidence text. A CJK screenshot read while its Play-services recognizer is still downloading is not re-read.
-- ML Kit OCR runs a second recognizer (Devanagari) on any short reading, so most UI screenshots pay two passes. Measure on a
-  screenshot set before stopping after a confident short Latin reading.
+- ML Kit tries the next script only for nonempty uncertain/broken text; a blank first reading stops immediately.
 - EPUB reads chapters in zip order and PPTX in slide-file order, not spine or presentation order. HTML and text are decoded as
   UTF-8 only.
-- iOS indexes no audio and no video audio; Android caps audio at 300 s.
+- Audio files are name-only on both platforms; video moments have no audio.
 - iOS `usesLanguageCorrection` can alter codes and passwords in screenshots.
 - Later: a one-entry archive cache for iOS `zipEntryText` (it reopens the archive per entry), and DOCX/ODF streaming still
   inflates entries after the one it needs.

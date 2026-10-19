@@ -65,7 +65,7 @@ class TasteProgressTest {
         assertTrue(r.textOnly)
         r.refreshSetUp()
         val plan = r.planTaste()
-        assertEquals(setOf(Kind.SCREENSHOT), plan.byKind.keys)
+        assertEquals(setOf(Kind.SCREENSHOT, Kind.PHOTO), plan.byKind.keys)
 
         r.taste()
         val p = r.tasteProgress().first()

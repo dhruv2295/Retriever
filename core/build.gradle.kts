@@ -73,6 +73,7 @@ kotlin {
             implementation(libs.sqldelight.android.driver)
             implementation(libs.mediapipe.tasks.retrieval)
             implementation(libs.litertlm.android)
+            implementation(libs.mlkit.image.labeling)
             implementation(libs.mlkit.text.recognition)
             implementation(libs.mlkit.text.recognition.devanagari)
             implementation(libs.mlkit.text.recognition.chinese)

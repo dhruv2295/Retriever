@@ -88,7 +88,7 @@ final class CopyTests: XCTestCase {
     func testHomeAndStatusUseTheSameCoreCountsWithTrialTails() {
         let counts = Store.Counts(
             byState: [FileState.indexed: KotlinLong(value: 58)], byKind: [Kind.doc: KotlinLong(value: 26_230)], tailChunks: 100, tailFiles: 24,
-            byKindState: [:], waiting: 26_172, trial: true)
+            byKindState: [:], waiting: 26_172, trial: true, meaning: MeaningCounts(notAdded: 0, partlyAdded: 24, added: 34))
         let progress = counts.progress
         var snap = AppModel.Snap(setUp: true, indexed: Int(progress.searchable), trial: true, waiting: Int(progress.waiting), tailFiles: Int(progress.partlyRead))
         XCTAssertEqual(Copy.searchable(snap), "58 searchable of 26,230")
