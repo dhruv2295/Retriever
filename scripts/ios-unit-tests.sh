@@ -3,13 +3,14 @@
 # created if missing. Exits non-zero on a build or test failure. The simulator is shut down at the end.
 set -euo pipefail
 
-# One run at a time across checkouts: worktrees share the named simulator, and two runs on it break each other's UI tests.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Each checkout (main or a worktree) gets its own simulator, so parallel jobs never share one; the lock only
+# serialises two runs from the same checkout. Remove a worktree's simulator with the worktree.
+SIM_NAME="${SIM_NAME:-Retriever-tests-$(basename "$ROOT")}"
 if [ -z "${RETRIEVER_IOS_TESTS_LOCKED:-}" ]; then
-  RETRIEVER_IOS_TESTS_LOCKED=1 exec /usr/bin/lockf -k -t 10800 /tmp/retriever-ios-tests.lock "$0" "$@"
+  RETRIEVER_IOS_TESTS_LOCKED=1 exec /usr/bin/lockf -k -t 10800 "/tmp/retriever-ios-tests-$SIM_NAME.lock" "$0" "$@"
 fi
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SIM_NAME="${SIM_NAME:-Retriever-tests}"
 DEVICE_TYPE="${DEVICE_TYPE:-iPhone 18 Pro}"
 DERIVED="$ROOT/build/ios-unit-tests"
 LOG="$ROOT/build/ios-unit-tests.log"
