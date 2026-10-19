@@ -48,8 +48,10 @@ content leaves the phone; only the model download uses the network.
   `ModelDownload.deleteModel` removes a build's caches.
 - **Scheduling.** Strictly sequential, batch size 1. Android indexing uses an owned thread set to
   `THREAD_PRIORITY_BACKGROUND` before its first task; iOS uses a serial dispatch queue at utility QoS. Extraction
-  and embedding inherit the caller context. Search and shared model construction/warm-up retain normal priority,
-  so CPU pools created by that shared model do not permanently slow interactive queries. A query waits for at most
+  and embedding inherit the caller context. Search and the shared model's own caller keep normal priority. The runtime's native pools
+  are started in `MediaPipeEmbedder`'s constructor and on its first inference (the host's warm-up), not on the
+  creating thread's priority, so `lowerNewThreads` (NativeThreads.kt) diffs `/proc/self/task` around both and sets
+  every new thread to `THREAD_PRIORITY_BACKGROUND`. A query waits for at most
   the one native call in flight.
 
 ## Owner files
@@ -92,9 +94,8 @@ content leaves the phone; only the model download uses the network.
 ## Known limits
 
 - No batching: extraction and embedding alternate per file.
-- Shared model CPU pools remain at their original normal priority during indexing too. The wrapper cannot reprioritize
-  vendor pools per request, and a second model would double memory. Only owned indexing threads are demoted; GPU
-  scheduling and vendor-created OCR thread priorities still require device measurement. Tune measures display stalls and moves foreground vision to CPU where needed.
+- Shared model pools are lowered once at creation and first inference; threads the runtime starts later stay at normal priority. Vendor-created OCR thread priorities and GPU
+  scheduling still require device measurement. Tune measures display stalls and moves foreground vision to CPU where needed.
 - Query latency has no on-device number; inputs may be padded to the signature length, so a short query may cost a full
   window. Device queue: measure query time on GPU and CPU before choosing a backend by query time instead of image time.
 - A GPU or NPU that never crashes but is slightly wrong is caught only by the 0.98 mean-cosine gate at Tune time; NPU

@@ -12,7 +12,6 @@ import app.retriever.core.Prefix
 import app.retriever.core.Signature
 import app.retriever.core.Tier
 import app.retriever.core.newIndexingDispatcher
-import app.retriever.core.withBackgroundPriority
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
@@ -58,24 +57,6 @@ class IndexingDispatcherTest {
         withContext(Dispatchers.Default) { assertEquals(Process.THREAD_PRIORITY_DEFAULT, priority()) }
     }
 
-    @Test fun nativeCreationUsesBackgroundPriorityAndRestoresTheCallerEvenOnFailure() {
-        val before = priority()
-        // Robolectric has no native LiteRT pools; verify the synchronous creation contract they inherit.
-        withBackgroundPriority {
-            assertEquals(Process.THREAD_PRIORITY_BACKGROUND, priority())
-            withBackgroundPriority { assertEquals(Process.THREAD_PRIORITY_BACKGROUND, priority()) }
-            assertEquals(Process.THREAD_PRIORITY_BACKGROUND, priority())
-        }
-        assertEquals(before, priority())
-        assertThrows(IllegalStateException::class.java) {
-            withBackgroundPriority {
-                assertEquals(Process.THREAD_PRIORITY_BACKGROUND, priority())
-                error("native open failed")
-            }
-        }
-        assertEquals(before, priority())
-    }
-
     @Test fun indexingYieldsPriorityAndSearchPausesItWithoutDemotingTheQueryCaller() = runBlocking {
         withTimeout(10_000) {
             val calls = mutableListOf<Int>()
@@ -106,7 +87,6 @@ class IndexingDispatcherTest {
                 },
                 embedder = model,
                 beforeOpen = {
-                    withBackgroundPriority { assertEquals(Process.THREAD_PRIORITY_BACKGROUND, priority()) }
                     assertEquals(Process.THREAD_PRIORITY_DEFAULT, priority())
                 },
                 profile = DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.CPU, 70, 5, false, false),

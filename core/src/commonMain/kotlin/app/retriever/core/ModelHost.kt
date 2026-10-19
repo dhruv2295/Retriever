@@ -46,7 +46,6 @@ internal class ModelHost(
 
     /** The shared embedder and its build, opened if needed. Null when not set up. */
     suspend fun open(): Pair<Embedder, ModelBuild>? = lock.withLock {
-        // The Android factory lowers priority during native creation; warm-up keeps the caller's normal dispatcher.
         withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
     }
 
