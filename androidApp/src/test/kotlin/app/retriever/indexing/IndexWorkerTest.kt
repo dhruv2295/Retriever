@@ -186,6 +186,15 @@ class IndexWorkerTest {
         assertEquals(1, foregrounds.get())
     }
 
+    /** Q1 2: a run that can't read content (here paused) only syncs names, so it posts no reading notification. */
+    @Test fun aRunThatCannotReadContentStartsNoForegroundService() {
+        val retriever = withModel(Model())
+        retriever.uiVisible = true
+        runBlocking { retriever.pause() }
+        assertEquals(ListenableWorker.Result.success(), run(retriever))
+        assertEquals(0, foregrounds.get())
+    }
+
     @Test fun trialWorkerWaitsForTheDirectBatchAndStartsForegroundWhileHidden() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         var calls = 0

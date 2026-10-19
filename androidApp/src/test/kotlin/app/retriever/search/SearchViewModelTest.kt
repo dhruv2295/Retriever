@@ -123,6 +123,18 @@ class SearchViewModelTest {
         assertEquals(60, vm.ui.first { it.scope == null && it.done && (it.hits?.size ?: 0) == 60 }.hits!!.size)
     }
 
+    /** Q1 3: a sample read through whose files held no text is not "still reading" them. */
+    @Test fun aSampleOfNameOnlyFilesIsNotStillReading() = runTest {
+        val r = testRetriever(pdfs, dispatchers = core)
+        r.planTaste()
+        r.indexBatch(1.minutes)
+        val vm = vm(r)
+        vm.setScope(r.scopeIds.value)
+        advanceUntilIdle()
+        assertEquals(pdfs.size, vm.ui.value.scope?.size)
+        assertEquals(0, vm.ui.value.unread)
+    }
+
     @Test fun chipSearchesInsideItsKind() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
@@ -173,7 +185,7 @@ class SearchViewModelTest {
             files = shots + docs,
             extract = { file ->
                 when (file.name) {
-                    "notes.txt" -> List(12) { Piece("", listOf(Part.Text("bill line $it")), "bill line $it") }
+                    "notes.txt" -> List(12) { Piece("", listOf(Part.Text("bill line $it")), "bill line $it", "bill line $it") }
                     "big log.txt" -> listOf(Piece("", listOf(Part.Text("bill total")), "bill total"), cutShort())
                     else -> listOf(Piece("", listOf(Part.Image(byteArrayOf(file.name.filter(Char::isDigit).toByte()))), null))
                 }

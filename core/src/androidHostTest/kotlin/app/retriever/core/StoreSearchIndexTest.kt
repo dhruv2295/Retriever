@@ -354,7 +354,8 @@ class IndexEngineTest {
             }
         }
         val result = engine(store, crashing).batch()
-        assertEquals(listOf(1, 2), attemptsSeen)
+        // The third attempt keeps the file pending while it is read; only its failure skips it.
+        assertEquals(listOf(1, 2, 3), attemptsSeen)
         assertEquals(3, result.failed)
         assertEquals(mapOf(FileState.SKIPPED to 1L), store.countsByState())
     }

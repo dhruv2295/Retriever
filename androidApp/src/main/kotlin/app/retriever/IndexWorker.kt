@@ -80,10 +80,11 @@ class IndexWorker(
         }
         try {
             val next = coroutineScope {
-                // A trial handoff owns its foreground service before waiting for the direct batch to stop.
+                // A trial handoff owns its foreground service before waiting for the direct batch to stop. A run that can't read
+                // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
                 val trial = inputData.getBoolean(IndexService.TRIAL, false)
                 val foreground = retriever.setUp.value == true && (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
-                    safeSetForeground(foregroundInfo())
+                    retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes, waitForLock = trial).also { progress?.cancel() }
             }

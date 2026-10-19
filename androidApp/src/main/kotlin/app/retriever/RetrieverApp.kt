@@ -102,9 +102,9 @@ class RetrieverApp :
         // setUp is null until start() settles it, which a cold start's first onStart beats.
         scope.launch {
             if (retriever.setUp.first { it != null } != true || !retriever.uiVisible) return@launch
-            // A batch held back for the charger or a busy phone runs while the user watches, on battery too.
+            // A batch held back for the charger, a busy phone or Battery Saver runs now, if the saved schedule allows it.
             val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY || it == StopReason.POWER_SAVE }
-            if (!index.readTrial() && held) index.indexNow()
+            if (!index.readTrial() && held && retriever.readingBlocker() == null) index.indexNow()
         }
         scope.launch {
             // Picks the setup chain up where it stopped, whichever screen the user comes back to. Built once

@@ -210,6 +210,13 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(TasteSnap().planned, 0)
     }
 
+    func testNameOnlyFilesDoNotKeepARowOrTheSampleOpen() {
+        let taste = TasteSnap(counts: [.pdf: (3, 5), .doc: (2, 2)], ready: [.pdf, .doc], pending: 0)
+        XCTAssertEqual(taste.rows.map(\.done), [true], "5 planned, 3 read, none pending")
+        XCTAssertEqual(taste.pending, 0)
+        XCTAssertEqual(TasteSnap(counts: [.pdf: (3, 5)], ready: [], pending: 2).rows.map(\.done), [false])
+    }
+
     func testBeginningSetupIsRemembered() {
         let model = AppModel(fixture: .firstRun)
         XCTAssertFalse(model.started)

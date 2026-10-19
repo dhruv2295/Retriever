@@ -96,7 +96,7 @@ extension AppModel {
         let plan = try? await services.retriever.planTaste()
         // An empty plan means only "no eligible files".
         if plan?.ids.isEmpty == true {
-            try? await services.retriever.commit(whileCharging: services.retriever.prefsNow.onlyWhileCharging)
+            try? await services.retriever.commitScope()
         }
         return true
     }
@@ -181,8 +181,8 @@ struct TasteSnap: Equatable, Sendable {
         let name: String
         let read: Int
         let planned: Int
+        let done: Bool
         var id: String { name }
-        var done: Bool { read == planned }
     }
 
     /// Screenshots first: the cheap kinds finish first, as the reading does.
@@ -193,17 +193,25 @@ struct TasteSnap: Equatable, Sendable {
     var rows: [Row] = []
     var secondsLeft: Int?
     var readyToTry = false
+    /// Planned files still waiting to be read. A Name only file is done without ever counting as read.
+    var pending = 0
 
     var read: Int { rows.reduce(0) { $0 + $1.read } }
     var planned: Int { rows.reduce(0) { $0 + $1.planned } }
 
-    init(counts: [Kind: (read: Int, planned: Int)] = [:], secondsLeft: Int? = nil, readyToTry: Bool = false) {
+    init(
+        counts: [Kind: (read: Int, planned: Int)] = [:], ready: Set<Kind>? = nil, pending: Int = 0, secondsLeft: Int? = nil,
+        readyToTry: Bool = false
+    ) {
         rows = Self.groups.compactMap { group in
             let found = group.kinds.compactMap { counts[$0] }
             let planned = found.reduce(0) { $0 + $1.planned }
             guard planned > 0 else { return nil }
-            return Row(name: group.name, read: found.reduce(0) { $0 + $1.read }, planned: planned)
+            let read = found.reduce(0) { $0 + $1.read }
+            let done = ready.map { r in group.kinds.allSatisfy { counts[$0] == nil || r.contains($0) } } ?? (read == planned)
+            return Row(name: group.name, read: read, planned: planned, done: done)
         }
+        self.pending = pending
         self.secondsLeft = secondsLeft
         self.readyToTry = readyToTry
     }
@@ -211,6 +219,7 @@ struct TasteSnap: Equatable, Sendable {
     init(_ p: TasteProgress) {
         self.init(
             counts: p.byKind.mapValues { ($0.first?.intValue ?? 0, $0.second?.intValue ?? 0) },
+            ready: Set(p.readyKinds), pending: Int(p.pending),
             secondsLeft: p.secondsLeft?.intValue, readyToTry: p.readyToTry)
     }
 }

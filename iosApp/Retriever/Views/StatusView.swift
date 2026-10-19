@@ -15,7 +15,6 @@ struct StatusView: View {
             progress: model.downloadProgress,
             skippedFiles: model.skippedFiles,
             screenKeptOn: model.screenKeptOn,
-            canKeepReading: model.canKeepReading,
             celebrating: model.caughtUpDue,
             actions: actions,
             message: model.readingMessage
@@ -33,7 +32,6 @@ struct StatusView: View {
             useMobileData: { model.setUseMobileData(true) },
             chooseMorePhotos: model.chooseMorePhotos,
             openSettings: model.openSettings,
-            keepReading: model.readNow,
             showOnThisDay: model.setShowOnThisDay,
             celebrate: model.celebrate
         )
@@ -47,7 +45,6 @@ struct StatusActions {
     var useMobileData: () -> Void = {}
     var chooseMorePhotos: () -> Void = {}
     var openSettings: () -> Void = {}
-    var keepReading: () -> Void = {}
     var showOnThisDay: (Bool) -> Void = { _ in }
     var celebrate: () -> Void = {}
 }
@@ -59,7 +56,6 @@ struct StatusContent: View {
     let progress: Double
     let skippedFiles: [AppModel.SkippedFile]
     var screenKeptOn = false
-    var canKeepReading = false
     /// CAUGHT_UP is due (`AppModel.caughtUpDue`).
     var celebrating = false
     var actions = StatusActions()
@@ -102,7 +98,7 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        if (snap.readingActive || Copy.decision(snap).active), snap.reading.current != nil {
+        if snap.readingActive || Copy.decision(snap).active, snap.reading.current != nil {
             ReadingNow(file: snap.reading.current, size: 56)
             RecentlyRead(files: snap.reading.recent)
         }
@@ -113,14 +109,6 @@ struct StatusContent: View {
             Button(action: actions.resume) { Text("Resume reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         } else if snap.readProgress.unfinished {
             Button(action: actions.pause) { Text("Pause reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
-        }
-        if canKeepReading {
-            VStack(alignment: .leading, spacing: 4) {
-                Button(action: actions.keepReading) {
-                    Text(Copy.keepReading).fixedSize(horizontal: false, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
-                }
-                Note(Copy.keepReadingNote)
-            }
         }
     }
 

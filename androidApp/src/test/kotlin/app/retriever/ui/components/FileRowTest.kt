@@ -29,6 +29,13 @@ class FileRowTest {
         assertNull(coverageNote(stored()))
     }
 
+    /** The row agrees with the reading counts: a kind not read inside is Name only whatever its state. */
+    @Test fun aKindNotReadInsideIsNameOnly() {
+        assertEquals("Name only", coverageNote(stored(Kind.OTHER, state = FileState.SKIPPED)))
+        assertEquals("Name only", coverageNote(stored(state = FileState.PENDING), inside = setOf(Kind.DOC)))
+        assertEquals("Name only", coverageNote(stored(state = FileState.SKIPPED), inside = setOf(Kind.DOC)))
+    }
+
     @Test fun nameHighlightComesFromCoreRanges() {
         val name = "Quarterly Report_2024.pdf"
         for (query in listOf("report", "REPORT quarterly", "quart", "2024 x", "  ", "nothing")) {

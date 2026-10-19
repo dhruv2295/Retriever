@@ -123,7 +123,10 @@ enum IndexTask {
         let retriever = services.retriever
         let monitor = services.monitor
         expired.withLock { $0 = false }
-        task.expirationHandler = { expire(); Task { try? await services.retriever.pause() } }
+        task.expirationHandler = {
+            expire()
+            Task { try? await services.retriever.endReadNowSession() }
+        }
         task.progress.totalUnitCount = 1
         monitor.continued = true
         let pending = OSAllocatedUnfairLock(initialState: 1)
@@ -131,7 +134,7 @@ enum IndexTask {
         let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
-            let waiting = snap.pending + snap.rereads + Int(snapshot.counts.tailChunks)
+            let waiting = snap.pending + snap.rereads + Int(snapshot.counts.tailFiles)
             pending.withLock { $0 = waiting }
             let total = max(
                 start.withLock {

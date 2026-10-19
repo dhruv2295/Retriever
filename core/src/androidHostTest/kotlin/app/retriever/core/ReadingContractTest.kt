@@ -280,4 +280,119 @@ class ReadingContractTest {
         r.readNow()
         assertEquals(0, r.counts().first().sessionRead)
     }
+
+    /** Merge review: a file that only waits for meaning is Read in the counts, so its row and File info carry no Partly read extent. */
+    @Test fun aFileWaitingOnlyForMeaningHasNoPartlyReadExtent() {
+        val store = newStore()
+        val files = listOf(testFile("words.txt"), testFile("beach.jpg", Kind.PHOTO), testFile("long.txt"))
+        store.upsertFiles(files)
+        val (words, photo, long) = files.map { store.fileByUri(it.uri)!!.id }
+        store.replaceChunks(words, listOf(Store.NewChunk(1, "", "words", null)))
+        store.replaceChunks(photo, listOf(Store.NewChunk(1, "img", null, null, labels = "beach", visual = true)))
+        store.replaceChunks(long, listOf(Store.NewChunk(1, "", "head", Vector.of(FloatArray(DIMS) { 1f }, SIG)), Store.NewChunk(2, "", "tail", null)))
+        val progress = store.countsNow(kinds = setOf(Kind.DOC, Kind.PHOTO)).progress
+        assertEquals(1, progress.partlyRead)
+        assertEquals(2, progress.meaningWaiting)
+        assertEquals(mapOf(long to ReadExtent.DEEPENING), store.readExtents(listOf(words, photo, long)))
+    }
+
+    /** Q1 6: the attempt is counted before extraction without skipping the file, so a long read shows Waiting, not Couldn't read. */
+    @Test fun aFileOnItsLastAttemptCountsAsWaitingWhileItIsRead() = runBlocking {
+        val store = newStore()
+        val file = testFile("big.pdf", Kind.PDF)
+        store.upsertFiles(listOf(file))
+        val id = store.fileByUri(file.uri)!!.id
+        store.markFailed(id, 2)
+        var during: ReadingProgress? = null
+        IndexEngine(store, FakeExtractor(fail = true) { during = store.countsNow().progress }, null, FakeMonitor(), settingsOf())
+            .runBatch(1.minutes, requireCharging = false)
+        assertEquals(0, during!!.couldntRead)
+        assertEquals(1, during.waiting)
+        assertEquals(1, store.countsNow().progress.couldntRead, "the third failure skips it")
+    }
+
+    /** Q1 6: a file that stopped the app on its third attempt is skipped at the next pick, never read a fourth time. */
+    @Test fun aFileThatStoppedTheAppThreeTimesIsSkippedUnread() = runBlocking {
+        val store = newStore()
+        val file = testFile("crash.pdf", Kind.PDF)
+        store.upsertFiles(listOf(file))
+        store.recordAttempt(store.fileByUri(file.uri)!!.id, 3)
+        val extractor = FakeExtractor()
+        IndexEngine(store, extractor, null, FakeMonitor(), settingsOf()).runBatch(1.minutes, requireCharging = false)
+        assertTrue(extractor.names.isEmpty())
+        assertEquals(1, store.countsNow().progress.couldntRead)
+    }
+
+    /** Q1 1: a system expiry ends Read now and returns to the saved schedule; only the person's Pause pauses. */
+    @Test fun endingTheReadNowSessionNeverPauses() = runBlocking {
+        val store = newStore()
+        val r = testRetriever(store, emptyList(), FakeExtractor())
+        r.readNow()
+        assertTrue(store.prefs().readNowUntil > 0)
+        r.endReadNowSession()
+        assertEquals(0, store.prefs().readNowUntil)
+        assertFalse(store.prefs().paused)
+    }
+
+    /** Q1 4: the automatic "nothing left to choose" path reads everything without touching the saved schedule or starting a session. */
+    @Test fun commitScopeKeepsTheSavedScheduleAndStartsNoSession() = runBlocking {
+        val store = newStore()
+        val file = testFile("a.txt")
+        store.upsertFiles(listOf(file))
+        store.setTaste(listOf(store.fileByUri(file.uri)!!.id))
+        val r = testRetriever(store, listOf(file), FakeExtractor())
+        r.setReadingSchedule(ReadingSchedule.MANUAL)
+        r.commitScope()
+        assertEquals(ReadingSchedule.MANUAL, store.prefs().automaticReading)
+        assertEquals(0, store.prefs().readNowUntil)
+        assertTrue(r.tasteDecided())
+        assertEquals(null, r.scopeIds.value)
+    }
+
+    /** Q1 2: Pause and Not now hold the sample, so screen-off and Battery Saver changes must not hand it to a trial worker. */
+    @Test fun aPausedOrDecidedSampleIsNotPendingTaste() = runBlocking {
+        val store = newStore()
+        val file = testFile("a.txt")
+        store.upsertFiles(listOf(file))
+        store.setTaste(listOf(store.fileByUri(file.uri)!!.id))
+        val r = testRetriever(store, listOf(file), FakeExtractor())
+        assertTrue(r.hasPendingTaste())
+        r.pause()
+        assertFalse(r.hasPendingTaste())
+        r.resume()
+        assertTrue(r.hasPendingTaste())
+        r.decideLater()
+        r.resume()
+        assertFalse(r.hasPendingTaste(), "Not now leaves the scope SAMPLE but the person decided")
+    }
+
+    /** Q1 2: a paused run reports why it can't read, so the platform skips its foreground service. */
+    @Test fun readingBlockerSaysPaused() = runBlocking {
+        val r = testRetriever(newStore(), emptyList(), FakeExtractor())
+        assertEquals(null, r.readingBlocker())
+        r.pause()
+        assertEquals(StopReason.PAUSED, r.readingBlocker())
+    }
+
+    /** Q1 9: a sample seen on screen, or one the person already answered, is never announced later. */
+    @Test fun theSampleNoticeIsClaimedOnSightAndNeverAfterADecision() = runBlocking {
+        fun sample(): Pair<Store, SourceFile> {
+            val store = newStore()
+            val file = testFile("a.txt")
+            store.upsertFiles(listOf(file))
+            val id = store.fileByUri(file.uri)!!.id
+            store.setTaste(listOf(id))
+            store.replaceChunks(id, listOf(Store.NewChunk(1, "", "read content", null)))
+            return store to file
+        }
+        val (seen, file) = sample()
+        val r = testRetriever(seen, listOf(file), FakeExtractor()).apply { uiVisible = true }
+        assertFalse(r.claimSampleNotification(), "nothing to post while visible")
+        r.uiVisible = false
+        assertFalse(r.claimSampleNotification(), "already seen on screen")
+        val (decided, other) = sample()
+        val later = testRetriever(decided, listOf(other), FakeExtractor())
+        later.decideLater()
+        assertFalse(later.claimSampleNotification())
+    }
 }

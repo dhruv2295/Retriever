@@ -15,6 +15,7 @@ import app.retriever.core.Kind
 import app.retriever.core.ModelVariant
 import app.retriever.core.Part
 import app.retriever.core.Piece
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
 import app.retriever.core.TasteProgress
 import app.retriever.core.Tier
@@ -191,6 +192,20 @@ class SetupStepTest {
         assertEquals(SetupStage.DONE, ui.stage)
         assertTrue(r.tasteDecided())
         assertTrue(r.tasteProgress().first().byKind.isEmpty())
+    }
+
+    /** Q1 4: an empty plan reads everything without overwriting a schedule chosen during setup or starting a battery session. */
+    @Test fun anEmptyPlanKeepsTheSavedScheduleAndStartsNoSession() = runTest {
+        shadowOf(app).grantPermissions(*Access.mediaPermissions(35).toTypedArray())
+        val r = testRetriever(ramGb = 3.0, dispatchers = core()).apply { uiVisible = true }
+        r.refreshSetUp()
+        r.setReadingSchedule(ReadingSchedule.MANUAL)
+        val f = flow(r, backgroundScope)
+        f.getStarted()
+        f.ui.first { it.scheduled }
+        assertTrue(r.tasteDecided())
+        assertEquals(ReadingSchedule.MANUAL, r.prefs.value.automaticReading)
+        assertEquals(0L, r.prefs.value.readNowUntil)
     }
 
     /** Set up before the first run existed: no taste_scope, never a short read. */

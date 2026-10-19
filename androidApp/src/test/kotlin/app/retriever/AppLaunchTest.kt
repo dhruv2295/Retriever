@@ -13,6 +13,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Retriever
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
+import app.retriever.indexing.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
@@ -60,6 +61,14 @@ class AppLaunchTest {
             scenario.onActivity { assertEquals(Lifecycle.State.RESUMED, it.lifecycle.currentState) }
             app.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
             rule.waitForIdle()
+        }
+        // Q1 11: a recreation (rotation, restore) of a notification-opened activity must not open Status again. In this test,
+        // not its own: Koin's Compose context outlives stopKoin between tests in one class.
+        val status = Intent(app, MainActivity::class.java).setAction(Notifications.OPEN_STATUS)
+        ActivityScenario.launch<MainActivity>(status).use { scenario ->
+            scenario.onActivity { assertEquals(1, it.statusRequest) }
+            scenario.recreate()
+            scenario.onActivity { assertEquals(0, it.statusRequest) }
         }
     }
 }

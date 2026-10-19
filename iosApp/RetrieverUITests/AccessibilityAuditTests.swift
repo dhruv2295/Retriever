@@ -37,7 +37,6 @@ final class AccessibilityAuditTests: XCTestCase {
     ]
     private static let statusText = [
         "Reading now", "Photo", "9 October 2025", "Recently read", "Pause reading",
-        "Read now for 15 minutes", "Can continue after you leave if iOS allows.",
         "3 partly read · more meaning search to come",
         "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start.",
     ]
@@ -192,6 +191,7 @@ final class AccessibilityAuditTests: XCTestCase {
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             let distance = min(clipped.frame.maxY - scroll.frame.maxY + 2 * clipped.frame.height, scroll.frame.height / 2)
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)))
+            XCTAssertLessThanOrEqual(clipped.frame.maxY, scroll.frame.maxY - clipped.frame.height, "\(route): \(clipped.label) still clipped")
         }
         // Dynamic Type auditing resizes lazy lists. Sample contrast before it can invalidate their frames.
         try app.performAccessibilityAudit(for: .contrast) { issue in
@@ -200,8 +200,11 @@ final class AccessibilityAuditTests: XCTestCase {
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
             return false
         }
-        // Font resizing can invalidate lazy-list AX frames; run it after every check that uses the original frames.
-        for types in [XCUIAccessibilityAuditType.all.subtracting(.contrast).subtracting(.dynamicType), .dynamicType] {
+        // Text clipping and Dynamic Type cycle the font size. Content that fits at the smaller size resets the scroll
+        // above, re-clipping the footer button, and element detection then reads its half glyphs (whether it samples
+        // before or after the reset depends on load). Run the pixel checks first, on the revealed layout.
+        // Font resizing can also invalidate lazy-list AX frames, so Dynamic Type runs last.
+        for types in [XCUIAccessibilityAuditType.all.subtracting([.contrast, .textClipped, .dynamicType]), .textClipped, .dynamicType] {
             try app.performAccessibilityAudit(for: types) { issue in
                 guard let element = issue.element else {
                     print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) (no element)")

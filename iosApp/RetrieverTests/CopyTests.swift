@@ -17,7 +17,7 @@ final class CopyTests: XCTestCase {
 
     func testHomeStatusFollowsTheIndex() {
         XCTAssertNil(Copy.homeStatus(nil))
-        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false))?.title, "Finishing setup. You can search file names now.")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false))?.title, "Finishing setup. For now Retriever matches file names.")
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2))?.title, "Waiting for iOS")
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 4))?.title, "Up to date")
@@ -87,7 +87,7 @@ final class CopyTests: XCTestCase {
 
     func testHomeStatusWhileGettingReadyNamesTheStep() {
         for state in [ModelDownload.State.idle, .verifying, .ready, .waitingForWifi, .failed("offline")] {
-            XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false), download: state)?.title, "Finishing setup. You can search file names now.")
+            XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false), download: state)?.title, "Finishing setup. For now Retriever matches file names.")
         }
     }
 

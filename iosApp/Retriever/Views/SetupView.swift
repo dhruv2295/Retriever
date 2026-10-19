@@ -108,17 +108,16 @@ struct SetupView: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-            .onChange(of: taste.planned - taste.read, initial: true) { _, left in trySearch.stillReading = left }
+            .onChange(of: taste.pending, initial: true) { _, left in trySearch.stillReading = left }
             .task { await refreshRest() }
         if asked { page } else { AppStack(model: model, path: $trialPath) { page } }
     }
 
     /// Continue: the commit choice, or Done when the short read already was everything.
     private func continueFromTryIt() {
-        guard let retriever = model.services?.retriever else { return }
         Task {
             await refreshRest()
-            if restFiles == 0 { model.commit(whileCharging: retriever.prefsNow.onlyWhileCharging) } else { committing = true }
+            if restFiles == 0 { model.commitScope() } else { committing = true }
         }
     }
 
@@ -153,7 +152,8 @@ struct SetupView: View {
             trying: trying,
             committing: committing,
             canSkip: !model.setupSeen,
-            restFiles: restFiles
+            restFiles: restFiles,
+            moreFiles: model.snap?.waiting
         )
     }
 }
@@ -187,6 +187,8 @@ struct SetupState {
     var canSkip = false
     /// Files left beyond the short read, for the commit sentence; nil until counted.
     var restFiles: Int?
+    /// Files beyond the short read that are not yet scheduled; what the commit sentence counts.
+    var moreFiles: Int?
 
     var photosReady: Bool { photos == .authorized || photos == .limited }
     var accessGiven: Bool { photosReady || !folders.isEmpty }
@@ -484,7 +486,7 @@ struct SetupContent: View {
 
     /// One sentence about the rest, the nights, and three one-tap answers. No mascot: the decision is the focal point.
     private var commit: some View {
-        ReadingChoice(files: state.restFiles, charging: actions.readWhileCharging, readNow: actions.readNow, notNow: actions.notNow)
+        ReadingChoice(files: state.moreFiles, charging: actions.readWhileCharging, readNow: actions.readNow, notNow: actions.notNow)
     }
 
     /// iOS 26 keeps a started read going after the person leaves; before it, only the open app reads.

@@ -10,10 +10,19 @@ import kotlin.math.ceil
 enum class Scope { SAMPLE, ALL }
 
 /**
- * The short read's progress. [byKind]: (read, planned) per kind; [readyKinds]: kinds read in full; [secondsLeft]: the
- * plan's pending files at this phone's pace, null with no plan. [readyToTry]: [TRY_AFTER_FILES] read, or the plan done.
+ * The short read's progress. [byKind]: (read, planned) per kind; [readyKinds]: kinds with nothing left to read; [secondsLeft]:
+ * the plan's pending files at this phone's pace, null with no plan. [readyToTry]: [TRY_AFTER_FILES] read, or the plan done.
+ * [pending]: planned files still to read. A Name only or Couldn't read file is done without being read, so this is not
+ * planned minus [read].
  */
-data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: Set<Kind>, val read: Int, val secondsLeft: Int?, val readyToTry: Boolean) {
+data class TasteProgress(
+    val byKind: Map<Kind, Pair<Int, Int>>,
+    val readyKinds: Set<Kind>,
+    val read: Int,
+    val secondsLeft: Int?,
+    val readyToTry: Boolean,
+    val pending: Int = 0,
+) {
     internal companion object {
         /** [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the ETA does. */
         fun of(planned: Map<Kind, Int>, pending: Map<Kind, Int>, pendingVideoBytes: Long, book: SpeedBook, searchable: Map<Kind, Int>): TasteProgress {
@@ -22,10 +31,11 @@ data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: 
             val left = pending.values.sum()
             return TasteProgress(
                 byKind = byKind,
-                readyKinds = byKind.filterValues { it.first == it.second }.keys,
+                readyKinds = planned.keys - pending.filterValues { it > 0 }.keys,
                 read = read,
                 secondsLeft = if (planned.isEmpty()) null else ceil(book.ms(pending.mapValues { it.value.toLong() }, pendingVideoBytes) / 1000).toInt(),
                 readyToTry = read > 0 && (left == 0 || read >= TRY_AFTER_FILES),
+                pending = left,
             )
         }
     }

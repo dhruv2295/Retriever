@@ -107,11 +107,11 @@ private val NAME_MATCH = SpanStyle(fontWeight = FontWeight.Bold)
 
 /**
  * One line saying how much of a file is findable, for a list that does not come from a search; null when all of it
- * is. [Kind.OTHER] is never read inside, only found by name.
+ * is. A kind outside [inside] (Retriever.readInside; [Kind.OTHER] never is) counts as Name only, as the reading counts do.
  */
-fun coverageNote(file: Store.StoredFile): String? = when {
+fun coverageNote(file: Store.StoredFile, inside: Set<Kind> = Kind.entries.toSet() - Kind.OTHER): String? = when {
+    file.file.kind !in inside || (!file.contentRead && file.state == FileState.INDEXED) -> "Name only"
     !file.contentRead && file.state == FileState.SKIPPED -> "Couldn’t read"
-    file.file.kind == Kind.OTHER || (!file.contentRead && file.state == FileState.INDEXED) -> "Name only"
     !file.contentRead -> "Waiting to read"
     file.state == FileState.PENDING -> "Partly read · waiting to read more"
     file.state == FileState.SKIPPED -> "Partly read · couldn’t finish reading"

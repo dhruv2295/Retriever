@@ -260,9 +260,14 @@ UPDATE files SET state = 'INDEXED', attempts = ?, partial = ? WHERE id = ?;
 partialFiles:
 SELECT id FROM files WHERE id IN ? AND partial = 1;
 
+-- readingCounts' later pass (queued AND NOT upgrade): text beside vectors already added. A file with no vector yet only
+-- waits for meaning, a count and never a Partly read file.
 deepeningFiles:
-SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND vector IS NULL AND tail_attempts < 3
-AND file_id IN (SELECT id FROM files WHERE state = 'INDEXED');
+SELECT DISTINCT c.file_id FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
+  AND length(trim(c.content_text)) > 0
+  AND EXISTS (SELECT 1 FROM chunks d WHERE d.file_id = c.file_id AND d.ordinal > 0
+    AND (d.vector IS NOT NULL OR (d.tail_attempts >= 3 AND length(trim(d.content_text)) > 0)));
 
 deleteFileById:
 DELETE FROM files WHERE id = ?;

@@ -214,7 +214,8 @@ class SetupFlow(
                 _ui.update { withTaste(it, p) }
                 if (_ui.value.trying) refreshRest()
                 // "Ready to try" reaches a person who left during the short read; on screen, the button says it.
-                if (p.readyToTry && was.firstRun && !retriever.uiVisible && notificationsGranted() &&
+                // Claimed while visible too, so a sample seen on screen is never announced later.
+                if (p.readyToTry && was.firstRun && (retriever.uiVisible || notificationsGranted()) &&
                     retriever.claimSampleNotification()
                 ) {
                     index.notifyReadyToTry(p.read)
@@ -273,10 +274,7 @@ class SetupFlow(
 
     /** Continue from try-it: the commit choice, or Done (read everything) when the plan already was everything. */
     fun continueToCommit() {
-        if (_ui.value.nothingLeft) {
-            commit(retriever.prefs.value.onlyWhileCharging)
-            return
-        }
+        if (_ui.value.nothingLeft) return settle { retriever.commitScope() }
         scope.launch {
             refreshRest()
             _ui.update { it.copy(committing = true) }
@@ -297,10 +295,13 @@ class SetupFlow(
     }
 
     /** Read while charging or Read now: the rest is read, and the person is done choosing. */
-    fun commit(whileCharging: Boolean) {
+    fun commit(whileCharging: Boolean) = settle { retriever.commit(whileCharging) }
+
+    /** [choose] settles the scope (and the schedule, when the person chose one); then the reading is scheduled by it. */
+    private fun settle(choose: suspend () -> Unit) {
         scope.launch {
-            retriever.commit(whileCharging)
-            index.schedulePeriodic(true)
+            choose()
+            index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
             index.indexNow()
             _ui.update { it.copy(decided = true) }
             advance()
@@ -453,7 +454,7 @@ class SetupFlow(
         try {
             val p = retriever.planTaste()
             // An empty plan means only "no eligible files".
-            if (p.ids.isEmpty() && _ui.value.files) retriever.commit(retriever.prefs.value.onlyWhileCharging)
+            if (p.ids.isEmpty() && _ui.value.files) retriever.commitScope()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

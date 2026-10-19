@@ -140,9 +140,14 @@ class IndexEngine(
         var embedMs = 0.0
         // Before the attempt is counted: a search running now would otherwise wait behind this file's extraction.
         checkpoint()
+        // Three attempts that never came back (OOM, native crash, LMK): skip it rather than crash again.
+        if (stored.attempts >= MAX_FILE_ATTEMPTS) {
+            store.markFailed(stored.id, stored.attempts)
+            return FileMetric(file, 0, 0, 0.0, 0.0, false, "stopped the app $MAX_FILE_ATTEMPTS times", state)
+        }
         onCurrent(file)
-        // Count the attempt up front so a file that kills the process (OOM, native crash, LMK) still ends up skipped.
-        store.markFailed(stored.id, stored.attempts + 1)
+        // Count the attempt up front so a file that kills the process still counts it; the file stays pending (Waiting) meanwhile.
+        store.recordAttempt(stored.id, stored.attempts + 1)
         val readInside = file.kind in settings.kinds && file.kind != Kind.AUDIO
         try {
             val extracted = measureTimedValue {
@@ -179,6 +184,7 @@ class IndexEngine(
             store.markFailed(stored.id, stored.attempts)
             throw e
         } catch (e: Throwable) {
+            store.markFailed(stored.id, stored.attempts + 1)
             return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
         } finally {
             onCurrent(null)
@@ -202,6 +208,9 @@ class IndexEngine(
 
         /** Text-only pieces embedded per file on the first pass; the rest wait for the deepen pass. */
         const val HEAD_TEXT_CHUNKS = 8
+
+        /** Attempts before a file is skipped (Couldn't read). */
+        const val MAX_FILE_ATTEMPTS = 3
 
         /** Matches the tail_attempts cutoff in Index.sq. */
         const val MAX_TAIL_ATTEMPTS = 3

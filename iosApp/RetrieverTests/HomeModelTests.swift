@@ -102,8 +102,12 @@ final class HomeModelTests: XCTestCase {
 
     func testLibraryHeroReadingTrialCaughtUpDismissedAndTextOnlyScreenshots() async throws {
         for name in ["reading", "trial", "caught-up", "dismissed", "text-only"] {
-            let model = AppModel(fixture: name == "reading" || name == "trial" ? .reading(done: 20, total: 100) : name == "text-only" ? .textOnly(ramGb: 2) : .caughtUp)
-            if name == "trial" { model.snap?.trial = true; model.snap?.waiting = 2_000 }
+            let model = AppModel(
+                fixture: name == "reading" || name == "trial" ? .reading(done: 20, total: 100) : name == "text-only" ? .textOnly(ramGb: 2) : .caughtUp)
+            if name == "trial" {
+                model.snap?.trial = true
+                model.snap?.waiting = 2_000
+            }
             if name == "dismissed" { model.dismissCaughtUp() }
             let result = try await layout(model, screenshot: name)
             XCTAssertGreaterThan(result.items.first ?? 0, 0, "The library hero remains visible: \(name)")
@@ -190,8 +194,11 @@ final class HomeModelTests: XCTestCase {
     /// The card shows once the short read is done and files wait outside it; under the full scope core reports none.
     func testCommitCardShowsOnlyWhenTheShortReadIsDoneAndFilesWait() async throws {
         XCTAssertTrue(AppModel.Snap(setUp: true, indexed: 78, waiting: 26_214).asksCommit)
-        XCTAssertTrue(AppModel.Snap(setUp: true, indexed: 40, pending: 38, waiting: 26_214, running: true).asksCommit, "a schedule can be chosen before the sample ends")
+        XCTAssertTrue(
+            AppModel.Snap(setUp: true, indexed: 40, pending: 38, waiting: 26_214, running: true).asksCommit, "a schedule can be chosen before the sample ends")
         XCTAssertFalse(AppModel.Snap(setUp: true, indexed: 26_292).asksCommit, "scope ALL or nothing left")
+        XCTAssertFalse(AppModel.Snap(setUp: false, indexed: 78, waiting: 26_214).asksCommit, "no offer before setup finishes")
+        XCTAssertFalse(AppModel.Snap(waiting: 26_214).asksCommit, "no offer while setup is unknown")
         let model = AppModel(fixture: .caughtUp)
         let plain = try await layout(model, search: .fixture())
         var asking = try XCTUnwrap(model.snap)

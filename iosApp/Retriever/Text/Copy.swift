@@ -42,7 +42,7 @@ enum Copy {
 
     static func homeStatus(_ s: AppModel.Snap?, download: ModelDownload.State = .idle, progress: Double = 0, nameOnly: Int64 = 0) -> HomeStatus? {
         guard let s, !(s.readProgress.libraryTotal == 0 && s.setUp == true) else { return nil }
-        if s.setUp != true { return HomeStatus(phase: .settingUp, title: "Finishing setup. You can search file names now.") }
+        if s.setUp != true { return HomeStatus(phase: .settingUp, title: "Finishing setup. For now Retriever matches file names.") }
         let phase = s.readingPhase ?? decision(s).phase
         let homePhase: HomeStatus.Phase =
             phase == .paused
@@ -159,9 +159,6 @@ enum Copy {
         default: nil
         }
     }
-
-    static let keepReading = "Read now for 15 minutes"
-    static let keepReadingNote = "Can continue after you leave if iOS allows."
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
     nonisolated static let continuedTitle = "Reading your files"

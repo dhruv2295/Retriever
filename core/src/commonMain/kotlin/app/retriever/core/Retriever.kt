@@ -304,6 +304,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun resume() = updatePrefs { it.copy(paused = false) }
 
+    /** Ends a Read now session without pausing: reading goes back to the saved schedule (a system expiry, not the person's Pause). */
+    @Throws(Throwable::class)
+    suspend fun endReadNowSession() = updatePrefs { endSession(it) }
+
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
         withContext(dispatchers.default) {
@@ -339,8 +343,11 @@ class Retriever(
 
     private fun sampleSession(): Boolean = store.sampleIds() != null && !store.flag(TASTE_DECIDED_KEY)
 
-    /** Called between chunks and by the subscribed UI; expiry and safety stops never renew a session. */
-    private fun readingBlocker(): StopReason? {
+    /**
+     * Why content can't be read now, or null when it can. Called between chunks, by the subscribed UI, and by a platform deciding
+     * whether a run is worth a foreground service; expiry and safety stops never renew a session.
+     */
+    fun readingBlocker(): StopReason? {
         val device = monitor.state()
         lowBattery = !device.charging && (
             device.batteryPct in 0..ReadingPolicy.LOW_BATTERY ||
@@ -390,23 +397,13 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun readNow() {
         updatePrefs { startSession(it) }
-        io {
-            store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
-            store.setFlag(TASTE_DECIDED_KEY)
-            loadScope()
-        }
+        commitScope()
     }
 
     @Throws(Throwable::class)
     suspend fun setReadingSchedule(schedule: ReadingSchedule) {
         updatePrefs { it.withSchedule(schedule) }
-        if (schedule != ReadingSchedule.MANUAL) {
-            io {
-                store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
-                store.setFlag(TASTE_DECIDED_KEY)
-                loadScope()
-            }
-        }
+        if (schedule != ReadingSchedule.MANUAL) commitScope()
         changedSinceSync = true
     }
 
@@ -420,11 +417,14 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun claimSampleNotification(): Boolean = io {
         store.inTransaction {
-            if (uiVisible || store.tasteScope() != Scope.SAMPLE || store.flag("sample_notified") || store.indexedIn(store.tasteIds()).isEmpty()) {
+            if (store.tasteScope() != Scope.SAMPLE || store.flag(TASTE_DECIDED_KEY) || store.flag("sample_notified") ||
+                store.indexedIn(store.tasteIds()).isEmpty()
+            ) {
                 false
             } else {
+                // Seen on screen counts as told: a later hidden batch must not announce a sample already tried.
                 store.setFlag("sample_notified")
-                true
+                !uiVisible
             }
         }
     }
@@ -778,7 +778,9 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun hasPendingTaste(): Boolean = io {
-        store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) } == true
+        // Paused or decided (Not now), the sample waits for the person, so screen-off and Battery Saver changes must not resume it.
+        !store.prefs().paused && !store.flag(TASTE_DECIDED_KEY) &&
+            store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) } == true
     }
 
     /** Under indexLock: keep completed work, drop videos first then the most expensive pending files. */
@@ -817,6 +819,15 @@ class Retriever(
         updatePrefs {
             (if (whileCharging) endSession(it).copy(paused = false) else startSession(it)).withSchedule(ReadingSchedule.CHARGING)
         }
+        commitScope()
+    }
+
+    /**
+     * Read everything, with nothing to choose (an empty plan, or a plan that already was everything): scope ALL and decided.
+     * Never touches the schedule or a session, so the person's saved choice holds.
+     */
+    @Throws(Throwable::class)
+    suspend fun commitScope() {
         io {
             store.inTransaction {
                 store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)

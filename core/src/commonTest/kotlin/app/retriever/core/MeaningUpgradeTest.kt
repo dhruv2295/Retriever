@@ -58,7 +58,7 @@ class MeaningUpgradeTest {
             store.resetForModel(signature)
             assertEquals(chunkCount, store.chunkCount())
             assertTrue(store.pending(20).isEmpty())
-            assertEquals(ids.toSet(), store.readExtents(ids).keys)
+            assertTrue(store.readExtents(ids).isEmpty(), "waiting for meaning is a count, never a Partly read file")
             assertEquals(ids.size.toLong(), store.countsNow().tailFiles)
             assertEquals(3, search.search("48213", SearchEngine.Mode.KEYWORD).hits.size)
             val embeddedText = mutableListOf<String>()

@@ -29,6 +29,14 @@ class TasteProgressTest {
         assertEquals(null, TasteProgress.of(emptyMap(), emptyMap(), 0, book, emptyMap()).secondsLeft)
     }
 
+    /** Q1 3: Name only and Couldn't read files are done without being read, so they are not still to read. */
+    @Test
+    fun filesDoneWithoutContentAreNotPending() {
+        val p = TasteProgress.of(mapOf(Kind.PDF to 3), emptyMap(), 0, SpeedBook(), mapOf(Kind.PDF to 1))
+        assertEquals(0, p.pending)
+        assertEquals(setOf(Kind.PDF), p.readyKinds)
+    }
+
     @Test
     fun theFlowFollowsTheRead() = test {
         val docs = (1..30).map { testFile("doc$it.txt", Kind.DOC, modifiedAt = it * 7_200_000L) }

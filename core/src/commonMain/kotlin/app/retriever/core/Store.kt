@@ -380,7 +380,12 @@ class Store(
     }
 
     fun markFailed(fileId: Long, attempts: Int) {
-        q.setState(if (attempts < 3) FileState.PENDING else FileState.SKIPPED, attempts.toLong(), fileId)
+        q.setState(if (attempts < IndexEngine.MAX_FILE_ATTEMPTS) FileState.PENDING else FileState.SKIPPED, attempts.toLong(), fileId)
+    }
+
+    /** Counts an attempt and keeps the file pending, so the counts show it waiting while it is read. */
+    fun recordAttempt(fileId: Long, attempts: Int) {
+        q.setState(FileState.PENDING, attempts.toLong(), fileId)
     }
 
     fun vectorCount(): Int = q.vectorCount().executeAsOne().toInt()

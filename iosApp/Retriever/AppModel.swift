@@ -79,7 +79,7 @@ final class AppModel {
 
         /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
         /// under the short read's scope, so this is `scope == SAMPLE && waiting > 0`.
-        var asksCommit: Bool { waiting > 0 && !scheduleOfferDismissed }
+        var asksCommit: Bool { setUp == true && waiting > 0 && !scheduleOfferDismissed }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
         var isCaughtUp: Bool { setUp == true && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
@@ -355,6 +355,19 @@ final class AppModel {
         caughtUpDue = false
         celebrated = true
         Task { await markCelebrated() }
+    }
+
+    /// Nothing left to choose (the short read was everything): read it all, keeping the saved schedule.
+    func commitScope() {
+        guard let retriever = services?.retriever else { return }
+        Task {
+            do {
+                try await retriever.commitScope()
+                IndexTask.schedule()
+                wake()
+                setupSeen = true
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
+        }
     }
 
     /// Read while charging / Read now, from Home's commit card: the rest is read from now on. The same steps as setup's

@@ -149,7 +149,7 @@ class SearchViewModel(
         // The short read's progress, only while a screen scopes the search to it.
         viewModelScope.launch {
             _ui.map { it.scope != null }.distinctUntilChanged().flatMapLatest { if (it) retriever.tasteProgress() else emptyFlow() }.collect { p ->
-                _ui.update { it.copy(unread = (it.scope?.size ?: 0) - p.read, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
+                _ui.update { it.copy(unread = p.pending, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
             }
         }
         launchCatching { loadRecent() }

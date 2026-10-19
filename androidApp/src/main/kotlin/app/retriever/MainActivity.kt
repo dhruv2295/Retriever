@@ -16,7 +16,8 @@ import app.retriever.ui.RetrieverTheme
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
-    private var statusRequest by androidx.compose.runtime.mutableIntStateOf(0)
+    internal var statusRequest by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
     private val launchQuery: LaunchQuery by inject()
     private val retriever: Retriever by inject()
 
@@ -27,7 +28,8 @@ class MainActivity : ComponentActivity() {
         splash.setKeepOnScreenCondition { retriever.setUp.value == null }
         enableEdgeToEdge()
         window.isNavigationBarContrastEnforced = false
-        if (intent.action == Notifications.OPEN_STATUS) statusRequest++
+        // Only a fresh launch: a recreated activity (rotation, restore) still holds the intent it was opened with.
+        if (savedInstanceState == null && intent.action == Notifications.OPEN_STATUS) statusRequest++
         Notifications.cancelSample(this)
         launchQuery.from(intent)
         setContent { RetrieverTheme { AppNav(statusRequest = statusRequest) } }
