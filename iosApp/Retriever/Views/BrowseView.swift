@@ -105,7 +105,8 @@ struct FileListView: View {
                 List(visible, id: \.id) { stored in
                     let f = stored.file
                     FileButton(
-                        file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))", coverage: Format.coverage(stored),
+                        file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))",
+                        coverage: Format.coverage(stored, inside: services?.retriever.readInside() ?? []),
                         starred: starred.contains(f.uri), onOpen: { openFile(f, among: visible.map(\.file)) }
                     )
                     .onAppear { more(after: stored) }

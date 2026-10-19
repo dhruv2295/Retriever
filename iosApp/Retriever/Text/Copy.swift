@@ -128,6 +128,10 @@ enum Copy {
 
     static let screenKeptOn = "Keep screen awake is on for this session. You can turn it off in Reading settings."
 
+    static func meaningWaiting(_ n: Int) -> String {
+        "\(count(n)) read for words · search by meaning to come"
+    }
+
     static func deepReading(_ n: Int) -> String {
         "\(count(n)) partly read · more meaning search to come"
     }

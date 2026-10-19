@@ -70,6 +70,7 @@ struct StatusContent: View {
                 Section("Getting ready") { gettingReady }
             }
             if snap.skipped > 0 { Section { skipped } }
+            if snap.meaningWaiting > 0 && !snap.textOnly { Section { Note(Copy.meaningWaiting(snap.meaningWaiting)) } }
             if snap.tailFiles > 0 && !snap.textOnly { Section { Note(Copy.deepReading(snap.tailFiles)) } }
             photosSection
             Section {

@@ -233,7 +233,7 @@ internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((name, kinds) in KIND_ROWS) {
             val (read, of) = kinds.mapNotNull(taste.byKind::get).fold(0 to 0) { (r, n), (a, b) -> r + a to n + b }
-            if (of > 0) KindRow(name, read, of)
+            if (of > 0) KindRow(name, read, of, done = kinds.all { it !in taste.byKind || it in taste.readyKinds })
         }
     }
 }
@@ -262,7 +262,7 @@ internal fun timeLeft(seconds: Int?): String? = when {
 }
 
 @Composable
-private fun KindRow(name: String, read: Int, of: Int) {
+private fun KindRow(name: String, read: Int, of: Int, done: Boolean) {
     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 8.dp).semantics(mergeDescendants = true) {},
@@ -270,7 +270,7 @@ private fun KindRow(name: String, read: Int, of: Int) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text("$name $read/$of", style = MaterialTheme.typography.labelLarge.tabular())
-            if (read == of) Icon(painterResource(R.drawable.ic_check_circle), contentDescription = "Ready to search", tint = MaterialTheme.colorScheme.primary)
+            if (done) Icon(painterResource(R.drawable.ic_check_circle), contentDescription = "Ready to search", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

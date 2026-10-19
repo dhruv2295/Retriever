@@ -134,7 +134,8 @@ enum IndexTask {
         let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
-            let waiting = snap.pending + snap.rereads + Int(snapshot.counts.tailFiles)
+            // Later passes are left out: with the screen on in another app they do not run, so they would hold the bar short.
+            let waiting = snap.pending + snap.rereads
             pending.withLock { $0 = waiting }
             let total = max(
                 start.withLock {

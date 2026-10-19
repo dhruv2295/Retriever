@@ -93,7 +93,11 @@ object Notifications {
     private fun openApp(context: Context, status: Boolean = false) = PendingIntent.getActivity(
         context,
         if (status) 1 else 0,
-        Intent(context, MainActivity::class.java).apply { if (status) action = OPEN_STATUS },
+        // Reuse the open activity (closing a viewer above it) so onNewIntent runs instead of stacking another one.
+        Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (status) action = OPEN_STATUS
+        },
         PendingIntent.FLAG_IMMUTABLE,
     )
 }

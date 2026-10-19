@@ -111,10 +111,11 @@ enum Format {
         return out
     }
 
-    /// One line on how much of a listed file is searchable; nil when all of it is. Same words as Android's `coverageNote`.
-    @MainActor static func coverage(_ stored: Store.StoredFile) -> String? {
-        if !stored.contentRead && stored.state == FileState.skipped { return "Couldn’t read" }
-        if stored.file.kind == .other || (!stored.contentRead && stored.state == .indexed) { return "Name only" }
+    /// One line on how much of a listed file is searchable; nil when all of it is. Same words as Android's `coverageNote`:
+    /// a kind outside `inside` (`Retriever.readInside()`; other never is) counts as Name only, as the reading counts do.
+    @MainActor static func coverage(_ stored: Store.StoredFile, inside: Set<Kind>) -> String? {
+        if !inside.contains(stored.file.kind) || (!stored.contentRead && stored.state == .indexed) { return "Name only" }
+        if !stored.contentRead && stored.state == .skipped { return "Couldn’t read" }
         if !stored.contentRead { return "Waiting to read" }
         if stored.state == .pending { return "Partly read · waiting to read more" }
         if stored.state == .skipped { return "Partly read · couldn’t finish reading" }

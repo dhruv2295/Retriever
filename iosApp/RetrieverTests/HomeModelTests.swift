@@ -422,11 +422,15 @@ final class HomeModelTests: XCTestCase {
                 id: 1, file: SourceFile(uri: "folder://t/a", name: "a", folder: "t", mime: "x/y", kind: kind, size: 1, modifiedAt: 0, takenAt: nil),
                 attempts: 0, state: state, partial: partial, extent: nil, contentRead: state == .indexed && kind != .other)
         }
-        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped)), "Couldn’t read")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .pending)), "Waiting to read")
-        XCTAssertEqual(Format.coverage(stored(.other, .indexed)), "Name only")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .indexed, partial: true)), Copy.extent(.firstPart))
-        XCTAssertNil(Format.coverage(stored(.pdf, .indexed)))
+        let all = Set(AppModel.Snap.inside)
+        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped), inside: all), "Couldn’t read")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .pending), inside: all), "Waiting to read")
+        XCTAssertEqual(Format.coverage(stored(.other, .indexed), inside: all), "Name only")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .indexed, partial: true), inside: all), Copy.extent(.firstPart))
+        XCTAssertNil(Format.coverage(stored(.pdf, .indexed), inside: all))
+        XCTAssertEqual(Format.coverage(stored(.other, .skipped), inside: all), "Name only", "an unreadable kind is Name only, as on Android")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .pending), inside: [.doc]), "Name only", "a kind whose reading is off is Name only")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped), inside: [.doc]), "Name only")
     }
 
     // MARK: Rendering

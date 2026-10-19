@@ -28,6 +28,8 @@ data class BrowseUi(
     val loading: Boolean = true,
     val error: String? = null,
     val exhausted: Boolean = false,
+    /** Retriever.readInside at the last reload; a kind outside it reads as Name only. */
+    val inside: Set<Kind> = Kind.entries.toSet() - Kind.OTHER,
 )
 
 /** Arguments and sort come from [saved], so they survive rotation and process death; the first page loads at once. */
@@ -60,7 +62,7 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
     private fun reload() {
         generation++
         busy = false
-        paged.update { BrowseUi(sort = saved[SORT] ?: route.sort) }
+        paged.update { BrowseUi(sort = saved[SORT] ?: route.sort, inside = retriever.readInside()) }
         fetch()
     }
 

@@ -205,7 +205,7 @@ fun BrowseContent(
                             ThumbCell(
                                 file = stored.file,
                                 onClick = { onOpen(stored.file) },
-                                readNote = coverageNote(stored),
+                                readNote = coverageNote(stored, ui.inside),
                                 onLongClick = menu,
                                 onLongClickLabel = "More options",
                                 modifier = actions,
@@ -230,7 +230,7 @@ fun BrowseContent(
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
-                                    readNote = coverageNote(stored),
+                                    readNote = coverageNote(stored, ui.inside),
                                     onLongClick = menu,
                                     onLongClickLabel = "More options",
                                     modifier = actions,
