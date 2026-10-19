@@ -47,7 +47,7 @@ offers Undo. Stars are the person's, so they survive a re-index of the file.
 - iOS, `iosApp/RetrieverTests/StarredTests.swift`: `testSetStarredUpdatesStarredAtOnce`,
   `testStarsCrossViewsThroughTheEnvironmentNotAGlobal`, `testStarredFilesPageIsItsOwnQuery`,
   `testStarredIsASearchFilterOverEveryKind`.
-- Search: the starring-one-file recomposition guard is `RecompositionTest.starringOneFileRecomposesNoTile`.
+- Search: the starring-one-file recomposition guard is `RecompositionTest.starringOneFileRecomposesOnlyThatFile`.
 
 ## Known limits
 

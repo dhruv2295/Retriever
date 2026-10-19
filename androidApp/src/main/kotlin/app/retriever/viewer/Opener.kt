@@ -17,7 +17,7 @@ import app.retriever.nav.Route
 import org.koin.mp.KoinPlatform
 
 object Opener {
-    /** [siblings]: the list the file was opened from; a photo's viewer swipes through its photos. Empty keeps the last list [queue]d. */
+    /** [siblings]: the list the file was opened from; a photo's viewer swipes through its photos and the others step to its neighbours. Empty keeps the last list [queue]d. */
     fun open(
         context: Context,
         file: SourceFile,
@@ -29,7 +29,7 @@ object Opener {
     ) {
         val route = routeFor(file, locator, fileId, query)
         if (route == null) return view(context, file.uri, file.mime)
-        if (route is PhotoRoute && siblings.isNotEmpty()) queue(siblings)
+        if (siblings.isNotEmpty()) queue(siblings)
         navigate(route)
     }
 

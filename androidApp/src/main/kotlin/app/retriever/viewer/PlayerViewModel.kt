@@ -46,7 +46,8 @@ class PlayerViewModel(context: Context, private val handle: SavedStateHandle) : 
             // A saved position (a recreated entry after the process died) beats where the search hit pointed.
             seekTo(handle[POSITION] ?: route.startMs)
             prepare()
-            playWhenReady = true
+            // Paused at the moment, until Play: a swipe or a step to the next file must not start sound.
+            playWhenReady = false
         }
 
     /** No background playback: leaving the app pauses and keeps the place. */

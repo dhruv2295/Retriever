@@ -41,7 +41,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -50,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -87,7 +87,6 @@ import app.retriever.motion.Mascot
 import app.retriever.ui.Format
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
-import app.retriever.ui.components.PressMenu
 import app.retriever.ui.components.ThumbCell
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.delay
@@ -316,30 +315,18 @@ private fun HitMenu(
     act: HitActions,
     similar: Boolean,
     modifier: Modifier = Modifier,
-    content: @Composable (onLongClick: () -> Unit) -> Unit,
+    content: @Composable (onLongClick: () -> Unit, actions: Modifier) -> Unit,
 ) {
-    PressMenu(content, modifier) { dismiss ->
-        app.retriever.files.FileActionItems(file, dismiss)
-        val on = file.uri in act.starred()
-        DropdownMenuItem(
-            text = { Text(if (on) "Remove star" else "Star") },
-            leadingIcon = { Icon(painterResource(if (on) R.drawable.ic_star_border else R.drawable.ic_star), contentDescription = null) },
-            onClick = {
-                dismiss()
-                act.star(file, !on)
-            },
-        )
-        if (similar) {
-            DropdownMenuItem(
-                text = { Text("Find similar") },
-                leadingIcon = { Icon(painterResource(R.drawable.ic_image_search), contentDescription = null) },
-                onClick = {
-                    dismiss()
-                    act.findSimilar?.invoke(file)
-                },
-            )
-        }
-    }
+    // Derived per file, so starring one file recomposes that file's menu and no other.
+    val starred by remember(file.uri) { derivedStateOf { file.uri in act.starred() } }
+    app.retriever.files.FilePressMenu(
+        file,
+        modifier,
+        starred = starred,
+        onStar = { act.star(file, it) },
+        similar = act.findSimilar?.takeIf { similar }?.let { find -> { find(file) } },
+        content = content,
+    )
 }
 
 @Composable
@@ -454,9 +441,10 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
             act,
             similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects),
-        ) { menu ->
+        ) { menu, actions ->
             ThumbCell(
                 hit.file,
+                modifier = actions,
                 onClick = { act.open(hit) },
                 locator = hit.locator,
                 readNote = Format.readNote(extents[hit.fileId]),
@@ -484,9 +472,10 @@ private fun LazyGridScope.docSection(
             act,
             similar = hit.file.kind == Kind.SCREENSHOT && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects).bleed(16.dp),
-        ) { menu ->
+        ) { menu, actions ->
             FileRow(
                 hit.file,
+                modifier = actions,
                 snippet = hit.snippet,
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.

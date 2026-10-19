@@ -3,16 +3,31 @@ import XCTest
 @testable import Retriever
 
 @MainActor final class FileActionsTests: XCTestCase {
-    func testPhotoActionsHideRename() {
-        XCTAssertEqual(FileAction.available("ph://asset"), [.info, .share, .open, .delete])
+    func testPhotoActionsFollowTheOneOrderAndHideRename() {
+        XCTAssertEqual(FileAction.available("ph://asset"), [.star, .share, .open, .info, .delete])
     }
 
-    func testFolderActionsIncludeRename() {
-        XCTAssertEqual(FileAction.available("folder://documents/test.txt"), FileAction.allCases)
+    func testFolderActionsAreInTheSpecOrderWithDeleteLast() {
+        XCTAssertEqual(FileAction.available("folder://documents/test.txt"), [.star, .share, .open, .info, .rename, .delete])
+        XCTAssertEqual(FileAction.allCases.map { $0.title(starred: false) }, ["Add to Starred", "Share", "Open in another app", "File info", "Rename", "Delete"])
+        XCTAssertEqual(FileAction.star.title(starred: true), "Remove from Starred")
+        XCTAssertFalse(FileAction.allCases.contains { $0.icon(starred: false).isEmpty }, "every item has an icon")
     }
 
-    func testUnknownSourcesOnlyShowInfo() {
-        XCTAssertEqual(FileAction.available("unknown://file"), [.info])
+    func testUnknownSourcesOnlyStarAndShowInfo() {
+        XCTAssertEqual(FileAction.available("unknown://file"), [.star, .info])
+    }
+
+    func testReadingComesFromTheSharedCore() {
+        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, state: .indexed, attempts: 0, partial: true, extent: nil, readInside: true), "Partly read · Only the beginning is included")
+        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, state: nil, attempts: 0, partial: false, extent: nil, readInside: true), "Waiting to read")
+    }
+
+    func testThePlaceIsTheFoldersOwnName() {
+        let inFolder = SourceFile(uri: "folder://1/a.pdf", name: "a.pdf", folder: "Documents/Taxes", mime: "", kind: .pdf, size: 1, modifiedAt: 0, takenAt: nil)
+        XCTAssertEqual(FileActions.place(inFolder), "Taxes")
+        XCTAssertEqual(FileActions.place(SourceFile(uri: "folder://1/b.pdf", name: "b.pdf", folder: "", mime: "", kind: .pdf, size: 1, modifiedAt: 0, takenAt: nil)), "Top level")
+        XCTAssertEqual(FileActions.place(SourceFile(uri: "ph://x", name: "x", folder: "Recents", mime: "", kind: .photo, size: 0, modifiedAt: 0, takenAt: nil)), "Photos")
     }
 
     func testNamesCannotEscapeTheFolder() {

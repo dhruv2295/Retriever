@@ -84,6 +84,11 @@ fun AppNav(retriever: Retriever = koinInject()) {
     val settled = { navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED }
     val go: (Route) -> Unit = { if (settled()) navController.navigate(it) }
     val back: () -> Unit = { if (settled()) navController.popBackStack() }
+    // Previous and Next file: the new viewer takes this one's place, so Back still returns to the list and playback stops.
+    val replace: (Route) -> Unit = { route ->
+        val current = navController.currentBackStackEntry?.destination?.id
+        if (settled() && current != null) navController.navigate(route) { popUpTo(current) { inclusive = true } }
+    }
     // Names are searchable once files are allowed, so Home opens while the rest of setup carries on.
     // SetupFlow is built here, after setUp settles, so it seeds from the stored prefs.
     val start: Route = remember { if (ready || koin.get<SetupFlow>().ui.value.canSearch) HomeRoute else SetupRoute }
@@ -120,10 +125,10 @@ fun AppNav(retriever: Retriever = koinInject()) {
             composable<FoldersRoute> { FoldersScreen(go, back) }
             composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
             composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
-            composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back) }
-            composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back) }
+            composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back, replace) }
+            composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back, replace) }
             composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
-            composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back) }
+            composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back, replace) }
         }
     }
 }

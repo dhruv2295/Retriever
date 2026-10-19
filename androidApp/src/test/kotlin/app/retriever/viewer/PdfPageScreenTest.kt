@@ -63,4 +63,9 @@ class PdfPageScreenTest {
         assertEquals(4096f / 700, renderScale(500, 700, 20000), 0.001f)
         assertEquals(4096f / 5000, renderScale(5000, 700, 20000), 0.001f)
     }
+
+    @Test fun theBarNamesTheMatchedPageAndWhereTheReaderIs() {
+        assertEquals("Match on page 3 · Page 5 of 40", pdfSubtitle(5, 40, 3))
+        assertEquals("Page 1 of 40", pdfSubtitle(1, 40, null))
+    }
 }

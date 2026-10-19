@@ -29,3 +29,24 @@ enum class ReadingPhase(val title: String) {
     LOOKING("Up to date · Looking for new files…"),
     CAUGHT_UP("All caught up"),
 }
+
+/**
+ * Says how far Retriever has read one file, in the app's one vocabulary, for File info on both platforms. [state] null is a
+ * file the index has not met yet. Content already read stays "Read" even if reading was switched off since; the index records
+ * no reason for a failure, only that it tried [attempts] times.
+ */
+fun readingLabel(kind: Kind, state: FileState?, attempts: Int, partial: Boolean, extent: ReadExtent?, readInside: Boolean): String = when {
+    kind == Kind.OTHER -> "Name only · Reading isn't supported for this type"
+
+    state == FileState.INDEXED -> when {
+        partial || extent == ReadExtent.FIRST_PART -> "Partly read · Only the beginning is included"
+        extent == ReadExtent.DEEPENING -> "Partly read · More meaning search to come"
+        else -> "Read"
+    }
+
+    !readInside -> "Name only · Reading is off for this type"
+
+    state == FileState.SKIPPED -> "Couldn't read · Retriever tried $attempts times"
+
+    else -> "Waiting to read"
+}

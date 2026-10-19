@@ -23,4 +23,21 @@ class ReadingProgressTest {
         assertEquals(ReadingPhase.PAUSED, progress.phase(true, false))
         assertEquals(ReadingPhase.CAUGHT_UP, progress.copy(partlyRead = 0).phase(false, false))
     }
+
+    @Test fun aFilesReadingSaysHowFarItWasReadAndAlreadyReadContentStaysRead() {
+        fun label(state: FileState?, kind: Kind = Kind.PDF, partial: Boolean = false, extent: ReadExtent? = null, inside: Boolean = true) =
+            readingLabel(kind, state, 3, partial, extent, inside)
+        assertEquals("Read", label(FileState.INDEXED))
+        assertEquals("Read", label(FileState.INDEXED, extent = ReadExtent.WHOLE))
+        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, partial = true))
+        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, extent = ReadExtent.FIRST_PART))
+        assertEquals("Partly read · More meaning search to come", label(FileState.INDEXED, extent = ReadExtent.DEEPENING))
+        assertEquals("Waiting to read", label(FileState.PENDING))
+        assertEquals("Waiting to read", label(null))
+        assertEquals("Couldn't read · Retriever tried 3 times", label(FileState.SKIPPED))
+        assertEquals("Read", label(FileState.INDEXED, inside = false))
+        assertEquals("Name only · Reading is off for this type", label(FileState.PENDING, inside = false))
+        assertEquals("Name only · Reading is off for this type", label(FileState.SKIPPED, inside = false))
+        assertEquals("Name only · Reading isn't supported for this type", label(FileState.INDEXED, Kind.OTHER))
+    }
 }

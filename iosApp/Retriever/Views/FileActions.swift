@@ -1,23 +1,46 @@
 import AVFoundation
 import ImageIO
+import PDFKit
 import Photos
 @preconcurrency import RetrieverCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The same actions serve result menus, Browse, Recently read and every viewer.
-enum FileAction: String, CaseIterable {
-    case info = "Info", share = "Share", open = "Open with", rename = "Rename", delete = "Delete"
+/// The same actions serve result menus, Browse, Recently read and every viewer, in this order.
+enum FileAction: CaseIterable {
+    case star, share, open, info, rename, delete
 
     static func available(_ uri: String) -> [Self] {
-        if uri.hasPrefix("ph://") { return [.info, .share, .open, .delete] }
+        if uri.hasPrefix("ph://") { return [.star, .share, .open, .info, .delete] }
         if uri.hasPrefix("folder://") { return allCases }
-        return [.info]
+        return [.star, .info]
     }
 
     static func validName(_ name: String) -> Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name != "." && name != ".."
             && !name.contains("/") && !name.contains("\\") && name.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
+    @MainActor func title(starred: Bool) -> String {
+        switch self {
+        case .star: starred ? Copy.removeStar : Copy.star
+        case .share: "Share"
+        case .open: "Open in another app"
+        case .info: "File info"
+        case .rename: "Rename"
+        case .delete: "Delete"
+        }
+    }
+
+    func icon(starred: Bool) -> String {
+        switch self {
+        case .star: starred ? "star.slash" : "star"
+        case .share: "square.and.arrow.up"
+        case .open: "arrow.up.forward.app"
+        case .info: "info.circle"
+        case .rename: "pencil"
+        case .delete: "trash"
+        }
     }
 }
 
@@ -25,7 +48,7 @@ enum FileAction: String, CaseIterable {
     var file: SourceFile?
     var action: FileAction?
     var name = ""
-    var info: [(String, String)] = []
+    var info: FileInfo?
     var error: String?
     var busy = false
     var openURL: URL?
@@ -36,7 +59,7 @@ enum FileAction: String, CaseIterable {
         self.action = action
         self.name = file.name
         self.deleted = deleted
-        info = []
+        info = nil
     }
 
     func perform(model: AppModel, work: @escaping () async throws -> Void) {
@@ -112,36 +135,86 @@ enum FileAction: String, CaseIterable {
         } catch { self.error = "Couldn't open this file. Its folder may be unavailable."; self.action = nil }
     }
 
-    @concurrent private static func details(_ file: SourceFile, stored: Store.StoredFile?, folders: FolderSource, readInside: Bool) async -> [(String, String)] {
-        var rows = [("Name", file.name), ("Folder", file.folder), ("Kind", Format.kind(file.kind)), ("Size", ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)), ("Modified", Date(timeIntervalSince1970: Double(file.modifiedAt) / 1000).formatted())]
-        if let taken = file.takenAt { rows.append(("Taken", Date(timeIntervalSince1970: Double(taken.int64Value) / 1000).formatted())) }
-        rows.append(("Read status", !readInside || stored?.state != .indexed || file.kind == .other ? "Not yet read" : stored?.partial == true ? "Partly read" : "Read fully"))
+    /// The friendly place a file lives: its folder's own name, or Photos.
+    nonisolated static func place(_ file: SourceFile) -> String {
+        file.uri.hasPrefix("ph://") ? "Photos" : file.folder.split(separator: "/").last.map(String.init) ?? "Top level"
+    }
+
+    @concurrent private static func details(_ file: SourceFile, stored: Store.StoredFile?, folders: FolderSource, readInside: Bool) async -> FileInfo {
+        var info = FileInfo(
+            summary: file.size > 0 ? "\(Format.kind(file.kind)) · \(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))" : Format.kind(file.kind),
+            location: place(file), modified: Date(timeIntervalSince1970: Double(file.modifiedAt) / 1000).formatted(),
+            reading: ReadingProgressKt.readingLabel(kind: file.kind, state: stored?.state, attempts: stored?.attempts ?? 0, partial: stored?.partial == true, extent: stored?.extent, readInside: readInside))
         if file.uri.hasPrefix("ph://"), let asset = PHAsset.fetchAssets(withLocalIdentifiers: [String(file.uri.dropFirst(5))], options: nil).firstObject {
-            rows.append(("Dimensions", "\(asset.pixelWidth) × \(asset.pixelHeight)"))
-            if asset.duration > 0 { rows.append(("Duration", "\(Int(asset.duration)) seconds")) }
+            info.created = asset.creationDate?.formatted()
+            info.facts.append(.init("Dimensions", "\(asset.pixelWidth) × \(asset.pixelHeight)"))
+            if asset.duration > 0 { info.facts.append(.init("Duration", ViewerCopy.clock(seconds: Int(asset.duration)))) }
         } else if let url = folders.resolve(file.uri) {
+            info.path = url.path
+            info.created = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate)?.formatted()
             if let image = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any], let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int {
-                rows.append(("Dimensions", "\(w) × \(h)"))
+                info.facts.append(.init("Dimensions", "\(w) × \(h)"))
             } else if file.kind == .audio || file.kind == .video {
                 let asset = AVURLAsset(url: url)
-                if let duration = try? await asset.load(.duration), duration.seconds.isFinite { rows.append(("Duration", "\(Int(duration.seconds)) seconds")) }
-                if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) { rows.append(("Dimensions", "\(Int(size.width)) × \(Int(size.height))")) }
+                if let duration = try? await asset.load(.duration), duration.seconds.isFinite { info.facts.append(.init("Duration", ViewerCopy.clock(seconds: Int(duration.seconds)))) }
+                if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) { info.facts.append(.init("Dimensions", "\(Int(size.width)) × \(Int(size.height))")) }
+            } else if file.kind == .pdf, let pages = PDFDocument(url: url)?.pageCount {
+                info.facts.append(.init("Pages", "\(pages)"))
             }
         }
-        return rows
+        return info
     }
 }
 
+/// What the File info sheet shows. Created and the measured facts appear only when known.
+struct FileInfo: Equatable {
+    var summary: String
+    var location: String
+    var path: String?
+    var modified: String
+    var created: String?
+    var facts: [Fact] = []
+    var reading: String
+
+    struct Fact: Equatable {
+        let label: String
+        let value: String
+        init(_ label: String, _ value: String) { (self.label, self.value) = (label, value) }
+    }
+}
+
+/// The one action list, as menu items: long-press, viewer overflow and VoiceOver actions all draw it.
+/// `starred` comes from the caller, so a list row does not watch every star.
 struct FileActionButtons: View {
     let file: SourceFile
+    var starred = false
+    var similar: ((SourceFile) -> Void)?
     var deleted: () -> Void = {}
     @Environment(FileActions.self) private var actions: FileActions?
+    @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
         ForEach(FileAction.available(file.uri), id: \.self) { action in
-            if action == .share { ShareButton(file: file) } else {
-                Button(action.rawValue, role: action == .delete ? .destructive : nil) { actions?.select(action, file: file, deleted: deleted) }
+            switch action {
+            case .star:
+                if let model { row(action) { model.setStarred(file.uri, !starred) } }
+            case .share:
+                ShareButton(file: file)
+            case .open:
+                row(action) { actions?.select(action, file: file, deleted: deleted) }
+                if let similar { Button { similar(file) } label: { Label("Find similar", systemImage: "photo.stack") } }
+            case .delete:
+                Divider()
+                row(action) { actions?.select(action, file: file, deleted: deleted) }
+            case .info, .rename:
+                row(action) { actions?.select(action, file: file, deleted: deleted) }
             }
+        }
+    }
+
+    private func row(_ action: FileAction, perform: @escaping () -> Void) -> some View {
+        Button(role: action == .delete ? .destructive : nil, action: perform) {
+            Label(action.title(starred: starred), systemImage: action.icon(starred: starred))
         }
     }
 }
@@ -149,8 +222,11 @@ struct FileActionButtons: View {
 struct FileOverflow: View {
     let file: SourceFile
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppModel.self) private var model: AppModel?
     var body: some View {
-        Menu { FileActionButtons(file: file, deleted: { dismiss() }) } label: { Label("File actions", systemImage: "ellipsis").labelStyle(.iconOnly) }
+        Menu { FileActionButtons(file: file, starred: model?.starred.contains(file.uri) == true, deleted: { dismiss() }) } label: {
+            Label("More actions", systemImage: "ellipsis").labelStyle(.iconOnly)
+        }
     }
 }
 
@@ -166,14 +242,7 @@ struct FileActionsHost: ViewModifier {
         content.environment(actions)
             .task(id: actions.action) { await actions.prepare(model: model) }
             .sheet(isPresented: showing(.info)) {
-                NavigationStack {
-                    List {
-                        ForEach(actions.info.indices, id: \.self) { index in
-                            LabeledContent(actions.info[index].0, value: actions.info[index].1)
-                        }
-                    }.navigationTitle("File info")
-                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { actions.action = nil } } }
-                }
+                if let file = actions.file { FileInfoSheet(file: file, info: actions.info) { actions.action = nil } }
             }
             .sheet(isPresented: showing(.open), onDismiss: { actions.openURL = nil }) {
                 if let url = actions.openURL { OpenIn(url: url) } else { ProgressView() }
@@ -183,12 +252,56 @@ struct FileActionsHost: ViewModifier {
                 Button("Rename") { actions.rename(model: model) }.disabled(!FileAction.validName(actions.name) || actions.busy)
                 Button("Cancel", role: .cancel) {}
             }
-            .confirmationDialog("Delete \(actions.file?.name ?? "this file")?", isPresented: showing(.delete), titleVisibility: .visible) {
+            .confirmationDialog("Delete this file?", isPresented: showing(.delete), titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { actions.delete(model: model) }.disabled(actions.busy)
-            } message: { Text("This removes the file from its library or folder.") }
+            } message: { Text("This removes the original from \(actions.file.map(FileActions.place) ?? "its folder").") }
             .alert("Couldn't finish", isPresented: Binding(get: { actions.error != nil }, set: { if !$0 { actions.error = nil } })) {
                 Button("OK") { actions.error = nil }
             } message: { Text(actions.error ?? "") }
+    }
+}
+
+/// File info: what it is, where it lives, when, and how much of it Retriever has read.
+private struct FileInfoSheet: View {
+    let file: SourceFile
+    let info: FileInfo?
+    let done: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let info {
+                    Section {
+                        HStack(spacing: 12) {
+                            Thumb(file: file, points: 56).frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.name).font(.headline).textSelection(.enabled)
+                                Text(info.summary).font(.subheadline).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Section {
+                        LabeledContent("Location", value: info.location)
+                        if let path = info.path {
+                            DisclosureGroup("Location details") {
+                                Text(path).font(.footnote).textSelection(.enabled)
+                                Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+                            }
+                        }
+                        LabeledContent("Modified", value: info.modified)
+                        if let created = info.created { LabeledContent("Created", value: created) }
+                        ForEach(info.facts, id: \.label) { LabeledContent($0.label, value: $0.value) }
+                        LabeledContent("Reading", value: info.reading)
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            }
+            .navigationTitle("File info")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

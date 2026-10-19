@@ -96,11 +96,46 @@ final class ViewerTests: XCTestCase {
         let other = file("other", .doc)
         XCTAssertEqual(viewing(second, locator: "", words: [], among: [first, video, second]), .photos([first, second], index: 1))
         XCTAssertEqual(viewing(second, locator: "", words: [], among: [first]), .photos([second], index: 0))
-        XCTAssertEqual(quickLookFiles(doc, among: [first, doc, video, other]).map(\.uri), [doc.uri, other.uri])
+        XCTAssertEqual(viewing(doc, locator: "", words: ["a"], among: [first, doc, video, other]), .document(Place(files: [doc, other], index: 0), locator: "", words: ["a"]))
         var opened: [SourceFile] = []
         let open = OpenFile { _, _, _, neighbors in opened = neighbors }
         open(second, among: [first, second])
         XCTAssertEqual(opened.map(\.uri), [first.uri, second.uri])
+    }
+
+    func testPDFsAndMediaStepThroughTheirOwnKindAndMatchOnlyWhenTheLocatorSaysSo() {
+        let a = file("a", .pdf), b = file("b", .pdf), movie = file("movie", .video), song = file("song", .audio), doc = file("notes", .doc)
+        XCTAssertEqual(viewing(b, locator: "", words: [], among: [a, doc, b]), .pdf(Place(files: [a, b], index: 1), page: nil, words: []))
+        XCTAssertEqual(viewing(a, locator: "p. 3", words: ["x"], among: [a, b]), .pdf(Place(files: [a, b], index: 0), page: 3, words: ["x"]))
+        XCTAssertEqual(viewing(song, locator: "1:05", words: [], among: [movie, doc, song]), .media(Place(files: [movie, song], index: 1), ms: 65000))
+        XCTAssertEqual(viewing(movie, locator: "", words: [], among: []), .media(Place(files: [movie], index: 0), ms: nil))
+    }
+
+    func testPositionAndMatchLabels() {
+        XCTAssertEqual(Place.label(index: 1, count: 5), "2 of 5")
+        XCTAssertNil(Place.label(index: 0, count: 1), "a lone file has no position to show")
+        XCTAssertEqual(ViewerCopy.match(page: 3), "Match on page 3")
+        XCTAssertNil(ViewerCopy.match(page: nil))
+        XCTAssertEqual(ViewerCopy.page(2, of: 12), "Page 2 of 12")
+        XCTAssertNil(ViewerCopy.page(1, of: 1))
+        XCTAssertEqual(ViewerCopy.match(ms: 65000), "Match at 1:05")
+        XCTAssertEqual(ViewerCopy.match(ms: 3_725_000), "Match at 1:02:05")
+        XCTAssertNil(ViewerCopy.match(ms: nil))
+    }
+
+    func testReaderMatchesAreTheParagraphsWithTheWordsAndStepWrapRound() {
+        let matches = ReaderMatches(paragraphs: ["The bank, then the Bank.", "Nothing here", "banking and BANK"], words: ["bank", "at"])
+        XCTAssertEqual(matches.total, 2, "a paragraph counts once; whole words only, any case; two-letter words are not marked")
+        XCTAssertEqual(matches.paragraph(0), 0)
+        XCTAssertEqual(matches.paragraph(1), 2)
+        XCTAssertNil(matches.paragraph(2))
+        let locators = ["p. 1", "p. 2", "p. 3"]
+        XCTAssertTrue(matches.opening(locators: locators, hit: "") == (0, 0), "no hit: the first matching paragraph")
+        XCTAssertTrue(matches.opening(locators: locators, hit: "p. 3") == (2, 1), "the hit's own paragraph, second among the matches")
+        XCTAssertTrue(matches.opening(locators: locators, hit: "p. 2") == (1, 0), "a hit page without the words opens there")
+        XCTAssertEqual(ReaderMatches.step(1, by: 1, total: 2), 0)
+        XCTAssertEqual(ReaderMatches.step(0, by: -1, total: 2), 1)
+        XCTAssertEqual(ReaderMatches.step(0, by: 1, total: 0), 0)
     }
 
     func testPDFJumpWaitsForLayoutAndRunsOnlyOnce() throws {
@@ -128,7 +163,7 @@ final class ViewerTests: XCTestCase {
     func testSeededLibraryVideoOpensOffTheMainActor() async throws {
         let videos = PHAsset.fetchAssets(with: .video, options: nil)
         let video = try XCTUnwrap(videos.firstObject, "scripts/ios-unit-tests.sh must seed a library video")
-        let item = await VideoViewer.libraryItem(video.localIdentifier)
+        let item = await MediaViewer.libraryItem(video.localIdentifier)
         XCTAssertNotNil(item, "the real arbitrary-queue Photos callback must return without trapping")
         let retriever = AppServices.shared.retriever
         try await retriever.pause()
@@ -148,7 +183,7 @@ final class ViewerTests: XCTestCase {
         let file = SourceFile(
             uri: uri, name: "environment.pdf", folder: "test", mime: "application/pdf", kind: .pdf, size: Int64(pdf.count), modifiedAt: 0, takenAt: nil)
         let model = AppModel(services: services)
-        let host = UIHostingController(rootView: AppStack(model: model, path: .constant([])) { PDFViewer(file: file, page: 1, words: []) })
+        let host = UIHostingController(rootView: AppStack(model: model, path: .constant([])) { PDFViewer(place: Place(files: [file], index: 0), page: 1, words: []) })
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = host
@@ -161,7 +196,7 @@ final class ViewerTests: XCTestCase {
         let movie = SourceFile(
             uri: "ph://\(video.localIdentifier)", name: "video", folder: "Photos", mime: "video/mp4", kind: .video, size: 1, modifiedAt: 0, takenAt: nil)
         try AVAudioSession.sharedInstance().setCategory(.soloAmbient)
-        let player = UIHostingController(rootView: AppStack(model: model, path: .constant([])) { VideoViewer(file: movie, ms: 0) })
+        let player = UIHostingController(rootView: AppStack(model: model, path: .constant([])) { MediaViewer(place: Place(files: [movie], index: 0), ms: 0) })
         window.rootViewController = player
         let playing = await eventually {
             AVAudioSession.sharedInstance().category == .playback && self.playerController(in: player)?.player != nil

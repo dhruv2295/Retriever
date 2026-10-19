@@ -2,21 +2,14 @@
 
 package app.retriever.viewer
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,8 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -40,21 +31,19 @@ import app.retriever.R
 import app.retriever.core.Locator
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.PlayerRoute
-import app.retriever.starred.StarButton
+import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
-import app.retriever.ui.tabular
 import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val stars = koinViewModel<StarHolder>().stars
-    val starred by stars.starred.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)
     val vm = koinViewModel<PlayerViewModel>()
@@ -73,30 +62,15 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, modifier: Modifier = Mo
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(route.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        AnimatedVisibility(showFrom) {
-                            Text(
-                                "From ${Locator.time((route.startMs / 1000).toInt())}",
-                                style = MaterialTheme.typography.bodySmall.tabular(),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    StarButton(route.uri in starred) { stars.toggle(route.uri) }
-                    app.retriever.files.FileOverflow(route.uri, onBack)
-                },
+            ViewerTopBar(
+                route.title,
+                route.uri,
+                stars,
+                onBack,
+                subtitle = if (showFrom) "Match at ${Locator.time((route.startMs / 1000).toInt())}" else null,
             )
         },
+        bottomBar = { ViewerStepBar(route.uri, replace) },
     ) { padding ->
         if (ui is PlayerUi.Failed) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {

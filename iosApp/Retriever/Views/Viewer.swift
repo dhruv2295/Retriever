@@ -11,19 +11,43 @@ import RetrieverCore
 import SwiftUI
 import os
 
-/// A file shown in the app at the place it matched.
-enum Viewing: Hashable {
-    case pdf(SourceFile, page: Int, words: [String])
-    case video(SourceFile, ms: Int64)
-    case photos([SourceFile], index: Int)
-    case document(SourceFile, [SourceFile])
+/// A file's place in the list it was opened from.
+struct Place: Hashable {
+    var files: [SourceFile]
+    var index: Int
+
+    var file: SourceFile { files[index] }
+    var label: String? { Self.label(index: index, count: files.count) }
+
+    /// "2 of 5"; nothing for a lone file, so a restored route never shows a swipe cue it cannot honor.
+    static func label(index: Int, count: Int) -> String? { count > 1 ? "\(index + 1) of \(count)" : nil }
 }
 
-/// Opens a file at its match: in the app for PDFs, videos and library photos, in Quick Look otherwise.
+/// The words a viewer shows over a file.
+enum ViewerCopy {
+    static func match(page: Int?) -> String? { page.map { "Match on page \($0)" } }
+    static func page(_ page: Int, of total: Int) -> String? { total > 1 ? "Page \(page) of \(total)" : nil }
+    static func match(ms: Int64?) -> String? { ms.map { "Match at \(clock(seconds: Int($0 / 1000)))" } }
+
+    static func clock(seconds: Int) -> String {
+        let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60)
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+/// A file shown in the app at the place it matched.
+enum Viewing: Hashable {
+    case pdf(Place, page: Int?, words: [String])
+    case media(Place, ms: Int64?)
+    case photos([SourceFile], index: Int)
+    case document(Place, locator: String, words: [String])
+}
+
+/// Opens a file at its match: in the app for PDFs, media and library photos, in Quick Look otherwise.
 struct OpenFile {
     var action: (SourceFile, String, [String], [SourceFile]) -> Void = { _, _, _, _ in }
 
-    /// `among` is the list the file was tapped in, so photos swipe and Quick Look pages through its neighbours.
+    /// `among` is the list the file was tapped in, so photos swipe and the other viewers step through its neighbours.
     func callAsFunction(_ file: SourceFile, locator: String = "", words: [String] = [], among: [SourceFile] = []) {
         action(file, locator, words, among)
     }
@@ -33,25 +57,31 @@ extension EnvironmentValues {
     @Entry var openFile = OpenFile()
 }
 
-/// Library photos open in the app (not iCloud-only PDFs or videos); folder PDFs and videos too.
+/// Library photos open in the app (not iCloud-only PDFs or videos).
 private func isPhoto(_ file: SourceFile) -> Bool {
     file.uri.hasPrefix("ph://") && file.kind != .video && file.kind != .pdf
 }
 
-/// What opening a file means: a page to push, or nil for Quick Look.
-func viewing(_ file: SourceFile, locator: String, words: [String], among: [SourceFile] = []) -> Viewing {
-    if file.kind == .pdf, !file.uri.hasPrefix("ph://") {
-        return .pdf(file, page: Locator.shared.pageOf(l: locator)?.intValue ?? 1, words: words)
-    }
-    if file.kind == .video { return .video(file, ms: Locator.shared.msOf(l: locator)?.int64Value ?? 0) }
-    guard isPhoto(file) else { return .document(file, quickLookFiles(file, among: among)) }
-    let photos = among.filter(isPhoto)
-    return .photos(photos.contains { $0.uri == file.uri } ? photos : [file], index: photos.firstIndex { $0.uri == file.uri } ?? 0)
+private func isFolderPDF(_ file: SourceFile) -> Bool { file.kind == .pdf && !file.uri.hasPrefix("ph://") }
+private func isMedia(_ file: SourceFile) -> Bool { file.kind == .video || file.kind == .audio }
+private func isQuickLook(_ file: SourceFile) -> Bool { file.kind != .pdf && !isMedia(file) && !isPhoto(file) }
+
+/// `file` among the neighbours its viewer can step through; alone when the list does not hold it.
+private func place(_ file: SourceFile, among: [SourceFile], where keep: (SourceFile) -> Bool) -> Place {
+    let list = among.filter(keep)
+    guard let index = list.firstIndex(where: { $0.uri == file.uri }) else { return Place(files: [file], index: 0) }
+    return Place(files: list, index: index)
 }
 
-/// The files Quick Look pages through when `file` is opened from `among`: its folder neighbours with no in-app viewer.
-func quickLookFiles(_ file: SourceFile, among: [SourceFile]) -> [SourceFile] {
-    (among.contains { $0.uri == file.uri } ? among : [file]).filter { $0.kind != .pdf && $0.kind != .video && !isPhoto($0) }
+/// What opening a file means. A page or a moment is a match only when the locator named one.
+func viewing(_ file: SourceFile, locator: String, words: [String], among: [SourceFile] = []) -> Viewing {
+    if isFolderPDF(file) {
+        return .pdf(place(file, among: among, where: isFolderPDF), page: Locator.shared.pageOf(l: locator)?.intValue, words: words)
+    }
+    if isMedia(file) { return .media(place(file, among: among, where: isMedia), ms: Locator.shared.msOf(l: locator)?.int64Value) }
+    guard isPhoto(file) else { return .document(place(file, among: among, where: isQuickLook), locator: locator, words: words) }
+    let photos = among.filter(isPhoto)
+    return .photos(photos.contains { $0.uri == file.uri } ? photos : [file], index: photos.firstIndex { $0.uri == file.uri } ?? 0)
 }
 
 /// The words to highlight inside the file: those a keyword match marked, else the query's own words.
@@ -63,52 +93,199 @@ func highlightWords(snippet: String?, query: String?) -> [String] {
 
 @MainActor @ViewBuilder func viewer(_ v: Viewing) -> some View {
     switch v {
-    case .pdf(let file, let page, let words): PDFViewer(file: file, page: page, words: words)
-    case .video(let file, let ms): VideoViewer(file: file, ms: ms)
+    case .pdf(let place, let page, let words): PDFViewer(place: place, page: page, words: words)
+    case .media(let place, let ms): MediaViewer(place: place, ms: ms)
     case .photos(let files, let index): PhotoViewer(files: files, index: index)
-    case .document(let file, let files): DocumentViewer(file: file, files: files)
+    case .document(let place, let locator, let words): DocumentViewer(place: place, locator: locator, words: words)
+    }
+}
+
+// MARK: Shared chrome
+
+/// Back, the name, Share, Star and one overflow. On a narrow screen Star lives in the overflow, which always has it.
+private struct ViewerBar<Extra: View>: ViewModifier {
+    let file: SourceFile
+    var detail: String?
+    @ViewBuilder let extra: Extra
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(file.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if let detail {
+                    ToolbarItem(placement: .principal) {
+                        VStack(spacing: 0) {
+                            Text(file.name).font(.headline).lineLimit(1)
+                            Text(detail).font(.caption).foregroundStyle(.secondary)
+                        }.accessibilityElement(children: .combine)
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    ShareButton(file: file)
+                    extra
+                    if sizeClass == .regular { StarButton(file: file) }
+                    FileOverflow(file: file)
+                }
+            }
+    }
+}
+
+extension View {
+    fileprivate func viewerBar(_ file: SourceFile, detail: String? = nil) -> some View {
+        modifier(ViewerBar(file: file, detail: detail) { EmptyView() })
+    }
+
+    fileprivate func viewerBar(_ file: SourceFile, @ViewBuilder extra: () -> some View) -> some View {
+        modifier(ViewerBar(file: file, extra: extra))
+    }
+}
+
+/// Previous and next file as buttons, so a pan or a seek is never taken for a page turn.
+private struct StepBar: ToolbarContent {
+    let count: Int
+    @Binding var index: Int
+
+    var body: some ToolbarContent {
+        ToolbarItemGroup(placement: .bottomBar) {
+            Button { index -= 1 } label: { Label("Previous file", systemImage: "chevron.left").labelStyle(.iconOnly) }
+                .disabled(index == 0)
+            Spacer()
+            Text(Place.label(index: index, count: count) ?? "").font(.footnote).monospacedDigit()
+            Spacer()
+            Button { index += 1 } label: { Label("Next file", systemImage: "chevron.right").labelStyle(.iconOnly) }
+                .disabled(index == count - 1)
+        }
+    }
+}
+
+/// Small labels over the content: where the match is, which page is showing.
+private struct Badge: View {
+    let lines: [String]
+
+    var body: some View {
+        if !lines.isEmpty {
+            VStack(spacing: 2) { ForEach(lines, id: \.self) { Text($0) } }
+                .font(.caption.weight(.semibold))
+                .monospacedDigit()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .padding(8)
+                .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// Why a file cannot be shown, each with its own way on.
+enum ViewerProblem: Error, Equatable {
+    case noAccess, missing, locked
+    case cantOpen(title: String, message: String)
+}
+
+/// The folder behind a file, or the reason it is not there to open.
+func reach(_ file: SourceFile, _ folders: FolderSource?) -> Result<URL, ViewerProblem> {
+    guard let url = folders?.resolve(file.uri) else { return .failure(.noAccess) }
+    return FileManager.default.fileExists(atPath: url.path) ? .success(url) : .failure(.missing)
+}
+
+private struct ProblemView: View {
+    let file: SourceFile
+    let problem: ViewerProblem
+    @Environment(FileActions.self) private var actions: FileActions?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        switch problem {
+        case .missing:
+            StateView(mood: .trouble, title: "This file is no longer available", message: "It may have been moved or deleted.") {
+                Button("Go back") { dismiss() }
+            }
+        case .noAccess:
+            StateView(mood: .trouble, title: "Access to this folder has changed", message: "Choose the folder again to open this file.") {
+                NavigationLink("Manage access", value: Route.folders)
+            }
+        case .locked:
+            StateView(mood: .trouble, title: "This PDF needs a password", message: "Another app can ask for it.") { openElsewhere }
+        case .cantOpen(let title, let message):
+            StateView(mood: .trouble, title: title, message: message) { openElsewhere }
+        }
+    }
+
+    private var openElsewhere: some View {
+        Button("Open in another app") { actions?.select(.open, file: file) }
     }
 }
 
 // MARK: PDF
 
 struct PDFViewer: View {
+    let place: Place
+    let page: Int?
+    let words: [String]
+    @State private var index: Int
+
+    init(place: Place, page: Int?, words: [String]) {
+        (self.place, self.page, self.words) = (place, page, words)
+        _index = State(initialValue: place.index)
+    }
+
+    var body: some View {
+        let first = index == place.index
+        PDFPane(file: place.files[index], page: first ? page : nil, words: first ? words : [])
+            .id(place.files[index].uri)
+            .toolbar { if place.files.count > 1 { StepBar(count: place.files.count, index: $index) } }
+    }
+}
+
+private struct PDFPane: View {
     let file: SourceFile
-    let page: Int
+    /// The matched page; nil when the PDF was opened without a match.
+    let page: Int?
     let words: [String]
     @State private var document: PDFDocument?
-    @State private var failed = false
+    @State private var problem: ViewerProblem?
+    @State private var current: Int
     @Environment(AppModel.self) private var model: AppModel?
+
+    init(file: SourceFile, page: Int?, words: [String]) {
+        (self.file, self.page, self.words) = (file, page, words)
+        _current = State(initialValue: page ?? 1)
+    }
 
     var body: some View {
         Group {
             if let document {
-                PDFPageView(document: document, page: page, words: words)
+                PDFPageView(document: document, page: page ?? 1, words: words)
                     .accessibilityIdentifier("viewer.pdf")
                     .ignoresSafeArea(edges: .bottom)
                     .accessibilityLabel(file.name)
-            } else if failed {
-                StateView(mood: .trouble, title: "Couldn't open this file", message: "It may have moved, or it's locked.")
+            } else if let problem {
+                ProblemView(file: file, problem: problem)
             } else {
                 ProgressView()
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                StarButton(file: file)
-                FileOverflow(file: file)
+        .overlay(alignment: .bottom) {
+            if let document { Badge(lines: [ViewerCopy.match(page: page), ViewerCopy.page(current, of: document.pageCount)].compactMap { $0 }) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .PDFViewPageChanged)) { note in
+            if let view = note.object as? PDFView, let shown = view.currentPage, let document = view.document {
+                current = document.index(for: shown) + 1
             }
         }
-        .navigationTitle(file.name)
-        .navigationBarTitleDisplayMode(.inline)
+        .viewerBar(file)
         .task {
-            guard document == nil else { return }
-            guard let url = model?.services?.folders.resolve(file.uri) else {
-                failed = true
-                return
+            guard document == nil, problem == nil else { return }
+            switch reach(file, model?.services?.folders) {
+            case .failure(let reason): problem = reason
+            case .success(let url):
+                let doc = await Self.open(url)
+                if let doc, !doc.isLocked { document = doc } else if doc != nil { problem = .locked } else {
+                    problem = .cantOpen(title: "Couldn't open this file", message: "It may be damaged, or in a form Retriever can't show.")
+                }
             }
-            let doc = await Self.open(url)
-            if let doc, !doc.isLocked { document = doc } else { failed = true }
         }
     }
 
@@ -154,73 +331,30 @@ private struct PDFPageView: UIViewRepresentable {
     /// Whole-word matches on one page only, so a long PDF never blocks the main thread.
     static func matches(on page: PDFPage, words: [String]) -> [PDFSelection] {
         guard let text = page.string else { return [] }
-        let range = NSRange(text.startIndex..., in: text)
-        return words.filter { $0.count >= 3 }.flatMap { word -> [PDFSelection] in
-            guard let regex = try? NSRegularExpression(pattern: "\\b\(NSRegularExpression.escapedPattern(for: word))\\b", options: .caseInsensitive) else {
-                return []
-            }
-            return regex.matches(in: text, range: range).compactMap { m in
-                let s = page.selection(for: m.range)
-                s?.color = .systemYellow
-                return s
-            }
+        return WordMatcher(words: words).ranges(in: text).compactMap { range in
+            let selection = page.selection(for: range)
+            selection?.color = .systemYellow
+            return selection
         }
     }
 }
 
-// MARK: Video
+// MARK: Media
 
-struct VideoViewer: View {
-    let file: SourceFile
-    let ms: Int64
-    @State private var player: AVPlayer?
-    @State private var failed = false
-    @Environment(AppModel.self) private var model: AppModel?
+struct MediaViewer: View {
+    let place: Place
+    let ms: Int64?
+    @State private var index: Int
+
+    init(place: Place, ms: Int64?) {
+        (self.place, self.ms) = (place, ms)
+        _index = State(initialValue: place.index)
+    }
 
     var body: some View {
-        Group {
-            if let player {
-                PlayerController(player: player).ignoresSafeArea().accessibilityIdentifier("viewer.video")
-            } else if failed {
-                StateView(mood: .trouble, title: "Couldn't play this video", message: "It may have moved, or it's only in iCloud and there's no connection.")
-            } else {
-                ProgressView()
-            }
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                StarButton(file: file)
-                FileOverflow(file: file)
-            }
-        }
-        .navigationTitle(file.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .task {
-            guard player == nil else { return }
-            let item: AVPlayerItem?
-            if file.uri.hasPrefix("ph://") {
-                item = await Self.libraryItem(String(file.uri.dropFirst(5)))
-            } else {
-                item = model?.services?.folders.resolve(file.uri).map { AVPlayerItem(url: $0) }
-            }
-            guard !Task.isCancelled else { return }
-            guard let item else {
-                failed = true
-                return
-            }
-            let player = AVPlayer(playerItem: item)
-            #if DEBUG
-                player.isMuted = CommandLine.arguments.contains("-mutedMedia")
-            #endif
-            await player.seek(to: CMTime(value: ms, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
-            guard !Task.isCancelled else { return }
-            self.player = player
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            player.play()
-        }
-        .onDisappear { player?.pause() }
+        MediaPane(file: place.files[index], ms: index == place.index ? ms : nil)
+            .id(place.files[index].uri)
+            .toolbar { if place.files.count > 1 { StepBar(count: place.files.count, index: $index) } }
     }
 
     /// Off the main actor: Photos calls back on its own queue, and a closure formed here would trap there.
@@ -236,7 +370,64 @@ struct VideoViewer: View {
                 return manager.requestPlayerItem(forVideo: asset, options: options) { @Sendable item, _ in done(item) }
             })
     }
+}
 
+private struct MediaPane: View {
+    let file: SourceFile
+    /// The matched moment; nil when there is no real locator.
+    let ms: Int64?
+    @State private var player: AVPlayer?
+    @State private var problem: ViewerProblem?
+    @Environment(AppModel.self) private var model: AppModel?
+
+    var body: some View {
+        Group {
+            if let player {
+                PlayerController(player: player).ignoresSafeArea(edges: .horizontal).accessibilityIdentifier("viewer.video")
+            } else if let problem {
+                ProblemView(file: file, problem: problem)
+            } else {
+                ProgressView()
+            }
+        }
+        .overlay(alignment: .top) {
+            if player != nil, let label = ViewerCopy.match(ms: ms) { Badge(lines: [label]) }
+        }
+        .viewerBar(file)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .task {
+            guard player == nil, problem == nil else { return }
+            let item: AVPlayerItem?
+            if file.uri.hasPrefix("ph://") {
+                item = await MediaViewer.libraryItem(String(file.uri.dropFirst(5)))
+            } else {
+                switch reach(file, model?.services?.folders) {
+                case .failure(let reason):
+                    problem = reason
+                    return
+                case .success(let url): item = AVPlayerItem(url: url)
+                }
+            }
+            guard !Task.isCancelled else { return }
+            guard let item else {
+                problem = .cantOpen(
+                    title: file.kind == .audio ? "Couldn't play this audio" : "Couldn't play this video",
+                    message: "It may be only in iCloud and there's no connection, or in a form Retriever can't play.")
+                return
+            }
+            let player = AVPlayer(playerItem: item)
+            #if DEBUG
+                player.isMuted = CommandLine.arguments.contains("-mutedMedia")
+            #endif
+            // Opens at the moment, paused: nothing plays until the person presses play.
+            await player.seek(to: CMTime(value: ms ?? 0, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+            guard !Task.isCancelled else { return }
+            self.player = player
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        }
+        .onDisappear { player?.pause() }
+    }
 }
 
 private struct PlayerController: UIViewControllerRepresentable {
@@ -268,14 +459,7 @@ struct PhotoViewer: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .background(Color.black.ignoresSafeArea())
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                StarButton(file: files[selection])
-                FileOverflow(file: files[selection])
-            }
-        }
-        .navigationTitle(files[selection].name)
-        .navigationBarTitleDisplayMode(.inline)
+        .viewerBar(files[selection], detail: Place.label(index: selection, count: files.count))
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
     }
@@ -286,6 +470,8 @@ private struct PhotoPage: View {
     @State private var image: UIImage?
     @State private var progress: Double?
     @State private var failed = false
+    @State private var attempt = 0
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ZStack {
@@ -297,9 +483,13 @@ private struct PhotoPage: View {
                     .accessibilityLabel("\(Format.kind(file.kind)), \(file.name)")
                     .accessibilityAddTraits(.isImage)
             } else if failed, [.denied, .restricted].contains(PHPhotoLibrary.authorizationStatus(for: .readWrite)) {
-                StateView(art: "IllusWelcome", title: "Photos access is off", message: "Turn it on in Settings to see your photos here.")
+                StateView(art: "IllusWelcome", title: "Photos access is off", message: "Turn it on in Settings to see your photos here.") {
+                    Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
+                }
             } else if failed {
-                StateView(mood: .trouble, title: "Couldn't show this photo", message: "It may be only in iCloud, and there's no connection right now.")
+                StateView(mood: .trouble, title: "Couldn't show this photo", message: "It may be only in iCloud, and there's no connection right now.") {
+                    Button("Try again") { attempt += 1 }
+                }
             } else if let progress {
                 ProgressView("Downloading from iCloud", value: progress).tint(.white).foregroundStyle(.white).padding(40)
             } else {
@@ -307,8 +497,9 @@ private struct PhotoPage: View {
             }
         }
         .environment(\.colorScheme, .dark)
-        .task {
+        .task(id: attempt) {
             guard image == nil else { return }
+            failed = false
             image = await Self.load(String(file.uri.dropFirst(5))) { p in Task { @MainActor in progress = p } }
             failed = image == nil && !Task.isCancelled
         }
@@ -443,44 +634,72 @@ private struct ZoomableImage: UIViewRepresentable {
 }
 
 
-/// Quick Look keeps its native rendering and paging; the app toolbar supplies the same file actions as other viewers.
+
+// MARK: Documents
+
+/// Quick Look keeps its native rendering and paging; the app bar supplies the same file actions as other viewers.
 private struct DocumentViewer: View {
-    let file: SourceFile
-    let files: [SourceFile]
+    let place: Place
+    let locator: String
+    let words: [String]
     @Environment(\.services) private var services
-    @State private var current: SourceFile?
 
     var body: some View {
-        let items = files.compactMap { f in services?.folders.resolve(f.uri).map { (f, $0) } }
-        Group {
-            if items.isEmpty { StateView(mood: .trouble, title: "Couldn't open this file", message: "Its folder can't be reached right now.") }
-            else { DocumentPreview(items: items, initial: file.uri, current: $current).ignoresSafeArea(edges: .bottom) }
+        let items = place.files.compactMap { f in services?.folders.resolve(f.uri).map { (f, $0) } }
+        if !items.contains(where: { $0.0.uri == place.file.uri }) {
+            ProblemView(file: place.file, problem: .noAccess).viewerBar(place.file)
+        } else {
+            DocumentPane(items: items, initial: place.file.uri, locator: locator, words: words)
         }
-        .navigationTitle((current ?? file).name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItemGroup(placement: .topBarTrailing) { StarButton(file: current ?? file); FileOverflow(file: current ?? file) } }
+    }
+}
+
+private struct DocumentPane: View {
+    let items: [(SourceFile, URL)]
+    let locator: String
+    let words: [String]
+    @State private var index: Int
+    @State private var reading = false
+
+    init(items: [(SourceFile, URL)], initial: String, locator: String, words: [String]) {
+        (self.items, self.locator, self.words) = (items, locator, words)
+        _index = State(initialValue: items.firstIndex { $0.0.uri == initial } ?? 0)
+    }
+
+    var body: some View {
+        let file = items[index].0
+        DocumentPreview(items: items, index: $index)
+            .ignoresSafeArea(edges: .bottom)
+            .viewerBar(file) {
+                if file.kind == .doc {
+                    Button { reading = true } label: { Label("Text from this file", systemImage: "text.alignleft").labelStyle(.iconOnly) }
+                }
+            }
+            .toolbar { if items.count > 1 { StepBar(count: items.count, index: $index) } }
+            .sheet(isPresented: $reading) { TextReader(file: file, locator: locator, words: words) }
     }
 }
 
 private struct DocumentPreview: UIViewControllerRepresentable {
     let items: [(SourceFile, URL)]
-    let initial: String
-    @Binding var current: SourceFile?
+    @Binding var index: Int
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIViewController(context: Context) -> QLPreviewController {
         let controller = QLPreviewController()
         controller.dataSource = context.coordinator
-        controller.currentPreviewItemIndex = items.firstIndex { $0.0.uri == initial } ?? 0
+        controller.currentPreviewItemIndex = index
         context.coordinator.observation = controller.observe(\.currentPreviewItemIndex, options: [.new]) { _, change in
-            let index = change.newValue ?? 0
+            let shown = change.newValue ?? 0
             Task { @MainActor in
-                if items.indices.contains(index) { current = items[index].0 }
+                if items.indices.contains(shown), shown != index { index = shown }
             }
         }
         return controller
     }
-    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        if controller.currentPreviewItemIndex != index { controller.currentPreviewItemIndex = index }
+    }
     final class Coordinator: NSObject, QLPreviewControllerDataSource {
         let parent: DocumentPreview
         var observation: NSKeyValueObservation?

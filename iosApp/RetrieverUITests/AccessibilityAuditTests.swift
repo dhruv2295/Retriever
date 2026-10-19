@@ -159,9 +159,9 @@ final class AccessibilityAuditTests: XCTestCase {
 
     func testSeededViewerAndBrowseRoutesPassTheAccessibilityAudit() throws {
         let routes = [
-            ("viewer.pdf", "Document_01", "Star"),
-            ("viewer.video", "", "Star"),
-            ("viewer.photo", "IMG_1001", "Star"),
+            ("viewer.pdf", "Document_01", "More actions"),
+            ("viewer.video", "", "More actions"),
+            ("viewer.photo", "IMG_1001", "More actions"),
             ("browse.large", "", "Sort"),
             ("browse.folders", "", "Add a folder"),
             ("browse.duplicates", "", "Duplicates"),
@@ -423,11 +423,11 @@ final class AccessibilityAuditTests: XCTestCase {
         let names = ["IMG_1001.jpg", "IMG_1003.jpg"]
         let first = names.first { app.navigationBars.staticTexts[$0].exists }
         XCTAssertNotNil(first)
-        XCTAssertTrue(app.buttons["Star"].exists)
+        XCTAssertTrue(app.buttons["More actions"].exists)
         let next = names.first { $0 != first }!
         app.swipeLeft()
         if !app.navigationBars.staticTexts[next].waitForExistence(timeout: 2) { app.swipeRight() }
         XCTAssertTrue(app.navigationBars.staticTexts[next].waitForExistence(timeout: 5), "opening from Browse must pass its photo neighbors")
-        XCTAssertTrue(app.buttons["Star"].exists, "the newly selected photo keeps its toolbar actions")
+        XCTAssertTrue(app.buttons["More actions"].exists, "the newly selected photo keeps its toolbar actions")
     }
 }

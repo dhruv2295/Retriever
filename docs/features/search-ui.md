@@ -85,7 +85,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `anEmptyAnswerIsAskedAgainOnceFilesAreRead`, `aReplacedSearchThatFailsIsNoFailure`,
   `theNamesAnswerFirstAndTheFullOneRefreshesInPlace`, `clearingAndRetypingTheSameWordsAnswersFromNamesFirst`,
   `noMatchesGoesQuietAfterItWasSeenEnough`, `typingHoldsReadingOffForAMoment`, `aViewModelClearedMidTypingLeavesReadingFree`.
-  Layout: `RecompositionTest.countsAndHomeChangesLeaveTheTilesAlone`, `RecompositionTest.starringOneFileRecomposesNoTile`.
+  Layout: `RecompositionTest.countsAndHomeChangesLeaveTheTilesAlone`, `RecompositionTest.starringOneFileRecomposesOnlyThatFile`.
 - iOS, `iosApp/RetrieverTests/SearchModelTests.swift`: `testANewQueryIsSearchingNeverEmpty`,
   `testAnEmptyAnswerToAnOlderQuestionIsSearching`, `testARetryOfTheSameQuestionKeepsItsEmptyAnswer`,
   `testAFailureBelongsToItsQuestion`, `testResultsGoStaleWhenTheQuestionChanges`, `testNothingAnsweredIsStaleOnceActive`,

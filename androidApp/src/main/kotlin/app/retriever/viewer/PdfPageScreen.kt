@@ -29,7 +29,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,7 +44,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -71,22 +69,20 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.core.motion.MascotMood
 import app.retriever.di.AppScope
+import app.retriever.nav.FoldersRoute
 import app.retriever.nav.PdfRoute
-import app.retriever.starred.StarButton
+import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.tabular
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -100,6 +96,7 @@ import me.saket.telephoto.zoomable.rememberZoomableState
 import me.saket.telephoto.zoomable.zoomable
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import java.io.FileNotFoundException
 import android.graphics.Color as AndroidColor
 
 // PdfRenderer is not thread-safe: every open, render and close goes through this one thread.
@@ -119,12 +116,17 @@ internal fun zoomBucket(userZoom: Float): Int = when {
 internal fun renderScale(pageW: Int, pageH: Int, widthPx: Int): Float =
     minOf(widthPx.toFloat() / pageW, MAX_PAGE_PX.toFloat() / pageH, MAX_PAGE_PX.toFloat() / pageW)
 
+/** The bar's second line: where the search matched, then where the reader is. */
+internal fun pdfSubtitle(page: Int, count: Int, matchedPage: Int?): String = (matchedPage?.let { "Match on page $it · " } ?: "") + "Page $page of $count"
+
 /** The page "Matched here" marks, or null when no search matched (a PDF opened from a list, or found by name). */
 internal fun PdfRoute.matchedIndex(): Int? = if (matched) page - 1 else null
 
 private sealed interface PdfState {
     data object Loading : PdfState
     data object Locked : PdfState
+    data object NoAccess : PdfState
+    data object Missing : PdfState
     data object Failed : PdfState
 
     /** [placeholder]: the matched page's size, the shape every page takes until it renders at its own. */
@@ -133,11 +135,10 @@ private sealed interface PdfState {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val appScope: CoroutineScope = koinInject(AppScope)
     val stars = koinViewModel<StarHolder>().stars
-    val starred by stars.starred.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)
     val state by produceState<PdfState>(PdfState.Loading, route.uri) {
@@ -145,7 +146,11 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
         var renderer: PdfRenderer? = null
         value = withContext(pdfDispatcher) {
             try {
-                val opened = context.contentResolver.openFileDescriptor(route.uri.toUri(), "r") ?: error("no file")
+                val opened = try {
+                    context.contentResolver.openFileDescriptor(route.uri.toUri(), "r") ?: error("no file")
+                } catch (_: SecurityException) {
+                    return@withContext PdfState.NoAccess
+                }
                 fd = opened
                 val r = PdfRenderer(opened).also { renderer = it }
                 // Measures one page, not all of them: a 1,500-page book would hold the spinner for seconds.
@@ -153,6 +158,8 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
                 PdfState.Ready(r, r.pageCount, shape)
             } catch (_: SecurityException) {
                 PdfState.Locked
+            } catch (_: FileNotFoundException) {
+                PdfState.Missing
             } catch (_: Exception) {
                 PdfState.Failed
             }
@@ -176,19 +183,12 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(route.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        (state as? PdfState.Ready)?.let {
-                            Text(
-                                "Page ${(zoomed ?: current) + 1} of ${it.count}",
-                                style = MaterialTheme.typography.bodySmall.tabular(),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
+            ViewerTopBar(
+                route.title,
+                route.uri,
+                stars,
+                onBack,
+                subtitle = (state as? PdfState.Ready)?.let { pdfSubtitle((zoomed ?: current) + 1, it.count, route.page.takeIf { route.matched }) },
                 navigationIcon = {
                     if (zoomed != null) {
                         IconButton(onClick = { zoomed = null }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Close page") }
@@ -196,12 +196,9 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
                         IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
                     }
                 },
-                actions = {
-                    StarButton(route.uri in starred) { stars.toggle(route.uri) }
-                    app.retriever.files.FileOverflow(route.uri, onBack)
-                },
             )
         },
+        bottomBar = { ViewerStepBar(route.uri, replace) },
     ) { padding ->
         when (val s = state) {
             PdfState.Loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -210,10 +207,30 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
 
             PdfState.Locked -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    "This PDF is locked",
-                    "It needs a password, so Retriever can only find it by name. Open it in another app to read it.",
+                    "This PDF needs a password",
+                    "Retriever can still find it by name. You can open it in another app.",
                     R.drawable.ic_lock,
                     action = "Open in another app" to openElsewhere,
+                )
+            }
+
+            PdfState.NoAccess -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                EmptyState(
+                    "Access to this folder has changed",
+                    "Choose the folder again to open this file.",
+                    R.drawable.ic_folder,
+                    action = "Manage access" to { replace(FoldersRoute) },
+                    mood = MascotMood.TROUBLE,
+                )
+            }
+
+            PdfState.Missing -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                EmptyState(
+                    "This file is no longer available",
+                    "It may have been moved or deleted.",
+                    R.drawable.ic_warning_amber,
+                    action = "Go back" to onBack,
+                    mood = MascotMood.TROUBLE,
                 )
             }
 
@@ -244,7 +261,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, modifier: Modifier = Modi
                             .fillMaxSize()
                             .pointerInput(Unit) {}
                             .background(MaterialTheme.colorScheme.surface)
-                            .padding(top = padding.calculateTopPadding()),
+                            .padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()),
                     )
                 }
             }

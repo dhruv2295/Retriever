@@ -72,7 +72,7 @@ fun StarButton(on: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit)
     IconButton(onClick = onToggle, modifier = modifier) {
         Icon(
             painterResource(if (on) R.drawable.ic_star else R.drawable.ic_star_border),
-            contentDescription = if (on) "Remove star" else "Star this file",
+            contentDescription = if (on) "Remove from Starred" else "Add to Starred",
         )
     }
 }

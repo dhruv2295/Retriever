@@ -22,8 +22,8 @@ import kotlinx.coroutines.withContext
 sealed interface DocUi {
     data object Loading : DocUi
 
-    /** [matchIndex]: the paragraph the hit is in, where the list opens; [query] styles its words. */
-    data class Text(val paragraphs: List<String>, val matchIndex: Int, val query: String) : DocUi
+    /** [matchIndex]: the paragraph the hit is in, where the list opens; [matches]: every paragraph holding the [query]'s words. */
+    data class Text(val paragraphs: List<String>, val matchIndex: Int, val query: String, val matches: List<Int> = emptyList()) : DocUi
 
     /** The file waits to be read; nothing is wrong with it. */
     data object NotReadYet : DocUi
@@ -66,5 +66,10 @@ internal suspend fun loadDoc(query: String, locator: String, read: suspend () ->
     val here = if (locator.isEmpty()) emptyList() else chunks.indices.filter { chunks[it].locator == locator }
     val pool = here.ifEmpty { chunks.indices.toList() }
     val match = pool.firstOrNull { nameMatchRanges(chunks[it].text, query).isNotEmpty() } ?: here.firstOrNull() ?: 0
-    return DocUi.Text(chunks.map { it.text }, match, query)
+    val matches = chunks.indices.filter { nameMatchRanges(chunks[it].text, query).isNotEmpty() }
+    return DocUi.Text(chunks.map { it.text }, match, query, matches)
 }
+
+/** The match after ([step] 1) or before (-1) paragraph [from], wrapping round the ends; null when nothing matches. */
+internal fun stepMatch(matches: List<Int>, from: Int, step: Int): Int? =
+    if (step > 0) matches.firstOrNull { it > from } ?: matches.firstOrNull() else matches.lastOrNull { it < from } ?: matches.lastOrNull()
