@@ -91,5 +91,6 @@ Battery Saver / Low Power Mode; thermal status moderate or worse (iOS `.serious`
 ## Sources
 
 The walk, rest, sniff and "huh?" were generated with Sora 2 from the shipped illustrations, then cut into seamless
-loops and keyed; the welcome and caught-up are rendered from the mesh rig. Scripts and previews:
-`~/AndroidStudioProjects/retriever-motion/v5` (Sora) and `v2/rig` (rig). Approved by Dhruv on 2026-10-17.
+loops and keyed; the welcome and caught-up are rendered from the mesh rig. Source frames, reference poses, seeds,
+prompts, scripts and the rig: `~/AndroidStudioProjects/retriever-motion/base` (see its README). Approved by Dhruv on
+2026-10-17.
