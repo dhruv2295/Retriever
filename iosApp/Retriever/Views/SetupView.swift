@@ -83,6 +83,7 @@ struct SetupView: View {
             continueToCommit: continueFromTryIt,
             readWhileCharging: { model.commit(whileCharging: true) },
             readNow: { model.commit(whileCharging: false) },
+            notNow: model.decideLater,
             skip: model.skipSetup,
             done: onDone
         )
@@ -236,6 +237,7 @@ struct SetupActions {
     var continueToCommit: () -> Void = {}
     var readWhileCharging: () -> Void = {}
     var readNow: () -> Void = {}
+    var notNow: () -> Void = {}
     var skip: () -> Void = {}
     var done: (() -> Void)?
 }
@@ -473,7 +475,7 @@ struct SetupContent: View {
         let taste = state.taste ?? TasteSnap()
         return VStack(alignment: .leading, spacing: 16) {
             Text(Copy.firstRunReadingHeadline).font(.title2.bold())
-            Note(Copy.firstRunReadingLine(files: taste.planned, secondsLeft: taste.secondsLeft))
+            Note(Copy.firstRunReadingLine(files: taste.read, secondsLeft: reading().pauseReason == nil ? taste.secondsLeft : nil))
             SetupReadingFiles(reading: reading, read: taste.read)
             WrappingLayout { ForEach(taste.rows) { KindRow(row: $0) } }
         }
@@ -482,22 +484,7 @@ struct SetupContent: View {
 
     /// One sentence about the rest, the nights, and three one-tap answers. No mascot: the decision is the focal point.
     private var commit: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(Copy.commitTitle).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-            Text(Copy.commitRest(files: state.restFiles)).foregroundStyle(.secondary)
-            Note(Copy.commitNights)
-            if state.photos == .limited, state.chosenPhotos > 0 {
-                Note(Copy.limitedPhotosFootnote(photos: state.chosenPhotos, folders: state.folders.count))
-            }
-            Button(action: actions.readWhileCharging) { Text(Copy.commitWhileCharging).frame(maxWidth: .infinity) }
-                .buttonStyle(.primaryAction)
-                .controlSize(.large)
-                .padding(.top, 8)
-            Button(action: actions.readNow) { Text(Copy.commitReadNow(continued: Self.continuedReading)).frame(maxWidth: .infinity) }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-            Button(Copy.commitNotYet, action: actions.skip).frame(maxWidth: .infinity)
-        }
+        ReadingChoice(files: state.restFiles, charging: actions.readWhileCharging, readNow: actions.readNow, notNow: actions.notNow)
     }
 
     /// iOS 26 keeps a started read going after the person leaves; before it, only the open app reads.

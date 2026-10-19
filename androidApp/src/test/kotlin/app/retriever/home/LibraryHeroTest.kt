@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
 class LibraryHeroTest {
     @get:Rule val rule = createComposeRule()
-    private val ready = HomeUi(setUp = true, counts = mapOf(Kind.DOC to 10L), searchable = 10, readByKind = mapOf(Kind.DOC to 10L))
+    private val ready = HomeUi(setUp = true, counts = mapOf(Kind.DOC to 10L), contentRead = 10, readByKind = mapOf(Kind.DOC to 10L))
     private var dismissed = false
     private var destination: Route? = null
 
@@ -51,42 +51,45 @@ class LibraryHeroTest {
     }
 
     @Test fun readingShowsProgressAgainstWholeLibrary() {
-        show(ready.copy(waiting = 6, searchable = 4, readByKind = mapOf(Kind.DOC to 4L)), IndexState(running = true, pendingAtStart = 6))
-        rule.onNodeWithContentDescription("Documents: 4 of 10 read").assertExists()
+        show(
+            ready.copy(waiting = 6, contentRead = 4, readByKind = mapOf(Kind.DOC to 4L)),
+            IndexState(running = true, pendingAtStart = 6, currentFile = app.retriever.core.SourceFile("demo:a", "a", "", "text/plain", Kind.DOC, 1, 1)),
+        )
+        rule.onNodeWithText("4 files read").assertExists()
         rule.onNodeWithText("Reading your files").assertIsDisplayed()
     }
 
     @Test fun trialKeepsWholeLibraryTotalAndOnlyCountsReadFiles() {
-        show(ready.copy(trial = true, waiting = 2, rest = 6, searchable = 2, readByKind = mapOf(Kind.DOC to 2L)))
-        rule.onNodeWithText("2 searchable of 10").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Documents: 2 of 10 read").assertExists()
+        show(ready.copy(trial = true, waiting = 2, rest = 6, contentRead = 2, readByKind = mapOf(Kind.DOC to 2L)))
+        rule.onNodeWithText("2 files read").assertIsDisplayed()
+        rule.onNodeWithText("10 files in your library").assertExists()
     }
 
     @Test fun caughtUpHasAnAccessibleDismissControl() {
         show(ready)
-        rule.onNodeWithContentDescription("Dismiss all caught up").performClick()
+        rule.onNodeWithContentDescription("Dismiss reading status").performClick()
         assertTrue(dismissed)
     }
 
     @Test fun dismissedHidesTheRow() {
         show(ready.copy(caughtUpDismissed = true))
-        rule.onNodeWithText("All caught up").assertDoesNotExist()
-        rule.onNodeWithText("Your library").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Dismiss reading status").assertDoesNotExist()
+        rule.onNodeWithText("Your files").assertIsDisplayed()
     }
 
-    @Test fun textOnlyPhoneHasDocumentChipAndOpensBrowse() {
+    @Test fun textOnlyPhoneShowsItsLibraryAndReadCount() {
         show(ready.copy(inside = setOf(Kind.DOC, Kind.PDF, Kind.SCREENSHOT)))
-        rule.onNodeWithText("Documents 10").performClick()
-        assertEquals(BrowseRoute(kind = "DOC", title = "Documents"), destination)
+        rule.onNodeWithText("10 files in your library").assertExists()
+        rule.onNodeWithText("10 files read").assertExists()
     }
 
     @Test fun subtitleFollowsTheActualReadingState() {
         val idle = IndexState()
-        assertTrue(libraryStatus(ready.copy(trial = true, waiting = 2), idle).startsWith("Trial in progress"))
-        assertTrue(libraryStatus(ready.copy(trial = true, rest = 5), idle).startsWith("Trial ready"))
-        assertEquals("Paused", libraryStatus(ready.copy(paused = true), idle))
-        assertEquals("Reading your files", libraryStatus(ready.copy(waiting = 5), idle.copy(running = true, pendingAtStart = 5)))
-        assertEquals("All caught up", libraryStatus(ready, idle))
+        assertTrue(libraryStatus(ready.copy(trial = true, waiting = 2), idle).startsWith("Waiting for Android"))
+        assertTrue(libraryStatus(ready.copy(trial = true, rest = 5), idle).startsWith("Your sample is ready"))
+        assertEquals("Reading paused", libraryStatus(ready.copy(paused = true), idle))
+        assertEquals("Starting reading…", libraryStatus(ready.copy(waiting = 5), idle.copy(running = true, pendingAtStart = 5)))
+        assertEquals("Up to date", libraryStatus(ready, idle))
     }
 
     @Test fun heroStaysCompactAtDefaultTextSize() {

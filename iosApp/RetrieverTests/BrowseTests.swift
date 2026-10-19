@@ -76,6 +76,6 @@ final class BrowseTests: XCTestCase {
 
     private func file(_ id: Int) -> Store.StoredFile {
         let file = SourceFile(uri: "folder://test/\(id)", name: "\(id)", folder: "test", mime: "", kind: .doc, size: 1, modifiedAt: 0, takenAt: nil)
-        return Store.StoredFile(id: Int64(id), file: file, attempts: 0, state: .indexed, partial: false, extent: nil)
+        return Store.StoredFile(id: Int64(id), file: file, attempts: 0, state: .indexed, partial: false, extent: nil, contentRead: true)
     }
 }

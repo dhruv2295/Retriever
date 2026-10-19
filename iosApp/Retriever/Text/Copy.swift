@@ -22,76 +22,28 @@ enum Copy {
     static let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
 
     static func stop(_ stop: StopReason?) -> String? {
-        switch stop {
-        case StopReason.done: "All caught up"
-        case StopReason.powerSave: "Paused: Low Power Mode"
-        case StopReason.hot: "Resting while your \(device) cools down"
-        case StopReason.unplugged: "Waiting for the charger"
-        case StopReason.budget: "Taking a short break"
-        case StopReason.busy: "Paused while you use your \(device)"
-        case StopReason.paused: "Paused"
-        default: nil
-        }
+        guard let stop else { return nil }
+        let progress = ReadingProgress(read: 0, partlyRead: 0, scheduled: 1, notScheduled: 0, nameOnly: 0, couldntRead: 0, laterPasses: 0, sample: false, rereads: 0)
+        return ReadingPolicy.shared.decide(progress: progress, blocker: stop, running: false, reading: false, ios: true).title
+    }
+    static func waiting(_ stop: StopReason?) -> String? { self.stop(stop) }
+
+    static func readCount(_ s: AppModel.Snap) -> String {
+        "\(count(s.indexed)) \(s.indexed == 1 ? "file" : "files") read" + (s.partlyRead > 0 ? " · \(count(s.partlyRead)) partly read" : "")
     }
 
-    /// Why files are still waiting. A batch that ended done finished before the newer files arrived.
-    static func waiting(_ stop: StopReason?) -> String? {
-        stop == StopReason.done ? "Will read the new files soon" : self.stop(stop)
+    static func decision(_ s: AppModel.Snap) -> ReadingStatus {
+        ReadingPolicy.shared.decide(progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, ios: true)
     }
 
-    static func searchable(_ s: AppModel.Snap) -> String {
-        "\(count(s.indexed)) searchable of \(count(Int(s.readProgress.libraryTotal)))"
-    }
+    static func statusTitle(_ s: AppModel.Snap) -> String { s.readingTitle ?? decision(s).title }
 
-    static func statusTitle(_ s: AppModel.Snap) -> String {
-        let phase = s.readProgress.phase(paused: s.paused, running: s.running)
-        if phase == .waiting { return waiting(s.lastStop) ?? phase.title }
-        if phase == .caughtUp && s.caughtUpDismissed { return "Ready to search" }
-        return phase.title
-    }
-
-    /// What Home's first row says; nil while the counts load, and while there are no files, when Home says it in one
-    /// message instead. The first match wins, as home-spec section 3 orders them.
     static func homeStatus(_ s: AppModel.Snap?, download: ModelDownload.State = .idle, progress: Double = 0, nameOnly: Int64 = 0) -> HomeStatus? {
-        guard let s, !(s.total == 0 && (s.running || s.setUp == true)) else { return nil }
-        let of = "\(count(s.indexed)) of \(count(s.total))"
-        let readSoFar = "Search works on everything read so far."
-        if s.setUp != true {
-            let step =
-                switch download {
-                case .downloading: "Downloading · \(progress.formatted(.percent.precision(.fractionLength(0))))"
-                case .waitingForWifi: "Waiting for Wi-Fi to download"
-                case .failed: "The download stopped"
-                default: "Getting ready"
-                }
-            return HomeStatus(phase: .settingUp, title: "\(step). For now Retriever finds files by name.")
-        }
-        let phase = s.readProgress.phase(paused: s.paused, running: s.running)
-        if s.trial && s.readProgress.unfinished {
-            return HomeStatus(
-                phase: s.paused ? .paused : (s.running ? .reading : .waiting),
-                title: "\(s.paused ? "Trial paused" : "Finishing your trial") · \(s.pending > 0 ? "\(count(s.pending)) files left" : "\(count(s.tailFiles)) files partly read")",
-                detail: stop(s.lastStop).flatMap { s.lastStop == StopReason.done ? nil : $0 } ?? readSoFar)
-        }
-        if phase == .trialReady {
-            return HomeStatus(phase: .waiting, title: "Trial ready · Choose when to read the rest")
-        }
-        if phase == .looking { return HomeStatus(phase: .looking, title: "Up to date · Looking for new files…") }
-        if phase == .deepening {
-            return HomeStatus(phase: .reading, title: phase.title, detail: "\(count(s.tailFiles)) files partly read")
-        }
-        if phase == .reading {
-            return HomeStatus(
-                phase: .reading, title: "Reading your files · \(of)", detail: s.etaMinutes.map(eta),
-                progress: s.total > 0 ? Double(s.indexed) / Double(s.total) : 0)
-        }
-        if phase == .paused { return HomeStatus(phase: .paused, title: "Paused · \(count(s.indexed)) of \(count(s.total)) searchable", detail: readSoFar) }
-        if phase == .waiting {
-            return HomeStatus(phase: .waiting, title: "\(waiting(s.lastStop) ?? "Waiting") · \(of) searchable", detail: readSoFar)
-        }
-        return HomeStatus(
-            phase: .caughtUp, title: "All caught up · \(count(s.indexed)) files searchable",
-            detail: nameOnly > 0 ? "\(count(Int(nameOnly))) of them by name only" : nil)
+        guard let s, !(s.readProgress.libraryTotal == 0 && s.setUp == true) else { return nil }
+        if s.setUp != true { return HomeStatus(phase: .settingUp, title: "Finishing setup. You can search file names now.") }
+        let phase = s.readingPhase ?? decision(s).phase
+        let homePhase: HomeStatus.Phase = phase == .paused ? .paused : (phase == .caughtUp || phase == .limited) ? .caughtUp : phase == .looking ? .looking : (s.readingActive || decision(s).active) ? .reading : .waiting
+        return HomeStatus(phase: homePhase, title: statusTitle(s), detail: s.readingDetail ?? decision(s).detail)
     }
 
     /// Shown under the status row while Photos access is off or limited; it never takes the status row's place, so
@@ -166,12 +118,12 @@ enum Copy {
     }
 
     static let backgroundNote =
-        "Retriever reads your files while it's open, on battery too, and keeps the screen on as it goes. After you leave, it carries on where \(device) allows, mostly overnight on the charger."
+        "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start."
 
-    static let screenKeptOn = "Retriever keeps your screen on while it reads. Lock your \(device) any time to stop."
+    static let screenKeptOn = "Keep screen awake is on for this session. You can turn it off in Reading settings."
 
     static func deepReading(_ n: Int) -> String {
-        n == 1 ? "1 long file still being read in depth" : "\(count(n)) long files still being read in depth"
+        "\(count(n)) partly read · more meaning search to come"
     }
 
     static func textOnlyNote(ramGb: Double) -> String {
@@ -193,20 +145,23 @@ enum Copy {
 
     static func extent(_ extent: ReadExtent?) -> String? {
         switch extent {
-        case ReadExtent.firstPart: "Only the first part of this file was read"
-        case ReadExtent.deepening: "Still reading the rest of this file"
+        case ReadExtent.firstPart: "Partly read · only the beginning is included"
+        case ReadExtent.meaningLimited: "Partly read · couldn’t finish meaning search"
+        case ReadExtent.firstPartMeaningLimited: "Partly read · only the beginning is included; couldn’t finish meaning search"
+        case ReadExtent.firstPartDeepening: "Partly read · only the beginning is included; more meaning search to come"
+        case ReadExtent.deepening: "Partly read · more meaning search to come"
         default: nil
         }
     }
 
-    static let keepReading = "Keep reading after I leave"
-    static let keepReadingNote = "Your \(device) shows how it's going and lets you stop it any time."
+    static let keepReading = "Read now for 15 minutes"
+    static let keepReadingNote = "Can continue after you leave if iOS allows."
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
     nonisolated static let continuedTitle = "Reading your files"
 
-    nonisolated static func continuedSubtitle(_ s: AppModel.Snap) -> String {
-        "\(count(s.indexed)) of \(count(s.total))"
+    nonisolated static func continuedSubtitle(_ files: Int) -> String {
+        "\(count(files)) files read this session"
     }
 
     // MARK: Home sections
@@ -315,20 +270,20 @@ enum Copy {
     static let firstRunDownloaded = "Downloaded"
     static let firstRunDownload = "Download"
     static let firstRunTryAgain = "Try again"
-    static let firstRunNamesNow = "Names are searchable now."
+    static let firstRunNamesNow = "You can search file names now."
     static let firstRunSearchByName = "Search by name"
     static let firstRunSkip = "Skip"
     static let firstRunDone = "Retriever is set up."
     static let firstRunStartSearching = "Start searching"
 
-    static let firstRunReadingHeadline = "Reading a few of your files"
-    static let firstRunReadyToSearch = "Ready to search"
+    static let firstRunReadingHeadline = "Reading a few files to try"
+    static let firstRunReadyToSearch = "Files you can try"
     static let firstRunTryNow = "Try it now"
-    static let firstRunStaysSearchable = "Everything it reads now stays searchable."
+    static let firstRunStaysSearchable = "You can keep searching the content read so far."
 
     /// "79 files · about a minute left"
     static func firstRunReadingLine(files: Int, secondsLeft: Int?) -> String {
-        [files == 1 ? "1 file" : "\(count(files)) files", timeLeft(secondsLeft)].compactMap { $0 }.joined(separator: " · ")
+        "\(count(files)) \(files == 1 ? "file" : "files") read"
     }
 
     /// The short read's time left, from measured per-file cost.
@@ -352,19 +307,19 @@ enum Copy {
     static func closestIn(_ files: Int) -> String { "Closest in these \(count(files)) files" }
     static func stillReading(_ files: Int) -> String { "Still reading \(count(files)) more" }
 
-    static let commitTitle = "Read everything?"
-    static let commitWhileCharging = "Read while charging"
-    static let commitNotYet = "Not yet"
+    static let commitTitle = "Search inside more files"
+    static let commitWhileCharging = "While charging"
+    static let commitNotYet = "Not now"
     /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
-    static let commitNights = "iPhone reads more slowly in the background, so this takes several nights on the charger."
+    static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
 
     /// No hours, while the estimate is uncalibrated. `files` is what is left beyond the short read, when known.
     static func commitRest(files: Int?) -> String {
-        "Reading \(files.map { "the other \(count($0))" } ?? "the rest") takes hours; Retriever measures this \(device) as it goes."
+        files.map { "\(count($0)) more files can be read. You can already find them by name." } ?? "You can already find your files by name."
     }
 
     /// iOS 26 and later keep reading after the person leaves; before that, only while the app is open.
     nonisolated static func commitReadNow(continued: Bool) -> String {
-        continued ? "Read now" : "Read while Retriever is open"
+        "Read now for 15 minutes"
     }
 }

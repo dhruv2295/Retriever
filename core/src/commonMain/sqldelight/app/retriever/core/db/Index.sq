@@ -222,7 +222,10 @@ retrySkipped:
 UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'SKIPPED';
 
 skippedFiles:
-SELECT * FROM files WHERE state = 'SKIPPED' ORDER BY name COLLATE NOCASE ASC, id LIMIT ?;
+SELECT f.* FROM files f WHERE f.state = 'SKIPPED' AND f.kind IN :kinds
+AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+  AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+ORDER BY f.name COLLATE NOCASE ASC, f.id LIMIT :limit;
 
 fileById:
 SELECT * FROM files WHERE id = ?;
@@ -478,3 +481,42 @@ SELECT substr(content_text, 1, 400) AS preview FROM chunks JOIN files ON files.i
 WHERE files.uri = ? AND files.modified_at = ? AND files.size = ? AND files.state = 'INDEXED'
 AND content_text IS NOT NULL AND trim(content_text) != ''
 ORDER BY ordinal, chunks.id LIMIT 1;
+
+-- Ordinal zero is a name vector. Metadata text is not extracted content.
+readingCounts:
+SELECT kind, coverage, scheduled, later, COUNT(*) AS n FROM (
+  SELECT f.kind,
+    CASE
+      WHEN f.kind NOT IN :kinds THEN 'NAME'
+      WHEN EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+        AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+      THEN CASE WHEN f.state != 'INDEXED' OR f.partial = 1 OR (:includeTails = 1 AND EXISTS
+        (SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0 AND c.vector IS NULL AND length(trim(c.content_text)) > 0))
+        THEN 'PARTIAL' ELSE 'READ' END
+      WHEN f.state = 'SKIPPED' THEN 'ERROR'
+      WHEN f.state = 'INDEXED' THEN 'NAME'
+      ELSE 'WAITING'
+    END AS coverage,
+    1 AS scheduled,
+    CASE WHEN :includeTails = 1 AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id
+      AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3 AND length(trim(c.content_text)) > 0)
+      THEN 1 ELSE 0 END AS later
+  FROM files f WHERE :allFiles = 1 OR f.id IN :ids
+) GROUP BY kind, coverage, scheduled, later;
+
+filesWithContent:
+SELECT f.* FROM files f WHERE f.id IN :ids AND EXISTS (
+  SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.ordinal > 0
+  AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL))
+);
+
+failedMeaningFiles:
+SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND ordinal > 0 AND vector IS NULL AND tail_attempts >= 3 AND length(trim(content_text)) > 0;
+
+lastChunkId:
+SELECT COALESCE(MAX(id), 0) FROM chunks;
+
+sessionReadCount:
+SELECT COUNT(DISTINCT f.id) FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE c.id > :after AND f.kind IN :kinds AND c.ordinal > 0
+AND (length(trim(c.content_text)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL));

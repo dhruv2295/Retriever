@@ -18,7 +18,9 @@ data class FileMetric(
     val cause: Throwable? = null,
 )
 
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE }
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, MANUAL }
+
+private class ReadingStopped(val reason: StopReason) : CancellationException()
 
 data class BatchResult(val processed: Int, val failed: Int, val stopReason: StopReason)
 
@@ -44,6 +46,7 @@ class IndexEngine(
     private val onCurrent: (SourceFile?) -> Unit = {},
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
+    private val policyStop: (() -> StopReason?)? = null,
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
     suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
@@ -58,20 +61,40 @@ class IndexEngine(
             if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
             val now = settings()
             val state = monitor.state()
-            stopReason(now, state, busy(), requireCharging(state), pauseWhenHot)?.let { return stop(it) }
+            (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state), pauseWhenHot))?.let { return stop(it) }
             if (configurationChanged()) return stop(StopReason.BUDGET)
             if (files.isEmpty()) files += pendingPage()
             val next = files.removeFirstOrNull()
             if (next != null) {
-                val metric = index(next, now, state)
+                val metric = try {
+                    index(next, now, state)
+                } catch (s: ReadingStopped) {
+                    return stop(s.reason)
+                }
                 if (metric.ok) processed++ else failed++
                 onFile(metric)
+                if (deepen && embedder != null && (processed + failed) % HEAD_TEXT_CHUNKS == 0) {
+                    try {
+                        tailPage().firstOrNull()?.let { embedTail(it, embedder) }
+                    } catch (s: ReadingStopped) {
+                        return stop(s.reason)
+                    }
+                }
                 continue
             }
             if (!deepen || embedder == null) return stop(StopReason.DONE)
             if (tails.isEmpty()) tails += tailPage()
-            embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
+            try {
+                embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
+            } catch (s: ReadingStopped) {
+                return stop(s.reason)
+            }
         }
+    }
+
+    private suspend fun checkpoint() {
+        awaitUi()
+        policyStop?.invoke()?.let { throw ReadingStopped(it) }
     }
 
     /**
@@ -81,7 +104,7 @@ class IndexEngine(
     private suspend fun embedTail(tail: Store.TailChunk, embedder: Embedder) {
         store.setTailAttempts(tail.id, tail.attempts + 1)
         try {
-            awaitUi()
+            checkpoint()
             onCurrent(store.file(tail.fileId))
             store.setChunkVector(tail.id, embedder.embed(listOf(Part.Text(Prefix.document(tail.fileName, tail.text)))))
         } catch (e: InputTooLongException) {
@@ -106,7 +129,7 @@ class IndexEngine(
         var extractMs = 0.0
         var embedMs = 0.0
         // Before the attempt is counted: a search running now would otherwise wait behind this file's extraction.
-        awaitUi()
+        checkpoint()
         onCurrent(file)
         // Count the attempt up front so a file that kills the process (OOM, native crash, LMK) still ends up skipped.
         store.markFailed(stored.id, stored.attempts + 1)
@@ -123,7 +146,7 @@ class IndexEngine(
                 draftChunks<Vector>(file, pieces, embed = null)
             } else {
                 draftChunks(file, pieces) { parts ->
-                    awaitUi()
+                    checkpoint()
                     val timed = measureTimedValue { e.embed(parts) }
                     embedMs += timed.duration.inWholeNanoseconds / 1e6
                     timed.value

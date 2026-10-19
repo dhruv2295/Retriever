@@ -36,6 +36,10 @@ import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
@@ -69,17 +73,21 @@ class IndexWorker(
         if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
-        // Before setup finishes a batch only syncs the file list, so names are searchable while the model downloads.
-        if (retriever.prefs.value.paused || !platformReady()) return@withContext Result.success()
+        // Before setup finishes a batch only syncs the file list, so names are findable while the model downloads.
+        if (!platformReady()) {
+            retriever.clearUnavailableLibrary()
+            return@withContext Result.success()
+        }
         try {
             val next = coroutineScope {
                 // A trial handoff owns its foreground service before waiting for the direct batch to stop.
                 val trial = inputData.getBoolean(IndexService.TRIAL, false)
                 val foreground = retriever.setUp.value == true && (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
-                    safeSetForeground(foregroundInfo(retriever.state.value))
+                    safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
                 retriever.indexBatch(8.minutes, waitForLock = trial).also { progress?.cancel() }
             }
+            index.notifySampleIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
@@ -92,15 +100,16 @@ class IndexWorker(
     }
 
     // Android 11 implements expedited work as a foreground service and needs its notification before doWork.
-    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo(retriever.state.value)
+    override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo()
 
-    private suspend fun showProgress() {
+    private suspend fun showProgress() = coroutineScope {
         var last = 0L
-        retriever.state.collect { s ->
+        val counts = retriever.counts().shareIn(this, SharingStarted.WhileSubscribed(), replay = 1)
+        combine(retriever.state, counts, retriever.readingStatus(counts), ::Triple).collect { (s, c, status) ->
             val now = SystemClock.elapsedRealtime()
             if (s.running && now - last >= 1000) {
                 last = now
-                notificationManager.notify(notificationId, notification(s))
+                notificationManager.notify(notificationId, Notifications.progress(applicationContext, c.sampleProgress ?: c.progress, status, pauseIntent))
             }
         }
     }
@@ -115,16 +124,10 @@ class IndexWorker(
         false
     }
 
-    private fun notification(s: IndexState) = Notifications.progress(applicationContext, s.processed + s.failed, s.pendingAtStart, s.current, pauseIntent)
-
-    // mediaProcessing (API 35) has its own time budget; dataSync's 6 h a day is shared with other work.
-    private fun foregroundInfo(s: IndexState) = ForegroundInfo(
+    // mediaProcessing has its own budget on API 35+.
+    private suspend fun foregroundInfo() = ForegroundInfo(
         notificationId,
-        notification(s),
-        if (Build.VERSION.SDK_INT >= 35) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        } else {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        },
+        Notifications.progress(applicationContext, retriever.counts().first().let { it.sampleProgress ?: it.progress }, null, pauseIntent),
+        if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
 }

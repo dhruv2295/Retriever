@@ -75,16 +75,19 @@ private val defaultEffects = spring<Float>(1f, 1600f)
 private val fastEffects = spring<Float>(1f, 3800f)
 
 @Composable
-fun AppNav(retriever: Retriever = koinInject()) {
+fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
     val koin = getKoin()
     val setUp by retriever.setUp.collectAsStateWithLifecycle()
     val ready = setUp ?: return
     val navController = rememberNavController()
+    androidx.compose.runtime.LaunchedEffect(statusRequest) {
+        if (statusRequest > 0) navController.navigate(StatusRoute) { launchSingleTop = true }
+    }
     // Only from a settled screen: a double tap during a transition would push twice or pop Home off the stack.
     val settled = { navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED }
     val go: (Route) -> Unit = { if (settled()) navController.navigate(it) }
     val back: () -> Unit = { if (settled()) navController.popBackStack() }
-    // Names are searchable once files are allowed, so Home opens while the rest of setup carries on.
+    // Names are findable once files are allowed, so Home opens while the rest of setup carries on.
     // SetupFlow is built here, after setUp settles, so it seeds from the stored prefs.
     val start: Route = remember { if (ready || koin.get<SetupFlow>().ui.value.canSearch) HomeRoute else SetupRoute }
     app.retriever.files.FileActionsHost(retriever) {
@@ -116,7 +119,7 @@ fun AppNav(retriever: Retriever = koinInject()) {
                 },
             ) { SearchScreen(onNavigate = go) }
             composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
-            composable<SettingsRoute> { SettingsScreen(back) }
+            composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
             composable<FoldersRoute> { FoldersScreen(go, back) }
             composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
             composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }

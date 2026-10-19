@@ -58,7 +58,7 @@ class TrialReadTest {
         val store = newStore(sig).also { it.setProfile(PROFILE) }
         lateinit var r: Retriever
         val seen = mutableListOf<SourceFile>()
-        val extractor = FakeExtractor(onExtract = {
+        val extractor = FakeExtractor(files.associate { it.name to listOf(textPiece("actual content")) }, onExtract = {
             assertEquals(it, r.state.value.currentFile)
             assertEquals(it.name, r.state.value.current)
             assertFalse(it in r.state.value.recentFiles)

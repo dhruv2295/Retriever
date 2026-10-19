@@ -26,41 +26,54 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import app.retriever.MainActivity
 import app.retriever.R
+import app.retriever.core.ReadingProgress
+import app.retriever.core.ReadingStatus
+import app.retriever.ui.Format
 
 object Notifications {
     const val CHANNEL = "indexing"
 
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL, "Reading progress", NotificationManager.IMPORTANCE_LOW)
-            .apply { description = "Shows while Retriever reads your files" }
+            .apply {
+                description = "Progress for reading sessions and a one-time sample-ready update."
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            }
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    fun progress(context: Context, processed: Int, total: Long, current: String?, cancel: PendingIntent): Notification {
-        val text = buildString {
-            if (total > 0) append("%,d of %,d".format(processed, total)) else append("Getting ready")
-            if (current != null) append(" · ").append(current)
-        }
+    fun progress(context: Context, counts: ReadingProgress, status: ReadingStatus?, cancel: PendingIntent): Notification {
+        val scope = if (counts.sample) "sample " else ""
+        val text = "${Format.count(
+            counts.contentRead,
+        )} ${scope}files read · ${Format.count(counts.scheduled)} ${if (counts.sample) "sample files " else ""}waiting"
         return NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle("Reading your files")
+            .setContentTitle(status?.title ?: "Starting reading…")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), processed, total == 0L)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(context))
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(openApp(context))
-            .addAction(0, "Pause", cancel)
+            .setContentIntent(openApp(context, status = true))
+            .addAction(0, "Pause reading", cancel)
             .build()
     }
 
     /** Posted only when notifications are allowed; tapping it opens the app where the first run left off. */
     fun readyToTry(context: Context, files: Int) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (!manager.areNotificationsEnabled()) return
+        if (files <= 0 || !manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle("Ready to try")
-            .setContentText("Search the $files files Retriever just read.")
+            .setContentTitle("Try searching inside your files")
+            .setContentText("${Format.readCount(files.toLong())}. Open Retriever to try it.")
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(context))
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
@@ -70,5 +83,17 @@ object Notifications {
 
     private const val READY_TO_TRY_ID = 2
 
-    private fun openApp(context: Context) = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+    fun cancelSample(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(READY_TO_TRY_ID)
+
+    const val OPEN_STATUS = "app.retriever.OPEN_READING_STATUS"
+
+    private fun publicVersion(context: Context) = NotificationCompat.Builder(context, CHANNEL)
+        .setContentTitle("Retriever").setContentText("Reading your files").setSmallIcon(R.drawable.ic_notification).setSilent(true).build()
+
+    private fun openApp(context: Context, status: Boolean = false) = PendingIntent.getActivity(
+        context,
+        if (status) 1 else 0,
+        Intent(context, MainActivity::class.java).apply { if (status) action = OPEN_STATUS },
+        PendingIntent.FLAG_IMMUTABLE,
+    )
 }

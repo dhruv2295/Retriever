@@ -27,6 +27,17 @@ final class AppModel {
         var skipped = 0
         /// Long files whose later parts are read for keywords but not yet for meaning.
         var tailFiles = 0
+        var partlyRead = 0
+        var rereads = 0
+        var nameOnly = 0
+        var readingTitle: String?
+        var readingDetail: String?
+        var readingActive = false
+        var readingPhase: ReadingPhase?
+        var automaticReading: ReadingSchedule = .charging
+        var readNowUntil: Int64 = 0
+        var nameSearchHintDismissed = false
+        var scheduleOfferDismissed = false
         /// Too little memory to understand photos: files are found by their names and the words inside them.
         var textOnly = false
         var ramGb = 0.0
@@ -57,14 +68,14 @@ final class AppModel {
         static let insideTextOnly: [Kind] = inside.filter { RetrieverKt.textOnlyKinds.contains($0) }
 
         var readProgress: ReadingProgress {
-            ReadingProgress(searchable: Int64(indexed), pending: Int64(pending), skipped: Int64(skipped), partlyRead: Int64(tailFiles), waiting: Int64(waiting), trial: trial)
+            ReadingProgress(read: Int64(max(0, indexed - partlyRead)), partlyRead: Int64(partlyRead), scheduled: Int64(pending), notScheduled: Int64(waiting), nameOnly: Int64(nameOnly), couldntRead: Int64(skipped), laterPasses: Int64(tailFiles), sample: trial, rereads: Int64(rereads))
         }
-        var total: Int { Int(readProgress.total) }
+        var total: Int { Int(readProgress.libraryTotal) }
         var libraryTotal: Int { byKind.values.reduce(0, +) }
 
         /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
         /// under the short read's scope, so this is `scope == SAMPLE && waiting > 0`.
-        var asksCommit: Bool { waiting > 0 && pending == 0 }
+        var asksCommit: Bool { waiting > 0 && !scheduleOfferDismissed }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
         var isCaughtUp: Bool { setUp == true && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
@@ -173,6 +184,8 @@ final class AppModel {
 
     /// The foreground loop keeps the screen awake for the batch it's running.
     var screenKeptOn = false
+    var keepScreenAwakeForSession = false
+    var readingMessage: String?
     /// A read the person started carries on after they leave (IndexTask.continuedId); the foreground loop stands
     /// aside until it ends.
     var continuing = false
@@ -180,7 +193,7 @@ final class AppModel {
     /// Status offers to keep reading after the person leaves: iOS 26 and files waiting.
     var canKeepReading: Bool {
         guard #available(iOS 26.0, *), let snap else { return false }
-        return snap.setUp == true && snap.pending > 0 && !snap.paused && !continuing
+        return snap.setUp == true && snap.readProgress.unfinished && !snap.paused && !continuing
     }
 
     private let fixtureDownload: (ModelDownload.State, Double)
@@ -256,7 +269,7 @@ final class AppModel {
         ] {
             tokens.append(
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.keepScreenOn(self?.reading ?? false) }
+                    MainActor.assumeIsolated { self?.keepScreenOn(self?.reading ?? false); self?.wake() }
                 })
         }
         watchDownload()
@@ -277,7 +290,7 @@ final class AppModel {
         skippedFiles = skipped
         folders = started ? ["Work"] : []
         useMobileData = false
-        screenKeptOn = snap.running
+        screenKeptOn = false
     }
 
     /// Each property is assigned only when it differs, so a snapshot that changed nothing a screen shows redraws nothing.
@@ -342,14 +355,14 @@ final class AppModel {
     func commit(whileCharging: Bool) {
         guard let retriever = services?.retriever else { return }
         Task {
-            try? await retriever.commit(whileCharging: whileCharging)
-            IndexTask.schedule()
-            wake()
-            setupSeen = true
-            guard !whileCharging, #available(iOS 26.0, *) else { return }
-            // The count of waiting files follows the new scope a moment later; keepReading needs it.
-            for _ in 0..<10 where !canKeepReading { try? await Task.sleep(for: .milliseconds(100)) }
-            keepReading()
+            do {
+                try await retriever.commit(whileCharging: whileCharging)
+                IndexTask.schedule()
+                wake()
+                setupSeen = true
+                if !whileCharging { keepReading() }
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
+
         }
     }
 }
@@ -358,33 +371,42 @@ extension AppModel.Snap {
     init(_ s: RetrieverSnapshot, textOnly: Bool = false, ramGb: Double = 0) {
         self.textOnly = textOnly
         self.ramGb = ramGb
-        let state = s.counts.byState
+        let coverage = s.counts.progress
         setUp = s.setUp?.boolValue
         byKind = s.counts.byKind.mapValues { $0.intValue }
         for (key, n) in s.counts.byKindState where key.second == FileState.pending {
             if let kind = key.first { pendingByKind[kind] = n.intValue }
         }
-        for (key, n) in s.counts.byKindState where key.second == FileState.indexed {
-            if let kind = key.first { readByKind[kind] = n.intValue }
-        }
+        readByKind = s.counts.readByKind.mapValues { $0.intValue }
         caughtUpDismissed = s.prefs.caughtUpDismissed
         allowMobileData = s.prefs.allowMobileData
         onlyWhileCharging = s.prefs.onlyWhileCharging
         rememberSearches = s.prefs.rememberSearches
         showOnThisDay = s.prefs.showOnThisDay
         kinds = s.prefs.kinds
-        indexed = Int(s.counts.progress.searchable)
-        pending = state[FileState.pending]?.intValue ?? 0
+        indexed = Int(coverage.contentRead)
+        pending = Int(coverage.scheduled)
+        partlyRead = Int(coverage.partlyRead)
+        rereads = Int(coverage.rereads)
+        nameOnly = Int(coverage.nameOnly)
+        readingTitle = s.reading.title
+        readingDetail = s.reading.detail
+        readingActive = s.reading.active
+        readingPhase = s.reading.phase
+        automaticReading = s.prefs.automaticReading
+        readNowUntil = s.prefs.readNowUntil
+        nameSearchHintDismissed = s.prefs.nameSearchHintDismissed
+        scheduleOfferDismissed = s.prefs.scheduleOfferDismissed
         waiting = Int(s.counts.waiting)
         trial = s.counts.trial
-        skipped = state[FileState.skipped]?.intValue ?? 0
-        tailFiles = Int(s.counts.tailFiles)
+        skipped = Int(coverage.couldntRead)
+        tailFiles = Int(coverage.laterPasses)
         running = s.state.running
         processed = Int(s.state.processed)
         failed = Int(s.state.failed)
         pendingAtStart = Int(s.state.pendingAtStart)
         current = s.state.current
-        reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.state.pauseReason)
+        reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.reading.active ? nil : s.reading.title)
         lastStop = s.state.lastStop
         lastError = s.state.lastError
         filesPerMinute = s.state.filesPerMinute

@@ -115,7 +115,10 @@ enum FileAction: String, CaseIterable {
     @concurrent private static func details(_ file: SourceFile, stored: Store.StoredFile?, folders: FolderSource, readInside: Bool) async -> [(String, String)] {
         var rows = [("Name", file.name), ("Folder", file.folder), ("Kind", Format.kind(file.kind)), ("Size", ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)), ("Modified", Date(timeIntervalSince1970: Double(file.modifiedAt) / 1000).formatted())]
         if let taken = file.takenAt { rows.append(("Taken", Date(timeIntervalSince1970: Double(taken.int64Value) / 1000).formatted())) }
-        rows.append(("Read status", !readInside || stored?.state != .indexed || file.kind == .other ? "Not yet read" : stored?.partial == true ? "Partly read" : "Read fully"))
+        let reading = !readInside || file.kind == .other ? "Name only · Reading is off for this type"
+            : stored?.contentRead == true ? (stored?.partial == true || stored?.extent != nil || stored?.state != .indexed ? "Partly read" : "Read")
+            : stored?.state == .skipped ? "Couldn’t read" : stored?.state == .indexed ? "Name only · No readable content" : "Waiting to read"
+        rows.append(("Reading", reading))
         if file.uri.hasPrefix("ph://"), let asset = PHAsset.fetchAssets(withLocalIdentifiers: [String(file.uri.dropFirst(5))], options: nil).firstObject {
             rows.append(("Dimensions", "\(asset.pixelWidth) × \(asset.pixelHeight)"))
             if asset.duration > 0 { rows.append(("Duration", "\(Int(asset.duration)) seconds")) }

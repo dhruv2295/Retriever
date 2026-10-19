@@ -111,7 +111,7 @@ class SettingsViewModelTest {
         vm.setMobileData(true)
 
         val shown = vm.uiState.first { it.message != null }
-        assertTrue(shown.message!!.startsWith("Couldn't save"))
+        assertTrue(shown.message!!.startsWith("Couldn’t save"))
         assertEquals(false, retriever.prefs.value.allowMobileData)
         vm.messageShown()
         assertEquals(null, vm.uiState.first { it.message == null }.message)

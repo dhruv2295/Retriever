@@ -32,6 +32,7 @@ class BrowseShotsTest {
         file = SourceFile("demo:$i", "Item $i.$ext", "Camera", "application/octet-stream", kind, 1_200_000L * i, 1_760_000_000_000 - i * 86_400_000L),
         attempts = 0,
         state = FileState.INDEXED,
+        contentRead = true,
     )
 
     private fun content(files: List<Store.StoredFile>, kind: Kind?, dark: Boolean, loading: Boolean = false, starredOnly: Boolean = false) {
@@ -110,12 +111,12 @@ class BrowseShotsTest {
 
     @Test fun coverageLinePerRow() {
         val files = listOf(
-            stored(1, Kind.DOC, "docx").copy(state = FileState.SKIPPED),
+            stored(1, Kind.DOC, "docx").copy(state = FileState.SKIPPED, contentRead = false),
             stored(2, Kind.DOC, "docx").copy(state = FileState.INDEXED, partial = true),
         )
         content(files, Kind.DOC, dark = false)
-        rule.onNodeWithText("Couldn't be read").assertExists()
-        rule.onNodeWithText("Only the first part of this file was read").assertExists()
+        rule.onNodeWithText("Couldn’t read").assertExists()
+        rule.onNodeWithText("Partly read · only the beginning is included").assertExists()
     }
 
     @Test fun titles() {

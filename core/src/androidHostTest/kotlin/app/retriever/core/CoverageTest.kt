@@ -96,11 +96,12 @@ class CoverageTest {
             )
             store.setProfile(PROFILE)
             r.uiVisible = uiVisible
+            r.setReadingSchedule(ReadingSchedule.BATTERY)
             assertEquals(NextRun.DONE, r.indexBatch(1.minutes))
             return store
         }
         assertEquals(0L, run(uiVisible = true).tailChunkCount(), "the open app embedded the tail in the same batch")
-        assertEquals(12L, run(uiVisible = false).tailChunkCount(), "screen off on battery leaves it for the charger")
+        assertEquals(0L, run(uiVisible = false).tailChunkCount(), "battery schedule also deepens with the screen off")
     }
 
     @Test

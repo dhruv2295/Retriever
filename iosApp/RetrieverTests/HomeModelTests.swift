@@ -117,14 +117,14 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(layout.headers, 6)
         // The hero and folders; one chip row; the mosaic; the strip of screenshots; the strip of documents; the strip of
         // starred files; the grid of tiles (one row); Large files + Duplicates.
-        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 1, 2])
+        XCTAssertEqual(layout.items, [3, 1, 1, 1, 1, 1, 1, 2])
     }
 
     func testPicturesHideWithoutPhotosAccessAndDocumentsStay() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         let denied = try await layout(model, search: .fixture(recent: ["a"]), photos: .denied)
         XCTAssertEqual(
-            denied.items, [3, 1, 1, 1, 1, 2],
+            denied.items, [4, 1, 1, 1, 1, 2],
             "status and the Photos note; no mosaic or screenshots; documents come from added folders; starred, tiles, tidy up stay")
     }
 
@@ -132,7 +132,7 @@ final class HomeModelTests: XCTestCase {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         XCTAssertEqual(model.suggestions.count, 3)
         let layout = try await layout(model, search: .fixture())
-        XCTAssertEqual(layout.items, [2, 1, 1, 1, 1, 1, 1, 2], "still one chip row, of suggestions")
+        XCTAssertEqual(layout.items, [3, 1, 1, 1, 1, 1, 1, 2], "still one chip row, of suggestions")
     }
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
@@ -148,7 +148,7 @@ final class HomeModelTests: XCTestCase {
         // screenshots have strips and headers of their own). What is left is the status, the nudge to add a folder
         // (5 files is nearly empty), and Duplicates.
         XCTAssertEqual(layout.headers, 1)
-        XCTAssertEqual(layout.items, [2, 1, 1])
+        XCTAssertEqual(layout.items, [3, 1, 1])
     }
 
     /// Videos, Documents (beside PDFs), Audio, Other files, Folders, in that order and only with something in them.
@@ -190,15 +190,15 @@ final class HomeModelTests: XCTestCase {
     /// The card shows once the short read is done and files wait outside it; under the full scope core reports none.
     func testCommitCardShowsOnlyWhenTheShortReadIsDoneAndFilesWait() async throws {
         XCTAssertTrue(AppModel.Snap(setUp: true, indexed: 78, waiting: 26_214).asksCommit)
-        XCTAssertFalse(AppModel.Snap(setUp: true, indexed: 40, pending: 38, waiting: 26_214, running: true).asksCommit, "the short read is still running")
+        XCTAssertTrue(AppModel.Snap(setUp: true, indexed: 40, pending: 38, waiting: 26_214, running: true).asksCommit, "a schedule can be chosen before the sample ends")
         XCTAssertFalse(AppModel.Snap(setUp: true, indexed: 26_292).asksCommit, "scope ALL or nothing left")
         let model = AppModel(fixture: .caughtUp)
         let plain = try await layout(model, search: .fixture())
         var asking = try XCTUnwrap(model.snap)
         asking.waiting = 26_214
         let card = try await layout(model, snap: asking, search: .fixture())
-        XCTAssertEqual(plain.items.first, 2, "hero and folders")
-        XCTAssertEqual(card.items.first, 3, "the commit choice stays below the compact hero and folders")
+        XCTAssertEqual(plain.items.first, 3, "hero and folders")
+        XCTAssertEqual(card.items.first, 4, "the commit choice stays below the compact hero and folders")
         XCTAssertEqual(Array(card.items.dropFirst()), Array(plain.items.dropFirst()))
     }
 
@@ -413,11 +413,11 @@ final class HomeModelTests: XCTestCase {
         func stored(_ kind: Kind, _ state: FileState, partial: Bool = false) -> Store.StoredFile {
             Store.StoredFile(
                 id: 1, file: SourceFile(uri: "folder://t/a", name: "a", folder: "t", mime: "x/y", kind: kind, size: 1, modifiedAt: 0, takenAt: nil),
-                attempts: 0, state: state, partial: partial, extent: nil)
+                attempts: 0, state: state, partial: partial, extent: nil, contentRead: state == .indexed && kind != .other)
         }
-        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped)), "Couldn't be read")
-        XCTAssertEqual(Format.coverage(stored(.pdf, .pending)), "Found by name only")
-        XCTAssertEqual(Format.coverage(stored(.other, .indexed)), "Found by name only")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .skipped)), "Couldn’t read")
+        XCTAssertEqual(Format.coverage(stored(.pdf, .pending)), "Waiting to read")
+        XCTAssertEqual(Format.coverage(stored(.other, .indexed)), "Name only")
         XCTAssertEqual(Format.coverage(stored(.pdf, .indexed, partial: true)), Copy.extent(.firstPart))
         XCTAssertNil(Format.coverage(stored(.pdf, .indexed)))
     }

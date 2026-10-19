@@ -11,6 +11,7 @@ import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ReadEstimate
 import app.retriever.core.ReadingProgress
+import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.Store
 import app.retriever.core.YearMemory
@@ -42,8 +43,14 @@ import java.time.ZonedDateTime
 data class HomeUi(
     /** null until the store has answered. */
     val counts: Map<Kind, Long>? = null,
-    val searchable: Long = 0L,
+    val contentRead: Long = 0L,
     val partlyRead: Long = 0L,
+    val nameOnly: Long = 0L,
+    val laterPasses: Long = 0L,
+    val rereads: Long = 0L,
+    val readingStatus: ReadingStatus? = null,
+    val nameSearchHintDismissed: Boolean = false,
+    val scheduleOfferDismissed: Boolean = false,
     val skipped: Long = 0L,
     val readByKind: Map<Kind, Long> = emptyMap(),
     val caughtUpDismissed: Boolean = false,
@@ -71,21 +78,34 @@ data class HomeUi(
     /** The person can hide On this day, here or in Status. */
     val showOnThisDay: Boolean = true,
 ) {
-    val progress: ReadingProgress get() = ReadingProgress(searchable, waiting, skipped, partlyRead, rest, trial)
+    val progress: ReadingProgress get() = ReadingProgress(
+        (contentRead - partlyRead).coerceAtLeast(0),
+        partlyRead,
+        waiting,
+        rest,
+        nameOnly,
+        skipped,
+        laterPasses,
+        trial,
+        rereads,
+    )
 
     fun withCounts(c: Store.Counts): HomeUi = copy(
         counts = c.byKind,
-        readByKind = c.byKindState.filterKeys { it.second == FileState.INDEXED }.mapKeys { it.key.first },
-        searchable = c.progress.searchable,
+        readByKind = c.readByKind,
+        contentRead = c.progress.contentRead,
         partlyRead = c.progress.partlyRead,
-        skipped = c.progress.skipped,
-        waiting = c.progress.pending,
+        skipped = c.progress.couldntRead,
+        nameOnly = c.progress.nameOnly,
+        laterPasses = c.progress.laterPasses,
+        rereads = c.progress.rereads,
+        waiting = c.progress.scheduled,
         rest = c.waiting,
         trial = c.trial,
         pending = c.byKindState.filterKeys { it.second == FileState.PENDING }.mapKeys { it.key.first },
     )
 
-    val trialTitle: String? get() = if (trial && waiting > 0) "Finishing your trial · ${Format.count(waiting)} files left" else null
+    val trialTitle: String? get() = if (trial && waiting > 0) "Reading your sample" else null
 
     /**
      * Where reading stands for [kinds] as a section's subtitle says it: "Ready", "1,200 to go", "Waiting", "Found by
@@ -161,6 +181,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     private val counts = retriever.counts().shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     init {
+        viewModelScope.launch { retriever.readingStatus(counts).collect { s -> _ui.update { it.copy(readingStatus = s) } } }
         viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
         viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
         viewModelScope.launch {
@@ -171,7 +192,14 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         viewModelScope.launch {
             retriever.prefs.collect { p ->
                 _ui.update {
-                    it.copy(paused = p.paused, inside = retriever.readInside(), showOnThisDay = p.showOnThisDay, caughtUpDismissed = p.caughtUpDismissed)
+                    it.copy(
+                        paused = p.paused,
+                        inside = retriever.readInside(),
+                        showOnThisDay = p.showOnThisDay,
+                        caughtUpDismissed = p.caughtUpDismissed,
+                        nameSearchHintDismissed = p.nameSearchHintDismissed,
+                        scheduleOfferDismissed = p.scheduleOfferDismissed,
+                    )
                 }
             }
         }
@@ -219,6 +247,13 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = false) } }
     }
 
+    fun dismissNameSearchHint() = launchCatching { retriever.dismissNameSearchHint() }
+    fun dismissScheduleOffer() = launchCatching { retriever.dismissScheduleOffer() }
+    fun decideLater() = launchCatching {
+        retriever.decideLater()
+        indexer.cancel()
+    }
+
     fun dismissCaughtUp() = launchCatching { retriever.dismissCaughtUp() }
 
     val celebration = celebrationOf(retriever)
@@ -226,7 +261,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     /** "Read everything" on Home: the commit choice made after the first run; WorkManager reads on past this screen. */
     fun commit(whileCharging: Boolean) = launchCatching {
         retriever.commit(whileCharging)
-        indexer.schedulePeriodic(whileCharging)
+        indexer.schedulePeriodic(true)
         indexer.indexNow()
     }
 

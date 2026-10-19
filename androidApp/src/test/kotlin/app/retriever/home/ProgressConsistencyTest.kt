@@ -12,15 +12,15 @@ import org.junit.Test
 
 class ProgressConsistencyTest {
     @Test fun homeAndStatusRenderTheSameCoreCountsAndPhaseWhileTrialTailsRemain() {
-        val counts = Store.Counts(mapOf(FileState.INDEXED to 58L), mapOf(Kind.DOC to 26_230L), 100, 24, waiting = 26_172, trial = true)
+        val counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 58L), mapOf(Kind.DOC to 26_230L), 100, 24, waiting = 26_172, trial = true)
         val home = HomeUi(setUp = true).withCounts(counts)
         val index = IndexState(lastStop = StopReason.DONE, etaMinutes = 2)
         val status = counts.progress
-        assertEquals(58L, home.searchable)
-        assertEquals(home.searchable, status.searchable)
-        assertEquals(Format.searchable(home.searchable, home.counts!!.values.sum()), Format.searchable(status.searchable, status.libraryTotal))
+        assertEquals(58L, home.contentRead)
+        assertEquals(home.contentRead, status.contentRead)
+        assertEquals(Format.readCount(home.contentRead, home.partlyRead), Format.readCount(status.contentRead, status.partlyRead))
         assertEquals(libraryStatus(home, index), readingTitle(status, false, index, false))
-        assertEquals("Trial in progress", libraryStatus(home, index))
+        assertEquals("Waiting for Android", libraryStatus(home, index))
         assertEquals(24L, home.partlyRead)
     }
 }

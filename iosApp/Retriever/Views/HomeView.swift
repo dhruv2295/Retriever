@@ -248,12 +248,30 @@ private struct HomeStatusSection: View {
             Section {
                 if snap.libraryTotal > 0 {
                     LibraryOverview(snap: snap) { reading(status) }
+                    if !snap.nameSearchHintDismissed {
+                        HStack {
+                            Text("You can search every file by name")
+                            Spacer()
+                            Button(action: model.dismissNameSearchHint) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
+                                .buttonStyle(.borderless).accessibilityLabel("Dismiss name search explanation")
+                        }
+                    }
                     LibraryFolders(folders: model.home?.topFolders ?? [])
                 } else { reading(status) }
             if snap.asksCommit {
-                card(HomeStatus(phase: .waiting, title: "Read the other \(Copy.count(snap.waiting))?", detail: Copy.commitRest(files: nil)), "Read everything") { asking = true }
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Search inside more files")
+                        Text("\(Copy.count(snap.waiting)) files still found by name only").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Choose when") { asking = true }.buttonStyle(.borderless)
+                    Button(action: model.dismissScheduleOffer) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
+                        .buttonStyle(.borderless).accessibilityLabel("Dismiss reading offer")
+                }
                     .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
             }
+                if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
                     if note.phase == .photosOff { card(note, "Open Settings", model.openSettings) }
                     else { card(note, "Choose more photos", model.chooseMorePhotos) }
@@ -272,10 +290,10 @@ private struct HomeStatusSection: View {
                     if status.phase == .caughtUp {
                         Button(action: model.dismissCaughtUp) {
                             Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityLabel("Dismiss all caught up")
+                        }.buttonStyle(.plain).accessibilityLabel("Dismiss reading status")
                     }
                 }
-                if status.phase == .paused { Button("Resume", action: model.resume) }
+                if status.phase == .paused { Button("Resume reading", action: model.resume) }
             }
 
         }
@@ -331,7 +349,7 @@ private struct StatusRow: View {
         HStack(spacing: 12) {
             StatusDog(mood: mood, width: 40, icon: icon, due: due && status.phase == .caughtUp, done: celebrate)
             VStack(alignment: .leading, spacing: 4) {
-                Text(status.phase == .reading && !status.title.contains("trial") ? ["Reading", status.detail].compactMap { $0 }.joined(separator: " · ") : status.title)
+                Text(status.title)
                     .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
             }
         }

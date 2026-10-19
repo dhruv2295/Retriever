@@ -127,8 +127,8 @@ class ResultPiecesTest {
     }
 
     @Test fun readNotes() {
-        assertEquals("Only the first part of this file was read", Format.readNote(ReadExtent.FIRST_PART))
-        assertEquals("Still reading the rest of this file", Format.readNote(ReadExtent.DEEPENING))
+        assertEquals("Partly read · only the beginning is included", Format.readNote(ReadExtent.FIRST_PART))
+        assertEquals("Partly read · more meaning search to come", Format.readNote(ReadExtent.DEEPENING))
         assertNull(Format.readNote(ReadExtent.WHOLE))
         assertNull(Format.readNote(null))
     }
@@ -201,13 +201,13 @@ class ResultPiecesTest {
             ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Format.readNote(ReadExtent.FIRST_PART)) }
         }
         rule.onNodeWithContentDescription(
-            "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Only the first part of this file was read",
+            "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Partly read · only the beginning is included",
         ).assertExists()
     }
 
     @Test fun fileRowShowsItsReadNote() {
         rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Format.readNote(ReadExtent.DEEPENING), onClick = {}) } }
-        rule.onNodeWithText("Still reading the rest of this file").assertExists()
+        rule.onNodeWithText("Partly read · more meaning search to come").assertExists()
     }
 
     @Test fun onlyAFileFoundByItsNameIsBold() {

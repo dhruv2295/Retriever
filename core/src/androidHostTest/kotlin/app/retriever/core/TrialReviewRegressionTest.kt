@@ -29,7 +29,7 @@ class TrialReviewRegressionTest {
         assertEquals(NextRun.DONE, r.taste())
         assertEquals(listOf(store.fileByUri(file.uri)!!.id), r.scopeIds.value)
         assertFalse(r.tasteDecided())
-        assertTrue(r.tasteProgress().first().readyToTry)
+        assertFalse(r.tasteProgress().first().readyToTry, "name-only completion cannot unlock Try")
         val counts = r.counts().first()
         assertEquals(0L, counts.byState[FileState.PENDING])
         assertEquals(0L, counts.waiting)
@@ -39,7 +39,7 @@ class TrialReviewRegressionTest {
     @Test fun excludedFilesLeaveRecentlyRead() = runBlocking {
         val file = testFile("secret.txt", folder = "/private-folder")
         val store = newStore(sig).also { it.setProfile(PROFILE) }
-        val r = testRetriever(store, listOf(file), FakeExtractor()).apply { uiVisible = true }
+        val r = testRetriever(store, listOf(file), FakeExtractor(mapOf(file.name to listOf(textPiece("content"))))).apply { uiVisible = true }
         r.planTaste()
         r.taste()
         assertEquals(listOf(file), r.state.value.recentFiles)
@@ -63,7 +63,7 @@ class TrialReviewRegressionTest {
             override suspend fun fullHash(uri: String): String? = null
         }
         val r = Retriever(
-            store, source, FakeExtractor(), FakeFactory(), FakeMonitor(), hasher,
+            store, source, FakeExtractor(listOf(gone, kept).associate { it.name to listOf(textPiece("content")) }), FakeFactory(), FakeMonitor(), hasher,
             PIXEL, { true }, { true }, { _, _ -> }, System::currentTimeMillis, { 0L },
         ).apply { uiVisible = true }
         r.planTaste()
@@ -77,7 +77,7 @@ class TrialReviewRegressionTest {
         r.release()
     }
 
-    @Test fun batterySaverWaitsWithoutScanning() = runBlocking {
+    @Test fun batterySaverStopsContentButKeepsNamesCurrent() = runBlocking {
         val store = newStore(sig).also { it.setProfile(PROFILE) }
         val source = FakeSource()
         val hasher = object : ContentHasher {
@@ -91,9 +91,9 @@ class TrialReviewRegressionTest {
             hasher, PIXEL, { true }, { true }, { _, _ -> }, System::currentTimeMillis, { 0L },
         )
         repeat(3) { assertEquals(NextRun.DONE, r.indexBatch(120.seconds)) }
-        assertEquals(0, source.calls.size)
-        monitor.state = monitor.state.copy(powerSave = false)
+        assertEquals(3, source.calls.size)
+        monitor.state = monitor.state.copy(powerSave = false, charging = true)
         assertEquals(NextRun.DONE, r.indexBatch(120.seconds))
-        assertEquals(1, source.calls.size)
+        assertEquals(4, source.calls.size)
     }
 }

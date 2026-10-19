@@ -77,7 +77,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testTheScreenStaysOnOnlyWhileReading() {
-        XCTAssertTrue(AppModel(fixture: .reading(done: 10, total: 100)).screenKeptOn)
+        XCTAssertFalse(AppModel(fixture: .reading(done: 10, total: 100)).screenKeptOn)
         XCTAssertFalse(AppModel(fixture: .caughtUp).screenKeptOn)
         XCTAssertFalse(AppModel(fixture: .paused).screenKeptOn)
     }

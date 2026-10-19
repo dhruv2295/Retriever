@@ -319,10 +319,12 @@ private fun fileInfo(context: Context, file: SourceFile, stored: Store.StoredFil
     add("Modified" to Format.date(file.modifiedAt))
     file.takenAt?.let { add("Taken" to Format.date(it)) }
     add(
-        "Read status" to when {
-            !readInside || stored == null || stored.state != FileState.INDEXED || stored.file.kind == Kind.OTHER -> "Not yet read"
-            stored.partial -> "Partly read"
-            else -> "Read fully"
+        "Reading" to when {
+            !readInside || stored?.file?.kind == Kind.OTHER -> "Name only · Reading is off for this type"
+            stored?.contentRead == true -> if (stored.partial || stored.extent != null || stored.state != FileState.INDEXED) "Partly read" else "Read"
+            stored?.state == FileState.SKIPPED -> "Couldn’t read"
+            stored?.state == FileState.INDEXED -> "Name only · No readable content"
+            else -> "Waiting to read"
         },
     )
     runCatching {

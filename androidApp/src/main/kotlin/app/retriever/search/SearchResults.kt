@@ -243,7 +243,7 @@ internal fun Results(
         empty -> Message {
             val words = q.split(Regex("\\s+"))
             val unread = Format.count(ui.unread.toLong())
-            val read = "${Format.count(home.searchable)} of ${Format.count(home.counts?.values?.sum() ?: 0L)}"
+            val read = "${Format.count(home.contentRead)} of ${Format.count(home.counts?.values?.sum() ?: 0L)}"
             val message = when {
                 scope != null && ui.unread > 0 -> "Nothing yet. Retriever is still reading $unread more files, so try again in a moment, or try other words."
                 scope != null -> "Nothing for “$q” in these files. Try other words."

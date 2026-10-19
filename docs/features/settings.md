@@ -1,5 +1,8 @@
 # Settings
 
+The shared counts, current schedule and UI contract are in [Reading](reading.md). It supersedes older reading-policy and copy descriptions below.
+
+
 ## Purpose
 
 The switches and the few actions that change how Retriever behaves: which kinds are read inside, read only while

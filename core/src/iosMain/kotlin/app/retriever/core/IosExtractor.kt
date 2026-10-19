@@ -92,10 +92,11 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         return parts.joinToString("\n")
     }
 
-    private fun video(uri: String, profile: DeviceProfile): List<Piece> = if (profile.videoFrameEverySec <= 0) {
+    private suspend fun video(uri: String, profile: DeviceProfile): List<Piece> = if (profile.videoFrameEverySec <= 0) {
         emptyList()
     } else {
         moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0).mapNotNull { m ->
+            currentCoroutineContext().ensureActive()
             autoreleasepool {
                 native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m, false), momentParts(it.toByteArray(), m.frameMs, null), null) }
             }

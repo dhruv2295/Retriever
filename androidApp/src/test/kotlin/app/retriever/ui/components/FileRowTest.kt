@@ -11,14 +11,21 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FileRowTest {
-    private fun stored(kind: Kind = Kind.PDF, state: FileState = FileState.INDEXED, partial: Boolean = false) =
-        Store.StoredFile(1, SourceFile("content://t/a", "a", "", "application/pdf", kind, 1, 1), 0, state, partial)
+    private fun stored(kind: Kind = Kind.PDF, state: FileState = FileState.INDEXED, partial: Boolean = false) = Store.StoredFile(
+        1,
+        SourceFile("content://t/a", "a", "", "application/pdf", kind, 1, 1),
+        0,
+        state,
+        partial,
+        contentRead =
+        state == FileState.INDEXED && kind != Kind.OTHER,
+    )
 
     @Test fun coverageLinePerState() {
-        assertEquals("Found by name only", coverageNote(stored(state = FileState.PENDING)))
-        assertEquals("Found by name only", coverageNote(stored(Kind.OTHER)))
-        assertEquals("Only the first part of this file was read", coverageNote(stored(partial = true)))
-        assertEquals("Couldn't be read", coverageNote(stored(state = FileState.SKIPPED)))
+        assertEquals("Waiting to read", coverageNote(stored(state = FileState.PENDING)))
+        assertEquals("Name only", coverageNote(stored(Kind.OTHER)))
+        assertEquals("Partly read · only the beginning is included", coverageNote(stored(partial = true)))
+        assertEquals("Couldn’t read", coverageNote(stored(state = FileState.SKIPPED)))
         assertNull(coverageNote(stored()))
     }
 
@@ -28,5 +35,12 @@ class FileRowTest {
             val spans = nameHighlighted(name, query, SpanStyle()).spanStyles.map { it.start until it.end }
             assertEquals(query, nameMatchRanges(name, query).map { it.first until it.last + 1 }, spans)
         }
+    }
+
+    @Test fun failedMeaningAndFailedRereadsKeepTheirContentAndExplainTheLimit() {
+        val read = stored().copy(contentRead = true)
+        assertEquals("Partly read · couldn’t finish meaning search", coverageNote(read.copy(extent = app.retriever.core.ReadExtent.MEANING_LIMITED)))
+        assertEquals("Partly read · couldn’t finish reading", coverageNote(read.copy(state = FileState.SKIPPED)))
+        assertEquals("Partly read · waiting to read more", coverageNote(read.copy(state = FileState.PENDING)))
     }
 }

@@ -44,7 +44,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
         SourceFile("demo:$name", name, "Documents", "application/octet-stream", kind, 1_200_000, 1_760_000_000_000 - days * 86_400_000L)
 
     private val ready = SearchUi(setUp = true)
-    private val readyHome = HomeUi(setUp = true, counts = counts, searchable = 3_100, waiting = 2_230)
+    private val readyHome = HomeUi(setUp = true, counts = counts, contentRead = 3_100, waiting = 2_230)
 
     private val photoHits = (1..12).map { i ->
         SearchEngine.Hit(file("IMG_20250914_%02d.jpg".format(i), Kind.PHOTO), i.toLong(), 0L, "", null, 1.0 / i)
@@ -68,7 +68,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
             )
         }
 
-    private val reading = Store.Counts(
+    private val reading = app.retriever.readCounts(
         mapOf(FileState.INDEXED to 3_412L, FileState.PENDING to 8_118L, FileState.SKIPPED to 3L),
         mapOf(Kind.PHOTO to 9_000L, Kind.PDF to 2_533L),
         tailChunks = 12,
@@ -101,7 +101,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
             newDocs = listOf(file("Lease.pdf", Kind.PDF), file("Trip.docx", Kind.DOC, 14)),
             starred = emptyList(), starredCount = 0, folders = 12, largeCount = 0, largeBytes = 0, nameOnly = 0,
         )
-        val home = readyHome.copy(waiting = 0, searchable = 5_330, home = facts)
+        val home = readyHome.copy(waiting = 0, contentRead = 5_330, home = facts)
         val actions = SearchActions()
         SearchContent(ready, home, actions) { padding, state, side, fill ->
             HomeBody(home, IndexState(lastStop = StopReason.DONE), false, emptyList(), actions, {}, {}, state, padding, side, fill)

@@ -106,12 +106,15 @@ fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedStr
 private val NAME_MATCH = SpanStyle(fontWeight = FontWeight.Bold)
 
 /**
- * One line saying how much of a file is searchable, for a list that does not come from a search; null when all of it
+ * One line saying how much of a file is findable, for a list that does not come from a search; null when all of it
  * is. [Kind.OTHER] is never read inside, only found by name.
  */
 fun coverageNote(file: Store.StoredFile): String? = when {
-    file.state == FileState.SKIPPED -> "Couldn't be read"
-    !file.searchable || file.file.kind == Kind.OTHER -> "Found by name only"
+    !file.contentRead && file.state == FileState.SKIPPED -> "Couldn’t read"
+    file.file.kind == Kind.OTHER || (!file.contentRead && file.state == FileState.INDEXED) -> "Name only"
+    !file.contentRead -> "Waiting to read"
+    file.state == FileState.PENDING -> "Partly read · waiting to read more"
+    file.state == FileState.SKIPPED -> "Partly read · couldn’t finish reading"
     file.extent != null -> Format.readNote(file.extent)
     file.partial -> Format.readNote(ReadExtent.FIRST_PART)
     else -> null

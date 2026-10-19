@@ -117,7 +117,7 @@ class HomeShotsTest {
         setUp = true,
         counts = counts,
         readByKind = counts,
-        searchable = 26_300,
+        contentRead = 26_300,
         home = facts,
         starred = 4,
         memories = memories,
@@ -143,12 +143,12 @@ class HomeShotsTest {
         readByKind = counts.mapValues { (kind, n) ->
             (n - (mapOf(Kind.PHOTO to 14_700L, Kind.VIDEO to 1_700L, Kind.AUDIO to 60L)[kind] ?: 0L)).coerceAtLeast(0)
         },
-        searchable = 9_840,
+        contentRead = 9_840,
         waiting = 16_460,
         pending = mapOf(Kind.PHOTO to 14_700L, Kind.VIDEO to 1_700L, Kind.AUDIO to 60L),
     )
 
-    private val readingIndex = IndexState(running = true, pendingAtStart = 16_460, etaMinutes = 180)
+    private val readingIndex = IndexState(currentFile = media(1).first(), running = true, pendingAtStart = 16_460, etaMinutes = 180)
 
     @Composable
     private fun State(state: String, actions: SearchActions) {
@@ -192,8 +192,8 @@ class HomeShotsTest {
 
     @Test fun caughtUpLight() {
         shot("caught_up", false)
-        rule.onNodeWithText("All caught up").assertExists()
-        rule.onNodeWithText("26,300 searchable of", substring = true).assertExists()
+        rule.onNodeWithText("Up to date").assertExists()
+        rule.onNodeWithText("26,300 files read", substring = true).assertExists()
         rule.onNodeWithText("760 of them by name only").assertExists()
         // One chip row, no header and no Clear on Home.
         rule.onNodeWithText("Recent searches").assertDoesNotExist()
@@ -231,8 +231,7 @@ class HomeShotsTest {
         shot("reading", false)
         // Only the words are a live region; the count beside them changes without an announcement each time.
         rule.onNode(hasText("Reading your files") and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
-        rule.onNode(hasText("· About 3 hours left. Faster while charging.") and SemanticsMatcher.keyNotDefined(SemanticsProperties.LiveRegion)).assertExists()
-        rule.onNodeWithText("About 3 hours left. Faster while charging.", substring = true).assertExists()
+        rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
         rule.onNodeWithContentDescription("Videos, 1,700 files, Waiting").assertExists()
         rule.onNodeWithContentDescription("Audio, 345 files, 60 to go").assertExists()
         // Pictures are never greyed out; the big cell says how many photos are left, and headers say where each stands.
@@ -248,27 +247,27 @@ class HomeShotsTest {
 
     @Test fun readingOnTheChargerDoesNotAdviseCharging() {
         rule.setContent { ShotTheme(false) { Screen(reading, readingIndex, charging = true) } }
-        rule.onNodeWithText("About 3 hours left.", substring = true).assertExists()
+        rule.onNodeWithText("Reading your files").assertExists()
         rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
     }
 
     @Test fun pausedLight() {
         shot("paused", false)
-        rule.onNodeWithText("Paused").assertExists()
-        rule.onNodeWithText("searchable of 26,300", substring = true).assertExists()
-        rule.onNodeWithText("Resume").assertExists()
+        rule.onNodeWithText("Reading paused").assertExists()
+        rule.onNodeWithText("9,840 files read", substring = true).assertExists()
+        rule.onNodeWithText("Resume reading").assertExists()
     }
 
     @Test fun pausedDark() = shot("paused", true)
 
     @Test fun commitCardLight() {
         shot("commit", false)
-        rule.onNodeWithText("Read the other 26,214?").assertExists()
-        rule.onNodeWithText("Read everything").assertExists()
+        rule.onNodeWithText("Search inside more files").assertExists()
+        rule.onNodeWithText("Choose when").assertExists()
         // No hours until the estimate is calibrated on a device.
         rule.onNodeWithText("about", substring = true).assertDoesNotExist()
         // The short read still running is the status card's, not a choice yet.
-        rule.onNodeWithText("All caught up").assertExists()
+        rule.onNodeWithText("Up to date").assertExists()
     }
 
     @Test fun commitCardDark() = shot("commit", true)
@@ -276,31 +275,34 @@ class HomeShotsTest {
     @Test fun readEverythingOpensTheThreeAnswersAsASheet() {
         val chosen = mutableListOf<Boolean>()
         rule.setContent { ShotTheme(false) { Screen(caughtUp.copy(rest = 26_214), IndexState(lastStop = StopReason.DONE), onCommit = { chosen += it }) } }
-        rule.onNodeWithText("Read while charging").assertDoesNotExist()
-        rule.onNodeWithText("Read everything").performClick()
-        rule.onNodeWithText("Read now").assertExists()
-        rule.onNodeWithText("Not yet").assertExists()
-        rule.onNodeWithText("Read while charging").performClick()
+        rule.onNodeWithText("While charging").assertDoesNotExist()
+        rule.onNodeWithText("Choose when").performClick()
+        rule.onNodeWithText("Read now for 15 minutes").assertExists()
+        rule.onNodeWithText("Not now").assertExists()
+        rule.onNodeWithText("While charging").performClick()
+        assertTrue(chosen.isEmpty())
+        rule.onNodeWithText("Use this schedule").performClick()
         rule.waitForIdle()
         assertEquals(listOf(true), chosen)
         // The sheet closes on a choice.
-        rule.onNodeWithText("Read while charging").assertDoesNotExist()
+        rule.onNodeWithText("While charging").assertDoesNotExist()
     }
 
     @Test fun notYetClosesTheSheetAndChoosesNothing() {
         val chosen = mutableListOf<Boolean>()
         rule.setContent { ShotTheme(false) { Screen(caughtUp.copy(rest = 26_214), IndexState(lastStop = StopReason.DONE), onCommit = { chosen += it }) } }
-        rule.onNodeWithText("Read everything").performClick()
-        rule.onNodeWithText("Not yet").performClick()
+        rule.onNodeWithText("Choose when").performClick()
+        rule.onNodeWithText("Not now").performClick()
+        rule.onNodeWithText("Go to Home").performClick()
         rule.waitForIdle()
         assertTrue(chosen.isEmpty())
-        rule.onNodeWithText("Not yet").assertDoesNotExist()
-        rule.onNodeWithText("Read the other 26,214?").assertExists()
+        rule.onNodeWithText("Not now").assertDoesNotExist()
+        rule.onNodeWithText("Search inside more files").assertExists()
     }
 
-    @Test fun noCommitCardWhileTheShortReadRunsOrOnceEverythingIsChosen() {
+    @Test fun scheduleCanBeChosenWhileTheSampleFinishes() {
         rule.setContent { ShotTheme(false) { Screen(reading.copy(rest = 26_214), readingIndex) } }
-        rule.onNodeWithText("Read the other", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Choose when").assertExists()
         rule.onNodeWithText("Reading your files").assertExists()
     }
 
@@ -316,12 +318,12 @@ class HomeShotsTest {
 
     @Test fun statusCardRestsWhenPaused() {
         shot("paused", false)
-        rule.onNodeWithText("Paused").assertExists()
+        rule.onNodeWithText("Reading paused").assertExists()
     }
 
     @Test fun statusCardRestsWhileWaiting() {
         shot("waiting", false)
-        rule.onNodeWithText("Waiting for the charger").assertExists()
+        rule.onNodeWithText("Waiting to charge").assertExists()
     }
 
     @Test fun theDogPopsOnceWhenFirstFullyCaughtUp() {
@@ -335,7 +337,7 @@ class HomeShotsTest {
         rule.mainClock.advanceTimeBy(300)
         rule.waitForIdle()
         assertEquals(1, done)
-        rule.onNodeWithText("All caught up").assertExists()
+        rule.onNodeWithText("Up to date").assertExists()
     }
 
     @Test fun nothingPopsWhileTheRestWaitsOrWhenSpent() {
@@ -357,7 +359,7 @@ class HomeShotsTest {
         cells().assertCountEquals(0)
         rule.onNodeWithContentDescription("Screenshots, 158").assertDoesNotExist()
         rule.onNodeWithContentDescription("Documents, 1,600 PDFs, 125 documents").assertExists()
-        rule.onNodeWithText("All caught up", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Up to date", substring = true).assertDoesNotExist()
         rule.onNodeWithText("Finishing setup", substring = true).assertDoesNotExist()
     }
 
@@ -581,25 +583,17 @@ class HomeShotsTest {
 
     @Test fun onThisDayIsGoneWithoutMemories() = noOnThisDay(caughtUp.copy(memories = emptyList()))
 
-    @Test fun theStatusSwitchBringsOnThisDayBack() {
+    @Test fun theSettingsSwitchBringsOnThisDayBack() {
         val set = mutableListOf<Boolean>()
         rule.setContent {
             ShotTheme(false) {
-                StatusContent(
-                    Store.Counts(emptyMap(), emptyMap(), 0),
-                    Prefs(showOnThisDay = false),
-                    IndexState(),
-                    emptyList(),
-                    skippedOpen = false,
-                    batteryHint = false,
-                    actions = StatusActions(setOnThisDay = {
-                        set +=
-                            it
-                    }),
+                app.retriever.settings.SettingsContent(
+                    app.retriever.settings.SettingsUi(Prefs(showOnThisDay = false)),
+                    actions = app.retriever.settings.SettingsActions(setOnThisDay = { set += it }),
                 )
             }
         }
-        rule.onNodeWithText("Show On this day on Home").performClick()
+        rule.onNodeWithText("Show On this day").performClick()
         assertEquals(listOf(true), set)
     }
 
@@ -628,7 +622,7 @@ class HomeShotsTest {
         rule.setContent {
             ShotTheme(false) { Screen(reading.copy(paused = true), IndexState(), SearchActions(onNavigate = { went += it }), onResume = { resumed++ }) }
         }
-        rule.onNodeWithText("Resume").performClick()
+        rule.onNodeWithText("Resume reading").performClick()
         assertEquals(1, resumed)
         assertTrue(went.isEmpty())
     }

@@ -124,7 +124,7 @@ private fun DownloadLine(ui: SetupUi) {
     }
 }
 
-/** The download, then the tune. Names are searchable throughout. */
+/** The download, then the tune. Names are findable throughout. */
 @Composable
 internal fun Waiting(ui: SetupUi, size: String?, folderError: String?, actions: SetupActions) {
     val downloading = ui.model != ModelState.Done
@@ -198,7 +198,7 @@ internal fun Waiting(ui: SetupUi, size: String?, folderError: String?, actions: 
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("While you wait", style = MaterialTheme.typography.titleSmall)
-            Muted("Names are searchable now.")
+            Muted("You can search file names now.")
             FilledTonalButton(onClick = actions.search) { Text("Search by name") }
             if (!ui.access.allFiles) {
                 val lines = ui.access.coverage()
@@ -209,17 +209,6 @@ internal fun Waiting(ui: SetupUi, size: String?, folderError: String?, actions: 
                 }
                 OutlinedButton(onClick = actions.addFolder) { Text("Add a folder of documents") }
                 folderError?.let { ErrorText(it) }
-            }
-        }
-        if (ui.notificationAsk) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Show reading progress in a notification?", style = MaterialTheme.typography.bodyMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = actions.allowNotifications) { Text("Allow") }
-                        TextButton(onClick = actions.dismissNotifications) { Text("Not now") }
-                    }
-                }
             }
         }
     }
@@ -238,9 +227,8 @@ private fun DownloadReason(icon: Int, headline: String, supporting: String) {
 /** The file being read, the files ready to search, and progress through each kind. */
 @Composable
 internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (Int) -> Unit) {
-    val planned = taste.byKind.values.sumOf { it.second }
-    Text("Reading a few of your files", style = MaterialTheme.typography.headlineSmall)
-    Muted(listOfNotNull("$planned files", timeLeft(taste.secondsLeft)).joinToString(" · "))
+    Text("Reading a few files to try", style = MaterialTheme.typography.headlineSmall)
+    Muted(Format.readCount(taste.read.toLong()))
     reading(taste.read)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((name, kinds) in KIND_ROWS) {
@@ -254,7 +242,7 @@ internal fun ColumnScope.ReadingFew(taste: TasteProgress, reading: @Composable (
 internal fun TryNow(onTry: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Button(onClick = onTry, modifier = Modifier.fillMaxWidth()) { Text("Try it now") }
-        Muted("Everything it reads now stays searchable.")
+        Muted("You can keep searching the content read so far.")
     }
 }
 

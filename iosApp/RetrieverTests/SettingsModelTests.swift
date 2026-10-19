@@ -157,7 +157,7 @@ final class SettingsModelTests: XCTestCase {
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
         try await services.retriever.updatePrefs { @Sendable in
             $0.doCopy(
-                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, excludedFolders: $0.excludedFolders,
+                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, readNowUntil: $0.readNowUntil, nameSearchHintDismissed: $0.nameSearchHintDismissed, scheduleOfferDismissed: $0.scheduleOfferDismissed, excludedFolders: $0.excludedFolders,
                 paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
                 setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,
@@ -219,4 +219,37 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertFalse(model.modelMissing)
         XCTAssertEqual(model.storage?.model, ModelVariant.m440.generic.sizeBytes)
     }
+    func testReadingScheduleAndExplicitSessionPersistIndependently() async throws {
+        let model = try await liveModel()
+        XCTAssertEqual(prefs.automaticReading, .charging)
+        model.setReadingSchedule(.manual)
+        var saved = await eventually { self.prefs.automaticReading == .manual }
+        XCTAssertTrue(saved)
+        model.readNow()
+        saved = await eventually { self.prefs.readNowUntil > 0 }
+        XCTAssertTrue(saved)
+        XCTAssertEqual(prefs.automaticReading, .manual)
+        model.pause()
+        saved = await eventually { self.prefs.paused && self.prefs.readNowUntil == 0 }
+        XCTAssertTrue(saved)
+        let reopened = try await liveModel()
+        XCTAssertTrue(reopened.snap?.paused == true)
+        reopened.resume()
+        saved = await eventually { !self.prefs.paused }
+        XCTAssertTrue(saved)
+        XCTAssertEqual(prefs.automaticReading, .manual)
+        XCTAssertEqual(prefs.readNowUntil, 0)
+    }
+
+    func testReadingOfferAndNameHintDismissalsPersist() async throws {
+        let model = try await liveModel()
+        model.dismissNameSearchHint()
+        model.dismissScheduleOffer()
+        let saved = await eventually { self.prefs.nameSearchHintDismissed && self.prefs.scheduleOfferDismissed }
+        XCTAssertTrue(saved)
+        let reopened = try await liveModel()
+        XCTAssertTrue(reopened.snap?.nameSearchHintDismissed == true)
+        XCTAssertTrue(reopened.snap?.scheduleOfferDismissed == true)
+    }
+
 }

@@ -171,6 +171,12 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     /** The first run's short read has enough to try; for a person who left the app while it read. */
     fun notifyReadyToTry(files: Int) = Notifications.readyToTry(context, files)
 
+    suspend fun notifySampleIfReady() {
+        if (retriever.uiVisible || !context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()) return
+        val sample = retriever.tasteProgress().first()
+        if (sample.readyToTry && retriever.claimSampleNotification()) notifyReadyToTry(sample.read)
+    }
+
     /** Stops the current and follow-up runs; the periodic run stays scheduled. */
     fun cancel() {
         for (name in listOf(NOW, CONTINUE)) work.cancelUniqueWork(name)

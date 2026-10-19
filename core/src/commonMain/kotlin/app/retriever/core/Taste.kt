@@ -25,7 +25,7 @@ data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: 
                 readyKinds = byKind.filterValues { it.first == it.second }.keys,
                 read = read,
                 secondsLeft = if (planned.isEmpty()) null else ceil(book.ms(pending.mapValues { it.value.toLong() }, pendingVideoBytes) / 1000).toInt(),
-                readyToTry = left == 0 || read >= TRY_AFTER_FILES,
+                readyToTry = read > 0 && (left == 0 || read >= TRY_AFTER_FILES),
             )
         }
     }

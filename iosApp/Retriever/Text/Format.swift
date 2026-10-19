@@ -113,8 +113,11 @@ enum Format {
 
     /// One line on how much of a listed file is searchable; nil when all of it is. Same words as Android's `coverageNote`.
     @MainActor static func coverage(_ stored: Store.StoredFile) -> String? {
-        if stored.state == FileState.skipped { return "Couldn't be read" }
-        if !stored.searchable || stored.file.kind == .other { return "Found by name only" }
+        if !stored.contentRead && stored.state == FileState.skipped { return "Couldn’t read" }
+        if stored.file.kind == .other || (!stored.contentRead && stored.state == .indexed) { return "Name only" }
+        if !stored.contentRead { return "Waiting to read" }
+        if stored.state == .pending { return "Partly read · waiting to read more" }
+        if stored.state == .skipped { return "Partly read · couldn’t finish reading" }
         if let extent = stored.extent { return Copy.extent(extent) }
         return stored.partial ? Copy.extent(.firstPart) : nil
     }

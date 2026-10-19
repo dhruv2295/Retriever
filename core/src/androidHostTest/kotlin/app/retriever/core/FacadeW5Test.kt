@@ -199,7 +199,7 @@ class FacadeW5Test {
         // While a file waits, the count is not taken again.
         f.store.removeFiles(listOf(big.uri))
         f.store.upsertFiles(listOf(testFile("later.txt")))
-        assertEquals(16L, f.r.home().nameOnly)
+        assertEquals(15L, f.r.home().nameOnly)
     }
 
     @Test
@@ -207,8 +207,8 @@ class FacadeW5Test {
         val f = Fx(listOf(testFile("one.txt"), testFile("two.txt")))
         f.store.upsertFiles(listOf(testFile("one.txt"), testFile("two.txt")))
         val ids = f.store.pending(2).map { it.id }
-        f.store.replaceChunks(ids[0], listOf(Store.NewChunk(0, "", "orchard cedar jasmine marigold", null)))
-        f.store.replaceChunks(ids[1], listOf(Store.NewChunk(0, "", "orchard cedar jasmine marigold", null)))
+        f.store.replaceChunks(ids[0], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
+        f.store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
         assertTrue(f.r.suggestions(setOf(ids[0])).isEmpty(), "terms must recur in two selected files")
         assertEquals(6, f.r.suggestions().size)
         assertTrue(f.r.suggestions(emptySet()).isEmpty())

@@ -54,7 +54,7 @@ enum IndexTask {
     /// BGTaskScheduler error 1 (unavailable).
     @available(iOS 26.0, *)
     static func submitContinued(_ snap: AppModel.Snap) throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(snap))
+        let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: "0 files read this session")
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
         // No .gpu: it needs the continued-processing GPU entitlement, and backendNow picks the CPU once the app leaves.
@@ -107,7 +107,7 @@ enum IndexTask {
             if !retriever.uiVisible && !retriever.stateNow.running { try? await retriever.release() }
             // Even when caught up: the next run reads photos taken meanwhile. A failed batch (.retry) rests like a
             // cooldown: iOS has no backoff to hand it to, so the next scheduled run is the retry.
-            if !retriever.prefsNow.paused { schedule() }
+            schedule()
             let ok = next != nil && !expired.withLock { $0 }
             complete(ok)
             log.info("background task completed, success \(ok)")
@@ -123,7 +123,7 @@ enum IndexTask {
         let retriever = services.retriever
         let monitor = services.monitor
         expired.withLock { $0 = false }
-        task.expirationHandler = expire
+        task.expirationHandler = { expire(); Task { try? await services.retriever.pause() } }
         task.progress.totalUnitCount = 1
         monitor.continued = true
         let pending = OSAllocatedUnfairLock(initialState: 1)
@@ -131,7 +131,7 @@ enum IndexTask {
         let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
-            let waiting = snap.pending
+            let waiting = snap.pending + snap.rereads + Int(snapshot.counts.tailChunks)
             pending.withLock { $0 = waiting }
             let total = max(
                 start.withLock {
@@ -140,7 +140,7 @@ enum IndexTask {
                 }, waiting, 1)
             task.progress.totalUnitCount = Int64(total)
             task.progress.completedUnitCount = Int64(total - waiting)
-            task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(snap))
+            task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
         }
         Task {
             var next = NextRun.soon

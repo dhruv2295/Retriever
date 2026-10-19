@@ -3,35 +3,63 @@ package app.retriever.setup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.ui.Format
 
-/** The commit choice: one sentence about the rest, then three one-tap answers. No mascot: the decision is the focal point. */
+/** Selection is local; only the confirmation authorizes reading. Shared by setup and the Home sheet. */
 @Composable
 fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifier) {
+    var selected by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Read everything?", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+        Text("Search inside more files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         Text(
-            Format.restSentence(ui.estimate?.files, ui.estimate),
+            ui.moreFiles?.let { "${Format.count(it)} more files can be read. You can already find them by name." }
+                ?: "You can already find your files by name.",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Button(onClick = { actions.commit(true) }, modifier = Modifier.fillMaxWidth()) { Text("Read while charging") }
-            FilledTonalButton(onClick = { actions.commit(false) }, modifier = Modifier.fillMaxWidth()) { Text("Read now") }
-            Text("Uses noticeably more battery today.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = actions.decideLater) { Text("Not yet") }
+        Text("From your selected files and folders", style = MaterialTheme.typography.bodyMedium)
+        Text("A large library can take hours of reading, spread across several sessions. You don’t need to wait.", style = MaterialTheme.typography.bodyMedium)
+        Text("When should Retriever read them?", style = MaterialTheme.typography.titleMedium)
+        val labels = listOf("While charging", "Read now for 15 minutes", "Not now")
+        val details = listOf(
+            "Recommended. Reads while charging when your screen is off, or while Retriever is open.",
+            "Uses battery and may warm your phone. Then continues while charging. Stops after 15 minutes, or sooner if needed.",
+            "Keep searching names and the content read so far. Choose a schedule later.",
+        )
+        Column(Modifier.selectableGroup()) {
+            labels.forEachIndexed { i, label ->
+                ListItem(
+                    headlineContent = { Text(label) },
+                    supportingContent = { Text(details[i]) },
+                    leadingContent = { RadioButton(selected == i, onClick = null) },
+                    modifier = Modifier.selectable(selected == i, role = Role.RadioButton) { selected = i },
+                )
+            }
+        }
+        Button(onClick = {
+            when (selected) {
+                0 -> actions.commit(true)
+                1 -> actions.commit(false)
+                else -> actions.decideLater()
+            }
+        }, modifier = Modifier.fillMaxWidth()) {
+            Text(listOf("Use this schedule", "Start reading", "Go to Home")[selected])
         }
     }
 }

@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 
 /** Everything Status draws, as one value. [counts] is null until the first count arrives, so no "0 of 0" or "caught up" is drawn before then. */
@@ -29,6 +30,7 @@ data class StatusUi(
     val skipped: List<Store.StoredFile> = emptyList(),
     val folderError: String? = null,
     val error: String? = null,
+    val readingStatus: app.retriever.core.ReadingStatus? = null,
 )
 
 class StatusViewModel(private val retriever: Retriever, private val indexer: IndexService, private val accessService: AccessService) : ViewModel() {
@@ -36,14 +38,16 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
     private val folderError = MutableStateFlow<String?>(null)
     private val error = MutableStateFlow<String?>(null)
 
+    private val counts = retriever.counts().shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+
     val uiState: StateFlow<StatusUi> = combine(
-        retriever.counts(),
+        counts,
         retriever.prefs,
-        retriever.state,
+        combine(retriever.state, retriever.readingStatus(counts), ::Pair),
         accessService.state,
         combine(skipped, folderError, error, ::Triple),
-    ) { counts, prefs, index, access, (skipped, folderError, error) ->
-        StatusUi(counts, prefs, index, access, retriever.textOnly, skipped, folderError, error)
+    ) { counts, prefs, (index, status), access, (skipped, folderError, error) ->
+        StatusUi(counts, prefs, index, access, retriever.textOnly, skipped, folderError, error, status)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),

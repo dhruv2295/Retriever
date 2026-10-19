@@ -9,7 +9,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
@@ -92,7 +94,7 @@ suspend fun Retriever.foregroundBatchSeconds(seconds: Int): NextRun = indexBatch
  * foreground batch it replaces to stop rather than finding the index busy.
  */
 @Throws(Throwable::class)
-suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, deepen = false, waitForLock = true)
+suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, waitForLock = true, sessionOnly = true)
 
 // Swift's async import of a suspend function doesn't cancel the Kotlin call, so a superseded search kept running and
 // held the embedder mutex. These hand Swift a handle whose close() cancels the job; done runs exactly once, with a
@@ -152,6 +154,7 @@ data class RetrieverSnapshot(
     val state: IndexState,
     val starred: Set<String>,
     val modelMissing: Boolean,
+    val reading: ReadingStatus,
 )
 
 /** The short read's progress, as [observeAll] delivers its snapshots. */
@@ -164,9 +167,18 @@ fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable {
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val sharedCounts = counts().shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
     scope.launch {
-        combine(setUp, prefs, requiredBuild, counts(), combine(state, starred, modelMissing, ::Triple)) { s, p, b, c, (i, st, m) ->
-            RetrieverSnapshot(s, p, b, c, i, st, m)
+        combine(
+            setUp,
+            prefs,
+            requiredBuild,
+            sharedCounts,
+            combine(state, starred, modelMissing, readingStatus(sharedCounts)) { i, st, m, reading ->
+                Triple(i, st, m) to reading
+            },
+        ) { s, p, b, c, (live, reading) ->
+            RetrieverSnapshot(s, p, b, c, live.first, live.second, live.third, reading)
         }.collect { cb(it) }
     }
     return AutoCloseable { scope.cancel() }
