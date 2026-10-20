@@ -99,7 +99,7 @@ class SetupFlowTest {
         assertFalse(sample.setup.decided)
         r.tasteProgress().first { it.readyToTry }
         // Every planned file in plan order, the read ones first.
-        val files = f.ui.first { s -> s.sample.isNotEmpty() && s.sample.any { it.read } }.sample
+        val files = f.ui.first { s -> s.sample.orEmpty().any { it.read } }.sample!!
         assertEquals(sample.setup.planned, files.size)
         assertEquals(files.indices.toList(), files.map { it.index })
         f.tryNow()

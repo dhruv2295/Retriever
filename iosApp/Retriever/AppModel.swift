@@ -168,10 +168,10 @@ final class AppModel {
     @ObservationIgnored var planning = false
     /// When this process started reading the sample, for core's time line; nil before.
     @ObservationIgnored var sampleStartedAt: Date?
-    /// The sample's progress on a fixture; a real index streams it (`Retriever.tasteStream`).
-    @ObservationIgnored var fixtureTaste = TasteSnap()
-    /// The sample's planned files on a fixture; a real index streams them (`sampleStream`).
-    @ObservationIgnored var fixtureSample: [SampleFile] = []
+    /// The sample's progress, kept here as Android keeps it on SetupFlow, so a screen opening on it never starts at zero.
+    var taste = TasteSnap()
+    /// Every planned sample file in plan order, read or not; nil until core's first delivery, which decides what the pile settles.
+    var sample: [SampleFile]?
 
     /// Prefs.allowMobileData, kept here so the toggle answers at once.
     var useMobileData: Bool
@@ -224,6 +224,7 @@ final class AppModel {
     @ObservationIgnored var markCelebrated: () async -> Void = {}
 
     @ObservationIgnored var observation: KotlinAutoCloseable?
+    @ObservationIgnored var sampleObservations: [KotlinAutoCloseable] = []
     @ObservationIgnored var tokens: [NSObjectProtocol] = []
     @ObservationIgnored var active = false
     @ObservationIgnored var loop: Task<Void, Never>?
@@ -257,6 +258,16 @@ final class AppModel {
                 self?.applySetup(snapshot.setup)
             }
         }
+        sampleObservations = [
+            services.retriever.observeTasteProgress { @Sendable [weak self] p in
+                let taste = TasteSnap(p)
+                Task { @MainActor in if self?.taste != taste { self?.taste = taste } }
+            },
+            services.retriever.observeSampleFiles { @Sendable [weak self] files in
+                let plan = SamplePlan(files: files)
+                Task { @MainActor in self?.sample = plan.files }
+            },
+        ]
         // Setup's inputs load with it; a first launch has nothing else that would.
         Task { try? await services.retriever.refreshSetUp() }
         readCelebrated = { (try? await services.retriever.celebrated().boolValue) ?? true }

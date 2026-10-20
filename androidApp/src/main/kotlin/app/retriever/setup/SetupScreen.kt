@@ -142,7 +142,7 @@ fun SetupScreen(
     if (seeAll) {
         ModalBottomSheet(onDismissRequest = { seeAll = false }) {
             LazyColumn {
-                items(ui.sample, key = { it.index }) { f ->
+                items(ui.sample.orEmpty(), key = { it.index }) { f ->
                     FileRow(f.file, readNote = f.note ?: Words.READ) { Opener.open(context, f.file, "", onNavigate) }
                 }
             }

@@ -130,8 +130,8 @@ extension AppModel {
         for (kind, pending) in snap.pendingByKind { snap.readByKind[kind] = max(0, (snap.byKind[kind] ?? 0) - pending) }
         snap.prefs = Self.prefs(searchTried: true)
         self.init(snap: snap, photos: photos, download: download, tune: tune, setup: setup, folders: folders, modelMissing: modelMissing, skipped: skipped)
-        fixtureTaste = taste
-        fixtureSample = sample
+        self.taste = taste
+        self.sample = sample
         func file(_ name: String, _ kind: Kind, _ folder: String, size: Int64, daysAgo: Double) -> SourceFile {
             SourceFile(
                 uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: size,

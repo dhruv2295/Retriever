@@ -128,23 +128,29 @@ internal fun ColumnScope.SampleStage(ui: SetupUi, taste: TasteProgress, actions:
             contentDescription = spoken
         },
     )
-    val count = if (taste.read == 0 && taste.pending > 0) Words.STARTING else Words.readOf(taste.read.toLong(), planned)
+    // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
+    val count = if (planned == 0L || (taste.read == 0 && taste.pending > 0)) Words.STARTING else Words.readOf(taste.read.toLong(), planned)
     val kinds = (taste.byKind.keys.toList() + listOf(Kind.PHOTO, Kind.PDF, Kind.DOC)).distinct().take(3)
-    SamplePile(SamplePile.shown(ui.sample), kinds, reduceMotion, count, Words.seeAll(planned), actions.seeAll)
+    // A new pile at the first delivery, so the files already read then never replay.
+    key(ui.sample == null) {
+        SamplePile(SamplePile.shown(ui.sample.orEmpty()), kinds, reduceMotion, count, Words.seeAll(planned), actions.seeAll.takeIf { planned > 0 })
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(count, style = MaterialTheme.typography.bodyLarge)
         // The count line says it; the bar fills when nothing is left, Name only files included.
-        LinearProgressIndicator(
-            progress = { if (planned == 0L) 0f else (planned - taste.pending).toFloat() / planned },
-            modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
-        )
+        if (planned > 0) {
+            LinearProgressIndicator(
+                progress = { (planned - taste.pending).toFloat() / planned },
+                modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
+            )
+        }
     }
     when {
         taste.pending == 0 -> Unit
         ui.pauseReason != null -> Muted(ui.pauseReason)
         else -> SampleTime(ui.reading, taste.read.toLong(), ui.sampleStartedAt)
     }
-    TextButton(onClick = actions.seeAll) { Text(Words.seeAll(planned)) }
+    if (planned > 0) TextButton(onClick = actions.seeAll) { Text(Words.seeAll(planned)) }
 }
 
 /** Core's time line while the sample reads, which turns to "taking longer" once the usual time has passed. */
@@ -162,17 +168,20 @@ private fun SampleTime(reading: Boolean, read: Long, startedAt: Long) {
 
 /**
  * The pile: the last [SamplePile.SHOWN] files read, each at its plan index's slot, so a card never moves once it
- * lands; with none yet, three placeholders of the plan's kinds. One node for a screen reader: the count, and See all.
+ * lands; with none yet, three placeholders of the plan's kinds. One node for a screen reader: the count, and See all
+ * once there is a plan to see.
  */
 @Composable
-internal fun SamplePile(cards: List<SampleFile>, kinds: List<Kind>, reduceMotion: Boolean, label: String, seeAllLabel: String, onSeeAll: () -> Unit) {
+internal fun SamplePile(cards: List<SampleFile>, kinds: List<Kind>, reduceMotion: Boolean, label: String, seeAllLabel: String, onSeeAll: (() -> Unit)?) {
     // Only a card above the pile's top at first sight settles, so reopening the screen never replays the pile.
     val firstTop = remember { cards.maxOfOrNull { it.index } ?: -1 }
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val footprint = min(SamplePile.FOOTPRINT_DP.dp, maxWidth)
         val card = footprint * SamplePile.CARD_DP / SamplePile.FOOTPRINT_DP
         Box(
-            Modifier.size(footprint).clickable(role = Role.Button, onClickLabel = seeAllLabel, onClick = onSeeAll).semantics { contentDescription = label },
+            Modifier.size(footprint)
+                .then(if (onSeeAll == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = seeAllLabel, onClick = onSeeAll))
+                .semantics { contentDescription = label },
             contentAlignment = Alignment.Center,
         ) {
             if (cards.isEmpty()) {

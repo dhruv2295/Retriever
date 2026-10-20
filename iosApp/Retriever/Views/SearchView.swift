@@ -459,10 +459,10 @@ private struct TryItIntro: View {
     let search: SearchModel
     let model: AppModel
     let ids: [Int64]
-    @State private var files: [SourceFile] = []
     @State private var suggestions: [String] = []
 
     var body: some View {
+        let files = (model.sample ?? []).filter(\.read).map(\.file)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(suggestions.isEmpty ? Words.shared.TRY_WITHOUT_SUGGESTIONS : Words.shared.TRY_BODY)
@@ -486,9 +486,6 @@ private struct TryItIntro: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24).padding(.top, 16)
-        }
-        .task {
-            for await plan in model.sampleStream() { files = plan.files.filter(\.read).map(\.file) }
         }
         .task(id: [ids.count, model.snap?.indexed ?? 0]) {
             guard let retriever = model.services?.retriever else {

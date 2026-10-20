@@ -99,22 +99,8 @@ extension AppModel {
 
     /// The sample's planned files: Try searches inside these.
     var sampleIds: [Int64] {
-        guard let services else { return (0..<Int64(fixtureTaste.planned)).map { $0 } }
+        guard let services else { return (0..<Int64(taste.planned)).map { $0 } }
         return (services.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value) ?? []
-    }
-
-    /// Every planned sample file in plan order, read or not, until the task reading it is cancelled; a fixture's at once.
-    func sampleStream() -> AsyncStream<SamplePlan> {
-        guard let retriever = services?.retriever else {
-            return AsyncStream { [plan = SamplePlan(files: fixtureSample)] in
-                $0.yield(plan)
-                $0.finish()
-            }
-        }
-        return AsyncStream { continuation in
-            let handle = retriever.observeSampleFiles { @Sendable files in continuation.yield(SamplePlan(files: files)) }
-            continuation.onTermination = { _ in handle.close() }
-        }
     }
 
     /// Search by meaning, and by photo, works: the model is here and tuned.
@@ -251,14 +237,4 @@ struct TasteSnap: Equatable, Sendable {
 /// The sample's planned files, as one delivery: Kotlin data classes of vals, immutable, so they cross to the main actor as they are.
 struct SamplePlan: @unchecked Sendable {
     let files: [SampleFile]
-}
-
-extension Retriever {
-    /// The sample's progress, until the task that reads it is cancelled.
-    func tasteStream() -> AsyncStream<TasteSnap> {
-        AsyncStream { continuation in
-            let handle = observeTasteProgress { @Sendable p in continuation.yield(TasteSnap(p)) }
-            continuation.onTermination = { _ in handle.close() }
-        }
-    }
 }

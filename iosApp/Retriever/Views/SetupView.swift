@@ -110,24 +110,21 @@ private struct WelcomeStep: View {
 /// Reading a few files with no download: the retriever's pile of what is read, and Try search once enough is.
 private struct SampleStep: View {
     let model: AppModel
-    @State private var taste: TasteSnap
-    @State private var sample: [SampleFile]
     @State private var seeingAll = false
 
-    init(model: AppModel) {
-        self.model = model
-        _taste = State(initialValue: model.fixtureTaste)
-        _sample = State(initialValue: model.fixtureSample)
-    }
-
     var body: some View {
+        // Both kept on the model, so coming back to this screen never starts from zero or replays the pile.
+        let taste = model.taste
+        let sample = model.sample ?? []
         let pause = model.progress.reading.pauseReason
         // Kept on the model, so coming back to this screen never starts the usual time again.
         let since = model.sampleStartedAt ?? .now
-        // One predicate for the mascot, the time line and the pile: reading, not stopped, and files left.
-        let reading = model.snap?.running == true && pause == nil && taste.pending > 0
+        // One predicate for the mascot, the time line and the pile: planning, or reading, not stopped, with files left.
+        let reading = model.setup?.step == .plan || (model.snap?.running == true && pause == nil && taste.pending > 0)
         let planned = Int64(taste.planned)
-        let count = taste.read == 0 && taste.pending > 0 ? Words.shared.STARTING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
+        // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
+        let starting = planned == 0 || (taste.read == 0 && taste.pending > 0)
+        let count = starting ? Words.shared.STARTING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
         StepPage {
             MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
             Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
@@ -135,8 +132,10 @@ private struct SampleStep: View {
                 .accessibilityValue(taste.spoken)
             SamplePileView(
                 cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
-                hint: Words.shared.seeAll(files: planned)
-            ) { seeingAll = true }
+                hint: Words.shared.seeAll(files: planned), seeAll: planned > 0 ? { seeingAll = true } : nil
+            )
+            // A new pile at the first delivery: the files read by then are there from its start, so they never settle again.
+            .id(model.sample == nil)
             VStack(alignment: .leading, spacing: 8) {
                 Text(count).monospacedDigit()
                 // Fills when every planned file is done, read or not; the line above counts the read ones.
@@ -165,14 +164,7 @@ private struct SampleStep: View {
             .disabled(!taste.readyToTry)
             Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) }
         }
-        .task {
-            guard let retriever = model.services?.retriever else { return }
-            for await snap in retriever.tasteStream() { taste = snap }
-        }
-        .task {
-            for await plan in model.sampleStream() { sample = plan.files }
-        }
-        .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: sample) }
+        .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: model.sample ?? []) }
     }
 }
 
@@ -184,7 +176,8 @@ struct SamplePileView: View {
     let kinds: [Kind]
     let label: String
     let hint: String
-    let seeAll: () -> Void
+    /// Nil before there is a plan to see.
+    let seeAll: (() -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The plan's first three kinds, for the empty pile.
@@ -195,7 +188,9 @@ struct SamplePileView: View {
     }
 
     var body: some View {
-        Button(action: seeAll) {
+        Button {
+            seeAll?()
+        } label: {
             GeometryReader { box in
                 let card = box.size.width * 0.75
                 let scale = card / CGFloat(SamplePile.shared.CARD_DP)
@@ -214,7 +209,12 @@ struct SamplePileView: View {
                             .frame(width: card, height: card)
                             .modifier(Slot(index: Int(c.index), scale: scale))
                             .zIndex(Double(c.index))
-                            .transition(reduceMotion ? .identity : .modifier(active: Settle(dropping: true), identity: Settle(dropping: false)))
+                            // Only the arrival moves: the card pushed off the pile simply goes, as on Android.
+                            .transition(
+                                reduceMotion
+                                    ? .identity
+                                    : .asymmetric(
+                                        insertion: .modifier(active: Settle(dropping: true), identity: Settle(dropping: false)), removal: .identity))
                     }
                 }
                 .frame(width: box.size.width, height: box.size.width)
@@ -226,11 +226,12 @@ struct SamplePileView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+        .disabled(seeAll == nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
-        .accessibilityHint(hint)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(.default, seeAll)
+        .accessibilityHint(seeAll == nil ? "" : hint)
+        .accessibilityAddTraits(seeAll == nil ? [] : .isButton)
+        .accessibilityAction(.default) { seeAll?() }
         .accessibilityIdentifier("sample-pile")
     }
 
@@ -334,10 +335,7 @@ private struct TryStep: View {
                     .accessibilityIdentifier("step-actions")
                 }
         }
-        .task {
-            guard let retriever = model.services?.retriever else { return }
-            for await taste in retriever.tasteStream() { search.stillReading = taste.pending }
-        }
+        .onChange(of: model.taste.pending, initial: true) { _, pending in search.stillReading = pending }
     }
 }
 

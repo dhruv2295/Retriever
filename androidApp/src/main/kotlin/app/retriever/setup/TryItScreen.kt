@@ -104,7 +104,7 @@ fun TryItContent(
                     for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
                 }
             }
-            val files = remember(ui.sample) { ui.sample.filter { it.read }.map { it.file } }
+            val files = remember(ui.sample) { ui.sample.orEmpty().filter { it.read }.map { it.file } }
             ReadyFiles(files, onOpen = searchActions.onOpenFile)
             Button(onClick = actions.continueToCommit, modifier = Modifier.fillMaxWidth()) {
                 Text(if (ui.nothingLeft) Words.GO_TO_HOME else Words.CHOOSE_WHEN)

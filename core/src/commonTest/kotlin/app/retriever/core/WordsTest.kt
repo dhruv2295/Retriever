@@ -44,7 +44,10 @@ class WordsTest {
             assertNull(s.pause, phase.name)
         }
         assertEquals(ReadingPhase.PAUSED to "Reading paused", status(waiting, StopReason.PAUSED).let { it.phase to it.pause })
-        assertEquals(ReadingPhase.WAITING to "Waiting for Android", status(waiting, StopReason.DONE).let { it.phase to it.pause })
+        // Between two sample batches nothing blocks: Home still says whose turn it is, but the screen is not paused.
+        val between = status(waiting.copy(sample = true))
+        assertEquals(ReadingPhase.WAITING to "Waiting for Android", between.phase to between.title)
+        assertNull(between.pause)
     }
 
     @Test fun deviceWordsReachTheDetails() {

@@ -39,15 +39,15 @@ data class SetupUi(
     val pauseReason: String? = null,
     /** When this process started reading the sample, for core's time line; 0 before. */
     val sampleStartedAt: Long = 0,
-    /** Every planned file in plan order, from core. */
-    val sample: List<SampleFile> = emptyList(),
+    /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
+    val sample: List<SampleFile>? = null,
     /** The index is reading now. */
     val running: Boolean = false,
 ) {
     val stage: SetupStage get() = setup.stage
 
-    /** The sample is being read: one test for the mascot, the time line and the pile's freeze. */
-    val reading: Boolean get() = running && pauseReason == null && (taste?.pending ?: 0) > 0
+    /** The sample is being planned or read: one test for the mascot, the time line and the pile's freeze. */
+    val reading: Boolean get() = setup.step == SetupStep.PLAN || (running && pauseReason == null && (taste?.pending ?: 0) > 0)
 
     /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice; unknown is not nothing. */
     val nothingLeft get() = moreFiles == 0L

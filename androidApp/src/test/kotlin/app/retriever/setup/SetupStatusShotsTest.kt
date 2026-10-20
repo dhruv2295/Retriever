@@ -2,6 +2,9 @@ package app.retriever.setup
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -9,6 +12,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -221,6 +225,9 @@ class SetupStatusShotsTest {
         SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), running = running, pauseReason = pause)
 
     private val start = sample(0)
+
+    /** Access chosen, the plan still syncing the library: nothing is counted and no file has arrived. */
+    private val planning = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, null, false))
     private val readingFew = sample(30)
     private val paused = sample(30, running = false, pause = "Waiting to charge")
     private val readFew = sample(66, pending = 0, running = false)
@@ -232,6 +239,30 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
         // No time before the first file is read.
         rule.onAllNodesWithText("Usually", substring = true).assertCountEquals(0)
+    }
+
+    @Test fun samplePlanningIsTheStart() {
+        setup("setup_sample_planning_light", planning)
+        rule.onNodeWithText(Words.STARTING).assertIsDisplayed()
+        rule.onAllNodesWithText(Words.readOf(0, 0)).assertCountEquals(0)
+        rule.onAllNodesWithText(Words.seeAll(0)).assertCountEquals(0)
+        // The pile says where things stand but opens nothing yet.
+        rule.onNodeWithContentDescription(Words.STARTING).assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+    }
+
+    /** A cold relaunch mid-sample: progress arrives before the files, and the files read by then land without settling. */
+    @Test fun theFirstDeliveryNeverReplaysThePile() {
+        val ui = mutableStateOf(readingFew.copy(sample = null))
+        rule.mainClock.autoAdvance = false
+        rule.setContent { ShotTheme(false) { SetupContent(ui.value, reduceMotion = false) } }
+        rule.mainClock.advanceTimeByFrame()
+        ui.value = readingFew
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeByFrame()
+        fun top() = rule.onNodeWithTag("card:29", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val first = top()
+        rule.mainClock.advanceTimeBy(2_000)
+        assertEquals(top(), first)
     }
 
     @Test fun sampleStartBigText() = setup("setup_sample_start_text2", start, fontScale = 2f)
@@ -291,6 +322,7 @@ class SetupStatusShotsTest {
 
     @Test fun theMascotWalksOnlyWhileTheSampleReads() {
         assertEquals(MascotMood.WALKING, start.mood())
+        assertEquals(MascotMood.WALKING, planning.mood())
         assertEquals(MascotMood.WALKING, readingFew.mood())
         assertEquals(MascotMood.RESTING, paused.mood())
         assertEquals(MascotMood.RESTING, readFew.mood())
