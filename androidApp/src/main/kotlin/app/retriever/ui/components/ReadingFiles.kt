@@ -58,12 +58,12 @@ import app.retriever.core.Words
 import app.retriever.ui.Format
 
 /**
- * The file being read, held in place: between two files (core reports none for a moment) the last one stays, so the row
- * never collapses or flips its label; its text changes in place, and the old picture stays until the new one is decoded,
- * then gives way in a short fade (none with motion reduced). Before any file, the row keeps its height, empty.
+ * The file being read, held in place: once core reports none (a batch ended) the last one stays, so the row never
+ * collapses or flips its label; its text changes in place, and the old picture stays until the new one is decoded, then
+ * gives way in a short fade (none with motion reduced). Before any file, the row keeps its height, empty.
  */
 @Composable
-internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp = 88.dp, reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled()) {
+internal fun ReadingNow(file: SourceFile?, size: Dp = 88.dp, reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled()) {
     // A plain holder, not state: a new file recomposes this anyway, and a null one falls back to the last.
     val held = remember {
         object {
@@ -83,7 +83,7 @@ internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(if (shown == null) pauseReason ?: "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
+        Text(if (shown == null) "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
         ReadingFile(shown, size, sweep, reduceMotion)
     }
 }

@@ -237,7 +237,7 @@ fun StatusContent(
                         Muted("${Format.count(waiting)} scheduled · ${Format.count(progress?.notScheduled ?: 0)} not scheduled")
                     }
                     if ((progress?.nameOnly ?: 0) > 0) Muted("${Format.count(progress?.nameOnly ?: 0)} name only")
-                    // Held through the moment between two files, when core reports none, so the row never blinks.
+                    // Laid out from the batch's start, before core names its first file, so the row never blinks in.
                     if (status?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 56.dp)
                     // What was read stays on show through a pause or a wait; only the sentence above changes.
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, actions.openFile)

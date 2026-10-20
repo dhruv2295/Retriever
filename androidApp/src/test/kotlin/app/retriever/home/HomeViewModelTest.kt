@@ -51,10 +51,14 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.time.Duration.Companion.minutes
 
-/** Counts the live-query subscriptions the store is asked for, and the reads of the oldest photo that start On this day. */
+/**
+ * Counts the live-query subscriptions the store is asked for, and the reads of the oldest photo that start On this day;
+ * a read whose SQL holds any of [failing] throws, as a broken database would.
+ */
 private class CountingDriver(private val driver: SqlDriver) : SqlDriver by driver {
     var subscriptions = 0
     var memoryProbes = 0
+    var failing = emptySet<String>()
 
     override fun <R> executeQuery(
         identifier: Int?,
@@ -64,6 +68,7 @@ private class CountingDriver(private val driver: SqlDriver) : SqlDriver by drive
         binders: (SqlPreparedStatement.() -> Unit)?,
     ): QueryResult<R> {
         if (sql.contains("MIN(COALESCE")) memoryProbes++
+        check(failing.none(sql::contains)) { "disk I/O error" }
         return driver.executeQuery(identifier, sql, mapper, parameters, binders)
     }
 
@@ -219,6 +224,20 @@ class HomeViewModelTest {
         vm.onResume()
         val ui = vm.ui.first { it.sectionsReady }
         assertTrue(ui.home != null && ui.suggestions != null && ui.memoriesDay != null)
+    }
+
+    /** A read that fails is logged and skipped, never thrown into Home's scope; the suggestions answer none, so Home draws. */
+    @Test fun aFailedReadNeverReachesHome() = runTest {
+        val driver = object {
+            lateinit var d: CountingDriver
+        }
+        val r = testRetriever(pdfs + photos, dispatchers = core, wrapDriver = { CountingDriver(it).also { c -> driver.d = c } })
+        r.indexBatch(1.minutes)
+        // The counts (each collector's first read and the shared one) and the suggestions' content versions.
+        driver.d.failing = setOf("GROUP BY kind, state, partial, reach", "MAX(c.id)")
+        val ui = vm(r).ui.first { it.home != null && it.suggestions != null }
+        assertEquals(emptyList<String>(), ui.suggestions)
+        assertEquals(null, ui.counts)
     }
 
     // --- Caught up, once ---

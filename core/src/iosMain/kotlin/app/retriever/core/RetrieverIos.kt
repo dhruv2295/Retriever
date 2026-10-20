@@ -11,7 +11,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
@@ -180,10 +179,6 @@ fun Retriever.observeHome(cb: (HomeFacts) -> Unit): AutoCloseable = observe(home
 
 /** [Retriever.suggestions] of [fileIds] (null: every file read); open it while the suggestions show. */
 fun Retriever.observeSuggestions(fileIds: Set<Long>?, cb: (List<String>) -> Unit): AutoCloseable = observe(suggestions(fileIds), cb)
-
-/** [Retriever.suggestions] of [fileIds] once, for a view that asks again on its own key (Try, as files are read). */
-@Throws(Throwable::class)
-suspend fun Retriever.suggestionsNow(fileIds: Set<Long>?): List<String> = suggestions(fileIds).first()
 
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {

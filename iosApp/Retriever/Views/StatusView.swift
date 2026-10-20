@@ -110,7 +110,7 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        // While reading runs, even between two files: the row keeps its last file rather than leaving and coming back.
+        // While reading runs, even between two batches: the row keeps its last file rather than leaving and coming back.
         if Copy.reading(snap).active { ReadingNow(file: snap.reading.current, size: 56) }
         // What was read stays on show through a pause or a wait; only the sentence above changes.
         if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }

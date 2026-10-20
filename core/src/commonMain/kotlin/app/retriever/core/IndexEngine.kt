@@ -42,8 +42,11 @@ class IndexEngine(
     private val pendingPage: () -> List<Store.StoredFile> = { store.pending(PAGE, store.prefs().sampleSize) },
     /** The next text chunks to embed; empty ends the deepen pass. */
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
-    /** Before extraction starts, after any wait for the UI. Null clears the current file, including on cancellation. */
-    private val onCurrent: (SourceFile?) -> Unit = {},
+    /**
+     * Before extraction starts, after any wait for the UI. Never cleared between two files, so every surface keeps saying
+     * the batch reads (no "Starting reading…" blink per file); the batch's end clears it.
+     */
+    private val onCurrent: (SourceFile) -> Unit = {},
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
     private val policyStop: (() -> StopReason?)? = null,
@@ -129,8 +132,6 @@ class IndexEngine(
             throw e
         } catch (e: Exception) {
             // Counted above; a later pass tries again.
-        } finally {
-            onCurrent(null)
         }
     }
 
@@ -186,8 +187,6 @@ class IndexEngine(
         } catch (e: Throwable) {
             store.markFailed(stored.id, stored.attempts + 1)
             return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
-        } finally {
-            onCurrent(null)
         }
     }
 

@@ -225,12 +225,6 @@ class ReadingFilesTest {
         }
     }
 
-    @Test fun pauseReasonReplacesTheFileAndSweep() {
-        rule.setContent { ShotTheme(false, 1f) { ReadingNow(null, "Paused while you use other apps. It carries on when you come back.") } }
-        rule.onNodeWithText("Paused while you use other apps. It carries on when you come back.").assertExists()
-        rule.onNodeWithTag("reading-sweep").assertDoesNotExist()
-    }
-
     @Test fun reducedMotionSwapsWithoutAnimation() {
         val current = mutableStateOf(file(1))
         rule.setContent { ShotTheme(false, 1f) { ReadingNow(current.value, reduceMotion = true) } }
@@ -243,7 +237,7 @@ class ReadingFilesTest {
         rule.onNodeWithTag("reading-crossfade").assertDoesNotExist()
     }
 
-    /** Core reports no file for a moment between two: the row holds the last one, its label and its height. */
+    /** Core reports no file between two batches: the row holds the last one, its label and its height. */
     @Test fun aGapBetweenFilesHoldsTheRow() {
         val current = mutableStateOf<SourceFile?>(file(1))
         rule.setContent { ShotTheme(false, 1f) { Column(Modifier.testTag("reading")) { ReadingNow(current.value, reduceMotion = true) } } }
@@ -310,7 +304,10 @@ class ReadingFilesTest {
         }
     }
 
-    /** Status keeps Reading now on screen while reading runs, through the moment between two files. */
+    /**
+     * Status keeps Reading now on screen while reading runs. Its title says the batch reads while it has a file (core keeps
+     * the last one between two), and "Starting reading…" only before the batch's first.
+     */
     @Test fun statusHoldsReadingNowBetweenFiles() {
         val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF)))
         rule.setContent {
@@ -327,6 +324,8 @@ class ReadingFilesTest {
             }
         }
         rule.onNodeWithText("5.jpg").assertExists()
+        rule.onNodeWithText("Reading your files").assertExists()
+        rule.onNodeWithText("Starting reading…").assertDoesNotExist()
         index.value = index.value.copy(currentFile = null)
         rule.onNodeWithText("Reading now").assertExists()
         rule.onNodeWithText("5.jpg").assertExists()

@@ -169,7 +169,9 @@ fun SearchScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
-    SearchContent(ui, home, actions) { padding, state, side, fill -> HomeScreen(ui.recent, actions, state, padding, side, fill) }
+    SearchContent(ui, home, actions) { padding, state, side, fill ->
+        HomeScreen(ui.recent.takeIf { ui.recentLoaded }, actions, state, padding, side, fill)
+    }
 }
 
 /** The screen's actions on this view model; the first run's try-it hosts the same search with the same ones. */

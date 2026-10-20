@@ -198,17 +198,36 @@ Home's 2 s throttle ran once per read, then until the database was idle for 300 
 CPU time inside `executeQuery`/`execute` on every thread; reader alone is the same run with no collector. Measured on
 8aa964d (before, in a scratch checkout) and on this change (after); the harness was scratch, not kept:
 
-| | Reader alone | Collectors before | Collectors after |
-|---|---|---|---|
-| Sample | 14.5-19.8 | 486.4 | 33.2 |
-| Half read | 12.5-13.3 | 3,256.2 | 14.0 |
+"With collectors" is the whole run's database time, the reader's own included; the collectors' cost is that less the
+reader alone (the reader's range is its spread over runs, so the difference is a range too).
 
-Arithmetic, half read. Before: 6 count collectors × 61 ms × 2 to 4 emissions per read = 732 to 1,464 ms, plus Home's
-refresh (31 + 4 + 5 + 66 = 106 ms) and the sample's two flows; 0.8 to 1.6 s modelled, 3.26 s measured, the rest being
-13 collectors contending for one database (the profile's mutex and `pread` time). After: at most one shared recompute
-per write, counts 3.3 + suggestions 4.8 + the sample's flows 0.7 + the status decision ≈ 9 ms, × 2 writes ≈ 18 ms
-modelled, 14.0 ms measured: about 230 times less. Sample: 486 → 33 ms, 15 times less. Phone numbers are the
-orchestrator's next run.
+| | Reader alone | With collectors, before | With collectors, after | Collectors only, before | Collectors only, after |
+|---|---|---|---|---|---|
+| Sample | 14.5-19.8 | 486.4 | 33.2 | 467-472 | 13.4-18.7 |
+| Half read | 12.5-13.3 | 3,256.2 | 14.0 | 3,243-3,244 | 0.7-1.5 |
+
+Collectors only, the change cuts their database time about 2,200 to 4,600 times half read (3,243 / 1.5 to 3,244 / 0.7)
+and about 25 to 35 times in the sample (467 / 18.7 to 472 / 13.4). Totals against totals, which include the reader's
+unchanged ~13-20 ms, it is about 230 and 15 times.
+
+Units. The model below uses the read table above: wall time of each flow's `first()` on the JVM, which is the SQL plus
+the Kotlin mapping and the flow machinery. The measurement is thread CPU time inside the driver's `executeQuery` and
+`execute` only: the SQL and its cursor, nothing after. So the model overstates the measurement by the non-SQL part of
+each read, which nothing here measured; the two are compared for order of magnitude only.
+
+- Half read, before: 6 count collectors × 61 ms × 2 to 4 emissions per read = 732 to 1,464 ms, plus Home's refresh
+  (31 + 4 + 5 + 66 = 106 ms) and the sample's two flows: 0.8 to 1.6 s modelled against 3.24 s of collector time. The
+  rest is INFERRED to be 13 collectors contending for one database (the profile's mutex and `pread` time).
+- Half read, after: at most one shared recompute per write, counts 3.3 + suggestions 4.8 + the sample's flows 0.7 + the
+  status decision ≈ 9 ms, × 2 writes ≈ 18 ms modelled, against 0.7 to 1.5 ms of collector time. That is less than one
+  counts recompute's SQL (the `files_by_reach` scan alone is 1.4 ms), against two expected per read, so the two do not
+  reconcile. SPECULATIVE, either: the reader's two writes land back to back in the harness (no extraction between
+  them), so conflation folds them into one recompute and the suggestions were not among the 13 flows; or the wrapper
+  missed some collector queries. The harness was not kept, so neither is checked; the phone's per-file gap decides.
+- Sample, after: counts 2.9 + tasteProgress 1.9 + sampleFiles 1.7 ≈ 6.5 ms a recompute, × 2 writes ≈ 13 ms, against
+  13.4 to 18.7 ms: consistent with two recomputes a read (INFERRED), which the half-read figure above is not.
+
+Phone numbers are the orchestrator's next run.
 
 ### Start gap, budget, time line
 
@@ -219,8 +238,11 @@ orchestrator's next run.
 - `Eta.wallRatio`: wall time per inference ms this session, from the gaps between files within a batch (a batch's first
   file counts its own time, so pauses and the gaps between batches never count). `trimTaste` (`tasteDrops`) prices what
   is left at inference × ratio against the budget less the wall time spent, once every pending kind has a pace; before
-  that, seeds with 1.5× slack. `TasteProgress.secondsLeft` = inference × `Eta.shownRatio` (null before `SHOW_AFTER_MS`
-  of inference or while a pending kind has no pace).
+  that, seeds with 1.5× slack. `TasteProgress.secondsLeft` = inference × `Eta.shownRatio(budget)`: null until a quarter
+  of the sample's budget has passed in wall time (`SHOW_AFTER_BUDGET_SHARE`) over at least two files, and while a
+  pending kind has no pace. Not a fixed 30 s of inference: at run 4's ratio of about 5, a sample trimmed to its 90 s
+  budget holds only ~18-30 s of inference, at or under that gate; the budget share is reached at 22.5 s on any
+  phone, and the time shows for the rest.
 
 ### Tests
 
@@ -253,10 +275,10 @@ Collect each only while its screen shows; a flow nobody collects costs nothing.
   (UpgradeFlow.kt:75) collect on `AppScope` for the process's life, and `HomeViewModel` collects in `viewModelScope`
   while Home sits in the back stack: move them to lifecycle-bound collection. The app-level `shareIn` wrappers are gone
   (Home, Status, IndexWorker): core shares.
-- **iOS:** open an observer when its view appears and close it when the view goes. `observeHome(cb)`,
-  `observeSuggestions(fileIds, cb)` and `suggestionsNow(fileIds)` (one read, for Try's keyed `.task`) are new in
-  `RetrieverIos.kt`; `AppModel.watchHome()`/`unwatchHome()` (AppModel+Settings.swift) replace `refreshHome` and its 2 s
-  throttle. `observeTasteProgress` and `observeSampleFiles` are opened in `AppModel.init` for the app's life: open them
+- **iOS:** open an observer when its view appears and close it when the view goes or the app leaves the foreground
+  (SwiftUI calls no `onDisappear` then). `observeHome(cb)` and `observeSuggestions(fileIds, cb)` (Home's, and Try's
+  through `watchSetup`) are new in `RetrieverIos.kt`; `AppModel.watchHome()`/`unwatchHome()` (AppModel+Settings.swift)
+  replace `refreshHome` and its 2 s throttle. `observeTasteProgress` and `observeSampleFiles` are opened in `AppModel.init` for the app's life: open them
   while setup or Try shows.
 
 ### Words
@@ -267,7 +289,7 @@ Collect each only while its screen shows; a flow nobody collects costs nothing.
 | `SAMPLE_PICKING` (was `STARTING`) | "Picking a few of your files…" |
 | `sampleNote(reading, readyToTry, secondsLeft)` (was `sampleTime`) | null unless reading; "About 3 minutes left. You can try search now." / "You can try search once a few files are read." / "You can try search now. Retriever keeps reading the rest." (rules in Copy above) |
 | `searchingTry(read)` (was `searchingSample(files)`) | "Searching every file’s name, and inside the {read} files read so far." `read` is `TasteProgress.read` |
-| `notificationsAsk(sampleReading)` | "See progress and pause a reading session." plus " We can also let you know when your sample is ready." while a sample still reads |
+| `notificationsAsk(decided, sample)` | "See progress and pause a reading session." plus " We can also let you know when your sample is ready." while the sample is undecided, has files to read and is not yet ready to try (once ready, its one message is already claimed) |
 
 Removed: `STARTING`, `sampleTime`, `searchingSample`. App-side only (no core words): drop the Choose screen's "From your
 selected files and folders" (Android CommitScreen.kt:35; iOS HomeSections.swift:567 says "photos and folders"); pass
@@ -298,15 +320,14 @@ Android: IndexWorker, HomeViewModel (flows for facts and suggestions; the 2 s lo
 StatusViewModel, TryItScreen, SearchResults and SearchViewModel (`sampleRead`), FirstRunStages (`SAMPLE_PICKING`,
 `sampleNote`), ReadingPermission (`notificationsAsk`), and the tests that named the old API. iOS: AppModel,
 AppModel+Settings (`watchHome`), AppModel+Setup (`TasteSnap.secondsLeft`), SetupView (`SAMPLE_PICKING`, `sampleNote`),
-SearchView (`searchingTry`, `suggestionsNow`, `RefreshHome` observes), AppFixture, Extractor.swift, CopyTests,
+SearchView (`searchingTry`, `RefreshHome` observes), AppFixture, Extractor.swift, CopyTests,
 HomeModelTests.
 
 ### Left
 
 - Device: tap → first card and per-file database time on the Pixel (the bench is JVM only).
-- Device, expected and by the rules above: the time line may never show. It waits for `SHOW_AFTER_MS` (30 s of
-  inference), and a 90 s wall budget at run 4's ratio (~67 s of inference in ~330 s, about 5) trims the sample to
-  roughly 18-30 s of inference, at or under that gate; the note then says only whether search can be tried.
+- Device: the time line should show from 22.5 s of wall time into the sample (a quarter of its 90 s budget); check
+  it on the Pixel, and that its minutes hold steady once shown.
 - Device, expected: a sample still reading when its first 120 s batch ends is past its 90 s budget at the next batch's
   start, so that batch's `trimTaste` drops every pending file and the pile stops growing.
 - iOS photo identity lookups inside the scan (spec, INFERRED): not changed; check the `photo identity` log first.
@@ -326,18 +347,26 @@ HomeModelTests.
   `WhileSubscribed(5_000)`; the step runner, setup and access state and the tune trigger still run for the process,
   none of them reading counts. The "ready to try" notification watcher runs only while the sample is undecided. iOS
   `AppModel.watchSetup(stage:)` opens the sample's progress and files on the sample and Try stages only, and Try's
-  suggestions from readiness on, so they are there on Try's first frame; `watchHome()`/`unwatchHome()` follow Home.
+  suggestions from readiness on, so they are there on Try's first frame; `watchHome()`/`unwatchHome()` follow Home
+  while the app is in the foreground (`scenePhase`), as Android's lifecycle-bound collection does.
+- **Failures.** No read failure reaches an app's collector: a failed read in a shared flow is logged and skipped, and a
+  failed `suggestions()` read is logged and answers none, so Home still draws (an uncaught one ended the process on iOS
+  and crashed `HomeViewModel`'s scope on Android).
 - **Try.** Scope line `searchingTry(TasteProgress.read)`. Chips or the no-suggestions line never move the page: Android's
   suggestions row holds its height from the first frame, and iOS has them before Try opens (`watchSetup`). Android: one Back now leaves a chip's results (the expanded
   bar no longer takes focus with the keyboard down).
 - **Choose.** The "From your selected … folders" line is gone on both.
 - **Reading status.** The mascot walks while reading runs (`settles = false`; Android's `Mascot` now reads `settles`
-  live, it had captured it once). Reading now keeps the last file between two, updates in place, keeps the old picture
+  live, it had captured it once). Core keeps `IndexState.currentFile` from one file to the next and clears it only when
+  the batch ends, so the headline says "Reading your files" (or the sample's) throughout and "Starting reading…" only
+  before a batch's first file. Reading now keeps the last file between batches, updates in place, keeps the old picture
   until the new one decodes (150 ms fade, none under Reduce Motion), and holds an empty row before the first file.
-- **Notification ask.** `notificationsAsk(sampleReading)` keeps the sample sentence only while the sample is undecided
-  and has files to read; the dialog waits for that answer so its text never changes while open.
-- **Home.** Sections below the hero draw together once facts, suggestions and On this day have answered (`home.md`);
-  the mosaic, screenshots, documents and starred cards gain the file long-press menu.
+- **Notification ask.** Core's `notificationsAsk(decided, sample)` keeps the sample sentence only while the sample is
+  undecided, has files to read and is not yet ready to try; the dialog waits for that answer so its text never changes
+  while open.
+- **Home.** Sections below the hero draw together once facts, suggestions, On this day and the recent searches have
+  answered (`home.md`; Android's `SearchUi.recentLoaded`, iOS's `recentLoaded`); the mosaic, screenshots, documents
+  and starred cards gain the file long-press menu.
 
 iOS layout test: `AccessibilityAuditTests.testTheSampleGroupSitsCentredAndHoldsItsPlaceInEveryState` holds the
 title, count and bar frames equal across picking, start, reading, paused and done, and checks centring where See all is
@@ -345,5 +374,4 @@ shown (XCUITest reports a container's frame as the union of its accessible rows,
 on the iPhone 18 Pro simulator the group's centre matched the space's centre to 0.1 pt).
 
 Left for the device: the walking mascot on Status (Robolectric runs no playback), Android's one-Back fix inside the
-real search dialog, and the timings above. Android Home can still insert the chip row late when core has no
-suggestions and recent searches load after the sections draw (recent searches have no loaded state on Android).
+real search dialog, and the timings above.

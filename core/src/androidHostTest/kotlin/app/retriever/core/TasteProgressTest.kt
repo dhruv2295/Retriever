@@ -32,7 +32,7 @@ class TasteProgressTest {
         val docs = SpeedBook().add(Kind.DOC, 2_000.0, 1.0) // 2 s of inference a document
         fun left(book: SpeedBook, ratio: Double?, pending: Map<Kind, Int> = mapOf(Kind.DOC to 10)) =
             TasteProgress.of(mapOf(Kind.DOC to 20, Kind.PDF to 5), pending, 0, book, mapOf(Kind.DOC to 10), ratio).secondsLeft
-        assertEquals(null, left(docs, null), "no ratio before SHOW_AFTER_MS of inference")
+        assertEquals(null, left(docs, null), "no ratio before a share of the budget is read")
         assertEquals(null, left(SpeedBook(), 3.0), "a seeded pace is not a measurement")
         assertEquals(null, left(docs, 3.0, mapOf(Kind.DOC to 10, Kind.PDF to 1)), "a pending kind with no pace yet")
         assertEquals(60, left(docs, 3.0), "10 documents × 2 s × 3")
@@ -57,7 +57,31 @@ class TasteProgressTest {
         now = 604_000
         eta.add(Kind.DOC, 4_000.0, 1.0)
         assertEquals(20_000.0, eta.wallMs)
-        assertEquals(null, eta.shownRatio, "12 s of inference is under SHOW_AFTER_MS")
+        assertEquals(null, eta.shownRatio(90_000.0), "20 s of wall time is under a quarter of a 90 s budget")
+        assertEquals(20_000.0 / 12_000, eta.shownRatio(80_000.0))
+    }
+
+    /**
+     * Run 4's shape: wall time about five times inference, so a trimmed 90 s sample holds under 20 s of inference. The
+     * time shows once a quarter of the budget has passed in wall time, never on a batch's first file alone (exactly 1).
+     */
+    @Test
+    fun theTimeShowsOnASlowPhoneOnceAShareOfTheBudgetHasPassed() {
+        var now = 0L
+        val eta = Eta(SpeedBook()) { now }
+        eta.start(mapOf(Kind.PHOTO to 30L), 0)
+        now = 30_000
+        eta.add(Kind.PHOTO, 30_000.0, 1.0) // one long first file: a ratio of exactly 1, not a measurement
+        assertEquals(null, eta.shownRatio(90_000.0))
+        val eta5 = Eta(SpeedBook()) { now }
+        eta5.start(mapOf(Kind.PHOTO to 30L), 0)
+        now = 0
+        repeat(6) {
+            now += 5_000
+            eta5.add(Kind.PHOTO, 1_000.0, 1.0)
+        }
+        // The first file's own 1 s, then five 5 s gaps: 26 s of wall time over 6 s of inference.
+        assertEquals(26.0 / 6, eta5.shownRatio(90_000.0)!!, 1e-9)
     }
 
     /** Q1 3: Name only and Couldn't read files are done without being read, so they are not still to read. */

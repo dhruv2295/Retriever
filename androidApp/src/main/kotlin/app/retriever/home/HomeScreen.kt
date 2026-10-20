@@ -103,10 +103,10 @@ private val transparent @Composable get() = ListItemDefaults.colors(containerCol
 
 private val FullLine = StaggeredGridItemSpan.FullLine
 
-/** Home with its own state holder; [recent] searches are the search screen's. */
+/** Home with its own state holder; [recent] searches are the search screen's, null until they have loaded. */
 @Composable
 fun HomeScreen(
-    recent: List<String>,
+    recent: List<String>?,
     actions: SearchActions,
     state: LazyStaggeredGridState,
     padding: PaddingValues,
@@ -183,7 +183,8 @@ internal fun HomeBody(
     ui: HomeUi,
     index: IndexState,
     charging: Boolean,
-    recent: List<String>,
+    /** Null until the recent searches have loaded. */
+    recent: List<String>?,
     actions: SearchActions,
     onResume: () -> Unit,
     onAllowAccess: () -> Unit,
@@ -204,8 +205,8 @@ internal fun HomeBody(
 ) {
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
-    val chips = remember(recent) { recent.take(5) }
-    val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions.orEmpty() else emptyList() }
+    val chips = remember(recent) { recent.orEmpty().take(5) }
+    val tries = remember(recent, ui.suggestions) { if (recent.isNullOrEmpty()) ui.suggestions.orEmpty() else emptyList() }
     val tiles = remember(ui.kindTotals, ui.folderTotals, ui.pending, ui.waiting, ui.inside) { moreTiles(ui) }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Adaptive(380.dp),
@@ -247,8 +248,9 @@ internal fun HomeBody(
             item(key = "commit", span = FullLine) { CommitCard(ui, onCommit, onDismissOffer, onDecideLater) }
         }
         if (upgrade != null) item(key = "upgrade", span = FullLine) { UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp)) }
-        // The sections wait for every source to answer, then draw together in this order: none lands above another later.
-        if (!ui.sectionsReady) return@LazyVerticalStaggeredGrid
+        // The sections wait for every source to answer (the recent searches too, whose chip row heads them), then draw
+        // together in this order: none lands above another later.
+        if (!ui.sectionsReady || recent == null) return@LazyVerticalStaggeredGrid
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
         // Pictures need the files themselves: without access they would only fail to load.

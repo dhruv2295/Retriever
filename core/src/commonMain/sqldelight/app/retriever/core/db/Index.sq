@@ -24,7 +24,7 @@ CREATE INDEX files_by_folder ON files(folder);
 
 CREATE INDEX files_by_state ON files(state);
 
--- Covers readingCounts, so the counts of a whole library are one index scan; (kind, state) lookups use its prefix.
+-- Covers reachCounts, so the counts of a whole library are one index scan; (kind, state) lookups use its prefix.
 CREATE INDEX files_by_reach ON files(kind, state, partial, reach);
 
 -- The Home lists (filesNewest, filesLargest) read these in order instead of sorting every file, filesCaptured searches
@@ -273,8 +273,8 @@ UPDATE files SET state = 'INDEXED', attempts = ?, partial = ? WHERE id = ?;
 partialFiles:
 SELECT id FROM files WHERE id IN ? AND partial = 1;
 
--- readingCounts' later pass (queued AND NOT upgrade): text beside vectors already added. A file with no vector yet only
--- waits for meaning, a count and never a Partly read file.
+-- Files with a later pass to come: text beside vectors already added. A file with no vector yet only waits for meaning,
+-- a count and never a Partly read file.
 deepeningFiles:
 SELECT DISTINCT c.file_id FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3

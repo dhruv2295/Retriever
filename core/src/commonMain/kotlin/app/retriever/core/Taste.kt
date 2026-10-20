@@ -26,7 +26,7 @@ data class TasteProgress(
     internal companion object {
         /**
          * [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the ETA does. [wallRatio]:
-         * [Eta.shownRatio], null before it is measured; the time also waits for every pending kind's pace.
+         * [Eta.shownRatio], null before a share of the budget is read; the time also waits for every pending kind's pace.
          */
         fun of(
             planned: Map<Kind, Int>,

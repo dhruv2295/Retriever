@@ -177,14 +177,31 @@ private struct LiveHome: View {
     }
 }
 
-/// Home's facts and suggestions from core while Home shows; core reads them again as files come, go and are read.
+/// Home's facts and suggestions from core while Home shows in the foreground; core reads them again as files come, go
+/// and are read. SwiftUI calls no `onDisappear` when the app leaves the foreground, so the scene's phase closes them too.
 private struct RefreshHome: ViewModifier {
     let model: AppModel
     /// Try is this screen too, but shows none of Home's facts.
     let home: Bool
+    @Environment(\.scenePhase) private var phase
+    @State private var shown = false
 
     func body(content: Content) -> some View {
-        content.onAppear { if home { model.watchHome() } }.onDisappear { if home { model.unwatchHome() } }
+        content
+            .onAppear {
+                shown = true
+                sync()
+            }
+            .onDisappear {
+                shown = false
+                sync()
+            }
+            .onChange(of: phase) { sync() }
+    }
+
+    private func sync() {
+        guard home else { return }
+        if shown && phase == .active { model.watchHome() } else { model.unwatchHome() }
     }
 }
 

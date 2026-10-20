@@ -39,13 +39,13 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
     }
     DisposableEffect(Unit) { onDispose { runPending() } }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { runPending() }
-    // The sample's sentence only while a sample still reads; the dialog waits the one frame the answer takes, so its
-    // text never changes while it is up.
-    val sampleReading by remember(asking) {
-        if (asking) retriever.tasteProgress().map { retriever.setup.value?.decided != true && it.pending > 0 } else flowOf(null)
+    // Core words it from the sample's state; the dialog waits the one frame the answer takes, so its text never changes
+    // while it is up.
+    val asked by remember(asking) {
+        if (asking) retriever.tasteProgress().map { Words.notificationsAsk(retriever.setup.value?.decided == true, it) } else flowOf(null)
     }.collectAsStateWithLifecycle(null)
-    val reading = sampleReading
-    if (asking && reading != null) {
+    val text = asked
+    if (asking && text != null) {
         fun finish(enable: Boolean) {
             asking = false
             scope.launch {
@@ -56,7 +56,7 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         AlertDialog(
             onDismissRequest = { finish(false) },
             title = { Text("See reading progress outside Retriever?") },
-            text = { Text(Words.notificationsAsk(sampleReading = reading)) },
+            text = { Text(text) },
             confirmButton = { TextButton(onClick = { finish(true) }) { Text("Enable notifications") } },
             dismissButton = { TextButton(onClick = { finish(false) }) { Text("Not now") } },
         )

@@ -7,8 +7,6 @@ import app.cash.sqldelight.db.SqlDriver
 import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -17,12 +15,7 @@ import kotlinx.serialization.json.jsonObject
 enum class FileState { PENDING, INDEXED, SKIPPED }
 
 /** [userState]: where settings and stars outlive this database; see [UserState]. */
-class Store(
-    private val driver: SqlDriver,
-    internal val log: (String, Throwable?) -> Unit = { _, _ -> },
-    private val dispatchers: CoreDispatchers = CoreDispatchers(),
-    private val userState: UserStateFile? = null,
-) {
+class Store(private val driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
     private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
 
     /** Retries run by [retryingMatch]; a test spy. */

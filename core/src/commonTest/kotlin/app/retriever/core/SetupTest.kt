@@ -103,11 +103,15 @@ class SetupTest {
         assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
         assertEquals("Try it on your own files", Words.SAMPLE_TITLE)
         assertEquals("Picking a few of your files…", Words.SAMPLE_PICKING)
+        fun sample(readyToTry: Boolean, pending: Int) = TasteProgress(emptyMap(), emptySet(), if (readyToTry) 20 else 3, null, readyToTry, pending)
         assertEquals(
             "See progress and pause a reading session. We can also let you know when your sample is ready.",
-            Words.notificationsAsk(sampleReading = true),
+            Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 10)),
         )
-        assertEquals("See progress and pause a reading session.", Words.notificationsAsk(sampleReading = false))
+        val plain = "See progress and pause a reading session."
+        assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = true, pending = 10)), "ready: its message is already claimed")
+        assertEquals(plain, Words.notificationsAsk(decided = true, sample(readyToTry = false, pending = 10)))
+        assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 0)))
         assertEquals("12 of 40 files read", Words.readOf(12, 40))
         assertEquals("0 of 1 file read", Words.readOf(0, 1))
         assertEquals("Retriever reads the files on this phone to find them by what’s inside. Nothing leaves your phone.", Words.wholeDeviceNote(android))

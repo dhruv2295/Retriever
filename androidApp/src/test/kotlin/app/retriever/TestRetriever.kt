@@ -29,7 +29,7 @@ fun testFile(name: String, kind: Kind) = SourceFile("content://test/$name", name
 /**
  * A real Retriever over an in-memory store, listing [files] once. With no [embedder] there is no model and search
  * answers from file names; [profile] is stored first, as if the phone had been tuned. [ramGb] below the floor makes
- * a words-only phone. [dispatchers] puts the store and the retriever on a test dispatcher.
+ * a words-only phone. [dispatchers] puts the retriever on a test dispatcher.
  */
 fun testRetriever(
     files: List<SourceFile> = emptyList(),
@@ -46,7 +46,7 @@ fun testRetriever(
     Class.forName("org.sqlite.JDBC")
     val store = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).let {
         IndexDb.Schema.create(it)
-        Store(wrapDriver(it), dispatchers = dispatchers)
+        Store(wrapDriver(it))
     }
     profile?.let(store::setProfile)
     return Retriever(

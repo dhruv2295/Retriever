@@ -8,8 +8,8 @@ struct ReadingPreview: Equatable {
     var pauseReason: String?
 }
 
-/// The file being read. Core has no file for a moment between two, so the row keeps the last one until the next
-/// arrives: one row, its height kept and its text changed in place, its picture replaced once the next is decoded.
+/// The file being read. Core has none between two batches, so the row keeps the last one until the next arrives: one
+/// row, its height kept and its text changed in place, its picture replaced once the next is decoded.
 struct ReadingNow: View {
     let file: SourceFile?
     var size: CGFloat = 88

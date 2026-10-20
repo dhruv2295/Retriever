@@ -19,9 +19,10 @@ holds them. The search bar and results are in `search-ui.md`.
   (`sample-quickstart.md`, Core API for the apps). Collect them only while Home shows.
 - **Stable lists.** `HomeFacts.reusing` hands back the old list instances for strips that did not change, so the
   `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`.
-- **Sections draw together.** Below the hero, nothing draws until the home facts, the suggestions and On this day
-  (where it can show) have all answered (`sectionsReady`; iOS also waits for recent searches), so no section lands above
-  one already shown. A failed On this day lookup counts as an answer with no memories.
+- **Sections draw together.** Below the hero, nothing draws until the home facts, the suggestions, On this day (where
+  it can show) and the recent searches have all answered (`sectionsReady` and `recentLoaded`, on both platforms), so no
+  section lands above one already shown. A failed On this day lookup counts as an answer with no memories, a failed
+  recent-searches read as none, and a failed suggestions read as no suggestions.
 - **Long press.** The photo mosaic, screenshots, documents and starred cards carry the same file menu as Search and
   Browse ("More options", with matching screen-reader actions).
 - **Fixed order, hide at zero.** Sections never move because a count changed; one with nothing to say is not drawn.

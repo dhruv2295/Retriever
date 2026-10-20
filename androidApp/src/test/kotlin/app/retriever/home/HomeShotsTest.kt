@@ -145,13 +145,13 @@ class HomeShotsTest {
         home: HomeUi,
         index: IndexState,
         actions: SearchActions = SearchActions(),
-        recent: List<String> = recents,
+        recent: List<String>? = recents,
         charging: Boolean = false,
         onResume: () -> Unit = {},
         onHideOnThisDay: () -> Unit = {},
         onCommit: (Boolean) -> Unit = {},
         celebration: Celebration = Celebration(),
-    ) = SearchContent(SearchUi(recent = recent), home, actions) { padding, state, side, fill ->
+    ) = SearchContent(SearchUi(recent = recent.orEmpty()), home, actions) { padding, state, side, fill ->
         HomeBody(home, index, charging, recent, actions, onResume, {}, state, padding, side, fill, onHideOnThisDay, onCommit, celebration)
     }
 
@@ -595,14 +595,19 @@ class HomeShotsTest {
     @Test fun noSectionDrawsBeforeEverySourceHasAnswered() {
         RuntimeEnvironment.setQualifiers("+h2500dp")
         var ui by mutableStateOf(caughtUp.copy(home = null))
-        rule.setContent { ShotTheme(false) { Screen(ui, IndexState()) } }
+        var recent by mutableStateOf<List<String>?>(recents)
+        rule.setContent { ShotTheme(false) { Screen(ui, IndexState(), recent = recent) } }
         rule.onNodeWithText("On this day").assertDoesNotExist()
         ui = caughtUp.copy(suggestions = null)
         rule.onNodeWithText("On this day").assertDoesNotExist()
         rule.onNodeWithText("Photos and videos").assertDoesNotExist()
         ui = caughtUp.copy(memories = emptyList(), memoriesDay = null)
         rule.onNodeWithText("Photos and videos").assertDoesNotExist()
+        // The recent searches' chip row heads the sections: they wait for it too.
         ui = caughtUp
+        recent = null
+        rule.onNodeWithText("Photos and videos").assertDoesNotExist()
+        recent = recents
         val media = rule.onNodeWithText("Photos and videos").fetchSemanticsNode().boundsInRoot.top
         val onThisDay = rule.onNodeWithText("On this day").fetchSemanticsNode().boundsInRoot.top
         assertTrue(media < onThisDay)

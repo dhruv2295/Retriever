@@ -77,6 +77,8 @@ data class SearchUi(
     /** The meaning upgrade's stage, for the hint under few results; the screen fills it in. */
     val upgrade: UpgradeStage = UpgradeStage.UNAVAILABLE,
     val recent: List<String> = emptyList(),
+    /** [recent] has answered once (or failed to), so Home's sections can draw with its chip row in place. */
+    val recentLoaded: Boolean = false,
     val starredUris: Set<String> = emptySet(),
     /** Only starred files. */
     val onlyStarred: Boolean = false,
@@ -161,7 +163,11 @@ class SearchViewModel(
                 _ui.update { it.copy(unread = p.pending, sampleRead = p.read, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
             }
         }
-        launchCatching { loadRecent() }
+        // Loaded even when the read fails, so Home's sections never wait on it.
+        launchCatching(onError = {
+            Log.e("Retriever", "recent searches failed", it)
+            _ui.update { u -> u.copy(recentLoaded = true) }
+        }) { loadRecent() }
     }
 
     /** A question as asked: [photo] carries the photo's bytes, [retry] asks the same question again. */
@@ -346,7 +352,7 @@ class SearchViewModel(
     /** Settings can clear the searches while this screen stays alive behind it. */
     fun refreshRecent() = launchCatching { loadRecent() }
 
-    private suspend fun loadRecent() = _ui.update { it.copy(recent = retriever.recentQueries()) }
+    private suspend fun loadRecent() = _ui.update { it.copy(recent = retriever.recentQueries(), recentLoaded = true) }
 
     fun findSimilar(file: SourceFile) = showSimilar(file.uri, file.name)
 

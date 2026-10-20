@@ -115,8 +115,12 @@ internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
     var wallRatio: Double? = null
         private set
 
-    /** [wallRatio] once [SHOW_AFTER_MS] of inference stand behind it, so no warm-up number is shown. */
-    val shownRatio: Double? get() = wallRatio?.takeIf { sessionMs >= SHOW_AFTER_MS }
+    /**
+     * [wallRatio] once [SHOW_AFTER_BUDGET_SHARE] of [budgetMs] in wall time and a gap between two files stand behind it
+     * (a batch's first file alone is exactly 1), so no warm-up number is shown. Scaled to the budget, not a fixed span of
+     * inference: a slow phone trims its sample to fewer inference seconds, and a fixed span would never be reached.
+     */
+    fun shownRatio(budgetMs: Double): Double? = wallRatio?.takeIf { sessionFiles > 1 && wallMs >= budgetMs * SHOW_AFTER_BUDGET_SHARE }
 
     var minutes: Int? = null
         private set
@@ -167,6 +171,9 @@ internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
 
     companion object {
         const val SHOW_AFTER_MS = 30_000.0
+
+        /** The share of the sample's budget, in wall time, read before its time left shows: the rest of it shows a time. */
+        const val SHOW_AFTER_BUDGET_SHARE = 0.25
 
         /** More than 10%, and at least 2 minutes: a tolerance relative to the value with an absolute floor. */
         fun moved(shown: Int?, now: Int): Boolean = shown == null || abs(now - shown) > max(0.1 * shown, 2.0)

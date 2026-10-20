@@ -202,9 +202,12 @@ object Words {
     /** Try's scope: names cover the whole library, words inside only the [read] files ([TasteProgress.read]). */
     fun searchingTry(read: Long): String = "Searching every file’s name, and inside the ${files(read)} read so far."
 
-    /** The notification ask: the sample's line only while a sample is still reading. */
-    fun notificationsAsk(sampleReading: Boolean): String =
-        "See progress and pause a reading session." + if (sampleReading) " We can also let you know when your sample is ready." else ""
+    /**
+     * The notification ask. The sample's line only while an undecided [sample] still has files to read and is not ready
+     * to try: once it is, its one message is already claimed, so the line would promise a message that never comes.
+     */
+    fun notificationsAsk(decided: Boolean, sample: TasteProgress): String = "See progress and pause a reading session." +
+        if (!decided && !sample.readyToTry && sample.pending > 0) " We can also let you know when your sample is ready." else ""
 
     // Search.
     const val SEARCH_FIELD = "Search your files"

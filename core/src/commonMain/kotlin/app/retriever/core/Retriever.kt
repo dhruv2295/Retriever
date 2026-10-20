@@ -65,7 +65,10 @@ data class IndexState(
     val failed: Int = 0,
     val pendingAtStart: Long = 0,
     val current: String? = null,
-    /** The file in extraction/embedding now, cleared whenever reading stops. */
+    /**
+     * The file in extraction/embedding now, kept between two files of a batch and cleared whenever reading stops: null
+     * while running is only the batch's start, before its first file ("Starting reading…").
+     */
     val currentFile: SourceFile? = null,
     /** Successful reads, newest first, at most 24; on restart, reversed plan order intersected with INDEXED. */
     val recentFiles: List<SourceFile> = emptyList(),
@@ -380,14 +383,17 @@ class Retriever(
     /**
      * [read] of the latest [changes], once per burst of them (conflated) and once for all collectors (shared), only while
      * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
-     * fresh [read] of [current], never a value from before its subscription. A failure in the shared read is logged and
-     * ends the sharing, so it never reaches the scope; one in a collector's own first read reaches that collector.
+     * fresh [read] of [current], never a value from before its subscription. No failure reaches a collector (on iOS an
+     * uncaught one ends the process): one in the shared read is logged and ends the sharing; a failed first read is
+     * logged and skipped, and the collector waits for the next change.
      */
     private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
         val shared = changes.conflate().map { read(it) }
             .catch { log("A watched read failed", it) }
             .shareIn(background, SharingStarted.WhileSubscribed())
-        return shared.onSubscription { emit(read(current())) }.distinctUntilChanged().flowOn(dispatchers.default)
+        return shared.onSubscription {
+            runCatching { read(current()) }.onSuccess { emit(it) }.onFailure { log("A watched read failed", it) }
+        }.distinctUntilChanged().flowOn(dispatchers.default)
     }
 
     /** Meaning work waits for the model and its tune, as reading does. */
@@ -718,19 +724,13 @@ class Retriever(
         _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
     }
 
-    private fun onCurrent(file: SourceFile?) {
-        if (file != null && _prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
+    private fun onCurrent(file: SourceFile) {
+        if (_prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
         _state.update {
             it.copy(
-                current = file?.name,
+                current = file.name,
                 currentFile = file,
-                etaMinutes = if (file != null &&
-                    store.fileByUri(file.uri)?.state == FileState.INDEXED
-                ) {
-                    null
-                } else {
-                    it.etaMinutes
-                },
+                etaMinutes = if (store.fileByUri(file.uri)?.state == FileState.INDEXED) null else it.etaMinutes,
             )
         }
     }
@@ -908,10 +908,9 @@ class Retriever(
     internal fun trimTaste() {
         val ids = store.sampleIds() ?: return
         val pending = store.pendingIn(ids)
-        val budget = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
         val costs = pending.associate { it.id to eta.book.costMs(it.file) }
         val ratio = eta.wallRatio?.takeIf { eta.book.measures(pending.byKind().first) }
-        val drop = tasteDrops(pending, costs, budget, eta.wallMs, ratio, keepOne = store.indexedIn(ids).isEmpty())
+        val drop = tasteDrops(pending, costs, tasteBudgetMs(), eta.wallMs, ratio, keepOne = store.indexedIn(ids).isEmpty())
         if (drop.isEmpty()) return
         store.setTaste(ids.filterNot { it in drop })
         loadScope()
@@ -925,9 +924,11 @@ class Retriever(
             val planned = store.storedIn(ids).groupingBy { it.file.kind }.eachCount()
             val (pending, videoBytes) = store.pendingIn(ids).byKind()
             val searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount()
-            TasteProgress.of(planned, pending, videoBytes, eta.book, searchable, eta.shownRatio)
+            TasteProgress.of(planned, pending, videoBytes, eta.book, searchable, eta.shownRatio(tasteBudgetMs()))
         }
     }
+
+    private fun tasteBudgetMs() = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
 
     /** How far the short read is; re-emits as files are read. One shared flow; see [watched]. */
     fun tasteProgress(): Flow<TasteProgress> = sharedTaste
@@ -1303,13 +1304,17 @@ class Retriever(
     /**
      * Three things to search for from the content of [fileIds] (null: every file read), with document frequencies from
      * the whole read set; empty when there are not three good ones. Again as files are read, a burst at a time, while
-     * collected.
+     * collected. A failed read is logged and answers empty, then the flow ends, as [watched] does: it never reaches a
+     * collector, and a screen waiting on suggestions still draws.
      */
     fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = store.countChanges().conflate().map {
         suggestionLock.withLock {
             contentSuggestions.refresh(store.readContentVersions(), store::file) { id -> store.chunkTexts(id).mapNotNull { it.text } }
             contentSuggestions.suggestions(fileIds)
         }
+    }.catch {
+        log("Suggestions failed", it)
+        emit(emptyList())
     }.distinctUntilChanged().flowOn(dispatchers.default)
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */

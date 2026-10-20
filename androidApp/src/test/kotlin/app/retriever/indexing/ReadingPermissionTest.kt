@@ -10,11 +10,15 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Kind
-import app.retriever.core.Words
+import app.retriever.core.Part
+import app.retriever.core.Piece
+import app.retriever.core.TRY_AFTER_FILES
 import app.retriever.testFile
 import app.retriever.testRetriever
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,13 +58,36 @@ class ReadingPermissionTest {
     /** The first Home's ask, once the sample is read: no promise about a sample that is already done. */
     @Test fun theSampleSentenceGoesOnceTheSampleIsDone() {
         ask(testRetriever())
-        rule.onNodeWithText(Words.notificationsAsk(sampleReading = false)).assertExists()
+        rule.onNodeWithText(PLAIN).assertExists()
     }
 
     @Test fun theSampleSentenceStaysWhileTheSampleReads() {
         val retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) })
         runBlocking { retriever.planTaste() }
         ask(retriever)
-        rule.onNodeWithText(Words.notificationsAsk(sampleReading = true)).assertExists()
+        rule.onNodeWithText("$PLAIN $SAMPLE_LINE").assertExists()
+    }
+
+    /** Ready to try with files still to read (the ask after Try): the one message is claimed, so nothing is promised. */
+    @Test fun theSampleSentenceGoesOnceTheSampleIsReadyToTry() {
+        var extracted = 0
+        lateinit var retriever: app.retriever.core.Retriever
+        retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) }, extract = {
+            if (++extracted > TRY_AFTER_FILES) retriever.cancelBatch()
+            listOf(Piece("", listOf(Part.Text("read content")), "read content", "read content"))
+        }).apply { uiVisible = true }
+        val sample = runBlocking {
+            retriever.planTaste()
+            retriever.taste()
+            retriever.tasteProgress().first()
+        }
+        assertTrue("ready with files pending: $sample", sample.readyToTry && sample.pending > 0)
+        ask(retriever)
+        rule.onNodeWithText(PLAIN).assertExists()
+    }
+
+    private companion object {
+        const val PLAIN = "See progress and pause a reading session."
+        const val SAMPLE_LINE = "We can also let you know when your sample is ready."
     }
 }
