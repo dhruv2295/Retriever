@@ -30,7 +30,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -52,6 +51,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -219,15 +219,33 @@ internal fun TextThumbnail(file: SourceFile, preview: suspend (SourceFile) -> St
     val body = MaterialTheme.typography.bodySmall
     val titleHeight = with(LocalDensity.current) { title.lineHeight.toDp() }
     val bodyHeight = with(LocalDensity.current) { body.lineHeight.toDp() }
-    BoxWithConstraints(Modifier.fillMaxSize().clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
-        val lines = ((maxHeight - 16.dp - titleHeight * 2) / bodyHeight).toInt().coerceAtMost(6)
-        if (lines < 2) {
-            Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    // A plain Layout, not BoxWithConstraints: weighted FlowRow cells ask their tiles for intrinsics, which a
+    // SubcomposeLayout cannot answer. The text is cut to whole lines by height; Ellipsis marks the cut.
+    Layout(
+        contents = listOf(
+            { Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            {
+                Column(Modifier.fillMaxSize().padding(8.dp)) {
+                    Text(file.name, style = title, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+                    text?.let { Text(it, style = body, maxLines = MAX_TEXT_LINES, overflow = TextOverflow.Ellipsis) }
+                }
+            },
+        ),
+        modifier = Modifier.fillMaxSize().clearAndSetSemantics {},
+    ) { (icon, column), c ->
+        val lines = ((c.maxHeight.toDp() - 16.dp - titleHeight * 2) / bodyHeight).toInt().coerceAtMost(MAX_TEXT_LINES)
+        val p = if (lines < 2) {
+            icon.first().measure(c.copy(minWidth = 0, minHeight = 0))
         } else {
-            Column(Modifier.fillMaxSize().padding(8.dp)) {
-                Text(file.name, style = title, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                text?.let { Text(it, style = body, maxLines = lines, overflow = TextOverflow.Ellipsis) }
-            }
+            // Room for the title and [lines] body lines, plus half a line of slack so rounding never drops one.
+            val h = (16.dp + titleHeight + bodyHeight * lines + bodyHeight / 2).roundToPx().coerceAtMost(c.maxHeight)
+            column.first().measure(c.copy(minHeight = 0, maxHeight = h))
         }
+        // Unbounded only while a parent asks for intrinsics: then the content's own size is the answer.
+        val w = if (c.hasBoundedWidth) c.maxWidth else p.width
+        val h = if (c.hasBoundedHeight) c.maxHeight else p.height
+        layout(w, h) { if (lines < 2) p.place((w - p.width) / 2, (h - p.height) / 2) else p.place(0, 0) }
     }
 }
+
+private const val MAX_TEXT_LINES = 6

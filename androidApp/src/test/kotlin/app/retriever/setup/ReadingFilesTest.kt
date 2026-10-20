@@ -112,6 +112,23 @@ class ReadingFilesTest {
         assertTrue(opened)
     }
 
+    /**
+     * A document's text tile inside the weighted FlowRow: FlowRow asks each weighted tile for its intrinsic width, which
+     * reaches the text tile; a SubcomposeLayout there crashed the first run on a Pixel 8 Pro.
+     */
+    @Test fun sampleAndReadyFilesMeasureADocumentTextTile() {
+        val mixed = listOf(file(1, Kind.DOC), file(2, Kind.PDF), file(3), file(4, Kind.VIDEO))
+        sample(IndexState(running = true, currentFile = file(5, Kind.DOC), recentFiles = mixed))
+        rule.onNodeWithContentDescription("${Words.READING_NOW}, 5.jpg, ${Words.kindLabel(Kind.DOC)}").assertIsDisplayed()
+        rule.onNodeWithContentDescription("1.jpg, ${Words.kindLabel(Kind.DOC)}").assertIsDisplayed()
+    }
+
+    @Test fun readyFilesMeasureADocumentTextTile() {
+        val mixed = listOf(file(1, Kind.DOC), file(2, Kind.PDF), file(3), file(4, Kind.VIDEO))
+        rule.setContent { ShotTheme(false, 1f) { ReadyFiles(mixed, 4, reduceMotion = true) } }
+        rule.onNodeWithTag("recent:${mixed[0].uri}").assertIsDisplayed()
+    }
+
     /** Paused: the reason, no time line, and the previews read so far stay. */
     @Test fun pausedSampleKeepsItsPreviews() {
         sample(IndexState(recentFiles = recent), SetupUi(taste = taste, pauseReason = "Waiting to charge"))
