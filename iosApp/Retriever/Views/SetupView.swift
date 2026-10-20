@@ -120,7 +120,8 @@ private struct SampleStep: View {
         // Kept on the model, so coming back to this screen never starts the usual time again.
         let since = model.sampleStartedAt ?? .now
         // One predicate for the mascot, the time line and the pile: planning, or reading, not stopped, with files left.
-        let reading = model.setup?.step == .plan || (model.snap?.running == true && pause == nil && taste.pending > 0)
+        // Not `running`: it drops between two sample batches, and the mascot would sit down for that gap.
+        let reading = model.setup?.step == .plan || (pause == nil && taste.pending > 0)
         let planned = Int64(taste.planned)
         // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
         let starting = planned == 0 || (taste.read == 0 && taste.pending > 0)

@@ -41,13 +41,14 @@ data class SetupUi(
     val sampleStartedAt: Long = 0,
     /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
     val sample: List<SampleFile>? = null,
-    /** The index is reading now. */
-    val running: Boolean = false,
 ) {
     val stage: SetupStage get() = setup.stage
 
-    /** The sample is being planned or read: one test for the mascot, the time line and the pile's freeze. */
-    val reading: Boolean get() = setup.step == SetupStep.PLAN || (running && pauseReason == null && (taste?.pending ?: 0) > 0)
+    /**
+     * The sample is being planned or read: one test for the mascot, the time line and the pile's freeze. Not `running`:
+     * that drops between two sample batches, and the mascot would sit down for the gap.
+     */
+    val reading: Boolean get() = setup.step == SetupStep.PLAN || (pauseReason == null && (taste?.pending ?: 0) > 0)
 
     /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice; unknown is not nothing. */
     val nothingLeft get() = moreFiles == 0L
@@ -85,7 +86,6 @@ class SetupFlow(
             }
         }
         scope.launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
-        scope.launch { retriever.state.map { it.running }.distinctUntilChanged().collect { r -> _ui.update { it.copy(running = r) } } }
         scope.launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
         scope.launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
         scope.launch {

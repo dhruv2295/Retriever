@@ -122,6 +122,7 @@ fun FileRow(
     readNote: String? = null,
     onLongClickLabel: String? = null,
     onClickLabel: String = clickLabel(locator),
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -131,6 +132,7 @@ fun FileRow(
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .combinedClickable(
+                enabled = enabled,
                 onClickLabel = onClickLabel,
                 onLongClickLabel = onLongClickLabel,
                 onLongClick = onLongClick,

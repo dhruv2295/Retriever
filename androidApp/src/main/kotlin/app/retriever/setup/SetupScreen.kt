@@ -138,12 +138,12 @@ fun SetupScreen(
     if (including && ui.stage == SetupStage.WELCOME) {
         ModalBottomSheet(onDismissRequest = { including = false }) { IncludeSheet(ui, askedFiles, folderError, actions) }
     }
-    // Every planned file, read or not, so the list answers what is done and what isn't.
+    // Every planned file, read or not, so the list answers what is done and what isn't; only read ones open, as on iOS.
     if (seeAll) {
         ModalBottomSheet(onDismissRequest = { seeAll = false }) {
             LazyColumn {
                 items(ui.sample.orEmpty(), key = { it.index }) { f ->
-                    FileRow(f.file, readNote = f.note ?: Words.READ) { Opener.open(context, f.file, "", onNavigate) }
+                    FileRow(f.file, readNote = f.note ?: Words.READ, enabled = f.read) { Opener.open(context, f.file, "", onNavigate) }
                 }
             }
         }

@@ -221,16 +221,16 @@ class SetupStatusShotsTest {
     }
 
     private val chosen = SetupInputs(SetupMark.ACCESS_CHOSEN, planned = 71, accessGiven = true)
-    private fun sample(read: Int, pending: Int = 71 - read, running: Boolean = true, pause: String? = null) =
-        SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), running = running, pauseReason = pause)
+    private fun sample(read: Int, pending: Int = 71 - read, pause: String? = null) =
+        SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), pauseReason = pause)
 
     private val start = sample(0)
 
     /** Access chosen, the plan still syncing the library: nothing is counted and no file has arrived. */
     private val planning = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, null, false))
     private val readingFew = sample(30)
-    private val paused = sample(30, running = false, pause = "Waiting to charge")
-    private val readFew = sample(66, pending = 0, running = false)
+    private val paused = sample(30, pause = "Waiting to charge")
+    private val readFew = sample(66, pending = 0)
 
     @Test fun sampleStart() {
         setup("setup_sample_start_light", start)
@@ -326,7 +326,6 @@ class SetupStatusShotsTest {
         assertEquals(MascotMood.WALKING, readingFew.mood())
         assertEquals(MascotMood.RESTING, paused.mood())
         assertEquals(MascotMood.RESTING, readFew.mood())
-        assertEquals(MascotMood.RESTING, readingFew.copy(running = false).mood())
         assertEquals(MascotMood.WELCOME, welcome.mood())
     }
 
