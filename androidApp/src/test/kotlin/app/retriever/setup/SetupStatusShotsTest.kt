@@ -8,26 +8,32 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import app.retriever.ShotTheme
 import app.retriever.access.Access
 import app.retriever.access.Photos
 import app.retriever.access.PickedFolder
 import app.retriever.core.Backend
+import app.retriever.core.DeviceWords
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
+import app.retriever.core.SampleFile
 import app.retriever.core.SearchEngine
 import app.retriever.core.SetupInputs
 import app.retriever.core.SetupMark
+import app.retriever.core.SetupStage
 import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.TasteProgress
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
+import app.retriever.core.motion.MascotMood
 import app.retriever.home.HomeUi
 import app.retriever.model.UpgradeUi
 import app.retriever.search.SearchActions
@@ -39,6 +45,7 @@ import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
 import app.retriever.tallWindowForBigText
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -70,11 +77,9 @@ class SetupStatusShotsTest {
         dark: Boolean = false,
         fontScale: Float = 1f,
         actions: SetupActions = SetupActions(),
-        filesDenied: Boolean = false,
-    ) = shot(name, dark, fontScale, settleMs = if (ui.stage == app.retriever.core.SetupStage.WELCOME) 4_000 else 0) {
-        val read = ui.taste?.read ?: 0
-        val index = IndexState(running = read < 71, currentFile = previewFiles.first().takeIf { read < 71 }, recentFiles = previewFiles.drop(1).take(read))
-        SetupContent(ui, filesDenied = filesDenied, actions = actions, index = { index }, reduceMotion = true)
+        allFilesOff: Boolean = false,
+    ) = shot(name, dark, fontScale, settleMs = if (ui.stage == SetupStage.WELCOME) 4_000 else 0) {
+        SetupContent(ui, actions = actions, allFilesOff = allFilesOff, reduceMotion = true)
     }
 
     /** Light, dark and 1.5x text of one first-run state. */
@@ -84,13 +89,22 @@ class SetupStatusShotsTest {
         else -> setup("${name}_text1_5", ui, fontScale = 1.5f)
     }
 
+    private val previewFiles = (1..8).map { i ->
+        SourceFile("demo:reading-$i", "Photo $i.jpg", "Photos", "image/jpeg", Kind.PHOTO, 1_200_000, 1_760_000_000_000)
+    }
+
+    @Before fun readingThumbnails() = registerReadingThumbnails(previewFiles.map { it.uri } + planFiles(0).map { it.file.uri })
+
     private val welcome = SetupUi()
 
     @Test fun welcomeLight() {
         three("setup_welcome", welcome, 0)
         rule.onNodeWithText(Words.WELCOME_TITLE).assertExists()
-        rule.onNodeWithText(Words.GET_STARTED).assertExists()
+        rule.onNodeWithText(Words.wholeDeviceNote(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertExists()
+        rule.onNodeWithText(Words.CHOOSE_INSTEAD).assertExists()
         rule.onNodeWithText(Words.SEARCH_BY_NAME).assertExists()
+        rule.onNodeWithText(Words.ALL_FILES_OFF).assertDoesNotExist()
         // No download on the way in.
         rule.onAllNodesWithText("MB", substring = true).assertCountEquals(0)
         rule.onAllNodesWithText("download", substring = true, ignoreCase = true).assertCountEquals(0)
@@ -102,78 +116,187 @@ class SetupStatusShotsTest {
 
     @Test fun welcomeButtonsCallTheirActions() {
         val calls = mutableListOf<String>()
-        setup("setup_welcome_buttons", welcome, actions = SetupActions(getStarted = { calls += "start" }, searchByName = { calls += "names" }))
-        rule.onNodeWithText(Words.GET_STARTED).performClick()
-        rule.onNodeWithText(Words.SEARCH_BY_NAME).performClick()
-        assertEquals(listOf("start", "names"), calls)
+        val actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }, searchByName = { calls += "names" })
+        setup("setup_welcome_buttons", welcome, actions = actions)
+        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).performScrollTo().performClick()
+        rule.onNodeWithText(Words.CHOOSE_INSTEAD).performScrollTo().performClick()
+        rule.onNodeWithText(Words.SEARCH_BY_NAME).performScrollTo().performClick()
+        assertEquals(listOf("files", "choose", "names"), calls)
     }
 
-    private val access = SetupUi(setup = SetupInputs(SetupMark.STARTED))
-    private val accessGiven = SetupUi(setup = SetupInputs(SetupMark.STARTED, accessGiven = true), access = Access(false, Photos.ALL, videos = true))
+    /** Back from Settings with the switch still off: what to do, under the button. */
+    @Test fun welcomeAfterAllFilesWasLeftOff() {
+        setup("setup_welcome_all_files_off_light", welcome, allFilesOff = true)
+        rule.onNodeWithText(Words.ALL_FILES_OFF).assertExists()
+        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertExists()
+    }
 
-    @Test fun accessWaitsForAChoice() {
-        setup("setup_access_light", access)
-        rule.onNodeWithText(Words.CHOOSE_ACCESS).assertExists()
-        rule.onNodeWithText(Words.FILES_AND_FOLDERS).assertExists()
+    /** All-files access already on: Continue confirms it, with no trip to Settings. */
+    @Test fun welcomeWithAllFilesContinuesWithoutSettings() {
+        val calls = mutableListOf<String>()
+        val granted = SetupUi(setup = SetupInputs(accessGiven = true), access = Access.ALL)
+        setup("setup_welcome_ready_light", granted, actions = SetupActions(allowFiles = { calls += "settings" }, continueFromAccess = { calls += "continue" }))
+        rule.onNodeWithText(Words.WHOLE_PHONE_READY).assertExists()
+        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertDoesNotExist()
+        rule.onNodeWithText(Words.CONTINUE).performScrollTo().performClick()
+        assertEquals(listOf("continue"), calls)
+    }
+
+    // --- Choose what to include ---
+
+    private fun include(
+        name: String,
+        ui: SetupUi,
+        asked: Boolean = false,
+        folderError: String? = null,
+        actions: SetupActions = SetupActions(),
+        dark: Boolean = false,
+    ) = shot(name, dark) { IncludeSheet(ui, asked, folderError, actions) }
+
+    private val nothing = SetupUi()
+    private val mediaGiven = SetupUi(setup = SetupInputs(accessGiven = true), access = Access(false, Photos.ALL, videos = true))
+
+    @Test fun includeWaitsForAChoice() {
+        include("setup_include_light", nothing)
+        rule.onNodeWithText(Words.INCLUDE_TITLE).assertExists()
         rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).assertExists()
+        rule.onNodeWithText(Words.kindLabelPlural(Kind.AUDIO)).assertExists()
         rule.onNodeWithText(Words.ADD_FOLDER).assertExists()
         rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
+        rule.onNodeWithText(Words.NOTHING_SELECTED).assertDoesNotExist()
     }
 
-    @Test fun accessDark() = setup("setup_access_dark", accessGiven, dark = true)
+    @Test fun includeDark() = include("setup_include_dark", mediaGiven, dark = true)
 
-    @Test fun accessBigText() = setup("setup_access_text1_5", accessGiven, fontScale = 1.5f)
-
-    @Test fun accessDeniedSaysWhatToDo() {
-        setup("setup_access_denied_light", access, filesDenied = true)
+    @Test fun includeAskedWithNothingGivenSaysWhatToDo() {
+        include("setup_include_denied_light", nothing, asked = true, folderError = "Retriever already searches that folder.")
         rule.onNodeWithText(Words.NOTHING_SELECTED).assertExists()
+        rule.onNodeWithText("Retriever already searches that folder.").assertExists()
     }
 
-    @Test fun accessGivenContinues() {
-        var continued = false
-        setup("setup_access_given_light", accessGiven, actions = SetupActions(continueFromAccess = { continued = true }))
+    @Test fun includeContinueConfirmsWhatWasGiven() {
+        val calls = mutableListOf<String>()
+        include(
+            "setup_include_given_light",
+            mediaGiven,
+            actions = SetupActions(allowMedia = {
+                calls += "media"
+            }, addFolder = { calls += "folder" }, continueFromAccess = {
+                calls +=
+                    "continue"
+            }),
+        )
+        rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).performClick()
+        rule.onNodeWithText(Words.ADD_FOLDER).performClick()
         rule.onNodeWithText(Words.CONTINUE).assertIsEnabled().performClick()
-        assertEquals(true, continued)
+        assertEquals(listOf("media", "folder", "continue"), calls)
     }
 
-    /** [read] of a 71-file plan. */
-    private fun progress(read: Int): TasteProgress {
+    // --- The sample ---
+
+    /** [read] of a 71-file plan; Name only files are done without being read, so pending is what is left. */
+    private fun progress(read: Int, pending: Int = 71 - read): TasteProgress {
         val plan = linkedMapOf(Kind.SCREENSHOT to 15, Kind.DOC to 12, Kind.PDF to 10, Kind.PHOTO to 32, Kind.VIDEO to 2)
         var left = read
         val byKind = plan.mapValues { (_, n) -> minOf(left, n).also { left -= it } to n }
-        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, if (read >= 71) 0 else 75, read >= 20)
+        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, if (pending == 0) 0 else 75, read >= 20, pending)
     }
+
+    /** The plan's files, the first [read] of them read; every fourth one a document, the rest photos with previews. */
+    private fun planFiles(read: Int) = (0 until 71).map { i ->
+        val doc = i % 4 == 1
+        val f = if (doc) {
+            SourceFile("demo:doc-$i", "Notes $i.txt", "Documents", "text/plain", Kind.DOC, 2_000, 1_760_000_000_000)
+        } else {
+            previewFiles[
+                i %
+                    previewFiles.size,
+            ]
+        }
+        SampleFile(i, f.copy(uri = "${f.uri}#$i"), i < read, if (i < read) null else "Waiting to read")
+    }
+
     private val chosen = SetupInputs(SetupMark.ACCESS_CHOSEN, planned = 71, accessGiven = true)
-    private val readingFew = SetupUi(setup = chosen, access = Access.ALL, taste = progress(4))
-    private val readFew = readingFew.copy(taste = progress(71))
+    private fun sample(read: Int, pending: Int = 71 - read, running: Boolean = true, pause: String? = null) =
+        SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), running = running, pauseReason = pause)
 
-    @Test fun sampleReadingLight() {
-        three("setup_sample_reading", readingFew, 0)
-        rule.onAllNodesWithText(Words.TRY_SEARCH).assertCountEquals(0)
+    private val start = sample(0)
+    private val readingFew = sample(30)
+    private val paused = sample(30, running = false, pause = "Waiting to charge")
+    private val readFew = sample(66, pending = 0, running = false)
+
+    @Test fun sampleStart() {
+        setup("setup_sample_start_light", start)
+        rule.onNodeWithText(Words.STARTING).assertIsDisplayed()
+        rule.onNodeWithText(Words.TRY_SEARCH).assertIsNotEnabled()
         rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
-        rule.onNodeWithText(Words.READING_NOW).assertExists()
-        rule.onAllNodesWithText("/", substring = true).assertCountEquals(0)
+        // No time before the first file is read.
+        rule.onAllNodesWithText("Usually", substring = true).assertCountEquals(0)
     }
 
-    @Test fun sampleReadingDark() = three("setup_sample_reading", readingFew, 1)
+    @Test fun sampleStartBigText() = setup("setup_sample_start_text2", start, fontScale = 2f)
 
-    @Test fun sampleReadingBigText() = three("setup_sample_reading", readingFew, 2)
+    @Test fun sampleReading() {
+        setup("setup_sample_reading_light", readingFew)
+        rule.onAllNodesWithText(Words.readOf(30, 71)).assertCountEquals(1)
+        rule.onNodeWithText("Usually 1–2 minutes. You can try search before this finishes.").assertExists()
+        rule.onNodeWithText(Words.TRY_SEARCH).assertIsEnabled()
+        rule.onAllNodesWithText("/", substring = true).assertCountEquals(0)
+        rule.onAllNodesWithText("Up to date").assertCountEquals(0)
+    }
+
+    /** A 6.3" phone at default text: the pile and both footer buttons fit with no scroll. */
+    @Test fun sampleFitsWithoutScrolling() {
+        setup("setup_sample_fit_light", readingFew)
+        val pile = rule.onNodeWithContentDescription(Words.readOf(30, 71)).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val tryButton = rule.onNodeWithText(Words.TRY_SEARCH).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
+        assertTrue("$pile above $tryButton", pile.bottom <= tryButton.top)
+    }
+
+    @Test fun sampleReadingDark() = setup("setup_sample_reading_dark", readingFew, dark = true)
+
+    @Test fun sampleReadingBigText() = setup("setup_sample_reading_text2", readingFew, fontScale = 2f)
 
     @Test fun samplePaused() {
-        setup("setup_sample_paused_light", readingFew.copy(pauseReason = "Waiting to charge"))
+        setup("setup_sample_paused_light", paused)
         rule.onNodeWithText("Waiting to charge").assertExists()
+        rule.onAllNodesWithText("Usually", substring = true).assertCountEquals(0)
+        rule.onNodeWithText(Words.readOf(30, 71)).assertExists()
     }
 
-    @Test fun sampleDoneLight() {
+    @Test fun samplePausedBigText() = setup("setup_sample_paused_text2", paused, fontScale = 2f)
+
+    @Test fun sampleDone() {
         var tried = false
         setup("setup_sample_done_light", readFew, actions = SetupActions(tryNow = { tried = true }))
+        // Five Name only files: the label counts what was read, the bar what is done.
+        rule.onNodeWithText(Words.readOf(66, 71)).assertExists()
+        rule.onAllNodesWithText("Usually", substring = true).assertCountEquals(0)
         rule.onNodeWithText(Words.TRY_SEARCH).assertIsDisplayed().performClick()
         assertEquals(true, tried)
     }
 
-    @Test fun sampleDoneDark() = three("setup_sample_done", readFew, 1)
+    @Test fun sampleDoneDark() = setup("setup_sample_done_dark", readFew, dark = true)
 
-    @Test fun sampleDoneBigText() = three("setup_sample_done", readFew, 2)
+    @Test fun sampleDoneBigText() = setup("setup_sample_done_text2", readFew, fontScale = 2f)
+
+    @Test fun seeAllOpensFromThePileAndTheButton() {
+        var opened = 0
+        setup("setup_sample_see_all", readingFew, actions = SetupActions(seeAll = { opened++ }))
+        rule.onNodeWithContentDescription(Words.readOf(30, 71)).performClick()
+        rule.onNodeWithText(Words.seeAll(71)).performScrollTo().performClick()
+        assertEquals(2, opened)
+    }
+
+    @Test fun theMascotWalksOnlyWhileTheSampleReads() {
+        assertEquals(MascotMood.WALKING, start.mood())
+        assertEquals(MascotMood.WALKING, readingFew.mood())
+        assertEquals(MascotMood.RESTING, paused.mood())
+        assertEquals(MascotMood.RESTING, readFew.mood())
+        assertEquals(MascotMood.RESTING, readingFew.copy(running = false).mood())
+        assertEquals(MascotMood.WELCOME, welcome.mood())
+    }
 
     // --- Try it and the commit choice ---
 
@@ -267,7 +390,7 @@ class SetupStatusShotsTest {
     @Test fun continueAsksForTheCommitChoice() {
         var continued = false
         shot("setup_tryit_continue") { TryItContent(tryUi, scoped, SearchActions(), SetupActions(continueToCommit = { continued = true })) }
-        rule.onNodeWithText(Words.CHOOSE_WHEN).performClick()
+        rule.onNodeWithText(Words.CHOOSE_WHEN).performScrollTo().performClick()
         assertEquals(true, continued)
     }
 
@@ -283,11 +406,6 @@ class SetupStatusShotsTest {
         mapOf(Kind.PHOTO to 9_000L, Kind.PDF to 2_533L),
         tailChunks = 12,
     )
-    private val previewFiles = (1..8).map { i ->
-        SourceFile("demo:reading-$i", "Photo $i.jpg", "Photos", "image/jpeg", Kind.PHOTO, 1_200_000, 1_760_000_000_000)
-    }
-
-    @Before fun readingThumbnails() = registerReadingThumbnails(previewFiles.map { it.uri })
 
     private val running = IndexState(
         running = true,

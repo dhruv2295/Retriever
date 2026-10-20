@@ -33,8 +33,11 @@ import app.retriever.core.Words
 import app.retriever.core.android.SafSource
 import java.net.URLDecoder
 
-/** Settings' all-files switch for this app; some builds lack that page, so the list of apps, then the app's own page. */
-fun openAllFilesSettings(context: Context) {
+/**
+ * Settings' all-files switch for this app; some builds lack that page, so the list of apps, then the app's own page.
+ * [start]: how a page opens, so setup can launch it for a result.
+ */
+fun openAllFilesSettings(context: Context, start: (Intent) -> Unit = context::startActivity) {
     val app = Uri.fromParts("package", context.packageName, null)
     val pages = listOf(
         Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, app),
@@ -43,7 +46,7 @@ fun openAllFilesSettings(context: Context) {
     )
     for (page in pages) {
         try {
-            context.startActivity(page)
+            start(page)
             return
         } catch (_: ActivityNotFoundException) {
         }

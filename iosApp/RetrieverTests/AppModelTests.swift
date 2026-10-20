@@ -129,8 +129,8 @@ final class AppModelTests: XCTestCase {
     /// Each fixture's stored answers land on the stage core gives them, with Photos and folders added here.
     func testSetupStagesComeFromCoreWithAccessAdded() {
         let table: [(AppFixture, SetupStage, Bool)] = [
-            (.firstRun, .welcome, true), (.access, .access, true), (.photosLimited, .access, true), (.photosDenied, .access, true),
-            (.folderAdded, .access, true), (.sampleReading, .sample, true), (.sampleDone, .sample, true),
+            (.firstRun, .welcome, true), (.photosLimited, .welcome, true), (.photosDenied, .welcome, true),
+            (.folderAdded, .welcome, true), (.sampleStart, .sample, true), (.sampleReading, .sample, true), (.sampleDone, .sample, true),
             (.trying(suggestions: true), .try_, true), (.choosing, .choose, true), (.caughtUp, .done, false),
         ]
         for (fixture, stage, shown) in table {
@@ -142,17 +142,50 @@ final class AppModelTests: XCTestCase {
 
     /// Continue waits for Photos (all or some) or a folder; a denied Photos alone gives nothing to read.
     func testAccessCountsPhotosOrAFolder() {
-        XCTAssertFalse(AppModel(fixture: .access).accessGiven)
+        XCTAssertFalse(AppModel(fixture: .firstRun).accessGiven)
         XCTAssertTrue(AppModel(fixture: .photosLimited).accessGiven)
         XCTAssertFalse(AppModel(fixture: .photosDenied).accessGiven)
         XCTAssertTrue(AppModel(fixture: .folderAdded).accessGiven)
-        // Access taken away later brings back the access step, even after Go to Home.
+        // Access taken away later brings back the welcome's ask, even after Go to Home.
         let model = AppModel(fixture: .caughtUp)
         model.setupInputs = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 54, accessGiven: false)
         XCTAssertFalse(model.setup?.showSetup ?? true)
         (model.photos, model.folders) = (.denied, [])
-        XCTAssertEqual(model.setup?.stage, .access)
+        XCTAssertEqual(model.setup?.stage, .welcome)
         XCTAssertTrue(model.setup?.showSetup ?? false)
+    }
+
+    /// On the welcome, all photos or a folder added chooses access at once; selected photos wait for Continue.
+    func testAllPhotosOrAFolderChoosesAccessOnTheWelcome() async {
+        for (photos, folders, chosen) in [(PHAuthorizationStatus.authorized, [String](), true), (.notDetermined, ["Work"], true), (.limited, [], false)] {
+            let services = AppServices.temporary()
+            let model = AppModel(services: services)
+            let loaded = await eventually { model.setup?.stage == .welcome }
+            XCTAssertTrue(loaded)
+            (model.photos, model.folders) = (photos, folders)
+            model.accessChanged()
+            let marked = await eventually(timeout: 3) { model.setupInputs?.mark == .accessChosen }
+            XCTAssertEqual(marked, chosen, "\(photos.rawValue) \(folders)")
+            if !chosen {
+                // Continue is the answer for selected photos.
+                model.setSetupMark(.accessChosen)
+                let continued = await eventually { model.setup?.stage == .sample }
+                XCTAssertTrue(continued)
+            }
+        }
+    }
+
+    /// A later stage keeps its mark when Photos is answered from Home or Search.
+    func testAccessAnsweredAfterSetupLeavesTheMarkAlone() async throws {
+        let services = AppServices.temporary()
+        let model = AppModel(services: services)
+        try await services.retriever.setSetupMark(mark: .trying)
+        let trying = await eventually { model.setupInputs?.mark == .trying }
+        XCTAssertTrue(trying)
+        model.photos = .authorized
+        model.accessChanged()
+        let regressed = await eventually(timeout: 2) { model.setupInputs?.mark == .accessChosen }
+        XCTAssertFalse(regressed)
     }
 
     /// Search by name skips the sample's screens, never access; the sample still reads.

@@ -6,10 +6,10 @@ import SwiftUI
 
 /// Pinned for screenshots and previews: each case is a whole-app state, no index needed.
 enum AppFixture {
-    /// Setup: the welcome, then access with nothing chosen, limited or denied Photos, or a folder added.
-    case firstRun, access, photosLimited, photosDenied, folderAdded
-    /// Setup's sample read with no download: reading, paused, or done; then Try and the choice of when to read more.
-    case sampleReading, samplePaused, sampleDone
+    /// Setup's welcome and its access choice: not asked yet, limited or denied Photos, or a folder added.
+    case firstRun, photosLimited, photosDenied, folderAdded
+    /// Setup's sample read with no download: starting, reading, paused, or done; then Try and the choice of when to read more.
+    case sampleStart, sampleReading, samplePaused, sampleDone
     case trying(suggestions: Bool)
     case choosing
     /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
@@ -38,46 +38,54 @@ extension AppModel {
         var modelMissing = false
         var skipped: [SkippedFile] = []
         var taste = TasteSnap()
+        var sample: [SampleFile] = []
         var suggestions = ["wifi password", "boarding pass", "electricity bill"]
         let files = Self.readingFiles
-        /// Before access is chosen: nothing read, no download.
-        func inSetup(_ mark: SetupMark, _ access: PHAuthorizationStatus, folders picked: [String] = []) {
+        /// Before access is chosen: the welcome, nothing read, no download.
+        func inSetup(_ access: PHAuthorizationStatus, folders picked: [String] = []) {
             (snap.setUp, snap.indexed, snap.pending, snap.lastStop, snap.accessChosen) = (false, 0, 0, nil, false)
             (photos, download, tune, modelMissing, folders) = (access, (.idle, 0), .idle, true, picked)
-            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 0, accessGiven: false)
+            setup = SetupInputs(mark: .none, skipped: false, decided: false, planned: 0, accessGiven: false)
         }
-        /// The sample, read with no download: 30 of 54 files so far.
-        func inSample(_ mark: SetupMark, done: Bool = false) {
-            (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, done ? 54 : 30, done ? 0 : 24, 3_088, true)
-            (download, tune, modelMissing) = ((.idle, 0), .idle, true)
+        /// The sample, read with no download: `read` of 54 planned files, reading while any wait.
+        func inSample(_ mark: SetupMark, read: Int = 30) {
+            let done = read == 54
+            (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, read, 54 - read, 3_088, true)
+            (snap.running, download, tune, modelMissing) = (!done, (.idle, 0), .idle, true)
             setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 54, accessGiven: false)
+            let screenshots = min(read, 6)
+            let pdfs = min(max(read - 6, 0), 8)
             taste = TasteSnap(
                 counts: [
-                    .screenshot: .init(read: 6, planned: 6), .pdf: .init(read: done ? 8 : 4, planned: 8),
-                    .photo: .init(read: done ? 40 : 20, planned: 40),
-                ], readyToTry: true, pending: done ? 0 : 24)
-            snap.reading = ReadingPreview(current: done ? nil : files[0], recent: Array(files.dropFirst()))
+                    .screenshot: .init(read: screenshots, planned: 6), .pdf: .init(read: pdfs, planned: 8),
+                    .photo: .init(read: read - screenshots - pdfs, planned: 40),
+                ], readyToTry: read >= 30, pending: 54 - read)
+            sample = (1...54).map {
+                SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Waiting to read")
+            }
+            snap.reading = ReadingPreview(current: done ? nil : files[0], recent: read == 0 ? [] : Array(files.dropFirst()))
         }
         /// Set up and read with no download: the meaning upgrade is still to come.
         func withoutModel(_ state: (ModelDownload.State, Double)) {
             (snap.setUp, modelMissing, download, tune) = (false, true, state, .idle)
         }
         switch fixture {
-        case .firstRun: inSetup(.none, .notDetermined)
-        case .access: inSetup(.started, .notDetermined)
-        case .photosLimited: inSetup(.started, .limited)
-        case .photosDenied: inSetup(.started, .denied)
-        case .folderAdded: inSetup(.started, .notDetermined, folders: ["Work"])
+        case .firstRun: inSetup(.notDetermined)
+        case .photosLimited: inSetup(.limited)
+        case .photosDenied: inSetup(.denied)
+        case .folderAdded: inSetup(.notDetermined, folders: ["Work"])
+        case .sampleStart: inSample(.accessChosen, read: 0)
         case .sampleReading: inSample(.accessChosen)
         case .samplePaused:
             inSample(.accessChosen)
+            snap.running = false
             snap.reading.current = nil
             snap.reading.pauseReason = "Paused while you use other apps. It carries on when you come back."
-        case .sampleDone: inSample(.accessChosen, done: true)
+        case .sampleDone: inSample(.accessChosen, read: 54)
         case .trying(let offered):
-            inSample(.trying, done: true)
+            inSample(.trying, read: 54)
             if !offered { suggestions = [] }
-        case .choosing: inSample(.choosing, done: true)
+        case .choosing: inSample(.choosing, read: 54)
         case .noModel: withoutModel((.idle, 0))
         case .downloading(let p): withoutModel((.downloading, p))
         case .waitingForWifi: withoutModel((.waitingForWifi, 0))
@@ -123,6 +131,7 @@ extension AppModel {
         snap.prefs = Self.prefs(searchTried: true)
         self.init(snap: snap, photos: photos, download: download, tune: tune, setup: setup, folders: folders, modelMissing: modelMissing, skipped: skipped)
         fixtureTaste = taste
+        fixtureSample = sample
         func file(_ name: String, _ kind: Kind, _ folder: String, size: Int64, daysAgo: Double) -> SourceFile {
             SourceFile(
                 uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: size,
@@ -156,7 +165,9 @@ extension AppModel {
     }
 
     /// What reading shows: the file being read, then the newest read. A mix of kinds, as a sample reads them.
-    private static let readingFiles: [SourceFile] = (1...8).map { i in
+    private static let readingFiles = (1...8).map(readingFile)
+
+    nonisolated private static func readingFile(_ i: Int) -> SourceFile {
         let (name, kind, mime) =
             switch i {
             case 3: ("Lease notes.docx", Kind.doc, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")

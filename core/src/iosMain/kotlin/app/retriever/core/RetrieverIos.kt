@@ -169,6 +169,13 @@ fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable {
     return AutoCloseable { scope.cancel() }
 }
 
+/** The sample's planned files, as [observeAll] delivers its snapshots. */
+fun Retriever.observeSampleFiles(cb: (List<SampleFile>) -> Unit): AutoCloseable {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    scope.launch { sampleFiles().collect { cb(it) } }
+    return AutoCloseable { scope.cancel() }
+}
+
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

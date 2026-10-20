@@ -38,8 +38,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,17 +52,14 @@ import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
-import app.retriever.core.IndexState
-import app.retriever.core.Retriever
 import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
-import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
 import app.retriever.ui.components.FileRow
 import app.retriever.viewer.Opener
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,17 +70,16 @@ fun SetupScreen(
     onNavigate: (Route) -> Unit = {},
     flow: SetupFlow = koinInject(),
     access: AccessService = koinInject(),
-    retriever: Retriever = koinInject(),
 ) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val ui by flow.ui.collectAsStateWithLifecycle()
-    val index = flow.reading.collectAsStateWithLifecycle()
-    // Set when the user leaves for a permission, so coming back without any can say what to do.
+    // Set when the person leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }
+    var allFilesOff by rememberSaveable { mutableStateOf(false) }
+    var including by rememberSaveable { mutableStateOf(false) }
     var folderError by rememberSaveable { mutableStateOf<String?>(null) }
-    var all by remember { mutableStateOf<List<SourceFile>?>(null) }
-    val scope = rememberCoroutineScope()
+    var seeAll by rememberSaveable { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { flow.refresh() }
     // Leaves once setup is done or skipped; access is never skipped.
     if (!ui.setup.showSetup) {
@@ -103,13 +97,18 @@ fun SetupScreen(
         if (uri != null) folderError = access.addFolder(uri)
         flow.refresh()
     }
+    val allFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        access.refresh()
+        if (access.state.value.allFiles) flow.continueFromAccess() else allFilesOff = true
+    }
+    val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
     val actions = SetupActions(
-        getStarted = flow::getStarted,
-        searchByName = flow::searchByName,
-        allowFiles = {
-            askedFiles = true
-            openAllFilesSettings(context)
+        searchByName = {
+            flow.searchByName()
+            if (!ui.access.ready) allowFiles()
         },
+        allowFiles = allowFiles,
+        chooseInstead = { including = true },
         allowMedia = {
             askedFiles = true
             mediaLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray())
@@ -119,9 +118,12 @@ fun SetupScreen(
             folderError = null
             folderLauncher.launch(null)
         },
-        continueFromAccess = flow::continueFromAccess,
+        continueFromAccess = {
+            including = false
+            flow.continueFromAccess()
+        },
         tryNow = flow::tryNow,
-        seeAll = { scope.launch { all = retriever.readFiles(retriever.scopeIds.value.orEmpty().toSet()) } },
+        seeAll = { seeAll = true },
         continueToCommit = flow::continueToCommit,
         commit = { charging -> requestReading { flow.commit(charging) } },
         decideLater = flow::decideLater,
@@ -131,12 +133,18 @@ fun SetupScreen(
     if (ui.stage == SetupStage.TRY) {
         TryItScreen(ui, actions, onNavigate)
     } else {
-        SetupContent(ui, modifier, filesDenied = askedFiles, folderError = folderError, actions = actions, index = { index.value })
+        SetupContent(ui, modifier, actions = actions, allFilesOff = allFilesOff)
     }
-    all?.let { files ->
-        ModalBottomSheet(onDismissRequest = { all = null }) {
+    if (including && ui.stage == SetupStage.WELCOME) {
+        ModalBottomSheet(onDismissRequest = { including = false }) { IncludeSheet(ui, askedFiles, folderError, actions) }
+    }
+    // Every planned file, read or not, so the list answers what is done and what isn't.
+    if (seeAll) {
+        ModalBottomSheet(onDismissRequest = { seeAll = false }) {
             LazyColumn {
-                items(files, key = { it.uri }) { f -> FileRow(f) { Opener.open(context, f, "", onNavigate) } }
+                items(ui.sample, key = { it.index }) { f ->
+                    FileRow(f.file, readNote = f.note ?: Words.READ) { Opener.open(context, f.file, "", onNavigate) }
+                }
             }
         }
     }
@@ -147,10 +155,8 @@ fun SetupScreen(
 fun SetupContent(
     ui: SetupUi,
     modifier: Modifier = Modifier,
-    filesDenied: Boolean = false,
     actions: SetupActions = SetupActions(),
-    folderError: String? = null,
-    index: () -> IndexState = { IndexState() },
+    allFilesOff: Boolean = false,
     reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
 ) {
     val stage = ui.stage
@@ -188,11 +194,9 @@ fun SetupContent(
             ) { s ->
                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     when (s) {
-                        SetupStage.WELCOME -> Welcome(ui, actions)
+                        SetupStage.WELCOME -> Welcome(ui, allFilesOff, actions)
 
-                        SetupStage.ACCESS -> AccessStage(ui, filesDenied, folderError, actions)
-
-                        SetupStage.SAMPLE -> taste?.let { SampleStage(ui, it, index, actions) }
+                        SetupStage.SAMPLE -> taste?.let { SampleStage(ui, it, actions, reduceMotion) }
 
                         SetupStage.CHOOSE -> CommitStage(ui, actions)
 
@@ -213,6 +217,6 @@ private const val EFFECTS_STIFFNESS = 1600f
 /** The motion is the state: it walks while the sample reads and rests once it is done. */
 internal fun SetupUi.mood(): MascotMood = when {
     stage == SetupStage.WELCOME -> MascotMood.WELCOME
-    stage == SetupStage.SAMPLE && taste?.readyKinds?.size != taste?.byKind?.size -> MascotMood.WALKING
+    stage == SetupStage.SAMPLE && reading -> MascotMood.WALKING
     else -> MascotMood.RESTING
 }

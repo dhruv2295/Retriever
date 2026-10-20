@@ -39,10 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,7 +49,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -191,14 +187,6 @@ fun ThumbnailImage(
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade })
         }
     }
-}
-
-/** Measurement only updates this image request, leaving the keyed arrival cell untouched. */
-@Composable
-internal fun MeasuredThumbnailImage(file: SourceFile, modifier: Modifier = Modifier) {
-    var pixels by remember { mutableIntStateOf(0) }
-    val edge = with(LocalDensity.current) { pixels.coerceAtLeast(1).toDp() }
-    ThumbnailImage(file, edge, modifier.onSizeChanged { pixels = Thumbnails.bucket(maxOf(it.width, it.height)) }, load = pixels > 0)
 }
 
 internal suspend fun loadTextPreview(file: SourceFile): String? = GlobalContext.getOrNull()?.getOrNull<Retriever>()?.textPreview(file)

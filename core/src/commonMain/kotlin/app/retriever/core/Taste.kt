@@ -41,6 +41,31 @@ data class TasteProgress(
     }
 }
 
+/** A planned file. [index]: its plan position; [read]: its content is searchable; [note]: [Words.coverage], null when all of it is. */
+data class SampleFile(val index: Int, val file: SourceFile, val read: Boolean, val note: String?)
+
+// Adapted from google-ai-edge/gallery SmartAlbumScreen.kt (Apache-2.0): STACK_ANGLES and STACK_OFFSETS.
+
+/** The sample's pile: each card's slot follows its plan index, so a card never moves once it lands. Offsets in dp. */
+object SamplePile {
+    const val SHOWN = 12
+    const val CARD_DP = 168
+    const val FOOTPRINT_DP = 224
+
+    private val ANGLES = floatArrayOf(0f, 4f, 8f, 12f, 7f, 2f, -3f, -8f, -12f, -7f, -2f, 3f)
+    private val DX = intArrayOf(0, 9, -9, 11, -8, 7, -11, 9, -9, 8, -7, 10)
+    private val DY = intArrayOf(0, -7, -5, 6, 8, -9, -7, 8, 6, -8, -9, 7)
+
+    fun angle(i: Int): Float = ANGLES[i % SHOWN]
+
+    fun dx(i: Int): Int = DX[i % SHOWN]
+
+    fun dy(i: Int): Int = DY[i % SHOWN]
+
+    /** The cards on the pile: the last [SHOWN] read, in plan order. */
+    fun shown(files: List<SampleFile>): List<SampleFile> = files.filter { it.read }.takeLast(SHOWN)
+}
+
 /** Files read before "Try it now" shows, unless the plan is smaller. */
 const val TRY_AFTER_FILES = 20
 

@@ -1,6 +1,8 @@
 package app.retriever.setup
 
+import android.app.AppOpsManager
 import android.app.Application
+import android.os.Process
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
@@ -10,6 +12,7 @@ import app.retriever.core.CoreDispatchers
 import app.retriever.core.Kind
 import app.retriever.core.Part
 import app.retriever.core.Piece
+import app.retriever.core.ReadingPhase
 import app.retriever.core.Retriever
 import app.retriever.core.SetupMark
 import app.retriever.core.SetupStage
@@ -28,6 +31,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -66,54 +70,91 @@ class SetupFlowTest {
 
     private fun flow(r: Retriever, scope: CoroutineScope) = SetupFlow(r, AccessService(app), IndexService(app, r), scope, notificationsGranted = { false })
 
-    @Test fun aFreshInstallWelcomesAndGetStartedSurvivesTheProcess() = runTest {
+    @Test fun aFreshInstallWelcomesEvenWithAccessGranted() = runTest {
         val r = noModel()
         r.refreshSetUp()
-        assertEquals(SetupStage.WELCOME, flow(r, backgroundScope).ui.value.stage)
-        flow(r, backgroundScope).getStarted()
-        r.setup.first { it?.mark == SetupMark.STARTED }
-        // A new process reads the answer back from the store, and access is asked for even with permissions granted.
+        val ui = flow(r, backgroundScope).ui.value
+        assertTrue(ui.access.ready)
+        // Access is confirmed on the welcome, never assumed.
+        assertEquals(SetupStage.WELCOME, ui.stage)
+        assertTrue(ui.setup.showSetup)
+    }
+
+    /** All-files access already on: the welcome's Continue confirms it, survives the process, and the sample plans. */
+    @Test fun continueFromTheWelcomeWithAccessInPlaceSurvivesTheProcess() = runTest {
+        val r = noModel()
         r.refreshSetUp()
-        val again = flow(r, backgroundScope)
-        assertEquals(SetupStage.ACCESS, again.ui.value.stage)
-        assertTrue(again.ui.value.setup.showSetup)
+        flow(r, backgroundScope).continueFromAccess()
+        r.setup.first { it?.mark == SetupMark.ACCESS_CHOSEN }
+        r.refreshSetUp()
+        assertEquals(SetupStage.SAMPLE, flow(r, backgroundScope).ui.value.stage)
     }
 
     @Test fun continueFromAccessPlansTheSampleAndReadsItWithoutAModel() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
-        f.getStarted()
         f.continueFromAccess()
         val sample = f.ui.first { it.stage == SetupStage.SAMPLE && it.setup.planned > 0 }
         assertFalse(sample.setup.decided)
         r.tasteProgress().first { it.readyToTry }
+        // Every planned file in plan order, the read ones first.
+        val files = f.ui.first { s -> s.sample.isNotEmpty() && s.sample.any { it.read } }.sample
+        assertEquals(sample.setup.planned, files.size)
+        assertEquals(files.indices.toList(), files.map { it.index })
         f.tryNow()
         f.ui.first { it.stage == SetupStage.TRY }
         f.back()
         f.ui.first { it.stage == SetupStage.SAMPLE }
     }
 
-    @Test fun searchByNameShowsAccessThenHomeWhileTheSampleReads() = runTest {
+    /** Search by name with access in place confirms it at once and goes Home while the sample reads. */
+    @Test fun searchByNameWithAccessGoesHomeWhileTheSampleReads() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         f.searchByName()
-        val access = f.ui.first { it.setup.skipped }
-        assertEquals(SetupStage.ACCESS, access.stage)
-        assertTrue("skipping never skips access", access.setup.showSetup)
-        f.continueFromAccess()
         val home = f.ui.first { !it.setup.showSetup }
         assertEquals(SetupStage.DONE, home.stage)
+        assertTrue(home.setup.skipped)
         // The sample is still planned and read in the background.
         f.ui.first { it.setup.planned > 0 }
+    }
+
+    /** Without access, Search by name stays on the welcome: skipping never skips access. */
+    @Test fun searchByNameWithoutAccessStaysOnTheWelcome() = runTest {
+        shadowOf(app).denyPermissions(*Access.mediaPermissions(35).toTypedArray())
+        shadowOf(app.getSystemService(AppOpsManager::class.java))
+            .setMode("android:manage_external_storage", Process.myUid(), app.packageName, AppOpsManager.MODE_ERRORED)
+        val r = noModel()
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        assertFalse(f.ui.value.access.ready)
+        f.searchByName()
+        val skipped = f.ui.first { it.setup.skipped }
+        assertEquals(SetupStage.WELCOME, skipped.stage)
+        assertEquals(SetupMark.NONE, skipped.setup.mark)
+        assertTrue("skipping never skips access", skipped.setup.showSetup)
+    }
+
+    /** Setup shows a stop's reason only: "Up to date" or "Checking for new files…" is no pause. */
+    @Test fun onlyAStopReachesTheSampleAsAPause() = runTest {
+        val r = noModel()
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        r.pause()
+        assertEquals("Reading paused", f.ui.first { it.pauseReason != null }.pauseReason)
+        r.resume()
+        // Resumed with nothing to read: a quiet phase with a title, which the old rule showed as a pause.
+        val quiet = r.readingStatus().first { it.phase != ReadingPhase.PAUSED }
+        assertNull(quiet.pause)
+        f.ui.first { it.pauseReason == null }
     }
 
     @Test fun goToHomeFromTheSampleLeavesSetupForGood() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
-        f.getStarted()
         f.continueFromAccess()
         f.ui.first { it.stage == SetupStage.SAMPLE }
         f.skip()

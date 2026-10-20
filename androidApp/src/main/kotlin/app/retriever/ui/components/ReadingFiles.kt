@@ -2,7 +2,6 @@ package app.retriever.ui.components
 
 import android.animation.ValueAnimator
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -10,13 +9,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -24,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -35,11 +30,11 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -101,34 +96,30 @@ private fun Modifier.readingSweep(size: Dp, position: State<Float>): Modifier {
     }
 }
 
+/**
+ * Files you can try: one tile size for every cell, so a document's text tile never widens its row. Four columns, two
+ * past [LARGE_TEXT]; a plain FlowRow of fixed sizes, no weights, so nothing asks a tile for its intrinsics.
+ */
 @Composable
-internal fun ReadyFiles(
-    files: List<SourceFile>,
-    read: Int,
-    reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
-    onOpen: ((SourceFile) -> Unit)? = null,
-) {
+internal fun ReadyFiles(files: List<SourceFile>, onOpen: ((SourceFile) -> Unit)? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Files you can try", style = MaterialTheme.typography.titleSmall)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            maxItemsInEachRow = 4,
-            modifier = Modifier.fillMaxWidth().semantics {
-                contentDescription = "Ready to search"
-                collectionInfo = CollectionInfo((files.size + 3) / 4, 4)
-            },
-        ) {
-            // Flat URI keys preserve the arrival animation when a file moves to another row.
-            for (file in files) {
-                key(file.uri) {
-                    RecentFileCell(file, null, reduceMotion, Modifier.weight(1f).aspectRatio(1f), onOpen)
-                }
+        val columns = if (LocalDensity.current.fontScale > LARGE_TEXT) 2 else 4
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Whole pixels, rounded down, so a full row never overflows the width by a rounding pixel.
+            val cell = with(LocalDensity.current) { ((constraints.maxWidth - GAP.roundToPx() * (columns - 1)) / columns).toDp() }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(GAP),
+                verticalArrangement = Arrangement.spacedBy(GAP),
+                maxItemsInEachRow = columns,
+                modifier = Modifier.semantics {
+                    contentDescription = "Ready to search"
+                    collectionInfo = CollectionInfo((files.size + columns - 1) / columns, columns)
+                },
+            ) {
+                for (file in files) key(file.uri) { FileTile(file, cell, onOpen = onOpen) }
             }
-            repeat((4 - files.size % 4) % 4) { Spacer(Modifier.weight(1f).aspectRatio(1f)) }
         }
-        val more = (read - files.size).coerceAtLeast(0)
-        if (more > 0) Muted("+$more more")
     }
 }
 
@@ -137,40 +128,41 @@ internal fun RecentlyRead(files: List<SourceFile>, onOpen: (SourceFile) -> Unit)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Recently read", style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = "Recently read" }) {
-            items(files, key = { it.uri }) { file ->
-                RecentFileCell(file, 56.dp, !ValueAnimator.areAnimatorsEnabled(), onOpen = onOpen)
-            }
+            items(files, key = { it.uri }) { file -> FileTile(file, 56.dp, onOpen = onOpen) }
         }
     }
 }
 
+/**
+ * One file's preview at a fixed [size], the same everywhere it shows: the sample's pile, Try's grid, Recently read.
+ * With [onOpen] it opens on tap, offers the file menu on long press and says "name, kind, date"; without, it is
+ * decoration and says nothing.
+ */
 @Composable
-internal fun RecentFileCell(file: SourceFile, size: Dp?, reduceMotion: Boolean, modifier: Modifier = Modifier, onOpen: ((SourceFile) -> Unit)? = null) {
-    val arrival = remember { Animatable(if (reduceMotion) 1f else 0f) }
-    LaunchedEffect(reduceMotion) {
-        if (reduceMotion) arrival.snapTo(1f) else arrival.animateTo(1f, tween(220))
+internal fun FileTile(file: SourceFile, size: Dp, modifier: Modifier = Modifier, onOpen: ((SourceFile) -> Unit)? = null) {
+    val image = Modifier.size(size).clip(MaterialTheme.shapes.medium)
+    if (onOpen == null) {
+        ThumbnailImage(file, size, modifier.then(image).clearAndSetSemantics {})
+        return
     }
-    Box(modifier.then(if (size != null) Modifier.size(size) else Modifier)) {
-        app.retriever.files.FilePressMenu(file) { menu, actions ->
-            val click = if (onOpen == null) {
-                Modifier
-            } else {
-                actions.combinedClickable(
-                    role = Role.Button,
-                    onClickLabel = "Open",
-                    onLongClickLabel = "File actions",
-                    onLongClick = menu,
-                    onClick = { onOpen(file) },
-                )
-            }
-            val image = Modifier.fillMaxSize().graphicsLayer {
-                alpha = arrival.value
-                scaleX = 0.92f + 0.08f * arrival.value
-                scaleY = scaleX
-            }.clip(MaterialTheme.shapes.medium).then(click).semantics {
-                contentDescription = "${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}"
-            }.testTag("recent:${file.uri}")
-            if (size == null) MeasuredThumbnailImage(file, image) else Thumb(file, size, image)
-        }
+    app.retriever.files.FilePressMenu(file, modifier) { menu, actions ->
+        val click = actions.combinedClickable(
+            role = Role.Button,
+            onClickLabel = "Open",
+            onLongClickLabel = "File actions",
+            onLongClick = menu,
+            onClick = { onOpen(file) },
+        )
+        ThumbnailImage(
+            file,
+            size,
+            image.then(click).semantics { contentDescription = "${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}" }
+                .testTag("recent:${file.uri}"),
+        )
     }
 }
+
+private val GAP = 8.dp
+
+/** Font scale past which Try's grid has two columns. */
+private const val LARGE_TEXT = 1.3f

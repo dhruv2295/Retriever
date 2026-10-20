@@ -13,11 +13,11 @@ class SetupTest {
     private fun at(mark: SetupMark, access: Boolean = true, skipped: Boolean = false, decided: Boolean = false, planned: Int = 0) =
         SetupInputs(mark, skipped, decided, planned).withAccess(access)
 
-    @Test fun getStartedRunsWelcomeAccessPlanSampleTryChooseDone() {
+    @Test fun welcomeAsksAccessThenPlanSampleTryChooseDone() {
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE, access = false).let { it.stage to it.step })
-        // Access granted is not enough: the person confirms what Retriever can search.
-        assertEquals(SetupStage.ACCESS to SetupStep.NONE, at(SetupMark.STARTED, access = false).let { it.stage to it.step })
-        assertEquals(SetupStage.ACCESS to SetupStep.NONE, at(SetupMark.STARTED).let { it.stage to it.step })
+        // Access granted is not enough: the person confirms it on the welcome, and nothing runs before.
+        assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE).let { it.stage to it.step })
+        assertTrue(at(SetupMark.NONE).showSetup)
         assertEquals(SetupStage.SAMPLE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN).let { it.stage to it.step })
         assertEquals(SetupStage.SAMPLE to SetupStep.READ_SAMPLE, at(SetupMark.ACCESS_CHOSEN, planned = 30).let { it.stage to it.step })
         assertEquals(SetupStage.TRY to SetupStep.READ_SAMPLE, at(SetupMark.TRYING, planned = 30).let { it.stage to it.step })
@@ -30,7 +30,7 @@ class SetupTest {
     @Test fun backLeavesTryForTheSampleAndTheChoiceForTry() {
         assertEquals(SetupMark.ACCESS_CHOSEN, SetupPolicy.back(SetupStage.TRY))
         assertEquals(SetupMark.TRYING, SetupPolicy.back(SetupStage.CHOOSE))
-        for (stage in listOf(SetupStage.WELCOME, SetupStage.ACCESS, SetupStage.SAMPLE, SetupStage.DONE)) {
+        for (stage in listOf(SetupStage.WELCOME, SetupStage.SAMPLE, SetupStage.DONE)) {
             assertNull(SetupPolicy.back(stage), "$stage has no setup screen behind it")
         }
         // Each mark Back sets lands on the screen before.
@@ -54,17 +54,17 @@ class SetupTest {
         assertFalse(left.showSetup)
         assertEquals(SetupStep.PLAN, at(SetupMark.TRYING, skipped = true).step, "a plan interrupted by the process is made on return")
 
-        // Search by name, or Go to Home before access: setup opens on access until it is chosen, and nothing runs.
-        val noAccess = at(SetupMark.STARTED, access = false, skipped = true)
-        assertEquals(SetupStage.ACCESS to SetupStep.NONE, noAccess.stage to noAccess.step)
+        // Search by name before access: setup opens on the welcome until access is chosen, and nothing runs.
+        val noAccess = at(SetupMark.NONE, access = false, skipped = true)
+        assertEquals(SetupStage.WELCOME to SetupStep.NONE, noAccess.stage to noAccess.step)
         assertTrue(noAccess.showSetup)
         assertFalse(noAccess.libraryChosen)
         assertEquals(SetupStage.DONE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN, skipped = true).let { it.stage to it.step })
     }
 
-    @Test fun losingAccessReturnsToAccessAndStopsTheSteps() {
+    @Test fun losingAccessReturnsToTheWelcomeAndStopsTheSteps() {
         val revoked = at(SetupMark.TRYING, access = false, planned = 30)
-        assertEquals(SetupStage.ACCESS to SetupStep.NONE, revoked.stage to revoked.step)
+        assertEquals(SetupStage.WELCOME to SetupStep.NONE, revoked.stage to revoked.step)
         val status = ReadingPolicy.homeStatus(revoked.libraryChosen, 0, ReadingStatus(ReadingPhase.CAUGHT_UP, ""))
         assertEquals(HomeStatus(HomePhase.SETTING_UP, "Choose what Retriever can search"), status)
     }
@@ -100,9 +100,17 @@ class SetupTest {
         assertEquals("1 of 2 PDFs read", Words.kindRead(1, 2, Kind.PDF))
         assertEquals("Searching inside 1 sample file", Words.searchingSample(1))
         assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
-        assertEquals("Usually 1–2 minutes. You can try search before this finishes.", Words.sampleTime(true, 60_000, android))
-        assertEquals("This is taking longer on your phone. You can try the files read so far.", Words.sampleTime(true, 180_000, android))
-        assertNull(Words.sampleTime(false, 60_000, android), "no time while paused or done")
+        assertEquals("Usually 1–2 minutes. You can try search before this finishes.", Words.sampleTime(true, 1, 60_000, android))
+        assertEquals("This is taking longer on your phone. You can try the files read so far.", Words.sampleTime(true, 3, 180_000, android))
+        assertNull(Words.sampleTime(false, 3, 60_000, android), "no time while paused or done")
+        assertNull(Words.sampleTime(true, 0, 180_000, android), "no time before the first file is read")
+        assertEquals("12 of 40 files read", Words.readOf(12, 40))
+        assertEquals("0 of 1 file read", Words.readOf(0, 1))
+        assertEquals("Retriever reads the files on this phone to find them by what’s inside. Nothing leaves your phone.", Words.wholeDeviceNote(android))
+        assertEquals(
+            "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your iPad.",
+            Words.iosAccessNote(DeviceWords.ios("iPad")),
+        )
         assertEquals("Download for meaning search", Words.upgradeHint(2, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(3, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(0, UpgradeStage.UNAVAILABLE))

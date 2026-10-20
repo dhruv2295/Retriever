@@ -34,7 +34,7 @@ class WelcomeExamplesTest {
         try {
             assertFalse(ValueAnimator.areAnimatorsEnabled())
             rule.mainClock.autoAdvance = false
-            rule.setContent { MaterialTheme { Column { Welcome(SetupUi(), SetupActions()) } } }
+            rule.setContent { MaterialTheme { Column { Welcome(SetupUi(), allFilesOff = false, actions = SetupActions()) } } }
             queries.forEach { query ->
                 val text = rule.onNodeWithText(query).fetchSemanticsNode().config[SemanticsProperties.Text].single()
                 assertEquals(query, text.text)

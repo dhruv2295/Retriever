@@ -193,10 +193,12 @@ class Retriever(
     val setup: StateFlow<SetupInputs?> = _setup.asStateFlow()
 
     private fun loadSetup(): SetupInputs {
-        val saved = store.meta(SETUP_MARK_KEY)?.let { m -> SetupMark.entries.firstOrNull { it.name == m } }
+        val stored = store.meta(SETUP_MARK_KEY)
+        // A mark this version no longer has (STARTED) reads as NONE.
+        val saved = stored?.let { m -> SetupMark.entries.firstOrNull { it.name == m } }
         // Set up before this setup existed: past access and done with setup, a sample still running included. A text-only
         // phone never tunes, and from before setupStarted it shows only as saved prefs.
-        val legacy = saved == null && (store.prefs().setupStarted || store.profile() != null || (textOnly && store.hasPrefs()))
+        val legacy = stored == null && (store.prefs().setupStarted || store.profile() != null || (textOnly && store.hasPrefs()))
         val scope = store.meta(TASTE_SCOPE_KEY)
         return SetupInputs(
             mark = if (legacy) SetupMark.ACCESS_CHOSEN else saved ?: SetupMark.NONE,
@@ -207,7 +209,7 @@ class Retriever(
         ).also { _setup.value = it }
     }
 
-    /** The person's answer on a setup screen: Get started, Continue, Try search, Choose when to read more (or back). */
+    /** The person's answer on a setup screen: Continue, Try search, Choose when to read more (or back). */
     @Throws(Throwable::class)
     suspend fun setSetupMark(mark: SetupMark) = io {
         store.setMeta(SETUP_MARK_KEY, mark.name)
@@ -865,6 +867,14 @@ class Retriever(
         TasteProgress.of(planned, pending, videoBytes, eta.book, searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount())
     }.distinctUntilChanged().flowOn(dispatchers.default)
 
+    /** Every planned file in plan order, read or not, with its plan position and what of it is findable; re-emits as files are read. */
+    fun sampleFiles(): Flow<List<SampleFile>> = combine(store.countChanges(), sampleIds) { _, _ ->
+        val ids = store.tasteIds()
+        val byId = withExtents(store.storedIn(ids)).associateBy { it.id }
+        val inside = readInside()
+        ids.mapIndexedNotNull { i, id -> byId[id]?.let { SampleFile(i, it.file, it.contentRead, Words.coverage(it, inside)) } }
+    }.distinctUntilChanged().flowOn(dispatchers.default)
+
     /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
     @Throws(Throwable::class)
     suspend fun commit(whileCharging: Boolean) {
@@ -1220,11 +1230,6 @@ class Retriever(
             }) { id -> store.chunkTexts(id).mapNotNull { it.text } }
             contentSuggestions.suggestions(fileIds)
         }
-    }
-
-    @Throws(Throwable::class)
-    suspend fun readFiles(fileIds: Set<Long>): List<SourceFile> = io {
-        store.indexedIn(fileIds).values.toList()
     }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */

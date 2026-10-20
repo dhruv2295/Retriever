@@ -72,7 +72,7 @@ struct ReadyFiles: View {
                     Button {
                         openFile(file, among: files)
                     } label: {
-                        RecentFileCell(file: file).equatable()
+                        FileTile(file: file).equatable()
                     }
                     .buttonStyle(.plain).accessibilityHint("Open file")
                 }
@@ -96,7 +96,7 @@ struct RecentlyRead: View {
                         Button {
                             openFile(file, among: files)
                         } label: {
-                            RecentFileCell(file: file).equatable().frame(width: 56, height: 56)
+                            FileTile(file: file).equatable().frame(width: 56, height: 56)
                         }
                         .buttonStyle(.plain)
                         .contextMenu { FileActionButtons(file: file) }
@@ -111,11 +111,10 @@ struct RecentlyRead: View {
     }
 }
 
+/// One square picture of a file, the same everywhere it is shown: the pile, Try, Recently read and See all.
 /// Equality lets an insertion leave existing thumbnail bodies alone, including their image-loading tasks.
-struct RecentFileCell: View, @MainActor Equatable {
+struct FileTile: View, @MainActor Equatable {
     let file: SourceFile
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.file == rhs.file }
 
@@ -124,10 +123,7 @@ struct RecentFileCell: View, @MainActor Equatable {
             Thumb(file: file, points: bounds.size.width, bucketed: true)
         }
         .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .opacity(reduceMotion || appeared ? 1 : 0)
-        .scaleEffect(reduceMotion || appeared ? 1 : 0.92)
-        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { appeared = true } }
+        .clipShape(.rect(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(file.name), \(Words.shared.kindLabel(kind: file.kind)), \(Format.date(file.modifiedAt))")
         .accessibilityIdentifier("recent:\(file.uri)")

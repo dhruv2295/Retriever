@@ -212,7 +212,6 @@ class FacadeW5Test {
         assertTrue(f.r.suggestions(setOf(ids[0])).isEmpty(), "terms must recur in two selected files")
         assertEquals(3, f.r.suggestions().size)
         assertTrue(f.r.suggestions(emptySet()).isEmpty())
-        assertEquals(1, f.r.readFiles(setOf(ids[0])).size)
     }
 
     @Test

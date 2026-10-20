@@ -1,13 +1,13 @@
 package app.retriever.core
 
 /** How far the person has answered setup, kept in Store meta so every stage resumes after process death. */
-enum class SetupMark { NONE, STARTED, ACCESS_CHOSEN, TRYING, CHOOSING }
+enum class SetupMark { NONE, ACCESS_CHOSEN, TRYING, CHOOSING }
 
 internal const val SETUP_MARK_KEY = "setup_mark"
 internal const val SETUP_SKIPPED_KEY = "setup_skipped"
 
-/** What setup shows. TRY and CHOOSE follow the person's taps on the sample screen; DONE ends setup. */
-enum class SetupStage { WELCOME, ACCESS, SAMPLE, TRY, CHOOSE, DONE }
+/** What setup shows. WELCOME holds the access ask; TRY and CHOOSE follow the person's taps on the sample screen; DONE ends setup. */
+enum class SetupStage { WELCOME, SAMPLE, TRY, CHOOSE, DONE }
 
 /**
  * What the app runs next; each is safe to run twice. PLAN: [Retriever.planOrCommit]. READ_SAMPLE: read the plan in
@@ -33,8 +33,7 @@ data class SetupInputs(
     val libraryChosen: Boolean get() = mark >= SetupMark.ACCESS_CHOSEN && accessGiven
 
     val stage: SetupStage get() = when {
-        mark == SetupMark.NONE -> SetupStage.WELCOME
-        !libraryChosen -> SetupStage.ACCESS
+        !libraryChosen -> SetupStage.WELCOME
         skipped || decided -> SetupStage.DONE
         mark == SetupMark.CHOOSING -> SetupStage.CHOOSE
         mark == SetupMark.TRYING -> SetupStage.TRY
@@ -42,7 +41,7 @@ data class SetupInputs(
     }
 
     /** Open on setup at launch, else on Home. Skipping never skips access: without it there is nothing to search. */
-    val showSetup: Boolean get() = stage != SetupStage.DONE && (!skipped || stage == SetupStage.ACCESS)
+    val showSetup: Boolean get() = stage != SetupStage.DONE && (!skipped || stage == SetupStage.WELCOME)
 
     val step: SetupStep get() = when {
         !libraryChosen -> SetupStep.NONE

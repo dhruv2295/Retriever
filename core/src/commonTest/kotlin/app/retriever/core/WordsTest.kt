@@ -30,6 +30,23 @@ class WordsTest {
         }
     }
 
+    /** Setup shows a stop's reason only: "Up to date" before the plan exists is not a pause. */
+    @Test fun onlyAStopIsAPause() {
+        fun status(p: ReadingProgress, stop: StopReason? = null, running: Boolean = false) = ReadingPolicy.decide(p, stop, running, false, android)
+        val quiet = mapOf(
+            ReadingPhase.CAUGHT_UP to status(ReadingProgress(read = 3)),
+            ReadingPhase.NO_CONTENT to status(ReadingProgress(nameOnly = 3, sample = true)),
+            ReadingPhase.LOOKING to status(ReadingProgress(read = 3), running = true),
+            ReadingPhase.SAMPLE_READY to status(ReadingProgress(read = 3, sample = true)),
+        )
+        for ((phase, s) in quiet) {
+            assertEquals(phase, s.phase)
+            assertNull(s.pause, phase.name)
+        }
+        assertEquals(ReadingPhase.PAUSED to "Reading paused", status(waiting, StopReason.PAUSED).let { it.phase to it.pause })
+        assertEquals(ReadingPhase.WAITING to "Waiting for Android", status(waiting, StopReason.DONE).let { it.phase to it.pause })
+    }
+
     @Test fun deviceWordsReachTheDetails() {
         assertEquals("Reading can resume when your phone cools down.", ReadingPolicy.decide(waiting, StopReason.HOT, false, false, android).detail)
         assertEquals(

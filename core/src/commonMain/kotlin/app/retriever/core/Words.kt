@@ -124,41 +124,54 @@ object Words {
 
     // Welcome. No download note: reading needs none.
     const val WELCOME_TITLE = "Find files by what’s inside"
-    const val GET_STARTED = "Get started"
     const val SEARCH_BY_NAME = "Search by name"
 
     fun welcomeBody(words: DeviceWords): String = "Remember what it says or shows, even if you’ve forgotten the name. Reading happens on this ${words.device}."
 
-    // Access.
+    // Access, asked on the welcome.
     const val CHOOSE_ACCESS = "Choose what Retriever can search"
-    const val ACCESS_BODY = "You can change this later. Files inside other apps’ private storage aren’t available."
-    const val FILES_AND_FOLDERS = "Files and folders"
+    const val SEARCH_WHOLE_PHONE = "Search your whole phone"
+    const val WHOLE_PHONE_READY = "Retriever can search your whole phone."
+    const val ALL_FILES_OFF = "Turn on “Allow access to manage all files” to search your whole phone, or choose what to include."
+    const val CHOOSE_INSTEAD = "Choose what to include instead"
+    const val INCLUDE_TITLE = "Choose what to include"
+    const val SEARCH_ALL_PHOTOS = "Search all your photos"
+    const val ADD_FOLDERS_FROM_FILES = "Add folders from Files"
     const val SHARED_FILES_AND_FOLDERS = "Shared files and folders"
     const val PHOTOS_AND_VIDEOS = "Photos and videos"
-    const val CHOOSE_FILE_ACCESS = "Choose file access"
     const val ADD_FOLDER = "Add a folder"
-    const val FOLDERS = "Folders"
     const val SELECTED_PHOTOS = "Selected photos"
     const val ALL_PHOTOS = "All photos"
     const val CHOOSE_MORE_PHOTOS = "Choose more photos"
     const val ONLY_SELECTED_PHOTOS = "Only the photos you selected are included."
     const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
 
+    fun wholeDeviceNote(words: DeviceWords): String =
+        "Retriever reads the files on this ${words.device} to find them by what’s inside. Nothing leaves your ${words.device}."
+
+    fun iosAccessNote(words: DeviceWords): String =
+        "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your ${words.device}."
+
     // The sample.
     const val SAMPLE_TITLE = "Reading a few files to try"
-    const val SAMPLE_STARTING = "Starting with a few of your files…"
+    const val STARTING = "Starting…"
     const val READING_NOW = "Reading now"
     const val TRY_SEARCH = "Try search"
-    const val PREVIEW_UNAVAILABLE = "Preview unavailable"
+
+    /** A sample file whose content is all searchable. */
+    const val READ = "Read"
 
     fun seeAll(files: Long): String = "See all ${files(files)}"
 
+    /** "12 of 40 files read". */
+    fun readOf(read: Long, planned: Long): String = "${formatCount(read)} of ${files(planned)} read"
+
     /**
-     * The sample's time line, only while it reads: the usual time, then, past the sample's batch, that it is slow here.
-     * Null when paused or done, so no stale time is left on screen.
+     * The sample's time line, only while it reads and once a file is read: the usual time, then, past the sample's batch,
+     * that it is slow here. Null when paused or done, so no stale time is left on screen.
      */
-    fun sampleTime(reading: Boolean, elapsedMs: Long, words: DeviceWords): String? = when {
-        !reading -> null
+    fun sampleTime(reading: Boolean, read: Long, elapsedMs: Long, words: DeviceWords): String? = when {
+        !reading || read == 0L -> null
         elapsedMs > Retriever.TASTE_BATCH.inWholeMilliseconds -> "This is taking longer on your ${words.device}. You can try the files read so far."
         else -> "Usually 1–2 minutes. You can try search before this finishes."
     }

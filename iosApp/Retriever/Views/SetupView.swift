@@ -2,7 +2,7 @@ import Photos
 import RetrieverCore
 import SwiftUI
 
-/// First run on core's stage machine (`SetupInputs.stage`): welcome, access, the sample read with no download, Try,
+/// First run on core's stage machine (`SetupInputs.stage`): the welcome with its access choice, the sample read with no download, Try,
 /// then when to read more. Every stage follows from stored state, so each resumes after the app is closed.
 struct SetupView: View {
     let model: AppModel
@@ -15,7 +15,6 @@ struct SetupView: View {
         Group {
             switch stage {
             case .welcome: WelcomeStep(model: model)
-            case .access: AccessStep(model: model)
             case .try_: TryStep(model: model)
             case .choose: ChooseStep(model: model)
             default: SampleStep(model: model)
@@ -59,13 +58,16 @@ private struct StepPage<Content: View, Actions: View>: View {
     }
 }
 
-/// A button's label filling the footer's width.
+/// A button's label filling the footer's width. It wraps at large text sizes: the prominent style keeps one line otherwise.
 private func wide(_ title: String) -> some View {
-    Text(title).frame(maxWidth: .infinity)
+    Text(title).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
 }
 
+/// The welcome and the one decision it asks: all photos, folders from Files, or search by name.
 private struct WelcomeStep: View {
     let model: AppModel
+    @State private var picking = false
+    @State private var folderNote: String?
 
     var body: some View {
         StepPage {
@@ -75,68 +77,28 @@ private struct WelcomeStep: View {
             if let snap = model.snap, snap.textOnly {
                 Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words))
             }
-        } actions: {
-            Button {
-                model.setSetupMark(.started)
-            } label: {
-                wide(Words.shared.GET_STARTED)
-            }.buttonStyle(.primaryAction)
-            Button(action: model.searchByName) { wide(Words.shared.SEARCH_BY_NAME) }
-        }
-    }
-}
-
-/// Photos (selected or all) and folders; Continue once either gives Retriever something to read.
-private struct AccessStep: View {
-    let model: AppModel
-    @State private var picking = false
-    @State private var folderNote: String?
-
-    var body: some View {
-        StepPage {
-            MascotView(mood: .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
-            Text(Words.shared.CHOOSE_ACCESS).font(.title2.bold()).accessibilityAddTraits(.isHeader)
-            Text(Words.shared.ACCESS_BODY)
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    LabeledContent {
-                        if let state = Copy.photosAccess(model.photos) { Text(state).foregroundStyle(.primary) }
-                    } label: {
-                        Label("Photos", systemImage: "photo.on.rectangle")
-                    }
-                    switch model.photos {
-                    case .notDetermined:
-                        Button("Allow access to Photos", action: model.requestPhotos).buttonStyle(.bordered)
-                    case .limited:
-                        Note(Words.shared.ONLY_SELECTED_PHOTOS)
-                        Button(Words.shared.CHOOSE_MORE_PHOTOS, action: model.chooseMorePhotos).buttonStyle(.bordered)
-                    case .denied, .restricted:
-                        Button("Open Settings", action: model.openSettings).buttonStyle(.bordered)
-                    default:
-                        EmptyView()
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Note(Words.shared.iosAccessNote(words: Copy.words))
+            if model.photos == .limited {
+                Note(Words.shared.ONLY_SELECTED_PHOTOS)
+                Button(Words.shared.CHOOSE_MORE_PHOTOS, action: model.chooseMorePhotos).buttonStyle(.bordered)
             }
-            GroupBox {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label(Words.shared.FOLDERS, systemImage: "folder")
-                    ForEach(model.folders, id: \.self) { Text($0) }
-                    if let folderNote { Note(folderNote) }
-                    Button(Words.shared.ADD_FOLDER) { picking = true }.buttonStyle(.bordered)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if !model.accessGiven { Note(Words.shared.NOTHING_SELECTED) }
+            // In the content, not the footer: three stacked actions left no room for a label to wrap at larger text.
+            Button(Words.shared.ADD_FOLDERS_FROM_FILES) { picking = true }.buttonStyle(.bordered)
+            if let folderNote { Note(folderNote) }
         } actions: {
-            // Shown once something is chosen; until then the note above says what to do.
+            // Access in place: Continue. Not asked yet: ask for all photos. Refused: only Settings can change it.
             if model.accessGiven {
                 Button {
                     model.setSetupMark(.accessChosen)
                 } label: {
                     wide(Words.shared.CONTINUE)
                 }.buttonStyle(.primaryAction)
+            } else if model.photos == .notDetermined {
+                Button(action: model.requestPhotos) { wide(Words.shared.SEARCH_ALL_PHOTOS) }.buttonStyle(.primaryAction)
+            } else {
+                Button(action: model.openSettings) { wide("Open Settings") }.buttonStyle(.primaryAction)
             }
+            Button(action: model.searchByName) { wide(Words.shared.SEARCH_BY_NAME) }
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -145,129 +107,199 @@ private struct AccessStep: View {
     }
 }
 
-/// Reading a few files with no download: real previews of what is read, and Try search once enough is.
+/// Reading a few files with no download: the retriever's pile of what is read, and Try search once enough is.
 private struct SampleStep: View {
     let model: AppModel
     @State private var taste: TasteSnap
+    @State private var sample: [SampleFile]
     @State private var seeingAll = false
 
     init(model: AppModel) {
         self.model = model
         _taste = State(initialValue: model.fixtureTaste)
+        _sample = State(initialValue: model.fixtureSample)
     }
 
     var body: some View {
-        let preview = model.progress.reading
+        let pause = model.progress.reading.pauseReason
         // Kept on the model, so coming back to this screen never starts the usual time again.
         let since = model.sampleStartedAt ?? .now
-        let reading = model.snap?.running == true && taste.pending > 0 && preview.pauseReason == nil
+        // One predicate for the mascot, the time line and the pile: reading, not stopped, and files left.
+        let reading = model.snap?.running == true && pause == nil && taste.pending > 0
+        let planned = Int64(taste.planned)
+        let count = taste.read == 0 && taste.pending > 0 ? Words.shared.STARTING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
         StepPage {
             MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
             Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityValue(taste.spoken)
-            Text(Words.shared.readCount(read: Int64(taste.read), partlyRead: 0)).monospacedDigit()
-            // Time only while reading; past the sample's batch it says so rather than repeating a stale estimate.
-            TimelineView(.periodic(from: since, by: 15)) { context in
-                let elapsed = Int64(context.date.timeIntervalSince(since) * 1000)
-                if let time = Words.shared.sampleTime(reading: reading, elapsedMs: elapsed, words: Copy.words) { Note(time) }
+            SamplePileView(
+                cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
+                hint: Words.shared.seeAll(files: planned)
+            ) { seeingAll = true }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(count).monospacedDigit()
+                // Fills when every planned file is done, read or not; the line above counts the read ones.
+                if planned > 0 {
+                    ProgressView(value: Double(taste.planned - taste.pending), total: Double(taste.planned)).accessibilityHidden(true)
+                }
             }
-            if let reason = preview.pauseReason { Note(reason) }
-            SampleMosaic(preview: preview)
-            if taste.read > 0 {
-                Button(Words.shared.seeAll(files: Int64(taste.read))) { seeingAll = true }
+            if let pause {
+                Note(pause)
+            } else {
+                TimelineView(.periodic(from: since, by: 15)) { context in
+                    let elapsed = Int64(context.date.timeIntervalSince(since) * 1000)
+                    if let time = Words.shared.sampleTime(reading: reading, read: Int64(taste.read), elapsedMs: elapsed, words: Copy.words) {
+                        Note(time)
+                    }
+                }
             }
+            if planned > 0 { Button(Words.shared.seeAll(files: planned)) { seeingAll = true } }
         } actions: {
-            if taste.readyToTry {
-                Button {
-                    model.setSetupMark(.trying)
-                } label: {
-                    wide(Words.shared.TRY_SEARCH)
-                }.buttonStyle(.primaryAction)
+            Button {
+                model.setSetupMark(.trying)
+            } label: {
+                wide(Words.shared.TRY_SEARCH)
             }
+            .buttonStyle(.primaryAction)
+            .disabled(!taste.readyToTry)
             Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) }
         }
         .task {
             guard let retriever = model.services?.retriever else { return }
             for await snap in retriever.tasteStream() { taste = snap }
         }
-        .sheet(isPresented: $seeingAll) { SampleList(model: model) }
+        .task {
+            for await plan in model.sampleStream() { sample = plan.files }
+        }
+        .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: sample) }
     }
 }
 
-/// Up to six real previews, the file being read first. Six tiles need no lazy loading, so a plain Grid: two columns,
-/// one at accessibility sizes, each tile as tall as its own preview and name, so nothing is reserved for files not read yet.
-struct SampleMosaic: View {
-    let preview: ReadingPreview
-    @Environment(\.dynamicTypeSize) private var typeSize
+/// The last twelve files read, dropped on a pile at core's angles and offsets (Gallery's), in a fixed square, so
+/// the screen never moves as files arrive. One element: the count, and See all as its action.
+struct SamplePileView: View {
+    let cards: [SampleFile]
+    /// Shown as blank cards while nothing is read.
+    let kinds: [Kind]
+    let label: String
+    let hint: String
+    let seeAll: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The file being read, then the newest read; never more than six, and whole rows only, so no cell is left empty.
-    static func tiles(_ preview: ReadingPreview, columns: Int) -> [SourceFile] {
-        let tiles = Array(([preview.current].compactMap { $0 } + preview.recent.filter { $0.uri != preview.current?.uri }).prefix(6))
-        return tiles.count > 1 ? Array(tiles.prefix(tiles.count / columns * columns)) : tiles
+    /// The plan's first three kinds, for the empty pile.
+    static func kinds(_ sample: [SampleFile]) -> [Kind] {
+        var kinds: [Kind] = []
+        for file in sample where !kinds.contains(file.file.kind) && kinds.count < 3 { kinds.append(file.file.kind) }
+        return kinds.isEmpty ? [.photo, .pdf, .doc] : kinds
     }
 
-    static func columns(_ typeSize: DynamicTypeSize) -> Int { typeSize.isAccessibilitySize ? 1 : 2 }
-
     var body: some View {
-        let columns = Self.columns(typeSize)
-        let tiles = Self.tiles(preview, columns: columns)
-        if preview.recent.isEmpty { Note(Words.shared.SAMPLE_STARTING) }
-        Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 16) {
-            ForEach(Array(stride(from: 0, to: tiles.count, by: columns)), id: \.self) { start in
-                GridRow {
-                    ForEach(tiles[start..<min(start + columns, tiles.count)], id: \.uri) { file in
-                        SampleTile(file: file, readingNow: file.uri == preview.current?.uri)
+        Button(action: seeAll) {
+            GeometryReader { box in
+                let card = box.size.width * 0.75
+                let scale = card / CGFloat(SamplePile.shared.CARD_DP)
+                ZStack {
+                    if cards.isEmpty {
+                        ForEach(Array(kinds.prefix(3).enumerated()), id: \.offset) { i, kind in
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(.tertiarySystemFill))
+                                .overlay { Image(systemName: Format.icon(kind)).font(.largeTitle).foregroundStyle(.secondary) }
+                                .frame(width: card, height: card)
+                                .modifier(Slot(index: i, scale: scale))
+                        }
+                    }
+                    ForEach(cards, id: \.index) { c in
+                        FileTile(file: c.file).equatable()
+                            .frame(width: card, height: card)
+                            .modifier(Slot(index: Int(c.index), scale: scale))
+                            .zIndex(Double(c.index))
+                            .transition(reduceMotion ? .identity : .modifier(active: Settle(dropping: true), identity: Settle(dropping: false)))
                     }
                 }
+                .frame(width: box.size.width, height: box.size.width)
+                // Only a new card moves: one present when the pile appears is not inserted, so it never replays.
+                .animation(reduceMotion ? nil : .spring(duration: 0.25), value: cards.last?.index)
             }
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: CGFloat(SamplePile.shared.FOOTPRINT_DP))
+            .frame(maxWidth: .infinity)
         }
-    }
-}
-
-/// A preview, the file's name and its kind; "Reading now" on the file being read.
-private struct SampleTile: View {
-    let file: SourceFile
-    let readingNow: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Thumb(file: file, points: 200, bucketed: true)
-                .aspectRatio(4 / 3, contentMode: .fit)
-                .clipShape(.rect(cornerRadius: 12, style: .continuous))
-                .overlay(alignment: .topLeading) {
-                    if readingNow {
-                        Text(Words.shared.READING_NOW).font(.caption.weight(.semibold))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(.regularMaterial, in: .capsule)
-                            .padding(6)
-                    }
-                }
-            Text(file.name).font(.subheadline).lineLimit(2).truncationMode(.middle)
-            Text(Words.shared.kindLabel(kind: file.kind)).font(.caption)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(file.name), \(Words.shared.kindLabel(kind: file.kind)), \(Format.date(file.modifiedAt))")
-        .accessibilityValue(readingNow ? Words.shared.READING_NOW : "")
-        .accessibilityIdentifier("recent:\(file.uri)")
+        .accessibilityLabel(label)
+        .accessibilityHint(hint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(.default, seeAll)
+        .accessibilityIdentifier("sample-pile")
+    }
+
+    /// A card's place on the pile, by its plan position.
+    struct Slot: ViewModifier {
+        let index: Int
+        let scale: CGFloat
+
+        func body(content: Content) -> some View {
+            let i = Int32(index)
+            content
+                .rotationEffect(.degrees(Double(SamplePile.shared.angle(i: i))))
+                .offset(x: CGFloat(SamplePile.shared.dx(i: i)) * scale, y: CGFloat(SamplePile.shared.dy(i: i)) * scale)
+        }
+    }
+
+    /// A new card drops in from above, turned a little further, and settles into its slot.
+    private struct Settle: ViewModifier {
+        let dropping: Bool
+
+        func body(content: Content) -> some View {
+            content.rotationEffect(.degrees(dropping ? 8 : 0)).offset(y: dropping ? -48 : 0).opacity(dropping ? 0 : 1)
+        }
     }
 }
 
-/// "See all": every sample file read so far, each opening in the viewer.
+/// "See all": every planned file in plan order, read or not; a read one opens in the viewer.
 private struct SampleList: View {
     let model: AppModel
-    @State private var files: [SourceFile] = []
+    let sample: [SampleFile]
     @State private var path: [Route] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         AppStack(model: model, path: $path) {
-            ScrollView { ReadyFiles(files: files).padding() }
+            SampleRows(sample: sample)
                 .navigationTitle(Words.shared.SAMPLE_TITLE)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .task(id: model.snap?.indexed) { files = await model.sampleFiles() }
+        }
+    }
+}
+
+private struct SampleRows: View {
+    let sample: [SampleFile]
+    @Environment(\.openFile) private var openFile
+
+    var body: some View {
+        let read = sample.filter(\.read).map(\.file)
+        List(sample, id: \.index) { item in
+            let row = HStack(spacing: 12) {
+                FileTile(file: item.file).equatable().frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.file.name).lineLimit(2).truncationMode(.middle)
+                    Text(item.note ?? Words.shared.READ).font(.subheadline)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if item.read {
+                Button {
+                    openFile(item.file, among: read)
+                } label: {
+                    row
+                }
+                .tint(.primary)
+                .accessibilityHint("Open file")
+            } else {
+                row
+            }
         }
     }
 }
@@ -383,10 +415,26 @@ struct Busy: View {
     SetupView(model: AppModel(fixture: .firstRun))
 }
 
-#Preview("Access, limited Photos") {
+#Preview("Welcome, limited Photos") {
     SetupView(model: AppModel(fixture: .photosLimited))
 }
 
-#Preview("Reading a few files") {
+#Preview("Welcome, Photos refused") {
+    SetupView(model: AppModel(fixture: .photosDenied))
+}
+
+#Preview("Sample starting") {
+    SetupView(model: AppModel(fixture: .sampleStart))
+}
+
+#Preview("Sample reading") {
     SetupView(model: AppModel(fixture: .sampleReading))
+}
+
+#Preview("Sample paused") {
+    SetupView(model: AppModel(fixture: .samplePaused))
+}
+
+#Preview("Sample done") {
+    SetupView(model: AppModel(fixture: .sampleDone))
 }

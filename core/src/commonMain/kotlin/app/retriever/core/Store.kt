@@ -535,6 +535,8 @@ class Store(
     fun files(ids: Collection<Long>): Map<Long, SourceFile> =
         if (ids.isEmpty()) emptyMap() else q.filesByIds(ids, ::storedFile).executeAsList().associate { it.id to it.file }
 
+    internal fun storedIn(ids: Collection<Long>): List<StoredFile> = inChunks(ids) { q.filesByIds(it, ::storedFile).executeAsList() }
+
     internal fun indexedIn(ids: Collection<Long>): Map<Long, SourceFile> =
         inChunks(ids) { q.filesWithContent(it, ::storedFile).executeAsList() }.associate { it.id to it.file }
 

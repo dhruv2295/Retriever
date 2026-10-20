@@ -41,7 +41,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start.",
     ]
     private static let routes = [
-        "setup.welcome", "setup.photos", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.reading",
+        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.sampleStart", "setup.reading",
         "setup.readingPaused", "setup.sampleDone", "setup.try", "setup.tryNoSuggestions", "setup.choose",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
@@ -124,7 +124,7 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     func testRecentAndReadyCellsAnnounceNameKindAndDate() {
-        for route in ["setup.reading", "status.reading"] {
+        for route in ["status.reading"] {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", route]
             launch(app)
@@ -143,20 +143,20 @@ final class AccessibilityAuditTests: XCTestCase {
             launch(app)
             XCTContext.runActivity(named: route) { _ in
                 do {
-                    if route.hasPrefix("setup.reading") {
-                        // Six real previews at most, the file being read first; no slash counters.
-                        for i in 2...6 {
-                            XCTAssertTrue(app.descendants(matching: .any)["recent:folder://fixture/reading-\(i)"].firstMatch.exists)
-                        }
-                        XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-8"].firstMatch.exists)
-                        XCTAssertTrue(app.buttons["Try search"].exists)
+                    if ["setup.sampleStart", "setup.reading", "setup.readingPaused", "setup.sampleDone"].contains(route) {
+                        // One pile element saying the count, with See all as its action; its cards are not separate elements.
+                        let pile = app.descendants(matching: .any)["sample-pile"].firstMatch
+                        let count = route == "setup.sampleStart" ? "Starting…" : route == "setup.sampleDone" ? "54 of 54 files read" : "30 of 54 files read"
+                        XCTAssertEqual(pile.label, count)
+                        XCTAssertTrue(app.staticTexts[count].exists)
+                        XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
+                        XCTAssertTrue(app.buttons["See all 54 files"].exists)
+                        XCTAssertEqual(app.buttons["Try search"].isEnabled, route != "setup.sampleStart")
                         XCTAssertTrue(app.buttons["Go to Home"].exists)
+                        XCTAssertFalse(app.staticTexts["Up to date"].exists, "no status leaks in before the plan")
                         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '/'")).firstMatch.exists)
-                        if route == "setup.reading" {
-                            XCTAssertEqual(app.descendants(matching: .any)["recent:folder://fixture/reading-1"].firstMatch.value as? String, "Reading now")
-                        } else {
-                            XCTAssertTrue(app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists)
-                        }
+                        XCTAssertEqual(
+                            app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists, route == "setup.readingPaused")
                     }
                     if route.hasPrefix("setup.try") {
                         XCTAssertTrue(app.staticTexts["Searching inside 54 sample files"].exists)
@@ -232,6 +232,8 @@ final class AccessibilityAuditTests: XCTestCase {
             // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
             if self.clippedByLegend(issue.element, in: app) { return true }
             if let element = issue.element, self.underBottomBar(element, in: app) { return true }
+            // WCAG 1.4.3 exempts inactive controls: Try search shows disabled until the sample is ready.
+            if issue.element?.isEnabled == false { return true }
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
             return false
         }

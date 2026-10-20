@@ -24,20 +24,35 @@ final class ReadingFilesTests: XCTestCase {
         XCTAssertNil(StatusContent.reason(detail: nil, lastError: nil, message: nil))
     }
 
-    /// Six tiles at most, the file being read first and then the newest read; never a blank slot or a file twice.
-    func testTheSampleMosaicShowsTheReadingFileThenTheNewestRead() {
-        let recent = (1...24).reversed().map(file)
-        func tiles(_ preview: ReadingPreview, columns: Int = 2) -> [SourceFile] { SampleMosaic.tiles(preview, columns: columns) }
-        XCTAssertEqual(tiles(ReadingPreview(current: file(25), recent: recent)).map(\.uri), ["demo:25"] + (20...24).reversed().map { "demo:\($0)" })
-        XCTAssertEqual(tiles(ReadingPreview(current: file(24), recent: recent)).map(\.uri), (19...24).reversed().map { "demo:\($0)" })
-        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(2)))).count, 2, "paused: what was read stays")
-        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(5)))).count, 4, "whole rows: no empty half-row")
-        XCTAssertEqual(tiles(ReadingPreview(current: file(25), recent: Array(recent.prefix(2)))).count, 2)
-        XCTAssertEqual(tiles(ReadingPreview(current: nil, recent: Array(recent.prefix(5))), columns: 1).count, 5, "one column fills every row")
-        XCTAssertEqual(tiles(ReadingPreview(current: file(1))).count, 1, "the first file alone, no reserved slots")
-        XCTAssertEqual(tiles(ReadingPreview()), [])
-        XCTAssertEqual(SampleMosaic.columns(.large), 2)
-        XCTAssertEqual(SampleMosaic.columns(.accessibility1), 1, "one column of rows at the largest text sizes")
+    private func sample(_ count: Int, read: Int) -> [SampleFile] {
+        (0..<count).map { SampleFile(index: Int32($0), file: file($0 + 1), read: $0 < read, note: nil) }
+    }
+
+    /// The pile holds the last twelve read files, in plan order, each at its own index's slot.
+    func testThePileShowsTheLastTwelveReadInPlanOrder() {
+        let shown = SamplePile.shared.shown(files: sample(30, read: 20))
+        XCTAssertEqual(shown.map(\.index), Array(8..<20).map(Int32.init))
+        XCTAssertTrue(SamplePile.shared.shown(files: sample(5, read: 0)).isEmpty)
+    }
+
+    /// The empty pile shows the plan's first three kinds, or photos, PDFs and documents before there is a plan.
+    func testTheEmptyPileShowsThePlansFirstKinds() {
+        XCTAssertEqual(SamplePileView.kinds([]), [.photo, .pdf, .doc])
+        let mixed = [file(1), file(2)].enumerated().map { SampleFile(index: Int32($0.offset), file: $0.element, read: false, note: nil) }
+        XCTAssertEqual(SamplePileView.kinds(mixed), [.photo])
+    }
+
+    /// The pile is one fixed square whether it holds nothing, one card, twelve or more: the screen never moves.
+    func testThePileKeepsOneSizeAtAnyCount() {
+        for width: CGFloat in [320, 390, 430] {
+            func size(_ count: Int) -> CGSize {
+                let cards = SamplePile.shared.shown(files: sample(count, read: count))
+                let host = UIHostingController(rootView: SamplePileView(cards: cards, kinds: [.photo], label: "", hint: "") {})
+                return host.sizeThatFits(in: CGSize(width: width, height: 4000))
+            }
+            for count in [1, 12, 20] { XCTAssertEqual(size(count), size(0), "\(count) cards at \(width) pt") }
+            XCTAssertEqual(size(0).height, min(224, width), accuracy: 1)
+        }
     }
 
     func testTheSampleIsSpokenByKindNotShownAsSlashCounts() {
@@ -66,25 +81,13 @@ final class ReadingFilesTests: XCTestCase {
         XCTAssertEqual(model.live?.reading.recent.count, 24)
     }
 
-    func testExistingCellsCompareEqualAfterAnInsertion() {
+    func testExistingTilesCompareEqualAfterAnInsertion() {
         let before = (1...4).map(file)
         let after = [file(5)] + (1...4).map(file)
         for old in before {
             let retained = after.first { $0.uri == old.uri }!
-            XCTAssertEqual(RecentFileCell(file: old), RecentFileCell(file: retained))
+            XCTAssertEqual(FileTile(file: old), FileTile(file: retained))
         }
-        XCTAssertNotEqual(RecentFileCell(file: before[0]), RecentFileCell(file: after[0]))
-    }
-    /// Two tiles share a row on a phone; a third waits for a fourth, so the next row starts full.
-    func testTwoSampleTilesShareOneRowAtSeveralWidths() {
-        for width: CGFloat in [320, 375, 430] {
-            func height(_ count: Int) -> CGFloat {
-                let preview = ReadingPreview(current: file(count), recent: (1..<count).map(file))
-                let host = UIHostingController(rootView: SampleMosaic(preview: preview).environment(\.dynamicTypeSize, .large))
-                return host.sizeThatFits(in: CGSize(width: width, height: 4000)).height
-            }
-            XCTAssertEqual(height(3), height(2), accuracy: 1)
-            XCTAssertGreaterThan(height(4), height(2) + 40)
-        }
+        XCTAssertNotEqual(FileTile(file: before[0]), FileTile(file: after[0]))
     }
 }

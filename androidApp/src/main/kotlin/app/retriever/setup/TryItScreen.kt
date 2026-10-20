@@ -27,7 +27,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
-import app.retriever.core.SourceFile
 import app.retriever.core.UpgradePolicy
 import app.retriever.core.Words
 import app.retriever.home.HomeUi
@@ -66,16 +65,11 @@ fun TryItScreen(
     val searchActions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     var suggestions by remember { mutableStateOf(emptyList<String>()) }
-    var files by remember { mutableStateOf(emptyList<SourceFile>()) }
-    LaunchedEffect(ids, ui.taste?.read) {
-        val scope = ids?.toSet() ?: emptySet()
-        files = retriever.readFiles(scope)
-        suggestions = retriever.suggestions(scope)
-    }
+    LaunchedEffect(ids, ui.taste?.read) { suggestions = retriever.suggestions(ids?.toSet() ?: emptySet()) }
     // Home's rule: offered once the person has searched and until Not now, then the download and the tune.
     val offer = up.takeIf { UpgradePolicy.showOnHome(it.stage, prefs) }
     val shown = remember(search, up.stage) { search.copy(upgrade = up.stage) }
-    TryItContent(ui, shown, searchActions, actions, files = files, suggestions = suggestions, upgrade = offer, upgradeActions = upgradeActions)
+    TryItContent(ui, shown, searchActions, actions, suggestions = suggestions, upgrade = offer, upgradeActions = upgradeActions)
 }
 
 @Composable
@@ -85,7 +79,6 @@ fun TryItContent(
     searchActions: SearchActions,
     actions: SetupActions,
     modifier: Modifier = Modifier,
-    files: List<SourceFile> = emptyList(),
     suggestions: List<String> = emptyList(),
     upgrade: UpgradeUi? = null,
     upgradeActions: UpgradeActions = UpgradeActions(),
@@ -111,7 +104,8 @@ fun TryItContent(
                     for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
                 }
             }
-            ReadyFiles(files, files.size, onOpen = searchActions.onOpenFile)
+            val files = remember(ui.sample) { ui.sample.filter { it.read }.map { it.file } }
+            ReadyFiles(files, onOpen = searchActions.onOpenFile)
             Button(onClick = actions.continueToCommit, modifier = Modifier.fillMaxWidth()) {
                 Text(if (ui.nothingLeft) Words.GO_TO_HOME else Words.CHOOSE_WHEN)
             }

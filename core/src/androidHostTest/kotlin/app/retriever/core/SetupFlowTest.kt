@@ -31,8 +31,6 @@ class SetupFlowTest {
         assertNull(process().setup.value, "nothing until loaded")
         assertEquals(SetupInputs(accessGiven = true), process().inputs(), "a new install starts at the welcome, with a plan still to make")
 
-        process().setSetupMark(SetupMark.STARTED)
-        assertEquals(SetupStage.ACCESS, process().inputs().stage)
         process().setSetupMark(SetupMark.ACCESS_CHOSEN)
         assertEquals(SetupStep.PLAN, process().inputs().step)
 
@@ -52,6 +50,16 @@ class SetupFlowTest {
         assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, process().inputs().let { it.stage to it.step })
         process().planOrCommit()
         assertEquals(plan, store.tasteIds(), "a choice taken is never replanned")
+    }
+
+    /** A mark this version dropped (STARTED, before the welcome held the access ask) reads as NONE, never as an old install. */
+    @Test
+    fun aDroppedMarkReadsAsTheWelcome() = test {
+        val store = newStore().also { s -> s.updatePrefs { it.copy(setupStarted = true) } }
+        store.setMeta(SETUP_MARK_KEY, "STARTED")
+        val inputs = testRetriever(store, files, FakeExtractor()).inputs()
+        assertEquals(SetupInputs(accessGiven = true), inputs)
+        assertEquals(SetupStage.WELCOME, inputs.stage)
     }
 
     @Test

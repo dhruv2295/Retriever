@@ -4,6 +4,7 @@ import android.util.Log
 import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.Retriever
+import app.retriever.core.SampleFile
 import app.retriever.core.SetupInputs
 import app.retriever.core.SetupMark
 import app.retriever.core.SetupPolicy
@@ -34,12 +35,19 @@ data class SetupUi(
     val taste: TasteProgress? = null,
     /** Files beyond the sample, core's [app.retriever.core.ReadingProgress.notScheduled]; null until counted. */
     val moreFiles: Long? = null,
-    /** The shared reading policy's explanation while reading waits; null while it reads. */
+    /** Why reading stopped, core's [app.retriever.core.ReadingStatus.pause]; null unless a stop holds it. */
     val pauseReason: String? = null,
     /** When this process started reading the sample, for core's time line; 0 before. */
     val sampleStartedAt: Long = 0,
+    /** Every planned file in plan order, from core. */
+    val sample: List<SampleFile> = emptyList(),
+    /** The index is reading now. */
+    val running: Boolean = false,
 ) {
     val stage: SetupStage get() = setup.stage
+
+    /** The sample is being read: one test for the mascot, the time line and the pile's freeze. */
+    val reading: Boolean get() = running && pauseReason == null && (taste?.pending ?: 0) > 0
 
     /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice; unknown is not nothing. */
     val nothingLeft get() = moreFiles == 0L
@@ -57,8 +65,6 @@ class SetupFlow(
     private val notificationsGranted: () -> Boolean,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    val reading = retriever.state
-
     private val _ui = MutableStateFlow(
         SetupUi(
             setup = (retriever.setup.value ?: SetupInputs()).withAccess(access.state.value.ready),
@@ -78,7 +84,9 @@ class SetupFlow(
                 _ui.update { it.copy(setup = s, access = a) }
             }
         }
-        scope.launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = if (s.active) null else s.title) } } }
+        scope.launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
+        scope.launch { retriever.state.map { it.running }.distinctUntilChanged().collect { r -> _ui.update { it.copy(running = r) } } }
+        scope.launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
         scope.launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
         scope.launch {
             retriever.tasteProgress().collect { p ->
@@ -128,12 +136,13 @@ class SetupFlow(
         }
     }
 
-    fun getStarted() = mark(SetupMark.STARTED)
-
-    /** Access still shows, then Home; the sample reads in the background. */
+    /**
+     * Setup ends at launch, with access confirmed at once when it is in place; without it the welcome stays, and the
+     * screen asks for it as the primary button does. The sample reads in the background.
+     */
     fun searchByName() = launch {
-        retriever.setSetupMark(SetupMark.STARTED)
         retriever.skipFirstRun()
+        if (access.state.value.ready) retriever.setSetupMark(SetupMark.ACCESS_CHOSEN)
     }
 
     fun continueFromAccess() = mark(SetupMark.ACCESS_CHOSEN)
@@ -197,9 +206,9 @@ class SetupFlow(
 
 /** What setup's screens can ask for; every default does nothing, so a test passes only what it checks. */
 class SetupActions(
-    val getStarted: () -> Unit = {},
     val searchByName: () -> Unit = {},
     val allowFiles: () -> Unit = {},
+    val chooseInstead: () -> Unit = {},
     val allowMedia: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val continueFromAccess: () -> Unit = {},

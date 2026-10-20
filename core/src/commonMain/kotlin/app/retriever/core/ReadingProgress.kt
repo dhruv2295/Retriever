@@ -51,6 +51,9 @@ enum class ReadingPhase(val title: String? = null) {
 data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail: String? = null) {
     val active: Boolean get() = phase == ReadingPhase.READING || phase == ReadingPhase.SAMPLE || phase == ReadingPhase.DEEPENING ||
         phase == ReadingPhase.MEANING
+
+    /** Why reading stopped, or null: only a stop phase's title is a reason, never "Up to date" or "Checking…". */
+    val pause: String? get() = title.takeIf { phase.title == null }
 }
 
 /** Home's status row; each app maps [phase] to its colour and icon. */

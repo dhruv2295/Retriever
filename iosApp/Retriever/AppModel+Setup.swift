@@ -57,18 +57,23 @@ extension AppModel {
 
     // MARK: Setup answers
 
-    /// Get started, Continue, Try search, Choose when to read more: the person's answer on a setup screen.
+    /// Continue, Try search, Choose when to read more: the person's answer on a setup screen.
     func setSetupMark(_ mark: SetupMark) {
         guard let retriever = services?.retriever else { return }
         Task { try? await retriever.setSetupMark(mark: mark) }
     }
 
-    /// Search by name: past the welcome to access, then Home; the sample still reads.
+    /// Search by name: skips the sample's screens, never access. With access in place it is chosen at once; otherwise
+    /// the welcome's own ask follows (Photos, when iOS has not asked yet).
     func searchByName() {
         guard let retriever = services?.retriever else { return }
         Task {
-            _ = try? await retriever.setSetupMark(mark: .started)
             _ = try? await retriever.skipFirstRun()
+            if accessGiven {
+                _ = try? await retriever.setSetupMark(mark: .accessChosen)
+            } else if photos == .notDetermined {
+                requestPhotos()
+            }
         }
     }
 
@@ -98,10 +103,18 @@ extension AppModel {
         return (services.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value) ?? []
     }
 
-    /// The sample's files read so far, for "See all" and Try's previews.
-    func sampleFiles() async -> [SourceFile] {
-        guard let retriever = services?.retriever else { return progress.reading.recent }
-        return (try? await retriever.readFiles(fileIds: Set(sampleIds.map { KotlinLong(value: $0) }))) ?? []
+    /// Every planned sample file in plan order, read or not, until the task reading it is cancelled; a fixture's at once.
+    func sampleStream() -> AsyncStream<SamplePlan> {
+        guard let retriever = services?.retriever else {
+            return AsyncStream { [plan = SamplePlan(files: fixtureSample)] in
+                $0.yield(plan)
+                $0.finish()
+            }
+        }
+        return AsyncStream { continuation in
+            let handle = retriever.observeSampleFiles { @Sendable files in continuation.yield(SamplePlan(files: files)) }
+            continuation.onTermination = { _ in handle.close() }
+        }
     }
 
     /// Search by meaning, and by photo, works: the model is here and tuned.
@@ -233,6 +246,11 @@ struct TasteSnap: Equatable, Sendable {
             counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) }, readyToTry: p.readyToTry,
             pending: Int(p.pending))
     }
+}
+
+/// The sample's planned files, as one delivery: Kotlin data classes of vals, immutable, so they cross to the main actor as they are.
+struct SamplePlan: @unchecked Sendable {
+    let files: [SampleFile]
 }
 
 extension Retriever {

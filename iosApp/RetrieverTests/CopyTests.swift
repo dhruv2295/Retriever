@@ -109,10 +109,25 @@ final class CopyTests: XCTestCase {
         XCTAssertNil(Copy.photosAccess(.notDetermined))
         let welcome = Words.shared.welcomeBody(words: Copy.words)
         XCTAssertTrue(welcome.hasSuffix("this \(Copy.device)."), welcome)
-        for text in [Words.shared.WELCOME_TITLE, welcome, Words.shared.ACCESS_BODY, Words.shared.SAMPLE_TITLE] {
+        for text in [Words.shared.WELCOME_TITLE, welcome, Words.shared.iosAccessNote(words: Copy.words), Words.shared.SAMPLE_TITLE] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("download"), text)
             XCTAssertFalse(text.localizedCaseInsensitiveContains("skip"), text)
         }
+    }
+
+    /// The welcome's iOS ask and the pile's count line.
+    func testWelcomeAskAndSampleCountWords() {
+        XCTAssertEqual(Words.shared.SEARCH_ALL_PHOTOS, "Search all your photos")
+        XCTAssertEqual(Words.shared.ADD_FOLDERS_FROM_FILES, "Add folders from Files")
+        XCTAssertEqual(
+            Words.shared.iosAccessNote(words: Copy.words),
+            "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your \(Copy.device).")
+        XCTAssertEqual(Words.shared.STARTING, "Starting…")
+        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40), "12 of 40 files read")
+        XCTAssertEqual(Words.shared.READ, "Read")
+        XCTAssertNil(Words.shared.sampleTime(reading: true, read: 0, elapsedMs: 0, words: Copy.words), "no time before a file is read")
+        XCTAssertNotNil(Words.shared.sampleTime(reading: true, read: 1, elapsedMs: 0, words: Copy.words))
+        XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "Up to date", detail: nil).pause, "not a pause")
     }
 
     func testCommitCopyHasNoFigures() {

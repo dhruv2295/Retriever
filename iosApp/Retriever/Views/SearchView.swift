@@ -487,8 +487,10 @@ private struct TryItIntro: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24).padding(.top, 16)
         }
+        .task {
+            for await plan in model.sampleStream() { files = plan.files.filter(\.read).map(\.file) }
+        }
         .task(id: [ids.count, model.snap?.indexed ?? 0]) {
-            files = await model.sampleFiles()
             guard let retriever = model.services?.retriever else {
                 suggestions = model.suggestions
                 return

@@ -6,8 +6,8 @@
     @MainActor
     final class DebugRouteTests: XCTestCase {
         private static let fixtureRoutes: [(raw: String, fixture: String)] = [
-            ("setup.welcome", "firstRun"), ("setup.photos", "access"), ("setup.limited", "photosLimited"),
-            ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"),
+            ("setup.welcome", "firstRun"), ("setup.limited", "photosLimited"),
+            ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"), ("setup.sampleStart", "sampleStart"),
             ("setup.reading", "sampleReading"), ("setup.readingPaused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
             ("setup.try", "trying(suggestions: true)"), ("setup.tryNoSuggestions", "trying(suggestions: false)"), ("setup.choose", "choosing"),
             ("setup.textOnly", "textOnly(ramGb: 3.0)"),
@@ -66,6 +66,8 @@
             XCTAssertNil(DebugRoute(rawValue: "setup.download"))
             // Browse was folded into Home; its old route names are gone.
             XCTAssertNil(DebugRoute(rawValue: "browse"))
+            // Access folded into the welcome.
+            XCTAssertNil(DebugRoute(rawValue: "setup.photos"))
         }
     }
 #endif

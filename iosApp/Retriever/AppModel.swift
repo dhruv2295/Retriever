@@ -170,6 +170,8 @@ final class AppModel {
     @ObservationIgnored var sampleStartedAt: Date?
     /// The sample's progress on a fixture; a real index streams it (`Retriever.tasteStream`).
     @ObservationIgnored var fixtureTaste = TasteSnap()
+    /// The sample's planned files on a fixture; a real index streams them (`sampleStream`).
+    @ObservationIgnored var fixtureSample: [SampleFile] = []
 
     /// Prefs.allowMobileData, kept here so the toggle answers at once.
     var useMobileData: Bool
@@ -439,7 +441,7 @@ extension AppModel.Snap {
         failed = Int(s.state.failed)
         pendingAtStart = Int(s.state.pendingAtStart)
         current = s.state.current
-        reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.reading.active ? nil : s.reading.title)
+        reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.reading.pause)
         lastStop = s.state.lastStop
         lastError = s.state.lastError
         filesPerMinute = s.state.filesPerMinute

@@ -211,8 +211,10 @@ extension AppModel {
         return results
     }
 
-    /// Photos answered or a folder added: setup's stage and step follow from access.
-    private func accessChanged() {
+    /// Photos answered or a folder added: setup's stage and step follow from access. On the welcome, all photos or a
+    /// folder is the answer; only selected photos wait for Continue. Later stages keep their mark.
+    func accessChanged() {
+        if setup?.stage == .welcome, photos == .authorized || !folders.isEmpty { setSetupMark(.accessChosen) }
         advance()
         wake()
     }

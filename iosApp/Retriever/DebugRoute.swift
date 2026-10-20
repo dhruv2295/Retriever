@@ -29,7 +29,6 @@
     /// live routes run the real engine on the seeded library (`-q <words>`, `-scope pdf`).
     enum DebugRoute: String {
         case setupWelcome = "setup.welcome"
-        case setupPhotos = "setup.photos"
         case setupLimited = "setup.limited"
         case setupDenied = "setup.denied"
         case setupFolders = "setup.folders"
@@ -37,6 +36,7 @@
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
         case statusSkipped = "status.skipped"
+        case setupSampleStart = "setup.sampleStart"
         case setupReading = "setup.reading"
         case setupReadingPaused = "setup.readingPaused"
         case setupSampleDone = "setup.sampleDone"
@@ -123,10 +123,10 @@
         var fixture: AppFixture {
             switch self {
             case .setupWelcome: .firstRun
-            case .setupPhotos: .access
             case .setupLimited: .photosLimited
             case .setupDenied: .photosDenied
             case .setupFolders: .folderAdded
+            case .setupSampleStart: .sampleStart
             case .setupReading: .sampleReading
             case .setupReadingPaused: .samplePaused
             case .setupSampleDone: .sampleDone
@@ -151,8 +151,8 @@
 
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
-            case .setupWelcome, .setupPhotos, .setupLimited, .setupDenied, .setupFolders, .setupReading, .setupReadingPaused, .setupSampleDone,
-                .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
+            case .setupWelcome, .setupLimited, .setupDenied, .setupFolders, .setupSampleStart, .setupReading, .setupReadingPaused,
+                .setupSampleDone, .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
                 // Settings' Storage and downloads entry, alone: the same card as Try's and Home's.
