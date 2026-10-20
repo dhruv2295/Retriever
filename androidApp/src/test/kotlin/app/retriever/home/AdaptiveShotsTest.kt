@@ -98,7 +98,11 @@ abstract class AdaptiveShotsTest(private val size: String) {
             newMedia = (1..15).map { file("IMG_$it.jpg", Kind.PHOTO, it) },
             newShots = (1..8).map { file("Screenshot_$it.png", Kind.SCREENSHOT, it) },
             newDocs = listOf(file("Lease.pdf", Kind.PDF), file("Trip.docx", Kind.DOC, 14)),
-            starred = emptyList(), starredCount = 0, folders = 12, largeCount = 0, largeBytes = 0, nameOnly = 0,
+            starred = emptyList(),
+            starredCount = 0,
+            folders = 12,
+            largeCount = 0,
+            largeBytes = 0,
         )
         val home = readyHome.copy(waiting = 0, contentRead = 5_330, home = facts)
         val actions = SearchActions()

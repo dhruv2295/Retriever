@@ -63,16 +63,28 @@ how it migrates and how the migrations are verified.
    go to a reader connection whose `changes()` is not the writer's.
 4. **The signature check and `resetForModel` run under `Retriever.indexLock`,** and `replaceChunks` re-checks inside its
    transaction. A vector is written only under the current signature.
-5. **Sync never overlaps extraction.** The one `sync.sync()` call is in `runBatch` under `indexLock`, so `replaceChunks`
-   setting INDEXED cannot overwrite a PENDING that a sync set mid-extraction.
+5. **A sync never rewrites a row being read.** `runBatch` syncs under `indexLock` and skips while another sync runs
+   (`LibrarySync.syncUnlessRunning`). The only sync that outlives `indexLock` is the sample plan's tail
+   (`Retriever.planLocked`), and it writes each row once, the plan's rows first: the reader only reads rows the tail has
+   already written and will not touch again.
 6. **`IN ?` lists stay under 999 binds (SQLite 3.28).** URI lists go through `inChunks(500)`; the other lists are bounded
    by `CANDIDATES`, the result limit or `Kind.entries`.
-7. **Both `files_by_state` and `files_by_kind_state` are needed.** There is no `ANALYZE` data, so no skip-scan.
+7. **Both `files_by_state` and `files_by_reach` (kind, state, partial, reach) are needed.** There is no `ANALYZE` data,
+   so no skip-scan; `files_by_reach` serves (kind, state) lookups by its prefix and covers the reading counts.
 8. **The `tokenchars` literal is persisted FTS config.** It must be identical in `Index.sq` and every `.sqm` that
    recreates the tables, and changing it needs a migration.
 9. **Restore runs once per process, before the first settings read or save,** and only into a database with no prefs row.
    The lazy that does it is never entered from inside a transaction.
 10. **Every schema change is a migration with a snapshot,** and `MigrationTest` proves old data survives it.
+11. **`files.reach` is what a file's chunks hold** (`refreshReach` in Index.sq, `Store.Reach`). Every Store write that
+    changes a file's chunks refreshes it in the same transaction (`replaceChunks`, `setChunkVector`, `setTailAttempts`,
+    `splitTailChunk`, and the library-wide `deleteChunksOfKinds` and `resetForModel`), and `upsertFile` zeroes it with
+    the chunks it drops. So the reading counts, `filesWithContent`, `nameOnlyCount`, `skippedFiles`,
+    `readContentVersions` and `StoredFile.contentRead` never look inside chunks; the counts of the whole library are one
+    scan of `files_by_reach`. Added in `6.sqm` (schema 7), which fills it from the chunks already read.
+12. **The counts read outside a transaction.** On Android a SQLDelight transaction is `BEGIN IMMEDIATE`, the write lock,
+    so counts read inside one would queue the reader's writes. A write landing between two of their statements notifies
+    `countChanges` again, so the counts that follow are whole.
 
 ## Tests
 

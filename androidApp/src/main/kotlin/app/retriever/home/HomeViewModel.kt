@@ -1,5 +1,6 @@
 package app.retriever.home
 
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,17 +20,16 @@ import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,8 +61,8 @@ data class HomeUi(
     val rest: Long = 0L,
     /** Files still waiting to be read, by kind. */
     val pending: Map<Kind, Long> = emptyMap(),
-    /** "Try searching" examples for the kinds that are fully read. */
-    val suggestions: List<String> = emptyList(),
+    /** "Try searching" examples for the kinds that are fully read; null until core has answered (the view model's start). */
+    val suggestions: List<String>? = emptyList(),
     val home: HomeFacts? = null,
     val paused: Boolean = false,
     /** The kinds whose insides are read; the rest are found by name. */
@@ -109,6 +109,12 @@ data class HomeUi(
         trial = c.trial,
         pending = c.byKindState.filterKeys { it.second == FileState.PENDING }.mapKeys { it.key.first },
     )
+
+    /**
+     * Every source of Home's sections has answered once: the facts, the suggestions, and On this day where it can show.
+     * The sections draw together, in their fixed order, so none is inserted later above another.
+     */
+    val sectionsReady: Boolean get() = home != null && suggestions != null && (!showOnThisDay || !hasAccess || memoriesDay != null)
 
     /** A section's reading line: core's rule, so mixed sections such as Documents read the same on iOS. */
     fun readiness(vararg kinds: Kind): String? = Words.kindProgress(kinds.toList(), inside, pending, waiting)
@@ -161,25 +167,43 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 hasAccess = access.state.value.ready,
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
+                suggestions = null,
             ),
         )
-    val ui: StateFlow<HomeUi> = _ui.asStateFlow()
+
+    /**
+     * Core's library flows run only while a screen collects [ui] (and five seconds past, for a rotation), not while Home
+     * waits in the back stack behind another screen.
+     */
+    private val library = channelFlow<Nothing> {
+        launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(readingStatus = s) } } }
+        launch { retriever.counts().collect { c -> _ui.update { it.withCounts(c) } } }
+        launch { retriever.suggestions().collect { s -> _ui.update { it.copy(suggestions = s) } } }
+        // Core's facts follow files coming, going and changing, never a file being read.
+        launch {
+            retriever.home().collect { h ->
+                _ui.update {
+                    it.copy(
+                        home = h.reusing(it.home),
+                        kindTotals = if (h.kindTotals == it.kindTotals) it.kindTotals else h.kindTotals,
+                        folderTotals = if (h.folderTotals == it.folderTotals) it.folderTotals else h.folderTotals,
+                    )
+                }
+                // Photos from past years can arrive today (a restored phone): look again while there are none.
+                _ui.value.let { u ->
+                    if (u.showOnThisDay && u.memoriesDay != null && u.memoriesDay == today.value && u.memories.isEmpty()) loadMemories(u.memoriesDay)
+                }
+            }
+        }
+    }
+    val ui: StateFlow<HomeUi> = merge(_ui, library).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), _ui.value)
     val indexState: StateFlow<IndexState> = retriever.state
 
-    /** One store subscription for every collector below. */
-    private val counts = retriever.counts().shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
-
     init {
-        viewModelScope.launch { retriever.readingStatus(counts).collect { s -> _ui.update { it.copy(readingStatus = s) } } }
         viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
         viewModelScope.launch {
             combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready).libraryChosen }.collect { c ->
                 _ui.update { it.copy(libraryChosen = c) }
-            }
-        }
-        viewModelScope.launch {
-            counts.collect { c ->
-                _ui.update { it.withCounts(c) }
             }
         }
         viewModelScope.launch {
@@ -198,42 +222,17 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         }
         // Once per local date, again only when the date changed while the app was away; not while hidden.
         viewModelScope.launch {
-            combine(today.filterNotNull().distinctUntilChanged(), ui.map { it.showOnThisDay }.distinctUntilChanged()) { day, on -> day.takeIf { on } }
+            combine(today.filterNotNull().distinctUntilChanged(), _ui.map { it.showOnThisDay }.distinctUntilChanged()) { day, on -> day.takeIf { on } }
                 .filterNotNull().distinctUntilChanged().collect { loadMemories(it) }
         }
         viewModelScope.launch { retriever.starred.collect { s -> _ui.update { it.copy(starred = s.size) } } }
-        // At most one reload every 2 s while files are being counted, and always one after the last change.
-        viewModelScope.launch {
-            counts.conflate().collect {
-                launchCatching {
-                    val suggestions = retriever.suggestions()
-                    val kinds = retriever.kindTotals()
-                    val folders = retriever.folderTotals()
-                    retriever.home().let { h ->
-                        _ui.update {
-                            it.copy(
-                                home = h.reusing(it.home),
-                                suggestions = suggestions,
-                                kindTotals = if (kinds == it.kindTotals) it.kindTotals else kinds,
-                                folderTotals = if (folders == it.folderTotals) it.folderTotals else folders,
-                            )
-                        }
-                    }
-                }
-                // Photos from past years can arrive today (a restored phone): look again while there are none.
-                ui.value.let { u ->
-                    if (u.showOnThisDay && u.memoriesDay != null && u.memoriesDay == today.value &&
-                        u.memories.isEmpty()
-                    ) {
-                        loadMemories(u.memoriesDay)
-                    }
-                }
-                delay(2_000)
-            }
-        }
     }
 
-    private fun loadMemories(day: LocalDate) = launchCatching {
+    /** A failed look still answers (with none), so Home's sections never wait on it. */
+    private fun loadMemories(day: LocalDate) = launchCatching(onError = {
+        Log.e("Retriever", "on this day failed", it)
+        _ui.update { u -> u.copy(memories = emptyList(), memoriesDay = day) }
+    }) {
         val found = retriever.onThisDay(onThisDayRanges(day, now().zone))
         _ui.update { it.copy(memories = found, memoriesDay = day) }
     }

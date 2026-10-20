@@ -22,7 +22,6 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(home.newShots.count, 6)
         XCTAssertEqual(home.folders, 12)
         XCTAssertEqual(home.largeCount, 4)
-        XCTAssertEqual(home.nameOnly, 0)
         XCTAssertEqual(Words.shared.largeFiles(n: home.largeCount), "4 files over 100\u{00A0}MB")
     }
 
@@ -84,10 +83,12 @@ final class HomeModelTests: XCTestCase {
         XCTAssertNotEqual(Thumb.requestID(file, locator: "p. 1", pixels: 156), Thumb.requestID(file, locator: "p. 2", pixels: 156))
     }
 
-    func testRefreshHomeMapsTheFacadeFactsOntoTheModel() async throws {
+    func testWatchHomeMapsTheFacadeFactsOntoTheModel() async throws {
         let model = AppModel(services: services)
         XCTAssertNil(model.home, "nothing until the first load")
-        await model.refreshHome()
+        model.watchHome()
+        defer { model.unwatchHome() }
+        for _ in 0..<100 where model.home == nil { try await Task.sleep(for: .milliseconds(50)) }
         let home = try XCTUnwrap(model.home)
         // Whatever this simulator holds, the facts agree with themselves.
         XCTAssertGreaterThanOrEqual(home.folders, 0)
@@ -99,9 +100,36 @@ final class HomeModelTests: XCTestCase {
         XCTAssertTrue(home.starred.allSatisfy { $0.kind != .other })
     }
 
-    func testRefreshHomeDoesNothingOnAFixture() async {
+    /// On the phone On This Day drew first and Photos and Videos was inserted above it half a second later: each section
+    /// drew as its own load landed. Now none draws until every load it may sit under has answered.
+    func testSectionsWaitForEveryLoadSoNoneIsInsertedAboveAnother() {
         let model = AppModel(fixture: .caughtUp)
-        await model.refreshHome()
+        let search = SearchModel.fixture()
+        XCTAssertTrue(HomeList.sectionsReady(model, search: search, memories: false))
+        XCTAssertFalse(HomeList.sectionsReady(model, search: search, memories: true), "On This Day has not answered")
+        model.memoriesLoaded = true
+        XCTAssertTrue(HomeList.sectionsReady(model, search: search, memories: true))
+        XCTAssertFalse(HomeList.sectionsReady(model, search: SearchModel(services: nil), memories: true), "recent searches not loaded")
+        model.suggestionsLoaded = false
+        XCTAssertFalse(HomeList.sectionsReady(model, search: search, memories: true), "suggestions not loaded")
+        model.suggestionsLoaded = true
+        model.home = nil
+        XCTAssertFalse(HomeList.sectionsReady(model, search: search, memories: true), "facts not loaded")
+    }
+
+    /// On This Day counts as answered when it found nothing, too, or Home would wait for it for ever.
+    func testOnThisDayAnswersEvenWhenItFindsNothing() async {
+        let model = AppModel(fixture: .caughtUp)
+        XCTAssertFalse(model.memoriesLoaded)
+        await model.refreshOnThisDay()
+        XCTAssertTrue(model.memoriesLoaded)
+        XCTAssertTrue(model.memories.isEmpty)
+    }
+
+    func testWatchHomeDoesNothingOnAFixture() {
+        let model = AppModel(fixture: .caughtUp)
+        model.watchHome()
+        XCTAssertTrue(model.homeObservations.isEmpty)
         XCTAssertEqual(model.home?.folders, 12)
     }
 
@@ -147,12 +175,16 @@ final class HomeModelTests: XCTestCase {
     }
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
-        // The real model before its first load: no facts, no stars, no suggestions.
+        // The real model, its loads answered with nothing: no facts, no stars, no suggestions.
         let model = AppModel(services: services)
         XCTAssertNil(model.home)
         let loaded = await eventually { model.snap != nil }
         XCTAssertTrue(loaded)
         try XCTSkipUnless(model.starred.isEmpty && model.suggestions.isEmpty, "this simulator holds stars or suggestions")
+        model.home = HomeFacts(
+            newMedia: [], newShots: [], newDocs: [], starred: [], starredCount: 0, folders: 0, largeCount: 0, largeBytes: 0, topFolders: [],
+            kindTotals: [:], folderTotals: [])
+        model.suggestionsLoaded = true
         let snap = AppModel.Snap(setUp: true, byKind: [.pdf: 3, .screenshot: 2], indexed: 5)
         let layout = try await layout(model, snap: snap, search: .fixture())
         // No recent searches, suggestions, new files, folders or large files, and no stars: no tile either (PDFs and
@@ -449,7 +481,8 @@ final class HomeModelTests: XCTestCase {
         }
         model.home = h.doCopy(
             newMedia: media, newShots: h.newShots, newDocs: h.newDocs, starred: stars, starredCount: Int64(starred),
-            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, nameOnly: h.nameOnly, topFolders: h.topFolders)
+            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, topFolders: h.topFolders, kindTotals: h.kindTotals,
+            folderTotals: h.folderTotals)
         return model
     }
 

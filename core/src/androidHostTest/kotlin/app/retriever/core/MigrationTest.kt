@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(6L, IndexDb.Schema.version)
+        assertEquals(7L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -165,6 +165,39 @@ class MigrationTest {
             store.replaceChunks(1, listOf(Store.NewChunk(1, "", null, null, null, "beach", true)))
             assertEquals(1, store.keywordSearch("beach", 10).size)
             assertTrue(store.chunkTexts(1).isEmpty())
+        }
+    }
+
+    /** Version 7 keeps each file's reach; the upgrade fills it from the chunks already read, so the counts don't move. */
+    @Test
+    fun version6FilesGainTheirReachFromTheChunksTheyHold() {
+        val v6 = File.createTempFile("index-v6", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v6, overwrite = true)
+        JdbcSqliteDriver("jdbc:sqlite:${v6.path}").use { driver ->
+            IndexDb.Schema.migrate(driver, 3, 6).value
+            driver.execute(
+                null,
+                "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) VALUES " +
+                    "(1, 'a', 'a.txt', '', 'text/plain', 'DOC', 10, 1, 'INDEXED'), (2, 'b', 'b.txt', '', 'text/plain', 'DOC', 10, 1, 'INDEXED'), " +
+                    "(3, 'c', 'c.txt', '', 'text/plain', 'DOC', 10, 1, 'PENDING')",
+                0,
+            )
+            // a.txt: a head with a vector and a tail waiting for one; b.txt: its name only.
+            driver.execute(
+                null,
+                "INSERT INTO chunks (file_id, ordinal, text, content_text, vector, scale) VALUES " +
+                    "(1, 1, 'head words', 'head words', X'01', 1.0), (1, 2, 'tail words', 'tail words', NULL, NULL), (2, 0, NULL, NULL, X'01', 1.0)",
+                0,
+            )
+            IndexDb.Schema.migrate(driver, 6, IndexDb.Schema.version).value
+
+            assertTrue("files_by_reach" in indexes(driver) && "files_by_kind_state" !in indexes(driver), "the counts' index replaces its prefix")
+            val store = Store(driver)
+            assertTrue(store.storedById(1)!!.contentRead)
+            assertFalse(store.storedById(2)!!.contentRead)
+            val counts = store.countsNow(kinds = setOf(Kind.DOC))
+            assertEquals(ReadingProgress(partlyRead = 1, scheduled = 1, nameOnly = 1, laterPasses = 1), counts.progress)
+            assertEquals(MeaningCounts(partlyAdded = 1, added = 1), counts.meaning)
         }
     }
 

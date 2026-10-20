@@ -24,13 +24,16 @@ import app.retriever.model.UpgradeFlow
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,6 +46,7 @@ import org.robolectric.shadows.ShadowEnvironment
 import java.io.File
 
 /** Android's side of core's setup machine: the answers it records and the steps it runs, with no model download. */
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class SetupFlowTest {
@@ -163,6 +167,26 @@ class SetupFlowTest {
         assertFalse(flow(r, backgroundScope).ui.value.setup.showSetup)
     }
 
+    /** The library's counts and the sample's files are core's shared flows: watched only while a screen collects. */
+    @Test fun theLibraryIsWatchedOnlyWhileAScreenCollects() = runTest {
+        val r = noModel()
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        advanceUntilIdle()
+        assertNull("counted with no screen", f.ui.value.moreFiles)
+        assertNull(f.ui.value.taste)
+        assertNotNull(f.ui.first { it.moreFiles != null && it.taste != null })
+    }
+
+    @Test fun theUpgradeCountsOnlyWhileAScreenCollects() = runTest {
+        val r = noModel()
+        r.refreshSetUp()
+        val u = upgrade(r, backgroundScope, metered = false)
+        advanceUntilIdle()
+        assertNull("counted with no screen", u.ui.value.progress)
+        assertNotNull(u.ui.first { it.progress != null })
+    }
+
     private fun upgrade(r: Retriever, scope: CoroutineScope, metered: Boolean): UpgradeFlow {
         val download = ModelDownload(app, File(app.filesDir, "models"))
         return UpgradeFlow(
@@ -182,8 +206,7 @@ class SetupFlowTest {
         val u = upgrade(r, backgroundScope, metered = true)
         u.ui.first { it.stage == UpgradeStage.OFFER }
         u.download()
-        assertTrue(u.ui.value.askMobileData)
-        assertEquals(UpgradeStage.OFFER, u.ui.value.stage)
+        assertEquals(UpgradeStage.OFFER, u.ui.first { it.askMobileData }.stage)
     }
 
     @Test fun aPhoneTooSmallForTheModelHasNoUpgrade() = runTest {

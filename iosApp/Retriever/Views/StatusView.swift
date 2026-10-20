@@ -77,6 +77,8 @@ struct StatusContent: View {
         .navigationTitle("Reading status")
     }
 
+    static let dogSettles = false
+
     /// The one reason to show: a failure outranks the schedule's own wait, which follows from the title.
     static func reason(detail: String?, lastError: String?, message: String?) -> (text: String, failed: Bool)? {
         if let failure = message ?? lastError { return (failure, true) }
@@ -89,9 +91,13 @@ struct StatusContent: View {
 
     @ViewBuilder private var progressSection: some View {
         // Walking while reading runs, resting while it waits or is paused; CAUGHT_UP once, the first time all is read.
-        StatusDog(mood: snap.running ? .walking : snap.readProgress.unfinished ? .resting : nil, due: celebrating, done: actions.celebrate)
-            .frame(maxWidth: .infinity)
-            .listRowSeparator(.hidden)
+        // Reading is what this screen is for, so the walk never settles into Home's walk-and-rest cadence.
+        StatusDog(
+            mood: snap.running ? .walking : snap.readProgress.unfinished ? .resting : nil, settles: Self.dogSettles, due: celebrating,
+            done: actions.celebrate
+        )
+        .frame(maxWidth: .infinity)
+        .listRowSeparator(.hidden)
         VStack(alignment: .leading, spacing: 8) {
             Text(Copy.reading(snap).title).font(.title2.bold())
             if let reason { if reason.failed { Failure(reason.text) } else { Note(reason.text) } }
@@ -104,7 +110,8 @@ struct StatusContent: View {
         }
         .accessibilityElement(children: .combine)
         .padding(.vertical, 4)
-        if Copy.reading(snap).active, snap.reading.current != nil { ReadingNow(file: snap.reading.current, size: 56) }
+        // While reading runs, even between two files: the row keeps its last file rather than leaving and coming back.
+        if Copy.reading(snap).active { ReadingNow(file: snap.reading.current, size: 56) }
         // What was read stays on show through a pause or a wait; only the sentence above changes.
         if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }
         if screenKeptOn { Note(Copy.screenKeptOn) }

@@ -124,6 +124,32 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.tune, .idle)
     }
 
+    /// The sample's flows ran for the app's whole life, so core recounted the sample on every file read long after
+    /// setup ended. They are open only on the stages that show them, and Try's suggestions only once Try can open.
+    func testTheSampleFlowsAreOpenOnlyWhileTheSampleOrTryShows() async {
+        let model = AppModel(services: AppServices.temporary())
+        model.watchSetup(stage: .welcome)
+        XCTAssertTrue(model.sampleObservations.isEmpty)
+        model.watchSetup(stage: .sample)
+        XCTAssertEqual(model.sampleObservations.count, 2)
+        model.watchSetup(stage: .sample)
+        XCTAssertEqual(model.sampleObservations.count, 2, "opened once, not again on every change")
+        XCTAssertNil(model.trySuggestionsObservation, "Try can't open yet: nothing is planned or ready")
+        model.watchSetup(stage: .try_)
+        XCTAssertEqual(model.sampleObservations.count, 2)
+        for stage in [SetupStage.choose, .done] {
+            model.watchSetup(stage: stage)
+            XCTAssertTrue(model.sampleObservations.isEmpty, "\(stage)")
+            XCTAssertNil(model.trySuggestionsObservation, "\(stage)")
+        }
+    }
+
+    /// Try's suggestions are the model's from before Try opens, so Try's first frame already has them.
+    func testTryReadsItsSuggestionsFromTheModel() {
+        XCTAssertEqual(AppModel(fixture: .trying(suggestions: true)).trySuggestions.count, 3)
+        XCTAssertTrue(AppModel(fixture: .trying(suggestions: false)).trySuggestions.isEmpty)
+    }
+
     // MARK: Setup on core's stage machine
 
     /// Each fixture's stored answers land on the stage core gives them, with Photos and folders added here.

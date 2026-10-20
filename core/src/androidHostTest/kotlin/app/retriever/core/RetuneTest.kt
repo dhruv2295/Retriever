@@ -1,7 +1,6 @@
 package app.retriever.core
 
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -34,7 +33,7 @@ class RetuneTest {
             r = testRetriever(store, photos + docs + videos, extractor, modelReady = { ready })
         }
 
-        suspend fun state(kind: Kind, s: FileState) = store.counts().first().byKindState[kind to s] ?: 0L
+        fun state(kind: Kind, s: FileState) = store.countsNow().byKindState[kind to s] ?: 0L
 
         /** What Services.freeUpSpace does mid-batch, a batch (sync) with the file gone, then Download again. */
         suspend fun freeUpAndRestore() {

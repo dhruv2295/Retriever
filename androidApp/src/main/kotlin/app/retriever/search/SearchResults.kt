@@ -165,7 +165,7 @@ internal fun Results(
     }
     if (scope != null) {
         Column(Modifier.padding(horizontal = edge, vertical = 8.dp)) {
-            Text(Words.searchingSample(scope.size.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            Text(Words.searchingTry(ui.sampleRead.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
             if (ui.unread >
                 0
             ) {

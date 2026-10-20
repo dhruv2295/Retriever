@@ -57,7 +57,7 @@ struct SearchView: View {
             if search.active {
                 ResultsView(search: search, textOnly: textOnly, pinned: fixedSnap, photos: model.photos, model: model, trial: trial, open: open)
             } else if trial != nil {
-                TryItIntro(search: search, model: model, ids: trial?.ids ?? [])
+                TryItIntro(search: search, model: model)
             } else {
                 LiveHome(
                     search: search, pinned: fixedSnap, model: model,
@@ -100,7 +100,7 @@ struct SearchView: View {
         }
         .onChange(of: model.fileRevision) { search.retry() }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
-        .modifier(RefreshHome(model: model, pinned: fixedSnap))
+        .modifier(RefreshHome(model: model, home: trial == nil))
         .task { await search.loadRecent() }
         // A search handed in by Shortcuts or Siri, whether the app was already open or not.
         .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
@@ -177,15 +177,14 @@ private struct LiveHome: View {
     }
 }
 
-/// The newest files change as reading goes on; the facts after "all caught up" differ too. Own scope, so the counts
-/// that key it redraw this and not the screen.
+/// Home's facts and suggestions from core while Home shows; core reads them again as files come, go and are read.
 private struct RefreshHome: ViewModifier {
     let model: AppModel
-    let pinned: AppModel.Snap?
+    /// Try is this screen too, but shows none of Home's facts.
+    let home: Bool
 
     func body(content: Content) -> some View {
-        let snap = pinned ?? model.snap
-        content.task(id: [snap?.total ?? -1, snap?.indexed ?? -1, snap?.pending == 0 ? 1 : 0]) { await model.refreshHome() }
+        content.onAppear { if home { model.watchHome() } }.onDisappear { if home { model.unwatchHome() } }
     }
 }
 
@@ -332,10 +331,10 @@ private struct ResultsView: View {
     }
 
     @ViewBuilder private func header(_ answer: SearchModel.Answer) -> some View {
-        if let trial {
+        if trial != nil {
             // Names come from the whole library; this says where the words inside are looked for.
             VStack(alignment: .leading, spacing: 2) {
-                Text(Words.shared.searchingSample(files: Int64(trial.ids.count))).font(.subheadline.weight(.semibold))
+                Text(Words.shared.searchingTry(read: Int64(model.taste.read))).font(.subheadline.weight(.semibold))
                 StillReading(search: search)
             }
             .accessibilityElement(children: .combine)
@@ -458,15 +457,15 @@ private struct ResultsView: View {
 private struct TryItIntro: View {
     let search: SearchModel
     let model: AppModel
-    let ids: [Int64]
-    @State private var suggestions: [String] = []
 
     var body: some View {
+        // Kept on the model from before Try opens (`watchSetup`), so they are here on the first frame and nothing moves.
+        let suggestions = model.trySuggestions
         let files = (model.sample ?? []).filter(\.read).map(\.file)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(suggestions.isEmpty ? Words.shared.TRY_WITHOUT_SUGGESTIONS : Words.shared.TRY_BODY)
-                Text(Words.shared.searchingSample(files: Int64(ids.count))).font(.subheadline.weight(.semibold))
+                Text(Words.shared.searchingTry(read: Int64(model.taste.read))).font(.subheadline.weight(.semibold))
                 StillReading(search: search)
                 if suggestions.isEmpty {
                     ReadyFiles(files: files)
@@ -486,13 +485,6 @@ private struct TryItIntro: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24).padding(.top, 16)
-        }
-        .task(id: [ids.count, model.snap?.indexed ?? 0]) {
-            guard let retriever = model.services?.retriever else {
-                suggestions = model.suggestions
-                return
-            }
-            suggestions = (try? await retriever.suggestions(fileIds: Set(ids.map { KotlinLong(value: $0) }))) ?? []
         }
     }
 }

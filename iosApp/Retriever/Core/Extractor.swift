@@ -226,10 +226,6 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
     // MARK: Text and archives
 
-    func textHead(uri: String, maxBytes: Int32) -> String? {
-        readBytes(uri: uri, offset: 0, length: maxBytes).map { String(decoding: $0, as: UTF8.self) }
-    }
-
     func readBytes(uri: String, offset: Int64, length: Int32) -> Data? {
         autoreleasepool {
             guard let url = folders.resolve(uri), let handle = try? FileHandle(forReadingFrom: url) else { return nil }

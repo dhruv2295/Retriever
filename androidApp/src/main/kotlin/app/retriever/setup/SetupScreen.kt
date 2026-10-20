@@ -19,9 +19,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
@@ -54,6 +56,7 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
+import app.retriever.core.TasteProgress
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
@@ -168,40 +171,44 @@ fun SetupContent(
     Scaffold(modifier.fillMaxSize().safeDrawingPadding(), bottomBar = {
         if (stage == SetupStage.SAMPLE) Surface { SampleFooter(taste?.readyToTry == true, actions) }
     }) { padding ->
-        Column(
-            // Capped inside the scroll, so the gutters scroll too.
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
-                .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            if (stage != SetupStage.CHOOSE) {
-                Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
-            }
-            val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
-            val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
-            // Shared axis X, the first run moving forward; with animations off, the next stage simply replaces this one.
-            AnimatedContent(
-                stage,
-                transitionSpec = {
-                    if (reduceMotion) {
-                        EnterTransition.None togetherWith ExitTransition.None
-                    } else {
-                        (slideInHorizontally(spatial) { it / 8 } + fadeIn(effects)) togetherWith
-                            (slideOutHorizontally(spatial) { -it / 8 } + fadeOut(effects))
-                    }
-                },
-                label = "stage",
-            ) { s ->
-                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    when (s) {
-                        SetupStage.WELCOME -> Welcome(ui, allFilesOff, actions)
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            Column(
+                // Capped inside the scroll, so the gutters scroll too. At least the viewport tall, with spare height split
+                // above and below, for every stage alike, so nothing switches arrangement between stages.
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
+            ) {
+                if (stage != SetupStage.CHOOSE) {
+                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
+                }
+                val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
+                val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
+                // Shared axis X, the first run moving forward; with animations off, the next stage simply replaces this one.
+                AnimatedContent(
+                    stage,
+                    transitionSpec = {
+                        if (reduceMotion) {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        } else {
+                            (slideInHorizontally(spatial) { it / 8 } + fadeIn(effects)) togetherWith
+                                (slideOutHorizontally(spatial) { -it / 8 } + fadeOut(effects))
+                        }
+                    },
+                    label = "stage",
+                ) { s ->
+                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                        when (s) {
+                            SetupStage.WELCOME -> Welcome(ui, allFilesOff, actions)
 
-                        SetupStage.SAMPLE -> taste?.let { SampleStage(ui, it, actions, reduceMotion) }
+                            // Drawn before core's first progress too: picking, at 0, never a blank frame.
+                            SetupStage.SAMPLE -> SampleStage(ui, taste ?: TasteProgress(emptyMap(), emptySet(), 0, null, false), actions, reduceMotion)
 
-                        SetupStage.CHOOSE -> CommitStage(ui, actions)
+                            SetupStage.CHOOSE -> CommitStage(ui, actions)
 
-                        // TRY is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
-                        SetupStage.TRY, SetupStage.DONE -> Unit
+                            // TRY is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
+                            SetupStage.TRY, SetupStage.DONE -> Unit
+                        }
                     }
                 }
             }

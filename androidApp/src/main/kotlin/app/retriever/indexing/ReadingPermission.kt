@@ -17,7 +17,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
+import app.retriever.core.Words
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -35,7 +39,13 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
     }
     DisposableEffect(Unit) { onDispose { runPending() } }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { runPending() }
-    if (asking) {
+    // The sample's sentence only while a sample still reads; the dialog waits the one frame the answer takes, so its
+    // text never changes while it is up.
+    val sampleReading by remember(asking) {
+        if (asking) retriever.tasteProgress().map { retriever.setup.value?.decided != true && it.pending > 0 } else flowOf(null)
+    }.collectAsStateWithLifecycle(null)
+    val reading = sampleReading
+    if (asking && reading != null) {
         fun finish(enable: Boolean) {
             asking = false
             scope.launch {
@@ -46,7 +56,7 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         AlertDialog(
             onDismissRequest = { finish(false) },
             title = { Text("See reading progress outside Retriever?") },
-            text = { Text("See progress and pause a reading session. We can also let you know when your sample is ready.") },
+            text = { Text(Words.notificationsAsk(sampleReading = reading)) },
             confirmButton = { TextButton(onClick = { finish(true) }) { Text("Enable notifications") } },
             dismissButton = { TextButton(onClick = { finish(false) }) { Text("Not now") } },
         )

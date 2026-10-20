@@ -88,8 +88,9 @@ data class SearchUi(
     val error: String? = null,
     /** The first run's planned files: every search stays inside them (the try-it screen). Null: the whole library. */
     val scope: List<Long>? = null,
-    /** Planned files not read yet, and the photos read so far; only while [scope] is set. */
+    /** Planned files not read yet, the files and photos read so far; only while [scope] is set. */
     val unread: Int = 0,
+    val sampleRead: Int = 0,
     val photosRead: Int = 0,
 ) {
     /** Searching by photo needs the model and, on the first run, enough photos read for it to mean something. */
@@ -157,7 +158,7 @@ class SearchViewModel(
         // The short read's progress, only while a screen scopes the search to it.
         viewModelScope.launch {
             _ui.map { it.scope != null }.distinctUntilChanged().flatMapLatest { if (it) retriever.tasteProgress() else emptyFlow() }.collect { p ->
-                _ui.update { it.copy(unread = p.pending, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
+                _ui.update { it.copy(unread = p.pending, sampleRead = p.read, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
             }
         }
         launchCatching { loadRecent() }

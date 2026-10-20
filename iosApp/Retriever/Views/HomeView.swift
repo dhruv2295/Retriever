@@ -32,7 +32,11 @@ struct HomeList: View {
         List {
             if let snap {
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model)
-                if snap.total == 0 { empty(snap) } else { sections(snap) }
+                if snap.total == 0 {
+                    empty(snap)
+                } else if Self.sectionsReady(model, search: search, memories: wantsMemories) {
+                    sections(snap)
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -40,6 +44,13 @@ struct HomeList: View {
         .task(id: MemoryKey(day: Calendar.current.startOfDay(for: .now), photos: snap?.byKind[.photo] ?? 0, show: wantsMemories)) {
             if wantsMemories { await model.refreshOnThisDay() }
         }
+    }
+
+    /// Every section comes from one of four loads that answer in no set order. Drawing as each lands put a section above
+    /// one already shown (On This Day first, then Photos and Videos above it), so they draw once all have answered, in
+    /// their fixed order; later changes update them in place.
+    static func sectionsReady(_ model: AppModel, search: SearchModel, memories: Bool) -> Bool {
+        model.home != nil && model.suggestionsLoaded && search.recentLoaded && (!memories || model.memoriesLoaded)
     }
 
     private var wantsMemories: Bool {
@@ -108,7 +119,7 @@ struct HomeList: View {
             Section {
                 HomeMosaic(
                     files: media, pending: snap.accessChosen ? snap.pendingByKind[.photo] ?? 0 : 0, total: photoCount, paused: snap.paused,
-                    open: { openFile($0, among: media) }
+                    starred: model.starred, similar: search.similar(model.meaningSearch), open: { openFile($0, among: media) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)

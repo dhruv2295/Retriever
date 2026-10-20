@@ -131,6 +131,8 @@ struct HomeMosaic: View {
     let pending: Int
     let total: Int
     let paused: Bool
+    let starred: Set<String>
+    let similar: ((SourceFile) -> Void)?
     let open: (SourceFile) -> Void
     @Environment(\.displayScale) private var scale
 
@@ -169,7 +171,10 @@ struct HomeMosaic: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            reading ? "\(kind), \(date), \(Words.shared.waitingToRead(files: Int64(pending)))" : "\(kind), \(date)")
+            reading ? "\(kind), \(date), \(Words.shared.waitingToRead(files: Int64(pending)))" : "\(kind), \(date)"
+        )
+        // The same long-press actions as Search, Browse and Home's other strips.
+        .resultActions(file, starred: starred.contains(file.uri), similar)
     }
 }
 
@@ -522,6 +527,8 @@ extension AppModel.Snap {
 struct StatusDog: View {
     let mood: MascotMood?
     var width: CGFloat = 160
+    /// `MascotView.settles`: Home's row settles; Reading status keeps walking.
+    var settles = true
     /// What shows when the dog has nothing to say; nothing if nil.
     var icon: String?
     var due = false
@@ -531,7 +538,7 @@ struct StatusDog: View {
 
     var body: some View {
         if let shown = mood ?? (due || kept ? .caughtUp : nil) {
-            MascotView(mood: shown)
+            MascotView(mood: shown, settles: settles)
                 .frame(width: width)
                 .sensoryFeedback(.success, trigger: popped)
                 .task(id: due) {
@@ -564,7 +571,6 @@ struct ReadingChoice: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search inside more files").font(.title2.bold()).accessibilityAddTraits(.isHeader)
             Text(Words.shared.moreFiles(files: files.map { KotlinLong(value: Int64($0)) }))
-            Text("From your selected photos and folders").font(.subheadline)
             Note(Copy.commitNights)
             Text("When should Retriever read them?").font(.headline)
             let titles = ["While charging", "Read now for 15 minutes", "Not now"]

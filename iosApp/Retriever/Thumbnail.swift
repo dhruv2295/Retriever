@@ -147,6 +147,7 @@ struct Thumb: View {
     var bucketed = false
     @Environment(\.displayScale) private var scale
     @Environment(\.services) private var services
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var image: UIImage?
     @State private var text: String?
 
@@ -166,7 +167,7 @@ struct Thumb: View {
             .fill(.fill.tertiary)
             .overlay {
                 if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(uiImage: image).resizable().scaledToFill().id(ObjectIdentifier(image)).transition(.opacity)
                 } else if showsText {
                     // As many lines of what it says as the tile holds, five down to two, else the kind's icon.
                     ViewThatFits(in: .vertical) {
@@ -188,12 +189,16 @@ struct Thumb: View {
             }
             .clipped()
             .task(id: Self.requestID(file, locator: locator, pixels: pixels) + "|\(showsText)") {
-                image = nil
                 text = nil
                 if showsText {
+                    image = nil
                     text = try? await services?.retriever.textPreview(file: file)
                 } else {
-                    image = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
+                    // The picture shown stays until the next is decoded (a new file in the same place, as Reading now
+                    // has), then gives way in a short fade; a first picture simply appears.
+                    let next = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(image == nil || reduceMotion ? nil : .easeInOut(duration: 0.2)) { image = next }
                 }
             }
             .accessibilityHidden(true)

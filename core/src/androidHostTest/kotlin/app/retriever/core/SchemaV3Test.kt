@@ -2,7 +2,6 @@ package app.retriever.core
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
@@ -156,7 +155,7 @@ class SchemaV3Test {
         index(testFile("a.pdf", Kind.PDF), Store.NewChunk(1, "", "words", vector(1)))
         store.markFailed(store.fileByUri("content://test/c.jpg")!!.id, 3)
 
-        val counts = store.counts().first()
+        val counts = store.countsNow()
         assertEquals(
             mapOf(
                 (Kind.PDF to FileState.INDEXED) to 1L,

@@ -7,19 +7,24 @@ internal class ContentSuggestions {
     private val versions = mutableMapOf<Long, Long>()
     private val cached = mutableMapOf<Set<Long>?, List<String>>()
     private val terms = mutableMapOf<Long, Map<String, Int>>()
+    private val kinds = mutableMapOf<Long, Kind>()
 
-    fun refresh(current: Map<Long, Long>, mime: (Long) -> String = { "" }, text: (Long) -> List<String>) {
+    fun refresh(current: Map<Long, Long>, file: (Long) -> SourceFile? = { null }, text: (Long) -> List<String>) {
         if (current == versions) return
         cached.clear()
         terms.keys.retainAll(current.keys)
+        kinds.keys.retainAll(current.keys)
         for ((id, version) in current) {
-            if (versions[id] != version) terms[id] = frequencies(text(id), mime(id))
+            if (versions[id] == version) continue
+            val f = file(id)
+            terms[id] = frequencies(text(id), f?.mime.orEmpty())
+            f?.let { kinds[id] = it.kind }
         }
         versions.clear()
         versions.putAll(current)
     }
 
-    fun suggestions(ids: Set<Long>?): List<String> = cached.getOrPut(ids) { distinctiveTerms(terms, ids) }
+    fun suggestions(ids: Set<Long>?): List<String> = cached.getOrPut(ids) { distinctiveTerms(terms, ids, kinds) }
 }
 
 private val suggestionWord = Regex("[\\p{L}\\p{M}\\p{N}_]+")
@@ -74,21 +79,37 @@ internal fun frequencies(texts: List<String>, mime: String = ""): Map<String, In
     return terms.groupingBy { it }.eachCount()
 }
 
-internal fun distinctiveTerms(files: Map<Long, Map<String, Int>>, ids: Set<Long>? = null): List<String> {
+/**
+ * The three best terms, varied: none holds another's words ("garden hose" and "hose" never both), and each comes from a
+ * kind of file the ones before it don't (by the file that scored it highest), while one is left.
+ */
+internal fun distinctiveTerms(files: Map<Long, Map<String, Int>>, ids: Set<Long>? = null, kinds: Map<Long, Kind> = emptyMap()): List<String> {
     val documentFrequency = mutableMapOf<String, Int>()
     files.values.forEach { terms -> terms.keys.forEach { documentFrequency[it] = (documentFrequency[it] ?: 0) + 1 } }
     val selected = files.filterKeys { ids == null || it in ids }
     val recurring = selected.values.flatMap { it.keys }.groupingBy { it }.eachCount().filterValues { it >= 2 }.keys
     val scores = mutableMapOf<String, Double>()
-    for (terms in selected.values) {
+    val from = mutableMapOf<String, Kind?>()
+    for ((id, terms) in selected) {
         val total = terms.values.sum().toDouble()
         for ((term, count) in terms) {
             if (term !in recurring) continue
             val tfIdf = count / total * (1 + ln((files.size + 1.0) / (documentFrequency.getValue(term) + 1.0)))
             val score = tfIdf * ln(1.0 + term.count(Char::isLetter))
-            scores[term] = maxOf(scores[term] ?: 0.0, score)
+            if (score > (scores[term] ?: 0.0)) {
+                scores[term] = score
+                from[term] = kinds[id]
+            }
         }
     }
-    return scores.keys.sortedWith(compareByDescending<String> { scores.getValue(it) }.thenBy { it }).take(3)
-        .takeIf { it.size >= 3 }.orEmpty()
+    val best = compareByDescending<String> { scores.getValue(it) }.thenBy { it }
+    val picked = mutableListOf<String>()
+    fun fits(term: String) = term !in picked && picked.none { p -> p.split(' ').containsAll(term.split(' ')) || term.split(' ').containsAll(p.split(' ')) }
+    for (newKind in listOf(true, false)) {
+        for (term in scores.keys.sortedWith(best)) {
+            if (picked.size == 3) break
+            if (fits(term) && (!newKind || picked.none { from[it] == from[term] })) picked += term
+        }
+    }
+    return picked.sortedWith(best).takeIf { it.size >= 3 }.orEmpty()
 }

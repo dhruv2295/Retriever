@@ -6,22 +6,30 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,23 +38,41 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.ui.Format
 
+/**
+ * The file being read, held in place: between two files (core reports none for a moment) the last one stays, so the row
+ * never collapses or flips its label; its text changes in place, and the old picture stays until the new one is decoded,
+ * then gives way in a short fade (none with motion reduced). Before any file, the row keeps its height, empty.
+ */
 @Composable
 internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp = 88.dp, reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled()) {
-    val sweep = if (file == null || reduceMotion) {
+    // A plain holder, not state: a new file recomposes this anyway, and a null one falls back to the last.
+    val held = remember {
+        object {
+            var file: SourceFile? = null
+        }
+    }
+    if (file != null) held.file = file
+    val shown = held.file
+    val sweep = if (shown == null || reduceMotion) {
         null
     } else {
         rememberInfiniteTransition(label = "Reading sweep").animateFloat(
@@ -57,29 +83,45 @@ internal fun ReadingNow(file: SourceFile?, pauseReason: String? = null, size: Dp
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(if (file == null) pauseReason ?: "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
-        if (reduceMotion) {
-            ReadingFile(file, pauseReason, size, sweep)
-        } else {
-            Crossfade(file, modifier = Modifier.testTag("reading-crossfade"), animationSpec = tween(200), label = "Reading file") { current ->
-                ReadingFile(current, pauseReason, size, sweep)
-            }
-        }
+        Text(if (shown == null) pauseReason ?: "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
+        ReadingFile(shown, size, sweep, reduceMotion)
     }
 }
 
 @Composable
-private fun ReadingFile(file: SourceFile?, pauseReason: String?, size: Dp, sweep: State<Float>?) {
-    if (file == null) {
-        return
-    }
+private fun ReadingFile(file: SourceFile?, size: Dp, sweep: State<Float>?, reduceMotion: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        val modifier = Modifier.clip(MaterialTheme.shapes.medium)
-        Thumb(file, size, if (sweep == null) modifier else modifier.readingSweep(size, sweep))
+        val modifier = Modifier.size(size).clip(MaterialTheme.shapes.medium)
+        if (file == null) {
+            Box(modifier.background(MaterialTheme.colorScheme.surfaceContainer))
+        } else {
+            ReadingThumb(file, size, reduceMotion, if (sweep == null) modifier else modifier.readingSweep(size, sweep))
+        }
+        // Empty lines hold the same height as a file's, so the first file lands without moving anything.
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.MiddleEllipsis)
-            Text(Words.kindLabel(file.kind), style = MaterialTheme.typography.titleMedium)
-            Muted(Format.date(file.modifiedAt))
+            Text(file?.name.orEmpty(), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
+            Text(file?.let { Words.kindLabel(it.kind) }.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Muted(file?.let { Format.date(it.modifiedAt) }.orEmpty(), maxLines = 1)
+        }
+    }
+}
+
+/** [file]'s picture, the previous file's held until this one's is decoded; then an image-only fade. */
+@Composable
+private fun ReadingThumb(file: SourceFile, size: Dp, reduceMotion: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val px = with(LocalDensity.current) { size.roundToPx() }
+    // produceState's value outlives its keys: the old pair stays until the new file's load returns.
+    val loaded by produceState(file to Thumbnails.cached(file, px), file.uri, file.modifiedAt, file.size, px) {
+        value = file to Thumbnails.load(context, file, px)
+    }
+    Crossfade(loaded, modifier, animationSpec = if (reduceMotion) snap() else tween(150), label = "Reading picture") { (f, bitmap) ->
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+            when {
+                bitmap != null -> Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                f.kind == Kind.DOC || f.kind == Kind.OTHER -> TextThumbnail(f)
+                else -> Icon(painterResource(kindIcon(f.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

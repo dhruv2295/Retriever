@@ -15,12 +15,17 @@ import app.retriever.indexing.IndexService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -37,8 +42,6 @@ data class SetupUi(
     val moreFiles: Long? = null,
     /** Why reading stopped, core's [app.retriever.core.ReadingStatus.pause]; null unless a stop holds it. */
     val pauseReason: String? = null,
-    /** When this process started reading the sample, for core's time line; 0 before. */
-    val sampleStartedAt: Long = 0,
     /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
     val sample: List<SampleFile>? = null,
 ) {
@@ -56,7 +59,8 @@ data class SetupUi(
 
 /**
  * Core's setup machine plus this phone's side effects: the permission state, and reading the sample or scheduling the
- * rest once per process. Runs in the app's scope, so leaving the screen never stops it.
+ * rest once per process. The machine runs in the app's scope, so leaving the screen never stops it; the library's
+ * counts and the sample's files are watched only while a screen collects [ui].
  */
 class SetupFlow(
     private val retriever: Retriever,
@@ -64,7 +68,6 @@ class SetupFlow(
     private val index: IndexService,
     private val scope: CoroutineScope,
     private val notificationsGranted: () -> Boolean,
-    private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val _ui = MutableStateFlow(
         SetupUi(
@@ -74,7 +77,18 @@ class SetupFlow(
             ramGb = retriever.probe.ramGb,
         ),
     )
-    val ui: StateFlow<SetupUi> = _ui
+
+    /** Core's library flows run only while this is collected, and five seconds past, so a rotation keeps them. */
+    private val library = channelFlow<Nothing> {
+        launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
+        launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
+        launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
+        launch { retriever.tasteProgress().collect { p -> _ui.update { it.copy(taste = p) } } }
+    }
+    val ui: StateFlow<SetupUi> = merge(_ui, library).stateIn(scope, SharingStarted.WhileSubscribed(5_000), _ui.value)
+
+    /** Setup still shows, from what is stored now: for the start screen, read before anything collects [ui]. */
+    val showSetup: Boolean get() = _ui.value.setup.showSetup
 
     private var sampleRead = false
     private var scheduled = false
@@ -85,20 +99,13 @@ class SetupFlow(
                 _ui.update { it.copy(setup = s, access = a) }
             }
         }
-        scope.launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
-        scope.launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
-        scope.launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
+        // "Ready to try" reaches a person who left during the sample; on screen, the button says it. Claimed while visible
+        // too, so a sample seen on screen is never announced later. Watched only until the sample is decided or ready.
         scope.launch {
-            retriever.tasteProgress().collect { p ->
-                val sampling = !_ui.value.setup.decided
-                _ui.update { it.copy(taste = p) }
-                // "Ready to try" reaches a person who left during the sample; on screen, the button says it. Claimed while
-                // visible too, so a sample seen on screen is never announced later.
-                if (p.readyToTry && sampling && p.byKind.isNotEmpty() && (retriever.uiVisible || notificationsGranted()) &&
-                    retriever.claimSampleNotification()
-                ) {
-                    index.notifyReadyToTry(p.read)
-                }
+            retriever.setup.filterNotNull().map { !it.decided }.distinctUntilChanged().collectLatest { sampling ->
+                if (!sampling) return@collectLatest
+                val p = retriever.tasteProgress().first { it.readyToTry && it.byKind.isNotEmpty() && (retriever.uiVisible || notificationsGranted()) }
+                if (retriever.claimSampleNotification()) index.notifyReadyToTry(p.read)
             }
         }
         // Each step is safe twice; a failed plan is not retried in a loop, only on the next launch or access change.
@@ -132,7 +139,6 @@ class SetupFlow(
         scope.launch {
             retriever.refreshSetUp()
             access.refresh()
-            _ui.update { it.copy(taste = retriever.tasteProgress().first()) }
         }
     }
 
@@ -189,7 +195,6 @@ class SetupFlow(
     private fun readSample() {
         if (sampleRead) return
         sampleRead = true
-        _ui.update { it.copy(sampleStartedAt = now()) }
         index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
         scope.launch {
             try {

@@ -95,7 +95,7 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
         if (settled() && current != null) navController.navigate(route) { popUpTo(current) { inclusive = true } }
     }
     // Core's machine decides; SetupFlow is built here, after setUp settles, so it seeds from the stored setup.
-    val start: Route = remember { if (koin.get<SetupFlow>().ui.value.setup.showSetup) SetupRoute else HomeRoute }
+    val start: Route = remember { if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute }
     // Reduce motion: setup gives way to Home with no fade or growth.
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     app.retriever.files.FileActionsHost(retriever) {

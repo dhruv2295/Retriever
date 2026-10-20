@@ -36,10 +36,8 @@ import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
@@ -103,10 +101,9 @@ class IndexWorker(
     // Android 11 implements expedited work as a foreground service and needs its notification before doWork.
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo()
 
-    private suspend fun showProgress() = coroutineScope {
+    private suspend fun showProgress() {
         var last = 0L
-        val counts = retriever.counts().shareIn(this, SharingStarted.WhileSubscribed(), replay = 1)
-        combine(retriever.state, counts, retriever.readingStatus(counts), ::Triple).collect { (s, c, status) ->
+        combine(retriever.state, retriever.counts(), retriever.readingStatus(), ::Triple).collect { (s, c, status) ->
             val now = SystemClock.elapsedRealtime()
             if (s.running && now - last >= 1000) {
                 last = now

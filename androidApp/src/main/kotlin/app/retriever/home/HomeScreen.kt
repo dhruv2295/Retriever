@@ -205,7 +205,7 @@ internal fun HomeBody(
     val counts = ui.counts
     // Remembered so an unchanged history is the same list and the chip row skips recomposing.
     val chips = remember(recent) { recent.take(5) }
-    val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions else emptyList() }
+    val tries = remember(recent, ui.suggestions) { if (recent.isEmpty()) ui.suggestions.orEmpty() else emptyList() }
     val tiles = remember(ui.kindTotals, ui.folderTotals, ui.pending, ui.waiting, ui.inside) { moreTiles(ui) }
     LazyVerticalStaggeredGrid(
         columns = StaggeredGridCells.Adaptive(380.dp),
@@ -247,6 +247,8 @@ internal fun HomeBody(
             item(key = "commit", span = FullLine) { CommitCard(ui, onCommit, onDismissOffer, onDecideLater) }
         }
         if (upgrade != null) item(key = "upgrade", span = FullLine) { UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp)) }
+        // The sections wait for every source to answer, then draw together in this order: none lands above another later.
+        if (!ui.sectionsReady) return@LazyVerticalStaggeredGrid
         val home = ui.home
         if (chips.isNotEmpty() || tries.isNotEmpty()) item(key = "chips", span = FullLine, contentType = "chips") { ChipRow(chips, tries, fill) }
         // Pictures need the files themselves: without access they would only fail to load.
@@ -326,7 +328,7 @@ private fun Status(
                 Column(Modifier.weight(1f)) {
                     TitleWithCount(status.title, status.detail, MaterialTheme.typography.bodyMedium)
                     if (caughtUp) {
-                        ui.home?.nameOnly?.takeIf { it > 0 }?.let {
+                        ui.nameOnly.takeIf { it > 0 }?.let {
                             Text("${Format.count(it)} of them by name only", style = MaterialTheme.typography.bodySmall)
                         }
                     }

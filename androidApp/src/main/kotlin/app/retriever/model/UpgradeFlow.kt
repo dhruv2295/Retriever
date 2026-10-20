@@ -32,7 +32,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -50,7 +52,8 @@ data class UpgradeUi(
 
 /**
  * "Search by meaning and what's in your photos": Download, then the tune by itself once the model is in place and files
- * are allowed, then the meaning pass that reading runs. Runs in the app's scope, so leaving a screen never drops it.
+ * are allowed, then the meaning pass that reading runs. Runs in the app's scope, so leaving a screen never drops it; the
+ * library's counts, which only the meaning pass's line needs, are watched only while a screen collects [ui].
  */
 class UpgradeFlow(
     private val retriever: Retriever,
@@ -63,20 +66,22 @@ class UpgradeFlow(
 ) {
     private val local = MutableStateFlow(UpgradeUi(sizeBytes = retriever.modelDownloadBytes))
 
-    val ui: StateFlow<UpgradeUi> = local
+    /** The library's progress, from core's counts while [ui] is collected; null before. */
+    private val progress = MutableStateFlow<ReadingProgress?>(null)
+
+    val ui: StateFlow<UpgradeUi> =
+        merge(local, flow<Nothing> { retriever.counts().collect { progress.value = it.progress } })
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), local.value)
 
     /** The stage alone, for screens that must not redraw on each download tick. */
-    val stage: StateFlow<UpgradeStage> = local.map { it.stage }.stateIn(scope, SharingStarted.Eagerly, local.value.stage)
+    val stage: StateFlow<UpgradeStage> = ui.map { it.stage }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), local.value.stage)
 
     init {
         scope.launch {
-            combine(
-                combine(retriever.modelPresent, retriever.setUp, models.state, ::Triple),
-                retriever.counts().map { it.progress },
-            ) { (present, setUp, model), progress ->
+            combine(combine(retriever.modelPresent, retriever.setUp, models.state, ::Triple), progress) { (present, setUp, model), progress ->
                 val downloading = model is ModelState.Downloading || model == ModelState.WaitingForWifi ||
                     model == ModelState.Checking || model is ModelState.Failed
-                val stage = UpgradePolicy.stage(retriever.textOnly, present, downloading, setUp == true, progress.meaningWaiting)
+                val stage = UpgradePolicy.stage(retriever.textOnly, present, downloading, setUp == true, progress?.meaningWaiting ?: 0)
                 Triple(stage, model, progress)
             }.collect { (stage, model, progress) ->
                 local.update {

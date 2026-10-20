@@ -35,10 +35,13 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   phases only, so "Up to date" never shows before reading starts.
 - **The short read is a plan, not a sample of whatever is first.** `FileRules.planTaste` picks a deterministic set within
   a time budget that covers the oldest bin and the newest; `Retriever.scopeIds` scopes try-it's search to those files, and
-  `TasteProgress` reports per-kind progress, readiness (`TRY_AFTER_FILES` read or the plan done) and seconds left.
+  `TasteProgress` reports per-kind progress, readiness (`TRY_AFTER_FILES` read or the plan done) and seconds left in
+  wall time, null until this session has measured it (`sample-quickstart.md`). The plan's budget is wall time too: once
+  measured, `trimTaste` prices what is left at inference × the session's wall ratio.
 - **Try it is the real Search.** `TryItScreen` hosts `SearchContent` with a scope, so empty, searching and failure states
   are the ones in `search-ui.md`; nothing is faked. Names match across the whole library; words and meaning only inside
-  the sample ("Searching inside {C} sample files").
+  the sample ("Searching every file’s name, and inside the {C} files read so far.", `Words.searchingTry`, where C is
+  `TasteProgress.read`).
 - **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE` and leaves a commit
   card on Home. A returning user (no plan) never sees the sample.
 - **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`

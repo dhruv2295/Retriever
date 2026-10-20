@@ -222,7 +222,8 @@ fun StatusContent(
                         unfinished -> MascotMood.RESTING
                         else -> null
                     }
-                    if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
+                    // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
+                    if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp), settles = !index.running)
                     Text(status?.title ?: "Checking your files…", style = MaterialTheme.typography.headlineSmall)
                     // One reason at a time: a failure outranks the schedule's own wait, which follows from the title.
                     if (failure != null) {
@@ -236,7 +237,8 @@ fun StatusContent(
                         Muted("${Format.count(waiting)} scheduled · ${Format.count(progress?.notScheduled ?: 0)} not scheduled")
                     }
                     if ((progress?.nameOnly ?: 0) > 0) Muted("${Format.count(progress?.nameOnly ?: 0)} name only")
-                    if (status?.active == true && index.currentFile != null) ReadingNow(index.currentFile, size = 56.dp)
+                    // Held through the moment between two files, when core reports none, so the row never blinks.
+                    if (status?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 56.dp)
                     // What was read stays on show through a pause or a wait; only the sentence above changes.
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, actions.openFile)
                     when {

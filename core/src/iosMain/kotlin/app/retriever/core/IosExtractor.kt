@@ -66,14 +66,21 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         // Swift decodes the bytes, so the extra byte read past the cap shows as a UTF-8 length over it.
         fun capped(text: String?, cap: Int): String = text.orEmpty().also { if (it.encodeToByteArray().size > cap) cut = true }
         fun entry(name: String, cap: Int) = capped(native.zipEntryText(uri, name, cap + 1), cap)
+
+        // The first TEXT_BYTES decoded here, as Android does; a byte past them marks the file cut.
+        fun head(): String {
+            val bytes = native.readBytes(uri, 0, TEXT_BYTES + 1)?.toByteArray() ?: return ""
+            if (bytes.size > TEXT_BYTES) cut = true
+            return decodeText(if (cut) bytes.copyOf(TEXT_BYTES) else bytes)
+        }
         val text = when (format) {
             DocFormat.DOCX, DocFormat.ODF -> stripXml(entry(format.textEntry!!, 4 * TEXT_BYTES))
             DocFormat.PPTX -> zipText(uri, ::slideOrder, ::entry, onCut)
             DocFormat.XLSX -> xlsxText(zipText(uri, ::xlsxOrder, ::entry, onCut, strip = { it }))
             DocFormat.EPUB -> epub(uri, ::entry, onCut)
-            DocFormat.HTML -> stripHtml(capped(native.textHead(uri, TEXT_BYTES + 1), TEXT_BYTES))
-            DocFormat.RTF -> stripRtf(capped(native.textHead(uri, TEXT_BYTES + 1), TEXT_BYTES))
-            DocFormat.TEXT -> capped(native.textHead(uri, TEXT_BYTES + 1), TEXT_BYTES)
+            DocFormat.HTML -> stripHtml(head())
+            DocFormat.RTF -> stripRtf(head())
+            DocFormat.TEXT -> head()
         }
         val pieces = Chunker.chunks(text, maxChars = maxChars).map { Piece("", listOf(Part.Text(it)), it, it) }
         return if (cut) pieces + cutShort() else pieces

@@ -186,7 +186,13 @@ class Store(
             q.deleteFtsOfKinds(k)
             q.deleteChunksOfKinds(k)
             q.clearPartialOfKinds(k)
+            refreshAllReach()
         }
+    }
+
+    /** After a write across the library (a kind switched off, a new model): every file that holds or held chunks. */
+    private fun refreshAllReach() {
+        q.reachedFileIds().executeAsList().chunked(500).forEach(q::refreshReach)
     }
 
     /** Gives every skipped file three fresh attempts, e.g. after a fix for whatever made them fail. */
@@ -262,6 +268,7 @@ class Store(
         q.transaction {
             q.resetForNewModel()
             q.setMeta(SIGNATURE_KEY, sig.value)
+            refreshAllReach()
         }
     }
 
@@ -290,6 +297,7 @@ class Store(
                 if (c.text != null || c.labels != null) q.insertFts(chunkId, c.text, c.labels)
             }
             q.setIndexed(stored.attempts.toLong(), if (partial) 1L else 0L, fileId)
+            q.refreshReach(listOf(fileId))
         }
     }
 
@@ -344,7 +352,10 @@ class Store(
     }
 
     fun setTailAttempts(id: Long, attempts: Int) {
-        q.setTailAttempts(attempts.toLong(), id)
+        q.transaction {
+            q.setTailAttempts(attempts.toLong(), id)
+            q.fileIdOfChunk(id).executeAsOneOrNull()?.let { q.refreshReach(listOf(it)) }
+        }
     }
 
     /** Replaces a tail chunk too long for the model with [parts], each a new tail chunk at the same place. */
@@ -357,10 +368,12 @@ class Store(
             }
             q.deleteFts(id)
             q.deleteChunk(id)
+            q.refreshReach(listOf(c.file_id))
         }
     }
 
-    fun textPreview(file: SourceFile): String? = q.textPreview(file.uri, file.modifiedAt, file.size).executeAsOneOrNull()?.preview
+    /** Null rather than replacement characters: text read as UTF-8 before [decodeText] knew its encoding shows nothing. */
+    fun textPreview(file: SourceFile): String? = q.textPreview(file.uri, file.modifiedAt, file.size).executeAsOneOrNull()?.preview?.takeUnless { '�' in it }
 
     internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
         val counts = inChunks(ids) { listOf(q.tailCountsIn(it) { chunks, files -> chunks to files }.executeAsOne()) }
@@ -382,6 +395,7 @@ class Store(
             q.deleteFts(id)
             q.deleteChunk(id)
             if (c.text != null || c.labels != null) q.insertFts(newId, c.text, c.labels)
+            q.refreshReach(listOf(c.file_id))
         }
     }
 
@@ -542,48 +556,73 @@ class Store(
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 
-    /** Pending files per kind, read once on the caller's thread (unlike [counts], which emits on its own dispatcher). */
+    /** Pending files per kind, read once on the caller's thread. */
     fun pendingByKind(): Map<Kind, Long> = q.countByKindState { kind, state, count -> Triple(Kind.valueOf(kind), state, count) }.executeAsList()
         .filter { it.second == FileState.PENDING }.associate { it.first to it.third }
 
-    /** One transaction per invalidation: heads and tails cannot come from different revisions. */
-    internal fun countChanges(): Flow<Unit> = combine(q.countByKindState().asFlow(), q.tailChunkCount().asFlow()) { _, _ -> }
+    /** Any write to files or chunks, once per transaction: one query's flow, so one write is one emission. */
+    internal fun countChanges(): Flow<Unit> = q.tailChunkCount().asFlow().map { }
 
-    fun counts(): Flow<Counts> = countChanges().map { countsNow() }.flowOn(dispatchers.default)
+    /** Files alike for the counts: kind, state, partial and [Reach] bits, and how many. */
+    private class Group(val kind: Kind, val state: FileState, val partial: Boolean, val reach: Long, val n: Long) {
+        fun has(bit: Long) = (reach and bit) != 0L
+    }
 
-    internal fun countsNow(ids: Collection<Long>? = null, includeTails: Boolean = true, kinds: Set<Kind> = prefs().kinds - Kind.OTHER): Counts = inTransaction {
-        val outcomes = q.readingCounts(kinds.map { it.name }, if (includeTails) 1L else 0L, 1L, emptyList()).executeAsList()
-        val scoped = if (ids == null) {
-            outcomes
-        } else {
-            inChunks(ids) {
-                q.readingCounts(kinds.map { it.name }, if (includeTails) 1L else 0L, 0L, it).executeAsList()
-            }
+    private enum class Coverage { READ, PARTIAL, WAITING, NAME, ERROR }
+
+    private class Outcome(val kind: Kind, val coverage: Coverage, val later: Boolean, val meaning: Boolean, val n: Long)
+
+    /** The reading contract's buckets; tails and the meaning upgrade count only with [includeTails]. */
+    private fun Group.outcome(kinds: Set<Kind>, includeTails: Boolean): Outcome {
+        val tails = includeTails && has(Reach.TAIL_TEXT)
+        // Words read with no vector yet wait for meaning: a count, never Partly read for the missing vectors.
+        val upgrade = includeTails && state == FileState.INDEXED && has(Reach.MEANING_QUEUED) && !has(Reach.MEANING_REACHED)
+        val coverage = when {
+            kind !in kinds -> Coverage.NAME
+            has(Reach.CONTENT) -> if (state != FileState.INDEXED || partial || (tails && !upgrade)) Coverage.PARTIAL else Coverage.READ
+            state == FileState.SKIPPED -> Coverage.ERROR
+            state == FileState.INDEXED -> Coverage.NAME
+            else -> Coverage.WAITING
         }
-        fun count(coverage: String) = outcomes.filter { it.coverage == coverage }.sumOf { it.n }
-        val all = q.countByKindState { kind, state, count -> (Kind.valueOf(kind) to state) to count }.executeAsList().toMap()
-        val pending = ids?.let { pendingIn(it).groupingBy { file -> file.file.kind }.eachCount() }
+        return Outcome(kind, coverage, later = includeTails && has(Reach.TAIL_QUEUED) && !upgrade, meaning = upgrade && kind in kinds, n)
+    }
+
+    /**
+     * The whole library is one scan of files_by_reach; [ids] (the sample) adds a lookup of those rows only. No
+     * transaction: on Android one takes the write lock, so the reader's writes would queue behind the counts. A write
+     * landing between two of these statements notifies [countChanges] again, so the counts that follow are whole.
+     */
+    internal fun countsNow(ids: Collection<Long>? = null, includeTails: Boolean = true, kinds: Set<Kind> = prefs().kinds - Kind.OTHER): Counts {
+        restored.value
+        val group = { kind: String, state: FileState, partial: Long, reach: Long, n: Long -> Group(Kind.valueOf(kind), state, partial != 0L, reach, n) }
+        val library = q.reachCounts(group).executeAsList()
+        val planned = ids?.let { inChunks(it) { part -> q.reachCountsIn(part, group).executeAsList() } }
+        val outcomes = library.map { it.outcome(kinds, includeTails) }
+        val scoped = planned?.map { it.outcome(kinds, includeTails) } ?: outcomes
+        fun List<Outcome>.count(coverage: Coverage) = filter { it.coverage == coverage }.sumOf { it.n }
+        val all = library.groupingBy { it.kind to it.state }.fold(0L) { n, g -> n + g.n }
+        val pending = planned?.filter { it.state == FileState.PENDING }?.groupingBy { it.kind }?.fold(0L) { n, g -> n + g.n }
         val rows = if (pending == null) {
             all
         } else {
-            all.filterKeys { it.second != FileState.PENDING } +
-                Kind.entries.associate { (it to FileState.PENDING) to (pending[it]?.toLong() ?: 0L) }
+            all.filterKeys { it.second != FileState.PENDING } + Kind.entries.associate { (it to FileState.PENDING) to (pending[it] ?: 0L) }
         }
-        val scheduled = scoped.filter { it.coverage == "WAITING" }.sumOf { it.n }
+        val scheduled = scoped.count(Coverage.WAITING)
         val progress = ReadingProgress(
-            read = count("READ"),
-            partlyRead = count("PARTIAL"),
+            read = outcomes.count(Coverage.READ),
+            partlyRead = outcomes.count(Coverage.PARTIAL),
             scheduled = scheduled,
-            notScheduled = count("WAITING") - scheduled,
-            nameOnly = count("NAME"),
-            couldntRead = count("ERROR"),
-            laterPasses = scoped.filter { it.coverage == "PARTIAL" && it.later == 1L }.sumOf { it.n },
+            notScheduled = outcomes.count(Coverage.WAITING) - scheduled,
+            nameOnly = outcomes.count(Coverage.NAME),
+            couldntRead = outcomes.count(Coverage.ERROR),
+            laterPasses = scoped.filter { it.coverage == Coverage.PARTIAL && it.later }.sumOf { it.n },
             sample = ids != null,
-            meaningWaiting = scoped.filter { it.meaning == 1L }.sumOf { it.n },
+            meaningWaiting = scoped.filter { it.meaning }.sumOf { it.n },
             rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
         )
         val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
-        Counts(
+        val indexed = library.filter { it.state == FileState.INDEXED }
+        return Counts(
             byState = rows.entries.groupingBy { it.key.second }.fold(0L) { n, e -> n + e.value },
             byKind = all.entries.groupingBy { it.key.first }.fold(0L) { n, e -> n + e.value },
             tailChunks = if (!includeTails) 0 else tails?.first ?: q.tailChunkCount().executeAsOne(),
@@ -597,21 +636,36 @@ class Store(
                 null
             } else {
                 ReadingProgress(
-                    read = scoped.filter { it.coverage == "READ" }.sumOf { it.n },
-                    partlyRead = scoped.filter { it.coverage == "PARTIAL" }.sumOf { it.n },
+                    read = scoped.count(Coverage.READ),
+                    partlyRead = scoped.count(Coverage.PARTIAL),
                     scheduled = progress.scheduled,
-                    nameOnly = scoped.filter { it.coverage == "NAME" }.sumOf { it.n },
-                    couldntRead = scoped.filter { it.coverage == "ERROR" }.sumOf { it.n },
+                    nameOnly = scoped.count(Coverage.NAME),
+                    couldntRead = scoped.count(Coverage.ERROR),
                     laterPasses = progress.laterPasses,
                     sample = true,
                     meaningWaiting = progress.meaningWaiting,
                     rereads = progress.rereads,
                 )
             },
-            readByKind = outcomes.filter { it.coverage == "READ" || it.coverage == "PARTIAL" }
-                .groupingBy { Kind.valueOf(it.kind) }.fold(0L) { n, row -> n + row.n },
-            meaning = q.meaningCounts(::MeaningCounts).executeAsOne(),
+            readByKind = outcomes.filter { it.coverage == Coverage.READ || it.coverage == Coverage.PARTIAL }
+                .groupingBy { it.kind }.fold(0L) { n, o -> n + o.n },
+            meaning = MeaningCounts(
+                notAdded = indexed.filterNot { it.has(Reach.ANY_VECTOR) }.sumOf { it.n },
+                partlyAdded = indexed.filter { it.has(Reach.ANY_VECTOR) && it.has(Reach.NO_VECTOR) }.sumOf { it.n },
+                added = indexed.filter { it.has(Reach.ANY_VECTOR) && !it.has(Reach.NO_VECTOR) }.sumOf { it.n },
+            ),
         )
+    }
+
+    /** The bits of files.reach; refreshReach in Index.sq says what each means. */
+    internal object Reach {
+        const val CONTENT = 1L
+        const val TAIL_TEXT = 2L
+        const val TAIL_QUEUED = 4L
+        const val MEANING_QUEUED = 8L
+        const val MEANING_REACHED = 16L
+        const val ANY_VECTOR = 32L
+        const val NO_VECTOR = 64L
     }
 
     /** The [limit] newest files of [kinds], newest first. */
@@ -813,12 +867,14 @@ private fun storedFile(
     attempts: Long,
     partial: Long,
     takenAt: Long?,
+    reach: Long,
 ): Store.StoredFile = Store.StoredFile(
     id,
     SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt, takenAt),
     attempts.toInt(),
     state,
     partial != 0L,
+    contentRead = (reach and Store.Reach.CONTENT) != 0L,
 )
 
 private const val DAY_MS = 86_400_000L

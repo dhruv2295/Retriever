@@ -22,6 +22,54 @@ const val MAX_PAGE_PX = 4096
 const val OCR_WIDTH = 1600
 const val OCR_SHORT_PX = 1080
 
+/**
+ * A text file's bytes as its text, the same on both platforms: a byte-order mark's UTF-8 or UTF-16; UTF-16 without one
+ * by where its zero bytes fall; UTF-8 when every sequence is whole (one cut by a byte cap at the end is dropped); else
+ * Windows-1252, which decodes every byte, as Latin-1 files and spreadsheets saved on Windows are. Zero bytes no UTF-16
+ * explains are not text: empty, never garbage.
+ * ponytail: other legacy encodings (Shift-JIS, GBK) without a mark read as Windows-1252; a charset detector if they show up.
+ */
+fun decodeText(bytes: ByteArray): String {
+    fun byte(i: Int) = bytes[i].toInt() and 0xFF
+    fun utf16(from: Int, bigEndian: Boolean) = CharArray((bytes.size - from) / 2) { i ->
+        val (hi, lo) = if (bigEndian) byte(from + 2 * i) to byte(from + 2 * i + 1) else byte(from + 2 * i + 1) to byte(from + 2 * i)
+        (hi shl 8 or lo).toChar()
+    }.concatToString()
+    if (bytes.size >= 3 && byte(0) == 0xEF && byte(1) == 0xBB && byte(2) == 0xBF) return bytes.decodeToString(3, bytes.size)
+    if (bytes.size >= 2 && byte(0) == 0xFF && byte(1) == 0xFE) return utf16(2, bigEndian = false)
+    if (bytes.size >= 2 && byte(0) == 0xFE && byte(1) == 0xFF) return utf16(2, bigEndian = true)
+    val evenZeros = bytes.indices.count { it % 2 == 0 && bytes[it] == 0.toByte() }
+    val oddZeros = bytes.indices.count { it % 2 == 1 && bytes[it] == 0.toByte() }
+    if (evenZeros + oddZeros > 0) {
+        return when {
+            oddZeros > 4 * evenZeros -> utf16(0, bigEndian = false)
+            evenZeros > 4 * oddZeros -> utf16(0, bigEndian = true)
+            else -> ""
+        }
+    }
+    // A sequence the cap cut short: its lead byte promises more bytes than are left.
+    var lead = bytes.size - 1
+    while (lead > 0 && bytes.size - lead < 4 && (byte(lead) and 0xC0) == 0x80) lead--
+    val need = when {
+        lead < 0 -> 0
+        byte(lead) >= 0xF0 -> 4
+        byte(lead) >= 0xE0 -> 3
+        byte(lead) >= 0xC0 -> 2
+        else -> 1
+    }
+    val end = if (lead >= 0 && bytes.size - lead < need) lead else bytes.size
+    return try {
+        bytes.decodeToString(0, end, throwOnInvalidSequence = true)
+    } catch (e: CharacterCodingException) {
+        CharArray(bytes.size) { i -> byte(i).let { if (it in 0x80..0x9F) WINDOWS_1252_C1[it - 0x80] else it.toChar() } }.concatToString()
+    }
+}
+
+/** What Windows-1252 puts at 0x80-0x9F; the five bytes it leaves undefined keep their Latin-1 code points. */
+private const val WINDOWS_1252_C1 =
+    "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F" +
+        "\u0090‘’“”•–—˜™š›œ\u009DžŸ"
+
 /** [w] x [h] scaled down (never up) to fit [maxShort] on the shorter side and [maxLong] on the longer. */
 fun fitSize(w: Int, h: Int, maxShort: Int, maxLong: Int): Pair<Int, Int> {
     val scale = minOf(1.0, maxShort.toDouble() / minOf(w, h), maxLong.toDouble() / maxOf(w, h))

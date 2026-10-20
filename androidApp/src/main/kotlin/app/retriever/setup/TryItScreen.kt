@@ -1,10 +1,12 @@
 package app.retriever.setup
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,9 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
@@ -64,8 +65,7 @@ fun TryItScreen(
     val context = LocalContext.current
     val searchActions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
-    var suggestions by remember { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(ids, ui.taste?.read) { suggestions = retriever.suggestions(ids?.toSet() ?: emptySet()) }
+    val suggestions by remember(ids) { retriever.suggestions(ids?.toSet() ?: emptySet()) }.collectAsStateWithLifecycle(null)
     // Home's rule: offered once the person has searched and until Not now, then the download and the tune.
     val offer = up.takeIf { UpgradePolicy.showOnHome(it.stage, prefs) }
     val shown = remember(search, up.stage) { search.copy(upgrade = up.stage) }
@@ -79,7 +79,8 @@ fun TryItContent(
     searchActions: SearchActions,
     actions: SetupActions,
     modifier: Modifier = Modifier,
-    suggestions: List<String> = emptyList(),
+    /** Null until core answers: the row is held empty meanwhile, so neither the chips nor the line moves the page. */
+    suggestions: List<String>? = emptyList(),
     upgrade: UpgradeUi? = null,
     upgradeActions: UpgradeActions = UpgradeActions(),
 ) {
@@ -96,12 +97,17 @@ fun TryItContent(
         ) {
             Text(Words.TRY_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             Text(Words.TRY_BODY, style = MaterialTheme.typography.bodyLarge)
-            search.scope?.let { Muted(Words.searchingSample(it.size.toLong())) }
-            if (suggestions.isEmpty()) {
-                Text(Words.TRY_WITHOUT_SUGGESTIONS, style = MaterialTheme.typography.bodyMedium)
-            } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
+            search.scope?.let { Muted(Words.searchingTry(ui.taste?.read?.toLong() ?: 0)) }
+            // One chip row's height, held from the first frame.
+            Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
+                when {
+                    suggestions == null -> Unit
+
+                    suggestions.isEmpty() -> Text(Words.TRY_WITHOUT_SUGGESTIONS, style = MaterialTheme.typography.bodyMedium)
+
+                    else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
+                    }
                 }
             }
             val files = remember(ui.sample) { ui.sample.orEmpty().filter { it.read }.map { it.file } }

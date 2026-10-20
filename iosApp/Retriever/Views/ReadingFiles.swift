@@ -8,36 +8,38 @@ struct ReadingPreview: Equatable {
     var pauseReason: String?
 }
 
+/// The file being read. Core has no file for a moment between two, so the row keeps the last one until the next
+/// arrives: one row, its height kept and its text changed in place, its picture replaced once the next is decoded.
 struct ReadingNow: View {
     let file: SourceFile?
-    var pauseReason: String?
     var size: CGFloat = 88
+    @State private var last: SourceFile?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let shown = file ?? last
         VStack(alignment: .leading, spacing: 8) {
-            Text(file == nil ? pauseReason ?? "Starting reading…" : "Reading now").font(.headline).accessibilityAddTraits(.isHeader)
-            ZStack(alignment: .leading) {
-                if let file {
-                    HStack(spacing: 12) {
-                        Thumb(file: file, points: size)
-                            .frame(width: size, height: size)
-                            .overlay { if !reduceMotion { ReadingSweep() } }
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(file.name).lineLimit(2).truncationMode(.middle)
-                            Text(Words.shared.kindLabel(kind: file.kind)).font(.headline)
-                            Note(Format.date(file.modifiedAt))
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .id(file.uri)
-                    .transition(reduceMotion ? .identity : .opacity)
-                } else {
-                    EmptyView()
+            Text(shown == nil ? "Starting reading…" : "Reading now").font(.headline).accessibilityAddTraits(.isHeader)
+            HStack(spacing: 12) {
+                Group {
+                    if let shown { Thumb(file: shown, points: size) } else { Rectangle().fill(.fill.tertiary) }
+                }
+                .frame(width: size, height: size)
+                .overlay { if !reduceMotion { ReadingSweep() } }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                // Two lines kept for the name, so a short one never shortens the row.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(shown?.name ?? " ").lineLimit(2, reservesSpace: true).truncationMode(.middle)
+                    Text(shown.map { Words.shared.kindLabel(kind: $0.kind) } ?? " ").font(.headline)
+                    Note(shown.map { Format.date($0.modifiedAt) } ?? " ")
                 }
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: file?.uri)
+            .accessibilityElement(children: .combine)
+            .accessibilityHidden(shown == nil)
+            .accessibilityIdentifier("reading-now")
+        }
+        .onChange(of: file, initial: true) { _, file in
+            if let file { last = file }
         }
     }
 }

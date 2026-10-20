@@ -98,12 +98,16 @@ class SetupTest {
         assertEquals("8 files · Size unavailable", Words.countAndSize(FileTotals(8, 0, 8), "Zero KB"))
         assertEquals("3 of 7 photos read", Words.kindRead(3, 7, Kind.PHOTO))
         assertEquals("1 of 2 PDFs read", Words.kindRead(1, 2, Kind.PDF))
-        assertEquals("Searching inside 1 sample file", Words.searchingSample(1))
+        assertEquals("Searching every file’s name, and inside the 1 file read so far.", Words.searchingTry(1))
+        assertEquals("Searching every file’s name, and inside the 124 files read so far.", Words.searchingTry(124))
         assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
-        assertEquals("Usually 1–2 minutes. You can try search before this finishes.", Words.sampleTime(true, 1, 60_000, android))
-        assertEquals("This is taking longer on your phone. You can try the files read so far.", Words.sampleTime(true, 3, 180_000, android))
-        assertNull(Words.sampleTime(false, 3, 60_000, android), "no time while paused or done")
-        assertNull(Words.sampleTime(true, 0, 180_000, android), "no time before the first file is read")
+        assertEquals("Try it on your own files", Words.SAMPLE_TITLE)
+        assertEquals("Picking a few of your files…", Words.SAMPLE_PICKING)
+        assertEquals(
+            "See progress and pause a reading session. We can also let you know when your sample is ready.",
+            Words.notificationsAsk(sampleReading = true),
+        )
+        assertEquals("See progress and pause a reading session.", Words.notificationsAsk(sampleReading = false))
         assertEquals("12 of 40 files read", Words.readOf(12, 40))
         assertEquals("0 of 1 file read", Words.readOf(0, 1))
         assertEquals("Retriever reads the files on this phone to find them by what’s inside. Nothing leaves your phone.", Words.wholeDeviceNote(android))
@@ -123,6 +127,18 @@ class SetupTest {
         assertTrue(Words.wordsOnly(textOnly = false, modelMissing = true, setUp = false))
         assertTrue(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = false), "downloaded, not tuned yet")
         assertFalse(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = true))
+    }
+
+    /** The sample's muted line: a measured time once there is one, then whether search can be tried yet. */
+    @Test fun sampleNote() {
+        assertNull(Words.sampleNote(reading = false, readyToTry = true, secondsLeft = 90), "nothing while paused or done")
+        assertEquals("You can try search once a few files are read.", Words.sampleNote(true, false, null))
+        assertEquals("You can try search now. Retriever keeps reading the rest.", Words.sampleNote(true, true, null))
+        assertEquals("Less than a minute left. You can try search once a few files are read.", Words.sampleNote(true, false, 59))
+        assertEquals("About a minute left. You can try search now.", Words.sampleNote(true, true, 60))
+        assertEquals("About a minute left. You can try search now.", Words.sampleNote(true, true, 89))
+        assertEquals("About 2 minutes left. You can try search now.", Words.sampleNote(true, true, 90))
+        assertEquals("About 3 minutes left. You can try search now.", Words.sampleNote(true, true, 170))
     }
 
     @Test fun totalsCountEveryAccessibleFileWithUnknownSizesApart() {

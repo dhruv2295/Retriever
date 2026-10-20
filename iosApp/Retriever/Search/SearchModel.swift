@@ -162,6 +162,8 @@ final class SearchModel {
     /// Searching for longer than SEARCHING_MASCOT_MS: the dog sniffs, when there is nothing else to show.
     private(set) var pondering = false
     private(set) var recent: [String] = []
+    /// `loadRecent` has answered, so Home knows whether its chips row shows.
+    private(set) var recentLoaded = false
     private(set) var literal = false
     /// The files the first run's short read planned: while set, every search stays inside them.
     var fileIds: [Int64]?
@@ -362,6 +364,7 @@ final class SearchModel {
     }
 
     func loadRecent() async {
+        defer { recentLoaded = true }
         guard let retriever = services?.retriever else { return }
         recent = (try? await retriever.recentQueries()) ?? recent
     }
@@ -439,6 +442,7 @@ final class SearchModel {
         if failed { m.phase = SearchPhaseFailed(question: m.question) }
         m.slow = slow
         m.recent = recent
+        m.recentLoaded = true
         return m
     }
 }

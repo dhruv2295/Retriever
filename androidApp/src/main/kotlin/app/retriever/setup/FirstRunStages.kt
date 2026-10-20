@@ -24,12 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
@@ -40,6 +39,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
@@ -55,7 +55,6 @@ import app.retriever.core.Words
 import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.kindIcon
-import kotlinx.coroutines.delay
 
 /** The welcome holds the one access decision: the whole phone, or, quietly, a choice of what to include. */
 @Composable
@@ -114,56 +113,57 @@ private fun AccessRow(icon: Int, label: String, given: Boolean, onClick: () -> U
     )
 }
 
-/** The sample: the retriever's pile of what has been read, the count, one muted line, and See all. */
+/**
+ * The sample, centred: the title, the retriever's pile of what has been read, the count, one muted line, and See all.
+ * Every row is laid out from the first frame, so the group never shifts as the plan and the first files arrive.
+ */
 @Composable
-internal fun ColumnScope.SampleStage(ui: SetupUi, taste: TasteProgress, actions: SetupActions, reduceMotion: Boolean) {
+internal fun SampleStage(ui: SetupUi, taste: TasteProgress, actions: SetupActions, reduceMotion: Boolean) {
     val planned = taste.byKind.values.sumOf { it.second }.toLong()
     // The plan's progress per kind is said, not drawn.
     val spoken = (listOf(Words.SAMPLE_TITLE) + taste.byKind.map { (k, n) -> Words.kindRead(n.first.toLong(), n.second.toLong(), k) }).joinToString(", ")
-    Text(
-        Words.SAMPLE_TITLE,
-        style = MaterialTheme.typography.headlineSmall,
-        modifier = Modifier.semantics {
-            heading()
-            contentDescription = spoken
-        },
-    )
-    // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
-    val count = if (planned == 0L || (taste.read == 0 && taste.pending > 0)) Words.STARTING else Words.readOf(taste.read.toLong(), planned)
+    // Picking until there is a plan and a first file read; then what is read of the plan.
+    val count = if (planned == 0L || (taste.read == 0 && taste.pending > 0)) Words.SAMPLE_PICKING else Words.readOf(taste.read.toLong(), planned)
     val kinds = (taste.byKind.keys.toList() + listOf(Kind.PHOTO, Kind.PDF, Kind.DOC)).distinct().take(3)
-    // A new pile at the first delivery, so the files already read then never replay.
-    key(ui.sample == null) {
-        SamplePile(SamplePile.shown(ui.sample.orEmpty()), kinds, reduceMotion, count, Words.seeAll(planned), actions.seeAll.takeIf { planned > 0 })
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(count, style = MaterialTheme.typography.bodyLarge)
-        // The count line says it; the bar fills when nothing is left, Name only files included.
-        if (planned > 0) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Text(
+            Words.SAMPLE_TITLE,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics {
+                heading()
+                contentDescription = spoken
+            },
+        )
+        // A new pile at the first delivery, so the files already read then never replay.
+        key(ui.sample == null) {
+            SamplePile(SamplePile.shown(ui.sample.orEmpty()), kinds, reduceMotion, count, Words.seeAll(planned), actions.seeAll.takeIf { planned > 0 })
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(count, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            // The count line says it; the bar fills when nothing is left, Name only files included. At 0 before the plan.
             LinearProgressIndicator(
-                progress = { (planned - taste.pending).toFloat() / planned },
+                progress = { if (planned > 0) (planned - taste.pending).toFloat() / planned else 0f },
                 modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
             )
         }
-    }
-    when {
-        taste.pending == 0 -> Unit
-        ui.pauseReason != null -> Muted(ui.pauseReason)
-        else -> SampleTime(ui.reading, taste.read.toLong(), ui.sampleStartedAt)
-    }
-    if (planned > 0) TextButton(onClick = actions.seeAll) { Text(Words.seeAll(planned)) }
-}
-
-/** Core's time line while the sample reads, which turns to "taking longer" once the usual time has passed. */
-@Composable
-private fun SampleTime(reading: Boolean, read: Long, startedAt: Long) {
-    // Only this line redraws as time passes, and only while the sample reads.
-    val elapsed by produceState(0L, reading, startedAt) {
-        while (reading && startedAt > 0) {
-            value = System.currentTimeMillis() - startedAt
-            delay(TIME_TICK_MS)
+        // One muted slot, two lines held: a stop's reason, else the note, else nothing.
+        val note = when {
+            taste.pending == 0 && planned > 0 -> null
+            ui.pauseReason != null -> ui.pauseReason
+            else -> Words.sampleNote(ui.reading, taste.readyToTry, taste.secondsLeft)
         }
+        Text(
+            note.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            minLines = 2,
+        )
+        // Laid out before the plan too, so it never pushes the group when it appears.
+        val seeAll = Modifier.then(if (planned > 0) Modifier else Modifier.alpha(0f).clearAndSetSemantics {})
+        TextButton(onClick = actions.seeAll, enabled = planned > 0, modifier = seeAll) { Text(Words.seeAll(planned)) }
     }
-    Words.sampleTime(reading, read, elapsed, DeviceWords.ANDROID)?.let { Muted(it) }
 }
 
 /**
@@ -178,6 +178,8 @@ internal fun SamplePile(cards: List<SampleFile>, kinds: List<Kind>, reduceMotion
     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val footprint = min(SamplePile.FOOTPRINT_DP.dp, maxWidth)
         val card = footprint * SamplePile.CARD_DP / SamplePile.FOOTPRINT_DP
+        // The slots shrink with the pile, as on iOS, so a narrow pile keeps its shape.
+        val scale = card / SamplePile.CARD_DP.dp
         Box(
             Modifier.size(footprint)
                 .then(if (onSeeAll == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = seeAllLabel, onClick = onSeeAll))
@@ -190,7 +192,7 @@ internal fun SamplePile(cards: List<SampleFile>, kinds: List<Kind>, reduceMotion
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         shape = MaterialTheme.shapes.medium,
                         shadowElevation = 2.dp,
-                        modifier = Modifier.zIndex((kinds.size - i).toFloat()).graphicsLayer { slot(i, 0f) }.size(card).clearAndSetSemantics {},
+                        modifier = Modifier.zIndex((kinds.size - i).toFloat()).graphicsLayer { slot(i, 0f, scale) }.size(card).clearAndSetSemantics {},
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -203,24 +205,24 @@ internal fun SamplePile(cards: List<SampleFile>, kinds: List<Kind>, reduceMotion
                     }
                 }
             }
-            for (c in cards) key(c.index) { PileCard(c, card, animate = !reduceMotion && c.index > firstTop) }
+            for (c in cards) key(c.index) { PileCard(c, card, scale, animate = !reduceMotion && c.index > firstTop) }
         }
     }
 }
 
 /** A card settles from above, tilted and faded, onto its slot; with motion reduced, or already shown, it is simply there. */
 @Composable
-private fun PileCard(c: SampleFile, size: Dp, animate: Boolean) {
+private fun PileCard(c: SampleFile, size: Dp, scale: Float, animate: Boolean) {
     val landed = remember { Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) { landed.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)) }
-    FileTile(c.file, size, Modifier.zIndex(c.index.toFloat()).graphicsLayer { slot(c.index, 1f - landed.value) }.testTag("card:${c.index}"))
+    FileTile(c.file, size, Modifier.zIndex(c.index.toFloat()).graphicsLayer { slot(c.index, 1f - landed.value, scale) }.testTag("card:${c.index}"))
 }
 
-/** [i]'s slot on the pile; [away] 1 is the settle's start: 48 dp above, 8° more turned, transparent. */
-private fun GraphicsLayerScope.slot(i: Int, away: Float) {
+/** [i]'s slot on the pile, its offsets at [scale]; [away] 1 is the settle's start: 48 dp above, 8° more turned, transparent. */
+private fun GraphicsLayerScope.slot(i: Int, away: Float, scale: Float) {
     rotationZ = SamplePile.angle(i) + SETTLE_TURN * away
-    translationX = SamplePile.dx(i).dp.toPx()
-    translationY = (SamplePile.dy(i).dp - SETTLE_DROP * away).toPx()
+    translationX = (SamplePile.dx(i).dp * scale).toPx()
+    translationY = (SamplePile.dy(i).dp * scale - SETTLE_DROP * away).toPx()
     alpha = (1f - away).coerceIn(0f, 1f)
 }
 
@@ -232,8 +234,6 @@ internal fun SampleFooter(canTry: Boolean, actions: SetupActions) {
         TextButton(onClick = actions.skip, modifier = Modifier.fillMaxWidth()) { Text(Words.GO_TO_HOME) }
     }
 }
-
-private const val TIME_TICK_MS = 15_000L
 
 private const val SETTLE_TURN = 8f
 

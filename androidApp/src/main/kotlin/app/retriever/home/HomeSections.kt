@@ -58,6 +58,7 @@ import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.YearMemory
+import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
@@ -249,18 +250,24 @@ private fun MosaicCell(file: SourceFile, w: Dp, h: Dp, corner: Dp, reading: Mosa
         val base = "${Words.kindLabel(file.kind)}, ${spokenDate(context, file.takenAt ?: file.modifiedAt)}"
         if (reading != null && reading.pending > 0) "$base, ${Words.waitingToRead(reading.pending)}" else base
     }
-    Box(
-        Modifier
-            .size(w, h)
-            .clip(RoundedCornerShape(corner))
-            .semantics(mergeDescendants = true) { contentDescription = label }
-            .clickable(onClickLabel = "Open") { onOpen(file) },
-    ) {
-        ThumbnailImage(file, maxOf(w, h), Modifier.fillMaxSize())
-        if (file.kind == Kind.VIDEO) VideoBadge(Modifier.align(if (reading != null) Alignment.BottomEnd else Alignment.BottomStart))
-        if (reading != null) ReadingPill(reading)
+    FilePressMenu(file) { menu, actions ->
+        Box(
+            Modifier
+                .size(w, h)
+                .clip(RoundedCornerShape(corner))
+                .semantics(mergeDescendants = true) { contentDescription = label }
+                .openOrMenu(menu, actions) { onOpen(file) },
+        ) {
+            ThumbnailImage(file, maxOf(w, h), Modifier.fillMaxSize())
+            if (file.kind == Kind.VIDEO) VideoBadge(Modifier.align(if (reading != null) Alignment.BottomEnd else Alignment.BottomStart))
+            if (reading != null) ReadingPill(reading)
+        }
     }
 }
+
+/** Tap opens; a long press opens the file menu Search and Browse use, its actions also offered to a screen reader. */
+private fun Modifier.openOrMenu(menu: () -> Unit, actions: Modifier, onOpen: () -> Unit) =
+    combinedClickable(onClickLabel = "Open", onLongClickLabel = "More options", onLongClick = menu, onClick = onOpen).then(actions)
 
 /** A play mark that stays black and white on any picture. */
 @Composable
@@ -302,16 +309,18 @@ internal fun ShotsStrip(shots: List<SourceFile>, onOpen: (SourceFile) -> Unit) {
     LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(shots, key = { it.uri }, contentType = { "shot" }) { f ->
             val shape = RoundedCornerShape(16.dp)
-            ThumbnailImage(
-                f,
-                171.dp,
-                Modifier
-                    .size(96.dp, 171.dp)
-                    .clip(shape)
-                    .border(1.dp, outline, shape)
-                    .semantics(mergeDescendants = true) { contentDescription = "Screenshot, ${spokenDate(context, f.takenAt ?: f.modifiedAt)}" }
-                    .clickable(onClickLabel = "Open") { onOpen(f) },
-            )
+            FilePressMenu(f) { menu, actions ->
+                ThumbnailImage(
+                    f,
+                    171.dp,
+                    Modifier
+                        .size(96.dp, 171.dp)
+                        .clip(shape)
+                        .border(1.dp, outline, shape)
+                        .semantics(mergeDescendants = true) { contentDescription = "Screenshot, ${spokenDate(context, f.takenAt ?: f.modifiedAt)}" }
+                        .openOrMenu(menu, actions) { onOpen(f) },
+                )
+            }
         }
     }
 }
@@ -325,24 +334,26 @@ internal fun DocsStrip(docs: List<SourceFile>, pictures: Boolean, onOpen: (Sourc
         items(docs, key = { it.uri }, contentType = { "doc" }) { f ->
             val line = remember(f, now) { Format.fileLine(f.copy(folder = ""), now) }
             val shape = RoundedCornerShape(12.dp)
-            Column(
-                Modifier
-                    .width(112.dp)
-                    .clip(shape)
-                    .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, ${line.replace(" · ", ", ")}" }
-                    .clickable(onClickLabel = "Open") { onOpen(f) },
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // A PDF's first page; a document's own text (the thumbnail's text tile).
-                ThumbnailImage(
-                    f,
-                    150.dp,
-                    Modifier.size(112.dp, 150.dp).clip(shape).border(1.dp, colors.outlineVariant, shape),
-                    load = pictures,
-                    container = colors.surfaceContainerLowest,
-                )
-                Text(f.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurface, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
-                Text(line, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            FilePressMenu(f) { menu, actions ->
+                Column(
+                    Modifier
+                        .width(112.dp)
+                        .clip(shape)
+                        .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, ${line.replace(" · ", ", ")}" }
+                        .openOrMenu(menu, actions) { onOpen(f) },
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    // A PDF's first page; a document's own text (the thumbnail's text tile).
+                    ThumbnailImage(
+                        f,
+                        150.dp,
+                        Modifier.size(112.dp, 150.dp).clip(shape).border(1.dp, colors.outlineVariant, shape),
+                        load = pictures,
+                        container = colors.surfaceContainerLowest,
+                    )
+                    Text(f.name, style = MaterialTheme.typography.bodySmall, color = colors.onSurface, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
+                    Text(line, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
             }
         }
     }
@@ -419,46 +430,48 @@ internal fun StarredSection(ui: HomeUi, home: HomeFacts, actions: SearchActions)
                 val shape = RoundedCornerShape(12.dp)
                 // Documents and audio have no picture; without access none can load.
                 val picture = ui.hasAccess && f.kind != Kind.DOC && f.kind != Kind.AUDIO
-                Box(
-                    Modifier
-                        .size(112.dp)
-                        .clip(shape)
-                        .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, starred" }
-                        .clickable(onClickLabel = "Open") {
-                            Opener.queue(home.starred)
-                            actions.onOpenFile(f)
-                        },
-                ) {
-                    if (picture) {
-                        ThumbnailImage(
-                            f,
-                            112.dp,
-                            Modifier.fillMaxSize(),
-                            container = if (f.kind ==
-                                Kind.PDF
-                            ) {
-                                colors.surfaceContainerLowest
-                            } else {
-                                Color.Unspecified
-                            },
-                        )
-                    } else {
-                        Column(Modifier.fillMaxSize().background(colors.surfaceContainer).padding(8.dp), Arrangement.Center, Alignment.CenterHorizontally) {
-                            Icon(painterResource(kindIcon(f.kind)), contentDescription = null, Modifier.size(28.dp), tint = colors.primary)
-                            Text(
-                                f.name,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = colors.onSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.MiddleEllipsis,
-                            )
-                        }
-                    }
+                FilePressMenu(f) { menu, menuActions ->
                     Box(
-                        Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape),
-                        contentAlignment = Alignment.Center,
+                        Modifier
+                            .size(112.dp)
+                            .clip(shape)
+                            .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, starred" }
+                            .openOrMenu(menu, menuActions) {
+                                Opener.queue(home.starred)
+                                actions.onOpenFile(f)
+                            },
                     ) {
-                        Icon(painterResource(R.drawable.ic_star), contentDescription = null, Modifier.size(16.dp), tint = colors.primary)
+                        if (picture) {
+                            ThumbnailImage(
+                                f,
+                                112.dp,
+                                Modifier.fillMaxSize(),
+                                container = if (f.kind ==
+                                    Kind.PDF
+                                ) {
+                                    colors.surfaceContainerLowest
+                                } else {
+                                    Color.Unspecified
+                                },
+                            )
+                        } else {
+                            Column(Modifier.fillMaxSize().background(colors.surfaceContainer).padding(8.dp), Arrangement.Center, Alignment.CenterHorizontally) {
+                                Icon(painterResource(kindIcon(f.kind)), contentDescription = null, Modifier.size(28.dp), tint = colors.primary)
+                                Text(
+                                    f.name,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = colors.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.MiddleEllipsis,
+                                )
+                            }
+                        }
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(painterResource(R.drawable.ic_star), contentDescription = null, Modifier.size(16.dp), tint = colors.primary)
+                        }
                     }
                 }
             }

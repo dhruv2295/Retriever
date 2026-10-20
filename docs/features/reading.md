@@ -1,6 +1,6 @@
 # Reading contract
 
-Core owns the counts and state decision (`ReadingProgress`, `ReadingPolicy`, `Store.readingCounts`). Home, Reading status,
+Core owns the counts and state decision (`ReadingProgress`, `ReadingPolicy`, `Store.countsNow` over `files.reach`). Home, Reading status,
 setup and notifications use it on both platforms. Name updates run independently of content reading.
 
 ## Counts
@@ -38,7 +38,10 @@ opportunity per eight first-pass files.
 Setup and Home share three selection rows and one confirmation. Selection alone does nothing. Home's compact offer and
 one-time name-search explanation have persisted dismissal. The library hero retains its status mascot; kind browsing
 uses leading icons. Reading status has a fixed title and separate state, read, partial, waiting and failure counts, with
-no library percentage. Settings' Reading group includes the schedule, one-off session, Pause/Resume, status and collapsed
+no library percentage. Its mascot walks for as long as reading runs (`settles = false`); Home's status row keeps the
+shared walk-and-rest cadence. Its Reading now row stays while reading runs: between two files it keeps the last one
+(name, kind and date update in place, the old picture stays until the new one is decoded), and before the first an empty
+row holds the height. Settings' Reading group includes the schedule, one-off session, Pause/Resume, status and collapsed
 help/setup check. Audio is name only on both platforms; video reading covers frames without sound.
 
 Automatic iOS reading leaves the idle timer alone. Older iOS offers a screen-awake switch for an explicit session;
@@ -47,7 +50,8 @@ usable-file subtitle for that session. Refusal is shown in-app.
 
 ## Notifications
 
-Android asks once when scheduling or starting reading. Declining never prevents reading. Progress is silent, private on
+Android asks once when scheduling or starting reading (`Words.notificationsAsk`; its sample sentence shows only while
+the sample still reads, decided before the dialog opens). Declining never prevents reading. Progress is silent, private on
 the lock screen, contains no file details, and has Pause reading and a Reading status destination. The service removes
 it at the end. A persisted claim permits one usable-sample notification while hidden and permission is granted; opening
 the app cancels it. iOS retains its system-owned continued-task UI without a second permission or local notification.

@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -51,7 +52,7 @@ class HomeFactsTest {
         f.r.setStarred(other.uri, true)
         f.r.setStarred(pdf.uri, true)
 
-        val h = f.r.home()
+        val h = f.r.home().first()
         assertEquals(listOf("p.jpg", "v.mp4"), h.newMedia.map { it.name })
         assertEquals(listOf("s.png"), h.newShots.map { it.name })
         assertEquals(listOf("a.pdf"), h.newDocs.map { it.name })
@@ -101,16 +102,16 @@ class HomeFactsTest {
     fun nameOnlyCountTracksContentWithoutStateChanges() = test {
         val f = Fx(listOf(testFile("a.txt"), testFile("b.txt")))
         f.index()
-        assertEquals(2L, f.r.home().nameOnly)
+        assertEquals(2L, f.r.counts().first().progress.nameOnly)
 
         // Gives a.txt words behind the cache's back, leaving every state count as it was.
         val a = f.store.fileByUri(testFile("a.txt").uri)!!
         f.store.replaceChunks(a.id, listOf(Store.NewChunk(1, "", "words", null)))
-        assertEquals(1L, f.r.home().nameOnly, "usable content changes coverage even with unchanged indexing states")
+        assertEquals(1L, f.r.counts().first().progress.nameOnly, "usable content changes coverage even with unchanged indexing states")
 
         f.source.next = Changes(listOf(testFile("c.txt")), emptyList(), "tok2")
         f.r.indexBatch(1.minutes)
-        assertEquals(2L, f.r.home().nameOnly, "a commit moved the counts: b.txt and c.txt, now that a.txt has words")
+        assertEquals(2L, f.r.counts().first().progress.nameOnly, "a commit moved the counts: b.txt and c.txt, now that a.txt has words")
     }
 
     @Test

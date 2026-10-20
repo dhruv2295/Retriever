@@ -166,8 +166,6 @@ final class AppModel {
     /// `IndexTask.schedule()` runs once per process for setup's READ_SAMPLE or SCHEDULE step.
     @ObservationIgnored var scheduled = false
     @ObservationIgnored var planning = false
-    /// When this process started reading the sample, for core's time line; nil before.
-    @ObservationIgnored var sampleStartedAt: Date?
     /// The sample's progress, kept here as Android keeps it on SetupFlow, so a screen opening on it never starts at zero.
     var taste = TasteSnap()
     /// Every planned sample file in plan order, read or not; nil until core's first delivery, which decides what the pile settles.
@@ -183,6 +181,10 @@ final class AppModel {
     var storage: Storage?
     /// "Try searching" examples for the kinds that are ready.
     var suggestions: [String] = []
+    /// `suggestions` arrived at least once since Home first asked; Home draws its sections from then on.
+    var suggestionsLoaded = false
+    /// Try's suggestions from the sample's files, held from before Try opens (`watchSetup`).
+    var trySuggestions: [String] = []
     /// Home's newest files, folder count and large files; nil until the first load.
     var fileRevision = 0
     var home: HomeFacts?
@@ -191,7 +193,10 @@ final class AppModel {
     var folderTotals: [FolderTotals] = []
     /// Past years' photos on today's date (`refreshOnThisDay`); Home draws them while `Snap.showOnThisDay`.
     var memories: [OnThisDay.Card] = []
-    @ObservationIgnored var homeLoadedAt = Date.distantPast
+    /// `refreshOnThisDay` has answered once, found or not.
+    var memoriesLoaded = false
+    /// Open while Home shows (`watchHome`).
+    @ObservationIgnored var homeObservations: [KotlinAutoCloseable] = []
     /// Until the old setting is in Prefs, a snapshot's older value must not overwrite it.
     @ObservationIgnored var migratingMobileData = false
 
@@ -224,7 +229,9 @@ final class AppModel {
     @ObservationIgnored var markCelebrated: () async -> Void = {}
 
     @ObservationIgnored var observation: KotlinAutoCloseable?
+    /// Open only while the sample or Try shows (`watchSetup`).
     @ObservationIgnored var sampleObservations: [KotlinAutoCloseable] = []
+    @ObservationIgnored var trySuggestionsObservation: (ids: [Int64], handle: KotlinAutoCloseable)?
     @ObservationIgnored var tokens: [NSObjectProtocol] = []
     @ObservationIgnored var active = false
     @ObservationIgnored var loop: Task<Void, Never>?
@@ -258,16 +265,7 @@ final class AppModel {
                 self?.applySetup(snapshot.setup)
             }
         }
-        sampleObservations = [
-            services.retriever.observeTasteProgress { @Sendable [weak self] p in
-                let taste = TasteSnap(p)
-                Task { @MainActor in if self?.taste != taste { self?.taste = taste } }
-            },
-            services.retriever.observeSampleFiles { @Sendable [weak self] files in
-                let plan = SamplePlan(files: files)
-                Task { @MainActor in self?.sample = plan.files }
-            },
-        ]
+        watchSetup(stage: setup?.stage)
         // Setup's inputs load with it; a first launch has nothing else that would.
         Task { try? await services.retriever.refreshSetUp() }
         readCelebrated = { (try? await services.retriever.celebrated().boolValue) ?? true }
@@ -351,12 +349,13 @@ final class AppModel {
     func applySetup(_ inputs: SetupInputs?) {
         guard let inputs, inputs != setupInputs else { return }
         setupInputs = inputs
+        watchSetup(stage: setup?.stage)
         advance()
     }
 
+    /// Core's Home facts follow a rename or delete on their own (`watchHome`).
     func filesChanged() async {
         fileRevision += 1
-        await refreshHome()
     }
 
     func dismissCaughtUp() {

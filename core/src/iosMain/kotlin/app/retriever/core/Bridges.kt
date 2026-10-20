@@ -56,9 +56,6 @@ interface NativeExtractor {
 
     fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData?
 
-    /** The first [maxBytes] bytes decoded as UTF-8. */
-    fun textHead(uri: String, maxBytes: Int): String?
-
     /** In archive order. */
     fun zipEntryNames(uri: String): List<String>
 

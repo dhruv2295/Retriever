@@ -24,6 +24,14 @@ final class ReadingFilesTests: XCTestCase {
         XCTAssertNil(StatusContent.reason(detail: nil, lastError: nil, message: nil))
     }
 
+    /// Reading status's dog walked ten seconds then held still for fifty, Home's cadence; there it walks while reading runs.
+    func testReadingStatusKeepsTheDogWalkingWhileReadingRuns() {
+        let walk = MascotDirector.shared.next(mood: .walking, last: nil, onScreen: 0, settles: StatusContent.dogSettles)
+        let later = MascotDirector.shared.next(mood: .walking, last: walk, onScreen: 3_600, settles: StatusContent.dogSettles)
+        XCTAssertNotEqual(later.kind, .hold, "an hour in, still walking")
+        XCTAssertEqual(later.clip, .walk)
+    }
+
     private func sample(_ count: Int, read: Int) -> [SampleFile] {
         (0..<count).map { SampleFile(index: Int32($0), file: file($0 + 1), read: $0 < read, note: nil) }
     }

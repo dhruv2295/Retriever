@@ -37,7 +37,6 @@ extension AppModel {
                 wake()
             }
         case .readSample?, .schedule?:
-            if setup?.step == .readSample, sampleStartedAt == nil { sampleStartedAt = .now }
             startLoop()
             if !scheduled {
                 scheduled = true
@@ -95,6 +94,42 @@ extension AppModel {
     func setupBack() {
         guard let stage = setup?.stage, let mark = SetupPolicy.shared.back(stage: stage) else { return }
         setSetupMark(mark)
+    }
+
+    /// The sample's progress and files while the sample or Try shows, and Try's suggestions from once Try can open, so
+    /// they are on Try's first frame. Closed on every other stage: core then does none of this work.
+    func watchSetup(stage: SetupStage?) {
+        guard let services else { return }
+        let sampling = stage == .sample || stage == .try_
+        if sampling, sampleObservations.isEmpty {
+            sampleObservations = [
+                services.retriever.observeTasteProgress { @Sendable [weak self] p in
+                    let taste = TasteSnap(p)
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if self.taste != taste { self.taste = taste }
+                        // The plan and readiness arrive here; Try's suggestions follow them.
+                        self.watchSetup(stage: self.setup?.stage)
+                    }
+                },
+                services.retriever.observeSampleFiles { @Sendable [weak self] files in
+                    let plan = SamplePlan(files: files)
+                    Task { @MainActor in self?.sample = plan.files }
+                },
+            ]
+        } else if !sampling {
+            for observation in sampleObservations { observation.close() }
+            sampleObservations = []
+        }
+        let ids = sampling && (stage == .try_ || taste.readyToTry) ? sampleIds : []
+        guard ids != trySuggestionsObservation?.ids ?? [] else { return }
+        trySuggestionsObservation?.handle.close()
+        trySuggestionsObservation = nil
+        guard !ids.isEmpty else { return }
+        let handle = services.retriever.observeSuggestions(fileIds: Set(ids.map { KotlinLong(value: $0) })) { @Sendable [weak self] terms in
+            Task { @MainActor in if let self, self.trySuggestions != terms { self.trySuggestions = terms } }
+        }
+        trySuggestionsObservation = (ids, handle)
     }
 
     /// The sample's planned files: Try searches inside these.
@@ -212,6 +247,8 @@ struct TasteSnap: Equatable, Sendable {
     var readyToTry = false
     /// Planned files still waiting to be read. A Name only file is done without ever counting as read.
     var pending = 0
+    /// The rest at this phone's measured pace in wall time; nil until measured (core's `TasteProgress.secondsLeft`).
+    var secondsLeft: Int?
 
     var read: Int { counts.values.reduce(0) { $0 + $1.read } }
     var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
@@ -223,14 +260,14 @@ struct TasteSnap: Equatable, Sendable {
             .joined(separator: ", ")
     }
 
-    init(counts: [Kind: Count] = [:], readyToTry: Bool = false, pending: Int = 0) {
-        (self.counts, self.readyToTry, self.pending) = (counts, readyToTry, pending)
+    init(counts: [Kind: Count] = [:], readyToTry: Bool = false, pending: Int = 0, secondsLeft: Int? = nil) {
+        (self.counts, self.readyToTry, self.pending, self.secondsLeft) = (counts, readyToTry, pending, secondsLeft)
     }
 
     init(_ p: TasteProgress) {
         self.init(
             counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) }, readyToTry: p.readyToTry,
-            pending: Int(p.pending))
+            pending: Int(p.pending), secondsLeft: p.secondsLeft?.intValue)
     }
 }
 

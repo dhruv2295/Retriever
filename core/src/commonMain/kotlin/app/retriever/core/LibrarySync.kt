@@ -19,7 +19,27 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         if (names == null) names = NameIndex.build(store.nameEntries())
     }
 
-    suspend fun sync(forceFull: Boolean = false): SyncResult {
+    /** Held from the scan to the last write, so no second scan slips into a running sync's tail. */
+    private val syncLock = Mutex()
+
+    /**
+     * [first], on a full scan only: gets every file the scan keeps before any is written, to write the few it needs at
+     * once (the sample's plan). The rest follow [WRITE_ROWS] at a time, so a reader's writes interleave with them.
+     */
+    suspend fun sync(forceFull: Boolean = false, first: (suspend (List<SourceFile>) -> Unit)? = null): SyncResult =
+        syncLock.withLock { syncLocked(forceFull, first) }
+
+    /** Null when a sync is running already: it covers the caller, who need not wait for its tail. */
+    suspend fun syncUnlessRunning(): SyncResult? {
+        if (!syncLock.tryLock()) return null
+        return try {
+            syncLocked(false, null)
+        } finally {
+            syncLock.unlock()
+        }
+    }
+
+    private suspend fun syncLocked(forceFull: Boolean, first: (suspend (List<SourceFile>) -> Unit)?): SyncResult {
         val prefs = store.prefs()
         val token = store.meta(TOKEN)
         val lastFull = store.meta(LAST_FULL)?.toLongOrNull()
@@ -52,10 +72,12 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
                 changes.present?.let { knownInScope - it }.orEmpty()
         }.toList()
 
+        if (changes.isFullScan) first?.invoke(keep)
         val excludedMeanwhile = namesLock.withLock {
             // A folder excluded during the scan was dropped already (dropExcluded): this scan would bring it back.
             if (store.prefs().excludedFolders != prefs.excludedFolders) return@withLock true
-            store.upsertFiles(touched)
+            // Rows [first] wrote are unchanged now, so their upsert writes nothing.
+            touched.chunked(WRITE_ROWS).forEach(store::upsertFiles)
             // An incremental sync is small, and a full scan rebuilds the names instead.
             val removedIds = removeLocked(removed, needIds = !changes.isFullScan)
             // A starred file can only come back under a new uri, so syncs that add nothing skip the search.
@@ -70,8 +92,8 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             }
             false
         }
-        // The token was not advanced, so the scan runs again under the new folders.
-        if (excludedMeanwhile) return sync(forceFull)
+        // The token was not advanced, so the scan runs again under the new folders; [first] has had its files.
+        if (excludedMeanwhile) return syncLocked(forceFull, null)
         putMeta(TOKEN, changes.nextToken)
         if (changes.isFullScan) {
             putMeta(LAST_FULL, now().toString())
@@ -131,5 +153,8 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         const val EXCLUDES = "scan_excludes"
         const val RULES = "scan_rules_version"
         const val DAY_MS = 24L * 60 * 60 * 1000
+
+        /** Rows per write transaction of a sync: SQLite's own transactions, sized so a reader's write waits for one. */
+        const val WRITE_ROWS = 1_000
     }
 }

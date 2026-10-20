@@ -8,8 +8,9 @@ import SwiftUI
 enum AppFixture {
     /// Setup's welcome and its access choice: not asked yet, limited or denied Photos, or a folder added.
     case firstRun, photosLimited, photosDenied, folderAdded
-    /// Setup's sample read with no download: starting, reading, paused, or done; then Try and the choice of when to read more.
-    case sampleStart, sampleReading, samplePaused, sampleDone
+    /// Setup's sample read with no download: picking (no plan yet), starting, reading, paused, or done; then Try and the
+    /// choice of when to read more.
+    case samplePicking, sampleStart, sampleReading, samplePaused, sampleDone
     case trying(suggestions: Bool)
     case choosing
     /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
@@ -38,7 +39,7 @@ extension AppModel {
         var modelMissing = false
         var skipped: [SkippedFile] = []
         var taste = TasteSnap()
-        var sample: [SampleFile] = []
+        var sample: [SampleFile]? = []
         var suggestions = ["wifi password", "boarding pass", "electricity bill"]
         let files = Self.readingFiles
         /// Before access is chosen: the welcome, nothing read, no download.
@@ -74,6 +75,10 @@ extension AppModel {
         case .photosLimited: inSetup(.limited)
         case .photosDenied: inSetup(.denied)
         case .folderAdded: inSetup(.notDetermined, folders: ["Work"])
+        case .samplePicking:
+            inSample(.accessChosen, read: 0)
+            setup = SetupInputs(mark: .accessChosen, skipped: false, decided: false, planned: 0, accessGiven: false)
+            (taste, sample, snap.reading.current) = (TasteSnap(), nil, nil)
         case .sampleStart: inSample(.accessChosen, read: 0)
         case .sampleReading: inSample(.accessChosen)
         case .samplePaused:
@@ -147,7 +152,7 @@ extension AppModel {
             newShots: (1...6).map { file("Screenshot \($0).png", .screenshot, "Photos/Screenshots", size: 400_000, daysAgo: Double($0)) },
             newDocs: docs,
             starred: [docs[0], docs[2]], starredCount: 2,
-            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, nameOnly: 0, topFolders: [])
+            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, topFolders: [], kindTotals: [:], folderTotals: [])
         // Photos never says a size on iOS; folder files do.
         kindTotals = snap.byKind.filter { $0.value > 0 }.mapValues { n in
             FileTotals(files: Int64(n), knownBytes: 0, unknownSizes: Int64(n))
@@ -162,6 +167,8 @@ extension AppModel {
         storage = Storage(index: 412_000_000, model: ModelVariant.m440.generic.sizeBytes, cache: 38_000_000)
         starred = ["folder://fixture/Lease agreement 2026.pdf", "folder://fixture/Trip itinerary.docx"]
         self.suggestions = suggestions
+        suggestionsLoaded = true
+        trySuggestions = suggestions
     }
 
     /// What reading shows: the file being read, then the newest read. A mix of kinds, as a sample reads them.

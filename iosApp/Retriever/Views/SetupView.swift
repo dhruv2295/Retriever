@@ -29,20 +29,27 @@ struct SetupView: View {
     }
 }
 
-/// One setup screen: its content scrolls, its actions stay at the bottom.
+/// One setup screen: its content scrolls, its actions stay at the bottom. Content shorter than the screen sits in the
+/// middle of it, the spare height split above and below.
 private struct StepPage<Content: View, Actions: View>: View {
+    var alignment: HorizontalAlignment = .leading
     @ViewBuilder let content: Content
     @ViewBuilder let actions: Actions
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) { content }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
+        GeometryReader { screen in
+            ScrollView {
+                VStack(alignment: alignment, spacing: 16) { content }
+                    .multilineTextAlignment(alignment == .center ? .center : .leading)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("step-content")
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity, minHeight: screen.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .scrollBounceBehavior(.basedOnSize)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) { actions }
                 .controlSize(.large)
@@ -117,17 +124,21 @@ private struct SampleStep: View {
         let taste = model.taste
         let sample = model.sample ?? []
         let pause = model.progress.reading.pauseReason
-        // Kept on the model, so coming back to this screen never starts the usual time again.
-        let since = model.sampleStartedAt ?? .now
         // One predicate for the mascot, the time line and the pile: planning, or reading, not stopped, with files left.
         // Not `running`: it drops between two sample batches, and the mascot would sit down for that gap.
         let reading = model.setup?.step == .plan || (pause == nil && taste.pending > 0)
         let planned = Int64(taste.planned)
         // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
         let starting = planned == 0 || (taste.read == 0 && taste.pending > 0)
-        let count = starting ? Words.shared.STARTING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
-        StepPage {
-            MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).frame(maxWidth: .infinity)
+        let count = starting ? Words.shared.SAMPLE_PICKING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
+        // One muted slot: why it stopped, else the time and whether search can be tried, else nothing.
+        let note =
+            pause
+            ?? Words.shared.sampleNote(
+                reading: reading, readyToTry: taste.readyToTry, secondsLeft: taste.secondsLeft.map { KotlinInt(int: Int32($0)) })
+        // Every row is laid out from the first frame, before the plan too, so the centred group never moves.
+        StepPage(alignment: .center) {
+            MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160)
             Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityValue(taste.spoken)
@@ -137,24 +148,20 @@ private struct SampleStep: View {
             )
             // A new pile at the first delivery: the files read by then are there from its start, so they never settle again.
             .id(model.sample == nil)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 8) {
                 Text(count).monospacedDigit()
                 // Fills when every planned file is done, read or not; the line above counts the read ones.
-                if planned > 0 {
-                    ProgressView(value: Double(taste.planned - taste.pending), total: Double(taste.planned)).accessibilityHidden(true)
-                }
+                ProgressView(value: Double(taste.planned - taste.pending), total: Double(max(taste.planned, 1))).accessibilityHidden(true)
             }
-            if let pause {
-                Note(pause)
-            } else {
-                TimelineView(.periodic(from: since, by: 15)) { context in
-                    let elapsed = Int64(context.date.timeIntervalSince(since) * 1000)
-                    if let time = Words.shared.sampleTime(reading: reading, read: Int64(taste.read), elapsedMs: elapsed, words: Copy.words) {
-                        Note(time)
-                    }
-                }
+            // Two lines kept for the note whether it shows or not; larger text still grows it.
+            ZStack {
+                Text(" \n ").hidden()
+                if let note { Text(note) }
             }
-            if planned > 0 { Button(Words.shared.seeAll(files: planned)) { seeingAll = true } }
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
+            let seeAll = Button(Words.shared.seeAll(files: planned)) { seeingAll = true }
+            if planned > 0 { seeAll } else { seeAll.hidden() }
         } actions: {
             Button {
                 model.setSetupMark(.trying)
@@ -268,8 +275,9 @@ private struct SampleList: View {
 
     var body: some View {
         AppStack(model: model, path: $path) {
+            // It lists every planned file, read or not, so it says how many are read.
             SampleRows(sample: sample)
-                .navigationTitle(Words.shared.SAMPLE_TITLE)
+                .navigationTitle(Words.shared.readOf(read: Int64(sample.filter(\.read).count), planned: Int64(sample.count)))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -321,7 +329,7 @@ private struct TryStep: View {
         let more = !model.nothingLeft
         AppStack(model: model, path: $path) {
             SearchView(model: model, search: search, trial: Trial(ids: model.sampleIds, photoSearch: model.meaningSearch))
-                .toolbar { SetupBack(model: model) }
+                .toolbar { SetupBack(model: model, search: search) }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 8) {
                         Button(action: model.chooseWhenToReadMore) { wide(more ? Words.shared.CHOOSE_WHEN : Words.shared.GO_TO_HOME) }
@@ -362,13 +370,22 @@ private struct ChooseStep: View {
     }
 }
 
-/// Back from Try to the sample, or from the choice to Try, by core's rule.
+/// Back from Try to the sample, or from the choice to Try, by core's rule. On Try's results it first goes back to Try's
+/// own start, in one press.
 private struct SetupBack: ToolbarContent {
     let model: AppModel
+    var search: SearchModel?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button("Back", systemImage: "chevron.backward", action: model.setupBack)
+            Button("Back", systemImage: "chevron.backward") {
+                if let search, search.active {
+                    search.setText("")
+                    search.clearPhoto()
+                } else {
+                    model.setupBack()
+                }
+            }
         }
     }
 }

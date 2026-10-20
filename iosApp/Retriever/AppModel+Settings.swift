@@ -264,26 +264,40 @@ extension AppModel {
         Task { try? await services.retriever.setStarred(uri: uri, on: on) }
     }
 
-    /// Home's facts, at most once every two seconds while the counts change.
-    func refreshHome() async {
-        guard let services else { return }
-        let wait = 2 - Date.now.timeIntervalSince(homeLoadedAt)
-        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-        guard !Task.isCancelled, let facts = try? await services.retriever.home() else { return }
-        let terms = try? await services.retriever.suggestions(fileIds: nil)
-        let byKind = try? await services.retriever.kindTotals()
-        let byFolder = try? await services.retriever.folderTotals()
-        guard !Task.isCancelled else { return }
-        homeLoadedAt = .now
+    /// Home's facts and suggestions while Home shows: core reads its facts again when files come, go or change, and the
+    /// suggestions as files are read. `unwatchHome` stops that work when Home goes.
+    func watchHome() {
+        guard let services, homeObservations.isEmpty else { return }
+        homeObservations = [
+            services.retriever.observeHome { @Sendable [weak self] facts in
+                Task { @MainActor in self?.apply(home: facts) }
+            },
+            services.retriever.observeSuggestions(fileIds: nil) { @Sendable [weak self] terms in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if self.suggestions != terms { self.suggestions = terms }
+                    if !self.suggestionsLoaded { self.suggestionsLoaded = true }
+                }
+            },
+        ]
+    }
+
+    func unwatchHome() {
+        for observation in homeObservations { observation.close() }
+        homeObservations = []
+    }
+
+    private func apply(home facts: HomeFacts) {
         home = facts
-        if let terms, suggestions != terms { suggestions = terms }
-        if let byKind, kindTotals != byKind { kindTotals = byKind }
-        if let byFolder, folderTotals != byFolder { folderTotals = byFolder }
+        if kindTotals != facts.kindTotals { kindTotals = facts.kindTotals }
+        if folderTotals != facts.folderTotals { folderTotals = facts.folderTotals }
     }
 
     /// The same date in past years, asked of core with this calendar's real day lengths. Not throttled: it is a few
     /// index probes, and Home asks again only when the date, the photo count or the setting changes.
     func refreshOnThisDay(now: Date = .now, calendar: Calendar = .current) async {
+        // Answered, found or not: Home's sections wait for this so On This Day is never inserted above another.
+        defer { if !Task.isCancelled, !memoriesLoaded { memoriesLoaded = true } }
         guard let services else { return }
         let days = OnThisDay.days(on: now, calendar: calendar)
         let triples = days.map {

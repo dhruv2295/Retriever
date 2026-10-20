@@ -83,6 +83,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -264,7 +265,11 @@ fun SearchContent(
         }
     }
 
+    // A search run from a chip (Home's, Try's) opens the bar on its results with nothing to type: the field gives up the
+    // focus the bar hands it, which with the keyboard down would take the first Back, so one Back leaves the results.
+    var picked by remember { mutableStateOf(false) }
     val closeSearch = {
+        picked = false
         text.clearText()
         actions.onQuery("")
         actions.onClearSimilar()
@@ -276,7 +281,7 @@ fun SearchContent(
     // Read before the lambda, so it captures these two values and not the whole SearchUi.
     val similar = ui.similar
     val photoSearch = ui.canSearchByPhoto
-    val inputField = @Composable {
+    val inputField = @Composable { inDialog: Boolean ->
         // Read here: the expanded bar shows this field in its own dialog window.
         val keyboard = LocalSoftwareKeyboardController.current
         val focus = LocalFocusManager.current
@@ -289,12 +294,26 @@ fun SearchContent(
         }
         val me = remember { Any() }
         DisposableEffect(me) { onDispose { focusing.remove(me) } }
+        // The focus the opening bar hands its field after a chip's search is given straight back, once.
+        var focused by remember { mutableStateOf(false) }
+        LaunchedEffect(focused, picked) {
+            if (inDialog && focused && picked) {
+                picked = false
+                focus.clearFocus()
+                keyboard?.hide()
+            }
+        }
         SearchBarDefaults.InputField(
-            modifier = Modifier.onFocusChanged { if (it.hasFocus) focusing.add(me) else focusing.remove(me) },
+            modifier = Modifier.onFocusChanged {
+                focused = it.hasFocus
+                if (it.hasFocus) focusing.add(me) else focusing.remove(me)
+            },
             textFieldState = text,
             searchBarState = bar,
             onSearch = {
                 actions.onSubmit(it)
+                // Done typing: a focused field with the keyboard down would take the first Back.
+                focus.clearFocus()
                 keyboard?.hide()
             },
             placeholder = { Text("Search inside your files", maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -346,13 +365,14 @@ fun SearchContent(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                SearchBar(state = bar, inputField = inputField, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
+                SearchBar(state = bar, inputField = { inputField(false) }, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
             }
         },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val use = { q: String, submit: Boolean ->
                 text.setTextAndPlaceCursorAtEnd(q)
+                picked = submit
                 if (submit) actions.onSubmit(q)
                 scope.launch { bar.animateToExpanded() }
                 Unit
@@ -364,7 +384,7 @@ fun SearchContent(
     // Outside the Scaffold nothing sets the content colour, and the bar's dialog picks its status bar icons and its
     // results' text colour from it.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        ExpandedFullScreenSearchBar(state = bar, inputField = inputField) {
+        ExpandedFullScreenSearchBar(state = bar, inputField = { inputField(true) }) {
             BackHandler(enabled = bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
             LightStatusBarIconsOnDark()
             SearchPane(ui, home, actions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
@@ -415,7 +435,7 @@ internal fun SearchPane(
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val side = gutter()
                 if (ui.query.isBlank() && ui.similar == null) {
-                    Suggestions(ui.recent, home.suggestions, actions, useText, side)
+                    Suggestions(ui.recent, home.suggestions.orEmpty(), actions, useText, side)
                 } else {
                     Column { Results(ui, home, actions, star, grid, useText, side) }
                 }

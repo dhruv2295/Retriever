@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -120,7 +121,7 @@ class FacadeW5Test {
     @Test
     fun suggestionsNeverInventContentForAnUnreadFile() = test {
         val f = Fx(listOf(testFile("wifi password.png", Kind.SCREENSHOT)))
-        assertTrue(f.r.suggestions().isEmpty())
+        assertTrue(f.r.suggestions().first().isEmpty())
     }
 
     @Test
@@ -188,18 +189,18 @@ class FacadeW5Test {
         val f = Fx(shots + docs + big, mapOf("notes.txt" to listOf(textPiece("agenda for monday"))))
         f.index()
 
-        val h = f.r.home()
+        val h = f.r.home().first()
         assertEquals(listOf("new.pdf", "notes.txt", "plan.txt", "old.pdf"), h.newDocs.map { it.name })
         assertEquals((12 downTo 3).map { "shot$it.png" }, h.newShots.map { it.name })
         assertEquals(3L, h.folders)
         assertEquals(1L, h.largeCount)
         assertEquals(big.size, h.largeBytes)
-        assertEquals(16L, h.nameOnly, "every file but notes.txt is read by name only")
+        assertEquals(16L, f.r.counts().first().progress.nameOnly, "every file but notes.txt is read by name only")
 
         // While a file waits, the count is not taken again.
         f.store.removeFiles(listOf(big.uri))
         f.store.upsertFiles(listOf(testFile("later.txt")))
-        assertEquals(15L, f.r.home().nameOnly)
+        assertEquals(15L, f.r.counts().first().progress.nameOnly)
     }
 
     @Test
@@ -209,9 +210,9 @@ class FacadeW5Test {
         val ids = f.store.pending(2).map { it.id }
         f.store.replaceChunks(ids[0], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
         f.store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "orchard cedar jasmine marigold", null)))
-        assertTrue(f.r.suggestions(setOf(ids[0])).isEmpty(), "terms must recur in two selected files")
-        assertEquals(3, f.r.suggestions().size)
-        assertTrue(f.r.suggestions(emptySet()).isEmpty())
+        assertTrue(f.r.suggestions(setOf(ids[0])).first().isEmpty(), "terms must recur in two selected files")
+        assertEquals(3, f.r.suggestions().first().size)
+        assertTrue(f.r.suggestions(emptySet()).first().isEmpty())
     }
 
     @Test

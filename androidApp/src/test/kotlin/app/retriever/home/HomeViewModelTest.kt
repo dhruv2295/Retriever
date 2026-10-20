@@ -141,9 +141,9 @@ class HomeViewModelTest {
 
     @Test fun unchangedListsKeepTheirInstances() {
         val docs = pdfs
-        val old = HomeFacts(photos, emptyList(), docs, emptyList(), 0, 1, 0, 0, 0)
+        val old = HomeFacts(photos, emptyList(), docs, emptyList(), 0, 1, 0, 0)
         // A refresh builds equal lists as new objects; only a list that really changed is replaced.
-        val fresh = HomeFacts(photos.toList(), emptyList(), docs.toList(), listOf(photos[0]), 1, 1, 0, 0, 0).reusing(old)
+        val fresh = HomeFacts(photos.toList(), emptyList(), docs.toList(), listOf(photos[0]), 1, 1, 0, 0).reusing(old)
         assertSame(old.newMedia, fresh.newMedia)
         assertSame(old.newDocs, fresh.newDocs)
         assertEquals(listOf(photos[0]), fresh.starred)
@@ -187,14 +187,38 @@ class HomeViewModelTest {
         val r = testRetriever(pdfs + photos, dispatchers = core, wrapDriver = { CountingDriver(it).also { c -> driver.d = c } })
         r.indexBatch(1.minutes)
         driver.d.subscriptions = 0
-        r.counts().first()
-        val one = driver.d.subscriptions
-        assertTrue(one > 0)
+        val vm = vm(r)
+        vm.ui.first { it.home != null && it.counts != null && it.readingStatus != null }
+        // The numbers and the reading status share core's one counts subscription; the suggestions, which follow what is
+        // read, keep one of their own. Home's facts follow the library, not the store.
+        assertTrue("${driver.d.subscriptions} store subscriptions", driver.d.subscriptions <= 2)
+    }
+
+    /** Home waiting in the back stack (nothing collecting) holds no store subscription; shown, it does. */
+    @Test fun theLibraryIsWatchedOnlyWhileHomeIsShown() = runTest {
+        val driver = object {
+            lateinit var d: CountingDriver
+        }
+        val r = testRetriever(pdfs + photos, dispatchers = core, wrapDriver = { CountingDriver(it).also { c -> driver.d = c } })
+        r.indexBatch(1.minutes)
         driver.d.subscriptions = 0
         val vm = vm(r)
-        vm.ui.first { it.home != null }
-        // Two collectors (the numbers, and the slower home reload) share one upstream.
-        assertEquals(one, driver.d.subscriptions)
+        advanceUntilIdle()
+        assertEquals("subscriptions with no screen", 0, driver.d.subscriptions)
+        assertEquals(null, vm.ui.value.counts)
+        vm.ui.first { it.counts != null && it.home != null }
+        assertTrue(driver.d.subscriptions > 0)
+    }
+
+    /** Every section's source answers before any section draws, so none is later inserted above another. */
+    @Test fun sectionsWaitForTheFactsTheSuggestionsAndOnThisDay() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = vm()
+        assertFalse(vm.ui.value.sectionsReady)
+        vm.now = { ZonedDateTime.now() }
+        vm.onResume()
+        val ui = vm.ui.first { it.sectionsReady }
+        assertTrue(ui.home != null && ui.suggestions != null && ui.memoriesDay != null)
     }
 
     // --- Caught up, once ---
@@ -323,7 +347,8 @@ class HomeViewModelTest {
         assertTrue(vm.ui.first { it.memories.isNotEmpty() }.showOnThisDay)
 
         vm.hideOnThisDay()
-        assertFalse(vm.ui.value.showOnThisDay)
+        // The screen's state changes first, not waiting for the store's write.
+        assertFalse(vm.ui.first { !it.showOnThisDay }.showOnThisDay)
         runCurrent()
         assertFalse(r.prefs.value.showOnThisDay)
 

@@ -103,7 +103,7 @@ final class CopyTests: XCTestCase {
     /// Setup's sentences are core's; the shell adds only "iPhone" for "this device".
     func testSetupSaysGoToHomeAndNeverSkipOrDownload() {
         XCTAssertEqual(Words.shared.GO_TO_HOME, "Go to Home")
-        XCTAssertEqual(Words.shared.searchingSample(files: 54), "Searching inside 54 sample files")
+        XCTAssertEqual(Words.shared.searchingTry(read: 54), "Searching every file’s name, and inside the 54 files read so far.")
         XCTAssertEqual(Copy.photosAccess(.limited), Words.shared.SELECTED_PHOTOS)
         XCTAssertEqual(Copy.photosAccess(.authorized), Words.shared.ALL_PHOTOS)
         XCTAssertNil(Copy.photosAccess(.notDetermined))
@@ -122,11 +122,13 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(
             Words.shared.iosAccessNote(words: Copy.words),
             "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your \(Copy.device).")
-        XCTAssertEqual(Words.shared.STARTING, "Starting…")
+        XCTAssertEqual(Words.shared.SAMPLE_PICKING, "Picking a few of your files…")
         XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40), "12 of 40 files read")
         XCTAssertEqual(Words.shared.READ, "Read")
-        XCTAssertNil(Words.shared.sampleTime(reading: true, read: 0, elapsedMs: 0, words: Copy.words), "no time before a file is read")
-        XCTAssertNotNil(Words.shared.sampleTime(reading: true, read: 1, elapsedMs: 0, words: Copy.words))
+        XCTAssertEqual(
+            Words.shared.sampleNote(reading: true, readyToTry: false, secondsLeft: nil), "You can try search once a few files are read.",
+            "no time before it is measured")
+        XCTAssertEqual(Words.shared.sampleNote(reading: true, readyToTry: true, secondsLeft: 170), "About 3 minutes left. You can try search now.")
         XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "Up to date", detail: nil).pause, "not a pause")
     }
 

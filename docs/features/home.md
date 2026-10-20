@@ -13,11 +13,17 @@ holds them. The search bar and results are in `search-ui.md`.
 - **One immutable state.** `HomeViewModel` exposes `StateFlow<HomeUi>`, collected with `collectAsStateWithLifecycle`.
   `HomeUi.counts` is `null` until the store answers, and `null` draws nothing, so neither "empty library" nor "caught up"
   shows before the data is in (the premature-empty rule applied to Home).
-- **One store subscription.** `retriever.counts()` is shared with `shareIn(WhileSubscribed(5000), replay = 1)`; every
-  collector in the view model reads that one flow. The home facts refresh is throttled (conflate plus a short delay) so
-  a file landing every few hundred milliseconds does not rebuild the page.
+- **One store subscription, in core.** `counts()`, `readingStatus()` and `home()` are flows core shares across every
+  collector and conflates; `home()` (newest files, stars, folders, large files, the totals) reads again only when files
+  come, go or change, never because a file was read, and `suggestions()` follows what is read
+  (`sample-quickstart.md`, Core API for the apps). Collect them only while Home shows.
 - **Stable lists.** `HomeFacts.reusing` hands back the old list instances for strips that did not change, so the
   `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`.
+- **Sections draw together.** Below the hero, nothing draws until the home facts, the suggestions and On this day
+  (where it can show) have all answered (`sectionsReady`; iOS also waits for recent searches), so no section lands above
+  one already shown. A failed On this day lookup counts as an answer with no memories.
+- **Long press.** The photo mosaic, screenshots, documents and starred cards carry the same file menu as Search and
+  Browse ("More options", with matching screen-reader actions).
 - **Fixed order, hide at zero.** Sections never move because a count changed; one with nothing to say is not drawn.
   `Words.kindProgress` (core, shared by both apps) turns counts into the section subtitle: "Name only", "{N} waiting to read" while files are scheduled, otherwise nothing.
 - **User-facing kinds only, enforced in SQL.** No Home picture or "newest" list can hold an OTHER file; the Starred strip

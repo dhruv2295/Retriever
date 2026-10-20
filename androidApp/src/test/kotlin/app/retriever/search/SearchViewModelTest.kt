@@ -25,7 +25,6 @@ import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.Signature
 import app.retriever.core.Tier
-import app.retriever.core.Words
 import app.retriever.core.answerFor
 import app.retriever.core.cutShort
 import app.retriever.core.showsEmpty
@@ -118,7 +117,6 @@ class SearchViewModelTest {
         assertTrue(full.map { it.fileId }.containsAll(planned))
         // Outside the sample, a file is found by its name only.
         assertTrue(full.filter { it.fileId !in planned }.all { it.byName })
-        assertEquals("Searching inside 3 sample files", Words.searchingSample(planned.size.toLong()))
         vm.setScope(null)
         assertEquals(60, vm.ui.first { it.scope == null && it.done && (it.hits?.size ?: 0) == 60 }.hits!!.size)
     }

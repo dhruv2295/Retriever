@@ -37,6 +37,7 @@ import app.retriever.core.ZipBudget
 import app.retriever.core.betterPageText
 import app.retriever.core.chunkChars
 import app.retriever.core.cutShort
+import app.retriever.core.decodeText
 import app.retriever.core.docFormat
 import app.retriever.core.fitSize
 import app.retriever.core.imageWithText
@@ -353,8 +354,8 @@ internal suspend fun zipText(
 }
 
 /**
- * The first [cap] bytes as UTF-8; [onCut] runs when there was more. Grows as it reads, so a small file or zip entry
- * never costs a [cap]-sized buffer (readNBytes(int) is API 33, above minSdk 30).
+ * The first [cap] bytes as text ([decodeText]); [onCut] runs when there was more. Grows as it reads, so a small file or
+ * zip entry never costs a [cap]-sized buffer (readNBytes(int) is API 33, above minSdk 30).
  */
 fun InputStream.readCapped(cap: Int, onCut: () -> Unit): String {
     val out = ByteArrayOutputStream()
@@ -366,7 +367,7 @@ fun InputStream.readCapped(cap: Int, onCut: () -> Unit): String {
     }
     val bytes = out.toByteArray()
     if (bytes.size > cap) onCut()
-    return String(bytes, 0, minOf(bytes.size, cap), Charsets.UTF_8)
+    return decodeText(if (bytes.size > cap) bytes.copyOf(cap) else bytes)
 }
 
 object ImageBytes {

@@ -32,7 +32,6 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
             Words.moreFiles(ui.moreFiles),
             style = MaterialTheme.typography.bodyLarge,
         )
-        Text("From your selected files and folders", style = MaterialTheme.typography.bodyMedium)
         Text("A large library can take hours of reading, spread across several sessions. You don’t need to wait.", style = MaterialTheme.typography.bodyMedium)
         Text("When should Retriever read them?", style = MaterialTheme.typography.titleMedium)
         val labels = listOf("While charging", "Read now for 15 minutes", "Not now")

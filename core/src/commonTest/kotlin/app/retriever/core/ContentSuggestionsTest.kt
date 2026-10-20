@@ -43,6 +43,24 @@ class ContentSuggestionsTest {
         assertEquals(listOf("electricity", "orchard", "oak"), distinctiveTerms(mapOf(1L to terms, 2L to terms)))
     }
 
+    /** The run's shape: a two-word phrase and each of its words were the top three; none may hold another. */
+    @Test fun noSuggestionHoldsAnother() {
+        val terms = mapOf("garden hose" to 3, "garden" to 3, "hose" to 3, "lantern" to 1, "meadow" to 1)
+        val suggestions = distinctiveTerms(mapOf(1L to terms, 2L to terms))
+        assertEquals(3, suggestions.size, suggestions.toString())
+        for (a in suggestions) {
+            for (b in suggestions - a) assertFalse(b.split(' ').containsAll(a.split(' ')), "$a is inside $b in $suggestions")
+        }
+    }
+
+    @Test fun suggestionsComeFromDifferentKindsOfFileWhileThereAreAny() {
+        val notes = mapOf("orchard" to 4, "garden" to 4, "harvest" to 4)
+        val files = mapOf(1L to notes, 2L to notes, 3L to mapOf("boarding" to 1, "pebble" to 20), 4L to mapOf("boarding" to 1, "copper" to 20))
+        val kinds = mapOf(1L to Kind.DOC, 2L to Kind.DOC, 3L to Kind.SCREENSHOT, 4L to Kind.SCREENSHOT)
+        assertEquals(listOf("harvest", "orchard", "garden"), distinctiveTerms(files), "by score alone, all three are the notes'")
+        assertEquals(listOf("harvest", "orchard", "boarding"), distinctiveTerms(files, kinds = kinds), "the screenshots' best beats a third note term")
+    }
+
     @Test fun fewerThanThreeGoodTermsFallsBackToKinds() {
         assertTrue(distinctiveTerms(mapOf(1L to mapOf("orchard" to 1), 2L to mapOf("orchard" to 1))).isEmpty())
         assertTrue(distinctiveTerms(emptyMap()).isEmpty())

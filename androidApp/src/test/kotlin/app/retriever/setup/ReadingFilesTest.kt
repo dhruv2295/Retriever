@@ -10,6 +10,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -18,11 +20,14 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
@@ -236,6 +241,95 @@ class ReadingFilesTest {
         rule.onNodeWithText("Photo").assertDoesNotExist()
         rule.onNodeWithTag("reading-sweep").assertDoesNotExist()
         rule.onNodeWithTag("reading-crossfade").assertDoesNotExist()
+    }
+
+    /** Core reports no file for a moment between two: the row holds the last one, its label and its height. */
+    @Test fun aGapBetweenFilesHoldsTheRow() {
+        val current = mutableStateOf<SourceFile?>(file(1))
+        rule.setContent { ShotTheme(false, 1f) { Column(Modifier.testTag("reading")) { ReadingNow(current.value, reduceMotion = true) } } }
+        fun height() = rule.onNodeWithTag("reading").fetchSemanticsNode().size.height
+        val tall = height()
+        current.value = null
+        rule.onNodeWithText("Reading now").assertExists()
+        rule.onNodeWithText("1.jpg").assertExists()
+        rule.onNodeWithText("Starting reading…").assertDoesNotExist()
+        assertEquals(tall, height())
+        current.value = file(2, Kind.PDF)
+        rule.onNodeWithText("2.jpg").assertExists()
+        rule.onNodeWithText("1.jpg").assertDoesNotExist()
+        assertEquals(tall, height())
+    }
+
+    /** Before any file the row is held empty, at a file's height, so the first one moves nothing below it. */
+    @Test fun theRowIsHeldBeforeTheFirstFile() {
+        val current = mutableStateOf<SourceFile?>(null)
+        rule.setContent { ShotTheme(false, 1f) { Column(Modifier.testTag("reading")) { ReadingNow(current.value, reduceMotion = true) } } }
+        fun height() = rule.onNodeWithTag("reading").fetchSemanticsNode().size.height
+        val empty = height()
+        current.value = file(1)
+        rule.waitForIdle()
+        assertEquals(empty, height())
+    }
+
+    /** A new file's text changes in place: never two rows at once, fading over each other. */
+    @Test fun aNewFileNeverOverlapsTheOld() {
+        val current = mutableStateOf<SourceFile?>(file(1))
+        rule.mainClock.autoAdvance = false
+        rule.setContent { ShotTheme(false, 1f) { ReadingNow(current.value, reduceMotion = false) } }
+        rule.mainClock.advanceTimeBy(500)
+        current.value = file(2, Kind.PDF)
+        repeat(12) {
+            rule.mainClock.advanceTimeByFrame()
+            assertEquals(0, rule.onAllNodesWithText("1.jpg").fetchSemanticsNodes().size)
+            assertEquals(1, rule.onAllNodesWithText("2.jpg").fetchSemanticsNodes().size)
+        }
+    }
+
+    /** The old picture stays until the new one is decoded: no frame shows an empty tile between two pictures. */
+    @Test fun thePictureNeverBlanksBetweenFiles() {
+        val current = mutableStateOf<SourceFile?>(file(1))
+        rule.mainClock.autoAdvance = false
+        rule.setContent { ShotTheme(false, 1f) { ReadingNow(current.value, reduceMotion = false) } }
+        // Blue is the test pictures' colour; the sweep's light band over it still leaves red low.
+        fun blue(): Boolean {
+            val centre = rule.onNodeWithTag("reading-sweep", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.center
+            val pixel = rule.onRoot().captureToImage().asAndroidBitmap().getPixel(centre.x.toInt(), centre.y.toInt())
+            return android.graphics.Color.red(pixel) < 100 && android.graphics.Color.blue(pixel) > 200
+        }
+        // The first picture decodes off the main thread.
+        var tries = 0
+        while (!blue() && tries++ < 200) {
+            rule.mainClock.advanceTimeByFrame()
+            Thread.sleep(10)
+        }
+        assertTrue(blue())
+        current.value = file(2)
+        repeat(15) {
+            rule.mainClock.advanceTimeByFrame()
+            assertTrue("a blank frame between two pictures", blue())
+        }
+    }
+
+    /** Status keeps Reading now on screen while reading runs, through the moment between two files. */
+    @Test fun statusHoldsReadingNowBetweenFiles() {
+        val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF)))
+        rule.setContent {
+            ShotTheme(false, 1f) {
+                StatusContent(
+                    app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                    Prefs(),
+                    index.value,
+                    emptyList(),
+                    false,
+                    false,
+                    Modifier,
+                )
+            }
+        }
+        rule.onNodeWithText("5.jpg").assertExists()
+        index.value = index.value.copy(currentFile = null)
+        rule.onNodeWithText("Reading now").assertExists()
+        rule.onNodeWithText("5.jpg").assertExists()
     }
 
     @Test fun insertingARecentFileDoesNotRecomposeExistingCellsAcrossRows() {

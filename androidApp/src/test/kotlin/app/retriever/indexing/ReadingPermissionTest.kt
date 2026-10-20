@@ -6,8 +6,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
+import app.retriever.core.Kind
+import app.retriever.core.Words
+import app.retriever.testFile
 import app.retriever.testRetriever
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -34,5 +40,27 @@ class ReadingPermissionTest {
         rule.runOnIdle { assertEquals("held while the question shows", 0, ran) }
         shown = false
         rule.runOnIdle { assertEquals(1, ran) }
+    }
+
+    private fun ask(retriever: app.retriever.core.Retriever) {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        var request: ((() -> Unit) -> Unit)? = null
+        rule.setContent { request = rememberReadingPermission(retriever) }
+        rule.runOnIdle { request!! {} }
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("See progress", substring = true).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** The first Home's ask, once the sample is read: no promise about a sample that is already done. */
+    @Test fun theSampleSentenceGoesOnceTheSampleIsDone() {
+        ask(testRetriever())
+        rule.onNodeWithText(Words.notificationsAsk(sampleReading = false)).assertExists()
+    }
+
+    @Test fun theSampleSentenceStaysWhileTheSampleReads() {
+        val retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) })
+        runBlocking { retriever.planTaste() }
+        ask(retriever)
+        rule.onNodeWithText(Words.notificationsAsk(sampleReading = true)).assertExists()
     }
 }

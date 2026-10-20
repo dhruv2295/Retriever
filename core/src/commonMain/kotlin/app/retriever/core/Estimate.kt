@@ -85,19 +85,38 @@ fun readEstimate(book: SpeedBook, pending: Map<Kind, Long>, videoBytes: Long, io
     } else {
         ceil(high / NIGHT_MINUTES).toInt()
     }
-    val measured = pending.filterValues { it > 0 }.keys.all { it in book.paces }
-    return ReadEstimate(files, floor(minutes * ESTIMATE_LOW).toInt(), high, nights, measured)
+    return ReadEstimate(files, floor(minutes * ESTIMATE_LOW).toInt(), high, nights, book.measures(pending))
 }
+
+/** Every kind still to read has a measured pace, so [SpeedBook.ms] runs on no seed. */
+internal fun SpeedBook.measures(pending: Map<Kind, Number>): Boolean = pending.filterValues { it.toLong() > 0 }.keys.all { it in paces }
 
 /**
  * The live ETA. [book] outlives batches; what is left is read at each batch's start and counted down per file. The
  * minutes stay null until [SHOW_AFTER_MS] of work this session, and the shown value moves only past [moved].
  */
-internal class Eta(@Volatile var book: SpeedBook) {
+internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
     private var left = mutableMapOf<Kind, Long>()
     private var videoBytes = 0L
     private var sessionMs = 0.0
     private var sessionFiles = 0
+    private var lastAt: Long? = null
+
+    /**
+     * This session's reading in wall time: each file from the end of the one before it in the same batch, the batch's
+     * first by its own time. So the model's open and the time between batches (a pause, the app away) never count.
+     */
+    @Volatile
+    var wallMs = 0.0
+        private set
+
+    /** Wall time per ms of inference this session: the screen, the database and the rest of the phone included. */
+    @Volatile
+    var wallRatio: Double? = null
+        private set
+
+    /** [wallRatio] once [SHOW_AFTER_MS] of inference stand behind it, so no warm-up number is shown. */
+    val shownRatio: Double? get() = wallRatio?.takeIf { sessionMs >= SHOW_AFTER_MS }
 
     var minutes: Int? = null
         private set
@@ -109,19 +128,32 @@ internal class Eta(@Volatile var book: SpeedBook) {
         this.book = book
         sessionMs = 0.0
         sessionFiles = 0
+        wallMs = 0.0
+        wallRatio = null
         minutes = null
     }
 
+    /** A batch starts: what is left, and the wall clock waits for its first file. */
     fun start(pending: Map<Kind, Long>, videoBytes: Long) {
+        lastAt = null
+        replan(pending, videoBytes)
+    }
+
+    /** What is left changed mid-batch (the sample trimmed). */
+    fun replan(pending: Map<Kind, Long>, videoBytes: Long) {
         left = pending.toMutableMap()
         this.videoBytes = videoBytes
         update()
     }
 
     fun add(kind: Kind, ms: Double, units: Double) {
+        val at = now()
+        wallMs += lastAt?.let { (at - it).toDouble() } ?: ms
+        lastAt = at
         book = book.add(kind, ms, units)
         sessionMs += ms
         sessionFiles++
+        wallRatio = if (sessionMs > 0) wallMs / sessionMs else null
         left[kind] = ((left[kind] ?: 0L) - 1).coerceAtLeast(0)
         if (kind == Kind.VIDEO) videoBytes = (videoBytes - units.toLong()).coerceAtLeast(0)
         update()

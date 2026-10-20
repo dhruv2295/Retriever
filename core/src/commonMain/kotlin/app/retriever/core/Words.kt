@@ -153,8 +153,10 @@ object Words {
         "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your ${words.device}."
 
     // The sample.
-    const val SAMPLE_TITLE = "Reading a few files to try"
-    const val STARTING = "Starting…"
+    const val SAMPLE_TITLE = "Try it on your own files"
+
+    /** The sample's count line before its plan exists. */
+    const val SAMPLE_PICKING = "Picking a few of your files…"
     const val READING_NOW = "Reading now"
     const val TRY_SEARCH = "Try search"
 
@@ -167,13 +169,24 @@ object Words {
     fun readOf(read: Long, planned: Long): String = "${formatCount(read)} of ${files(planned)} read"
 
     /**
-     * The sample's time line, only while it reads and once a file is read: the usual time, then, past the sample's batch,
-     * that it is slow here. Null when paused or done, so no stale time is left on screen.
+     * The sample's muted line while it reads, null otherwise (paused or done), so no stale time stays on screen: the time
+     * left once measured ([TasteProgress.secondsLeft]), then whether search can be tried yet ([TasteProgress.readyToTry]).
      */
-    fun sampleTime(reading: Boolean, read: Long, elapsedMs: Long, words: DeviceWords): String? = when {
-        !reading || read == 0L -> null
-        elapsedMs > Retriever.TASTE_BATCH.inWholeMilliseconds -> "This is taking longer on your ${words.device}. You can try the files read so far."
-        else -> "Usually 1–2 minutes. You can try search before this finishes."
+    fun sampleNote(reading: Boolean, readyToTry: Boolean, secondsLeft: Int?): String? {
+        if (!reading) return null
+        val time = secondsLeft?.let {
+            val minutes = (it / 60.0).roundToInt()
+            when {
+                it < 60 -> "Less than a minute left."
+                minutes == 1 -> "About a minute left."
+                else -> "About $minutes minutes left."
+            }
+        }
+        return when {
+            !readyToTry -> listOfNotNull(time, "You can try search once a few files are read.").joinToString(" ")
+            time == null -> "You can try search now. Retriever keeps reading the rest."
+            else -> "$time You can try search now."
+        }
     }
 
     /** For a screen reader, never on screen: "12 of 40 photos read". */
@@ -186,8 +199,12 @@ object Words {
     const val TRY_WITHOUT_SUGGESTIONS = "Open a file, then try a word you remember from it."
     const val CHOOSE_WHEN = "Choose when to read more"
 
-    /** Names are searched everywhere; this says where the words inside are. */
-    fun searchingSample(files: Long): String = "Searching inside ${plural(files, "sample file")}"
+    /** Try's scope: names cover the whole library, words inside only the [read] files ([TasteProgress.read]). */
+    fun searchingTry(read: Long): String = "Searching every file’s name, and inside the ${files(read)} read so far."
+
+    /** The notification ask: the sample's line only while a sample is still reading. */
+    fun notificationsAsk(sampleReading: Boolean): String =
+        "See progress and pause a reading session." + if (sampleReading) " We can also let you know when your sample is ready." else ""
 
     // Search.
     const val SEARCH_FIELD = "Search your files"

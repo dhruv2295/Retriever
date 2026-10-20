@@ -1,6 +1,5 @@
 package app.retriever.core
 
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -74,13 +73,13 @@ class CoverageTest {
 
         val ids = files.map { store.fileByUri(it.uri)!!.id }
         assertEquals(mapOf(ids[0] to ReadExtent.DEEPENING, ids[1] to ReadExtent.DEEPENING), store.readExtents(ids))
-        val counts = store.counts().first()
+        val counts = store.countsNow()
         assertEquals(24L, counts.tailChunks)
         assertEquals(2L, counts.tailFiles)
 
         index(store, emptyMap(), deepen = true)
         assertEquals(emptyMap(), store.readExtents(ids))
-        assertEquals(0L, store.counts().first().tailFiles)
+        assertEquals(0L, store.countsNow().tailFiles)
     }
 
     @Test

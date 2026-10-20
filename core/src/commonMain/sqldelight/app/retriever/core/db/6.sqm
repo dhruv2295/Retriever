@@ -1,0 +1,17 @@
+-- What each file's chunks hold, kept on the file (Index.sq, refreshReach), so the reading counts are one index scan.
+ALTER TABLE files ADD COLUMN reach INTEGER NOT NULL DEFAULT 0;
+DROP INDEX IF EXISTS files_by_kind_state;
+CREATE INDEX files_by_reach ON files(kind, state, partial, reach);
+UPDATE files SET reach =
+  EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
+    AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+  + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL
+    AND length(trim(c.content_text)) > 0)
+  + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
+    AND length(trim(c.content_text)) > 0)
+  + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
+  + 16 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
+    AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(c.content_text)) > 0)))
+  + 32 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NOT NULL)
+  + 64 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NULL)
+WHERE id IN (SELECT file_id FROM chunks);

@@ -24,7 +24,7 @@ class EtaTest {
     // Soak A1: an average of rates let one 50 ms doc outweigh the slow photos queued behind it.
     @Test
     fun oneFastDocThenSlowPhotosNeverReadsBelowTheTimeLeft() {
-        val eta = Eta(SpeedBook())
+        val eta = Eta(SpeedBook()) { 0L }
         eta.start(mapOf(Kind.DOC to 1L, Kind.PHOTO to 100L), 0)
         eta.add(Kind.DOC, 50.0, 1.0)
         for (read in 1..100) {
@@ -37,7 +37,7 @@ class EtaTest {
 
     @Test
     fun nothingShowsBeforeThirtySecondsOfWork() {
-        val eta = Eta(SpeedBook())
+        val eta = Eta(SpeedBook()) { 0L }
         eta.start(mapOf(Kind.PHOTO to 100L), 0)
         repeat(14) { eta.add(Kind.PHOTO, 2_000.0, 1.0) }
         assertNull(eta.minutes)
@@ -47,7 +47,7 @@ class EtaTest {
 
     @Test
     fun oneKindIsWithinTenPercentAfterTenFiles() {
-        val eta = Eta(SpeedBook())
+        val eta = Eta(SpeedBook()) { 0L }
         eta.start(mapOf(Kind.PDF to 400L), 0)
         repeat(10) { eta.add(Kind.PDF, if (it % 2 == 0) 3_000.0 else 5_000.0, 6.0) }
         val left = 390 * 4_000 / 60_000.0
@@ -94,7 +94,7 @@ class EtaTest {
     }
 
     /** 20 photos at 3 s each with 200 left: 10 minutes, shown as the 11 set at the 30 s mark. */
-    private fun photosAtThreeSeconds() = Eta(SpeedBook()).apply {
+    private fun photosAtThreeSeconds() = Eta(SpeedBook()) { 0L }.apply {
         start(mapOf(Kind.PHOTO to 220L), 0)
         repeat(20) { add(Kind.PHOTO, 3_000.0, 1.0) }
     }

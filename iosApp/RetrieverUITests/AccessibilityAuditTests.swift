@@ -41,7 +41,8 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start.",
     ]
     private static let routes = [
-        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.sampleStart", "setup.reading",
+        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.samplePicking", "setup.sampleStart",
+        "setup.reading",
         "setup.readingPaused", "setup.sampleDone", "setup.try", "setup.tryNoSuggestions", "setup.choose",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
@@ -143,15 +144,19 @@ final class AccessibilityAuditTests: XCTestCase {
             launch(app)
             XCTContext.runActivity(named: route) { _ in
                 do {
-                    if ["setup.sampleStart", "setup.reading", "setup.readingPaused", "setup.sampleDone"].contains(route) {
+                    if Self.sampleRoutes.contains(route) {
                         // One pile element saying the count, with See all as its action; its cards are not separate elements.
                         let pile = app.descendants(matching: .any)["sample-pile"].firstMatch
-                        let count = route == "setup.sampleStart" ? "Starting…" : route == "setup.sampleDone" ? "54 of 54 files read" : "30 of 54 files read"
+                        let picking = "Picking a few of your files…"
+                        let counts = ["setup.samplePicking": picking, "setup.sampleStart": picking, "setup.sampleDone": "54 of 54 files read"]
+                        let count = counts[route] ?? "30 of 54 files read"
                         XCTAssertEqual(pile.label, count)
                         XCTAssertTrue(app.staticTexts[count].exists)
                         XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
-                        XCTAssertTrue(app.buttons["See all 54 files"].exists)
-                        XCTAssertEqual(app.buttons["Try search"].isEnabled, route != "setup.sampleStart")
+                        // Before the plan See all keeps its place, unseen and out of VoiceOver's way.
+                        XCTAssertEqual(app.buttons["See all 54 files"].exists, route != "setup.samplePicking")
+                        XCTAssertFalse(app.buttons["See all 0 files"].exists)
+                        XCTAssertEqual(app.buttons["Try search"].isEnabled, !["setup.samplePicking", "setup.sampleStart"].contains(route))
                         XCTAssertTrue(app.buttons["Go to Home"].exists)
                         XCTAssertFalse(app.staticTexts["Up to date"].exists, "no status leaks in before the plan")
                         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '/'")).firstMatch.exists)
@@ -159,10 +164,12 @@ final class AccessibilityAuditTests: XCTestCase {
                             app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists, route == "setup.readingPaused")
                     }
                     if route.hasPrefix("setup.try") {
-                        XCTAssertTrue(app.staticTexts["Searching inside 54 sample files"].exists)
+                        XCTAssertTrue(app.staticTexts["Searching every file’s name, and inside the 54 files read so far."].exists)
                         XCTAssertTrue(app.buttons["Choose when to read more"].exists)
                         XCTAssertTrue(app.buttons["Go to Home"].exists)
                     }
+                    // Whole-phone access makes "your selected photos and folders" untrue; the count above says enough.
+                    if route == "setup.choose" { XCTAssertFalse(app.staticTexts["From your selected photos and folders"].exists) }
                     if route == "search.noModel" {
                         XCTAssertTrue(app.staticTexts["Words only"].exists)
                         XCTAssertTrue(app.buttons["Download for meaning search"].exists, "one result is few: the hint shows")
@@ -175,6 +182,94 @@ final class AccessibilityAuditTests: XCTestCase {
             }
             app.terminate()
         }
+    }
+
+    private static let sampleRoutes = ["setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.readingPaused", "setup.sampleDone"]
+
+    /// The sample's group was left-aligned under a centred dog and pile, with the spare height in one band above the
+    /// footer, and rows came and went between states. Now it is centred both ways, and every state lays out the same rows.
+    func testTheSampleGroupSitsCentredAndHoldsItsPlaceInEveryState() {
+        var frames: [String: (title: CGRect, count: CGRect, bar: CGRect)] = [:]
+        for route in Self.sampleRoutes {
+            let app = XCUIApplication()
+            app.launchArguments = ["-mutedMedia", "-route", route]
+            launch(app)
+            defer { app.terminate() }
+            let title = app.staticTexts["Try it on your own files"]
+            let group = app.descendants(matching: .any)["step-content"].firstMatch
+            let actions = app.descendants(matching: .any)["step-actions"].firstMatch
+            let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'read' OR label BEGINSWITH 'Picking'")).firstMatch
+            let bar = app.progressIndicators.firstMatch
+            XCTAssertTrue(title.exists && count.exists && group.exists && actions.exists && bar.exists, route)
+            // The pile's own frame follows its turned cards, so the group's centre line stands in for it.
+            XCTAssertEqual(title.frame.midX, group.frame.midX, accuracy: 1, "\(route): the title is centred")
+            XCTAssertEqual(count.frame.midX, group.frame.midX, accuracy: 1, "\(route): the count is centred")
+            // Centred between the status bar and the pinned actions. The status bar's height is not exposed, but every
+            // portrait iPhone's lies between 20 and 62 pt, which bounds the centre; a group pinned to the top, with the
+            // spare height in one band above the actions, sits well above that. The group's test frame spans only its
+            // accessible rows, and before the plan See all is laid out but hidden, so its frame ends short there; the
+            // rows' equal frames below carry the centring over to that state.
+            if route != "setup.samplePicking", group.frame.height + 32 < actions.frame.minY - 62 {
+                XCTAssertGreaterThanOrEqual(group.frame.midY, (20 + actions.frame.minY) / 2 - 1, "\(route): spare height split above and below")
+                XCTAssertLessThanOrEqual(group.frame.midY, (62 + actions.frame.minY) / 2 + 1, "\(route): spare height split above and below")
+            }
+            frames[route] = (title.frame, count.frame, bar.frame)
+        }
+        let first = frames["setup.samplePicking"]
+        for (route, f) in frames {
+            XCTAssertEqual(f.title, first?.title, "\(route): the title never moves between states")
+            XCTAssertEqual(f.count.midY, first?.count.midY ?? 0, accuracy: 0.5, "\(route): the count never moves between states")
+            XCTAssertEqual(f.bar, first?.bar, "\(route): the bar never moves between states")
+        }
+    }
+
+    /// Reading now left the screen between two files and came back with the next, so the rows under it jumped on every
+    /// file. It keeps its last file, its header and its height while the next one starts.
+    func testReadingNowHoldsItsRowAsFilesTurnOver() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mutedMedia", "-route", "status.readingTurnover"]
+        launch(app)
+        defer { app.terminate() }
+        let row = app.descendants(matching: .any)["reading-now"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let height = row.frame.height
+        var names: Set<String> = []
+        for _ in 0..<12 {
+            XCTAssertTrue(app.staticTexts["Reading now"].exists)
+            XCTAssertTrue(row.exists)
+            XCTAssertEqual(row.frame.height, height, accuracy: 0.5)
+            names.insert(row.label)
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        XCTAssertGreaterThan(names.count, 1, "the files did turn over")
+    }
+
+    /// After a suggestion's results, Back took two presses on Android; here it left Try altogether. One Back returns to
+    /// Try's start, the next to the sample.
+    func testOneBackLeavesASuggestionsResults() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mutedMedia", "-route", "setup.try"]
+        launch(app)
+        defer { app.terminate() }
+        let suggestion = app.buttons["wifi password"]
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "the suggestions are there on the first frame")
+        suggestion.tap()
+        XCTAssertTrue(suggestion.waitForNonExistence(timeout: 5), "the results replace Try's start")
+        app.navigationBars.buttons["Back"].tap()
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and Try's start is back")
+        XCTAssertTrue(app.buttons["Choose when to read more"].exists, "still on Try")
+    }
+
+    /// Home's photo cells opened the viewer on a long press; now they offer the file actions every other file has.
+    func testHomeMosaicCellsOfferTheFileActions() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-mutedMedia", "-route", "home.photos"]
+        launch(app)
+        defer { app.terminate() }
+        let cell = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Photo, '")).firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 5))
+        cell.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["Add to Starred"].waitForExistence(timeout: 5))
     }
 
     func testHomeAuditAfterAnAccessibilitySizeLaunch() throws {
@@ -231,7 +326,7 @@ final class AccessibilityAuditTests: XCTestCase {
         try app.performAccessibilityAudit(for: .contrast) { issue in
             // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
             if self.clippedByLegend(issue.element, in: app) { return true }
-            if let element = issue.element, self.underBottomBar(element, in: app) { return true }
+            if let element = issue.element, self.underABar(element, in: app) { return true }
             // WCAG 1.4.3 exempts inactive controls: Try search shows disabled until the sample is ready.
             if issue.element?.isEnabled == false { return true }
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
@@ -253,7 +348,7 @@ final class AccessibilityAuditTests: XCTestCase {
                 {
                     return true
                 }
-                if issue.auditType != .hitRegion, self.underBottomBar(element, in: app) { return true }
+                if issue.auditType != .hitRegion, self.underABar(element, in: app) { return true }
                 // A document preview's miniature page: hidden from VoiceOver and sized to its tile like a photo, falling
                 // back to the kind's icon when its text no longer fits. The tile's own name and label carry the text.
                 if [.textClipped, .dynamicType].contains(issue.auditType), element.identifier == "thumb-text" { return true }
@@ -320,7 +415,11 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchArguments = ["-mutedMedia", "-route", "status.reading", "-UIPreferredContentSizeCategoryName", category]
             launch(app)
             for label in Self.statusText {
-                let element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                // Not an image: a thumbnail's kind icon (hidden from VoiceOver, still in the test tree) is also "Photo",
+                // and its fixed 56 pt frame never grows.
+                let element = app.descendants(matching: .any).matching(
+                    NSPredicate(format: "label == %@ AND elementType != %d", label, XCUIElement.ElementType.image.rawValue)
+                ).firstMatch
                 for _ in 0..<12 {
                     if element.exists && element.isHittable { break }
                     app.swipeUp()
@@ -381,7 +480,7 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertTrue(app.staticTexts["3,142 files read"].exists)
             XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "kind-")).firstMatch.exists)
             // The counts and status sit at the top; what scrolled under the bottom search bar is audited elsewhere.
-            try app.performAccessibilityAudit(for: .contrast) { issue in issue.element.map { self.underBottomBar($0, in: app) } ?? false }
+            try app.performAccessibilityAudit(for: .contrast) { issue in issue.element.map { self.underABar($0, in: app) } ?? false }
             app.terminate()
         }
     }
@@ -443,12 +542,17 @@ final class AccessibilityAuditTests: XCTestCase {
     /// A glyph cut by the screen's bottom edge, or partly or wholly under the pinned setup actions or the bottom search
     /// field, cannot be measured: the bar's own text is inside its frame and hittable, content scrolled behind it is not.
     /// Scrolling brings it out, and the same tile, row or caption is audited where it is fully visible.
-    private func underBottomBar(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+    private func underABar(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         let window = app.windows.firstMatch.frame
         let frame = element.frame
         if frame.minY < window.maxY && frame.maxY > window.maxY { return true }
         let bars = [app.otherElements["step-actions"], app.searchFields.firstMatch].filter { $0.exists && $0.frame.minY > window.midY }
-        return bars.contains { $0.frame.intersects(frame) && (!$0.frame.contains(frame) || !element.isHittable) }
+        if bars.contains(where: { $0.frame.intersects(frame) && (!$0.frame.contains(frame) || !element.isHittable) }) { return true }
+        // The same at the top: scrolling a clipped tile into view can push a header or tile partly under the navigation
+        // bar or off the top edge; each is audited fully visible at launch.
+        if frame.minY < window.minY && frame.maxY > window.minY { return true }
+        let bar = app.navigationBars.firstMatch
+        return bar.exists && frame.minY < bar.frame.maxY && frame.maxY > bar.frame.maxY
     }
 
     func testRecentSearchChipsGrowAtTheLargestAccessibilitySize() {

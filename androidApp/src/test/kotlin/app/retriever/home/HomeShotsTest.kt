@@ -111,7 +111,6 @@ class HomeShotsTest {
         folders = 148,
         largeCount = 212,
         largeBytes = 41_000_000_000,
-        nameOnly = 760,
     )
 
     private val recents = listOf("passport scan", "wifi password", "lease agreement", "older one")
@@ -128,6 +127,7 @@ class HomeShotsTest {
         counts = counts,
         readByKind = counts,
         contentRead = 26_300,
+        nameOnly = 760,
         home = facts,
         starred = 4,
         memories = memories,
@@ -587,6 +587,43 @@ class HomeShotsTest {
         rule.onNode(described("2023, 8 photos from")).performTouchInput { longClick() }
         assertEquals(1, hidden)
     }
+
+    /**
+     * Home's sections wait for every source, then draw together in their fixed order: On this day never shows first
+     * with Photos and videos inserted above it later.
+     */
+    @Test fun noSectionDrawsBeforeEverySourceHasAnswered() {
+        RuntimeEnvironment.setQualifiers("+h2500dp")
+        var ui by mutableStateOf(caughtUp.copy(home = null))
+        rule.setContent { ShotTheme(false) { Screen(ui, IndexState()) } }
+        rule.onNodeWithText("On this day").assertDoesNotExist()
+        ui = caughtUp.copy(suggestions = null)
+        rule.onNodeWithText("On this day").assertDoesNotExist()
+        rule.onNodeWithText("Photos and videos").assertDoesNotExist()
+        ui = caughtUp.copy(memories = emptyList(), memoriesDay = null)
+        rule.onNodeWithText("Photos and videos").assertDoesNotExist()
+        ui = caughtUp
+        val media = rule.onNodeWithText("Photos and videos").fetchSemanticsNode().boundsInRoot.top
+        val onThisDay = rule.onNodeWithText("On this day").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(media < onThisDay)
+    }
+
+    /** Home's file cards offer the file menu Search and Browse offer, on a long press. */
+    private fun longPressOffersTheFileMenu(card: SemanticsMatcher) {
+        RuntimeEnvironment.setQualifiers("+h2500dp")
+        rule.setContent { ShotTheme(false) { Screen(caughtUp, IndexState()) } }
+        rule.onAllNodes(card).onFirst().performTouchInput { longClick() }
+        rule.onNodeWithText("Share").assertExists()
+        rule.onNodeWithText("File info").assertExists()
+    }
+
+    @Test fun aLongPressOnAMosaicPictureOffersTheFileMenu() = longPressOffersTheFileMenu(described("Photo,"))
+
+    @Test fun aLongPressOnAScreenshotOffersTheFileMenu() = longPressOffersTheFileMenu(described("Screenshot,"))
+
+    @Test fun aLongPressOnADocumentOffersTheFileMenu() = longPressOffersTheFileMenu(described("PDF, Lease"))
+
+    @Test fun aLongPressOnAStarredFileOffersTheFileMenu() = longPressOffersTheFileMenu(hasContentDescription(", starred", substring = true))
 
     private fun noOnThisDay(ui: HomeUi) {
         rule.setContent { ShotTheme(false) { Screen(ui, IndexState()) } }

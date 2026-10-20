@@ -33,9 +33,12 @@
         case setupDenied = "setup.denied"
         case setupFolders = "setup.folders"
         case statusReading = "status.reading"
+        /// Reading status as files come and go: the current file turns over, with a gap between two files.
+        case statusReadingTurnover = "status.readingTurnover"
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
         case statusSkipped = "status.skipped"
+        case setupSamplePicking = "setup.samplePicking"
         case setupSampleStart = "setup.sampleStart"
         case setupReading = "setup.reading"
         case setupReadingPaused = "setup.readingPaused"
@@ -61,6 +64,8 @@
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
         case homeMemories = "home.memories"
+        /// Home with its photo mosaic.
+        case homePhotos = "home.photos"
         case viewerPhotoMissing = "viewer.photoMissing"
         case searchEmpty = "search.empty"
         case searchWordsOnly = "search.wordsOnly"
@@ -126,6 +131,7 @@
             case .setupLimited: .photosLimited
             case .setupDenied: .photosDenied
             case .setupFolders: .folderAdded
+            case .setupSamplePicking: .samplePicking
             case .setupSampleStart: .sampleStart
             case .setupReading: .sampleReading
             case .setupReadingPaused: .samplePaused
@@ -139,7 +145,7 @@
             case .upgradeFailed: .downloadFailed
             case .upgradeTuning: .tuning
             case .upgradeMeaning: .meaning(1_204)
-            case .statusReading, .searchReading: .reading(done: 1_204, total: 5_310)
+            case .statusReading, .statusReadingTurnover, .searchReading: .reading(done: 1_204, total: 5_310)
             case .statusPaused: .paused
             case .statusSkipped: .skipped(6)
             case .statusTailFiles: .tailFiles(12)
@@ -151,12 +157,14 @@
 
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
-            case .setupWelcome, .setupLimited, .setupDenied, .setupFolders, .setupSampleStart, .setupReading, .setupReadingPaused,
-                .setupSampleDone, .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
+            case .setupWelcome, .setupLimited, .setupDenied, .setupFolders, .setupSamplePicking, .setupSampleStart, .setupReading,
+                .setupReadingPaused, .setupSampleDone, .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
                 // Settings' Storage and downloads entry, alone: the same card as Try's and Home's.
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
+            case .statusReadingTurnover:
+                NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
             case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
@@ -190,6 +198,14 @@
             switch self {
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
+            case .homePhotos:
+                SearchView(model: model, search: .fixture()).onAppear {
+                    guard let h = model.home, h.newMedia.isEmpty else { return }
+                    model.home = h.doCopy(
+                        newMedia: (1...6).map { Fixtures.file("Photo \($0).jpg", .photo, "Photos", daysAgo: Double($0)) }, newShots: h.newShots,
+                        newDocs: h.newDocs, starred: h.starred, starredCount: h.starredCount, folders: h.folders, largeCount: h.largeCount,
+                        largeBytes: h.largeBytes, topFolders: h.topFolders, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
+                }
             case .searchNoModel:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Array(Fixtures.hits.prefix(1)), vectorLane: false), presented: true)
             case .homeReading:
@@ -218,6 +234,17 @@
                 SearchView(model: model, search: .fixture(text: "passport", hits: []), presented: true)
             default:
                 EmptyView()
+            }
+        }
+
+        /// The reader's per-file progress as core sends it: a file, no file while the next one starts, the next file.
+        @MainActor private static func turnOver(_ model: AppModel) async {
+            let files = [model.progress.reading.current].compactMap { $0 } + model.progress.reading.recent
+            var i = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                model.progress.reading.current = i % 2 == 0 ? nil : files[(i / 2) % files.count]
+                i += 1
             }
         }
 

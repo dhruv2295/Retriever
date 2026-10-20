@@ -9,9 +9,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
@@ -162,31 +162,39 @@ data class RetrieverSnapshot(
     val setup: SetupInputs?,
 )
 
-/** The short read's progress, as [observeAll] delivers its snapshots. */
-fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable {
+/** [flow]'s values on a background thread until closed; the work behind it runs only while some observer is open. */
+private fun <T> observe(flow: Flow<T>, cb: (T) -> Unit): AutoCloseable {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    scope.launch { tasteProgress().collect { cb(it) } }
+    scope.launch { flow.collect { cb(it) } }
     return AutoCloseable { scope.cancel() }
 }
 
+/** The short read's progress, as [observeAll] delivers its snapshots. */
+fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable = observe(tasteProgress(), cb)
+
 /** The sample's planned files, as [observeAll] delivers its snapshots. */
-fun Retriever.observeSampleFiles(cb: (List<SampleFile>) -> Unit): AutoCloseable {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    scope.launch { sampleFiles().collect { cb(it) } }
-    return AutoCloseable { scope.cancel() }
-}
+fun Retriever.observeSampleFiles(cb: (List<SampleFile>) -> Unit): AutoCloseable = observe(sampleFiles(), cb)
+
+/** Home's facts ([Retriever.home]); open it while Home shows, close it when Home goes. */
+fun Retriever.observeHome(cb: (HomeFacts) -> Unit): AutoCloseable = observe(home(), cb)
+
+/** [Retriever.suggestions] of [fileIds] (null: every file read); open it while the suggestions show. */
+fun Retriever.observeSuggestions(fileIds: Set<Long>?, cb: (List<String>) -> Unit): AutoCloseable = observe(suggestions(fileIds), cb)
+
+/** [Retriever.suggestions] of [fileIds] once, for a view that asks again on its own key (Try, as files are read). */
+@Throws(Throwable::class)
+suspend fun Retriever.suggestionsNow(fileIds: Set<Long>?): List<String> = suggestions(fileIds).first()
 
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
 fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val sharedCounts = counts().shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
     scope.launch {
         combine(
             setUp,
             prefs,
             requiredBuild,
-            sharedCounts,
-            combine(state, starred, modelMissing, readingStatus(sharedCounts), setup) { i, st, m, reading, setup ->
+            counts(),
+            combine(state, starred, modelMissing, readingStatus(), setup) { i, st, m, reading, setup ->
                 Triple(i, st, m) to (reading to setup)
             },
         ) { s, p, b, c, (live, rest) ->

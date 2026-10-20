@@ -16,7 +16,7 @@ class IosExtractorTest {
     private val profile = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.CPU, 70, 5, true, false)
     private val video = SourceFile("ph://video", "video.mp4", "Photos", "video/mp4", Kind.VIDEO, 100, 1)
 
-    private class Frames(private val afterFrame: () -> Unit = {}) : NativeExtractor {
+    private class Frames(private val bytes: ByteArray? = null, private val afterFrame: () -> Unit = {}) : NativeExtractor {
         var frames = 0
         override fun videoDurationMs(uri: String): Long = 120_000
         override fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData {
@@ -30,10 +30,17 @@ class IosExtractorTest {
         override fun pdfPageCount(uri: String): Int = error("unexpected PDF")
         override fun pdfPageText(uri: String, page: Int): String? = error("unexpected PDF")
         override fun pdfPageJpeg(uri: String, page: Int, maxSide: Int): NSData? = error("unexpected PDF")
-        override fun textHead(uri: String, maxBytes: Int): String? = error("unexpected text")
         override fun zipEntryNames(uri: String): List<String> = error("unexpected archive")
         override fun zipEntryText(uri: String, name: String, maxBytes: Int): String? = error("unexpected archive")
-        override fun readBytes(uri: String, offset: Long, length: Int): NSData? = error("unexpected bytes")
+        override fun readBytes(uri: String, offset: Long, length: Int): NSData? = checkNotNull(bytes) { "unexpected bytes" }.toNSData()
+    }
+
+    /** A spreadsheet export saved on Windows: Latin-1 bytes, which UTF-8 would show as replacement characters. */
+    @Test fun aLatin1TextFileReadsAsItsText() = runBlocking {
+        val csv = SourceFile("file:///prices.csv", "prices.csv", "Files", "text/csv", Kind.DOC, 20, 1)
+        val bytes = byteArrayOf(0x63, 0x61, 0x66, 0xE9.toByte(), 0x3B, 0x32, 0x80.toByte()) // "café;2€" in Windows-1252
+        val text = IosExtractor(Frames(bytes)).extract(csv, profile).joinToString { it.contentText.orEmpty() }
+        assertEquals("café;2€", text)
     }
 
     @Test fun videoReadsFramesWithoutSound() = runBlocking {
@@ -49,7 +56,7 @@ class IosExtractorTest {
 
     @Test fun cancellingExtractionStopsBeforeTheNextVideoFrame() = runBlocking {
         val job = Job()
-        val native = Frames { job.cancel() }
+        val native = Frames(afterFrame = { job.cancel() })
         assertFailsWith<CancellationException> { withContext(job) { IosExtractor(native).extract(video, profile) } }
         assertEquals(1, native.frames)
     }

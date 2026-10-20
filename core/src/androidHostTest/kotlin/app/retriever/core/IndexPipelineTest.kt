@@ -3,7 +3,6 @@ package app.retriever.core
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
@@ -94,7 +93,7 @@ class IndexPipelineTest {
                 readByKind = mapOf(Kind.DOC to 1L),
                 meaning = MeaningCounts(partlyAdded = 1),
             ),
-            store.counts().first(),
+            store.countsNow(),
         )
         val keyword = search.search("zebra", SearchEngine.Mode.KEYWORD).hits.single()
         assertEquals("p. 16", keyword.locator, "a tail chunk is keyword-searchable before it has a vector")

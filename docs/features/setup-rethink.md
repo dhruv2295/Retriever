@@ -45,11 +45,13 @@ one muted line (time or stop reason); **See all {planned} files**. Footer pinned
 
 | State | Pile | Count line | Muted line | Mascot |
 |---|---|---|---|---|
-| start (read 0, not stopped) | empty pile | `STARTING` | none | walking |
-| reading | last 12 read | `readOf(read, planned)` | `sampleTime(...)` (null until read > 0) | walking |
+| start (read 0, not stopped) | empty pile | `SAMPLE_PICKING` | `sampleNote(...)` | walking |
+| reading | last 12 read | `readOf(read, planned)` | `sampleNote(...)` (the time once measured) | walking |
 | ready (`readyToTry`, pending > 0) | same | same | same | walking |
-| paused (`status.pause != null`) | frozen | same (or `STARTING` at 0) | `status.pause` | resting |
+| paused (`status.pause != null`) | frozen | same (or `SAMPLE_PICKING` at 0) | `status.pause` | resting |
 | done (pending 0) | frozen | same | none | resting |
+
+Superseded in part by `sample-quickstart.md` (title, picking line, `sampleNote`, the measured time, the centred layout).
 
 Bar value = (planned - pending) / planned, so it fills when done; the label counts read files. They differ by the Name
 only and Couldn't read files, which See all names. `planned` = sum of `taste.byKind` values' `.second` (planned count). `currentFile` is not a card.
@@ -111,7 +113,7 @@ At most 12 cards compose; `SampleFile` goes in `androidApp/stability.conf`, so o
   `distinctUntilChanged`; plus
   `observeSampleFiles` for Swift as `observeTasteProgress` does. Delete `readFiles` (callers: `SetupScreen` See all,
   `TryItScreen`, iOS `sampleFiles()`, `FacadeW5Test`). `SetupUi.sample` holds the list.
-- `Words`: `sampleTime(reading, read, elapsedMs, words)` returns null while read is 0.
+- `Words`: `sampleNote(reading, readyToTry, secondsLeft)` (was `sampleTime`; see `sample-quickstart.md`).
 
 ## Copy (core `Words`)
 
@@ -121,7 +123,8 @@ phone."; `ALL_FILES_OFF` "Turn on “Allow access to manage all files” to sear
 include."; `CHOOSE_INSTEAD` "Choose what to include instead"; `INCLUDE_TITLE` "Choose what to include";
 `SEARCH_ALL_PHOTOS` "Search all your photos"; `ADD_FOLDERS_FROM_FILES` "Add folders from Files"; `iosAccessNote(w)`
 "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your {device}.";
-`STARTING` "Starting…"; `readOf(read, planned)` "12 of 40 files read"; `READ` "Read". `seeAll(planned)` is reused.
+`SAMPLE_PICKING` "Picking a few of your files…" (was `STARTING`); `readOf(read, planned)` "12 of 40 files read"; `READ`
+"Read". `seeAll(planned)` is reused.
 Delete once grep shows no user: `CHOOSE_ACCESS`, `ACCESS_BODY`, `GET_STARTED`, `CHOOSE_FILE_ACCESS`, `FILES_AND_FOLDERS`,
 `FOLDERS`, `SAMPLE_STARTING`, `PREVIEW_UNAVAILABLE` (unused today). Keep `READING_NOW` (Status screen).
 
@@ -133,7 +136,7 @@ Delete once grep shows no user: `CHOOSE_ACCESS`, `ACCESS_BODY`, `GET_STARTED`, `
 - Core `SetupTest`: WELCOME for NONE, and for skipped without access (`showSetup` true); ACCESS_CHOSEN + access → SAMPLE;
   skipped + chosen → DONE; step NONE until chosen. Remove the ACCESS-stage and STARTED cases.
 - Core `WordsTest`: `pause` null for CAUGHT_UP, NO_CONTENT, LOOKING, SAMPLE_READY, set for PAUSED and WAITING;
-  `readOf`; `sampleTime` null at read 0. New `SamplePileTest`: same index → same angle and offset, wraps at 12, `shown`
+  `readOf`; `sampleNote` (`SetupTest.sampleNote`). New `SamplePileTest`: same index → same angle and offset, wraps at 12, `shown`
   keeps the last 12 read in plan order.
 - Core host `SampleFilesTest`: plan order and indices; `read` only with content; notes from coverage; a trim keeps
   every read file's index.

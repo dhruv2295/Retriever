@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -63,6 +64,8 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier, settles: Boolean = t
     var visible by remember { mutableStateOf(false) }
     val resumed = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.RESUMED)
     val appeared = remember { SystemClock.elapsedRealtime() }
+    // Read by the running loop, which outlives a change of screen state (reading starting or stopping).
+    val settling by rememberUpdatedState(settles)
     val history = remember { StepHistory() }
 
     LaunchedEffect(visible, resumed) {
@@ -78,7 +81,7 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier, settles: Boolean = t
                 withTimeoutOrNull(RECHECK_MS) { moods.first { it != now } }
                 continue
             }
-            val step = MascotDirector.next(now, history.last, (SystemClock.elapsedRealtime() - appeared) / 1000.0, settles)
+            val step = MascotDirector.next(now, history.last, (SystemClock.elapsedRealtime() - appeared) / 1000.0, settling)
             if (BuildConfig.DEBUG) Log.d("Mascot", "$now: $step")
             when (step.kind) {
                 StepKind.HOLD -> {

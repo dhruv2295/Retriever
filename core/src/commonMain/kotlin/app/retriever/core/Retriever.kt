@@ -18,6 +18,7 @@
 
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -31,13 +32,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
@@ -74,8 +81,10 @@ data class IndexState(
 )
 
 /**
- * Home's facts besides the counts: the newest pictures, screenshots and documents, starred files, folders, large files,
- * files read by name only. Never OTHER files: app databases and dumps are not something to show.
+ * Home's facts besides the counts (read by name only is [ReadingProgress.nameOnly]): the newest pictures, screenshots
+ * and documents, starred files, folders, large files, and More on your phone by kind ([kindTotals]: every file Retriever
+ * can access, OTHER included, kinds with none absent) and by folder ([folderTotals]: each folder alone, most files
+ * first). Never OTHER files in the lists: app databases and dumps are not something to show.
  */
 data class HomeFacts(
     val newMedia: List<SourceFile>,
@@ -86,8 +95,9 @@ data class HomeFacts(
     val folders: Long,
     val largeCount: Long,
     val largeBytes: Long,
-    val nameOnly: Long,
     val topFolders: List<FolderCount> = emptyList(),
+    val kindTotals: Map<Kind, FileTotals> = emptyMap(),
+    val folderTotals: List<FolderTotals> = emptyList(),
 )
 
 data class FolderCount(val path: String, val count: Long)
@@ -245,7 +255,7 @@ class Retriever(
     private var batchJob: Job? = null
 
     /** Read from the store on first use, so the constructor stays off the database. */
-    private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY))).also { savedBook = it.book } }
+    private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY)), now).also { savedBook = it.book } }
     private var savedBook: SpeedBook? = null
     private var speedKey = SPEED_KEY
     private var bookSavedAt = 0L
@@ -318,6 +328,7 @@ class Retriever(
                 sync.remove(store.knownUris().toList())
                 reconcileRecentFiles()
                 _starred.value = store.starredUris()
+                libraryChanged()
             }
         }
     }
@@ -360,16 +371,39 @@ class Retriever(
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
                 reconcileRecentFiles()
+                libraryChanged()
             }
             if (new.paused) releaseIfIdle()
         }
     }
 
-    /** Counts always describe usable content, including saved text when the model is absent. */
-    fun counts(): Flow<Store.Counts> = combine(store.countChanges(), modelMissing, setUp, sampleIds, prefs) { _, missing, setUp, ids, p ->
-        // Meaning work waits for the model and its tune, as reading does.
-        store.countsNow(ids, includeTails = !textOnly && !missing && setUp == true, kinds = p.kinds intersect readableKinds)
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+    /**
+     * [read] of the latest [changes], once per burst of them (conflated) and once for all collectors (shared), only while
+     * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
+     * fresh [read] of [current], never a value from before its subscription. A failure in the shared read is logged and
+     * ends the sharing, so it never reaches the scope; one in a collector's own first read reaches that collector.
+     */
+    private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
+        val shared = changes.conflate().map { read(it) }
+            .catch { log("A watched read failed", it) }
+            .shareIn(background, SharingStarted.WhileSubscribed())
+        return shared.onSubscription { emit(read(current())) }.distinctUntilChanged().flowOn(dispatchers.default)
+    }
+
+    /** Meaning work waits for the model and its tune, as reading does. */
+    private fun countsKey(missing: Boolean, setUp: Boolean?, ids: List<Long>?, p: Prefs) =
+        Triple(ids, !textOnly && !missing && setUp == true, p.kinds intersect readableKinds)
+
+    private fun countsOf(key: Triple<List<Long>?, Boolean, Set<Kind>>) = store.countsNow(key.first, includeTails = key.second, kinds = key.third)
+
+    private fun countsKeyNow() = countsKey(modelMissing.value, setUp.value, sampleIds.value, prefs.value)
+
+    private val sharedCounts: Flow<Store.Counts> by lazy {
+        watched(combine(store.countChanges(), modelMissing, setUp, sampleIds, prefs) { _, m, s, ids, p -> countsKey(m, s, ids, p) }, ::countsKeyNow, ::countsOf)
+    }
+
+    /** Counts always describe usable content, including saved text when the model is absent. Shared; see [watched]. */
+    fun counts(): Flow<Store.Counts> = sharedCounts
 
     @Volatile
     private var lowBattery = false
@@ -394,27 +428,23 @@ class Retriever(
         return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery)
     }
 
-    fun readingStatus(): Flow<ReadingStatus> = readingStatus(counts())
-
-    fun readingStatus(counts: Flow<Store.Counts>): Flow<ReadingStatus> = combine(
-        counts,
-        prefs,
-        state,
-        flow {
+    private val sharedStatus: Flow<ReadingStatus> by lazy {
+        val blocker = flow {
             while (true) {
                 emit(readingBlocker())
                 delay(1_000)
             }
-        }.flowOn(Dispatchers.Default).distinctUntilChanged(),
-    ) { counts, p, state, _ ->
-        ReadingPolicy.decide(
-            counts.progress,
-            if (p.paused) StopReason.PAUSED else readingBlocker(),
-            state.running,
-            state.currentFile != null,
-            words,
-        )
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+        }.flowOn(Dispatchers.Default).distinctUntilChanged()
+        watched(
+            combine(sharedCounts, prefs, state, blocker) { c, p, s, _ -> Triple(c, p, s) },
+            { Triple(countsOf(countsKeyNow()), prefs.value, state.value) },
+        ) { (counts, p, state) ->
+            ReadingPolicy.decide(counts.progress, if (p.paused) StopReason.PAUSED else readingBlocker(), state.running, state.currentFile != null, words)
+        }
+    }
+
+    /** Shared over [counts], like it: its once-a-second blocker check runs once however many screens watch. */
+    fun readingStatus(): Flow<ReadingStatus> = sharedStatus
 
     private fun startSession(prefs: Prefs): Prefs {
         store.setMeta(SESSION_START_KEY, store.lastChunkId().toString())
@@ -517,6 +547,7 @@ class Retriever(
     private suspend fun runBatch(budget: Duration, mayDeepen: Boolean, sessionOnly: Boolean): NextRun {
         // The budget covers the sync and the model's open too, so a platform's time limit holds.
         val started = TimeSource.Monotonic.markNow()
+        val changed = changedSinceSync
         changedSinceSync = false
         // The ETA and pace carry over: a batch boundary is not new information.
         _state.update {
@@ -541,11 +572,9 @@ class Retriever(
             return nextRunFor(reason, changedSinceSync)
         }
         try {
-            // Stars follow their files: hidden while a file is gone, back when it returns.
-            sync.sync().let {
-                if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
-                if (it.removed > 0) reconcileRecentFiles()
-            }
+            // A sync still running (the plan's tail) covers this batch, which reads now instead of waiting for it; a change
+            // it may have scanned past stays marked, so the next batch syncs.
+            sync.syncUnlessRunning()?.let(::synced) ?: run { if (changed) changedSinceSync = true }
             reload()
             val keywordOnly = noModel()
             val stored = if (keywordOnly) textOnlyProfile else store.profile() ?: requiredBuild.value.initialProfile()
@@ -673,6 +702,18 @@ class Retriever(
 
     private val readingMonitor = monitor
 
+    /** Bumped whenever files come, go or change, so [home] reads again; reading files leaves it alone. */
+    private val library = MutableStateFlow(0L)
+
+    private fun libraryChanged() = library.update { it + 1 }
+
+    /** After a sync: stars follow their files (hidden while a file is gone, back when it returns), and Home looks again. */
+    private fun synced(result: SyncResult) {
+        if (result.removed > 0 || result.added > 0) _starred.value = store.starredUris()
+        if (result.removed > 0) reconcileRecentFiles()
+        if (result.added > 0 || result.changed > 0 || result.removed > 0) libraryChanged()
+    }
+
     private fun reconcileRecentFiles() {
         _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
     }
@@ -788,11 +829,18 @@ class Retriever(
      * the first tune still applies its tier defaults. Text-only phones plan only the kinds they read inside.
      */
     @Throws(Throwable::class)
-    suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock { io { planLocked(budget) } }
+    suspend fun planTaste(budget: Duration): TastePlan = indexLock.withLock {
+        io {
+            val (plan, rest) = planLocked(budget)
+            rest.join()
+            plan
+        }
+    }
 
     /**
      * [SetupStep.PLAN]: plans the sample once access is chosen, or, with nothing eligible to read, reads everything as files
-     * arrive. A plan already made or a choice already taken is kept, so a second call does nothing.
+     * arrive. A plan already made or a choice already taken is kept, so a second call does nothing. Returns once the plan's
+     * files are written, so the sample starts reading while the rest of the library is written (unlike [planTaste]).
      */
     @Throws(Throwable::class)
     suspend fun planOrCommit() {
@@ -810,16 +858,35 @@ class Retriever(
         if (nothingToRead) commitScope()
     }
 
-    private suspend fun planLocked(budget: Duration): TastePlan {
-        sync.sync().let {
-            if (it.removed > 0 || it.added > 0) _starred.value = store.starredUris()
-            if (it.removed > 0) reconcileRecentFiles()
+    /**
+     * Plans from the scan itself: a full scan hands its files over before any row is written, the plan's files are written
+     * first, and the plan is set; the sync then writes the rest on its own (the returned job). An incremental sync plans
+     * from the store once it ends, as every file is in it.
+     */
+    private suspend fun planLocked(budget: Duration): Pair<TastePlan, Job> {
+        val planned = CompletableDeferred<TastePlan>()
+        val rest = background.launch {
+            try {
+                synced(sync.sync(first = { scanned -> planned.complete(plan(scanned, budget)) }))
+                if (!planned.isCompleted) planned.complete(plan(store.knownFiles().values, budget))
+            } catch (e: CancellationException) {
+                planned.cancel(e)
+                throw e
+            } catch (e: Exception) {
+                if (!planned.completeExceptionally(e)) log("The library sync after the sample's plan failed", e)
+            }
         }
+        return planned.await() to rest
+    }
+
+    private fun plan(scanned: Collection<SourceFile>, budget: Duration): TastePlan {
         val kinds = store.prefs().kinds intersect readableKinds
-        val files = store.knownFiles().values.filter { it.kind in kinds }
+        val files = scanned.filter { it.kind in kinds }
         store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
         val plan = FileRules.planTaste(files, eta.book::costMs, budget)
         store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
+        val picked = plan.ids.toHashSet()
+        store.upsertFiles(files.filter { it.uri in picked })
         val byUri = store.filesByUris(plan.ids)
         store.setTaste(plan.ids.mapNotNull { byUri[it]?.id })
         loadScope()
@@ -837,43 +904,48 @@ class Retriever(
             store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) } == true
     }
 
-    /** Under indexLock: keep completed work, drop videos first then the most expensive pending files. */
+    /** Under indexLock: keeps completed work and drops what [tasteDrops] says no longer fits the budget in wall time. */
     internal fun trimTaste() {
         val ids = store.sampleIds() ?: return
         val pending = store.pendingIn(ids)
         val budget = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
         val costs = pending.associate { it.id to eta.book.costMs(it.file) }
-        var left = costs.values.sum()
-        if (left <= budget * 1.5) return
-        // An over-budget file is still a trial; never trim away its last chance to read anything.
-        val minimum = if (store.indexedIn(ids).isEmpty()) 1 else 0
-        val drop = mutableSetOf<Long>()
-        for (file in pending.sortedWith(compareByDescending<Store.StoredFile> { it.file.kind == Kind.VIDEO }.thenByDescending { costs.getValue(it.id) })) {
-            if (left <= budget || pending.size - drop.size <= minimum) break
-            drop += file.id
-            left -= costs.getValue(file.id)
-        }
+        val ratio = eta.wallRatio?.takeIf { eta.book.measures(pending.byKind().first) }
+        val drop = tasteDrops(pending, costs, budget, eta.wallMs, ratio, keepOne = store.indexedIn(ids).isEmpty())
+        if (drop.isEmpty()) return
         store.setTaste(ids.filterNot { it in drop })
         loadScope()
         val (counts, bytes) = pending.filterNot { it.id in drop }.byKind()
-        eta.start(counts.mapValues { it.value.toLong() }, bytes)
+        eta.replan(counts.mapValues { it.value.toLong() }, bytes)
     }
 
-    /** How far the short read is; re-emits as files are read. */
-    fun tasteProgress(): Flow<TasteProgress> = combine(store.countChanges(), sampleIds) { _, _ ->
-        val ids = store.tasteIds()
-        val planned = ids.chunked(500).flatMap { store.files(it).values }.groupingBy { it.kind }.eachCount()
-        val (pending, videoBytes) = store.pendingIn(ids).byKind()
-        TasteProgress.of(planned, pending, videoBytes, eta.book, searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount())
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+    private val sharedTaste: Flow<TasteProgress> by lazy {
+        watched(combine(store.countChanges(), sampleIds) { _, _ -> }, {}) {
+            val ids = store.tasteIds()
+            val planned = store.storedIn(ids).groupingBy { it.file.kind }.eachCount()
+            val (pending, videoBytes) = store.pendingIn(ids).byKind()
+            val searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount()
+            TasteProgress.of(planned, pending, videoBytes, eta.book, searchable, eta.shownRatio)
+        }
+    }
 
-    /** Every planned file in plan order, read or not, with its plan position and what of it is findable; re-emits as files are read. */
-    fun sampleFiles(): Flow<List<SampleFile>> = combine(store.countChanges(), sampleIds) { _, _ ->
-        val ids = store.tasteIds()
-        val byId = withExtents(store.storedIn(ids)).associateBy { it.id }
-        val inside = readInside()
-        ids.mapIndexedNotNull { i, id -> byId[id]?.let { SampleFile(i, it.file, it.contentRead, Words.coverage(it, inside)) } }
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+    /** How far the short read is; re-emits as files are read. One shared flow; see [watched]. */
+    fun tasteProgress(): Flow<TasteProgress> = sharedTaste
+
+    private val sharedSample: Flow<List<SampleFile>> by lazy {
+        watched(combine(store.countChanges(), sampleIds) { _, _ -> }, {}) {
+            val ids = store.tasteIds()
+            val byId = withExtents(store.storedIn(ids)).associateBy { it.id }
+            val inside = readInside()
+            ids.mapIndexedNotNull { i, id -> byId[id]?.let { SampleFile(i, it.file, it.contentRead, Words.coverage(it, inside)) } }
+        }
+    }
+
+    /**
+     * Every planned file in plan order, read or not, with its plan position and what of it is findable; re-emits as files
+     * are read. One shared flow; see [watched].
+     */
+    fun sampleFiles(): Flow<List<SampleFile>> = sharedSample
 
     /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
     @Throws(Throwable::class)
@@ -1168,23 +1240,30 @@ class Retriever(
 
     // --- Home ---
 
-    @Throws(Throwable::class)
-    suspend fun home(): HomeFacts = io {
-        val (largeCount, largeBytes) = store.largeFiles(LARGE_FILE)
-        val nameOnly = store.countsNow(kinds = store.prefs().kinds intersect readableKinds).progress.nameOnly
-        HomeFacts(
-            newMedia = store.newestFiles(setOf(Kind.PHOTO, Kind.VIDEO), 15).map { it.file },
-            newShots = store.newestFiles(setOf(Kind.SCREENSHOT), 10).map { it.file },
-            newDocs = store.newestFiles(setOf(Kind.PDF, Kind.DOC), 8).map { it.file },
-            starred = store.starredVisible(10).map { it.file },
-            starredCount = store.starredVisibleCount(),
-            folders = store.folderCount(),
-            largeCount = largeCount,
-            largeBytes = largeBytes,
-            nameOnly = nameOnly,
-            topFolders = store.folders().take(6).map { FolderCount(it.first, it.second) },
-        )
+    private val sharedHome: Flow<HomeFacts> by lazy {
+        watched(combine(library, starred) { _, _ -> }, {}) {
+            val (largeCount, largeBytes) = store.largeFiles(LARGE_FILE)
+            HomeFacts(
+                newMedia = store.newestFiles(setOf(Kind.PHOTO, Kind.VIDEO), 15).map { it.file },
+                newShots = store.newestFiles(setOf(Kind.SCREENSHOT), 10).map { it.file },
+                newDocs = store.newestFiles(setOf(Kind.PDF, Kind.DOC), 8).map { it.file },
+                starred = store.starredVisible(10).map { it.file },
+                starredCount = store.starredVisibleCount(),
+                folders = store.folderCount(),
+                largeCount = largeCount,
+                largeBytes = largeBytes,
+                topFolders = store.folders().take(6).map { FolderCount(it.first, it.second) },
+                kindTotals = store.kindTotals(),
+                folderTotals = store.folderTotals(),
+            )
+        }
     }
+
+    /**
+     * Home's facts, again whenever files come, go or change, or a star does; never because a file was read. One shared
+     * flow; see [watched].
+     */
+    fun home(): Flow<HomeFacts> = sharedHome
 
     /**
      * Past years' photos and videos taken on today's date. [days]: (year, local midnight ms, next local midnight ms - 1),
@@ -1221,16 +1300,17 @@ class Retriever(
     private val suggestionLock = Mutex()
     private val contentSuggestions = ContentSuggestions()
 
-    /** Content from the selected read files, with document frequencies from the whole read set. */
-    @Throws(Throwable::class)
-    suspend fun suggestions(fileIds: Set<Long>? = null): List<String> = io {
+    /**
+     * Three things to search for from the content of [fileIds] (null: every file read), with document frequencies from
+     * the whole read set; empty when there are not three good ones. Again as files are read, a burst at a time, while
+     * collected.
+     */
+    fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = store.countChanges().conflate().map {
         suggestionLock.withLock {
-            contentSuggestions.refresh(store.readContentVersions(), mime = {
-                store.file(it)?.mime.orEmpty()
-            }) { id -> store.chunkTexts(id).mapNotNull { it.text } }
+            contentSuggestions.refresh(store.readContentVersions(), store::file) { id -> store.chunkTexts(id).mapNotNull { it.text } }
             contentSuggestions.suggestions(fileIds)
         }
-    }
+    }.distinctUntilChanged().flowOn(dispatchers.default)
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds
@@ -1262,6 +1342,7 @@ class Retriever(
         _state.update { it.copy(recentFiles = it.recentFiles.map { old -> if (old.uri == uri) file else old }) }
         _starred.value = store.starredUris()
         _fileRevision.update { it + 1 }
+        libraryChanged()
         return file
     }
 
@@ -1270,6 +1351,7 @@ class Retriever(
         indexLock.withLock {
             sync.remove(uris)
             _fileRevision.update { it + 1 }
+            libraryChanged()
             reconcileRecentFiles()
             _starred.value = store.starredUris()
         }
@@ -1289,10 +1371,7 @@ class Retriever(
 
     private fun withExtents(files: List<Store.StoredFile>): List<Store.StoredFile> {
         val extents = store.readExtents(files.map { it.id })
-        val content = store.indexedIn(files.map { it.id })
-        return files.map { file ->
-            file.copy(extent = extents[file.id]?.let(::visibleExtent), contentRead = file.id in content)
-        }
+        return files.map { file -> file.copy(extent = extents[file.id]?.let(::visibleExtent)) }
     }
 
     @Throws(Throwable::class)
@@ -1306,14 +1385,6 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }
-
-    /** More on your phone, by kind: every file Retriever can access, OTHER included. Kinds with no files are absent. */
-    @Throws(Throwable::class)
-    suspend fun kindTotals(): Map<Kind, FileTotals> = io { store.kindTotals() }
-
-    /** More on your phone, by folder (each folder alone, not its subfolders), most files first. */
-    @Throws(Throwable::class)
-    suspend fun folderTotals(): List<FolderTotals> = io { store.folderTotals() }
 
     @Throws(Throwable::class)
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }

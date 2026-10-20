@@ -73,8 +73,8 @@ class BulkLibrarySyncTest {
         sql.clear()
         val result = incremental(files.take(3).map { it.copy(modifiedAt = 2L) })
         assertEquals(SyncResult(0, 3, 0, false), result)
-        assertEquals(1, sql.count { "files.taken_at FROM files WHERE uri IN" in it }, "bulk lookups: $sql")
+        assertEquals(1, sql.count { "files.reach FROM files WHERE uri IN" in it }, "bulk lookups: $sql")
         assertTrue(sql.none { it.trimEnd().endsWith("FROM files") }, "full read: $sql")
-        assertTrue(sql.none { "files.taken_at FROM files WHERE uri = ?" in it }, "point query: $sql")
+        assertTrue(sql.none { "files.reach FROM files WHERE uri = ?" in it }, "point query: $sql")
     }
 }
