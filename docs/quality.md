@@ -12,7 +12,7 @@ scripts/verify.sh --full   # default plus benchmarks, coverage, inspections, ios
 Default layers:
 
 1. `./gradlew --rerun-tasks :core:testAndroidHostTest :core:iosSimulatorArm64Test :androidApp:testDebugUnitTest :androidApp:lintDebug :androidApp:lintRelease`
-2. `scripts/ios-unit-tests.sh`
+2. `scripts/ios-unit-tests.sh` (unit and UI tests over 3+ simulators; pass `-only-testing`-style names to narrow it)
 3. Formatter checks in check mode: `swift format lint` and the Gradle-managed ktlint (`./gradlew ktlintCheck`; the format task is `ktlintFormat`, see the root `build.gradle.kts`).
 4. Notices check: fails when a group in `:androidApp` `releaseRuntimeClasspath`, or a pin in the iOS
    `Package.resolved`, is missing from `THIRD_PARTY_NOTICES.md`.

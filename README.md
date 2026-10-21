@@ -39,7 +39,7 @@ scripts/verify.sh --full   # adds benchmarks, coverage, inspections and the UI t
 
 The individual iOS checks are:
 
-- `scripts/ios-unit-tests.sh`: the `RetrieverTests` bundle on a simulator (created if missing).
+- `scripts/ios-unit-tests.sh [Bundle/Class/method ...]`: `RetrieverTests` and the UI tests, spread over 3+ simulators (created if missing) by measured duration; results in `build/ios-tests/summary.txt`.
 - `scripts/ios-selftest.sh`: seeds a clean simulator, indexes a corpus and searches it. It passes only when
   the log contains `SELFTEST PASS`.
 

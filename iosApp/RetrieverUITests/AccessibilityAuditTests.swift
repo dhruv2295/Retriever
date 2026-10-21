@@ -50,14 +50,52 @@ final class AccessibilityAuditTests: XCTestCase {
         "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
     ]
 
-    func testEveryFixtureRoutePassesTheAccessibilityAudit() throws {
-        try auditFixtures()
+    /// The fixture routes by screen, light and dark each, so a screen's change reruns only its own audits and the parallel
+    /// runner can spread them. Every route sits in exactly one area (testEveryFixtureRouteIsInExactlyOneAuditArea).
+    private static let setupRoutes = [
+        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.try", "setup.tryNoSuggestions", "setup.choose",
+    ]
+    private static let upgradeRoutes = ["upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning"]
+    private static let statusAndSettingsRoutes = [
+        "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles", "settings",
+    ]
+    private static let homeRoutes = ["home.caughtUp", "home.reading", "home.empty", "home.upgrade"]
+    private static let homeStatusLineRoutes = [
+        "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.readNow", "home.downloading", "home.meaning", "home.noAccess",
+    ]
+    private static let searchResultRoutes = ["search.wordsOnly", "search.noModel", "search.lessLikely", "search.nothingWell", "search.firstPart"]
+    private static let searchStateRoutes = ["search.empty", "search.error", "search.loading", "search.noAccess", "search.reading"]
+    private static let areas = [
+        setupRoutes, sampleRoutes, upgradeRoutes, statusAndSettingsRoutes, homeRoutes, homeStatusLineRoutes, searchResultRoutes, searchStateRoutes,
+    ]
+
+    func testEveryFixtureRouteIsInExactlyOneAuditArea() {
+        let audited = Self.areas.flatMap { $0 }
+        XCTAssertEqual(Set(audited), Set(Self.routes), "a fixture route is missing from the audit areas, or an area names an unknown route")
+        XCTAssertEqual(audited.count, Self.routes.count, "a fixture route is audited in two areas")
     }
 
-    func testEveryFixtureRoutePassesTheAccessibilityAuditInDarkAppearance() throws {
+    func testSetupRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.setupRoutes) }
+    func testSetupRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.setupRoutes) }
+    func testSetupSampleRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.sampleRoutes) }
+    func testSetupSampleRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.sampleRoutes) }
+    func testUpgradeRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.upgradeRoutes) }
+    func testUpgradeRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.upgradeRoutes) }
+    func testStatusAndSettingsRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.statusAndSettingsRoutes) }
+    func testStatusAndSettingsRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.statusAndSettingsRoutes) }
+    func testHomeRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.homeRoutes) }
+    func testHomeRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.homeRoutes) }
+    func testHomeStatusLineRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.homeStatusLineRoutes) }
+    func testHomeStatusLineRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.homeStatusLineRoutes) }
+    func testSearchResultRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.searchResultRoutes) }
+    func testSearchResultRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.searchResultRoutes) }
+    func testSearchStateRoutesPassTheAccessibilityAudit() throws { try auditFixtures(Self.searchStateRoutes) }
+    func testSearchStateRoutesPassTheAccessibilityAuditInDarkAppearance() throws { try auditDark(Self.searchStateRoutes) }
+
+    private func auditDark(_ routes: [String]) throws {
         appearance = "dark"
         XCUIDevice.shared.appearance = .dark
-        try auditFixtures()
+        try auditFixtures(routes)
     }
 
     func testDownloadCardKeepsProgressAndCancelAccessibleInBothAppearances() throws {
@@ -136,9 +174,9 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
-    private func auditFixtures() throws {
+    private func auditFixtures(_ routes: [String]) throws {
         continueAfterFailure = true
-        for route in Self.routes {
+        for route in routes {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", route]
             launch(app)
@@ -217,7 +255,7 @@ final class AccessibilityAuditTests: XCTestCase {
             let title = app.staticTexts["Try it on your own files"]
             let group = app.descendants(matching: .any)["step-content"].firstMatch
             let actions = app.descendants(matching: .any)["step-actions"].firstMatch
-            let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'read' OR label BEGINSWITH 'Trying'")).firstMatch
+            let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'processed' OR label BEGINSWITH 'Trying'")).firstMatch
             let bar = app.progressIndicators.firstMatch
             XCTAssertTrue(title.exists && count.exists && group.exists && actions.exists && bar.exists, route)
             // The pile's own frame follows its turned cards, so the group's centre line stands in for it.
@@ -420,9 +458,17 @@ final class AccessibilityAuditTests: XCTestCase {
                 launch(app)
                 let element = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
                 // Settings at AX5, with its prominent headers, is many screens tall.
-                for _ in 0..<20 {
-                    if element.exists && element.isHittable && app.windows.firstMatch.frame.contains(element.frame) { break }
-                    app.swipeUp()
+                let window = app.windows.firstMatch
+                for _ in 0..<30 {
+                    if element.exists && element.isHittable && window.frame.contains(element.frame) { break }
+                    guard element.exists else {
+                        app.swipeUp()
+                        continue
+                    }
+                    // A full swipe carries a tall AX5 paragraph from below the fold past the top; nudge it in instead.
+                    let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    let up = element.frame.maxY > window.frame.maxY
+                    from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: up ? -120 : 120)))
                 }
                 XCTAssertTrue(element.exists, label)
                 XCTAssertTrue(element.isHittable, label)

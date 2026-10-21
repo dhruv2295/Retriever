@@ -91,7 +91,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `testAFailureBelongsToItsQuestion`, `testResultsGoStaleWhenTheQuestionChanges`, `testNothingAnsweredIsStaleOnceActive`,
   `testResultsAreResultsAndSlowShowsOnlyWhileSearching`, `testTheDogMovesForTheFirstNoMatches`,
   `testSearchingMyExactWordsLastsUntilTheWordsChange`, `testARetryAsksTheSameQuestion`.
-- Run the Android set with the `:androidApp` unit-test task and the iOS set through `scripts/ios-unit-tests.sh`; the
+- Run the Android set with the `:androidApp` unit-test task and the iOS set through `scripts/ios-unit-tests.sh RetrieverTests/<Class>`; the
   harness for this wave only compiles them.
 
 ## Known limits
