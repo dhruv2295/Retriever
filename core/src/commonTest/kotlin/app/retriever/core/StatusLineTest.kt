@@ -126,6 +126,14 @@ class StatusLineTest {
         assertEquals("Processing 1 new file", decide(ReadingProgress(read = 40, scheduled = 61), reading = true, mark = before).title)
     }
 
+    /** The quick try's share is of its own files: committing to the whole phone starts at the real figure, not "new files". */
+    @Test fun theQuickTryNeverSetsTheMark() {
+        val sample = ReadingProgress(read = 117, scheduled = 7, sample = true)
+        assertEquals(ReadMark(), ReadMark().next(sample))
+        val whole = ReadingProgress(read = 117, scheduled = 25_676)
+        assertEquals("Processing your files · 0% done", decide(whole, reading = true, mark = ReadMark().next(sample)).title)
+    }
+
     @Test fun theShareIsWholeAndReachesAHundredOnlyWhenNothingWaits() {
         assertEquals(99, percentRead(ReadingProgress(read = 999, scheduled = 1)))
         assertEquals(100, percentRead(ReadingProgress(read = 3)))
