@@ -35,7 +35,15 @@ xcodebuild build-for-testing -project "$ROOT/iosApp/iosApp.xcodeproj" -scheme Re
 if ! xcrun simctl list devices | grep -F "$UDID" | grep -q '(Booted)'; then xcrun simctl boot "$UDID"; fi
 xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl ui "$UDID" appearance light
-xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
+# A new simulator's first boot can drop this write, so check it survives a reboot before 20 minutes of UI tests.
+for attempt in 1 2 3; do
+  [ "$attempt" -lt 3 ] || { echo "Reduce Motion did not stick on $SIM_NAME" >&2; exit 1; }
+  xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
+  xcrun simctl shutdown "$UDID"
+  xcrun simctl boot "$UDID"
+  xcrun simctl bootstatus "$UDID" -b >/dev/null
+  [ "$(xcrun simctl spawn "$UDID" defaults read com.apple.Accessibility ReduceMotionEnabled 2>/dev/null || true)" != 1 ] || break
+done
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/Retriever.app"
 xcrun simctl install "$UDID" "$APP"
 xcrun simctl privacy "$UDID" grant photos app.retriever
