@@ -21,27 +21,35 @@ class StatusLineTest {
         words: DeviceWords = android,
         minutes: Int = 0,
         plugged: Boolean = false,
-        mark: ReadMark = ReadMark(),
-    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, mark)
+    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged)
 
     private fun row(s: ReadingStatus) = listOf(s.phase.name, s.title, s.detail, s.action?.label)
 
     @Test fun everyReadingStateHasItsTitleDetailAndAction() {
         val rows = listOf(
-            decide(stop = StopReason.PAUSED) to listOf("PAUSED", "Paused", "Search still works.", "Resume"),
-            decide(stop = StopReason.POWER_SAVE) to listOf("POWER_SAVE", "Paused while Battery Saver is on", "Carries on when Battery Saver is off.", null),
-            decide(stop = StopReason.HOT) to listOf("HOT", "Paused to let your phone cool down", "Carries on by itself.", null),
-            decide(stop = StopReason.LOW_BATTERY) to listOf("LOW_BATTERY", "Paused, battery is low", "Plug in and Retriever carries on.", null),
+            decide(stop = StopReason.PAUSED) to listOf("PAUSED", "Paused", "3 of 5 files done. Search still works.", "Resume"),
+            decide(stop = StopReason.POWER_SAVE) to
+                listOf("POWER_SAVE", "Paused while Battery Saver is on", "3 of 5 files done. Carries on when Battery Saver is off.", null),
+            decide(stop = StopReason.HOT) to listOf("HOT", "Paused to let your phone cool down", "3 of 5 files done. Carries on by itself.", null),
+            decide(stop = StopReason.LOW_BATTERY) to
+                listOf("LOW_BATTERY", "Paused, battery is low", "3 of 5 files done. Plug in and Retriever carries on.", null),
             decide(stop = StopReason.CHARGING_UP) to
-                listOf("CHARGING_UP", "Charging up first", "Processing starts once your battery has a bit more charge.", null),
-            decide(stop = StopReason.BUSY) to listOf("BUSY", "Waiting until you put your phone down", "Or open Retriever to carry on now.", null),
+                listOf("CHARGING_UP", "Charging up first", "3 of 5 files done. Processing starts once your battery has a bit more charge.", null),
+            decide(stop = StopReason.BUSY) to
+                listOf("BUSY", "Waiting until you put your phone down", "3 of 5 files done. Or open Retriever to carry on now.", null),
             decide(stop = StopReason.UNPLUGGED) to
-                listOf("CHARGING", "Waiting until you plug in · 60% done", "Retriever carries on when your phone is charging.", "Process for 15 minutes"),
+                listOf(
+                    "CHARGING",
+                    "Waiting until you plug in",
+                    "3 of 5 files done. Retriever carries on when your phone is charging.",
+                    "Process for 15 minutes",
+                ),
             decide(stop = StopReason.MANUAL) to
-                listOf("MANUAL", "Processing only when you start it", "You can find any file by its name.", "Process for 15 minutes"),
+                listOf("MANUAL", "Processing only when you start it", "3 of 5 files done. You can find any file by its name.", "Process for 15 minutes"),
             decide(stop = StopReason.BUDGET) to
-                listOf("WAITING", "Taking a short break", "Your phone decides when Retriever carries on. Nothing is lost.", null),
-            decide(minutes = 12) to listOf("READ_NOW", "Processing for 15 minutes · 12 min left", "Uses some battery. Stops on its own.", "Stop"),
+                listOf("WAITING", "Taking a short break", "3 of 5 files done. Your phone decides when Retriever carries on. Nothing is lost.", null),
+            decide(minutes = 12) to
+                listOf("READ_NOW", "Processing for 15 minutes · 12 min left", "3 of 5 files done. Uses some battery. Stops on its own.", "Stop"),
             decide(waiting.copy(sample = true), reading = true) to
                 listOf("SAMPLE", "Trying a few of your files", "About a minute. Nothing is changed or sent.", null),
             decide(
@@ -54,18 +62,23 @@ class StatusLineTest {
                 "Choose when to process",
             ),
             decide(reading = true) to
-                listOf("READING", "Processing your files · 60% done", "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf("READING", "Processing your files", "3 of 5 files done. You can close Retriever; it carries on. Search works the whole time.", null),
             decide(reading = true, plugged = true) to
-                listOf("READING", "Processing while you charge · 60% done", "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf(
+                    "READING",
+                    "Processing while you charge",
+                    "3 of 5 files done. You can close Retriever; it carries on. Search works the whole time.",
+                    null,
+                ),
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to
                 listOf(
                     "MEANING",
-                    "Adding search by meaning · 25%",
-                    "So you can search by what things mean, and by what’s in your photos. On this phone only.",
+                    "Adding search by meaning",
+                    "1 of 4 files done. So you can search by what things mean, and by what’s in your photos. On this phone only.",
                     null,
                 ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to
-                listOf("DEEPENING", "Processing the rest of some long files", "You can find them by their beginning.", null),
+                listOf("DEEPENING", "Processing the rest of some long files", "2 to go. You can find them by their beginning.", null),
             decide(ReadingProgress(read = 3), running = true) to listOf("LOOKING", "Checking for new files…", null, null),
             decide(ReadingProgress(read = 3)) to
                 listOf("CAUGHT_UP", "All done. Retriever has processed everything it can", "It processes new files by itself.", "Dismiss"),
@@ -78,12 +91,17 @@ class StatusLineTest {
     @Test fun iosSaysItsOwnDeviceAndThatRetrieverStaysOpen() {
         assertEquals("Paused while Low Power Mode is on", decide(stop = StopReason.POWER_SAVE, words = iphone).title)
         assertEquals("Waiting until you put your iPhone down", decide(stop = StopReason.BUSY, words = iphone).title)
-        assertEquals("Uses some battery. Keep Retriever open.", decide(minutes = 3, words = iphone).detail)
+        assertEquals("3 of 5 files done. Uses some battery. Keep Retriever open.", decide(minutes = 3, words = iphone).detail)
         assertEquals(
-            "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows.",
+            "3 of 5 files done. Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows.",
             decide(reading = true, words = iphone).detail,
         )
-        assertEquals("Your iPad decides when Retriever carries on. Nothing is lost.", decide(stop = StopReason.DONE, words = DeviceWords.ios("iPad")).detail)
+        assertEquals(
+            "3 of 5 files done. Your iPad decides when Retriever carries on. Nothing is lost.",
+            decide(stop = StopReason.DONE, words = DeviceWords.ios("iPad")).detail,
+        )
+        // An empty library never says "0 of 0 files done".
+        assertEquals("Search still works.", decide(ReadingProgress(), stop = StopReason.PAUSED).detail)
     }
 
     /** Settings' Read for 15 minutes shows at once: before the reader starts, and before a blocker-free turn would say WAITING. */
@@ -101,63 +119,36 @@ class StatusLineTest {
             assertNull(s.pause, s.phase.name)
         }
         assertEquals("Paused", decide(stop = StopReason.PAUSED).pause)
-        assertEquals("Waiting until you plug in · 60% done", decide(stop = StopReason.UNPLUGGED).pause)
+        assertEquals("Waiting until you plug in", decide(stop = StopReason.UNPLUGGED).pause)
     }
 
     @Test fun manualReadingNeverPromisesToReadByItself() {
         assertNull(decide(ReadingProgress(read = 3), stop = StopReason.MANUAL).detail)
     }
 
-    /** "N% done" never shows falling: new files are named until the old figure is passed, and the bar holds the figure. */
-    @Test fun theShareReadNeverFalls() {
-        val before = ReadMark().next(ReadingProgress(read = 40, scheduled = 60))
-        assertEquals(ReadMark(40, 100), before)
-        // 42 new files arrive: 40 of 142 is 28%.
-        val more = ReadingProgress(read = 40, scheduled = 102)
-        val status = decide(more, reading = true, mark = before)
-        assertEquals("Processing 42 new files" to 40, status.title to status.percent)
-        assertEquals(before, before.next(more), "the mark holds")
-        // Read past the old figure: the share shows again and the mark moves on.
-        val passed = ReadingProgress(read = 60, scheduled = 82)
-        assertEquals("Processing your files · 42% done", decide(passed, reading = true, mark = before).title)
-        assertEquals(ReadMark(42, 142), before.next(passed))
-        // Fewer files (read ones deleted): the old figure stays, with no new files to name.
-        assertEquals("Processing your files · 40% done", decide(ReadingProgress(read = 10, scheduled = 60), reading = true, mark = before).title)
-        assertEquals("Processing 1 new file", decide(ReadingProgress(read = 40, scheduled = 61), reading = true, mark = before).title)
-    }
-
-    /** The quick try's share is of its own files: committing to the whole phone starts at the real figure, not "new files". */
-    @Test fun theQuickTryNeverSetsTheMark() {
-        val sample = ReadingProgress(read = 117, scheduled = 7, sample = true)
-        assertEquals(ReadMark(), ReadMark().next(sample))
-        val whole = ReadingProgress(read = 117, scheduled = 25_676)
-        assertEquals("Processing your files · 0% done", decide(whole, reading = true, mark = ReadMark().next(sample)).title)
-    }
-
-    /** A fresh install shows its status before the first scan has written a file; that empty 100% must not become the mark. */
-    @Test fun anEmptyLibraryNeverSetsTheMark() {
-        val empty = ReadingProgress()
-        assertEquals(100, percentRead(empty))
-        assertEquals(ReadMark(), ReadMark().next(empty))
-        val scanned = ReadingProgress(read = 77, scheduled = 25_670)
-        assertEquals("Processing your files · 0% done", decide(scanned, reading = true, mark = ReadMark().next(empty)).title)
-    }
-
-    @Test fun theShareIsWholeAndReachesAHundredOnlyWhenNothingWaits() {
-        assertEquals(99, percentRead(ReadingProgress(read = 999, scheduled = 1)))
-        assertEquals(100, percentRead(ReadingProgress(read = 3)))
-        assertEquals(100, percentRead(ReadingProgress()))
-        assertEquals(0, percentRead(ReadingProgress(scheduled = 1)))
-        assertEquals(ReadMark(12, 34), ReadMark.decode(ReadMark(12, 34).encode()))
-        assertNull(ReadMark.decode("x,1"))
-        assertNull(ReadMark.decode(null))
+    /** The owner's 25,747 files: the count moves with every file, and the bar is the same numbers, never full early. */
+    @Test fun theCountAndTheBarAreTheSameNumbers() {
+        val status = decide(ReadingProgress(read = 312, scheduled = 25_435), reading = true)
+        assertEquals("Processing your files" to "312 of ${formatCount(25_747)} files done", status.title to status.detail?.substringBefore(". "))
+        assertEquals(1, status.percent)
+        val next = decide(ReadingProgress(read = 313, scheduled = 25_434), reading = true)
+        assertEquals("313 of ${formatCount(25_747)} files done", next.detail?.substringBefore(". "))
+        // New files lower the count's share honestly: no mark, no "new files" title.
+        val more = decide(ReadingProgress(read = 40, scheduled = 102), reading = true)
+        assertEquals("Processing your files" to 28, more.title to more.percent)
+        assertEquals(99, decide(ReadingProgress(read = 999, scheduled = 1), reading = true).percent)
+        assertEquals(0, decide(ReadingProgress(scheduled = 1), reading = true).percent)
+        // The quick try has its own count; deepening has nothing left of the first reads to count, so no full bar.
+        assertNull(decide(ReadingProgress(read = 117, scheduled = 7, sample = true), reading = true).percent)
+        assertNull(decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true).percent)
     }
 
     /** Run 5: after the download the rest of the library was still scheduled, so nothing said the meaning pass ran. */
     @Test fun theMeaningPassShowsItsProgressWhileFirstReadsRemain() {
         val s = decide(ReadingProgress(read = 40, scheduled = 60, meaningWaiting = 30), reading = true)
         assertEquals(ReadingPhase.READING, s.phase, "the title stays put while the passes interleave")
-        assertEquals("Also adding search by meaning · 25%", s.detail)
+        assertEquals("40 of 100 files done. Also adding search by meaning.", s.detail)
+        assertEquals(40, s.percent, "the bar is the count, not the meaning pass")
     }
 
     @Test fun homeLeadsWithAccessSetupAndTheDownload() {

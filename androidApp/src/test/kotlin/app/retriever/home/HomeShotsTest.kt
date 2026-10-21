@@ -194,8 +194,9 @@ class HomeShotsTest {
 
     @Test fun defaultLight() {
         shot("default", false)
-        rule.onNodeWithText("Processing while you charge · 36% done").assertExists()
-        rule.onNodeWithText("You can close Retriever; it carries on. Search works the whole time.").assertExists()
+        rule.onNodeWithText("Processing while you charge").assertExists()
+        // A live count, not a percent that sits still for minutes.
+        rule.onNodeWithText("1,200 of 3,300 files done. You can close Retriever; it carries on. Search works the whole time.").assertExists()
         // Home is a starting place: no counts of the phone, no report, no Tidy up.
         rule.onNodeWithText("files processed", substring = true).assertDoesNotExist()
         rule.onNodeWithText("Tidy up").assertDoesNotExist()
@@ -207,7 +208,7 @@ class HomeShotsTest {
     @Test fun defaultLargestText() {
         shot("default", false, fontScale = 2f)
         // Large text wraps the line, never cuts it.
-        rule.onNodeWithText("Processing while you charge · 36% done").assertExists()
+        rule.onNodeWithText("Processing while you charge").assertExists()
         rule.onNodeWithContentDescription("Photos, 2,140").assertExists()
         // Two Browse tiles a row: the second sits beside the first, not under it.
         fun tileTop(prefix: String) = rule.onNode(described(prefix)).fetchSemanticsNode().boundsInRoot.top
@@ -226,7 +227,8 @@ class HomeShotsTest {
 
     @Test fun unpluggedLight() {
         shot("unplugged", false)
-        rule.onNodeWithText("Waiting until you plug in · 36% done").assertExists()
+        rule.onNodeWithText("Waiting until you plug in").assertExists()
+        rule.onNodeWithText("1,200 of 3,300 files done. Retriever carries on when your phone is charging.").assertExists()
         rule.onNodeWithText(Words.READ_FOR_15).assertExists()
     }
 
@@ -235,7 +237,7 @@ class HomeShotsTest {
     @Test fun chargingUpLight() {
         shot("charging_up", false)
         rule.onNodeWithText("Charging up first").assertExists()
-        rule.onNodeWithText("Processing starts once your battery has a bit more charge.").assertExists()
+        rule.onNodeWithText("1,200 of 3,300 files done. Processing starts once your battery has a bit more charge.").assertExists()
     }
 
     @Test fun chargingUpDark() = shot("charging_up", true)
@@ -259,7 +261,8 @@ class HomeShotsTest {
 
     @Test fun meaningLight() {
         shot("meaning", false)
-        rule.onNodeWithText("Adding search by meaning · 66%").assertExists()
+        rule.onNodeWithText("Adding search by meaning").assertExists()
+        rule.onNodeWithText("2,200 of 3,300 files done.", substring = true).assertExists()
     }
 
     @Test fun meaningDark() = shot("meaning", true)
@@ -286,7 +289,7 @@ class HomeShotsTest {
     @Test fun theOrderIsTitleStatusStarredRecentOnThisDayBrowse() {
         rule.setContent { ShotTheme(false) { Screen(base) } }
         val order =
-            listOf("Retriever", "Processing while you charge · 36% done", "Starred", Words.RECENTLY_ADDED, "On this day", Words.MORE_ON_PHONE)
+            listOf("Retriever", "Processing while you charge", "Starred", Words.RECENTLY_ADDED, "On this day", Words.MORE_ON_PHONE)
                 .map(::top)
         assertEquals(order.sorted(), order)
         rule.onNode(hasText("Retriever") and isHeading()).assertExists()
@@ -300,7 +303,7 @@ class HomeShotsTest {
     @Test fun theLineOpensReadingStatus() {
         val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onNavigate = { went += it })) } }
-        rule.onNodeWithText("Processing while you charge · 36% done").performClick()
+        rule.onNodeWithText("Processing while you charge").performClick()
         assertEquals(listOf<Route>(StatusRoute), went)
     }
 

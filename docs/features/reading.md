@@ -13,7 +13,7 @@ otherwise their counts cover the library and persist across batches.
 
 Content is extracted text, OCR or classifier labels, or an embedded image; none of these needs the model. Partly read
 includes extraction caps and long-file tails missing vectors beside embedded chunks, including exhausted tail retries.
-Waiting for meaning (`meaningWaiting`, phase MEANING, "Adding search by meaning · N%", shown after the download on Home, Processing and Settings) counts files with queued vectors and none yet:
+Waiting for meaning (`meaningWaiting`, phase MEANING, "Adding search by meaning" with "N of M files done", shown after the download on Home, Processing and Settings) counts files with queued vectors and none yet:
 read without the model, or cleared by a model change. It is a subset count like later passes, so C = F + P is unchanged,
 and it is zero while the model is absent. Requeued first passes remain scheduled. Only queued
 work prevents completion; exhausted passes show their limit. Revoked, deleted, excluded and revised content leaves the old count immediately.
@@ -45,10 +45,11 @@ opportunity per eight first-pass files.
 ## Native surfaces
 
 One status line, from core (`ReadingPolicy.decide` then `line`), on Home, Processing, Settings and the notification:
-a title ("Processing while you charge · 36% done", "Waiting until you plug in · 36% done", "Processing for 15 minutes · 12
-min left", "Adding search by meaning · 61%"), one plain detail, a thin bar while reading or downloading, and at most one
-spelled-out button. "N% done" never falls (the saved `read_mark`); when new files lower the share the title says
-"Processing 42 new files" instead. Tapping Process for 15 minutes in Settings turns that line at once (READ_NOW shows from the
+a title ("Processing your files", "Processing while you charge", "Waiting until you plug in", "Processing for 15 minutes · 12
+min left", "Adding search by meaning"), one plain detail that starts with the live count ("312 of 25,747 files done", files with
+meaning of files done for the meaning pass), a thin bar of the same numbers while reading or downloading, and at most one
+spelled-out button. The count moves with every file; when new files come it dips, which the count explains (the old
+never-falling `read_mark` is gone, and a saved value is left unread). Tapping Process for 15 minutes in Settings turns that line at once (READ_NOW shows from the
 tap). Processing ("Processing") shows the line with Resume / Process for 15 minutes / Stop / Pause, Processing now with the
 file's name beside a small tile, the counts under Details, and Recently processed. Its mascot walks for as long as reading
 runs (`settles = false`). Its Processing now row stays while reading runs: between two files it keeps the last one (name,

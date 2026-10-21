@@ -1,8 +1,12 @@
 package app.retriever.core
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -104,8 +108,8 @@ class ReadingContractTest {
         assertTrue(third.searchNames("words").hits.isNotEmpty(), "Pause keeps name updates alive")
     }
 
-    /** Settings' Read for 15 minutes is seen at once, and the share read is never shown lower, even after a relaunch. */
-    @Test fun theStatusLineShowsReadNowAtOnceAndKeepsItsShareAcrossLaunches() = runBlocking {
+    /** Settings' Read for 15 minutes is seen at once, and the live count moves as files come, without a relaunch. */
+    @Test fun theStatusLineShowsReadNowAtOnceAndCountsLive() = runBlocking {
         val store = newStore().also { it.setProfile(PROFILE) }
         val files = (1..4).map { testFile("$it.txt") }
         store.upsertFiles(files)
@@ -113,17 +117,32 @@ class ReadingContractTest {
         val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
         fun facade() = testRetriever(store, files, FakeExtractor(), monitor = unplugged)
         val first = facade().apply { refreshSetUp() }
-        assertEquals("Waiting until you plug in · 25% done", first.readingStatus().first().title)
+        val waiting = first.readingStatus().first()
+        assertEquals(
+            listOf("Waiting until you plug in", "1 of 4 files done. Retriever carries on when your phone is charging.", 25),
+            listOf(waiting.title, waiting.detail, waiting.percent),
+        )
         first.readNow()
         val tapped = first.readingStatus().first { it.phase == ReadingPhase.READ_NOW }
         assertEquals("Processing for 15 minutes · 15 min left" to StatusAction.STOP, tapped.title to tapped.action)
 
-        // Four new files: 1 of 8 is 12%, but 25% was shown before the relaunch, so 25% stays.
-        val more = (5..8).map { testFile("$it.txt") }
-        store.upsertFiles(more)
+        // Four new files reach a collector already watching: 1 of 8, an honest 12%, with no relaunch or new subscription.
+        val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
+        val watching = launch(Dispatchers.Default) { first.readingStatus().collect { lines.send(it) } }
+        suspend fun next(count: String) = withTimeout(5_000) {
+            var s: ReadingStatus
+            do {
+                s = lines.receive()
+            } while (s.detail?.startsWith(count) != true)
+            s
+        }
+        next("1 of 4 files done")
+        store.upsertFiles((5..8).map { testFile("$it.txt") })
+        assertEquals(12, next("1 of 8 files done").percent)
+        watching.cancel()
         val second = facade().apply { refreshSetUp() }
         second.endReadNowSession()
-        assertEquals("Waiting until you plug in · 25% done" to 25, second.readingStatus().first().let { it.title to it.percent })
+        assertEquals("Waiting until you plug in" to 12, second.readingStatus().first().let { it.title to it.percent })
     }
 
     @Test fun savingPowerEndsTheExplicitSessionEvenWhileVisible() = runBlocking {

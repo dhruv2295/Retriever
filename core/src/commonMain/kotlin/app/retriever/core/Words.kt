@@ -39,6 +39,9 @@ object Words {
 
     fun files(n: Long): String = plural(n, "file")
 
+    /** The status line's live count, as its detail's first sentence: "312 of 25,747 files done". */
+    fun filesDone(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} done"
+
     fun largeFiles(n: Long): String = "${files(n)} over 100${NBSP}MB"
 
     /** Processing's counts; a file processed in part counts as processed on Home. */

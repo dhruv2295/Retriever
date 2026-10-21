@@ -9,7 +9,7 @@ state titles where they differ.
 ## The app's verb: "process"
 
 Wherever the app describes its own work on files (extracting text, OCR, labels, meaning) it says "process", never
-"read", "analyze", "index", "learn" or "scan": "Processing your files · N% done", "N files processed", "N to go",
+"read", "analyze", "index", "learn" or "scan": "Processing your files", "N of M files done", "N files processed", "N to go",
 "Processed in part", "Processing now", "Recently processed", "Couldn't process N files", "Process for 15 minutes",
 "When to process", and the Processing screen. The first-day line says Retriever "processes them here on this
 {device}: it looks at the words and pictures inside each file. Nothing is sent anywhere." "Read" stays for the
@@ -30,25 +30,25 @@ UI work is the app agents'.
 | `ReadingStatus(phase, title, detail, action, percent)` | The one status model: Home's line, Processing, setup's pause reason, the notification | Gains `action` and `percent`; `HomeStatus` and `HomePhase` are gone |
 | `ReadingPhase` | Every state, including the new `SETTING_UP`, `NO_ACCESS`, `DOWNLOADING`, `DOWNLOAD_STOPPED`, `TUNING`, `READ_NOW` | No titles on the enum any more; all words are in `ReadingPolicy` |
 | `StatusAction` | `CONTINUE`, `ALLOW_ACCESS`, `CHOOSE_WHEN`, `READ_FOR_15`, `STOP`, `RESUME`, `DISMISS`, `TRY_AGAIN`; `.label` is the button's words | New. Map each to a button and a call: `DISMISS` is the [x] (`dismissedReadingCycle`), `STOP` is `endReadNowSession()` (or the download's cancel), `READ_FOR_15` is `readNow()` |
-| `ReadingStatus.percent` | The line's figure: the share read (never falling), the meaning pass's share for MEANING, the download's for DOWNLOADING | New. Draw the thin bar only while `active` or downloading; announce the title, not each percent |
+| `ReadingStatus.percent` | The bar's figure, the same numbers as the detail's count (`Words.filesDone`): files done of all to do, files with meaning of files done for MEANING, the download's for DOWNLOADING; none for the sample or DEEPENING | Draw the thin bar only while `active` or downloading (Processing draws it whenever present); announce the title, not each count |
 | `ReadingStatus.active` | READ_NOW, READING, SAMPLE, MEANING, DEEPENING | Was a HomePhase; use it for the walking mascot |
-| `readingStatus(): Flow<ReadingStatus>` | Shared, as before; now also says minutes left of a Process for 15 minutes, "while you charge" when plugged in, and keeps the "N% done" high-water mark in Store meta (`read_mark`) | The once-a-second check runs on `CoreDispatchers.default` (was hard-wired to `Dispatchers.Default`: the flaky `StatusViewModelTest`) |
-| `ReadingPolicy.line(reading?, libraryChosen, hasAccess, libraryTotal, words, download)` | Home's line: lost access, then setup's access step, then the download or its setup, else `reading`; null with no files, and no reading line before core's live status arrives (so a first frame never shows a share under the saved mark) | Replaces `homeStatus`. A stopped download gives way while reading runs |
+| `readingStatus(): Flow<ReadingStatus>` | Shared, as before; now also says minutes left of a Process for 15 minutes and "while you charge" when plugged in; one decision per conflated count change, so the count moves as files finish | The once-a-second check runs on `CoreDispatchers.default` (was hard-wired to `Dispatchers.Default`: the flaky `StatusViewModelTest`) |
+| `ReadingPolicy.line(reading?, libraryChosen, hasAccess, libraryTotal, words, download)` | Home's line: lost access, then setup's access step, then the download or its setup, else `reading`; null with no files, and no reading line before core's live status arrives | Replaces `homeStatus`. A stopped download gives way while reading runs |
 | `DownloadState(percent, stopped, size, settingUp)` | What the platform knows of the model download and its tune | New; pass null when neither is under way |
-| `ReadingPolicy.decide(progress, blocker, running, reading, words, readNowMinutes = 0, pluggedIn = false, mark = ReadMark())` | The reading half. Android no longer calls it for a fallback (Home waits for the flow); iOS calls it only for fixtures, since every real `RetrieverSnapshot` carries core's `reading` | Three new parameters with defaults (Swift passes them all) |
-| `ReadMark(percent, files)` | The highest share shown and the files counted then | New |
+| `ReadingPolicy.decide(progress, blocker, running, reading, words, readNowMinutes = 0, pluggedIn = false)` | The reading half. Android no longer calls it for a fallback (Home waits for the flow); iOS calls it only for fixtures, since every real `RetrieverSnapshot` carries core's `reading` | Two new parameters with defaults (Swift passes them all) |
 | `ReadingPolicy.stopCopy(stop, words)` | A stop's title, as `core/fixtures/words.tsv` pins it | New words; same 32 fixture rows |
 
 What it decides, beyond the proposal's table:
 
 - **Process for 15 minutes shows from the tap** (`READ_NOW` ahead of the reader starting), so Settings' button gets
   visible feedback through the line; a stop (heat, Battery Saver, low battery) still wins.
-- **"N% done" never falls.** When new files lower the share, READING says "Processing 42 new files" until the old figure
-  is passed; other states keep the old figure. 100% only when nothing waits.
+- **A live count, not a percent.** Every reading line's detail starts with "312 of 25,747 files done" (`Words.filesDone`);
+  1% of a big library is minutes of work, so a percent sat still. The bar is the same numbers. New files make the count dip,
+  which explains itself; the never-falling `ReadMark` and its "Processing 42 new files" title are gone.
 - **The meaning pass after the download.** While first reads remain it only interleaves (one in eight), so the title
-  stays "Processing your files · N% done" and the detail says "Also adding search by meaning · 25%"; once first reads are
-  done the line is MEANING, "Adding search by meaning · N%" ("So you can search by what things mean, and by what's in
-  your photos."): the pass covers documents too, so it never says "photos" alone. No title flicker.
+  stays "Processing your files" and the detail ends "Also adding search by meaning."; once first reads are done the line
+  is MEANING, "Adding search by meaning" with "N of M files done. So you can search by what things mean, and by what's in
+  your photos.": the pass covers documents too, so it never says "photos" alone. No title flicker.
 - **READING's detail differs by platform**: Android "You can close Retriever; it carries on. Search works the whole
   time."; iOS "Search works the whole time. Retriever processes your files while it's open, and sometimes when iOS allows."
 - **LIMITED is dismissable** like CAUGHT_UP (the proposal gave it no action, so it would never leave Home).
@@ -125,9 +125,6 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
 
 - The status line reads the device and clock fresh on every decision (`tick()` inside the read), so Resume and Read for
   15 minutes show at once; there is no timing test for that lag.
-- `Retriever.markFor` is read-modify-write on a volatile; a per-collector first read racing the shared read could save
-  a lower mark. Each decision still shows the higher of the mark and the current share, so a visible fall needs that
-  race and a falling share together.
 - Browse's Documents opens PDFs only (or documents when there are none): a file list takes one kind.
 - iOS still hard-codes "Starred", "On This Day", "Pause processing" and some Settings footnotes; they belong in core
   `Words`.
@@ -135,9 +132,9 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
 
 ### Tests
 
-`StatusLineTest` (every section-3 row, iOS words, read-now from the tap, the share never falling, the meaning pass
+`StatusLineTest` (every section-3 row, iOS words, read-now from the tap, the count and bar being the same numbers, the meaning pass
 under first reads, `line`'s order, no hours or "session"), `WordsTest` (retired words in no shared sentence, the
-sample count), `ReadingContractTest.theStatusLineShowsReadNowAtOnceAndKeepsItsShareAcrossLaunches`,
+sample count), `ReadingContractTest.theStatusLineShowsReadNowAtOnceAndCountsLive`,
 `HomeFactsTest` (Recently added order, Browse), and `core/fixtures/words.tsv` on all three platforms. Apps:
 `HomeShotsTest` (every Home state, two Browse columns at the largest text), `ReadingFilesTest.theStatusStripNeverShiftsWhileReading`,
 `SetupStatusShotsTest.theSampleIsCentredAndNeverShifts`, iOS `CopyTests.testTheStatusLineCoversEveryHomeState`,

@@ -647,7 +647,10 @@ class SetupStatusShotsTest {
     @Test fun statusReading() {
         status("clarity_status_reading_light", tall = true)
         rule.onNodeWithText(Words.READING_STATUS).assertExists()
-        rule.onNodeWithText("Processing your files · 29% done").assertExists()
+        rule.onNodeWithText("Processing your files").assertExists()
+        // The headline's count and Details' are the same numbers: 3,412 processed and 8,118 to go of 11,530.
+        rule.onNodeWithText("3,412 of 11,530 files done.", substring = true).assertExists()
+        rule.onNodeWithText("3,412 files processed", substring = true).assertExists()
         // Reading now keeps the file's name beside a small tile.
         rule.onNodeWithText(previewFiles.first().name).assertExists()
         rule.onNodeWithText("Pause").assertExists()

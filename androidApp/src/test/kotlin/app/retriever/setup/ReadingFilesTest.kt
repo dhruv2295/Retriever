@@ -503,13 +503,13 @@ class ReadingFilesTest {
                     Modifier,
                     readingStatus = ReadingStatus(
                         ReadingPhase.CHARGING,
-                        "Waiting until you plug in · 75% done",
-                        "Retriever carries on when your phone is charging.",
+                        "Waiting until you plug in",
+                        "30 of 40 files done. Retriever carries on when your phone is charging.",
                     ),
                 )
             }
         }
-        rule.onNodeWithText("Retriever carries on when your phone is charging.").assertExists()
+        rule.onNodeWithText("30 of 40 files done. Retriever carries on when your phone is charging.").assertExists()
         rule.onNodeWithText("Let Retriever process files while you’re not using it").assertExists()
     }
 }

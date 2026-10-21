@@ -84,7 +84,7 @@ extension AppModel {
         func decided(_ blocker: StopReason?, minutes: Int32 = 0, pluggedIn: Bool = false) {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
-                readNowMinutes: minutes, pluggedIn: pluggedIn, mark: ReadMark(percent: 0, files: 0))
+                readNowMinutes: minutes, pluggedIn: pluggedIn)
         }
         switch fixture {
         case .readingWhileCharging:

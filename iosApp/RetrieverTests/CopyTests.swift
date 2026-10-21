@@ -34,7 +34,8 @@ final class CopyTests: XCTestCase {
     func testStatusTitle() {
         typealias Snap = AppModel.Snap
         XCTAssertEqual(Copy.reading(Snap(running: true)).title, "Checking for new files…")
-        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Processing your files · 0% done")
+        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Processing your files")
+        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).detail?.hasPrefix("0 of 4 files done. "), true)
         XCTAssertEqual(Copy.reading(Snap(pending: 4, paused: true)).title, "Paused")
         XCTAssertEqual(Copy.reading(Snap(indexed: 4)).title, "All done. Retriever has processed everything it can")
     }
@@ -74,7 +75,9 @@ final class CopyTests: XCTestCase {
 
     func testHomeStatusReadingShowsHowFar() {
         let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true))
-        XCTAssertEqual(status?.title, "Processing your files · 50% done", "A batch without an active file already says how far")
+        XCTAssertEqual(status?.title, "Processing your files")
+        XCTAssertEqual(status?.detail?.hasPrefix("5 of 10 files done. "), true, "A batch without an active file already says how far")
+        XCTAssertEqual(status?.percent?.intValue, 50, "the bar is the count's numbers")
         XCTAssertEqual(status?.phase, .reading)
     }
 
@@ -163,13 +166,19 @@ final class CopyTests: XCTestCase {
             let model = AppModel(fixture: fixture)
             return try XCTUnwrap(model.statusLine(model.live))
         }
-        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing while you charge · 22% done")
+        // A live count, not a percent: 1,204 processed of 5,310, the bar the same numbers.
+        let count = Words.shared.filesDone(done: 1_204, total: 5_310)
+        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing while you charge")
+        XCTAssertEqual(try line(.readingWhileCharging).detail?.hasPrefix(count + ". "), true)
+        XCTAssertEqual(try line(.readingWhileCharging).percent?.intValue, 22)
+        XCTAssertEqual(try line(.unplugged).title, "Waiting until you plug in")
+        XCTAssertEqual(try line(.unplugged).detail?.hasPrefix(count + ". "), true)
         XCTAssertEqual(try line(.unplugged).phase, .charging)
         XCTAssertEqual(try line(.unplugged).action, .readFor15)
         XCTAssertEqual(try line(.chargingUp).title, "Charging up first")
         XCTAssertEqual(try line(.readNow).title, "Processing for 15 minutes · 12 min left")
         XCTAssertEqual(try line(.readNow).action, .stop)
-        XCTAssertEqual(try line(.readNow).detail, "Uses some battery. Keep Retriever open.")
+        XCTAssertEqual(try line(.readNow).detail, count + ". Uses some battery. Keep Retriever open.")
         let downloading = try line(.downloading(0.34))
         XCTAssertEqual(downloading.phase, .downloading)
         XCTAssertEqual(downloading.percent?.intValue, 34)
@@ -177,6 +186,8 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(try line(.waitingForWifi).phase, .downloadStopped)
         XCTAssertEqual(try line(.tuning).phase, .tuning)
         XCTAssertEqual(try line(.meaningPass).phase, .meaning)
+        XCTAssertEqual(try line(.meaningPass).title, "Adding search by meaning")
+        XCTAssertEqual(try line(.meaningPass).detail?.hasPrefix(Words.shared.filesDone(done: 1_938, total: 3_142) + ". "), true)
         XCTAssertEqual(try line(.firstDay).phase, .noContent)
         XCTAssertEqual(try line(.firstDay).action, .chooseWhen)
         XCTAssertEqual(try line(.caughtUp).action, .dismiss)

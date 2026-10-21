@@ -457,18 +457,7 @@ class Retriever(
         return Tick(blocker, if (left > 0) ((left + 59_999) / 60_000).toInt() else 0, monitor.state().pluggedIn)
     }
 
-    /** The highest "N% done" shown, kept in Store meta so a relaunch never shows a lower one. */
-    @Volatile
-    private var readMark: ReadMark? = null
-
-    private fun markFor(progress: ReadingProgress): ReadMark {
-        val old = readMark ?: ReadMark.decode(store.meta(READ_MARK_KEY)) ?: ReadMark()
-        return old.next(progress).also {
-            if (it != old) store.setMeta(READ_MARK_KEY, it.encode())
-            readMark = it
-        }
-    }
-
+    /** Each conflated count change is one decision, so the line's "N of M files done" moves as files finish. */
     private val sharedStatus: Flow<ReadingStatus> by lazy {
         val ticks = flow {
             while (true) {
@@ -490,7 +479,6 @@ class Retriever(
                 words,
                 t.readNowMinutes,
                 t.pluggedIn,
-                markFor(counts.progress),
             )
         }
     }

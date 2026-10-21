@@ -278,7 +278,7 @@ internal fun HomeBody(
 /**
  * The one status line, on Home and Settings: the dog, what is happening and one plain detail, a thin bar while reading or
  * downloading, and the line's one button. The whole line opens Reading status ([onOpen]). Only the state, not each
- * percent, is announced: under a bar, the live node says the title up to its figure, and the bar carries the figure.
+ * file's count, is announced: the title is the live node and holds still while the detail's count moves.
  */
 @Composable
 internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> Unit)?, onAction: (StatusAction) -> Unit, modifier: Modifier = Modifier) {
@@ -344,6 +344,6 @@ private fun EmptyHome(looking: Boolean) {
     }
 }
 
-/** Core's status line, once its live reading status has arrived (it carries the saved "N% done" mark). */
+/** Core's status line, once its live reading status has arrived (its detail carries the live count). */
 internal fun homeStatus(ui: HomeUi, download: DownloadState? = null): ReadingStatus? =
     ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)

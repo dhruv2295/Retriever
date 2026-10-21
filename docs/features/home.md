@@ -36,8 +36,8 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
 - **The status line.** One line under the title, the dog beside it and a thin bar only while reading or
   downloading; its one button is spelled out on a row of its own ("Choose when to process" opens the choice sheet,
   "Process for 15 minutes", "Stop", "Resume", "Allow access", "Try again"); the whole line opens Processing. A
-  download or its setup is the line itself. It shows only once core's live `readingStatus()` has answered, since that
-  carries the saved "N% done" mark. All done carries an [x].
+  download or its setup is the line itself. It shows only once core's live `readingStatus()` has answered; its detail
+  starts with the live count ("312 of 25,747 files done"). All done carries an [x].
 - **Browse.** Photos, Videos, Screenshots, Documents (PDFs too), Audio, then Folders: name and count only, a kind
   with no files hidden; sizes are in Settings → Storage. Three a row, two at large text.
 - **Optional.** The search-by-meaning offer is a flat row at the end with a tonal Download and Not now

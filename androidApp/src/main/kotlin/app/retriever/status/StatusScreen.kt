@@ -233,7 +233,7 @@ fun StatusContent(
                     }
                     // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp), settles = !index.running)
-                    // Only the state is announced, not each percent: the bar below carries the figure.
+                    // Only the state is announced, not each file: the count is in the detail, the bar is the same numbers.
                     val title = status?.title ?: "Checking your files…"
                     Text(
                         title,

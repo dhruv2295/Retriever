@@ -49,7 +49,7 @@ class ReadingProgressTest {
         val upgrade = ReadingProgress(read = 5, meaningWaiting = 5)
         assertEquals(5, upgrade.contentRead, "waiting for meaning is a subset of Read, never another bucket")
         assertEquals(ReadingPhase.MEANING, ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).phase)
-        assertEquals("Adding search by meaning · 0%", ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).title)
+        assertEquals("Adding search by meaning" to 0, ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).let { it.title to it.percent })
         assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(upgrade, StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.SAMPLE_READY, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, DeviceWords.ANDROID).phase)

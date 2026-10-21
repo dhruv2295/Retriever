@@ -222,17 +222,26 @@ final class AccessibilityAuditTests: XCTestCase {
                     // Home's one status line, its button spelled out (clarity-proposal section 3).
                     let lines =
                         [
-                            "home.charging": ("Processing while you charge · 22% done", nil),
+                            "home.charging": ("Processing while you charge", nil),
                             "home.firstDay": ("Ready to find files by name", "Choose when to process"),
-                            "home.unplugged": ("Waiting until you plug in · 22% done", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
+                            "home.unplugged": ("Waiting until you plug in", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
                             "home.readNow": ("Processing for 15 minutes · 12 min left", "Stop"),
-                            "home.downloading": ("Downloading search by meaning · 34%", "Stop"), "home.meaning": ("Adding search by meaning · 61%", nil),
+                            "home.downloading": ("Downloading search by meaning · 34%", "Stop"), "home.meaning": ("Adding search by meaning", nil),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
                         ] as [String: (String, String?)]
                     if let line = lines[route] {
                         XCTAssertTrue(app.staticTexts[line.0].exists, "\(route): \(line.0)")
                         if let button = line.1 { XCTAssertTrue(app.buttons[button].exists, "\(route): \(button)") }
                         XCTAssertFalse(app.staticTexts["Your files"].exists, "no counts on Home")
+                    }
+                    // The line's live count, not a percent: 1,204 processed of 5,310 (1,938 of 3,142 with meaning).
+                    let liveCounts = [
+                        "home.charging": "1,204 of 5,310 files done", "home.unplugged": "1,204 of 5,310 files done",
+                        "home.meaning": "1,938 of 3,142 files done",
+                    ]
+                    if let count = liveCounts[route] {
+                        let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", count)).firstMatch
+                        XCTAssertTrue(shown.exists, "\(route): \(count)")
                     }
                     try audit(app, route: route)
                 } catch { XCTFail("\(route): \(error)") }
@@ -445,6 +454,8 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let grown = [
         ("status.paused", "Resume"), ("status.tailFiles", "Taking a short break"), ("status.reading", "Photo 1.jpg"),
         ("home.charging", "Starred"), ("home.firstDay", "Choose when to process"), ("home.noAccess", "Allow access"),
+        // The live count's sentence pushes these buttons lower, where the resize loses them.
+        ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "Best choice. Only while your iPhone is charging and you’re not using it. You can pause any time."),
     ]
