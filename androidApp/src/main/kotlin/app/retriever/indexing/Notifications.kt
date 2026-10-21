@@ -34,9 +34,9 @@ object Notifications {
     const val CHANNEL = "indexing"
 
     fun createChannel(context: Context) {
-        val channel = NotificationChannel(CHANNEL, "Reading progress", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL, "Processing progress", NotificationManager.IMPORTANCE_LOW)
             .apply {
-                description = "Shows how far reading has got, and once when your sample is ready to try."
+                description = "Shows how far processing has got, and once when your sample is ready to try."
                 setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
@@ -45,10 +45,10 @@ object Notifications {
     }
 
     fun progress(context: Context, counts: ReadingProgress, status: ReadingStatus?, cancel: PendingIntent): Notification {
-        // The status line's own words: its detail, else what is read so far.
+        // The status line's own words: its detail, else what is processed so far.
         val text = status?.detail ?: Words.readCount(counts.contentRead)
         return NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle(status?.title ?: "Starting reading…")
+            .setContentTitle(status?.title ?: Words.STARTING)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
@@ -86,7 +86,7 @@ object Notifications {
     const val OPEN_STATUS = "app.retriever.OPEN_READING_STATUS"
 
     private fun publicVersion(context: Context) = NotificationCompat.Builder(context, CHANNEL)
-        .setContentTitle("Retriever").setContentText("Reading your files").setSmallIcon(R.drawable.ic_notification).setSilent(true).build()
+        .setContentTitle("Retriever").setContentText(Words.PROCESSING_YOUR_FILES).setSmallIcon(R.drawable.ic_notification).setSilent(true).build()
 
     private fun openApp(context: Context, status: Boolean = false) = PendingIntent.getActivity(
         context,

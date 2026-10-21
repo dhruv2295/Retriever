@@ -78,7 +78,7 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
 
         DocUi.NotReadYet -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Retriever hasn't read this yet",
+                "Retriever hasn't processed this yet",
                 "It's waiting its turn with the other new files. Open it in another app to see it now.",
                 R.drawable.ic_history,
                 action = "Open in another app" to openWith,
@@ -87,7 +87,7 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
 
         DocUi.Empty -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Retriever couldn't read text in this file",
+                "Retriever couldn't find text in this file",
                 "It may be a scan or hold only pictures. Open it in another app to see it.",
                 R.drawable.ic_warning_amber,
                 action = "Open in another app" to openWith,

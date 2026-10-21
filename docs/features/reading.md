@@ -1,11 +1,11 @@
 # Reading contract
 
-Core owns the counts and state decision (`ReadingProgress`, `ReadingPolicy`, `Store.countsNow` over `files.reach`). Home, Reading status,
+Core owns the counts and state decision (`ReadingProgress`, `ReadingPolicy`, `Store.countsNow` over `files.reach`). Home, Processing,
 setup and notifications use it on both platforms. Name updates run independently of content reading.
 
 ## Counts
 
-Distinct accessible revisions partition into Read (F), Read in part (P), Not read yet (Q), Found by name (N), and
+Distinct accessible revisions partition into Processed (F), Processed in part (P), Not processed yet (Q), Found by name (N), and
 Couldn't read (E). (The internal names stay `partlyRead`, `nameOnly`; the screens use the plain words, `Words` and
 `readingLabel`.) Content read is F + P; library size is F + P + Q + N + E. Ordinal-zero name vectors and extraction attempts
 never count as content. Q separates scheduled files from files outside the sample. Notifications label sample scope;
@@ -13,7 +13,7 @@ otherwise their counts cover the library and persist across batches.
 
 Content is extracted text, OCR or classifier labels, or an embedded image; none of these needs the model. Partly read
 includes extraction caps and long-file tails missing vectors beside embedded chunks, including exhausted tail retries.
-Waiting for meaning (`meaningWaiting`, phase MEANING, "Adding search by meaning · N%", shown after the download on Home, Reading status and Settings) counts files with queued vectors and none yet:
+Waiting for meaning (`meaningWaiting`, phase MEANING, "Adding search by meaning · N%", shown after the download on Home, Processing and Settings) counts files with queued vectors and none yet:
 read without the model, or cleared by a model change. It is a subset count like later passes, so C = F + P is unchanged,
 and it is zero while the model is absent. Requeued first passes remain scheduled. Only queued
 work prevents completion; exhausted passes show their limit. Revoked, deleted, excluded and revised content leaves the old count immediately.
@@ -24,7 +24,7 @@ New installs default to While charging, including in the foreground. Legacy pref
 when the old default was omitted from JSON. Retuning never changes the schedule. Settings also offers Also on battery
 and When I start it. Resume lifts the persistent pause and reapplies that schedule.
 
-Read for 15 minutes (formerly Read now) persists a 15-minute deadline across workers and launches. Pause, power saving and heat end that session;
+Process for 15 minutes (formerly Read now) persists a 15-minute deadline across workers and launches. Pause, power saving and heat end that session;
 expiry returns to the saved schedule. Setup's Read now saves charging for subsequent automatic work; Settings' one-off
 keeps the existing schedule. Not now persists Pause at a safe boundary and retains read content. Go to Home is navigation.
 
@@ -44,16 +44,16 @@ opportunity per eight first-pass files.
 
 ## Native surfaces
 
-One status line, from core (`ReadingPolicy.decide` then `line`), on Home, Reading status, Settings and the notification:
-a title ("Reading while you charge · 36% read", "Waiting until you plug in · 36% read", "Reading for 15 minutes · 12
+One status line, from core (`ReadingPolicy.decide` then `line`), on Home, Processing, Settings and the notification:
+a title ("Processing while you charge · 36% done", "Waiting until you plug in · 36% done", "Processing for 15 minutes · 12
 min left", "Adding search by meaning · 61%"), one plain detail, a thin bar while reading or downloading, and at most one
-spelled-out button. "N% read" never falls (the saved `read_mark`); when new files lower the share the title says
-"Reading 42 new files" instead. Tapping Read for 15 minutes in Settings turns that line at once (READ_NOW shows from the
-tap). Reading status ("Reading") shows the line with Resume / Read for 15 minutes / Stop / Pause, Reading now with the
-file's name beside a small tile, the counts under Details, and Recently read. Its mascot walks for as long as reading
-runs (`settles = false`). Its Reading now row stays while reading runs: between two files it keeps the last one (name,
+spelled-out button. "N% done" never falls (the saved `read_mark`); when new files lower the share the title says
+"Processing 42 new files" instead. Tapping Process for 15 minutes in Settings turns that line at once (READ_NOW shows from the
+tap). Processing ("Processing") shows the line with Resume / Process for 15 minutes / Stop / Pause, Processing now with the
+file's name beside a small tile, the counts under Details, and Recently processed. Its mascot walks for as long as reading
+runs (`settles = false`). Its Processing now row stays while reading runs: between two files it keeps the last one (name,
 kind and date update in place, the old picture stays until the new one is decoded), and before the first an empty row
-holds the height. Recently read fills at its end, holds still while reading runs and catches up when it stops. Audio is
+holds the height. Recently processed fills at its end, holds still while reading runs and catches up when it stops. Audio is
 found by name on both platforms; video reading covers frames without sound.
 
 Automatic iOS reading leaves the idle timer alone. Older iOS offers a screen-awake switch for an explicit session;
@@ -64,7 +64,7 @@ usable-file subtitle for that session. Refusal is shown in-app.
 
 Android asks once when scheduling or starting reading (`Words.notificationsAsk`; its sample sentence shows only while
 the sample still reads, decided before the dialog opens). Declining never prevents reading. Progress is silent, private on
-the lock screen, contains no file details, and has Pause reading and a Reading status destination. The service removes
+the lock screen, contains no file details, and has Pause processing and a Processing destination. The service removes
 it at the end. A persisted claim permits one usable-sample notification while hidden and permission is granted; opening
 the app cancels it. iOS retains its system-owned continued-task UI without a second permission or local notification.
 

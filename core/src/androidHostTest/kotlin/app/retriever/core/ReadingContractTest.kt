@@ -113,17 +113,17 @@ class ReadingContractTest {
         val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
         fun facade() = testRetriever(store, files, FakeExtractor(), monitor = unplugged)
         val first = facade().apply { refreshSetUp() }
-        assertEquals("Waiting until you plug in · 25% read", first.readingStatus().first().title)
+        assertEquals("Waiting until you plug in · 25% done", first.readingStatus().first().title)
         first.readNow()
         val tapped = first.readingStatus().first { it.phase == ReadingPhase.READ_NOW }
-        assertEquals("Reading for 15 minutes · 15 min left" to StatusAction.STOP, tapped.title to tapped.action)
+        assertEquals("Processing for 15 minutes · 15 min left" to StatusAction.STOP, tapped.title to tapped.action)
 
         // Four new files: 1 of 8 is 12%, but 25% was shown before the relaunch, so 25% stays.
         val more = (5..8).map { testFile("$it.txt") }
         store.upsertFiles(more)
         val second = facade().apply { refreshSetUp() }
         second.endReadNowSession()
-        assertEquals("Waiting until you plug in · 25% read" to 25, second.readingStatus().first().let { it.title to it.percent })
+        assertEquals("Waiting until you plug in · 25% done" to 25, second.readingStatus().first().let { it.title to it.percent })
     }
 
     @Test fun savingPowerEndsTheExplicitSessionEvenWhileVisible() = runBlocking {

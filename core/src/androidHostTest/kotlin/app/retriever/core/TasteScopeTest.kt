@@ -96,7 +96,7 @@ class TasteScopeTest {
         factory.beforeEmbed = { if (r.state.value.currentFile == planned) sawReadingFile = true }
         // The continued-reading caller's heads-only preference must not strand an undecided foreground trial.
         assertEquals(NextRun.DONE, r.indexBatch(120.seconds, deepen = false))
-        assertTrue(sawReadingFile, "deepening reports its own file to Reading now")
+        assertTrue(sawReadingFile, "deepening reports its own file to Processing now")
         assertFalse(r.hasPendingTaste())
         assertTrue(store.tailChunksIn(listOf(id)).isEmpty())
         assertEquals(FileState.PENDING, store.fileByUri(outside.uri)!!.state)

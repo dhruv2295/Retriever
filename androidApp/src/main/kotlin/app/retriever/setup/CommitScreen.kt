@@ -51,7 +51,7 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
                 else -> actions.decideLater()
             }
         }, modifier = Modifier.fillMaxWidth()) {
-            Text(listOf(Words.DONE, "Start reading", Words.DONE)[selected])
+            Text(listOf(Words.DONE, "Start processing", Words.DONE)[selected])
         }
     }
 }

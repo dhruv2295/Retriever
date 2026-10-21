@@ -108,7 +108,7 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
         val name = path.substringAfterLast('/').ifEmpty { "Top level" }
         ConfirmDialog(
             title = "Stop searching $name?",
-            message = "The ${Words.files(count)} in $name are removed from search now, and bringing them back means reading them all again. " +
+            message = "The ${Words.files(count)} in $name are removed from search now, and bringing them back means processing them all again. " +
                 "You can bring it back from the status line at the top of Home.",
             confirmLabel = "Stop searching",
             onConfirm = {

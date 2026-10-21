@@ -189,7 +189,7 @@ class SearchShotsTest {
     @Test fun homeLight() {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
-        rule.onNodeWithText("Reading your files", substring = true).assertExists()
+        rule.onNodeWithText("Processing your files", substring = true).assertExists()
         rule.onNodeWithText(Words.SEARCH_FIELD).assertExists()
     }
 

@@ -265,7 +265,7 @@ fun StatusContent(
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, index.running, actions.openFile)
                 }
 
-                Header("Details")
+                Header(Words.DETAILS)
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(Words.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.bodyLarge.tabular())
                     if (waiting > 0) Muted(Words.notReadYet(waiting))
@@ -275,7 +275,7 @@ fun StatusContent(
                 if (skipped > 0) {
                     ListItem(
                         headlineContent = {
-                            Text("Couldn’t read ${Words.files(skipped)}")
+                            Text(Words.couldntProcess(skipped))
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -303,11 +303,11 @@ fun StatusContent(
                 // The OS exemption is a different remedy from the schedule's own wait, but not beside a failure or the person's Pause.
                 if (batteryHint && (progress?.scheduled ?: 0) > 0 && failure == null && !prefs.paused) {
                     ListItem(
-                        headlineContent = { Text("Let Retriever read while you’re not using it") },
+                        headlineContent = { Text("Let Retriever process files while you’re not using it") },
                         supportingContent = {
                             Text(
                                 "Your phone may stop it to save battery." +
-                                    if (prefs.automaticReading == ReadingSchedule.CHARGING) " It still reads only while charging." else "",
+                                    if (prefs.automaticReading == ReadingSchedule.CHARGING) " It still processes files only while charging." else "",
                             )
                         },
                         leadingContent = { Icon(painterResource(R.drawable.ic_battery_alert), contentDescription = null) },
@@ -322,7 +322,7 @@ fun StatusContent(
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     ListItem(
                         headlineContent = { Text("Settings") },
-                        supportingContent = { Text("What to read, storage and more") },
+                        supportingContent = { Text("What to process, storage and more") },
                         leadingContent = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
                         modifier = Modifier.clickable(role = Role.Button, onClick = open),
                     )

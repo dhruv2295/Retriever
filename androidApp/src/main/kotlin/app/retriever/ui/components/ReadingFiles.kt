@@ -80,7 +80,7 @@ internal fun ReadingNow(file: SourceFile?, size: Dp = 88.dp, reduceMotion: Boole
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(if (shown == null) "Starting reading…" else "Reading now", style = MaterialTheme.typography.titleSmall)
+        Text(if (shown == null) Words.STARTING else Words.PROCESSING_NOW, style = MaterialTheme.typography.titleSmall)
         ReadingFile(shown, size, sweep, reduceMotion)
     }
 }
@@ -175,8 +175,8 @@ internal fun RecentlyRead(files: List<SourceFile>, running: Boolean, onOpen: (So
     if (!running || held.files.size < RECENT_SHOWN) held.files = files.take(RECENT_SHOWN).asReversed()
     val shown = held.files
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Recently read", style = MaterialTheme.typography.titleSmall)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = "Recently read" }) {
+        Text(Words.RECENTLY_PROCESSED, style = MaterialTheme.typography.titleSmall)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = Words.RECENTLY_PROCESSED }) {
             items(shown, key = { it.uri }) { file -> FileTile(file, 56.dp, onOpen = onOpen) }
         }
     }

@@ -11,7 +11,7 @@ final class CopyTests: XCTestCase {
         XCTAssertNil(Copy.homeStatus(nil))
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(accessChosen: false))?.title, "Finish setting up")
         // Reading needs no download: without the model, the status is reading's own.
-        let done = "All done. Retriever has read everything it can"
+        let done = "All done. Retriever has processed everything it can"
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false, indexed: 4))?.title, done)
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2))?.title, "Taking a short break")
@@ -34,14 +34,14 @@ final class CopyTests: XCTestCase {
     func testStatusTitle() {
         typealias Snap = AppModel.Snap
         XCTAssertEqual(Copy.reading(Snap(running: true)).title, "Checking for new files…")
-        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Reading your files · 0% read")
+        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Processing your files · 0% done")
         XCTAssertEqual(Copy.reading(Snap(pending: 4, paused: true)).title, "Paused")
-        XCTAssertEqual(Copy.reading(Snap(indexed: 4)).title, "All done. Retriever has read everything it can")
+        XCTAssertEqual(Copy.reading(Snap(indexed: 4)).title, "All done. Retriever has processed everything it can")
     }
 
     func testHomeAndStatusUseTheSameCoreCountsWithTrialTails() {
         var snap = AppModel.Snap(setUp: true, indexed: 58, trial: true, waiting: 26_172, tailFiles: 24, partlyRead: 24)
-        XCTAssertEqual(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead)), "58 files read · 24 read in part")
+        XCTAssertEqual(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead)), "58 files processed · 24 processed in part")
         XCTAssertEqual(snap.readProgress.libraryTotal, 26_230)
         for running in [false, true] {
             snap.running = running
@@ -74,7 +74,7 @@ final class CopyTests: XCTestCase {
 
     func testHomeStatusReadingShowsHowFar() {
         let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true))
-        XCTAssertEqual(status?.title, "Reading your files · 50% read", "A batch without an active file already says how far")
+        XCTAssertEqual(status?.title, "Processing your files · 50% done", "A batch without an active file already says how far")
         XCTAssertEqual(status?.phase, .reading)
     }
 
@@ -86,13 +86,13 @@ final class CopyTests: XCTestCase {
     }
 
     func testAddFolderResult() {
-        XCTAssertEqual(Copy.addFolderResult(.added("Work")), "Folder added. Retriever will read what's inside.")
+        XCTAssertEqual(Copy.addFolderResult(.added("Work")), "Folder added. Retriever will process what's inside.")
         XCTAssertEqual(Copy.addFolderResult(.overlaps("Work")), "That folder overlaps “Work”, which Retriever already searches.")
         XCTAssertEqual(Copy.addFolderResult(.failed), "iOS wouldn't let Retriever keep that folder. Try another one.")
     }
 
     func testContinuedReadSaysNoSession() {
-        XCTAssertEqual(Copy.continuedSubtitle(5), "5 files read so far")
+        XCTAssertEqual(Copy.continuedSubtitle(5), "5 files processed so far")
     }
 
     func testSetupDownloadSizeUsesWholeMegabytes() {
@@ -103,7 +103,7 @@ final class CopyTests: XCTestCase {
     /// Setup's sentences are core's; the shell adds only "iPhone" for "this device".
     func testSetupSaysGoToHomeAndNeverSkipOrDownload() {
         XCTAssertEqual(Words.shared.GO_TO_HOME, "Skip for now")
-        XCTAssertEqual(Words.shared.searchingTry(read: 54), "Searching every file’s name, and inside the 54 files read so far.")
+        XCTAssertEqual(Words.shared.searchingTry(read: 54), "Searching every file’s name, and inside the 54 files processed so far.")
         XCTAssertEqual(Copy.photosAccess(.limited), Words.shared.SELECTED_PHOTOS)
         XCTAssertEqual(Copy.photosAccess(.authorized), Words.shared.ALL_PHOTOS)
         XCTAssertNil(Copy.photosAccess(.notDetermined))
@@ -138,11 +138,11 @@ final class CopyTests: XCTestCase {
             "iOS lets Retriever read your photos and the folders you pick in Files.")
         XCTAssertEqual(
             Words.shared.SAMPLE_PICKING, "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent.")
-        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 0), "12 of 40 files read")
-        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 28), "12 files read", "no total while the plan can shrink")
+        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 0), "12 of 40 files processed")
+        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 28), "12 files processed", "no total while the plan can shrink")
         XCTAssertEqual(Words.shared.READ, "Found by what’s inside")
         XCTAssertEqual(
-            Words.shared.sampleNote(reading: true, readyToTry: false, secondsLeft: nil), "You can try search once a few files are read.",
+            Words.shared.sampleNote(reading: true, readyToTry: false, secondsLeft: nil), "You can try search once a few files are processed.",
             "no time before it is measured")
         XCTAssertEqual(Words.shared.sampleNote(reading: true, readyToTry: true, secondsLeft: 170), "About 3 minutes left. Ready to try.")
         XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, percent: nil).pause, "not a pause")
@@ -151,8 +151,8 @@ final class CopyTests: XCTestCase {
     func testCommitCopyHasNoFigures() {
         let figure = /\d+(,\d+)?( to \d+)? (hours?|minutes?|nights?|days?)/
         for text in [Words.shared.MORE_FILES, Words.shared.CHOOSE_PACE, Copy.backgroundNote] {
-            // "Reading for 15 minutes" is the action's name, not an estimate of how long reading takes.
-            XCTAssertNil(text.replacingOccurrences(of: "Reading for 15 minutes", with: "").firstMatch(of: figure), text)
+            // "Process for 15 minutes" is the action's name, not an estimate of how long processing takes.
+            XCTAssertNil(text.replacingOccurrences(of: Words.shared.READ_FOR_15, with: "").firstMatch(of: figure), text)
         }
     }
 
@@ -163,11 +163,11 @@ final class CopyTests: XCTestCase {
             let model = AppModel(fixture: fixture)
             return try XCTUnwrap(model.statusLine(model.live))
         }
-        XCTAssertEqual(try line(.readingWhileCharging).title, "Reading while you charge · 22% read")
+        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing while you charge · 22% done")
         XCTAssertEqual(try line(.unplugged).phase, .charging)
         XCTAssertEqual(try line(.unplugged).action, .readFor15)
         XCTAssertEqual(try line(.chargingUp).title, "Charging up first")
-        XCTAssertEqual(try line(.readNow).title, "Reading for 15 minutes · 12 min left")
+        XCTAssertEqual(try line(.readNow).title, "Processing for 15 minutes · 12 min left")
         XCTAssertEqual(try line(.readNow).action, .stop)
         XCTAssertEqual(try line(.readNow).detail, "Uses some battery. Keep Retriever open.")
         let downloading = try line(.downloading(0.34))

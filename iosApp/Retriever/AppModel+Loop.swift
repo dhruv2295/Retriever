@@ -100,7 +100,8 @@ extension AppModel {
             Self.log.info("continued reading submitted")
         } catch {
             Self.log.error("couldn't keep reading after leaving: \(error, privacy: .private)")
-            readingMessage = "iOS couldn’t keep reading while you weren’t using Retriever. Keep it open, or let it read while your \(Copy.device) charges."
+            readingMessage =
+                "iOS couldn’t keep processing while you weren’t using Retriever. Keep it open, or let it process your files while your \(Copy.device) charges."
             return
         }
         continuing = true

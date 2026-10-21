@@ -96,10 +96,10 @@ class SetupTest {
         assertEquals("12 files · 640${nb}MB", Words.countAndSize(FileTotals(12, 640, 0), "640 MB"))
         assertEquals("12 files · At least 1.8${nb}GB", Words.countAndSize(FileTotals(12, 1800, 3), "1.8 GB"))
         assertEquals("8 files · Size unavailable", Words.countAndSize(FileTotals(8, 0, 8), "Zero KB"))
-        assertEquals("3 of 7 photos read", Words.kindRead(3, 7, Kind.PHOTO))
-        assertEquals("1 of 2 PDFs read", Words.kindRead(1, 2, Kind.PDF))
-        assertEquals("Searching every file’s name, and inside the 1 file read so far.", Words.searchingTry(1))
-        assertEquals("Searching every file’s name, and inside the 124 files read so far.", Words.searchingTry(124))
+        assertEquals("3 of 7 photos processed", Words.kindRead(3, 7, Kind.PHOTO))
+        assertEquals("1 of 2 PDFs processed", Words.kindRead(1, 2, Kind.PDF))
+        assertEquals("Searching every file’s name, and inside the 1 file processed so far.", Words.searchingTry(1))
+        assertEquals("Searching every file’s name, and inside the 124 files processed so far.", Words.searchingTry(124))
         assertEquals("Find a file you know", Words.TRY_TITLE)
         assertEquals("Type something you remember from it, like a name, a place or an amount, or tap a suggestion.", Words.TRY_BODY)
         assertEquals("Open one of these files, then type something you remember from it.", Words.TRY_WITHOUT_SUGGESTIONS)
@@ -119,8 +119,8 @@ class SetupTest {
         assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = true, pending = 10)), "ready: its message is already claimed")
         assertEquals(plain, Words.notificationsAsk(decided = true, sample(readyToTry = false, pending = 10)))
         assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 0)))
-        assertEquals("12 of 40 files read", Words.readOf(12, 40))
-        assertEquals("Retriever reads the files on this phone to find them by what’s inside.", Words.wholeDeviceNote(android))
+        assertEquals("12 of 40 files processed", Words.readOf(12, 40))
+        assertEquals("Retriever processes the files on this phone to find them by what’s inside.", Words.wholeDeviceNote(android))
         assertEquals(
             "iOS lets Retriever read your photos and the folders you pick in Files.",
             Words.iosAccessNote(DeviceWords.ios("iPad")),
@@ -128,8 +128,8 @@ class SetupTest {
         assertEquals("Download for meaning search", Words.upgradeHint(2, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(3, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(0, UpgradeStage.UNAVAILABLE))
-        assertEquals("Setting up reading for this iPhone", Words.tuneTitle(DeviceWords.ios("iPhone")))
-        assertEquals("Couldn’t finish setting up reading for this phone.", Words.tuneFailed(android))
+        assertEquals("Setting up processing for this iPhone", Words.tuneTitle(DeviceWords.ios("iPhone")))
+        assertEquals("Couldn’t finish setting up processing for this phone.", Words.tuneFailed(android))
         assertEquals("Documents and PDFs", Words.documentsTitle(2, 3))
         assertEquals("PDFs", Words.documentsTitle(2, 0), "PDFs alone are never titled Documents")
         assertEquals("Documents", Words.documentsTitle(0, 3))
@@ -142,9 +142,9 @@ class SetupTest {
     /** The sample's muted line: a measured time once there is one, then whether search can be tried yet. */
     @Test fun sampleNote() {
         assertNull(Words.sampleNote(reading = false, readyToTry = true, secondsLeft = 90), "nothing while paused or done")
-        assertEquals("You can try search once a few files are read.", Words.sampleNote(true, false, null))
+        assertEquals("You can try search once a few files are processed.", Words.sampleNote(true, false, null))
         assertEquals("Ready to try. Search for a word you remember from a recent file.", Words.sampleNote(true, true, null))
-        assertEquals("Less than a minute left. You can try search once a few files are read.", Words.sampleNote(true, false, 59))
+        assertEquals("Less than a minute left. You can try search once a few files are processed.", Words.sampleNote(true, false, 59))
         assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 60))
         assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 89))
         assertEquals("About 2 minutes left. Ready to try.", Words.sampleNote(true, true, 90))

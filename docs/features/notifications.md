@@ -42,7 +42,7 @@ have left the app. Android only; iOS posts no local notifications (its progress 
 1. A notification appears only for work the person can see the reason for; a sync-only run posts none.
 2. Posting never blocks or fails indexing (a refused foreground start is caught; a denied permission is fine).
 3. The Pause action pauses through the same path as the Status screen's button.
-4. Copy is plain and warm: "Reading your files", "Ready to try", never a stack trace or a code.
+4. Copy is plain and warm: "Processing your files", "Ready to try", never a stack trace or a code.
 5. The worker's own posts are cancelled when the worker ends.
 
 ## Tests

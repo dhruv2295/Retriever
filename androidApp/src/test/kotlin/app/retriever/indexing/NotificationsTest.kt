@@ -27,11 +27,11 @@ class NotificationsTest {
         val n = Notifications.progress(
             context,
             ReadingProgress(read = 222, partlyRead = 18, scheduled = 7, couldntRead = 3),
-            ReadingStatus(ReadingPhase.READING, "Reading your files · 97% read", "You can close Retriever; it carries on. Search works the whole time."),
+            ReadingStatus(ReadingPhase.READING, "Processing your files · 97% done", "You can close Retriever; it carries on. Search works the whole time."),
             pause,
         )
         // The status line's own words, as on Home.
-        assertEquals("Reading your files · 97% read", n.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("Processing your files · 97% done", n.extras.getString(Notification.EXTRA_TITLE))
         assertEquals("You can close Retriever; it carries on. Search works the whole time.", n.extras.getString(Notification.EXTRA_TEXT))
         assertEquals("Pause", n.actions.single().title)
         assertEquals(Notification.VISIBILITY_PRIVATE, n.visibility)

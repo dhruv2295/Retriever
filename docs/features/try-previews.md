@@ -43,7 +43,7 @@ routines, calibration, and still only the text). Not proposal 2's two content li
 |---|---|---|
 | Sample pile card | 168 dp (`SamplePile.CARD_DP`), scaled with the footprint | 168 pt × `Slot(scale:)` |
 | Try grid | (width − 24 dp) / 4 ≈ 84 dp at 411 dp; 2 columns past font scale 1.3 | `LazyVGrid(gridColumns)` cell |
-| Reading now, Recently read, File info, result rows | 88, 56, 56, 48 dp | `ReadingNow` size, 56, 56, 52 pt |
+| Processing now, Recently processed, File info, result rows | 88, 56, 56, 48 dp | `ReadingNow` size, 56, 56, 52 pt |
 | Result grid, Home document cards, See all list | `ThumbCell` width; 112 × 150 dp; — | 160 pt; 92 pt × 4/3; 44 pt (SetupView.swift:295) |
 
 - **Android.** The provider probe goes through `Thumbnails.load`: buckets 256/384/512/768 px, the bitmap `LruCache`

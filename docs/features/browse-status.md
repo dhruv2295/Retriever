@@ -27,7 +27,7 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
   once a page has come back. Pages are de-duplicated by file id because rows can shift between OFFSET pages while the
   indexer works.
 - **Coverage on each row, not a global promise.** `Words.coverage` (core) gives a list row one honest line: "Name only"
-  for name-only files, "Waiting to read" for waiting ones, "Couldn’t read" for skipped ones, and the partial-read note for a file read only
+  for name-only files, "Waiting to read" for waiting ones, "Couldn’t read" for skipped ones, and the partial-read note for a file processed only
   in part. Search results do the same through their own reason line.
 - **Scrolling yields reading.** Both Browse layouts use the same `ScrollingEffect` as Home/search to call
   `setUiBusy` through the ViewModel. Gesture end, lifecycle stop/disposal and ViewModel clearing release the gate;

@@ -44,7 +44,7 @@ class IndexEngine(
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
     /**
      * Before extraction starts, after any wait for the UI. Never cleared between two files, so every surface keeps saying
-     * the batch reads (no "Starting reading…" blink per file); the batch's end clears it.
+     * the batch reads (no "Getting started…" blink per file); the batch's end clears it.
      */
     private val onCurrent: (SourceFile) -> Unit = {},
     /** Finish this batch between files so the next one can open the new delegate configuration. */

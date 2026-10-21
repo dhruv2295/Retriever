@@ -174,13 +174,13 @@ class ResultPiecesTest {
             ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART)) }
         }
         rule.onNodeWithContentDescription(
-            "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Partly read · only the beginning is included",
+            "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Processed in part · only its beginning",
         ).assertExists()
     }
 
     @Test fun fileRowShowsItsReadNote() {
         rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Words.extent(ReadExtent.DEEPENING), onClick = {}) } }
-        rule.onNodeWithText("Partly read · more meaning search to come").assertExists()
+        rule.onNodeWithText("Processed in part · search by meaning still to come").assertExists()
     }
 
     @Test fun onlyAFileFoundByItsNameIsBold() {

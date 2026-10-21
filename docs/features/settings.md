@@ -6,8 +6,8 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 ## Purpose
 
 The switches and the few actions that change how Retriever behaves. The groups, in order: **Reading** (see
-[Reading](reading.md)), **Included files** (Manage access, Read these file types, Excluded folders), **Privacy** (Save
-recent searches, Clear recent searches, Android's Reading notifications), **Storage and downloads** (Saved search data,
+[Reading](reading.md)), **Included files** (Manage access, Process these file types, Excluded folders), **Privacy** (Save
+recent searches, Clear recent searches, Android's Processing notifications), **Storage and downloads** (Saved search data,
 the optional search download and its removal, mobile data for downloads), **Appearance** (Show On this day, Android's
 wallpaper colours) and **About**. Every row writes one `Prefs` field and shows the result at once. It never starts work by
 itself beyond what the switch says (turning a kind on re-queues that kind; turning charging-only on reschedules).

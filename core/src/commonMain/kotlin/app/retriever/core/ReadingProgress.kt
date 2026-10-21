@@ -83,7 +83,7 @@ private val STOPS = setOf(
 )
 
 /**
- * The one status line, on Home, Reading status, setup and the notification: what is happening, one plain [detail], and
+ * The one status line, on Home, Processing, setup and the notification: what is happening, one plain [detail], and
  * an [action] only when there is something to do. [percent]: the line's figure (the share read, never falling; the
  * meaning pass's share for MEANING; the download's for DOWNLOADING), null when it has none. Each app draws the bar only
  * while [active] or downloading.
@@ -102,8 +102,8 @@ data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail:
 internal fun percentRead(p: ReadingProgress): Int = if (p.waiting == 0L) 100 else (p.contentRead * 100 / (p.contentRead + p.waiting)).toInt()
 
 /**
- * The highest "N% read" shown and how many files were counted then ([ReadingProgress.contentRead] + waiting). The figure
- * never falls: when new files lower the share, the line names them ("Reading 42 new files") until the old one is passed.
+ * The highest "N% done" shown and how many files were counted then ([ReadingProgress.contentRead] + waiting). The figure
+ * never falls: when new files lower the share, the line names them ("Processing 42 new files") until the old one is passed.
  */
 data class ReadMark(val percent: Int = 0, val files: Long = 0) {
     fun next(p: ReadingProgress): ReadMark = percentRead(p).let { if (it >= percent) ReadMark(it, p.contentRead + p.waiting) else this }
@@ -154,7 +154,7 @@ object ReadingPolicy {
         StopReason.CHARGING_UP -> "Charging up first"
         StopReason.BUSY -> "Waiting until you put your ${words.device} down"
         StopReason.UNPLUGGED -> "Waiting until you plug in"
-        StopReason.MANUAL -> "Reading only when you start it"
+        StopReason.MANUAL -> "Processing only when you start it"
         StopReason.DONE, StopReason.BUDGET -> "Taking a short break"
     }
 
@@ -175,7 +175,7 @@ object ReadingPolicy {
         !hasAccess -> ReadingStatus(
             ReadingPhase.NO_ACCESS,
             "Retriever can’t see your files",
-            "Search still works on the files it has already read." + if (words.ios) " This opens your ${words.device}’s Settings." else "",
+            "Search still works on the files it has already processed." + if (words.ios) " This opens your ${words.device}’s Settings." else "",
             StatusAction.ALLOW_ACCESS,
         )
 
@@ -262,11 +262,11 @@ object ReadingPolicy {
         val shown = mark.next(progress)
         val newFiles = shown.newFiles(progress)
         val meaning = progress.contentRead.takeIf { it > 0 }?.let { ((it - progress.meaningWaiting) * 100 / it).toInt() }
-        val readShare = "${shown.percent}% read"
+        val readShare = "${shown.percent}% done"
         val title = when (phase) {
             ReadingPhase.CHARGING -> "${stopCopy(StopReason.UNPLUGGED, words)} · $readShare"
 
-            ReadingPhase.READ_NOW -> "Reading for 15 minutes · $readNowMinutes min left"
+            ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
 
             ReadingPhase.SAMPLE -> "Trying a few of your files"
 
@@ -274,19 +274,19 @@ object ReadingPolicy {
 
             ReadingPhase.MEANING -> "Adding search by meaning · ${meaning ?: 0}%"
 
-            ReadingPhase.DEEPENING -> "Reading the rest of some long files"
+            ReadingPhase.DEEPENING -> "Processing the rest of some long files"
 
             ReadingPhase.READING -> if (newFiles > 0) {
-                "Reading ${Words.plural(newFiles, "new file")}"
+                "Processing ${Words.plural(newFiles, "new file")}"
             } else {
-                "${if (pluggedIn) "Reading while you charge" else "Reading your files"} · $readShare"
+                "${if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES} · $readShare"
             }
 
             ReadingPhase.LOOKING -> "Checking for new files…"
 
-            ReadingPhase.CAUGHT_UP -> "All done. Retriever has read everything it can"
+            ReadingPhase.CAUGHT_UP -> "All done. Retriever has processed everything it can"
 
-            ReadingPhase.LIMITED -> "All done. A few long files were read only in part"
+            ReadingPhase.LIMITED -> "All done. A few long files were processed only in part"
 
             ReadingPhase.NO_CONTENT -> "Ready to find files by name"
 
@@ -301,9 +301,9 @@ object ReadingPolicy {
 
             ReadingPhase.LOW_BATTERY -> "Plug in and Retriever carries on."
 
-            ReadingPhase.CHARGING_UP -> "Reading starts once your battery has a bit more charge."
+            ReadingPhase.CHARGING_UP -> "Processing starts once your battery has a bit more charge."
 
-            ReadingPhase.BUSY -> "Or open Retriever and it reads now."
+            ReadingPhase.BUSY -> "Or open Retriever to carry on now."
 
             ReadingPhase.CHARGING -> "Retriever carries on when your ${words.device} is charging."
 
@@ -323,7 +323,7 @@ object ReadingPolicy {
                 "Also adding search by meaning · ${meaning ?: 0}%"
             } else {
                 if (words.ios) {
-                    "Search works the whole time. Retriever reads while it’s open, and sometimes when iOS allows."
+                    "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
                 } else {
                     "You can close Retriever; it carries on. Search works the whole time."
                 }
@@ -331,9 +331,11 @@ object ReadingPolicy {
 
             ReadingPhase.WAITING -> "Your ${words.device} decides when Retriever carries on. Nothing is lost."
 
-            ReadingPhase.CAUGHT_UP -> "It reads new files by itself.".takeIf { blocker != StopReason.MANUAL }
+            ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
 
-            ReadingPhase.NO_CONTENT -> "To find them by what’s inside, Retriever reads them here on this ${words.device}. Nothing is sent anywhere."
+            ReadingPhase.NO_CONTENT ->
+                "To find them by what’s inside, Retriever processes them here on this ${words.device}: " +
+                    "it looks at the words and pictures inside each file. Nothing is sent anywhere."
 
             else -> null
         }
@@ -370,9 +372,9 @@ fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): St
         kind == Kind.OTHER -> "Its name. Retriever can’t look inside this kind of file yet."
 
         stored?.contentRead == true -> when {
-            stored.state == FileState.PENDING -> "Name and its beginning. The rest is not read yet."
+            stored.state == FileState.PENDING -> "Name and its beginning. The rest is not processed yet."
 
-            stored.state == FileState.SKIPPED -> "Name and part of what’s inside. Retriever couldn’t finish reading it."
+            stored.state == FileState.SKIPPED -> "Name and part of what’s inside. Retriever couldn’t finish processing it."
 
             stored.partial || extent == ReadExtent.FIRST_PART || extent == ReadExtent.FIRST_PART_DEEPENING ||
                 extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Name and its beginning"
@@ -384,12 +386,12 @@ fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): St
             else -> "Name and what’s inside"
         }
 
-        !readInside -> "Its name. Reading is off for this kind of file."
+        !readInside -> "Its name. Processing is off for this kind of file."
 
-        stored?.state == FileState.SKIPPED -> "Its name. Retriever couldn’t read it after ${Words.plural(stored.attempts.toLong(), "try", "tries")}."
+        stored?.state == FileState.SKIPPED -> "Its name. Retriever couldn’t process it after ${Words.plural(stored.attempts.toLong(), "try", "tries")}."
 
-        stored?.state == FileState.INDEXED -> "Its name. Nothing inside could be read."
+        stored?.state == FileState.INDEXED -> "Its name. Nothing inside could be processed."
 
-        else -> "Its name. Not read yet."
+        else -> "Its name. Not processed yet."
     }
 }

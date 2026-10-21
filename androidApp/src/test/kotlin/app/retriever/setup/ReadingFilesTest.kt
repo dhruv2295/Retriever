@@ -142,14 +142,14 @@ class ReadingFilesTest {
                 SamplePile.shown(cards.value),
                 listOf(Kind.PHOTO, Kind.PDF, Kind.DOC),
                 reduceMotion,
-                "12 of 40 files read",
+                "12 of 40 files processed",
                 Words.seeAll(40, 0),
                 onSeeAll,
             )
         }
     }
 
-    private fun pileNode() = rule.onNodeWithContentDescription("12 of 40 files read")
+    private fun pileNode() = rule.onNodeWithContentDescription("12 of 40 files processed")
 
     @Test fun thePileKeepsOneFootprintFromEmptyToFull() {
         val cards = mutableStateOf(emptyList<SampleFile>())
@@ -178,7 +178,7 @@ class ReadingFilesTest {
     @Test fun thePileIsOneNodeThatSaysTheCountAndOpensSeeAll() {
         var opened = 0
         pile(mutableStateOf((0 until 20).map(::card)), onSeeAll = { opened++ })
-        rule.onAllNodes(hasContentDescription("files read", substring = true)).assertCountEquals(1)
+        rule.onAllNodes(hasContentDescription("files processed", substring = true)).assertCountEquals(1)
         pileNode()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             .assert(SemanticsMatcher("See all as its action") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == Words.seeAll(40, 0) })
@@ -266,9 +266,9 @@ class ReadingFilesTest {
         fun height() = rule.onNodeWithTag("reading").fetchSemanticsNode().size.height
         val tall = height()
         current.value = null
-        rule.onNodeWithText("Reading now").assertExists()
+        rule.onNodeWithText("Processing now").assertExists()
         rule.onNodeWithText("1.jpg").assertExists()
-        rule.onNodeWithText("Starting reading…").assertDoesNotExist()
+        rule.onNodeWithText("Getting started…").assertDoesNotExist()
         assertEquals(tall, height())
         current.value = file(2, Kind.PDF)
         rule.onNodeWithText("2.jpg").assertExists()
@@ -328,7 +328,7 @@ class ReadingFilesTest {
 
     /**
      * Status keeps Reading now on screen while reading runs. Its title says the batch reads while it has a file (core keeps
-     * the last one between two), and "Starting reading…" only before the batch's first.
+     * the last one between two), and "Getting started…" only before the batch's first.
      */
     @Test fun statusHoldsReadingNowBetweenFiles() {
         val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF)))
@@ -346,10 +346,10 @@ class ReadingFilesTest {
             }
         }
         rule.onNodeWithText("5.jpg").assertExists()
-        rule.onNodeWithText("Reading your files", substring = true).assertExists()
-        rule.onNodeWithText("Starting reading…").assertDoesNotExist()
+        rule.onNodeWithText("Processing your files", substring = true).assertExists()
+        rule.onNodeWithText("Getting started…").assertDoesNotExist()
         index.value = index.value.copy(currentFile = null)
-        rule.onNodeWithText("Reading now").assertExists()
+        rule.onNodeWithText("Processing now").assertExists()
         rule.onNodeWithText("5.jpg").assertExists()
     }
 
@@ -444,16 +444,16 @@ class ReadingFilesTest {
                 )
             }
         }
-        rule.onNodeWithText("Reading now").assertExists()
-        rule.onNodeWithText("Recently read").assertExists()
+        rule.onNodeWithText("Processing now").assertExists()
+        rule.onNodeWithText("Recently processed").assertExists()
         rule.onNodeWithTag("recent:${recent.first().uri}").performClick()
         assertEquals(recent.first(), opened)
         index.value = index.value.copy(running = false, currentFile = null)
         // The active tile goes; what was already read stays on show, and only the sentence above changes.
-        rule.onNodeWithText("Reading now").assertDoesNotExist()
-        rule.onNodeWithText("Recently read").assertExists()
+        rule.onNodeWithText("Processing now").assertDoesNotExist()
+        rule.onNodeWithText("Recently processed").assertExists()
         index.value = index.value.copy(recentFiles = emptyList())
-        rule.onNodeWithText("Recently read").assertDoesNotExist()
+        rule.onNodeWithText("Recently processed").assertDoesNotExist()
     }
 
     private fun pausedStatus(index: IndexState, batteryHint: Boolean) = rule.setContent {
@@ -475,19 +475,19 @@ class ReadingFilesTest {
         pausedStatus(IndexState(recentFiles = recent), batteryHint = true)
         rule.onNodeWithText("Paused").assertExists()
         rule.onNodeWithText("Search still works.").assertExists()
-        rule.onNodeWithText("Recently read").assertExists()
-        rule.onNodeWithText("Reading now").assertDoesNotExist()
+        rule.onNodeWithText("Recently processed").assertExists()
+        rule.onNodeWithText("Processing now").assertDoesNotExist()
         // The pause is the reason and Resume the remedy: no second remedy beside them.
         rule.onNodeWithText("Resume").assertExists()
         rule.onNodeWithText("Pause").assertDoesNotExist()
-        rule.onNodeWithText("Let Retriever read while you’re not using it").assertDoesNotExist()
+        rule.onNodeWithText("Let Retriever process files while you’re not using it").assertDoesNotExist()
     }
 
     @Test fun aFailureReplacesTheWaitSentenceInsteadOfJoiningIt() {
         pausedStatus(IndexState(lastError = "Couldn’t open the search model", recentFiles = recent), batteryHint = true)
         rule.onNodeWithText("Couldn’t open the search model").assertExists()
         rule.onNodeWithText("Search still works.").assertDoesNotExist()
-        rule.onNodeWithText("Let Retriever read while you’re not using it").assertDoesNotExist()
+        rule.onNodeWithText("Let Retriever process files while you’re not using it").assertDoesNotExist()
     }
 
     @Test fun theBackgroundHintStaysBesideAScheduleWaitButNotBesideAFailure() {
@@ -503,14 +503,14 @@ class ReadingFilesTest {
                     Modifier,
                     readingStatus = ReadingStatus(
                         ReadingPhase.CHARGING,
-                        "Waiting until you plug in · 75% read",
+                        "Waiting until you plug in · 75% done",
                         "Retriever carries on when your phone is charging.",
                     ),
                 )
             }
         }
         rule.onNodeWithText("Retriever carries on when your phone is charging.").assertExists()
-        rule.onNodeWithText("Let Retriever read while you’re not using it").assertExists()
+        rule.onNodeWithText("Let Retriever process files while you’re not using it").assertExists()
     }
 }
 

@@ -66,7 +66,7 @@ extension AppModel {
                     .photo: .init(read: read - screenshots - pdfs, planned: 40),
                 ], readyToTry: read >= 30, pending: 54 - read)
             sample = (1...54).map {
-                SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Not read yet")
+                SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Not processed yet")
             }
             snap.reading = ReadingPreview(current: done ? nil : files[0], recent: read == 0 ? [] : Array(files.dropFirst()))
         }

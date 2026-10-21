@@ -499,7 +499,7 @@ class SetupStatusShotsTest {
     @Test fun tryItAfterSearchLight() {
         shot("setup_tryit_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
         rule.onNodeWithText(Words.searchingTry(48)).assertExists()
-        rule.onNodeWithText("Still reading 31 more").assertExists()
+        rule.onNodeWithText("Still processing 31 more").assertExists()
         rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
 
@@ -537,7 +537,7 @@ class SetupStatusShotsTest {
         assertEquals(emptyList<String>(), calls)
         rule.onNodeWithText(Words.DONE).performClick()
         rule.onNodeWithText(Words.READ_15_NOW).performClick()
-        rule.onNodeWithText("Start reading").performClick()
+        rule.onNodeWithText("Start processing").performClick()
         rule.onNodeWithText(Words.NOT_NOW).performClick()
         rule.onNodeWithText(Words.DONE).performClick()
         assertEquals(listOf("commit(true)", "commit(false)", "later"), calls)
@@ -645,7 +645,7 @@ class SetupStatusShotsTest {
     @Test fun statusReading() {
         status("clarity_status_reading_light", tall = true)
         rule.onNodeWithText(Words.READING_STATUS).assertExists()
-        rule.onNodeWithText("Reading your files · 29% read").assertExists()
+        rule.onNodeWithText("Processing your files · 29% done").assertExists()
         // Reading now keeps the file's name beside a small tile.
         rule.onNodeWithText(previewFiles.first().name).assertExists()
         rule.onNodeWithText("Pause").assertExists()

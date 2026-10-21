@@ -313,7 +313,7 @@ internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> 
                 null
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            modifier = if (onOpen != null) Modifier.clickable(role = Role.Button, onClickLabel = "Show reading details", onClick = onOpen) else Modifier,
+            modifier = if (onOpen != null) Modifier.clickable(role = Role.Button, onClickLabel = "Show processing details", onClick = onOpen) else Modifier,
         )
         // Spelled out and below the words, so it never squeezes them at large text; aligned with the title.
         status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
@@ -344,6 +344,6 @@ private fun EmptyHome(looking: Boolean) {
     }
 }
 
-/** Core's status line, once its live reading status has arrived (it carries the saved "N% read" mark). */
+/** Core's status line, once its live reading status has arrived (it carries the saved "N% done" mark). */
 internal fun homeStatus(ui: HomeUi, download: DownloadState? = null): ReadingStatus? =
     ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)

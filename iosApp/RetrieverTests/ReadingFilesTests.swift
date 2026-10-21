@@ -75,8 +75,8 @@ final class ReadingFilesTests: XCTestCase {
         let taste = TasteSnap(counts: [.photo: .init(read: 12, planned: 40), .pdf: .init(read: 3, planned: 5)], readyToTry: true, pending: 30)
         XCTAssertEqual(taste.read, 15)
         XCTAssertEqual(taste.planned, 45)
-        XCTAssertTrue(taste.spoken.contains("12 of 40 photos read"), taste.spoken)
-        XCTAssertTrue(taste.spoken.contains("3 of 5 PDFs read"), taste.spoken)
+        XCTAssertTrue(taste.spoken.contains("12 of 40 photos processed"), taste.spoken)
+        XCTAssertTrue(taste.spoken.contains("3 of 5 PDFs processed"), taste.spoken)
         XCTAssertFalse(taste.spoken.contains("/"))
     }
 

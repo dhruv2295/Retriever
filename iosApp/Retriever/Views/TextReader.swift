@@ -75,7 +75,9 @@ struct TextReader: View {
                 switch state {
                 case .loading: ProgressView()
                 case .waiting:
-                    StateView(mood: .noMatch, title: "Not read yet", message: "Retriever hasn't read this file yet. You can open the original instead.") {
+                    StateView(
+                        mood: .noMatch, title: "Not processed yet", message: "Retriever hasn't processed this file yet. You can open the original instead."
+                    ) {
                         openElsewhere
                     }
                 case .empty:

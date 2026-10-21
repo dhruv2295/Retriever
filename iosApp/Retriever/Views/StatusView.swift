@@ -2,7 +2,7 @@ import Photos
 import RetrieverCore
 import SwiftUI
 
-/// Reading: the status line with its one button, what is being read, and the counts under Details. The switches that
+/// Processing: the status line with its one button, what is being processed, and the counts under Details. The switches that
 /// steer reading are in Settings.
 struct StatusView: View {
     let model: AppModel
@@ -63,13 +63,13 @@ struct StatusContent: View {
         if model.screenKeptOn { Note(Copy.screenKeptOn) }
         // Resume and Stop are the line's own button.
         if !snap.paused && snap.readProgress.unfinished && status.action != .stop {
-            Button(action: model.pause) { Text("Pause reading").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
+            Button(action: model.pause) { Text("Pause processing").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         }
     }
 
     /// The counts, for whoever wants them; Home never shows them.
     private var details: some View {
-        DisclosureGroup("Details") {
+        DisclosureGroup(Words.shared.DETAILS) {
             Text(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead))).monospacedDigit()
             if snap.pending + snap.waiting > 0 { Text(Words.shared.notReadYet(files: Int64(snap.pending + snap.waiting))).monospacedDigit() }
             if snap.nameOnly > 0 { Text("\(Copy.count(snap.nameOnly)) \(Words.shared.FOUND_BY_NAME.lowercased())").monospacedDigit() }
@@ -87,7 +87,7 @@ struct StatusContent: View {
             }
             Button("Try again", action: model.retrySkipped)
         } label: {
-            Text("Couldn’t read \(Words.shared.files(n: Int64(snap.skipped)))")
+            Text(Words.shared.couldntProcess(files: Int64(snap.skipped)))
         }
     }
 

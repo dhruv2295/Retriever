@@ -33,29 +33,30 @@ class StatusLineTest {
             decide(stop = StopReason.HOT) to listOf("HOT", "Paused to let your phone cool down", "Carries on by itself.", null),
             decide(stop = StopReason.LOW_BATTERY) to listOf("LOW_BATTERY", "Paused, battery is low", "Plug in and Retriever carries on.", null),
             decide(stop = StopReason.CHARGING_UP) to
-                listOf("CHARGING_UP", "Charging up first", "Reading starts once your battery has a bit more charge.", null),
-            decide(stop = StopReason.BUSY) to listOf("BUSY", "Waiting until you put your phone down", "Or open Retriever and it reads now.", null),
+                listOf("CHARGING_UP", "Charging up first", "Processing starts once your battery has a bit more charge.", null),
+            decide(stop = StopReason.BUSY) to listOf("BUSY", "Waiting until you put your phone down", "Or open Retriever to carry on now.", null),
             decide(stop = StopReason.UNPLUGGED) to
-                listOf("CHARGING", "Waiting until you plug in · 60% read", "Retriever carries on when your phone is charging.", "Read for 15 minutes"),
-            decide(stop = StopReason.MANUAL) to listOf("MANUAL", "Reading only when you start it", "You can find any file by its name.", "Read for 15 minutes"),
+                listOf("CHARGING", "Waiting until you plug in · 60% done", "Retriever carries on when your phone is charging.", "Process for 15 minutes"),
+            decide(stop = StopReason.MANUAL) to
+                listOf("MANUAL", "Processing only when you start it", "You can find any file by its name.", "Process for 15 minutes"),
             decide(stop = StopReason.BUDGET) to
                 listOf("WAITING", "Taking a short break", "Your phone decides when Retriever carries on. Nothing is lost.", null),
-            decide(minutes = 12) to listOf("READ_NOW", "Reading for 15 minutes · 12 min left", "Uses some battery. Stops on its own.", "Stop"),
+            decide(minutes = 12) to listOf("READ_NOW", "Processing for 15 minutes · 12 min left", "Uses some battery. Stops on its own.", "Stop"),
             decide(waiting.copy(sample = true), reading = true) to
                 listOf("SAMPLE", "Trying a few of your files", "About a minute. Nothing is changed or sent.", null),
             decide(
                 ReadingProgress(read = 3, sample = true),
-            ) to listOf("SAMPLE_READY", "Ready to try", "Search for a word you remember.", "Choose when to read"),
+            ) to listOf("SAMPLE_READY", "Ready to try", "Search for a word you remember.", "Choose when to process"),
             decide(ReadingProgress(nameOnly = 3, sample = true)) to listOf(
                 "NO_CONTENT",
                 "Ready to find files by name",
-                "To find them by what’s inside, Retriever reads them here on this phone. Nothing is sent anywhere.",
-                "Choose when to read",
+                "To find them by what’s inside, Retriever processes them here on this phone: it looks at the words and pictures inside each file. Nothing is sent anywhere.",
+                "Choose when to process",
             ),
             decide(reading = true) to
-                listOf("READING", "Reading your files · 60% read", "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf("READING", "Processing your files · 60% done", "You can close Retriever; it carries on. Search works the whole time.", null),
             decide(reading = true, plugged = true) to
-                listOf("READING", "Reading while you charge · 60% read", "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf("READING", "Processing while you charge · 60% done", "You can close Retriever; it carries on. Search works the whole time.", null),
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to
                 listOf(
                     "MEANING",
@@ -64,12 +65,12 @@ class StatusLineTest {
                     null,
                 ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to
-                listOf("DEEPENING", "Reading the rest of some long files", "You can find them by their beginning.", null),
+                listOf("DEEPENING", "Processing the rest of some long files", "You can find them by their beginning.", null),
             decide(ReadingProgress(read = 3), running = true) to listOf("LOOKING", "Checking for new files…", null, null),
             decide(ReadingProgress(read = 3)) to
-                listOf("CAUGHT_UP", "All done. Retriever has read everything it can", "It reads new files by itself.", "Dismiss"),
+                listOf("CAUGHT_UP", "All done. Retriever has processed everything it can", "It processes new files by itself.", "Dismiss"),
             decide(ReadingProgress(read = 3, partlyRead = 1)) to
-                listOf("LIMITED", "All done. A few long files were read only in part", "You can find them by their beginning.", "Dismiss"),
+                listOf("LIMITED", "All done. A few long files were processed only in part", "You can find them by their beginning.", "Dismiss"),
         )
         for ((status, expected) in rows) assertEquals(expected, row(status))
     }
@@ -79,7 +80,7 @@ class StatusLineTest {
         assertEquals("Waiting until you put your iPhone down", decide(stop = StopReason.BUSY, words = iphone).title)
         assertEquals("Uses some battery. Keep Retriever open.", decide(minutes = 3, words = iphone).detail)
         assertEquals(
-            "Search works the whole time. Retriever reads while it’s open, and sometimes when iOS allows.",
+            "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows.",
             decide(reading = true, words = iphone).detail,
         )
         assertEquals("Your iPad decides when Retriever carries on. Nothing is lost.", decide(stop = StopReason.DONE, words = DeviceWords.ios("iPad")).detail)
@@ -100,29 +101,29 @@ class StatusLineTest {
             assertNull(s.pause, s.phase.name)
         }
         assertEquals("Paused", decide(stop = StopReason.PAUSED).pause)
-        assertEquals("Waiting until you plug in · 60% read", decide(stop = StopReason.UNPLUGGED).pause)
+        assertEquals("Waiting until you plug in · 60% done", decide(stop = StopReason.UNPLUGGED).pause)
     }
 
     @Test fun manualReadingNeverPromisesToReadByItself() {
         assertNull(decide(ReadingProgress(read = 3), stop = StopReason.MANUAL).detail)
     }
 
-    /** "N% read" never shows falling: new files are named until the old figure is passed, and the bar holds the figure. */
+    /** "N% done" never shows falling: new files are named until the old figure is passed, and the bar holds the figure. */
     @Test fun theShareReadNeverFalls() {
         val before = ReadMark().next(ReadingProgress(read = 40, scheduled = 60))
         assertEquals(ReadMark(40, 100), before)
         // 42 new files arrive: 40 of 142 is 28%.
         val more = ReadingProgress(read = 40, scheduled = 102)
         val status = decide(more, reading = true, mark = before)
-        assertEquals("Reading 42 new files" to 40, status.title to status.percent)
+        assertEquals("Processing 42 new files" to 40, status.title to status.percent)
         assertEquals(before, before.next(more), "the mark holds")
         // Read past the old figure: the share shows again and the mark moves on.
         val passed = ReadingProgress(read = 60, scheduled = 82)
-        assertEquals("Reading your files · 42% read", decide(passed, reading = true, mark = before).title)
+        assertEquals("Processing your files · 42% done", decide(passed, reading = true, mark = before).title)
         assertEquals(ReadMark(42, 142), before.next(passed))
         // Fewer files (read ones deleted): the old figure stays, with no new files to name.
-        assertEquals("Reading your files · 40% read", decide(ReadingProgress(read = 10, scheduled = 60), reading = true, mark = before).title)
-        assertEquals("Reading 1 new file", decide(ReadingProgress(read = 40, scheduled = 61), reading = true, mark = before).title)
+        assertEquals("Processing your files · 40% done", decide(ReadingProgress(read = 10, scheduled = 60), reading = true, mark = before).title)
+        assertEquals("Processing 1 new file", decide(ReadingProgress(read = 40, scheduled = 61), reading = true, mark = before).title)
     }
 
     @Test fun theShareIsWholeAndReachesAHundredOnlyWhenNothingWaits() {
@@ -154,11 +155,11 @@ class StatusLineTest {
         ) = ReadingPolicy.line(r, chosen, access, total, words, download)
 
         assertEquals(
-            listOf("NO_ACCESS", "Retriever can’t see your files", "Search still works on the files it has already read.", "Allow access"),
+            listOf("NO_ACCESS", "Retriever can’t see your files", "Search still works on the files it has already processed.", "Allow access"),
             row(line(chosen = false, access = false)!!),
         )
         assertEquals(
-            "Search still works on the files it has already read. This opens your iPhone’s Settings.",
+            "Search still works on the files it has already processed. This opens your iPhone’s Settings.",
             line(access = false, words = iphone)?.detail,
         )
         assertEquals(
@@ -185,7 +186,7 @@ class StatusLineTest {
             row(line(download = stopped, r = decide(stop = StopReason.UNPLUGGED))!!),
         )
         assertEquals(
-            listOf("TUNING", "Setting up reading for this phone", "About a minute. Finding a reading speed that suits this phone.", null),
+            listOf("TUNING", "Setting up processing for this phone", "About a minute. Finding a processing speed that suits this phone.", null),
             row(line(download = DownloadState(null, false, "388 MB", settingUp = true))!!),
         )
         assertEquals(StatusAction.TRY_AGAIN, line(download = DownloadState(null, true, "388 MB", settingUp = true), r = decide())?.action)

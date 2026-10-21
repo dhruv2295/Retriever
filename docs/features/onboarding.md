@@ -9,7 +9,7 @@ First run, with no download: a welcome that asks for access in one decision (And
 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`, or a "Choose what to include" sheet; iOS: "Search all your photos"
 through `PHPhotoLibrary`, or "Add folders from Files"; "Continue" when access is already there), a short read of a
 planned few files shown as the retriever's pile of real previews, a "try it" screen that runs the real search, and a
-choice of when to read the rest ("Choose when to read": While charging, Also on battery, When I start it). "Skip for
+choice of when to read the rest ("Choose when to process": While charging, Also on battery, When I start it). "Skip for
 now" (`Words.GO_TO_HOME`, and "Skip the quick try") leaves setup for good, once access is chosen, with
 the sample still reading. The model download and tune are not part of first run; they are the separate upgrade, "Search by meaning and
 what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)), offered after the person has searched.
@@ -30,7 +30,7 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   a stored mark this version dropped (`STARTED`) reads as `NONE` and returns to the welcome.
 - **The pile.** `Retriever.sampleFiles()` emits every planned file as a `SampleFile` (plan index, read, coverage note) in
   plan order; `SamplePile.shown` keeps the last 12 read, placed at Gallery's angles and offsets in a fixed 224 dp
-  square. It is one accessibility element (the count, with See all as its action). The count says "79 files read"
+  square. It is one accessibility element (the count, with See all as its action). The count says "79 files processed"
   and See all says "See the files" while files are still pending, since the plan can still shrink; "84 of 86 files
   read" and "See all 86 files" only once it can't, so a total never drops on screen. The count line holds the height
   of the picking sentence ("Trying a few of your recent files to show you how it works…") throughout and sits on the
@@ -45,10 +45,10 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   measured, `trimTaste` prices what is left at inference × the session's wall ratio.
 - **Try it is the real Search.** `TryItScreen` hosts `SearchContent` with a scope, so empty, searching and failure states
   are the ones in `search-ui.md`; nothing is faked. Names match across the whole library; words and meaning only inside
-  the sample ("Searching every file’s name, and inside the {C} files read so far.", `Words.searchingTry`, where C is
+  the sample ("Searching every file’s name, and inside the {C} files processed so far.", `Words.searchingTry`, where C is
   `TasteProgress.read`).
 - **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE`, and Home's status line
-  offers "Choose when to read" (the same sheet). A returning user (no plan) never sees the sample.
+  offers "Choose when to process" (the same sheet). A returning user (no plan) never sees the sample.
 - **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`
   when paused.
 

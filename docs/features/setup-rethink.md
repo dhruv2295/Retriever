@@ -1,7 +1,7 @@
 # Setup rethink: whole phone by default, the retriever's pile
 
 Replaces setup's Access stage and the sample mosaic, on core's machine (`Setup.kt`) and shared `Words`; `onboarding.md`
-is updated in the same change. Owner feedback: glitchy mixed-size mosaic, wide Try tiles, "0 files read · Up to date"
+is updated in the same change. Owner feedback: glitchy mixed-size mosaic, wide Try tiles, "0 files processed · Up to date"
 before reading, and four equal access rows that read as a filtered-down app.
 
 ## Root causes
@@ -78,7 +78,7 @@ transition (`.modifier(active:identity:)` on rotation, offset, opacity) with `.s
 
 ## Components and APIs
 
-**Shared tile** (pile, Try grid, Recently read, See all leading):
+**Shared tile** (pile, Try grid, Recently processed, See all leading):
 - Android `ui/components/ReadingFiles.kt`: `FileTile(file: SourceFile, size: Dp, modifier, onOpen: ((SourceFile) -> Unit)? = null)`
   = `ThumbnailImage(file, size, Modifier.size(size).clip(shapes.medium))`. With `onOpen`: today's `FilePressMenu`,
   combinedClickable and "name, kind, date" label; without: `clearAndSetSemantics {}`. Replaces `RecentFileCell` (arrival
@@ -117,13 +117,13 @@ At most 12 cards compose; `SampleFile` goes in `androidApp/stability.conf`, so o
 
 ## Copy (core `Words`)
 
-New: `SEARCH_WHOLE_PHONE` "Search your whole phone"; `wholeDeviceNote(w)` "Retriever reads the files on this {device}
+New: `SEARCH_WHOLE_PHONE` "Search your whole phone"; `wholeDeviceNote(w)` "Retriever processes the files on this {device}
 to find them by what’s inside. Nothing leaves your {device}."; `WHOLE_PHONE_READY` "Retriever can search your whole
 phone."; `ALL_FILES_OFF` "Turn on “Allow access to manage all files” to search your whole phone, or choose what to
 include."; `CHOOSE_INSTEAD` "Choose what to include instead"; `INCLUDE_TITLE` "Choose what to include";
 `SEARCH_ALL_PHOTOS` "Search all your photos"; `ADD_FOLDERS_FROM_FILES` "Add folders from Files"; `iosAccessNote(w)`
 "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your {device}.";
-`SAMPLE_PICKING` "Picking a few of your files…" (was `STARTING`); `readOf(read, planned)` "12 of 40 files read"; `READ`
+`SAMPLE_PICKING` "Picking a few of your files…" (was `STARTING`); `readOf(read, planned)` "12 of 40 files processed"; `READ`
 "Read". `seeAll(planned)` is reused.
 Delete once grep shows no user: `CHOOSE_ACCESS`, `ACCESS_BODY`, `GET_STARTED`, `CHOOSE_FILE_ACCESS`, `FILES_AND_FOLDERS`,
 `FOLDERS`, `SAMPLE_STARTING`, `PREVIEW_UNAVAILABLE` (unused today). Keep `READING_NOW` (Status screen).

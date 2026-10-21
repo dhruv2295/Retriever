@@ -36,8 +36,8 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
     ]
     private static let statusText = [
-        "Reading now", "Photo", "9 October 2025", "Recently read", "Pause reading",
-        "Retriever reads while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic reading waits until your iPhone is charging. Reading for 15 minutes uses some battery.",
+        "Processing now", "Photo", "9 October 2025", "Recently processed", "Pause processing",
+        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your iPhone is charging. Process for 15 minutes uses some battery.",
     ]
     private static let routes = [
         "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.samplePicking", "setup.sampleStart",
@@ -148,9 +148,9 @@ final class AccessibilityAuditTests: XCTestCase {
                         // One pile element saying the count, with See all as its action; its cards are not separate elements.
                         let pile = app.descendants(matching: .any)["sample-pile"].firstMatch
                         let picking = "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent."
-                        let counts = ["setup.samplePicking": picking, "setup.sampleStart": picking, "setup.sampleDone": "54 of 54 files read"]
+                        let counts = ["setup.samplePicking": picking, "setup.sampleStart": picking, "setup.sampleDone": "54 of 54 files processed"]
                         // No "of 54" while files are left: the plan can still shrink.
-                        let count = counts[route] ?? "30 files read"
+                        let count = counts[route] ?? "30 files processed"
                         XCTAssertEqual(pile.label, count)
                         XCTAssertTrue(app.staticTexts[count].exists)
                         XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
@@ -167,8 +167,8 @@ final class AccessibilityAuditTests: XCTestCase {
                             app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists, route == "setup.readingPaused")
                     }
                     if route.hasPrefix("setup.try") {
-                        XCTAssertTrue(app.staticTexts["Searching every file’s name, and inside the 54 files read so far."].exists)
-                        XCTAssertTrue(app.buttons["Choose when to read"].exists)
+                        XCTAssertTrue(app.staticTexts["Searching every file’s name, and inside the 54 files processed so far."].exists)
+                        XCTAssertTrue(app.buttons["Choose when to process"].exists)
                         XCTAssertTrue(app.buttons["Skip for now"].exists)
                     }
                     // Whole-phone access makes "your selected photos and folders" untrue; the count above says enough.
@@ -179,15 +179,15 @@ final class AccessibilityAuditTests: XCTestCase {
                     }
                     // home.upgrade's Not now is Home's last row, below the fold: testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize
                     // scrolls to it (scrolling here would change what the audit below sees).
-                    if route == "status.reading" { XCTAssertTrue(app.staticTexts["Recently read"].exists) }
-                    if route == "status.paused" { XCTAssertFalse(app.staticTexts["Recently read"].exists) }
+                    if route == "status.reading" { XCTAssertTrue(app.staticTexts["Recently processed"].exists) }
+                    if route == "status.paused" { XCTAssertFalse(app.staticTexts["Recently processed"].exists) }
                     // Home's one status line, its button spelled out (clarity-proposal section 3).
                     let lines =
                         [
-                            "home.charging": ("Reading while you charge · 22% read", nil),
-                            "home.firstDay": ("Ready to find files by name", "Choose when to read"),
-                            "home.unplugged": ("Waiting until you plug in · 22% read", "Read for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
-                            "home.readNow": ("Reading for 15 minutes · 12 min left", "Stop"),
+                            "home.charging": ("Processing while you charge · 22% done", nil),
+                            "home.firstDay": ("Ready to find files by name", "Choose when to process"),
+                            "home.unplugged": ("Waiting until you plug in · 22% done", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
+                            "home.readNow": ("Processing for 15 minutes · 12 min left", "Stop"),
                             "home.downloading": ("Downloading search by meaning · 34%", "Stop"), "home.meaning": ("Adding search by meaning · 61%", nil),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
                         ] as [String: (String, String?)]
@@ -255,7 +255,7 @@ final class AccessibilityAuditTests: XCTestCase {
         let height = row.frame.height
         var names: Set<String> = []
         for _ in 0..<12 {
-            XCTAssertTrue(app.staticTexts["Reading now"].exists)
+            XCTAssertTrue(app.staticTexts["Processing now"].exists)
             XCTAssertTrue(row.exists)
             XCTAssertEqual(row.frame.height, height, accuracy: 0.5)
             names.insert(row.label)
@@ -278,7 +278,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.keyboards.count, 0, "a suggestion searches without the keyboard")
         app.navigationBars.buttons["Back"].tap()
         XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and Try's start is back")
-        XCTAssertTrue(app.buttons["Choose when to read"].exists, "still on Try")
+        XCTAssertTrue(app.buttons["Choose when to process"].exists, "still on Try")
     }
 
     /// Home's tiles offer the file actions every other file has on a long press.
@@ -406,8 +406,8 @@ final class AccessibilityAuditTests: XCTestCase {
     /// Status lines the live resize loses; each is relaunched at AX5 below and checked to grow.
     private static let grown = [
         ("status.paused", "Resume"), ("status.tailFiles", "Taking a short break"), ("status.reading", "Photo 1.jpg"),
-        ("home.charging", "Starred"), ("home.firstDay", "Choose when to read"), ("home.noAccess", "Allow access"),
-        ("settings", "When to read"), ("settings", "Read these file types"), ("settings", "Adjust reading for this iPhone"),
+        ("home.charging", "Starred"), ("home.firstDay", "Choose when to process"), ("home.noAccess", "Allow access"),
+        ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "Best choice. Only while your iPhone is charging and you’re not using it. You can pause any time."),
     ]
 
@@ -476,8 +476,8 @@ final class AccessibilityAuditTests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp"]
             launch(app)
-            XCTAssertTrue(app.staticTexts["All done. Retriever has read everything it can"].exists)
-            XCTAssertFalse(app.staticTexts["3,142 files read"].exists, "counts live in Reading status")
+            XCTAssertTrue(app.staticTexts["All done. Retriever has processed everything it can"].exists)
+            XCTAssertFalse(app.staticTexts["3,142 files processed"].exists, "counts live in Reading status")
             // The status line sits at the top; what scrolled under the bottom search bar is audited elsewhere.
             try app.performAccessibilityAudit(for: .contrast) { issue in issue.element.map { self.underABar($0, in: app) } ?? false }
             app.terminate()

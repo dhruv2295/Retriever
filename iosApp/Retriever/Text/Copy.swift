@@ -47,7 +47,7 @@ enum Copy {
         case .denied, .restricted:
             PhotosNote(
                 off: true, title: "Photos access is off",
-                detail: "Search still works on files already read. Turn it on to search your photos and screenshots too.")
+                detail: "Search still works on files already processed. Turn it on to search your photos and screenshots too.")
         case .limited:
             PhotosNote(off: false, title: "Retriever sees only the photos you picked", detail: "It can search just those.")
         default: nil
@@ -94,7 +94,7 @@ enum Copy {
 
     static func addFolderResult(_ result: FolderSource.AddResult) -> String {
         switch result {
-        case .added: "Folder added. Retriever will read what's inside."
+        case .added: "Folder added. Retriever will process what's inside."
         case .overlaps(let name): "That folder overlaps “\(name)”, which Retriever already searches."
         case .failed: "iOS wouldn't let Retriever keep that folder. Try another one."
         }
@@ -107,9 +107,9 @@ enum Copy {
     }
 
     static let backgroundNote =
-        "Retriever reads while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic reading waits until your \(device) is charging. Reading for 15 minutes uses some battery."
+        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your \(device) is charging. \(Words.shared.READ_FOR_15) uses some battery."
 
-    static let screenKeptOn = "Your screen stays on while Retriever reads for 15 minutes. You can turn this off in Settings."
+    static let screenKeptOn = "Your screen stays on while Retriever processes your files for 15 minutes. You can turn this off in Settings."
 
     /// What the search made of the words: "Showing Screenshots · Last week".
     static func understood(_ labels: [String]) -> String { "Showing \(labels.joined(separator: " · "))" }
@@ -123,9 +123,9 @@ enum Copy {
     static let closestFilesShort = "These are the closest files."
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
-    nonisolated static let continuedTitle = "Reading your files"
+    nonisolated static let continuedTitle = Words.shared.PROCESSING_YOUR_FILES
 
     nonisolated static func continuedSubtitle(_ files: Int) -> String {
-        "\(count(files)) files read so far"
+        "\(Words.shared.readCount(read: Int64(files), partlyRead: 0)) so far"
     }
 }

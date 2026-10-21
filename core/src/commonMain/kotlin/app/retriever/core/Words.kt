@@ -20,8 +20,9 @@ expect fun formatCount(n: Long): String
 
 /**
  * The sentences both apps show around numbers, dates and files, in plain words a first-time user knows: "your phone" or
- * "your files", never "library"; "found by name", never "name only"; "read in part", never "partly read"; "15 minutes",
- * never "session"; nothing about a "schedule". Sizes and dates stay with each platform's formatter.
+ * "your files", never "library"; "found by name", never "name only"; Retriever "processes" files, never reads, analyzes,
+ * indexes, learns or scans them; "processed in part", never "partly read"; "15 minutes", never "session"; nothing about
+ * a "schedule". Sizes and dates stay with each platform's formatter.
  */
 object Words {
     /** Keeps a number on the line of its unit. */
@@ -40,16 +41,17 @@ object Words {
 
     fun largeFiles(n: Long): String = "${files(n)} over 100${NBSP}MB"
 
-    /** Reading status's counts; a file read in part counts as read on Home. */
-    fun readCount(read: Long, partlyRead: Long = 0): String = "${files(read)} read" + if (partlyRead > 0) " · ${formatCount(partlyRead)} read in part" else ""
+    /** Processing's counts; a file processed in part counts as processed on Home. */
+    fun readCount(read: Long, partlyRead: Long = 0): String =
+        "${files(read)} processed" + if (partlyRead > 0) " · ${formatCount(partlyRead)} processed in part" else ""
 
     /** Said under a file that was not read whole; null when it was. */
     fun extent(extent: ReadExtent?): String? = when (extent) {
-        ReadExtent.FIRST_PART -> "Read in part · only its beginning"
-        ReadExtent.MEANING_LIMITED -> "Read in part · couldn’t finish search by meaning"
-        ReadExtent.FIRST_PART_MEANING_LIMITED -> "Read in part · only its beginning, without search by meaning"
-        ReadExtent.FIRST_PART_DEEPENING -> "Read in part · only its beginning so far"
-        ReadExtent.DEEPENING -> "Read in part · search by meaning still to come"
+        ReadExtent.FIRST_PART -> "Processed in part · only its beginning"
+        ReadExtent.MEANING_LIMITED -> "Processed in part · couldn’t finish search by meaning"
+        ReadExtent.FIRST_PART_MEANING_LIMITED -> "Processed in part · only its beginning, without search by meaning"
+        ReadExtent.FIRST_PART_DEEPENING -> "Processed in part · only its beginning so far"
+        ReadExtent.DEEPENING -> "Processed in part · search by meaning still to come"
         else -> null
     }
 
@@ -59,10 +61,10 @@ object Words {
      */
     fun coverage(file: Store.StoredFile, inside: Set<Kind>): String? = when {
         file.file.kind !in inside || (!file.contentRead && file.state == FileState.INDEXED) -> FOUND_BY_NAME
-        !file.contentRead && file.state == FileState.SKIPPED -> "Couldn’t read"
-        !file.contentRead -> "Not read yet"
-        file.state == FileState.PENDING -> "Read in part · the rest is not read yet"
-        file.state == FileState.SKIPPED -> "Read in part · couldn’t finish"
+        !file.contentRead && file.state == FileState.SKIPPED -> "Couldn’t process"
+        !file.contentRead -> "Not processed yet"
+        file.state == FileState.PENDING -> "Processed in part · the rest is still to come"
+        file.state == FileState.SKIPPED -> "Processed in part · couldn’t finish"
         else -> extent(file.extent ?: if (file.partial) ReadExtent.FIRST_PART else null)
     }
 
@@ -88,7 +90,7 @@ object Words {
 
     /**
      * Where [kinds] stand, for Reading status and Settings, never Home: [FOUND_BY_NAME] when none of them is read inside
-     * on this device, "{N} not read yet" over the readable ones while any are [scheduled] (pending also holds files whose
+     * on this device, "{N} to go" over the readable ones while any are [scheduled] (pending also holds files whose
      * content is already read), otherwise nothing. Documents (PDF + doc) follows the same rule.
      */
     fun kindProgress(kinds: List<Kind>, inside: Set<Kind>, pending: Map<Kind, Long>, scheduled: Long): String? {
@@ -108,13 +110,25 @@ object Words {
         return "at " + parts.joinToString(" ").ifEmpty { "0 seconds" }
     }
 
-    fun stillReading(files: Long): String = "Still reading ${formatCount(files)} more"
+    fun stillReading(files: Long): String = "Still processing ${formatCount(files)} more"
 
     fun textOnlyNote(ramGb: Double, words: DeviceWords): String =
         "This ${words.device} has ${ramGb.roundToInt()}${NBSP}GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them."
 
-    /** Reading status only; never on Home. */
-    fun notReadYet(files: Long): String = "${formatCount(files)} not read yet"
+    /** Processing only; never on Home. */
+    fun notReadYet(files: Long): String = "${formatCount(files)} to go"
+
+    fun couldntProcess(files: Long): String = "Couldn’t process ${files(files)}"
+
+    // The Processing screen's own labels, the same on both apps.
+    const val DETAILS = "Details"
+    const val STARTING = "Getting started…"
+    const val PROCESSING_NOW = "Processing now"
+    const val RECENTLY_PROCESSED = "Recently processed"
+    const val PROCESSING_YOUR_FILES = "Processing your files"
+
+    /** Settings' header over the per-kind switches. */
+    const val PROCESS_THESE_KINDS = "Process these file types"
 
     // Shared actions.
 
@@ -126,7 +140,7 @@ object Words {
     const val NOT_NOW = "Not now"
     const val CANCEL = "Cancel"
     const val DONE = "Done"
-    const val READ_FOR_15 = "Read for 15 minutes"
+    const val READ_FOR_15 = "Process for 15 minutes"
 
     /** Marks the search-by-meaning row at the end of Home. */
     const val OPTIONAL = "Optional"
@@ -160,7 +174,7 @@ object Words {
     const val ONLY_SELECTED_PHOTOS = "Only the photos you selected are included."
     const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
 
-    fun wholeDeviceNote(words: DeviceWords): String = "Retriever reads the files on this ${words.device} to find them by what’s inside."
+    fun wholeDeviceNote(words: DeviceWords): String = "Retriever processes the files on this ${words.device} to find them by what’s inside."
 
     fun iosAccessNote(words: DeviceWords): String = "iOS lets Retriever read your photos and the folders you pick in Files."
 
@@ -185,10 +199,11 @@ object Words {
     fun seeAll(files: Long, pending: Long): String = if (pending > 0) "See the files" else "See all ${files(files)}"
 
     /**
-     * The sample's count: "79 files read" while [pending] files are left, since the plan can still shrink and "of 124"
-     * would become "of 86"; "84 of 86 files read" once it stops changing.
+     * The sample's count: "79 files processed" while [pending] files are left, since the plan can still shrink and "of 124"
+     * would become "of 86"; "84 of 86 files processed" once it stops changing.
      */
-    fun readOf(read: Long, planned: Long, pending: Long = 0): String = if (pending > 0) readCount(read) else "${formatCount(read)} of ${files(planned)} read"
+    fun readOf(read: Long, planned: Long, pending: Long = 0): String =
+        if (pending > 0) readCount(read) else "${formatCount(read)} of ${files(planned)} processed"
 
     /**
      * The sample's muted line while it reads, null otherwise (paused or done), so no stale time stays on screen: the time
@@ -205,36 +220,36 @@ object Words {
             }
         }
         return when {
-            !readyToTry -> listOfNotNull(time, "You can try search once a few files are read.").joinToString(" ")
+            !readyToTry -> listOfNotNull(time, "You can try search once a few files are processed.").joinToString(" ")
             time == null -> "Ready to try. Search for a word you remember from a recent file."
             else -> "$time Ready to try."
         }
     }
 
-    /** For a screen reader, never on screen: "12 of 40 photos read". */
+    /** For a screen reader, never on screen: "12 of 40 photos processed". */
     fun kindRead(read: Long, planned: Long, kind: Kind): String =
-        "${formatCount(read)} of ${formatCount(planned)} ${kindLabelPlural(kind).let { if (kind == Kind.PDF) it else it.lowercase() }} read"
+        "${formatCount(read)} of ${formatCount(planned)} ${kindLabelPlural(kind).let { if (kind == Kind.PDF) it else it.lowercase() }} processed"
 
     // Try.
     const val TRY_TITLE = "Find a file you know"
     const val TRY_BODY = "Type something you remember from it, like a name, a place or an amount, or tap a suggestion."
     const val TRY_WITHOUT_SUGGESTIONS = "Open one of these files, then type something you remember from it."
     const val FILES_TO_TRY = "Files you can try"
-    const val CHOOSE_WHEN = "Choose when to read"
+    const val CHOOSE_WHEN = "Choose when to process"
 
     /** Labels words from the person's own files wherever they are offered (Home's search suggestions with no history). */
     const val TRY_LABEL = "Try:"
 
     /** Try's scope: names cover the whole library, words inside only the [read] files ([TasteProgress.read]). */
-    fun searchingTry(read: Long): String = "Searching every file’s name, and inside the ${files(read)} read so far."
+    fun searchingTry(read: Long): String = "Searching every file’s name, and inside the ${files(read)} processed so far."
 
-    // Choose when to read, after Try and from Home's status line.
-    const val CHOOSE_TITLE = "When should Retriever read your files?"
-    const val MORE_FILES = "You can already find every file by its name. To find them by what’s inside, Retriever needs to read them."
+    // Choose when to process, after Try and from Home's status line.
+    const val CHOOSE_TITLE = "When should Retriever process your files?"
+    const val MORE_FILES = "You can already find every file by its name. To find them by what’s inside, Retriever needs to process them."
 
     /** No hours or nights: the estimate is not calibrated yet ([ESTIMATE_CALIBRATED]). */
-    const val CHOOSE_PACE = "It reads a bit each time, so it can take a while. You can use Retriever the whole time."
-    const val READ_15_NOW = "Read for 15 minutes now"
+    const val CHOOSE_PACE = "It processes a bit each time, so it can take a while. You can use Retriever the whole time."
+    const val READ_15_NOW = "Process for 15 minutes now"
     const val NOT_NOW_BODY = "You can choose later in Settings."
 
     fun whileChargingBody(words: DeviceWords): String =
@@ -261,11 +276,11 @@ object Words {
     const val NO_MATCHES = "Nothing found"
     const val NO_MATCHES_DETAIL = "Try a word from the file’s name."
 
-    /** Said after [NO_MATCHES_DETAIL] only while files are still to be read. */
-    const val MORE_WAITING = "Retriever is still reading your files, so search again later."
+    /** Said after [NO_MATCHES_DETAIL] only while files are still to be processed. */
+    const val MORE_WAITING = "Retriever is still processing your files, so search again later."
     const val SEARCH_FAILED = "Search couldn’t finish"
     const val SHOWING_NAME_MATCHES = "Showing name matches"
-    const val SEARCHING_WITHOUT_MODEL = "Searching names and text already read"
+    const val SEARCHING_WITHOUT_MODEL = "Searching names and text already processed"
 
     /** Results this few, without the model, earn the one-line upgrade hint. */
     const val FEW_RESULTS = 3
@@ -281,8 +296,8 @@ object Words {
 
     // Home, in order under the status line: Starred, Recently added, On this day, Browse.
 
-    /** Reading status's screen title; on Home the status line itself is the way there. */
-    const val READING_STATUS = "Reading"
+    /** Processing's screen title; on Home the status line itself is the way there. */
+    const val READING_STATUS = "Processing"
     const val RECENTLY_ADDED = "Recently added"
     const val MORE_ON_PHONE = "Browse"
     const val ALL_FOLDERS = "All folders"
@@ -306,7 +321,7 @@ object Words {
 
     // Settings.
     const val HOW_IT_WORKS = "How Retriever works and your privacy"
-    const val WHEN_TO_READ = "When to read"
+    const val WHEN_TO_READ = "When to process"
     const val WHAT_IT_CAN_SEE = "What Retriever can see"
     const val FOLDERS_TO_SKIP = "Folders to skip"
     const val KIND_OFF = "Turned off: Retriever still finds these by name, but forgets what’s inside them. Your files aren’t touched."
@@ -317,7 +332,7 @@ object Words {
     const val FIND_DUPLICATES = "Find duplicate files"
     const val NEVER_DELETES = "Retriever never deletes anything without asking you first."
 
-    fun whatItHasRead(words: DeviceWords): String = "What Retriever has read · stays on this ${words.device}"
+    fun whatItHasRead(words: DeviceWords): String = "What Retriever has processed · stays on this ${words.device}"
 
     // A file's menu.
     fun deleteFrom(words: DeviceWords): String = "Delete from ${words.device}"
@@ -332,7 +347,7 @@ object Words {
     const val CHECKING_DOWNLOAD = "Checking the download…"
     const val DOWNLOAD_FAILED = "Download interrupted. Check your connection and try again."
     const val NO_SPACE = "Not enough free space to download"
-    const val TUNE_LEAVING = "You can search names now. Reading setup resumes when you return."
+    const val TUNE_LEAVING = "You can search names now. Setting up resumes when you return."
 
     /** [size]: the platform's format of [Retriever.modelDownloadBytes]. */
     fun upgradeBody(size: String, words: DeviceWords): String = "One download of ${keepTogether(size)} on Wi-Fi. " +
@@ -344,11 +359,11 @@ object Words {
 
     fun freeUp(size: String): String = "Free up ${keepTogether(size)} to continue"
 
-    fun tuneTitle(words: DeviceWords): String = "Setting up reading for this ${words.device}"
+    fun tuneTitle(words: DeviceWords): String = "Setting up processing for this ${words.device}"
 
-    fun tuneBody(words: DeviceWords): String = "About a minute. Finding a reading speed that suits this ${words.device}."
+    fun tuneBody(words: DeviceWords): String = "About a minute. Finding a processing speed that suits this ${words.device}."
 
-    fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up reading for this ${words.device}."
+    fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up processing for this ${words.device}."
 
     /** A download bar as a screen reader says it; [percent]: the platform's percent format. */
     fun downloading(percent: String): String = "Downloading, $percent"

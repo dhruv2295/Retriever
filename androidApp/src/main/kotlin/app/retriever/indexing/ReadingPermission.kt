@@ -55,7 +55,7 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         }
         AlertDialog(
             onDismissRequest = { finish(false) },
-            title = { Text("Show a notification while Retriever reads?") },
+            title = { Text("Show a notification while Retriever processes your files?") },
             text = { Text(text) },
             confirmButton = { TextButton(onClick = { finish(true) }) { Text("Allow") } },
             dismissButton = { TextButton(onClick = { finish(false) }) { Text(Words.NOT_NOW) } },

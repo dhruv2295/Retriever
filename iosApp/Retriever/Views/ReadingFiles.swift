@@ -19,7 +19,7 @@ struct ReadingNow: View {
     var body: some View {
         let shown = file ?? last
         VStack(alignment: .leading, spacing: 8) {
-            Text(shown == nil ? "Starting reading…" : "Reading now").font(.headline).accessibilityAddTraits(.isHeader)
+            Text(shown == nil ? Words.shared.STARTING : Words.shared.PROCESSING_NOW).font(.headline).accessibilityAddTraits(.isHeader)
             HStack(spacing: 12) {
                 Group {
                     if let shown { Thumb(file: shown, points: size) } else { Rectangle().fill(.fill.tertiary) }
@@ -101,7 +101,7 @@ struct RecentlyRead: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recently read").font(.headline).accessibilityAddTraits(.isHeader)
+            Text(Words.shared.RECENTLY_PROCESSED).font(.headline).accessibilityAddTraits(.isHeader)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 8) {
                     ForEach(shown, id: \.uri) { file in
@@ -118,7 +118,7 @@ struct RecentlyRead: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Recently read")
+            .accessibilityLabel(Words.shared.RECENTLY_PROCESSED)
         }
         .onChange(of: files, initial: true) { _, files in shown = Self.held(shown, files) }
     }

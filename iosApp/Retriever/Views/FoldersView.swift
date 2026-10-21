@@ -141,7 +141,7 @@ struct FoldersView: View {
             Button("Remove", role: .destructive) { remove(f) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("Retriever will stop searching it and forget what it read there. The folder and its files stay where they are.")
+            Text("Retriever will stop searching it and forget what it processed there. The folder and its files stay where they are.")
         }
     }
 

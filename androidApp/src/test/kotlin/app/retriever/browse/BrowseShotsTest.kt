@@ -123,8 +123,8 @@ class BrowseShotsTest {
             stored(2, Kind.DOC, "docx").copy(state = FileState.INDEXED, partial = true),
         )
         content(files, Kind.DOC, dark = false)
-        rule.onNodeWithText("Couldn’t read").assertExists()
-        rule.onNodeWithText("Partly read · only the beginning is included").assertExists()
+        rule.onNodeWithText("Couldn’t process").assertExists()
+        rule.onNodeWithText("Processed in part · only its beginning").assertExists()
     }
 
     @Test fun titles() {

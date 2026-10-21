@@ -16,7 +16,7 @@ struct SettingsView: View {
 
     /// The confirmation for removing the download; `size` is what is on the phone, nil when it can't be read.
     static func removeDownloadMessage(size: String?) -> String {
-        (size.map { "This frees \($0). " } ?? "") + "File names and text already read still work. Search by meaning needs the download again."
+        (size.map { "This frees \($0). " } ?? "") + "File names and text already processed still work. Search by meaning needs the download again."
     }
 
     var body: some View {
@@ -89,16 +89,16 @@ struct SettingsView: View {
         Section {
             DisclosureGroup(Words.shared.HOW_IT_WORKS) {
                 Text(
-                    "Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only thing it downloads is search by meaning, if you choose it."
+                    "Retriever processes your files on this \(Copy.device). Your searches, stars and what it finds inside never leave it. The only thing it downloads is search by meaning, if you choose it."
                 )
                 Text(Copy.backgroundNote)
-                Text("Long files are read a bit at a time: you can find them by their beginning first, and the rest follows.")
+                Text("Long files are processed a bit at a time: you can find them by their beginning first, and the rest follows.")
             }
         }
     }
 
-    /// The status line is the way into Reading, with Read for 15 minutes, Stop and Resume as its button: a tap changes
-    /// the line at once ("Reading for 15 minutes · 15 min left").
+    /// The status line is the way into Processing, with Process for 15 minutes, Stop and Resume as its button: a tap changes
+    /// the line at once ("Processing for 15 minutes · 15 min left").
     private func reading(_ snap: AppModel.Snap) -> some View {
         Section(Words.shared.READING_STATUS) {
             if let status = model.statusLine(model.snap) { StatusLine(status: status, model: model) }
@@ -119,13 +119,13 @@ struct SettingsView: View {
                     ? Words.shared.whileChargingBody(words: Copy.words)
                     : snap.automaticReading == .manual
                         ? "Only when you choose \(Words.shared.READ_FOR_15). You can always find any file by its name."
-                        : "Reads while Retriever is open, and when iOS allows, above 20% battery. Pauses when your \(Copy.device) is warm or in Low Power Mode."
+                        : "Processes your files while Retriever is open, and when iOS allows, above 20% battery. Pauses when your \(Copy.device) is warm or in Low Power Mode."
             ).font(.footnote)
             if #available(iOS 26.0, *) {
                 EmptyView()
             } else {
                 Toggle(
-                    "Keep the screen on while reading for 15 minutes",
+                    "Keep the screen on while processing for 15 minutes",
                     isOn: Binding(
                         get: { model.keepScreenAwakeForSession },
                         set: {
@@ -134,7 +134,7 @@ struct SettingsView: View {
                         }))
             }
             if model.meaningSearch {
-                DisclosureGroup("Adjust reading for this \(Copy.device)") {
+                DisclosureGroup("Adjust processing for this \(Copy.device)") {
                     Text("Run the setup check again.")
                     Button("Run setup check", action: model.tuneAgain)
                 }
@@ -154,7 +154,7 @@ struct SettingsView: View {
                 Toggle(Self.label(kind), isOn: Binding(get: { snap.kinds.contains(kind) }, set: { model.setKind(kind, $0) }))
             }
         } header: {
-            Text("Read these file types")
+            Text(Words.shared.PROCESS_THESE_KINDS)
         } footer: {
             Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : "\(Words.shared.KIND_OFF) Videos: pictures only, no sound.")
         }

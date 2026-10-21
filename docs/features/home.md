@@ -34,15 +34,15 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
   rules (`onThisDayRanges`, `dayRange` on Android; `Calendar` on iOS) and core answers with `Retriever.onThisDay`. The
   result is asked once per local date and again when the date changes. The person can hide it (`showOnThisDay`).
 - **The status line.** One line under the title, the dog beside it and a thin bar only while reading or
-  downloading; its one button is spelled out on a row of its own ("Choose when to read" opens the choice sheet,
-  "Read for 15 minutes", "Stop", "Resume", "Allow access", "Try again"); the whole line opens Reading status. A
+  downloading; its one button is spelled out on a row of its own ("Choose when to process" opens the choice sheet,
+  "Process for 15 minutes", "Stop", "Resume", "Allow access", "Try again"); the whole line opens Processing. A
   download or its setup is the line itself. It shows only once core's live `readingStatus()` has answered, since that
-  carries the saved "N% read" mark. All done carries an [x].
+  carries the saved "N% done" mark. All done carries an [x].
 - **Browse.** Photos, Videos, Screenshots, Documents (PDFs too), Audio, then Folders: name and count only, a kind
   with no files hidden; sizes are in Settings → Storage. Three a row, two at large text.
 - **Optional.** The search-by-meaning offer is a flat row at the end with a tonal Download and Not now
   (`UpgradePolicy.showOnHome`), never the strongest button on Home.
-- **Dismissal.** `Prefs.dismissedReadingCycle` hides All caught up across launches. The first actual file read after dismissal advances `readingCycle`; empty scans and renames do not. The existing celebration budget remains separate.
+- **Dismissal.** `Prefs.dismissedReadingCycle` hides All caught up across launches. The first actual file processed after dismissal advances `readingCycle`; empty scans and renames do not. The existing celebration budget remains separate.
 - **Mascot.** Placement follows `docs/motion-api.md`: `WALKING` on the empty first-scan state, `NO_MATCH` on an empty
   library, `CAUGHT_UP` once ever on the status line (`Celebration`, Store meta `celebrated`, haptic 0.2 s after the pop).
   Starred, Home with files and Browse with files stay static.

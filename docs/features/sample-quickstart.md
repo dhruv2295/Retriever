@@ -28,9 +28,9 @@ both platforms for one sentence). PRODUCT.md and DESIGN.md do not exist in this 
 Examples: "About 3 minutes left. You can try search now." / "You can try search once a few files are read."
 
 Removed: "Reading a few files to try", "Starting…", "Usually 1–2 minutes. You can try search before this finishes.",
-"This is taking longer on your {device}. You can try the files read so far." `sampleNote` takes no `DeviceWords`.
+"This is taking longer on your {device}. You can try the files processed so far." `sampleNote` takes no `DeviceWords`.
 The iOS See all sheet's `navigationTitle` (SetupView.swift:272) stops using `SAMPLE_TITLE`; it lists every planned
-file, so it uses `Words.readOf(read, planned)` ("21 of 124 files read"), no new constant.
+file, so it uses `Words.readOf(read, planned)` ("21 of 124 files processed"), no new constant.
 
 ## States (one muted slot: `status.pause` > `sampleNote` > nothing)
 
@@ -144,7 +144,7 @@ photo lookups); rerun the 26k-file Pixel flow and record tap → first card and 
 
 Decisions over this spec, from the owner: the title is "Try it on your own files"; Try's scope line is
 `Words.searchingTry(read)`; the Choose screen's "From your selected files and folders" goes; the notification ask drops
-its sample sentence once the sample is done (`Words.notificationsAsk`); Reading status keeps the mascot walking while
+its sample sentence once the sample is done (`Words.notificationsAsk`); Processing keeps the mascot walking while
 reading runs.
 
 ### The recount storm: what it was (VERIFIED) and what replaced it
@@ -191,7 +191,7 @@ flow's `first()` (before: the `suspend` call, and `store.countsNow` for counts).
 Before, `readingCounts`' plan was a scan of `files_by_kind_time` with five correlated subqueries per file; a rewrite as a
 grouped join was worse (149 ms half read), the maintained column 1.4 ms.
 
-Database time per file read with every app collector above subscribed (13 flows as the apps held them: SetupFlow's
+Database time per file processed with every app collector above subscribed (13 flows as the apps held them: SetupFlow's
 four, UpgradeFlow's, Status's and IndexWorker's counts and status, Home's counts, status and facts loop), five reads
 each written as `IndexEngine` writes them (`recordAttempt`, then `replaceChunks` of a 40-chunk document) 2.1 s apart so
 Home's 2 s throttle ran once per read, then until the database was idle for 300 ms. A `SqlDriver` wrapper summed thread
@@ -288,12 +288,12 @@ Collect each only while its screen shows; a flow nobody collects costs nothing.
 | `SAMPLE_TITLE` | "Try it on your own files" |
 | `SAMPLE_PICKING` (was `STARTING`) | "Picking a few of your files…" |
 | `sampleNote(reading, readyToTry, secondsLeft)` (was `sampleTime`) | null unless reading; "About 3 minutes left. You can try search now." / "You can try search once a few files are read." / "You can try search now. Retriever keeps reading the rest." (rules in Copy above) |
-| `searchingTry(read)` (was `searchingSample(files)`) | "Searching every file’s name, and inside the {read} files read so far." `read` is `TasteProgress.read` |
+| `searchingTry(read)` (was `searchingSample(files)`) | "Searching every file’s name, and inside the {read} files processed so far." `read` is `TasteProgress.read` |
 | `notificationsAsk(decided, sample)` | "See progress and pause a reading session." plus " We can also let you know when your sample is ready." while the sample is undecided, has files to read and is not yet ready to try (once ready, its one message is already claimed) |
 
 Removed: `STARTING`, `sampleTime`, `searchingSample`. App-side only (no core words): drop the Choose screen's "From your
 selected files and folders" (Android CommitScreen.kt:35; iOS HomeSections.swift:567 says "photos and folders"); pass
-`settles = false` to the mascot on Reading status while reading runs (Home's status row keeps the cadence); the iOS See
+`settles = false` to the mascot on Processing while reading runs (Home's status row keeps the cadence); the iOS See
 all sheet's title becomes `readOf(read, planned)`.
 
 ### Setup, plan, time
@@ -357,10 +357,10 @@ HomeModelTests.
   (`try-previews.md`; run 5 showed the earlier give-back losing to the keyboard). The scope line is there from the first
   frame on both.
 - **Choose.** The "From your selected … folders" line is gone on both.
-- **Reading status.** The mascot walks while reading runs (`settles = false`; Android's `Mascot` now reads `settles`
+- **Processing.** The mascot walks while reading runs (`settles = false`; Android's `Mascot` now reads `settles`
   live, it had captured it once). Core keeps `IndexState.currentFile` from one file to the next and clears it only when
-  the batch ends, so the headline says "Reading your files" (or the sample's) throughout and "Starting reading…" only
-  before a batch's first file. Reading now keeps the last file between batches, updates in place, keeps the old picture
+  the batch ends, so the headline says "Processing your files" (or the sample's) throughout and "Getting started…" only
+  before a batch's first file. Processing now keeps the last file between batches, updates in place, keeps the old picture
   until the new one decodes (150 ms fade, none under Reduce Motion), and holds an empty row before the first file.
 - **Notification ask.** Core's `notificationsAsk(decided, sample)` keeps the sample sentence only while the sample is
   undecided, has files to read and is not yet ready to try; the dialog waits for that answer so its text never changes

@@ -67,7 +67,7 @@ data class IndexState(
     val current: String? = null,
     /**
      * The file in extraction/embedding now, kept between two files of a batch and cleared whenever reading stops: null
-     * while running is only the batch's start, before its first file ("Starting reading…").
+     * while running is only the batch's start, before its first file ("Getting started…").
      */
     val currentFile: SourceFile? = null,
     /** Successful reads, newest first, at most 24; on restart, reversed plan order intersected with INDEXED. */
@@ -457,7 +457,7 @@ class Retriever(
         return Tick(blocker, if (left > 0) ((left + 59_999) / 60_000).toInt() else 0, monitor.state().pluggedIn)
     }
 
-    /** The highest "N% read" shown, kept in Store meta so a relaunch never shows a lower one. */
+    /** The highest "N% done" shown, kept in Store meta so a relaunch never shows a lower one. */
     @Volatile
     private var readMark: ReadMark? = null
 
@@ -732,7 +732,7 @@ class Retriever(
             }
         } catch (e: Exception) {
             log("Indexing failed", e)
-            error = "Something went wrong reading your files. Retriever will try again."
+            error = "Something went wrong processing your files. Retriever will try again."
             return NextRun.RETRY
         } finally {
             watchdog?.cancel()

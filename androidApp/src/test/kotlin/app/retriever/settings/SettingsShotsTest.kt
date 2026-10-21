@@ -86,7 +86,7 @@ class SettingsShotsTest {
 
     @Test fun settingsLight() {
         page("clarity_settings_light", ready)
-        rule.onNodeWithText("Waiting until you plug in · 36% read").assertExists()
+        rule.onNodeWithText("Waiting until you plug in · 36% done").assertExists()
         rule.onNodeWithText(Words.FREE_UP_SPACE).assertExists()
         rule.onNodeWithText(Words.NEVER_DELETES).assertExists()
         listOf("session", "Name only", "Manage access", "Excluded", "Saved search data").forEach {
@@ -114,9 +114,9 @@ class SettingsShotsTest {
                     readNowMinutes = 15,
                 ),
             )
-        rule.onNodeWithText("Reading for 15 minutes · 15 min left").assertExists()
+        rule.onNodeWithText("Processing for 15 minutes · 15 min left").assertExists()
         rule.onNodeWithText("Stop").performClick()
-        rule.onNodeWithText("Reading for 15 minutes · 15 min left").performClick()
+        rule.onNodeWithText("Processing for 15 minutes · 15 min left").performClick()
         assertEquals(listOf("read", "stop", "status"), seen)
     }
 
@@ -231,7 +231,7 @@ class SettingsShotsTest {
 
     @Test fun groupsComeInTheSpecifiedOrder() {
         show()
-        val order = listOf(Words.HOW_IT_WORKS, "Reading", "Included files", "Privacy", "Storage and downloads", "Appearance", "About").map(::top)
+        val order = listOf(Words.HOW_IT_WORKS, Words.READING_STATUS, "Included files", "Privacy", "Storage and downloads", "Appearance", "About").map(::top)
         assertEquals(order.sorted(), order)
         assertEquals(order.distinct(), order)
         // On this day lives in Appearance, below Storage, not in Reading status.
@@ -243,7 +243,7 @@ class SettingsShotsTest {
         show(actions = SettingsActions(openAccess = { seen += "access" }, removeExcluded = { seen += "include $it" }))
 
         rule.onNodeWithText(Words.WHAT_IT_CAN_SEE).performScrollTo().performClick()
-        rule.onNodeWithText("Read these file types").assertExists()
+        rule.onNodeWithText("Process these file types").assertExists()
         rule.onNodeWithText(Words.FOLDERS_TO_SKIP).assertExists()
         rule.onNodeWithText(INCLUDED_FILES_FOOTER).assertExists()
         rule.onNodeWithText("Include folder").performScrollTo().performClick()
@@ -278,7 +278,7 @@ class SettingsShotsTest {
         val actions = SettingsActions(openNotificationSettings = { opened++ })
         show(ready.copy(notificationsOn = false), actions)
 
-        rule.onNodeWithText("Reading notifications").performScrollTo().performClick()
+        rule.onNodeWithText("Processing notifications").performScrollTo().performClick()
 
         assertEquals(1, opened)
         rule.onNodeWithText("Off").assertExists()
@@ -323,7 +323,7 @@ class SettingsShotsTest {
 
         assertEquals(1, freed)
         assertEquals(
-            "File names and text already read still work. Search by meaning needs the download again.",
+            "File names and text already processed still work. Search by meaning needs the download again.",
             removeDownloadMessage(null),
         )
     }

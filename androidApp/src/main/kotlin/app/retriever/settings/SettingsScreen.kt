@@ -96,7 +96,7 @@ import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
-/** The order Settings lists the "Read these file types" switches in (audio is name only, so it has none); which of them show is core's [app.retriever.core.Retriever.readableKinds]. */
+/** The order Settings lists the "Process these file types" switches in (audio is name only, so it has none); which of them show is core's [app.retriever.core.Retriever.readableKinds]. */
 private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHOTO, Kind.VIDEO)
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
@@ -105,7 +105,7 @@ internal const val INCLUDED_FILES_FOOTER = Words.KIND_OFF + " A folder to skip i
 
 /** The confirmation for removing the download; [size] is what is on the phone, null when it can't be read. */
 internal fun removeDownloadMessage(size: String?): String =
-    (if (size != null) "This frees $size. " else "") + "File names and text already read still work. Search by meaning needs the download again."
+    (if (size != null) "This frees $size. " else "") + "File names and text already processed still work. Search by meaning needs the download again."
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
 data class SettingsUi(
@@ -291,9 +291,9 @@ fun SettingsContent(
             ) {
                 HowItWorks()
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Reading")
+                Header(Words.READING_STATUS)
                 var schedulesOpen by rememberSaveable { mutableStateOf(false) }
-                // The line Home shows, so a tap below (Read for 15 minutes) changes it at once. The whole line opens Reading status.
+                // The line Home shows, so a tap below (Process for 15 minutes) changes it at once. The whole line opens Processing.
                 ui.readingStatus?.let { status ->
                     StatusLine(
                         status.copy(action = status.action.takeIf { it == StatusAction.STOP || it == StatusAction.RESUME }),
@@ -309,7 +309,7 @@ fun SettingsContent(
                             prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
                                 ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
                                 ReadingSchedule.BATTERY -> "Also on battery, above 20%. It stops when Battery Saver is on or your phone is warm."
-                                ReadingSchedule.MANUAL -> "Only when you choose Read for 15 minutes."
+                                ReadingSchedule.MANUAL -> "Only when you choose ${Words.READ_FOR_15}."
                             },
                         )
                     },
@@ -345,7 +345,7 @@ fun SettingsContent(
                     var adjust by rememberSaveable { mutableStateOf(false) }
                     ListItem(
                         headlineContent = {
-                            Text("Adjust reading for this device")
+                            Text("Adjust processing for this device")
                         },
                         supportingContent = { Text("Run the setup check again.") },
                         modifier = Modifier.clickable {
@@ -359,7 +359,7 @@ fun SettingsContent(
                 Header("Included files")
                 ListItem(headlineContent = { Text(Words.WHAT_IT_CAN_SEE) }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
                 Text(
-                    "Read these file types",
+                    Words.PROCESS_THESE_KINDS,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
                 )
@@ -408,7 +408,7 @@ fun SettingsContent(
                     )
                 }
                 ListItem(
-                    headlineContent = { Text("Reading notifications") },
+                    headlineContent = { Text("Processing notifications") },
                     supportingContent = { Text(if (ui.notificationsOn) "On" else "Off") },
                     modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotificationSettings),
                 )
@@ -490,7 +490,7 @@ private fun HowItWorks() {
             Modifier.padding(16.dp),
         )
         Muted(
-            "It reads at the times you choose under When to read. Long files are read a bit at a time: you can find them by their beginning first.",
+            "It processes your files at the times you choose under ${Words.WHEN_TO_READ}. Long files are processed a bit at a time: you can find them by their beginning first.",
             Modifier.padding(horizontal = 16.dp),
         )
     }
@@ -505,8 +505,8 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
                 when (tune) {
                     TuneState.Running -> "Tuning… a few minutes at most"
                     is TuneState.Failed -> "Tune failed: ${tune.message}"
-                    is TuneState.Done -> "Reading is set up"
-                    TuneState.Idle -> "Reading speed adjusts to your phone."
+                    is TuneState.Done -> "Processing is set up"
+                    TuneState.Idle -> "Processing speed adjusts to your phone."
                 },
                 color = if (tune is TuneState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -546,7 +546,7 @@ private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
         ListItem(headlineContent = { Text("${Words.UPGRADE_TITLE} · $size") }, supportingContent = { Text("Downloaded") })
         ListItem(
             headlineContent = { Text("Remove search download", color = MaterialTheme.colorScheme.error) },
-            supportingContent = { Text("File names and text already read still work.") },
+            supportingContent = { Text("File names and text already processed still work.") },
             modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
         )
     } else {

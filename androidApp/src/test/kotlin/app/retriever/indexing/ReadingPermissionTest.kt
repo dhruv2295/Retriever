@@ -52,7 +52,7 @@ class ReadingPermissionTest {
         var request: ((() -> Unit) -> Unit)? = null
         rule.setContent { request = rememberReadingPermission(retriever) }
         rule.runOnIdle { request!! {} }
-        rule.waitUntil(5_000) { rule.onAllNodesWithText("Show a notification while Retriever reads?").fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("Show a notification while Retriever processes your files?").fetchSemanticsNodes().isNotEmpty() }
     }
 
     /** The first Home's ask, once the sample is read: no promise about a sample that is already done. */

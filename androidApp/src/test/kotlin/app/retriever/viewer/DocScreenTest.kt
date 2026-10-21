@@ -50,16 +50,16 @@ class DocScreenTest {
     @Test fun aFileWithNoChunksIsEmpty() = runTest {
         assertEquals(DocUi.Empty, loadDoc("a", "") { FileState.INDEXED to emptyList() })
         show(DocUi.Empty)
-        rule.onNodeWithText("Retriever couldn't read text in this file").assertIsDisplayed()
+        rule.onNodeWithText("Retriever couldn't find text in this file").assertIsDisplayed()
         rule.onNodeWithText("Open in another app").assertIsDisplayed()
     }
 
     @Test fun aFileStillWaitingToBeReadSaysSoNotThatItCouldntBeRead() = runTest {
         assertEquals(DocUi.NotReadYet, loadDoc("a", "") { FileState.PENDING to emptyList() })
         show(DocUi.NotReadYet)
-        rule.onNodeWithText("Retriever hasn't read this yet").assertIsDisplayed()
+        rule.onNodeWithText("Retriever hasn't processed this yet").assertIsDisplayed()
         rule.onNodeWithText("Open in another app").assertIsDisplayed()
-        assertEquals(0, rule.onAllNodesWithTextCount("Retriever couldn't read text in this file"))
+        assertEquals(0, rule.onAllNodesWithTextCount("Retriever couldn't find text in this file"))
     }
 
     @Test fun aSkippedFileWithNoTextIsEmptyAndAMissingOneFailed() = runTest {
