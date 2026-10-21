@@ -3,6 +3,7 @@ package app.retriever.search
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isFocused
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.platform.app.InstrumentationRegistry
 import app.retriever.ShotTheme
 import app.retriever.home.HomeUi
@@ -130,6 +132,21 @@ class SearchBackTest {
         rule.runOnIdle { fill!!("invoice", true) }
         rule.waitForIdle()
         rule.onAllNodes(hasSetTextAction()).onLast().performClick()
+        rule.onAllNodes(isFocused()).assertCountEquals(1)
+    }
+
+    /** TalkBack's double-tap sends no touch: it runs the field's click action, which must focus it too. */
+    @Test fun aScreenReaderClickFocusesTheFieldAfterAChipsSearch() {
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
+        var fill: ((String, Boolean) -> Unit)? = null
+        rule.setContent {
+            ShotTheme(false) {
+                SearchContent(SearchUi(), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, f -> fill = f }
+            }
+        }
+        rule.runOnIdle { fill!!("invoice", true) }
+        rule.waitForIdle()
+        rule.onAllNodes(hasSetTextAction()).onLast().performSemanticsAction(SemanticsActions.OnClick)
         rule.onAllNodes(isFocused()).assertCountEquals(1)
     }
 

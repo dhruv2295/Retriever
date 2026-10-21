@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
@@ -14,6 +16,7 @@ import app.retriever.core.CoreDispatchers
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
+import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.duplicates.retrieverOver
 import app.retriever.home.HomeViewModel
@@ -50,14 +53,21 @@ class StatusViewModelTest {
     private val photo = SourceFile("content://test/a.jpg", "a.jpg", "/Pictures", "image/jpeg", Kind.PHOTO, 100, 1)
 
     // Demo mode grants Access.ALL, which stands in for a phone with all-files access; Robolectric cannot answer Environment.isExternalStorageManager().
-    private fun viewModel(retriever: app.retriever.core.Retriever) = StatusViewModel(retriever, IndexService(app, retriever), AccessService(app, demo = true))
+    private fun viewModel(retriever: Retriever) = kept(StatusViewModel(retriever, IndexService(app, retriever), AccessService(app, demo = true)))
+
+    // Cleared before Main is reset: a model left running resumes onto Main from the reader's threads while it is swapped.
+    private val models = ViewModelStore()
+    private fun <T : ViewModel> kept(vm: T) = vm.also { models.put("${models.keys().size}", it) }
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
         WorkManagerTestInitHelper.initializeTestWorkManager(app)
     }
 
-    @After fun tearDown() = Dispatchers.resetMain()
+    @After fun tearDown() {
+        models.clear()
+        Dispatchers.resetMain()
+    }
 
     @Test fun pauseAndResumeShowInTheOneUiState() = runTest {
         val retriever = retrieverOver(files = listOf(photo))
@@ -81,7 +91,7 @@ class StatusViewModelTest {
         advanceUntilIdle()
         assertFalse(vm.celebration.due())
         // Home's status asks the same store flag, and so does a relaunched Status.
-        assertFalse(HomeViewModel(retriever, AccessService(app, demo = true), IndexService(app, retriever)).celebration.due())
+        assertFalse(kept(HomeViewModel(retriever, AccessService(app, demo = true), IndexService(app, retriever))).celebration.due())
         assertFalse(viewModel(retriever).celebration.due())
     }
 

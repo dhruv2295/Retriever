@@ -9,12 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -24,6 +22,7 @@ import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.shot
 import app.retriever.tallWindowForBigText
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +45,9 @@ class DocCardTest {
     private val files = names.map { SourceFile("demo:doc/$it", it, "Documents", "application/octet-stream", Kind.DOC, 100, 1_760_000_000_000) }
     private fun badge(name: String) = name.substringAfterLast('.', "").uppercase()
 
+    private fun texts() = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text), useUnmergedTree = true)
+        .fetchSemanticsNodes().flatMap { n -> n.config[SemanticsProperties.Text].map { it.text } }
+
     private fun tiles(size: Dp, dark: Boolean = false, fontScale: Float = 1f, tall: Dp = size) {
         tallWindowForBigText(fontScale)
         rule.setContent {
@@ -61,9 +63,8 @@ class DocCardTest {
     @Test fun aGridTileShowsItsTypeAndNothingElse() {
         tiles(84.dp)
         for (name in names.dropLast(1)) rule.onNodeWithTag("badge:${badge(name)}", useUnmergedTree = true).assertIsDisplayed()
-        // No file name and no content, and the badge is drawn, not read: the tile's label already says the kind.
-        rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text)).assertCountEquals(0)
-        assertTrue(names.none { rule.onAllNodesWithText(it.substringBefore('.'), substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() })
+        // No file name and no content: the unmerged tree keeps text a cleared parent hides, and the badges are all of it.
+        assertEquals(names.map(::badge).sorted(), texts().sorted())
     }
 
     @Test fun noExtensionShowsTheKindIcon() {

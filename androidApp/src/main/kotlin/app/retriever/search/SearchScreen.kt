@@ -26,8 +26,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -98,8 +97,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -273,9 +270,9 @@ fun SearchContent(
     }
 
     // A search run from a chip (Home's, Try's) opens the bar on its results with nothing to type. M3 asks the opening
-    // bar's field for focus, and taking it back afterwards loses to the keyboard on a phone, so the field refuses focus
-    // until it is touched: no keyboard, and one Back leaves the results. Not "until the bar settles": M3's request can
-    // land after that, and the keyboard came back.
+    // bar's field for focus, and taking it back afterwards loses to the keyboard on a phone, so the field turns down that
+    // one request: no keyboard, and one Back leaves the results. Every later one (a touch, TalkBack's double-tap, Tab)
+    // focuses it as usual. Not "until the bar settles": M3's request can land after that, and the keyboard came back.
     var picked by remember { mutableStateOf(false) }
     val closeSearch = {
         picked = false
@@ -304,12 +301,15 @@ fun SearchContent(
         val me = remember { Any() }
         DisposableEffect(me) { onDispose { focusing.remove(me) } }
         SearchBarDefaults.InputField(
-            modifier = Modifier.focusProperties { canFocus = !picked }.pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    picked = false
+            // A group, as a focus target's onEnter runs only for focus coming into it from outside.
+            modifier = Modifier.focusProperties {
+                onEnter = {
+                    if (picked) {
+                        picked = false
+                        cancelFocusChange()
+                    }
                 }
-            }.onFocusChanged {
+            }.focusGroup().onFocusChanged {
                 if (it.hasFocus) focusing.add(me) else focusing.remove(me)
             },
             textFieldState = text,
