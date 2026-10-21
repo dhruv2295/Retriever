@@ -7,10 +7,10 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 
 First run, with no download: a welcome that asks for access in one decision (Android: "Search your whole phone" through
 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`, or a "Choose what to include" sheet; iOS: "Search all your photos"
-through `PHPhotoLibrary`, or "Add folders from Files"; "Continue" when access is already there), a short read of a
+through `PHPhotoLibrary`, or "Add folders from Files"; "Start the one-minute try" when access is already there), a short read of a
 planned few files shown as the retriever's pile of real previews, a "try it" screen that runs the real search, and a
 choice of when to read the rest ("Choose when to process": While charging, Also on battery, When I start it). "Skip for
-now" (`Words.GO_TO_HOME`, and "Skip the quick try") leaves setup for good, once access is chosen, with
+now" (`Words.GO_TO_HOME`, and "Skip the try") leaves setup for good, once access is chosen, with
 the sample still reading. The model download and tune are not part of first run; they are the separate upgrade, "Search by meaning and
 what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)), offered after the person has searched.
 

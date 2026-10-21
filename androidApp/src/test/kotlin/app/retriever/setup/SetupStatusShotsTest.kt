@@ -116,6 +116,7 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.wholeDeviceNote(DeviceWords.ANDROID)).assertExists()
         rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertExists()
         rule.onNodeWithText(Words.CHOOSE_INSTEAD).assertExists()
+        rule.onNodeWithText(Words.NEXT_TRY).assertExists()
         rule.onNodeWithText(Words.SEARCH_BY_NAME).assertExists()
         rule.onNodeWithText(Words.ALL_FILES_OFF).assertDoesNotExist()
         // No download on the way in.
@@ -151,7 +152,8 @@ class SetupStatusShotsTest {
         setup("setup_welcome_ready_light", granted, actions = SetupActions(allowFiles = { calls += "settings" }, continueFromAccess = { calls += "continue" }))
         rule.onNodeWithText(Words.WHOLE_PHONE_READY).assertExists()
         rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertDoesNotExist()
-        rule.onNodeWithText(Words.CONTINUE).performScrollTo().performClick()
+        rule.onNodeWithText(Words.NEXT_TRY).assertExists()
+        rule.onNodeWithText(Words.START_THE_TRY).performScrollTo().performClick()
         assertEquals(listOf("continue"), calls)
     }
 

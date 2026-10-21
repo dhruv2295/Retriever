@@ -92,7 +92,7 @@ class WordsTest {
     /** Section 4's retired words appear in no shared sentence. */
     @Test fun noSharedSentenceUsesARetiredWord() {
         val sentences = listOf(
-            Words.SEARCH_FIELD, Words.GO_TO_HOME, Words.SEARCH_BY_NAME, Words.WELCOME_BODY, Words.WHOLE_PHONE_READY,
+            Words.SEARCH_FIELD, Words.GO_TO_HOME, Words.SEARCH_BY_NAME, Words.NEXT_TRY, Words.START_THE_TRY, Words.WELCOME_BODY, Words.WHOLE_PHONE_READY,
             Words.SHARED_FILES_AND_FOLDERS, Words.SAMPLE_PICKING, Words.SAMPLE_DONE, Words.READ, Words.CHOOSE_WHEN, Words.CHOOSE_TITLE,
             Words.MORE_FILES, Words.CHOOSE_PACE, Words.READ_15_NOW, Words.NOT_NOW_BODY, Words.READING_STATUS, Words.MORE_ON_PHONE,
             Words.KIND_OFF, Words.NO_MATCHES, Words.NO_MATCHES_DETAIL, Words.MORE_WAITING, Words.readOf(79, 124, 45), Words.readCount(3, 1),

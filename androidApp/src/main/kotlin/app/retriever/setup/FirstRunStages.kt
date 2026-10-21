@@ -68,9 +68,11 @@ internal fun ColumnScope.Welcome(ui: SetupUi, allFilesOff: Boolean, actions: Set
             Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Text(Words.WHOLE_PHONE_READY, style = MaterialTheme.typography.bodyMedium)
         }
-        Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth()) { Text(Words.CONTINUE) }
+        Text(Words.NEXT_TRY, style = MaterialTheme.typography.bodyLarge)
+        Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth()) { Text(Words.START_THE_TRY) }
     } else {
         Muted(Words.wholeDeviceNote(DeviceWords.ANDROID))
+        Text(Words.NEXT_TRY, style = MaterialTheme.typography.bodyLarge)
         Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth()) { Text(Words.SEARCH_WHOLE_PHONE) }
         if (allFilesOff) Muted(Words.ALL_FILES_OFF)
         TextButton(onClick = actions.chooseInstead, modifier = Modifier.fillMaxWidth()) { Text(Words.CHOOSE_INSTEAD) }

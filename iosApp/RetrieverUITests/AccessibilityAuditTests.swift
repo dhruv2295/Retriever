@@ -129,7 +129,7 @@ final class AccessibilityAuditTests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(more.isHittable)
-        let continueButton = app.buttons["Continue"]
+        let continueButton = app.buttons["Start the one-minute try"]
         XCTAssertTrue(continueButton.isHittable)
         XCTAssertLessThanOrEqual(more.frame.maxY, continueButton.frame.minY, "the footer never covers it")
     }
