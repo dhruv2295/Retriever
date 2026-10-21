@@ -21,7 +21,7 @@ routines, calibration, and still only the text). Not proposal 2's two content li
 | File | Android | iOS |
 |---|---|---|
 | Photo, screenshot, video, PDF | unchanged (MediaStore, `MediaMetadataRetriever`, `PdfRenderer`) | unchanged (PhotoKit, `videoFrameJpeg`, Quick Look or `PDFPage`) |
-| DOC and OTHER: docx, xlsx, pptx, odf, epub, rtf, html, txt, md, csv, json, xml, yaml, code, zip | `loadThumbnail(uri)` first (a provider with `FLAG_SUPPORTS_THUMBNAIL`, such as Drive, gives a real page), else **DocCard**: Android has no system thumbnailer for Office files | Quick Look `generateBestRepresentation`, `representationTypes: .all`: a real page or sheet as Files draws it, else the system's icon for the type (INFERRED) |
+| DOC and OTHER: docx, xlsx, pptx, odf, epub, rtf, html, txt, md, csv, json, xml, yaml, code, zip | `loadThumbnail(uri)` first (a provider with `FLAG_SUPPORTS_THUMBNAIL`, such as Drive, gives a real page), else **DocPage** from the file's head (below), else **DocCard** (epub, zip, encrypted, unreadable, unknown, no text) | Quick Look `generateBestRepresentation`, `representationTypes: .all`: a real page or sheet as Files draws it, else the system's icon for the type (INFERRED) |
 | Audio | the kind's icon (unchanged) | SF Symbol until Quick Look answers, then Quick Look's picture |
 | No access (`load = false`; iOS `folders.resolve` nil) | the kind's icon (unchanged) | SF Symbol (unchanged) |
 
@@ -34,8 +34,32 @@ routines, calibration, and still only the text). Not proposal 2's two content li
   `onSurfaceVariant`, on one line. No name and no content: the tile's label already says "name, kind, date".
 - **The fit rule.** A plain `Layout` measures the badge. It shows if it fits the page less 4 dp on each side.
   Otherwise, or with no extension, the kind icon shows. This replaces `MAX_TEXT_LINES`.
-- **Motion.** DocCard comes from the name, so it is there on the first frame. A provider picture fades in over it
-  (150 ms; no fade with animations off). iOS keeps its 0.2 s fade, none under Reduce Motion.
+- **Motion.** DocCard comes from the name, so it is there on the first frame. A provider picture or DocPage fades in
+  over it (150 ms; no fade with animations off), and `ThumbnailImage` drops the card once the fade ends, because the
+  page leaves the tile's colour around it. iOS keeps its 0.2 s fade, none under Reduce Motion.
+
+**DocPage (Android, DocPage.kt).** It reads the file's head, never the index, and draws on `Thumbnails.load`'s IO
+dispatcher.
+- **Embedded thumbnail first.** A file starting `PK\3\4` gets one `ZipInputStream` pass. It recognises entries by name,
+  not by extension, so docm, xlsm and dotx are read too. `docProps/thumbnail.{jpeg,jpg,png}` (OOXML) or
+  `Thumbnails/thumbnail.png` (ODF), whole and up to 1 MB, ends the pass and is decoded with `BitmapFactory` sampled to
+  the bucket. EMF/WMF are not looked for.
+- **Else a drawn page,** like Quick Look's page thumbnail: white paper in both themes with a light hairline, dark type.
+  docx: `word/document.xml` paragraphs (field codes and deleted text dropped). xlsx: `sheet1.xml` and `sharedStrings.xml`
+  as ruled cells, each in its own column. pptx: `slide1.xml` in a 16:9 frame, the first line bold as the title.
+  odt/ods/odp: `content.xml` the same ways (repeated cells honoured, speaker notes dropped). csv/tsv: a grid. txt, md,
+  rtf, html (body only, tags, style and script stripped): wrapped prose. json, xml, yaml, log and code: monospace
+  lines, cut at the page edge. Text is decoded with core's `decodeText`. A head with control characters other than tab
+  and newline (a binary named .txt) shows no text.
+- **Caps.** 4 MB inflated per zip pass, counted over every entry read or skipped. 1000 entries. 256 KB per text entry.
+  16 KB of a text file. 40 rows, 8 columns. A thumbnail stored past the budget (Office often writes it after the media)
+  leaves the drawn page. A zip signature followed by garbage, an OLE2 (encrypted) Office file, or a 64 MB zero entry
+  ahead of the text each give null in under 6 ms in the tests, and the tile keeps DocCard.
+- **Shape.** A square n x n bitmap, transparent around the page. The page is at most 74% of the width, so Home's
+  112 x 150 card, which crops the square's sides, shows it whole. Portrait pages are 1:√2. A tile has about 5 + n/64
+  lines, so 9 at Try's 256 px bucket and 13 on the pile's 512: fewer, larger lines on a smaller tile. Cache, misses
+  and buckets are `Thumbnails`' own. The tile's label stays "name, kind, date", and drawn text is a bitmap with no
+  semantics.
 
 ## Sizes and caching (no new cache, dispatcher or dependency)
 
@@ -53,8 +77,15 @@ routines, calibration, and still only the text). Not proposal 2's two content li
 - **iOS.** Quick Look runs on its own queue into the existing 32 MB `NSCache` under `Thumb.requestID`, so Home, Try and
   See all share hits. The `.task(id:)` is cancelled with the cell. The first render of an Office file is INFERRED at
   tens to a few hundred ms; measure it on a device.
-- **Follow-up, not built.** A page-shaped Android tile must come from the file's head, never the index: `docHead()` on
-  `zipText`/`readCapped` with small caps, one Canvas routine calibrated to Quick Look, after a cold-Try Perfetto trace.
+- **Built: the page-shaped Android tile** (DocPage above). It is in androidApp and reuses core's public `readCapped`,
+  `decodeText`, `stripXml`, `stripHtml` and `stripRtf`. Core's `zipText` is internal, reads whole entries up to 2 MB and
+  has no binary path, and `xlsxText` drops empty cells, so neither fits a tile. Measured in `DocPageTest` (Robolectric,
+  JVM, generated fixtures): every type reads and draws in 0.1 to 8 ms. The first call took 4 to 43 ms while the classes
+  warmed up. A device was not measured.
+- **Still open.** No cold-Try Perfetto trace on the Pixel yet. Streaming misses a thumbnail stored after 4 MB of media.
+  A seekable `ZipFile` over the file descriptor would fix that if a trace shows it matters. pptx is always drawn 16:9:
+  `presentation.xml`'s slide size is not read. Only `sheet1.xml` is read, which is the first sheet unless the sheets
+  were reordered.
 
 ## Deleted
 
@@ -118,8 +149,11 @@ frame. iOS already does (SearchView.swift:485).
 - **Renders.** `DocCardTest` writes `androidApp/build/shots/doc_tiles_{pile,grid,list,recent,home}_{light,dark}.png`
   and `doc_tiles_grid_text2.png`; badge contrast ≥ 4.5:1 is asserted in both themes. `surfaceBright` is set in both
   warm schemes (Theme.kt), so the page is not M3's default purple-tinted colour.
-- **Open: mixed tiles at 48 dp.** The fit rule shows CSV, TXT, XML and ZIP as badges but DOCX, XLSX, PPTX, JSON, YAML
-  and HTML as icons, so a result list mixes the two. The owner decides whether that stays.
+- **Mixed tiles at 48 dp, now narrower.** Readable documents show their page at every size. Only the DocCard fallback
+  still mixes badges (CSV, TXT, XML, ZIP) and icons (DOCX, XLSX, PPTX, JSON, YAML, HTML) at 48 dp.
+- **DocPage renders.** `DocPageTest` writes `androidApp/build/shots/docpage_{docx,docm,xlsx,pptx,odt,ods,odp,thumbnail,
+  csv,txt,md,json,xml,yaml,html,code,rtf,fallback}.png`. Each shows the 84 dp grid tile and the 168 dp pile tile, light
+  above dark.
 - **Open: a gap above the scope line** when `TRY_WITHOUT_SUGGESTIONS` shows, because the longer body holds its height
   (`setup_tryit_empty_light.png`).
 - **Not measured:** the keyboard fix on the Pixel (`dumpsys input_method` after a chip, one Back), and the first Quick
@@ -131,5 +165,6 @@ frame. iOS already does (SearchView.swift:485).
   new. Kotlin `Words.FILES_TO_TRY`, Swift `Words.shared.FILES_TO_TRY`. Pinned in `SetupTest.newSentences`.
 - **No new tile data.** DocCard needs only the file's name (the apps take the extension themselves), and iOS uses Quick
   Look. Core has no structured head to offer: the index keeps flattened chunk text (Chunker.kt:22,28), and neither
-  extractor keeps spreadsheet rows or slide titles. A page-shaped tile would need the follow-up `docHead()` above.
+  extractor keeps spreadsheet rows or slide titles. Android's DocPage therefore reads the head in androidApp with core's
+  public text helpers, and core is unchanged.
 - **`textPreview` is gone** with its last callers (Android `loadTextPreview`, iOS `Thumb`); see Deleted.
