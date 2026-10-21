@@ -64,6 +64,16 @@
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
         case homeMemories = "home.memories"
+        // Home's status line in each state (clarity-proposal section 3), plus Settings, where the same line leads.
+        case homeCharging = "home.charging"
+        case homeFirstDay = "home.firstDay"
+        case homeUnplugged = "home.unplugged"
+        case homeChargingUp = "home.chargingUp"
+        case homeReadNow = "home.readNow"
+        case homeDownloading = "home.downloading"
+        case homeMeaning = "home.meaning"
+        case homeNoAccess = "home.noAccess"
+        case settings
         /// Home with its photo mosaic.
         case homePhotos = "home.photos"
         case viewerPhotoMissing = "viewer.photoMissing"
@@ -140,7 +150,14 @@
             case .setupTryNoSuggestions: .trying(suggestions: false)
             case .setupChoose: .choosing
             case .upgradeOffer, .homeUpgrade, .searchNoModel: .noModel
-            case .upgradeDownload: .downloading(0.34)
+            case .upgradeDownload, .homeDownloading: .downloading(0.34)
+            case .homeCharging: .readingWhileCharging
+            case .homeFirstDay: .firstDay
+            case .homeUnplugged: .unplugged
+            case .homeChargingUp: .chargingUp
+            case .homeReadNow: .readNow
+            case .homeMeaning: .meaningPass
+            case .homeNoAccess: .lostAccess
             case .upgradeWaitingWifi: .waitingForWifi
             case .upgradeFailed: .downloadFailed
             case .upgradeTuning: .tuning
@@ -169,6 +186,8 @@
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
                 MascotGallery()
+            case .settings:
+                NavigationStack { SettingsView(model: model) }
             case .homeMemories:
                 NavigationStack {
                     OnThisDayStrip(
@@ -198,13 +217,15 @@
             switch self {
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
+            case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeNoAccess:
+                SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {
                     guard let h = model.home, h.newMedia.isEmpty else { return }
                     model.home = h.doCopy(
                         newMedia: (1...6).map { Fixtures.file("Photo \($0).jpg", .photo, "Photos", daysAgo: Double($0)) }, newShots: h.newShots,
                         newDocs: h.newDocs, starred: h.starred, starredCount: h.starredCount, folders: h.folders, largeCount: h.largeCount,
-                        largeBytes: h.largeBytes, topFolders: h.topFolders, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
+                        largeBytes: h.largeBytes, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
                 }
             case .searchNoModel:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Array(Fixtures.hits.prefix(1)), vectorLane: false), presented: true)

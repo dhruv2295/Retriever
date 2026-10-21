@@ -93,7 +93,7 @@ struct FoldersView: View {
                     .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             if !excluded.isEmpty {
-                Section("Excluded folders") {
+                Section(Words.shared.FOLDERS_TO_SKIP) {
                     ForEach(excluded.sorted(), id: \.self) { path in
                         LabeledContent {
                             Button {

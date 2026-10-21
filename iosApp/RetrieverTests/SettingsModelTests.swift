@@ -158,7 +158,7 @@ final class SettingsModelTests: XCTestCase {
         try await services.retriever.updatePrefs { @Sendable in
             $0.doCopy(
                 kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, readNowUntil: $0.readNowUntil,
-                nameSearchHintDismissed: $0.nameSearchHintDismissed, scheduleOfferDismissed: $0.scheduleOfferDismissed, excludedFolders: $0.excludedFolders,
+                excludedFolders: $0.excludedFolders,
                 paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
                 setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,
@@ -222,7 +222,6 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(
             SettingsView.removeDownloadMessage(size: nil),
             "File names and text already read still work. Search by meaning needs the download again.")
-        XCTAssertTrue(SettingsView.includedFilesFooter.hasPrefix("Turning a type off keeps name search"))
     }
 
     func testClearingRecentSearchesEmptiesTheListAndKeepsTheSwitch() {
@@ -259,17 +258,6 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertTrue(saved)
         XCTAssertEqual(prefs.automaticReading, .manual)
         XCTAssertEqual(prefs.readNowUntil, 0)
-    }
-
-    func testReadingOfferAndNameHintDismissalsPersist() async throws {
-        let model = try await liveModel()
-        model.dismissNameSearchHint()
-        model.dismissScheduleOffer()
-        let saved = await eventually { self.prefs.nameSearchHintDismissed && self.prefs.scheduleOfferDismissed }
-        XCTAssertTrue(saved)
-        let reopened = try await liveModel()
-        XCTAssertTrue(reopened.snap?.nameSearchHintDismissed == true)
-        XCTAssertTrue(reopened.snap?.scheduleOfferDismissed == true)
     }
 
 }

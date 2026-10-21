@@ -212,7 +212,7 @@ private struct ProblemView: View {
             }
         case .noAccess:
             StateView(mood: .trouble, title: "Access to this folder has changed", message: "Choose the folder again to open this file.") {
-                NavigationLink("Manage access", value: Route.folders)
+                NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders)
             }
         case .locked:
             StateView(mood: .trouble, title: "This PDF needs a password", message: "Another app can ask for it.") { openElsewhere }

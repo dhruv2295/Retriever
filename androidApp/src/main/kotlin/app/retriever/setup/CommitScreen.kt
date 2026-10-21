@@ -20,6 +20,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.retriever.core.DeviceWords
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.Words
 
 /** Selection is local; only the confirmation authorizes reading. Shared by setup and the Home sheet. */
@@ -27,19 +29,11 @@ import app.retriever.core.Words
 fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifier) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Search inside more files", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-        Text(
-            Words.moreFiles(ui.moreFiles),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Text("A large library can take hours of reading, spread across several sessions. You don’t need to wait.", style = MaterialTheme.typography.bodyMedium)
-        Text("When should Retriever read them?", style = MaterialTheme.typography.titleMedium)
-        val labels = listOf("While charging", "Read now for 15 minutes", "Not now")
-        val details = listOf(
-            "Recommended. Reads while charging when your screen is off, or while Retriever is open.",
-            "Uses battery and may warm your phone. Then continues while charging. Stops after 15 minutes, or sooner if needed.",
-            "Keep searching names and the content read so far. Choose a schedule later.",
-        )
+        Text(Words.CHOOSE_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+        Text(Words.MORE_FILES, style = MaterialTheme.typography.bodyLarge)
+        Text(Words.CHOOSE_PACE, style = MaterialTheme.typography.bodyMedium)
+        val labels = listOf(ReadingSchedule.CHARGING.title, Words.READ_15_NOW, Words.NOT_NOW)
+        val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.readNowBody(DeviceWords.ANDROID), Words.NOT_NOW_BODY)
         Column(Modifier.selectableGroup()) {
             labels.forEachIndexed { i, label ->
                 ListItem(
@@ -57,7 +51,7 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
                 else -> actions.decideLater()
             }
         }, modifier = Modifier.fillMaxWidth()) {
-            Text(listOf("Use this schedule", "Start reading", "Go to Home")[selected])
+            Text(listOf(Words.DONE, "Start reading", Words.DONE)[selected])
         }
     }
 }

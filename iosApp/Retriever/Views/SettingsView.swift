@@ -14,10 +14,6 @@ struct SettingsView: View {
         @State private var loadedProblems = false
     #endif
 
-    /// The footer under Included files; shown only where the behaviour behind it is real (Retriever.updatePrefs).
-    static let includedFilesFooter =
-        "Turning a type off keeps name search and removes its content from search. Excluding a folder removes it from Retriever. Your original files stay where they are."
-
     /// The confirmation for removing the download; `size` is what is on the phone, nil when it can't be read.
     static func removeDownloadMessage(size: String?) -> String {
         (size.map { "This frees \($0). " } ?? "") + "File names and text already read still work. Search by meaning needs the download again."
@@ -26,6 +22,7 @@ struct SettingsView: View {
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
         Form {
+            howItWorks
             reading(snap)
             includedFiles(snap)
             Section {
@@ -38,14 +35,17 @@ struct SettingsView: View {
                 Text("Saved on this \(Copy.device) only. Nothing is sent anywhere.")
             }
             storage(snap)
+            freeUpSpace
             Section("Appearance") {
-                Toggle("Show On this day", isOn: Binding(get: { snap.showOnThisDay }, set: model.setShowOnThisDay))
+                Toggle(Words.shared.SHOW_ON_THIS_DAY, isOn: Binding(get: { snap.showOnThisDay }, set: model.setShowOnThisDay))
             }
             about
             #if DEBUG
                 if !snap.textOnly { Section("For testing") { testing } }
             #endif
         }
+        // Prominent headers are full contrast (the default grey nearly fails), as Home's are.
+        .headerProminence(.increased)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.modelMissing) { await model.loadStorage() }
@@ -84,35 +84,48 @@ struct SettingsView: View {
         }
     #endif
 
+    /// First, so the person reads what Retriever does with their files before any switch.
+    private var howItWorks: some View {
+        Section {
+            DisclosureGroup(Words.shared.HOW_IT_WORKS) {
+                Text(
+                    "Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only thing it downloads is search by meaning, if you choose it."
+                )
+                Text(Copy.backgroundNote)
+                Text("Long files are read a bit at a time: you can find them by their beginning first, and the rest follows.")
+            }
+        }
+    }
+
+    /// The status line is the way into Reading, with Read for 15 minutes, Stop and Resume as its button: a tap changes
+    /// the line at once ("Reading for 15 minutes · 15 min left").
     private func reading(_ snap: AppModel.Snap) -> some View {
-        Section("Reading") {
+        Section(Words.shared.READING_STATUS) {
+            if let status = model.statusLine(model.snap) { StatusLine(status: status, model: model) }
             Picker(
-                "Automatic reading",
+                Words.shared.WHEN_TO_READ,
                 selection: Binding<String>(
                     get: { snap.automaticReading.name },
                     set: { value in
                         if let schedule = ReadingSchedule.entries.first(where: { $0.name == value }) { model.setReadingSchedule(schedule) }
                     })
             ) {
-                Text("While charging").tag(ReadingSchedule.charging.name)
-                Text("Also on battery").tag(ReadingSchedule.battery.name)
-                Text("When I start it").tag(ReadingSchedule.manual.name)
+                ForEach(ReadingSchedule.entries, id: \.name) { Text($0.title).tag($0.name) }
             }
+            // The three choices as rows with a tick: nothing hidden in a menu, and no value cut short at large text.
+            .pickerStyle(.inline)
             Text(
                 snap.automaticReading == .charging
-                    ? "Reads while charging when Retriever is open, and in the background when iOS allows."
+                    ? Words.shared.whileChargingBody(words: Copy.words)
                     : snap.automaticReading == .manual
-                        ? "Choose Read now to start a short reading session."
-                        : "Reads while Retriever is open or when iOS allows, above 20% battery. Pauses for power saving or heat."
+                        ? "Only when you choose \(Words.shared.READ_FOR_15). You can always find any file by its name."
+                        : "Reads while Retriever is open, and when iOS allows, above 20% battery. Pauses when your \(Copy.device) is warm or in Low Power Mode."
             ).font(.footnote)
-            Button("Read now for 15 minutes", action: model.readNow)
-            Button(snap.paused ? "Resume reading" : "Pause reading") { if snap.paused { model.resume() } else { model.pause() } }
-            NavigationLink("Reading status", value: Route.status)
             if #available(iOS 26.0, *) {
                 EmptyView()
             } else {
                 Toggle(
-                    "Keep screen awake for this session",
+                    "Keep the screen on while reading for 15 minutes",
                     isOn: Binding(
                         get: { model.keepScreenAwakeForSession },
                         set: {
@@ -121,35 +134,29 @@ struct SettingsView: View {
                         }))
             }
             if model.meaningSearch {
-                DisclosureGroup("Adjust reading for this device") {
+                DisclosureGroup("Adjust reading for this \(Copy.device)") {
                     Text("Run the setup check again.")
                     Button("Run setup check", action: model.tuneAgain)
                 }
-            }
-            DisclosureGroup("How reading works") {
-                Text(Copy.backgroundNote)
-                Text(
-                    "Long files are read in stages. Words already read can match now; later passes add meaning search. Some files reach a reading limit and stay partly read."
-                )
             }
             if let message = model.readingMessage { Text(message).foregroundStyle(.red) }
         }
     }
 
     @ViewBuilder private func includedFiles(_ snap: AppModel.Snap) -> some View {
-        Section("Included files") {
-            NavigationLink("Manage access", value: Route.folders)
+        Section {
+            NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders)
         }
         Section {
             // No platform reads audio yet, so it has no switch: only the plain fact.
-            LabeledContent("Audio", value: "Name only on this device")
+            LabeledContent("Audio", value: Words.shared.FOUND_BY_NAME)
             ForEach(snap.textOnly ? AppModel.Snap.insideTextOnly : AppModel.Snap.inside, id: \.self) { kind in
                 Toggle(Self.label(kind), isOn: Binding(get: { snap.kinds.contains(kind) }, set: { model.setKind(kind, $0) }))
             }
         } header: {
             Text("Read these file types")
         } footer: {
-            Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : "Videos: frames only, no sound.")
+            Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : "\(Words.shared.KIND_OFF) Videos: pictures only, no sound.")
         }
         Section {
             if snap.excludedFolders.isEmpty { Text("None").foregroundStyle(.secondary) }
@@ -168,16 +175,16 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Excluded folders")
+            Text(Words.shared.FOLDERS_TO_SKIP)
         } footer: {
-            Text(Self.includedFilesFooter)
+            Text("Retriever doesn’t look in these. Your files stay where they are.")
         }
     }
 
     @ViewBuilder private func storage(_ snap: AppModel.Snap) -> some View {
         let sizes = model.storage
         Section {
-            Text("Saved search data · \(sizes.map { Copy.bytes($0.index) } ?? "…")")
+            Text("\(Words.shared.whatItHasRead(words: Copy.words)) · \(sizes.map { Copy.bytes($0.index) } ?? "…")")
             if !snap.textOnly {
                 if let cache = sizes?.cache, cache > 0, !model.modelMissing {
                     Text("Temporary files · \(Copy.bytes(cache))")
@@ -199,6 +206,20 @@ struct SettingsView: View {
             Text("Storage and downloads")
         } footer: {
             if !snap.textOnly { Text(model.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Downloads wait for Wi-Fi, so they won't use your data.") }
+        }
+    }
+
+    /// Large files and duplicates, here and never on Home.
+    private var freeUpSpace: some View {
+        Section {
+            if let large = model.home?.largeCount, large > 0 {
+                NavigationLink(value: HomeTile.largeFiles) { LabeledContent("Large files", value: Words.shared.largeFiles(n: large)) }
+            }
+            NavigationLink(Words.shared.FIND_DUPLICATES, value: Route.duplicates)
+        } header: {
+            Text(Words.shared.FREE_UP_SPACE)
+        } footer: {
+            Text(Words.shared.NEVER_DELETES)
         }
     }
 
@@ -228,17 +249,6 @@ struct SettingsView: View {
                     ShareLink(item: problems.url) { Text("Diagnostics (\(problems.count))") }
                 }
             #endif
-            NavigationLink("Privacy") {
-                ScrollView {
-                    Text(
-                        "Retriever reads your files on this \(Copy.device). Search, reading and stars never leave it. The only network use is downloading the search model."
-                    )
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .navigationTitle("Privacy")
-                .navigationBarTitleDisplayMode(.inline)
-            }
         }
     }
 

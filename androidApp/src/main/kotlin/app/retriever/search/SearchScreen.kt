@@ -118,6 +118,7 @@ import app.retriever.core.Kind
 import app.retriever.core.SearchEngine
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.home.HomeScreen
 import app.retriever.home.HomeUi
 import app.retriever.home.HomeViewModel
@@ -171,8 +172,8 @@ fun SearchScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
-    SearchContent(ui, home, actions) { padding, state, side, fill ->
-        HomeScreen(ui.recent.takeIf { ui.recentLoaded }, actions, state, padding, side, fill)
+    SearchContent(ui, home, actions) { padding, state, side, _ ->
+        HomeScreen(actions, state, padding, side)
     }
 }
 
@@ -320,7 +321,7 @@ fun SearchContent(
                 focus.clearFocus()
                 keyboard?.hide()
             },
-            placeholder = { Text("Search inside your files", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            placeholder = { Text(Words.SEARCH_FIELD, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             leadingIcon = {
                 if (bar.currentValue == SearchBarValue.Expanded) {
                     IconButton(onClick = closeSearch) {
@@ -458,7 +459,7 @@ private fun Suggestions(recent: List<String>, examples: List<String>, actions: S
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, bottom = 24.dp)) {
         if (recent.isEmpty()) {
             if (examples.isEmpty()) return@LazyColumn
-            item(key = "try-header") { GroupHeader("Try searching") }
+            item(key = "try-header") { GroupHeader(Words.TRY_LABEL) }
             item(key = "try") {
                 FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (q in examples) SuggestionChip(onClick = { pick(q) }, label = { Text(q) })

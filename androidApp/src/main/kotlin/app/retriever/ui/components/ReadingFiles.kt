@@ -158,15 +158,32 @@ internal fun ReadyFiles(files: List<SourceFile>, onOpen: ((SourceFile) -> Unit)?
     }
 }
 
+/**
+ * Recently read, held still: a strip that moved with every file read (twice a second) could be neither read nor tapped.
+ * It fills in reading order, so a tile keeps its place as the next one lands at the end, then holds while [running] and
+ * catches up when reading stops. [files] is core's, newest first.
+ */
 @Composable
-internal fun RecentlyRead(files: List<SourceFile>, onOpen: (SourceFile) -> Unit) {
+internal fun RecentlyRead(files: List<SourceFile>, running: Boolean, onOpen: (SourceFile) -> Unit) {
+    // A plain holder, not state: a new list recomposes this anyway. The rows read [shown], not the holder, so the row's
+    // content lambda changes exactly when the held list does (one capturing only the holder would be skipped).
+    val held = remember {
+        object {
+            var files = emptyList<SourceFile>()
+        }
+    }
+    if (!running || held.files.size < RECENT_SHOWN) held.files = files.take(RECENT_SHOWN).asReversed()
+    val shown = held.files
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Recently read", style = MaterialTheme.typography.titleSmall)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.semantics { contentDescription = "Recently read" }) {
-            items(files, key = { it.uri }) { file -> FileTile(file, 56.dp, onOpen = onOpen) }
+            items(shown, key = { it.uri }) { file -> FileTile(file, 56.dp, onOpen = onOpen) }
         }
     }
 }
+
+/** Tiles in Recently read: about a phone's width. */
+private const val RECENT_SHOWN = 6
 
 /**
  * One file's preview at a fixed [size], the same everywhere it shows: the sample's pile, Try's grid, Recently read.

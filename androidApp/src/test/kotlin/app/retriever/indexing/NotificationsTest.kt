@@ -27,12 +27,13 @@ class NotificationsTest {
         val n = Notifications.progress(
             context,
             ReadingProgress(read = 222, partlyRead = 18, scheduled = 7, couldntRead = 3),
-            ReadingStatus(ReadingPhase.READING, "Reading your files"),
+            ReadingStatus(ReadingPhase.READING, "Reading your files · 97% read", "You can close Retriever; it carries on. Search works the whole time."),
             pause,
         )
-        assertEquals("Reading your files", n.extras.getString(Notification.EXTRA_TITLE))
-        assertEquals("240 files read · 7 waiting", n.extras.getString(Notification.EXTRA_TEXT))
-        assertEquals("Pause reading", n.actions.single().title)
+        // The status line's own words, as on Home.
+        assertEquals("Reading your files · 97% read", n.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals("You can close Retriever; it carries on. Search works the whole time.", n.extras.getString(Notification.EXTRA_TEXT))
+        assertEquals("Pause", n.actions.single().title)
         assertEquals(Notification.VISIBILITY_PRIVATE, n.visibility)
         val channel = context.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel(Notifications.CHANNEL)
         assertNull(channel.sound)

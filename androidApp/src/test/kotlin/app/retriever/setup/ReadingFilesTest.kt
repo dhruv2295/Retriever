@@ -42,6 +42,7 @@ import app.retriever.core.ReadingStatus
 import app.retriever.core.SampleFile
 import app.retriever.core.SamplePile
 import app.retriever.core.SourceFile
+import app.retriever.core.StatusAction
 import app.retriever.core.Words
 import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
@@ -137,7 +138,14 @@ class ReadingFilesTest {
 
     private fun pile(cards: State<List<SampleFile>>, reduceMotion: Boolean = true, onSeeAll: () -> Unit = {}) = rule.setContent {
         ShotTheme(false, 1f) {
-            SamplePile(SamplePile.shown(cards.value), listOf(Kind.PHOTO, Kind.PDF, Kind.DOC), reduceMotion, "12 of 40 files read", Words.seeAll(40), onSeeAll)
+            SamplePile(
+                SamplePile.shown(cards.value),
+                listOf(Kind.PHOTO, Kind.PDF, Kind.DOC),
+                reduceMotion,
+                "12 of 40 files read",
+                Words.seeAll(40, 0),
+                onSeeAll,
+            )
         }
     }
 
@@ -173,7 +181,7 @@ class ReadingFilesTest {
         rule.onAllNodes(hasContentDescription("files read", substring = true)).assertCountEquals(1)
         pileNode()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
-            .assert(SemanticsMatcher("See all as its action") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == Words.seeAll(40) })
+            .assert(SemanticsMatcher("See all as its action") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == Words.seeAll(40, 0) })
             .performClick()
         assertEquals(1, opened)
         // The cards say nothing of their own.
@@ -229,7 +237,7 @@ class ReadingFilesTest {
             ShotTheme(false, 1f) {
                 Column {
                     ReadyFiles(listOf(recent[0]), onOpen = {})
-                    RecentlyRead(listOf(recent[1])) {}
+                    RecentlyRead(listOf(recent[1]), running = false) {}
                 }
             }
         }
@@ -338,7 +346,7 @@ class ReadingFilesTest {
             }
         }
         rule.onNodeWithText("5.jpg").assertExists()
-        rule.onNodeWithText("Reading your files").assertExists()
+        rule.onNodeWithText("Reading your files", substring = true).assertExists()
         rule.onNodeWithText("Starting reading…").assertDoesNotExist()
         index.value = index.value.copy(currentFile = null)
         rule.onNodeWithText("Reading now").assertExists()
@@ -365,7 +373,8 @@ class ReadingFilesTest {
         assertEquals("Only the new cell may compose, even across a row boundary", 1, cells)
     }
 
-    @Test fun insertingInTheStatusStripDoesNotRecomposeExistingCells() {
+    /** Recently read fills at its end, so no tile moves, then holds still while reading runs and catches up when it stops. */
+    @Test fun theStatusStripNeverShiftsWhileReading() {
         var cells = 0
         Composer.setTracer(object : CompositionTracer {
             override fun traceEventStart(key: Int, dirty1: Int, dirty2: Int, info: String) {
@@ -375,14 +384,28 @@ class ReadingFilesTest {
             override fun isTraceInProgress() = true
         })
         val files = mutableStateOf(recent)
+        val running = mutableStateOf(true)
         val open: (SourceFile) -> Unit = {}
-        rule.setContent { ShotTheme(false, 1f) { RecentlyRead(files.value, open) } }
-        rule.waitForIdle()
-        assertEquals(4, cells)
+        rule.setContent { ShotTheme(false, 1f) { RecentlyRead(files.value, running.value, open) } }
+        fun left(f: SourceFile) = rule.onNodeWithTag("recent:${f.uri}").fetchSemanticsNode().boundsInRoot.left
+        val first = recent.last()
+        val x = left(first)
         cells = 0
         files.value = listOf(file(5)) + recent.map { it.copy() }
         rule.waitForIdle()
         assertEquals(1, cells)
+        assertEquals(x, left(first))
+        files.value = listOf(file(6)) + files.value
+        rule.waitForIdle()
+        cells = 0
+        // Full: the next file waits until reading stops.
+        files.value = listOf(file(7)) + files.value
+        rule.waitForIdle()
+        assertEquals(0, cells)
+        rule.onNodeWithTag("recent:${file(7).uri}").assertDoesNotExist()
+        assertEquals(x, left(first))
+        running.value = false
+        rule.onNodeWithTag("recent:${file(7).uri}").assertExists()
     }
 
     @Test fun sweepFramesNeverRecomposeTheReadingFile() {
@@ -443,27 +466,28 @@ class ReadingFilesTest {
                 false,
                 batteryHint,
                 Modifier,
-                readingStatus = ReadingStatus(ReadingPhase.PAUSED, "Reading paused", "Search still works. Resume whenever you’re ready."),
+                readingStatus = ReadingStatus(ReadingPhase.PAUSED, "Paused", "Search still works.", StatusAction.RESUME),
             )
         }
     }
 
     @Test fun aPausedStatusShowsOneReasonAndKeepsWhatWasRead() {
         pausedStatus(IndexState(recentFiles = recent), batteryHint = true)
-        rule.onNodeWithText("Reading paused").assertExists()
-        rule.onNodeWithText("Search still works. Resume whenever you’re ready.").assertExists()
+        rule.onNodeWithText("Paused").assertExists()
+        rule.onNodeWithText("Search still works.").assertExists()
         rule.onNodeWithText("Recently read").assertExists()
         rule.onNodeWithText("Reading now").assertDoesNotExist()
         // The pause is the reason and Resume the remedy: no second remedy beside them.
-        rule.onNodeWithText("Resume reading").assertExists()
-        rule.onNodeWithText("Let Retriever keep reading in the background").assertDoesNotExist()
+        rule.onNodeWithText("Resume").assertExists()
+        rule.onNodeWithText("Pause").assertDoesNotExist()
+        rule.onNodeWithText("Let Retriever read while you’re not using it").assertDoesNotExist()
     }
 
     @Test fun aFailureReplacesTheWaitSentenceInsteadOfJoiningIt() {
         pausedStatus(IndexState(lastError = "Couldn’t open the search model", recentFiles = recent), batteryHint = true)
         rule.onNodeWithText("Couldn’t open the search model").assertExists()
-        rule.onNodeWithText("Search still works. Resume whenever you’re ready.").assertDoesNotExist()
-        rule.onNodeWithText("Let Retriever keep reading in the background").assertDoesNotExist()
+        rule.onNodeWithText("Search still works.").assertDoesNotExist()
+        rule.onNodeWithText("Let Retriever read while you’re not using it").assertDoesNotExist()
     }
 
     @Test fun theBackgroundHintStaysBesideAScheduleWaitButNotBesideAFailure() {
@@ -477,12 +501,16 @@ class ReadingFilesTest {
                     false,
                     true,
                     Modifier,
-                    readingStatus = ReadingStatus(ReadingPhase.CHARGING, "Waiting to charge", "Plug in, or choose Read now for a short session."),
+                    readingStatus = ReadingStatus(
+                        ReadingPhase.CHARGING,
+                        "Waiting until you plug in · 75% read",
+                        "Retriever carries on when your phone is charging.",
+                    ),
                 )
             }
         }
-        rule.onNodeWithText("Plug in, or choose Read now for a short session.").assertExists()
-        rule.onNodeWithText("Let Retriever keep reading in the background").assertExists()
+        rule.onNodeWithText("Retriever carries on when your phone is charging.").assertExists()
+        rule.onNodeWithText("Let Retriever read while you’re not using it").assertExists()
     }
 }
 

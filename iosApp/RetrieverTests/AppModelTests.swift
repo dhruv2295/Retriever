@@ -248,7 +248,6 @@ final class AppModelTests: XCTestCase {
         func with(tried: Bool, dismissed: Bool) -> Prefs {
             prefs.doCopy(
                 kinds: prefs.kinds, onlyWhileCharging: prefs.onlyWhileCharging, schedule: prefs.schedule, readNowUntil: prefs.readNowUntil,
-                nameSearchHintDismissed: prefs.nameSearchHintDismissed, scheduleOfferDismissed: prefs.scheduleOfferDismissed,
                 excludedFolders: prefs.excludedFolders, paused: prefs.paused, sampleSize: prefs.sampleSize, allowMobileData: prefs.allowMobileData,
                 rememberSearches: prefs.rememberSearches, dynamicColor: prefs.dynamicColor, setupStarted: prefs.setupStarted,
                 notificationsDismissed: prefs.notificationsDismissed, noMatchSeen: prefs.noMatchSeen, showOnThisDay: prefs.showOnThisDay,

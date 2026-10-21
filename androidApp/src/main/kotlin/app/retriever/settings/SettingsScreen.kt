@@ -52,6 +52,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -65,11 +66,15 @@ import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingSchedule
+import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
+import app.retriever.core.StatusAction
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
+import app.retriever.core.motion.MascotMood
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
+import app.retriever.home.StatusLine
 import app.retriever.indexing.Notifications
 import app.retriever.model.TuneState
 import app.retriever.model.UpgradeActions
@@ -78,6 +83,9 @@ import app.retriever.model.UpgradeFlow
 import app.retriever.model.UpgradeUi
 import app.retriever.model.actions
 import app.retriever.model.tuneSummary
+import app.retriever.nav.BrowseRoute
+import app.retriever.nav.DuplicatesRoute
+import app.retriever.nav.Route
 import app.retriever.ui.Format
 import app.retriever.ui.components.Header
 import app.retriever.ui.components.Muted
@@ -93,8 +101,7 @@ private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHO
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
 
-internal const val INCLUDED_FILES_FOOTER =
-    "Turning a type off keeps name search and removes its content from search. Excluding a folder removes it from Retriever. Your original files stay where they are."
+internal const val INCLUDED_FILES_FOOTER = Words.KIND_OFF + " A folder to skip is left out of search."
 
 /** The confirmation for removing the download; [size] is what is on the phone, null when it can't be read. */
 internal fun removeDownloadMessage(size: String?): String =
@@ -124,13 +131,17 @@ data class SettingsUi(
     val problems: List<ExitProblem> = emptyList(),
     /** Whether Android lets Retriever post its reading notification; read when Settings opens and resumes. */
     val notificationsOn: Boolean = true,
+    /** The Reading row's line, as on Home; null until core answers. */
+    val readingStatus: ReadingStatus? = null,
+    /** Free up space's large files as (count, bytes); null until counted. */
+    val large: Pair<Long, Long>? = null,
 )
 
 class SettingsActions(
     val back: () -> Unit = {},
     val setReadingSchedule: (ReadingSchedule) -> Unit = {},
     val readNow: () -> Unit = {},
-    val pause: () -> Unit = {},
+    val stopReadNow: () -> Unit = {},
     val resume: () -> Unit = {},
     val openStatus: () -> Unit = {},
     val setOnThisDay: (Boolean) -> Unit = {},
@@ -151,12 +162,22 @@ class SettingsActions(
     val openAccess: () -> Unit = {},
     val clearRecentSearches: () -> Unit = {},
     val openNotificationSettings: () -> Unit = {},
+    val openLarge: () -> Unit = {},
+    val openDuplicates: () -> Unit = {},
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onStatus: () -> Unit = {},
+    onNavigate: (Route) -> Unit = {},
+    vm: SettingsViewModel = koinViewModel(),
+    upgradeFlow: UpgradeFlow = koinInject(),
+) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val state by vm.uiState.collectAsStateWithLifecycle()
+    val readingStatus by vm.readingStatus.collectAsStateWithLifecycle()
+    val large by vm.large.collectAsStateWithLifecycle()
     val upgrade by upgradeFlow.ui.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
@@ -195,7 +216,7 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             back = onBack,
             setReadingSchedule = { schedule -> requestReading { vm.setReadingSchedule(schedule) } },
             readNow = { requestReading { vm.readNow() } },
-            pause = vm::pause, resume = vm::resume, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
+            stopReadNow = vm::stopReadNow, resume = vm::resume, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
             setSearchInside = vm::setSearchInside,
             setOnlyWhileCharging = vm::setOnlyWhileCharging,
             removeExcluded = vm::removeExcluded,
@@ -215,6 +236,8 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             openNotices = { showNotices = true },
             openAccess = onStatus,
             clearRecentSearches = vm::clearRecentSearches,
+            openLarge = { onNavigate(BrowseRoute(sort = "LARGEST", title = "Large files")) },
+            openDuplicates = { onNavigate(DuplicatesRoute) },
             openNotificationSettings = {
                 val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                 context.startActivity(page)
@@ -227,7 +250,14 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
         )
     }
     SettingsContent(
-        ui = state.copy(confirmFree = confirmFree, problems = problems, notificationsOn = notificationsOn, upgrade = upgrade),
+        ui = state.copy(
+            confirmFree = confirmFree,
+            problems = problems,
+            notificationsOn = notificationsOn,
+            upgrade = upgrade,
+            readingStatus = readingStatus,
+            large = large,
+        ),
         actions = actions,
         snackbar = snackbar,
     )
@@ -259,51 +289,58 @@ fun SettingsContent(
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(bottom = 24.dp),
             ) {
+                HowItWorks()
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Reading")
                 var schedulesOpen by rememberSaveable { mutableStateOf(false) }
+                // The line Home shows, so a tap below (Read for 15 minutes) changes it at once. The whole line opens Reading status.
+                ui.readingStatus?.let { status ->
+                    StatusLine(
+                        status.copy(action = status.action.takeIf { it == StatusAction.STOP || it == StatusAction.RESUME }),
+                        if (status.active) MascotMood.WALKING else MascotMood.RESTING,
+                        onOpen = actions.openStatus,
+                        onAction = { if (it == StatusAction.STOP) actions.stopReadNow() else actions.resume() },
+                    )
+                }
                 ListItem(
-                    headlineContent = { Text("Automatic reading") },
-                    supportingContent = { Text(prefs.automaticReading.title) },
+                    headlineContent = { Text(Words.WHEN_TO_READ) },
+                    supportingContent = {
+                        Text(
+                            prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
+                                ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
+                                ReadingSchedule.BATTERY -> "Also on battery, above 20%. It stops when Battery Saver is on or your phone is warm."
+                                ReadingSchedule.MANUAL -> "Only when you choose Read for 15 minutes."
+                            },
+                        )
+                    },
                     modifier = Modifier.clickable(role = Role.Button) { schedulesOpen = true },
                 )
                 if (schedulesOpen) {
                     AlertDialog(
                         onDismissRequest = { schedulesOpen = false },
-                        title = { Text("Automatic reading") },
+                        title = { Text(Words.WHEN_TO_READ) },
                         text = {
                             Column(Modifier.selectableGroup()) {
                                 ReadingSchedule.entries.forEach { schedule ->
                                     ListItem(
-                                        headlineContent = {
-                                            Text(schedule.title)
-                                        },
+                                        headlineContent = { Text(schedule.title) },
                                         leadingContent = { androidx.compose.material3.RadioButton(prefs.automaticReading == schedule, null) },
                                         modifier = Modifier.selectable(prefs.automaticReading == schedule, role = Role.RadioButton) {
                                             actions.setReadingSchedule(schedule)
-                                            schedulesOpen =
-                                                false
+                                            schedulesOpen = false
                                         },
                                     )
                                 }
                             }
                         },
-                        confirmButton = { TextButton(onClick = { schedulesOpen = false }) { Text("Done") } },
+                        confirmButton = { TextButton(onClick = { schedulesOpen = false }) { Text(Words.DONE) } },
                     )
                 }
-                Muted(
-                    when (prefs.automaticReading) {
-                        ReadingSchedule.CHARGING -> "Reads while charging when Retriever is open or your screen is off."
-                        ReadingSchedule.BATTERY -> "Reads while your phone is available, above 20% battery. Pauses for power saving or heat."
-                        ReadingSchedule.MANUAL -> "Choose Read now to start a short reading session."
-                    },
-                    Modifier.padding(horizontal = 16.dp),
-                )
-                ListItem(headlineContent = { Text("Read now for 15 minutes") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.readNow))
                 ListItem(
-                    headlineContent = { Text(if (prefs.paused) "Resume reading" else "Pause reading") },
-                    modifier = Modifier.clickable(role = Role.Button, onClick = if (prefs.paused) actions.resume else actions.pause),
+                    headlineContent = { Text(Words.READ_FOR_15) },
+                    supportingContent = { Text(Words.readNowBody(DeviceWords.ANDROID)) },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.readNow),
                 )
-                ListItem(headlineContent = { Text("Reading status") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openStatus))
                 if (!ui.textOnly && !ui.modelMissing) {
                     var adjust by rememberSaveable { mutableStateOf(false) }
                     ListItem(
@@ -318,21 +355,9 @@ fun SettingsContent(
                     )
                     if (adjust) TuneRow(ui.tune, actions.tuneAgain)
                 }
-                var help by rememberSaveable { mutableStateOf(false) }
-                ListItem(headlineContent = { Text("How reading works") }, modifier = Modifier.clickable { help = !help })
-                if (help) {
-                    Muted(
-                        "Retriever reads automatically while charging, when its screen is open or your phone’s screen is off. It pauses while you use another app. You can start a short reading session on battery.",
-                        Modifier.padding(16.dp),
-                    )
-                    Muted(
-                        "Long files are read in stages. Words already read can match now; later passes add meaning search. Some files reach a reading limit and stay partly read.",
-                        Modifier.padding(16.dp),
-                    )
-                }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Included files")
-                ListItem(headlineContent = { Text("Manage access") }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
+                ListItem(headlineContent = { Text(Words.WHAT_IT_CAN_SEE) }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
                 Text(
                     "Read these file types",
                     style = MaterialTheme.typography.labelLarge,
@@ -343,9 +368,9 @@ fun SettingsContent(
                     SwitchRow(Words.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
                 }
                 // No platform reads audio yet, so there is no switch to offer: only the plain fact.
-                ListItem(headlineContent = { Text("Audio") }, supportingContent = { Text("Name only on this device") })
+                ListItem(headlineContent = { Text(Words.kindLabelPlural(Kind.AUDIO)) }, supportingContent = { Text(Words.FOUND_BY_NAME) })
                 Text(
-                    "Excluded folders",
+                    Words.FOLDERS_TO_SKIP,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
                 )
@@ -394,7 +419,7 @@ fun SettingsContent(
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Appearance")
-                SwitchRow("Show On this day", prefs.showOnThisDay, onChange = actions.setOnThisDay)
+                SwitchRow(Words.SHOW_ON_THIS_DAY, prefs.showOnThisDay, onChange = actions.setOnThisDay)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     SwitchRow("Wallpaper colours", prefs.dynamicColor, "Off uses Retriever's warm amber.", actions.setDynamicColor)
                 }
@@ -405,10 +430,6 @@ fun SettingsContent(
                 ListItem(
                     headlineContent = { Text("Open-source notices") },
                     modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotices),
-                )
-                Muted(
-                    "Retriever reads your files on this phone. Search, indexing and stars never leave it. The only network use is downloading the search model.",
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
 
                 // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
@@ -451,6 +472,30 @@ fun SettingsContent(
     }
 }
 
+/** First on the page: what Retriever does with the files and what never leaves the phone. */
+@Composable
+private fun HowItWorks() {
+    var open by rememberSaveable { mutableStateOf(false) }
+    ListItem(
+        headlineContent = { Text(Words.HOW_IT_WORKS) },
+        leadingContent = { Icon(painterResource(R.drawable.ic_lock), contentDescription = null) },
+        trailingContent = { Icon(painterResource(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null) },
+        modifier = Modifier.clickable(role = Role.Button) { open = !open }.semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+    )
+    if (open) {
+        Muted(
+            "${Words.wholeDeviceNote(
+                DeviceWords.ANDROID,
+            )} ${Words.nothingSent(DeviceWords.ANDROID)} The only time it uses the internet is the optional download for search by meaning.",
+            Modifier.padding(16.dp),
+        )
+        Muted(
+            "It reads at the times you choose under When to read. Long files are read a bit at a time: you can find them by their beginning first.",
+            Modifier.padding(horizontal = 16.dp),
+        )
+    }
+}
+
 @Composable
 private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
     ListItem(
@@ -477,7 +522,22 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
 
 @Composable
 private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
-    ListItem(headlineContent = { Text("Saved search data · ${ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…"}") })
+    ListItem(headlineContent = { Text("${Words.whatItHasRead(DeviceWords.ANDROID)} · ${ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…"}") })
+    // Large files and duplicates live here, never on Home; nothing is deleted from these lists without asking.
+    Text(Words.FREE_UP_SPACE, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
+    ui.large?.takeIf { it.first > 0 }?.let { (n, bytes) ->
+        ListItem(
+            headlineContent = { Text("${Words.largeFiles(n)} · ${Format.bytes(bytes)}") },
+            leadingContent = { Icon(painterResource(R.drawable.ic_storage), contentDescription = null) },
+            modifier = Modifier.clickable(role = Role.Button, onClick = actions.openLarge),
+        )
+    }
+    ListItem(
+        headlineContent = { Text(Words.FIND_DUPLICATES) },
+        leadingContent = { Icon(painterResource(R.drawable.ic_content_copy), contentDescription = null) },
+        modifier = Modifier.clickable(role = Role.Button, onClick = actions.openDuplicates),
+    )
+    Muted(Words.NEVER_DELETES, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
     if (ui.textOnly) return
     ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ListItem(headlineContent = { Text("Temporary files · ${Format.bytes(it)}") }) }
     // The same upgrade as Try and Home until it is done; then what it costs and how to remove it.

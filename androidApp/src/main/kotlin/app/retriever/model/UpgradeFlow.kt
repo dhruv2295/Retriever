@@ -20,6 +20,7 @@ package app.retriever.model
 import android.util.Log
 import app.retriever.access.AccessService
 import app.retriever.core.CalibrationResult
+import app.retriever.core.DownloadState
 import app.retriever.core.ReadingProgress
 import app.retriever.core.Retriever
 import app.retriever.core.UpgradePolicy
@@ -49,6 +50,19 @@ data class UpgradeUi(
     /** For the meaning pass's line; null until counted. */
     val progress: ReadingProgress? = null,
 )
+
+/** The download or its tune for the status line ([size]: the platform's format of [UpgradeUi.sizeBytes]); null at any other stage. */
+fun UpgradeUi.downloadState(size: String): DownloadState? = when (stage) {
+    UpgradeStage.DOWNLOAD -> DownloadState(
+        (model as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.let { (it.progress.coerceIn(0f, 1f) * 100).toInt() },
+        model == ModelState.WaitingForWifi || model is ModelState.Failed,
+        size,
+    )
+
+    UpgradeStage.TUNE -> DownloadState(null, tune is TuneState.Failed, size, settingUp = true)
+
+    else -> null
+}
 
 /**
  * "Search by meaning and what's in your photos": Download, then the tune by itself once the model is in place and files

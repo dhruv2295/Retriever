@@ -103,7 +103,7 @@ struct FileListView: View {
                     StateView(mood: .noMatch, title: "Keep useful files close", message: "Tap the star on a file to find it here.")
                 } else if libraryEmpty {
                     StateView(mood: .noMatch, title: "Choose files to search", message: "Add photos or a folder.") {
-                        NavigationLink("Manage access", value: Route.folders).buttonStyle(.primaryAction)
+                        NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders).buttonStyle(.primaryAction)
                     }
                 } else {
                     StateView(mood: .noMatch, title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")

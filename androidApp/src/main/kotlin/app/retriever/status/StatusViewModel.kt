@@ -70,6 +70,10 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
 
     fun pause() = attempt { indexer.pause() }
 
+    fun readNow() = attempt { indexer.readNow() }
+
+    fun stopReadNow() = attempt { indexer.endReadNow() }
+
     fun loadSkipped() = attempt { skipped.value = retriever.skipped(50) }
 
     fun retrySkipped() = attempt {

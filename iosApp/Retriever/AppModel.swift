@@ -35,8 +35,6 @@ final class AppModel {
         var readingStatus: ReadingStatus?
         var automaticReading: ReadingSchedule = .charging
         var readNowUntil: Int64 = 0
-        var nameSearchHintDismissed = false
-        var scheduleOfferDismissed = false
         /// Too little memory to understand photos: files are found by their names and the words inside them.
         var textOnly = false
         var ramGb = 0.0
@@ -78,10 +76,6 @@ final class AppModel {
         }
         var total: Int { Int(readProgress.libraryTotal) }
         var libraryTotal: Int { byKind.values.reduce(0, +) }
-
-        /// The short read is done and the rest waits on the person: Home offers to read it. Core counts `waiting` only
-        /// under the short read's scope, so this is `scope == SAMPLE && waiting > 0`.
-        var asksCommit: Bool { accessChosen && waiting > 0 && !scheduleOfferDismissed }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
         var isCaughtUp: Bool { accessChosen && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
@@ -179,10 +173,8 @@ final class AppModel {
     var modelMissing = false
     /// Nil until Settings has measured it.
     var storage: Storage?
-    /// "Try searching" examples for the kinds that are ready.
+    /// "Try:" words from the person's own files, offered in the search bar while there is no history.
     var suggestions: [String] = []
-    /// `suggestions` arrived at least once since Home first asked; Home draws its sections from then on.
-    var suggestionsLoaded = false
     /// Try's suggestions from the sample's files, held from before Try opens (`watchSetup`).
     var trySuggestions: [String] = []
     /// Home's newest files, folder count and large files; nil until the first load.
@@ -440,8 +432,6 @@ extension AppModel.Snap {
         readingStatus = s.reading
         automaticReading = s.prefs.automaticReading
         readNowUntil = s.prefs.readNowUntil
-        nameSearchHintDismissed = s.prefs.nameSearchHintDismissed
-        scheduleOfferDismissed = s.prefs.scheduleOfferDismissed
         waiting = Int(s.counts.waiting)
         trial = s.counts.trial
         skipped = Int(coverage.couldntRead)

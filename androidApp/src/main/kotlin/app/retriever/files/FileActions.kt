@@ -40,8 +40,10 @@ import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.core.DeviceWords
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.duplicates.MediaDeleter
 import app.retriever.ui.components.PressMenu
 import kotlinx.coroutines.Dispatchers
@@ -61,7 +63,7 @@ enum class FileAction(private val label: String, @DrawableRes val icon: Int) {
     OPEN("Open in another app", R.drawable.ic_open_in_new),
     INFO("File info", R.drawable.ic_info),
     RENAME("Rename", R.drawable.ic_edit),
-    DELETE("Delete", R.drawable.ic_delete),
+    DELETE(Words.deleteFrom(DeviceWords.ANDROID), R.drawable.ic_delete),
     ;
 
     fun label(starred: Boolean) = if (this == STAR && starred) "Remove from Starred" else label
@@ -296,7 +298,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                 AlertDialog(
                     onDismissRequest = { if (!busy) request = null },
                     title = { Text("Delete this file?") },
-                    text = { Text("This removes the original from ${friendlyFolder(r.file.folder)}.") },
+                    text = { Text(Words.deleteConfirm(DeviceWords.ANDROID)) },
                     confirmButton = {
                         TextButton(enabled = !busy, onClick = {
                             run {
@@ -315,7 +317,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                                 request = null
                                 r.deleted()
                             }
-                        }) { Text("Delete") }
+                        }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
                     },
                     dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
                 )

@@ -22,13 +22,22 @@ enum Copy {
 
     /// Core's reading status: the live one, or before it arrives the same decision made here.
     static func reading(_ s: AppModel.Snap) -> ReadingStatus {
-        s.readingStatus
+        let msLeft = Double(s.readNowUntil) - Date.now.timeIntervalSince1970 * 1000
+        return s.readingStatus
             ?? ReadingPolicy.shared.decide(
-                progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words)
+                progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words,
+                readNowMinutes: Int32(max(0, (msLeft / 60_000).rounded(.up))), pluggedIn: [.charging, .full].contains(UIDevice.current.batteryState),
+                mark: ReadMark(percent: 0, files: 0))
     }
 
-    static func homeStatus(_ s: AppModel.Snap?) -> HomeStatus? {
-        s.flatMap { ReadingPolicy.shared.homeStatus(libraryChosen: $0.accessChosen, libraryTotal: $0.readProgress.libraryTotal, reading: reading($0)) }
+    /// The one status line on Home, Reading status and Settings: access, setup and the download first, then reading.
+    /// Photos access that is only limited, or off while folders still give files, keeps its own note (`photosNote`).
+    static func homeStatus(_ s: AppModel.Snap?, hasAccess: Bool = true, download: DownloadState? = nil) -> ReadingStatus? {
+        s.flatMap {
+            ReadingPolicy.shared.line(
+                reading: reading($0), libraryChosen: $0.accessChosen, hasAccess: hasAccess, libraryTotal: $0.readProgress.libraryTotal, words: words,
+                download: download)
+        }
     }
 
     /// Shown under the status row while Photos access is off or limited; it never takes the status row's place, so
@@ -98,17 +107,9 @@ enum Copy {
     }
 
     static let backgroundNote =
-        "Retriever reads while it’s open and in background time provided by iOS. Automatic reading waits for charging. A short reading session can use battery. Background timing is up to iOS; plugging in doesn’t guarantee an immediate start."
+        "Retriever reads while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic reading waits until your \(device) is charging. Reading for 15 minutes uses some battery."
 
-    static let screenKeptOn = "Keep screen awake is on for this session. You can turn it off in Reading settings."
-
-    static func meaningWaiting(_ n: Int) -> String {
-        "\(count(n)) read for words · search by meaning to come"
-    }
-
-    static func deepReading(_ n: Int) -> String {
-        "\(count(n)) partly read · more meaning search to come"
-    }
+    static let screenKeptOn = "Your screen stays on while Retriever reads for 15 minutes. You can turn this off in Settings."
 
     /// What the search made of the words: "Showing Screenshots · Last week".
     static func understood(_ labels: [String]) -> String { "Showing \(labels.joined(separator: " · "))" }
@@ -125,41 +126,6 @@ enum Copy {
     nonisolated static let continuedTitle = "Reading your files"
 
     nonisolated static func continuedSubtitle(_ files: Int) -> String {
-        "\(count(files)) files read this session"
+        "\(count(files)) files read so far"
     }
-
-    // MARK: Home sections
-
-    /// "120 files · 640 MB", "At least …" or "Size unavailable" (Photos never says its sizes), by core's rule.
-    static func countAndSize(_ totals: FileTotals) -> String {
-        Words.shared.countAndSize(totals: totals, knownSize: bytes(totals.knownBytes))
-    }
-
-    /// The files of these kinds as one group: Home's sections cover one kind or two.
-    static func totals(_ kinds: [Kind], in byKind: [Kind: FileTotals]) -> FileTotals {
-        let parts = kinds.compactMap { byKind[$0] }
-        return FileTotals(
-            files: parts.reduce(0) { $0 + $1.files }, knownBytes: parts.reduce(0) { $0 + $1.knownBytes },
-            unknownSizes: parts.reduce(0) { $0 + $1.unknownSizes })
-    }
-
-    /// A section header's second line: count and size, then its reading line from core ("812 files · 1.2 GB · 40 waiting to read").
-    static func sectionSubtitle(_ totals: FileTotals, _ detail: String? = nil) -> String {
-        [countAndSize(totals), detail].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    /// The mosaic's reading pill: "14,700 waiting to read".
-    static func photosWaiting(_ n: Int, paused: Bool) -> String {
-        Words.shared.waitingToRead(files: Int64(n)) + (paused ? " · Paused" : "")
-    }
-
-    /// "Today · 2.1 MB" under a document's page.
-    static func cardLine(_ f: SourceFile) -> String {
-        [day(f.modifiedAt), bytes(f.size)].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    // MARK: Setup
-
-    /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
-    static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
 }

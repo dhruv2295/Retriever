@@ -59,14 +59,7 @@ struct SearchView: View {
             } else if trial != nil {
                 TryItIntro(search: search, model: model)
             } else {
-                LiveHome(
-                    search: search, pinned: fixedSnap, model: model,
-                    useRecent: { q in
-                        search.setText(q)
-                        presented = true
-                        search.record()
-                    },
-                    addFolder: { addingFolder = true })
+                LiveHome(pinned: fixedSnap, model: model, addFolder: { addingFolder = true })
             }
         }
         .modifier(WarmOnSearch(retriever: model.services?.retriever))
@@ -134,7 +127,7 @@ struct SearchView: View {
         if search.text.isEmpty && search.photo == nil {
             if search.recent.isEmpty {
                 if !model.suggestions.isEmpty {
-                    Section("Try searching") {
+                    Section(Words.shared.TRY_LABEL) {
                         ForEach(model.suggestions, id: \.self) { q in
                             Label(q, systemImage: "magnifyingglass").searchCompletion(q)
                         }
@@ -164,16 +157,12 @@ struct SearchView: View {
 
 /// Home under the search field. It alone reads the counts, so they redraw it and not the search field or the results.
 private struct LiveHome: View {
-    let search: SearchModel
     let pinned: AppModel.Snap?
     let model: AppModel
-    let useRecent: (String) -> Void
     let addFolder: () -> Void
 
     var body: some View {
-        HomeList(
-            search: search, snap: pinned ?? model.snap, photos: model.photos, model: model, useRecent: useRecent, addFolder: addFolder,
-            liveProgress: pinned == nil)
+        HomeList(snap: pinned ?? model.snap, photos: model.photos, model: model, addFolder: addFolder, liveProgress: pinned == nil)
     }
 }
 
@@ -291,7 +280,7 @@ private struct ResultsView: View {
         } else if scope.needsPhotos && photos == .limited {
             StateView(
                 mood: .noMatch, title: "No matches in the photos you picked",
-                message: "Retriever can only see the photos you chose. Pick more to search more of your library."
+                message: "Retriever can only see the photos you chose. Pick more to search more of them."
             ) {
                 Button("Choose more photos", action: model.chooseMorePhotos).buttonStyle(.primaryAction)
             }
@@ -393,16 +382,13 @@ private struct ResultsView: View {
             }
         }
         if textOnly || !model.meaningSearch {
-            // Core's words-only rule: one note, and the upgrade offered only under few results.
-            VStack(alignment: .leading, spacing: 2) {
-                Label(Words.shared.WORDS_ONLY, systemImage: "textformat").font(.footnote.weight(.semibold))
-                if let hint = Words.shared.upgradeHint(results: Int32(answer.hits.count), upgrade: model.upgrade) {
-                    Button {
-                        upgrading = true
-                    } label: {
-                        Text(hint).frame(minHeight: 44)
-                    }.font(.footnote)
-                }
+            // Core's words-only rule: no label (nothing is broken), the upgrade offered only under few results.
+            if let hint = Words.shared.upgradeHint(results: Int32(answer.hits.count), upgrade: model.upgrade) {
+                Button {
+                    upgrading = true
+                } label: {
+                    Text(hint).frame(minHeight: 44)
+                }.font(.footnote)
             }
         } else if !answer.vectorLane {
             HStack(spacing: 10) {

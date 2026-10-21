@@ -53,7 +53,7 @@ internal fun infoRows(file: SourceFile, measured: List<Pair<String, String>>, re
     add(Words.MODIFIED to Format.date(file.modifiedAt))
     file.takenAt?.let { add(Words.TAKEN to Format.date(it)) }
     addAll(measured)
-    add("Reading" to reading)
+    add(Words.FOUND_BY to reading)
 }
 
 private class Info(val rows: List<Pair<String, String>>, val path: String)

@@ -1,8 +1,10 @@
 package app.retriever.home
 
+import app.retriever.core.DeviceWords
 import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.Words
@@ -19,7 +21,10 @@ class ProgressConsistencyTest {
         assertEquals(home.contentRead, status.contentRead)
         assertEquals(Words.readCount(home.contentRead, home.partlyRead), Words.readCount(status.contentRead, status.partlyRead))
         assertEquals(home.progress, status)
-        assertEquals("Waiting for Android", homeStatus(home, index)?.title)
+        // Nothing until core's live status, which carries the saved mark; then that status as it is.
+        assertEquals(null, homeStatus(home))
+        val live = ReadingPolicy.decide(status, index.lastStop, index.running, false, DeviceWords.ANDROID)
+        assertEquals("Taking a short break", homeStatus(home.copy(readingStatus = live))?.title)
         assertEquals(24L, home.partlyRead)
     }
 }

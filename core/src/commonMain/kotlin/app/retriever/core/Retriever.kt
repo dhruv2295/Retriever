@@ -98,12 +98,24 @@ data class HomeFacts(
     val folders: Long,
     val largeCount: Long,
     val largeBytes: Long,
-    val topFolders: List<FolderCount> = emptyList(),
     val kindTotals: Map<Kind, FileTotals> = emptyMap(),
     val folderTotals: List<FolderTotals> = emptyList(),
-)
+) {
+    /** Home's "Recently added": the three newest lists as one, newest first (taken, else modified), no new query. */
+    val recentlyAdded: List<SourceFile> = (newMedia + newShots + newDocs).sortedByDescending { it.takenAt ?: it.modifiedAt }
 
-data class FolderCount(val path: String, val count: Long)
+    /**
+     * Home's Browse, in its fixed order: each kind's name and count, no sizes (those are Settings → Storage); PDFs count
+     * under Documents, and a kind with no files is left out. Folders is the app's own last tile ([folders]).
+     */
+    val browse: List<BrowseKind> = listOf(listOf(Kind.PHOTO), listOf(Kind.VIDEO), listOf(Kind.SCREENSHOT), listOf(Kind.DOC, Kind.PDF), listOf(Kind.AUDIO))
+        .mapNotNull { kinds ->
+            kinds.sumOf { kindTotals[it]?.files ?: 0L }.takeIf { it > 0 }?.let { BrowseKind(Words.kindLabelPlural(kinds.first()), kinds, it) }
+        }
+}
+
+/** One Browse tile on Home: its name, the kinds it opens, and how many files. */
+data class BrowseKind(val title: String, val kinds: List<Kind>, val files: Long)
 
 /** A group of files: how many, the sum of the sizes known, and how many have no known size (iOS Photos). */
 data class FileTotals(val files: Long, val knownBytes: Long, val unknownSizes: Long)
@@ -434,18 +446,52 @@ class Retriever(
         return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery)
     }
 
+    /** What the status line reads from the device and the clock once a second. */
+    private data class Tick(val blocker: StopReason?, val readNowMinutes: Int, val pluggedIn: Boolean)
+
+    private data class StatusKey(val counts: Store.Counts, val prefs: Prefs, val state: IndexState, val tick: Tick)
+
+    private fun tick(): Tick {
+        val blocker = readingBlocker()
+        val left = _prefs.value.readNowUntil - now()
+        return Tick(blocker, if (left > 0) ((left + 59_999) / 60_000).toInt() else 0, monitor.state().pluggedIn)
+    }
+
+    /** The highest "N% read" shown, kept in Store meta so a relaunch never shows a lower one. */
+    @Volatile
+    private var readMark: ReadMark? = null
+
+    private fun markFor(progress: ReadingProgress): ReadMark {
+        val old = readMark ?: ReadMark.decode(store.meta(READ_MARK_KEY)) ?: ReadMark()
+        return old.next(progress).also {
+            if (it != old) store.setMeta(READ_MARK_KEY, it.encode())
+            readMark = it
+        }
+    }
+
     private val sharedStatus: Flow<ReadingStatus> by lazy {
-        val blocker = flow {
+        val ticks = flow {
             while (true) {
-                emit(readingBlocker())
+                emit(tick())
                 delay(1_000)
             }
-        }.flowOn(Dispatchers.Default).distinctUntilChanged()
+        }.flowOn(dispatchers.default).distinctUntilChanged()
         watched(
-            combine(sharedCounts, prefs, state, blocker) { c, p, s, _ -> Triple(c, p, s) },
-            { Triple(countsOf(countsKeyNow()), prefs.value, state.value) },
+            combine(sharedCounts, prefs, state, ticks, ::StatusKey),
+            { StatusKey(countsOf(countsKeyNow()), prefs.value, state.value, tick()) },
         ) { (counts, p, state) ->
-            ReadingPolicy.decide(counts.progress, if (p.paused) StopReason.PAUSED else readingBlocker(), state.running, state.currentFile != null, words)
+            // Fresh, not the key's tick: that can be a second old, and a Resume or a Read for 15 minutes shows at once.
+            val t = tick()
+            ReadingPolicy.decide(
+                counts.progress,
+                if (p.paused) StopReason.PAUSED else t.blocker,
+                state.running,
+                state.currentFile != null,
+                words,
+                t.readNowMinutes,
+                t.pluggedIn,
+                markFor(counts.progress),
+            )
         }
     }
 
@@ -475,12 +521,6 @@ class Retriever(
         if (schedule != ReadingSchedule.MANUAL) commitScope()
         changedSinceSync = true
     }
-
-    @Throws(Throwable::class)
-    suspend fun dismissNameSearchHint() = updatePrefs { it.copy(nameSearchHintDismissed = true) }
-
-    @Throws(Throwable::class)
-    suspend fun dismissScheduleOffer() = updatePrefs { it.copy(scheduleOfferDismissed = true) }
 
     /** Claim only when the platform can post; survives process death and worker handoffs. */
     @Throws(Throwable::class)
@@ -595,6 +635,7 @@ class Retriever(
             policyStop()?.let { return end(it) }
             // Cancels cooperative extraction too, including a long PDF before its first embedding chunk.
             val owner = currentCoroutineContext().job
+            // On the real clock, not [dispatchers]: a test's virtual time would spin this loop while the batch waits.
             watchdog = background.launch(Dispatchers.Default) {
                 while (isActive) {
                     delay(1_000)
@@ -1253,7 +1294,6 @@ class Retriever(
                 folders = store.folderCount(),
                 largeCount = largeCount,
                 largeBytes = largeBytes,
-                topFolders = store.folders().take(6).map { FolderCount(it.first, it.second) },
                 kindTotals = store.kindTotals(),
                 folderTotals = store.folderTotals(),
             )

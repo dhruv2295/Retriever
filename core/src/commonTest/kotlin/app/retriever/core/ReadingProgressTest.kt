@@ -41,7 +41,7 @@ class ReadingProgressTest {
         for (sample in listOf(true, false)) {
             val p = pending.copy(sample = sample)
             assertEquals(ReadingPhase.PAUSED, ReadingPolicy.decide(p, StopReason.PAUSED, true, true, DeviceWords.ANDROID).phase)
-            assertEquals("Paused for Low Power Mode", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, IOS).title)
+            assertEquals("Paused while Low Power Mode is on", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, IOS).title)
             assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(p, StopReason.UNPLUGGED, true, true, DeviceWords.ANDROID).phase)
             assertEquals(ReadingPhase.WAITING, ReadingPolicy.decide(p, null, false, false, DeviceWords.ANDROID).phase)
         }
@@ -49,12 +49,12 @@ class ReadingProgressTest {
         val upgrade = ReadingProgress(read = 5, meaningWaiting = 5)
         assertEquals(5, upgrade.contentRead, "waiting for meaning is a subset of Read, never another bucket")
         assertEquals(ReadingPhase.MEANING, ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).phase)
-        assertEquals("Adding search by meaning to 5 files", ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).title)
+        assertEquals("Adding search by meaning · 0%", ReadingPolicy.decide(upgrade, null, true, true, DeviceWords.ANDROID).title)
         assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(upgrade, StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.SAMPLE_READY, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, DeviceWords.ANDROID).phase)
-        assertEquals("Waiting for iOS", ReadingPolicy.decide(pending, null, false, false, IOS).title)
+        assertEquals("Taking a short break", ReadingPolicy.decide(pending, null, false, false, IOS).title)
     }
 
     @Test fun aFilesReadingSaysHowFarItWasReadAndAlreadyReadContentStaysRead() {
@@ -66,20 +66,21 @@ class ReadingProgressTest {
             extent: ReadExtent? = null,
             inside: Boolean = true,
         ) = readingLabel(kind, state?.let { Store.StoredFile(1, SourceFile("u", "a.pdf", "", "", kind, 1, 0), 3, it, partial, extent, content) }, inside)
-        assertEquals("Read", label(FileState.INDEXED))
-        assertEquals("Read", label(FileState.INDEXED, extent = ReadExtent.WHOLE))
-        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, partial = true))
-        assertEquals("Partly read · Only the beginning is included", label(FileState.INDEXED, extent = ReadExtent.FIRST_PART_DEEPENING))
-        assertEquals("Partly read · More meaning search to come", label(FileState.INDEXED, extent = ReadExtent.DEEPENING))
-        assertEquals("Partly read · Couldn’t finish meaning search", label(FileState.INDEXED, extent = ReadExtent.MEANING_LIMITED))
-        assertEquals("Partly read · Waiting to read more", label(FileState.PENDING, content = true))
-        assertEquals("Name only · No readable content", label(FileState.INDEXED, content = false))
-        assertEquals("Waiting to read", label(FileState.PENDING))
-        assertEquals("Waiting to read", label(null))
-        assertEquals("Couldn’t read · Retriever tried 3 times", label(FileState.SKIPPED))
-        assertEquals("Read", label(FileState.INDEXED, inside = false))
-        assertEquals("Name only · Reading is off for this type", label(FileState.PENDING, inside = false))
-        assertEquals("Name only · Reading is off for this type", label(FileState.SKIPPED, inside = false))
-        assertEquals("Name only · Reading isn’t supported for this type", label(FileState.INDEXED, kind = Kind.OTHER))
+        val whole = "Name and what’s inside"
+        assertEquals(whole, label(FileState.INDEXED))
+        assertEquals(whole, label(FileState.INDEXED, extent = ReadExtent.WHOLE))
+        assertEquals("Name and its beginning", label(FileState.INDEXED, partial = true))
+        assertEquals("Name and its beginning", label(FileState.INDEXED, extent = ReadExtent.FIRST_PART_DEEPENING))
+        assertEquals("Name and what’s inside. Search by meaning is still to come.", label(FileState.INDEXED, extent = ReadExtent.DEEPENING))
+        assertEquals("Name and what’s inside. Search by meaning couldn’t finish.", label(FileState.INDEXED, extent = ReadExtent.MEANING_LIMITED))
+        assertEquals("Name and its beginning. The rest is not read yet.", label(FileState.PENDING, content = true))
+        assertEquals("Its name. Nothing inside could be read.", label(FileState.INDEXED, content = false))
+        assertEquals("Its name. Not read yet.", label(FileState.PENDING))
+        assertEquals("Its name. Not read yet.", label(null))
+        assertEquals("Its name. Retriever couldn’t read it after 3 tries.", label(FileState.SKIPPED))
+        assertEquals(whole, label(FileState.INDEXED, inside = false))
+        assertEquals("Its name. Reading is off for this kind of file.", label(FileState.PENDING, inside = false))
+        assertEquals("Its name. Reading is off for this kind of file.", label(FileState.SKIPPED, inside = false))
+        assertEquals("Its name. Retriever can’t look inside this kind of file yet.", label(FileState.INDEXED, kind = Kind.OTHER))
     }
 }

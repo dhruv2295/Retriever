@@ -338,7 +338,7 @@ final class SearchModel {
             try? await retriever.updatePrefs { @Sendable p in
                 p.doCopy(
                     kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging, schedule: p.schedule, readNowUntil: p.readNowUntil,
-                    nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed, excludedFolders: p.excludedFolders,
+                    excludedFolders: p.excludedFolders,
                     paused: p.paused,
                     sampleSize: p.sampleSize, allowMobileData: p.allowMobileData, rememberSearches: p.rememberSearches,
                     dynamicColor: p.dynamicColor, setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,

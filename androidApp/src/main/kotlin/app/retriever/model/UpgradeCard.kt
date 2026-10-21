@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -16,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -54,20 +56,31 @@ fun UpgradeFlow.actions(dismissible: Boolean) = UpgradeActions(
     retryTune = ::retryTune,
 )
 
-/** The offer, then the download, the tune and the meaning pass, one step at a time; nothing once done or unavailable. */
+/**
+ * The offer, then the download, the tune and the meaning pass, one step at a time; nothing once done or unavailable.
+ * [compact]: Home's optional row, flat and with a tonal Download, so it never reads as something you must do.
+ */
 @Composable
-fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Modifier) {
+fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Modifier, compact: Boolean = false) {
     if (ui.stage == UpgradeStage.UNAVAILABLE || ui.stage == UpgradeStage.DONE) return
     val context = LocalContext.current
     val size = Format.downloadSize(context, ui.sizeBytes)
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = modifier.fillMaxWidth()) {
+    Surface(
+        color = if (compact) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = modifier.fillMaxWidth(),
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (ui.stage) {
                 UpgradeStage.OFFER -> {
                     Title(Words.UPGRADE_TITLE)
                     Text(Words.upgradeBody(size, DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = actions.download) { Text(Words.DOWNLOAD) }
+                        if (compact) {
+                            FilledTonalButton(onClick = actions.download) { Text(Words.DOWNLOAD) }
+                        } else {
+                            Button(onClick = actions.download) { Text(Words.DOWNLOAD) }
+                        }
                         actions.notNow?.let { TextButton(onClick = it) { Text(Words.NOT_NOW) } }
                     }
                 }
@@ -103,14 +116,20 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
             }
         }
     }
-    if (ui.askMobileData) {
-        AlertDialog(
-            onDismissRequest = actions.waitForWifi,
-            title = { Text(Words.mobileDataAsk(size)) },
-            confirmButton = { TextButton(onClick = actions.useMobileData) { Text(Words.DOWNLOAD) } },
-            dismissButton = { TextButton(onClick = actions.waitForWifi) { Text(Words.WAIT_FOR_WIFI) } },
-        )
-    }
+    MobileDataAsk(ui, actions)
+}
+
+/** Download on mobile data? Asked wherever the download starts, the card's button or a status line's Try again. */
+@Composable
+fun MobileDataAsk(ui: UpgradeUi, actions: UpgradeActions) {
+    if (!ui.askMobileData) return
+    val size = Format.downloadSize(LocalContext.current, ui.sizeBytes)
+    AlertDialog(
+        onDismissRequest = actions.waitForWifi,
+        title = { Text(Words.mobileDataAsk(size)) },
+        confirmButton = { TextButton(onClick = actions.useMobileData) { Text(Words.DOWNLOAD) } },
+        dismissButton = { TextButton(onClick = actions.waitForWifi) { Text(Words.WAIT_FOR_WIFI) } },
+    )
 }
 
 @Composable

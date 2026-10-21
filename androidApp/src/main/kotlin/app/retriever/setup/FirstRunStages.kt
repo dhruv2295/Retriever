@@ -60,7 +60,8 @@ import app.retriever.ui.components.kindIcon
 @Composable
 internal fun ColumnScope.Welcome(ui: SetupUi, allFilesOff: Boolean, actions: SetupActions) {
     Text(Words.WELCOME_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-    Text(Words.welcomeBody(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyLarge)
+    Text(Words.WELCOME_BODY, style = MaterialTheme.typography.bodyLarge)
+    Text(Words.nothingSent(DeviceWords.ANDROID), style = MaterialTheme.typography.titleMedium)
     WelcomeExamples(ui.textOnly)
     if (ui.access.allFiles) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -123,7 +124,8 @@ internal fun SampleStage(ui: SetupUi, taste: TasteProgress, actions: SetupAction
     // The plan's progress per kind is said, not drawn.
     val spoken = (listOf(Words.SAMPLE_TITLE) + taste.byKind.map { (k, n) -> Words.kindRead(n.first.toLong(), n.second.toLong(), k) }).joinToString(", ")
     // Picking until there is a plan and a first file read; then what is read of the plan.
-    val count = if (planned == 0L || (taste.read == 0 && taste.pending > 0)) Words.SAMPLE_PICKING else Words.readOf(taste.read.toLong(), planned)
+    val starting = planned == 0L || (taste.read == 0 && taste.pending > 0)
+    val count = if (starting) Words.SAMPLE_PICKING else Words.readOf(taste.read.toLong(), planned, taste.pending.toLong())
     val kinds = (taste.byKind.keys.toList() + listOf(Kind.PHOTO, Kind.PDF, Kind.DOC)).distinct().take(3)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text(
@@ -137,19 +139,39 @@ internal fun SampleStage(ui: SetupUi, taste: TasteProgress, actions: SetupAction
         )
         // A new pile at the first delivery, so the files already read then never replay.
         key(ui.sample == null) {
-            SamplePile(SamplePile.shown(ui.sample.orEmpty()), kinds, reduceMotion, count, Words.seeAll(planned), actions.seeAll.takeIf { planned > 0 })
+            SamplePile(
+                SamplePile.shown(ui.sample.orEmpty()),
+                kinds,
+                reduceMotion,
+                count,
+                Words.seeAll(planned, taste.pending.toLong()),
+                actions.seeAll.takeIf {
+                    planned >
+                        0
+                },
+            )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(count, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+            // The picking sentence's height is held throughout, so the shorter count never pulls the group up.
+            Box(contentAlignment = Alignment.BottomCenter) {
+                for (text in setOf(Words.SAMPLE_PICKING, count)) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        modifier = if (text == count) Modifier else Modifier.alpha(0f).clearAndSetSemantics {},
+                    )
+                }
+            }
             // The count line says it; the bar fills when nothing is left, Name only files included. At 0 before the plan.
             LinearProgressIndicator(
                 progress = { if (planned > 0) (planned - taste.pending).toFloat() / planned else 0f },
                 modifier = Modifier.fillMaxWidth().clearAndSetSemantics {},
             )
         }
-        // One muted slot, two lines held: a stop's reason, else the note, else nothing.
+        // One muted slot, two lines held: done, else a stop's reason, else the note, else nothing.
         val note = when {
-            taste.pending == 0 && planned > 0 -> null
+            taste.pending == 0 && planned > 0 -> Words.SAMPLE_DONE
             ui.pauseReason != null -> ui.pauseReason
             else -> Words.sampleNote(ui.reading, taste.readyToTry, taste.secondsLeft)
         }
@@ -162,7 +184,7 @@ internal fun SampleStage(ui: SetupUi, taste: TasteProgress, actions: SetupAction
         )
         // Laid out before the plan too, so it never pushes the group when it appears.
         val seeAll = Modifier.then(if (planned > 0) Modifier else Modifier.alpha(0f).clearAndSetSemantics {})
-        TextButton(onClick = actions.seeAll, enabled = planned > 0, modifier = seeAll) { Text(Words.seeAll(planned)) }
+        TextButton(onClick = actions.seeAll, enabled = planned > 0, modifier = seeAll) { Text(Words.seeAll(planned, taste.pending.toLong())) }
     }
 }
 

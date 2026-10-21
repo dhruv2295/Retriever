@@ -155,6 +155,33 @@ extension AppModel {
         snap?.prefs.map { UpgradePolicy.shared.showOnHome(stage: upgrade, prefs: $0) } ?? false
     }
 
+    /// The download or its tune as the status line says it (core's `line`); nil when neither is under way.
+    var downloadState: DownloadState? {
+        let size = Copy.downloadSize(snap?.downloadBytes ?? 0)
+        switch upgrade {
+        case .download:
+            let percent = download == .downloading ? KotlinInt(int: Int32((min(max(downloadProgress, 0), 1) * 100).rounded())) : nil
+            let failed = if case .failed = download { true } else { false }
+            return DownloadState(percent: percent, stopped: failed || download == .waitingForWifi, size: size, settingUp: false)
+        case .tune: return DownloadState(percent: nil, stopped: tune == .failed, size: size, settingUp: true)
+        default: return nil
+        }
+    }
+
+    /// Photos, or a folder picked in Files: with neither, Retriever can't see any files.
+    var hasAccess: Bool { ![.denied, .restricted].contains(photos) || !folders.isEmpty }
+
+    /// The one status line, for Home, Reading status and Settings.
+    func statusLine(_ s: Snap?) -> ReadingStatus? { Copy.homeStatus(s, hasAccess: hasAccess, download: downloadState) }
+
+    /// The status line's Stop during Read for 15 minutes.
+    func endReadNow() {
+        Task {
+            try? await services?.retriever.endReadNowSession()
+            wake()
+        }
+    }
+
     /// Download, or Try again: the platform's background download; the tune follows once it is checked.
     func downloadModel() {
         guard let services else { return }

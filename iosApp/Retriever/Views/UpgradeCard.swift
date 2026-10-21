@@ -35,8 +35,13 @@ struct UpgradeCard: View {
         // Side by side, stacked at accessibility sizes rather than cut short; AnyLayout keeps the buttons' identity.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
         layout {
-            Button(Words.shared.DOWNLOAD, action: model.downloadModel).buttonStyle(.primaryAction)
-            if compact { Button(Words.shared.NOT_NOW, action: model.dismissUpgradeOffer).buttonStyle(.bordered) }
+            // Compact (Home, Try) is optional, so its Download is never the strongest button on screen.
+            if compact {
+                Button(Words.shared.DOWNLOAD, action: model.downloadModel).buttonStyle(.bordered)
+                Button(Words.shared.NOT_NOW, action: model.dismissUpgradeOffer).buttonStyle(.borderless)
+            } else {
+                Button(Words.shared.DOWNLOAD, action: model.downloadModel).buttonStyle(.primaryAction)
+            }
         }
     }
 

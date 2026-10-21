@@ -203,6 +203,18 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         indexNow()
     }
 
+    /** Read for 15 minutes, from Home's line, Reading status or Settings: core's line says so from the tap. */
+    suspend fun readNow() {
+        retriever.readNow()
+        indexNow()
+    }
+
+    /** Stop on a Read for 15 minutes: the running batch stops within one file, and the person's own schedule takes over. */
+    suspend fun endReadNow() {
+        retriever.endReadNowSession()
+        restart()
+    }
+
     internal companion object {
         const val TRIAL = "trial"
         const val NOW = "index-now"

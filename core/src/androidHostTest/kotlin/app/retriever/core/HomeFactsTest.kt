@@ -56,6 +56,17 @@ class HomeFactsTest {
         assertEquals(listOf("p.jpg", "v.mp4"), h.newMedia.map { it.name })
         assertEquals(listOf("s.png"), h.newShots.map { it.name })
         assertEquals(listOf("a.pdf"), h.newDocs.map { it.name })
+        assertEquals(listOf("a.pdf", "p.jpg", "v.mp4", "s.png"), h.recentlyAdded.map { it.name }, "one strip, newest first")
+        assertEquals(
+            listOf(
+                BrowseKind("Photos", listOf(Kind.PHOTO), 1),
+                BrowseKind("Videos", listOf(Kind.VIDEO), 1),
+                BrowseKind("Screenshots", listOf(Kind.SCREENSHOT), 1),
+                BrowseKind("Documents", listOf(Kind.DOC, Kind.PDF), 1),
+            ),
+            h.browse,
+            "no Other files, no empty Audio",
+        )
         assertEquals(listOf("a.pdf"), h.starred.map { it.name })
         assertEquals(1L, h.starredCount)
         assertTrue(f.r.starredFiles().any { it.file.uri == other.uri }, "the full Starred list still holds it")

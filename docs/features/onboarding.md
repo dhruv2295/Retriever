@@ -9,7 +9,8 @@ First run, with no download: a welcome that asks for access in one decision (And
 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`, or a "Choose what to include" sheet; iOS: "Search all your photos"
 through `PHPhotoLibrary`, or "Add folders from Files"; "Continue" when access is already there), a short read of a
 planned few files shown as the retriever's pile of real previews, a "try it" screen that runs the real search, and a
-choice of when to read the rest. "Go to Home" (and "Search by name") leaves setup for good, once access is chosen, with
+choice of when to read the rest ("Choose when to read": While charging, Also on battery, When I start it). "Skip for
+now" (`Words.GO_TO_HOME`, and "Skip the quick try") leaves setup for good, once access is chosen, with
 the sample still reading. The model download and tune are not part of first run; they are the separate upgrade, "Search by meaning and
 what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)), offered after the person has searched.
 
@@ -29,7 +30,11 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   a stored mark this version dropped (`STARTED`) reads as `NONE` and returns to the welcome.
 - **The pile.** `Retriever.sampleFiles()` emits every planned file as a `SampleFile` (plan index, read, coverage note) in
   plan order; `SamplePile.shown` keeps the last 12 read, placed at Gallery's angles and offsets in a fixed 224 dp
-  square. It is one accessibility element (the count, with See all as its action). Only a new card moves: it settles
+  square. It is one accessibility element (the count, with See all as its action). The count says "79 files read"
+  and See all says "See the files" while files are still pending, since the plan can still shrink; "84 of 86 files
+  read" and "See all 86 files" only once it can't, so a total never drops on screen. The count line holds the height
+  of the picking sentence ("Trying a few of your recent files to show you how it works…") throughout and sits on the
+  bar, so the group never moves between picking, reading and done; done says "All done. Now try finding something." Only a new card moves: it settles
   from above with a spring, and appears in place under Reduce Motion. Mood, the time line and the freeze follow one
   predicate: reading while the index runs, `ReadingStatus.pause` is null and files are pending. `pause` is set for stop
   phases only, so "Up to date" never shows before reading starts.
@@ -42,8 +47,8 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   are the ones in `search-ui.md`; nothing is faked. Names match across the whole library; words and meaning only inside
   the sample ("Searching every file’s name, and inside the {C} files read so far.", `Words.searchingTry`, where C is
   `TasteProgress.read`).
-- **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE` and leaves a commit
-  card on Home. A returning user (no plan) never sees the sample.
+- **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE`, and Home's status line
+  offers "Choose when to read" (the same sheet). A returning user (no plan) never sees the sample.
 - **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`
   when paused.
 
@@ -51,13 +56,13 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
 
 - **Content-derived suggestions.** `Retriever.suggestions(fileIds)` returns exactly three TF-IDF terms or recurring two-word phrases from read files'
   `content_text`, against the whole read set. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
-  With fewer than three, it returns none and try-it shows preview tiles instead. The same shared method feeds Home; no fixed phrases are used.
+  With fewer than three, it returns none and try-it shows preview tiles instead. The same shared method feeds the search bar's "Try:" suggestions when there is no history; no fixed phrases are used.
   `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer; document tiles show a real picture where the platform makes one (iOS Quick Look; an Android provider's thumbnail), else on Android a paper card badged with the file's extension (`DocCard`), never extracted text (`try-previews.md`).
 - **Layout.** Try's grid is the shared `FileTile` at one computed size: four cells per row on Android (two past font
   scale 1.3), cell size rounded down to whole pixels so rows never break early, and four flexible columns on iOS. Kind
   pills wrap, and the ready action stays in the bottom inset.
 - **No hours estimate.** `ESTIMATE_CALIBRATED = false` in `Estimate.kt`. While false, `Format` and Home show the fallback
-  copy ("Reading the other N takes hours; Retriever measures this phone as it goes", `Format.restSentence`) and `HomeUi.estimate` is `null`.
+  copy and no figure.
   It turns on after WP-P1: a full read timed on a device against its own short read, then `ESTIMATE_LOW` and
   `ESTIMATE_HIGH` set from the measured ratio (widened 10 % each side for a single device) and the flag flipped.
   iOS states no night count until a background run has been measured.

@@ -80,7 +80,8 @@ private struct WelcomeStep: View {
         StepPage {
             MascotView(mood: .welcome, settles: false).frame(width: 260).frame(maxWidth: .infinity)
             Text(Words.shared.WELCOME_TITLE).font(.title.bold()).accessibilityAddTraits(.isHeader)
-            Text(Words.shared.welcomeBody(words: Copy.words))
+            Text(Words.shared.WELCOME_BODY)
+            Text(Words.shared.nothingSent(words: Copy.words)).font(.headline)
             if let snap = model.snap, snap.textOnly {
                 Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words))
             }
@@ -130,12 +131,13 @@ private struct SampleStep: View {
         let planned = Int64(taste.planned)
         // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
         let starting = planned == 0 || (taste.read == 0 && taste.pending > 0)
-        let count = starting ? Words.shared.SAMPLE_PICKING : Words.shared.readOf(read: Int64(taste.read), planned: planned)
+        let count = starting ? Words.shared.SAMPLE_PICKING : Words.shared.readOf(read: Int64(taste.read), planned: planned, pending: Int64(taste.pending))
         // One muted slot: why it stopped, else the time and whether search can be tried, else nothing.
         let note =
             pause
             ?? Words.shared.sampleNote(
                 reading: reading, readyToTry: taste.readyToTry, secondsLeft: taste.secondsLeft.map { KotlinInt(int: Int32($0)) })
+            ?? (planned > 0 && taste.pending == 0 ? Words.shared.SAMPLE_DONE : nil)
         // Every row is laid out from the first frame, before the plan too, so the centred group never moves.
         StepPage(alignment: .center) {
             MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160)
@@ -144,12 +146,17 @@ private struct SampleStep: View {
                 .accessibilityValue(taste.spoken)
             SamplePileView(
                 cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
-                hint: Words.shared.seeAll(files: planned), seeAll: planned > 0 ? { seeingAll = true } : nil
+                hint: Words.shared.seeAll(files: planned, pending: Int64(taste.pending)), seeAll: planned > 0 ? { seeingAll = true } : nil
             )
             // A new pile at the first delivery: the files read by then are there from its start, so they never settle again.
             .id(model.sample == nil)
             VStack(spacing: 8) {
-                Text(count).monospacedDigit()
+                // The picking sentence's height is held throughout, so the shorter count never pulls the group up.
+                ZStack(alignment: .bottom) {
+                    Text(Words.shared.SAMPLE_PICKING).hidden()
+                    Text(count).monospacedDigit()
+                }
+                .multilineTextAlignment(.center)
                 // Fills when every planned file is done, read or not; the line above counts the read ones.
                 ProgressView(value: Double(taste.planned - taste.pending), total: Double(max(taste.planned, 1))).accessibilityHidden(true)
             }
@@ -160,7 +167,7 @@ private struct SampleStep: View {
             }
             .font(.subheadline)
             .fixedSize(horizontal: false, vertical: true)
-            let seeAll = Button(Words.shared.seeAll(files: planned)) { seeingAll = true }
+            let seeAll = Button(Words.shared.seeAll(files: planned, pending: Int64(taste.pending))) { seeingAll = true }
             if planned > 0 { seeAll } else { seeAll.hidden() }
         } actions: {
             Button {
@@ -277,7 +284,9 @@ private struct SampleList: View {
         AppStack(model: model, path: $path) {
             // It lists every planned file, read or not, so it says how many are read.
             SampleRows(sample: sample)
-                .navigationTitle(Words.shared.readOf(read: Int64(sample.filter(\.read).count), planned: Int64(sample.count)))
+                .navigationTitle(
+                    Words.shared.readOf(read: Int64(sample.filter(\.read).count), planned: Int64(sample.count), pending: Int64(model.taste.pending))
+                )
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -357,7 +366,7 @@ private struct ChooseStep: View {
         NavigationStack {
             ScrollView {
                 ReadingChoice(
-                    files: model.snap?.waiting, charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
+                    charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
                     notNow: model.decideLater
                 )
                 .padding(24)

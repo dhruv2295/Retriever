@@ -29,7 +29,6 @@ import app.retriever.R
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Words
-import app.retriever.ui.Format
 
 object Notifications {
     const val CHANNEL = "indexing"
@@ -37,7 +36,7 @@ object Notifications {
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL, "Reading progress", NotificationManager.IMPORTANCE_LOW)
             .apply {
-                description = "Progress for reading sessions and a one-time sample-ready update."
+                description = "Shows how far reading has got, and once when your sample is ready to try."
                 setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
@@ -46,10 +45,8 @@ object Notifications {
     }
 
     fun progress(context: Context, counts: ReadingProgress, status: ReadingStatus?, cancel: PendingIntent): Notification {
-        val scope = if (counts.sample) "sample " else ""
-        val text = "${Format.count(
-            counts.contentRead,
-        )} ${scope}files read · ${Format.count(counts.scheduled)} ${if (counts.sample) "sample files " else ""}waiting"
+        // The status line's own words: its detail, else what is read so far.
+        val text = status?.detail ?: Words.readCount(counts.contentRead)
         return NotificationCompat.Builder(context, CHANNEL)
             .setContentTitle(status?.title ?: "Starting reading…")
             .setContentText(text)
@@ -61,7 +58,7 @@ object Notifications {
             .setPublicVersion(publicVersion(context))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openApp(context, status = true))
-            .addAction(0, "Pause reading", cancel)
+            .addAction(0, "Pause", cancel)
             .build()
     }
 
@@ -70,7 +67,7 @@ object Notifications {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (files <= 0 || !manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle("Try searching inside your files")
+            .setContentTitle("Ready to try")
             .setContentText("${Words.readCount(files.toLong())}. Open Retriever to try it.")
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)

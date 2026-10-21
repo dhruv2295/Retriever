@@ -13,8 +13,6 @@ data class Prefs(
     val onlyWhileCharging: Boolean = true,
     val schedule: ReadingSchedule? = null,
     val readNowUntil: Long = 0,
-    val nameSearchHintDismissed: Boolean = false,
-    val scheduleOfferDismissed: Boolean = false,
     val excludedFolders: Set<String> = emptySet(),
     /** Set by the user's Pause; no indexing runs until "Index now". */
     val paused: Boolean = false,

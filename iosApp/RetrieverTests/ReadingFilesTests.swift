@@ -24,6 +24,14 @@ final class ReadingFilesTests: XCTestCase {
         XCTAssertNil(StatusContent.reason(detail: nil, lastError: nil, message: nil))
     }
 
+    /// Recently read shifted every tile one place per file read; now what is on screen stays and new files join the end.
+    func testRecentlyReadKeepsItsTilesInPlaceAsFilesAreRead() {
+        let first = RecentlyRead.held([], [file(3), file(2), file(1)])
+        XCTAssertEqual(first.map(\.uri), ["demo:3", "demo:2", "demo:1"], "newest first when it appears")
+        let next = RecentlyRead.held(first, [file(5), file(4), file(3), file(2)])
+        XCTAssertEqual(next.map(\.uri), ["demo:3", "demo:2", "demo:1", "demo:4", "demo:5"], "the shown tiles never move")
+    }
+
     /// Reading status's dog walked ten seconds then held still for fifty, Home's cadence; there it walks while reading runs.
     func testReadingStatusKeepsTheDogWalkingWhileReadingRuns() {
         let walk = MascotDirector.shared.next(mood: .walking, last: nil, onScreen: 0, settles: StatusContent.dogSettles)

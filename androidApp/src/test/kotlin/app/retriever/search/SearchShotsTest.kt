@@ -21,10 +21,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import app.retriever.ShotTheme
+import app.retriever.core.DeviceWords
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
 import app.retriever.core.ReadExtent
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SourceFile
@@ -83,10 +85,14 @@ class SearchShotsTest {
         suggestions = listOf("wifi password", "electricity bill", "notes from the meeting"),
     )
 
+    /** Core's live status for [index], as Home gets it; Home shows no reading line before it arrives. */
+    private fun HomeUi.live(index: IndexState) =
+        copy(readingStatus = ReadingPolicy.decide(progress, index.lastStop, index.running, index.currentFile != null, DeviceWords.ANDROID))
+
     @Composable
     @NonRestartableComposable
     private fun Screen(ui: SearchUi, home: HomeUi, index: IndexState, actions: SearchActions) =
-        SearchContent(ui, home, actions) { padding, state, side, fill -> HomeBody(home, index, ui.recent, actions, {}, {}, state, padding, side, fill) }
+        SearchContent(ui, home, actions) { padding, state, side, _ -> HomeBody(home, index, actions, state, padding, side) }
 
     @Composable
     @NonRestartableComposable
@@ -108,23 +114,20 @@ class SearchShotsTest {
     private fun State(state: String) {
         val none = SearchActions()
         when (state) {
-            "home" -> Screen(
-                ready,
-                readyHome,
-                IndexState(
-                    running = true,
-                    pendingAtStart = 2_400,
-                    etaMinutes = 95,
-                    currentFile = SourceFile("demo:active", "active", "", "text/plain", Kind.DOC, 1, 1),
-                ),
-                none,
-            )
+            "home" -> IndexState(
+                running = true,
+                pendingAtStart = 2_400,
+                etaMinutes = 95,
+                currentFile = SourceFile("demo:active", "active", "", "text/plain", Kind.DOC, 1, 1),
+            ).let { Screen(ready, readyHome.live(it), it, none) }
 
-            "home_stopped" -> Screen(ready, readyHome, IndexState(lastStop = StopReason.UNPLUGGED), none)
+            "home_stopped" -> IndexState(lastStop = StopReason.UNPLUGGED).let { Screen(ready, readyHome.live(it), it, none) }
 
             "home_before_setup" -> Screen(SearchUi(), HomeUi(counts = emptyMap()), IndexState(), none)
 
-            "home_caught_up" -> Screen(ready, readyHome.copy(waiting = 0, contentRead = 5_330), IndexState(lastStop = StopReason.DONE), none)
+            "home_caught_up" -> IndexState(lastStop = StopReason.DONE).let {
+                Screen(ready, readyHome.copy(waiting = 0, contentRead = 5_330).live(it), it, none)
+            }
 
             "recent" -> Pane(ready.copy(recent = listOf("wifi password", "electricity bill", "passport photo")), none)
 
@@ -186,8 +189,8 @@ class SearchShotsTest {
     @Test fun homeLight() {
         shot("home", false)
         rule.onNodeWithContentDescription("Search with a photo").assertExists()
-        rule.onNodeWithText("Reading your files").assertExists()
-        rule.onNodeWithText("files read", substring = true).assertExists()
+        rule.onNodeWithText("Reading your files", substring = true).assertExists()
+        rule.onNodeWithText(Words.SEARCH_FIELD).assertExists()
     }
 
     @Test fun homeDark() = shot("home", true)
@@ -205,8 +208,7 @@ class SearchShotsTest {
 
     @Test fun homeCaughtUpKeepsAWayToStatus() {
         shot("home_caught_up", false)
-        rule.onNodeWithText("Up to date").assertExists()
-        rule.onNodeWithText("5,330 files read", substring = true).assertExists()
+        rule.onNodeWithText("All done", substring = true).assertExists()
     }
 
     @Test fun homeBeforeCountsShowsNoFirstRunMessage() {
@@ -276,6 +278,8 @@ class SearchShotsTest {
     @Test fun examplesLight() {
         shot("examples", false)
         rule.onNodeWithText("notes from the meeting").assertExists()
+        // Words from the person's own files, labelled, so they never read as random.
+        rule.onNodeWithText(Words.TRY_LABEL).assertExists()
     }
 
     @Test fun examplesDark() = shot("examples", true)
@@ -367,12 +371,12 @@ class SearchShotsTest {
 
     @Test fun resultsFirstPartLight() {
         shot("results_first_part", false)
-        rule.onAllNodesWithText("Partly read · only the beginning is included").assertCountEquals(1)
-        rule.onNodeWithText("Partly read · more meaning search to come").assertExists()
+        rule.onAllNodesWithText(Words.extent(ReadExtent.FIRST_PART)!!).assertCountEquals(1)
+        rule.onNodeWithText(Words.extent(ReadExtent.DEEPENING)!!).assertExists()
         rule.onNodeWithContentDescription(
             "Video, Birthday.mp4",
             substring = true,
-        ).assertContentDescriptionContains("Partly read · only the beginning is included", substring = true)
+        ).assertContentDescriptionContains(Words.extent(ReadExtent.FIRST_PART)!!, substring = true)
     }
 
     @Test fun resultsFirstPartDark() = shot("results_first_part", true)
@@ -386,11 +390,12 @@ class SearchShotsTest {
         rule.setContent {
             ShotTheme(false, 1f) { Pane(ready.copy(vectorLane = false, textOnly = true).answered("bill", mixedHits), SearchActions()) }
         }
-        rule.onNodeWithText(Words.WORDS_ONLY).assertExists()
+        // No "Words only" label (retired): nothing is broken, and the download hint stays for few results.
+        rule.onNodeWithText("Words only").assertDoesNotExist()
         rule.onNodeWithText("back shortly", substring = true).assertDoesNotExist()
     }
 
-    /** No model yet: "Words only", why each result matched, and under few results one line to the upgrade. */
+    /** No model yet: no "Words only" label, why each result matched, and under few results one line to the upgrade. */
     @Test fun withoutTheModelResultsSayWordsOnlyAndOfferTheUpgrade() {
         val went = mutableListOf<Route>()
         val hits = listOf(
@@ -408,7 +413,7 @@ class SearchShotsTest {
             }
         }
         rule.shot("search_words_only_light")
-        rule.onNodeWithText(Words.WORDS_ONLY).assertExists()
+        rule.onNodeWithText("Words only").assertDoesNotExist()
         rule.onNodeWithText(Words.NAME_MATCHES, substring = true).assertExists()
         rule.onNodeWithText("Matches: beach").assertExists()
         rule.onNodeWithText(Words.upgradeHint(2, UpgradeStage.OFFER)!!).performClick()

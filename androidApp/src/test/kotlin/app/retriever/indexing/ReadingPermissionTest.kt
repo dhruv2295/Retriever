@@ -52,7 +52,7 @@ class ReadingPermissionTest {
         var request: ((() -> Unit) -> Unit)? = null
         rule.setContent { request = rememberReadingPermission(retriever) }
         rule.runOnIdle { request!! {} }
-        rule.waitUntil(5_000) { rule.onAllNodesWithText("See progress", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("Show a notification while Retriever reads?").fetchSemanticsNodes().isNotEmpty() }
     }
 
     /** The first Home's ask, once the sample is read: no promise about a sample that is already done. */
@@ -87,7 +87,7 @@ class ReadingPermissionTest {
     }
 
     private companion object {
-        const val PLAIN = "See progress and pause a reading session."
+        const val PLAIN = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
         const val SAMPLE_LINE = "We can also let you know when your sample is ready."
     }
 }

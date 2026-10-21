@@ -33,13 +33,13 @@ class SampleFilesTest {
             for (f in files) {
                 val expected = when {
                     f.read -> null
-                    store.fileByUri(f.file.uri)!!.state == FileState.INDEXED -> "Name only"
-                    else -> "Waiting to read"
+                    store.fileByUri(f.file.uri)!!.state == FileState.INDEXED -> "Found by name"
+                    else -> "Not read yet"
                 }
                 assertEquals(expected, f.note, f.file.name)
             }
-            assertTrue(files.any { it.read } && files.any { it.note == "Name only" } && files.any { it.note == "Waiting to read" }, files.toString())
-            assertTrue(files.dropWhile { it.note != "Waiting to read" }.all { it.note == "Waiting to read" }, "the plan reads in order")
+            assertTrue(files.any { it.read } && files.any { it.note == "Found by name" } && files.any { it.note == "Not read yet" }, files.toString())
+            assertTrue(files.dropWhile { it.note != "Not read yet" }.all { it.note == "Not read yet" }, "the plan reads in order")
 
             // A trim drops pending files only, all after the read ones, so every read file keeps its index.
             store.setMeta(TASTE_BUDGET_KEY, "0")

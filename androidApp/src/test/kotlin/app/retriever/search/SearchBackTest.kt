@@ -58,7 +58,7 @@ class SearchBackTest {
 
     @Test fun backCollapsesAnEmptyExpandedSearch() {
         show()
-        rule.onNodeWithText("Search inside your files").performClick()
+        rule.onNodeWithText(app.retriever.core.Words.SEARCH_FIELD).performClick()
         rule.waitForIdle()
         rule.onAllNodesWithContentDescription("Back").onFirst().assertExists()
         rule.runOnIdle { back.onBackPressed() }

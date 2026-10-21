@@ -1,25 +1,20 @@
-// Home, below the search field: how reading is going, recent searches, the newest files, and every way into the rest.
-// Layout and states follow the project's home-spec (iOS parts): one inset-grouped List, a section hidden when it has
-// nothing true to say, and a real NavigationLink for the status row so it is as wide as the rows below it.
+// Home, under the search field: one status line, then Starred, Recently added, On This Day and Browse, and the optional
+// search-by-meaning offer last (clarity-proposal section 2). One inset-grouped List; a section with nothing in it is hidden.
 
 import Photos
 import RetrieverCore
 import SwiftUI
 
 struct HomeList: View {
-    let search: SearchModel
     let snap: AppModel.Snap?
     let photos: PHAuthorizationStatus
     let model: AppModel
-    let useRecent: (String) -> Void
     let addFolder: () -> Void
     /// The status row follows the model's per-file progress; a pinned `snap` (a screenshot) carries its own.
     var liveProgress = false
     @Environment(\.openFile) private var openFile
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
-
-    private static let nearlyEmpty = 50
 
     /// What On This Day was last asked for: the date, the photo count (more turn up while reading) and the setting.
     private struct MemoryKey: Hashable {
@@ -31,10 +26,10 @@ struct HomeList: View {
     var body: some View {
         List {
             if let snap {
-                HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model)
+                HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)
                 if snap.total == 0 {
                     empty(snap)
-                } else if Self.sectionsReady(model, search: search, memories: wantsMemories) {
+                } else if Self.sectionsReady(model, memories: wantsMemories) {
                     sections(snap)
                 }
             }
@@ -46,11 +41,10 @@ struct HomeList: View {
         }
     }
 
-    /// Every section comes from one of four loads that answer in no set order. Drawing as each lands put a section above
-    /// one already shown (On This Day first, then Photos and Videos above it), so they draw once all have answered, in
-    /// their fixed order; later changes update them in place.
-    static func sectionsReady(_ model: AppModel, search: SearchModel, memories: Bool) -> Bool {
-        model.home != nil && model.suggestionsLoaded && search.recentLoaded && (!memories || model.memoriesLoaded)
+    /// Home's facts and On This Day answer in no set order; drawing as each landed put a section above one already shown,
+    /// so they draw once both have answered, in their fixed order; later changes update them in place.
+    static func sectionsReady(_ model: AppModel, memories: Bool) -> Bool {
+        model.home != nil && (!memories || model.memoriesLoaded)
     }
 
     private var wantsMemories: Bool {
@@ -87,77 +81,41 @@ struct HomeList: View {
     // MARK: Sections
 
     @ViewBuilder private func sections(_ snap: AppModel.Snap) -> some View {
-        chips
-        mosaic(snap)
-        screenshots(snap)
-        documents(snap)
-        onThisDay(snap)
         starred
-        // On an iPad the sidebar holds the tiles and Tidy Up.
-        if sizeClass != .regular {
-            moreFiles(snap)
-            tidyUp
+        recentlyAdded
+        onThisDay(snap)
+        // On an iPad the sidebar holds Browse.
+        if sizeClass != .regular { browse(snap) }
+        // Only the offer: the download and its setup show in the status line.
+        if model.upgrade == .offer && model.upgradeOnHome {
+            Section {
+                UpgradeCard(model: model, compact: true)
+            } header: {
+                SectionHeader(Words.shared.OPTIONAL)
+            }
         }
-        if snap.total <= Self.nearlyEmpty { addFolderNudge }
     }
 
     private var photosOff: Bool { photos == .denied || photos == .restricted }
 
-    @ViewBuilder private var chips: some View {
-        if !search.recent.isEmpty || !model.suggestions.isEmpty {
+    @ViewBuilder private var starred: some View {
+        if let home = model.home, home.starredCount > 0, !home.starred.isEmpty {
             Section {
-                HomeChips(recent: search.recent, suggestions: model.suggestions, use: useRecent, remove: search.removeRecent)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                TileStrip(files: home.starred, starred: model.starred, badge: true, open: { openFile($0, among: home.starred) })
+            } header: {
+                SectionLink(title: "Starred", route: .files(FileQuery(title: "Starred", starredOnly: true)))
             }
         }
     }
 
-    @ViewBuilder private func mosaic(_ snap: AppModel.Snap) -> some View {
-        if !photosOff, let media = model.home?.newMedia, !media.isEmpty {
-            let photoCount = snap.byKind[.photo] ?? 0
+    @ViewBuilder private var recentlyAdded: some View {
+        // Without Photos access its pictures can't be shown; files from added folders still can.
+        let files = (model.home?.recentlyAdded ?? []).filter { !photosOff || !$0.uri.hasPrefix("ph://") }
+        if !files.isEmpty {
             Section {
-                HomeMosaic(
-                    files: media, pending: snap.accessChosen ? snap.pendingByKind[.photo] ?? 0 : 0, total: photoCount, paused: snap.paused,
-                    starred: model.starred, similar: search.similar(model.meaningSearch), open: { openFile($0, among: media) }
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
+                TileStrip(files: files, starred: model.starred, open: { openFile($0, among: files) })
             } header: {
-                SectionLink(
-                    title: "Photos and Videos", subtitle: Copy.sectionSubtitle(Copy.totals([.photo, .video], in: model.kindTotals)),
-                    route: .files(FileQuery(kind: photoCount > 0 ? .photo : .video, title: photoCount > 0 ? "Photos" : "Videos")))
-            }
-        }
-    }
-
-    @ViewBuilder private func screenshots(_ snap: AppModel.Snap) -> some View {
-        if !photosOff, let shots = model.home?.newShots, !shots.isEmpty {
-            Section {
-                ShotStrip(files: shots, starred: model.starred, similar: search.similar(model.meaningSearch), open: { openFile($0, among: shots) })
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
-                SectionLink(
-                    title: "Screenshots",
-                    subtitle: Copy.sectionSubtitle(Copy.totals([.screenshot], in: model.kindTotals), snap.kindProgress([.screenshot])),
-                    route: .files(FileQuery(kind: .screenshot, title: "Screenshots")))
-            }
-        }
-    }
-
-    @ViewBuilder private func documents(_ snap: AppModel.Snap) -> some View {
-        if let docs = model.home?.newDocs, !docs.isEmpty {
-            let pdfs = snap.byKind[.pdf] ?? 0
-            Section {
-                DocStrip(files: docs, starred: model.starred, open: { openFile($0, among: docs) })
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
-                SectionLink(
-                    title: Words.shared.documentsTitle(pdfs: Int64(pdfs), docs: Int64(snap.byKind[.doc] ?? 0)),
-                    subtitle: Copy.sectionSubtitle(Copy.totals([.pdf, .doc], in: model.kindTotals), snap.kindProgress([.pdf, .doc])),
-                    route: .files(FileQuery(kind: pdfs > 0 ? .pdf : .doc, title: pdfs > 0 ? "PDFs" : "Documents")))
+                SectionLink(title: Words.shared.RECENTLY_ADDED, route: .files(FileQuery(title: Words.shared.RECENTLY_ADDED)))
             }
         }
     }
@@ -175,70 +133,37 @@ struct HomeList: View {
         }
     }
 
-    @ViewBuilder private var starred: some View {
-        if let home = model.home, home.starredCount > 0, !home.starred.isEmpty {
+    /// Name and count only; sizes live in Settings. Documents opens whichever of PDFs and documents has more.
+    @ViewBuilder private func browse(_ snap: AppModel.Snap) -> some View {
+        if let home = model.home, !home.browse.isEmpty || home.folders > 0 {
             Section {
-                StarredStrip(files: home.starred, starred: model.starred, open: { openFile($0, among: home.starred) })
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            } header: {
-                SectionLink(title: "Starred", subtitle: Copy.count(Int(home.starredCount)), route: .files(FileQuery(title: "Starred", starredOnly: true)))
-            }
-        }
-    }
-
-    @ViewBuilder private func moreFiles(_ snap: AppModel.Snap) -> some View {
-        let tiles = HomeTile.make(snap, totals: model.kindTotals, folders: model.folderTotals, allFolders: Int(model.home?.folders ?? 0))
-        if !tiles.isEmpty {
-            Section {
-                ForEach(tiles) { tile in NavigationLink(value: tile.route) { HomeRow(icon: tile.icon, title: tile.title, detail: tile.detail) } }
-            } header: {
-                VStack(alignment: .leading, spacing: 2) {
-                    SectionHeader("More on your \(Copy.device)")
-                    Text(Words.shared.MORE_ON_PHONE_BODY).textCase(nil)
+                ForEach(home.browse, id: \.title) { group in
+                    let kind = group.kinds.max { (snap.byKind[$0] ?? 0) < (snap.byKind[$1] ?? 0) } ?? group.kinds[0]
+                    NavigationLink(value: Route.files(FileQuery(kind: kind, title: group.title))) {
+                        HomeRow(icon: Format.icon(kind), title: group.title, detail: Copy.count(Int(group.files)))
+                    }
                 }
-            }
-        }
-    }
-
-    private var addFolderNudge: some View {
-        Section {
-            Button(action: addFolder) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Retriever also searches folders you add.").font(.subheadline).foregroundStyle(.secondary)
-                    Text("Add a folder")
+                if home.folders > 0 {
+                    NavigationLink(value: Route.folders) { HomeRow(icon: "folder", title: Words.shared.ALL_FOLDERS) }
                 }
+            } header: {
+                SectionHeader(Words.shared.MORE_ON_PHONE)
             }
         }
-    }
-
-    @ViewBuilder private var tidyUp: some View {
-        Section {
-            if let large = model.home?.largeCount, large > 0 {
-                row(
-                    HomeTile.largeFiles,
-                    HomeRow(icon: "externaldrive", title: "Large files", detail: Words.shared.largeFiles(n: large)))
-            }
-            row(Route.duplicates, HomeRow(icon: "square.on.square", title: "Duplicates", detail: "Check for exact copies"))
-        } header: {
-            SectionHeader("Tidy Up")
-        }
-    }
-
-    private func row(_ route: Route, _ label: HomeRow) -> some View {
-        NavigationLink(value: route) { label }
     }
 
 }
 
-/// The status row always leads, so progress, Resume and the way to Status stay; a Photos access note follows it.
-/// Its own view, so the per-file progress it shows redraws it alone, not the list.
+/// The status line leads; a Photos access note or a failed change follows it. Its own view, so the per-file progress it
+/// shows redraws it alone, not the list.
 private struct HomeStatusSection: View {
     let snap: AppModel.Snap
     let live: Bool
     let photos: PHAuthorizationStatus
     let model: AppModel
-    @State private var asking = false
+    let addFolder: () -> Void
+
+    private static let nearlyEmpty = 50
 
     private var shown: AppModel.Snap {
         var s = snap
@@ -247,62 +172,28 @@ private struct HomeStatusSection: View {
     }
 
     var body: some View {
-        let status = Copy.homeStatus(shown)
-        // One remedy at a time: Resume while paused, else what Photos access needs.
-        let photosNote = snap.total == 0 || status?.phase == .paused ? nil : Copy.photosNote(photos)
-        if snap.libraryTotal > 0 || status != nil || photosNote != nil || snap.asksCommit || model.upgradeOnHome {
+        let status = model.statusLine(shown)
+        // One remedy at a time: Resume while paused, or no access at all, else what Photos access needs.
+        let photosNote = snap.total == 0 || status.map({ [.paused, .noAccess].contains($0.phase) }) == true ? nil : Copy.photosNote(photos)
+        let line = status.flatMap { $0.action != .dismiss || !snap.caughtUpDismissed ? $0 : nil }
+        // A nearly empty phone is nudged to add a folder, in the line's place and only when nothing else is said.
+        let nudge = line == nil && photosNote == nil && model.readingMessage == nil && snap.total > 0 && snap.total <= Self.nearlyEmpty
+        if line != nil || photosNote != nil || model.readingMessage != nil || nudge {
             Section {
-                if snap.libraryTotal > 0 {
-                    LibraryOverview(snap: snap) { reading(status) }
-                    if !snap.nameSearchHintDismissed {
-                        HStack {
-                            Text(Words.shared.NAME_SEARCH_HINT)
-                            Spacer()
-                            Button(action: model.dismissNameSearchHint) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
-                                .buttonStyle(.borderless).accessibilityLabel("Dismiss name search explanation")
-                        }
-                    }
-                } else {
-                    reading(status)
-                }
-                if model.upgradeOnHome { UpgradeCard(model: model, compact: true) }
-                if snap.asksCommit {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Search inside more files")
-                            Text("\(Copy.count(snap.waiting)) files still found by name only").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Choose when") { asking = true }.buttonStyle(.borderless)
-                        Button(action: model.dismissScheduleOffer) { Image(systemName: "xmark").frame(minWidth: 44, minHeight: 44) }
-                            .buttonStyle(.borderless).accessibilityLabel("Dismiss reading offer")
-                    }
-                    .sheet(isPresented: $asking) { CommitSheet(model: model, waiting: snap.waiting) }
-                }
+                if let line { StatusLine(status: line, model: model, dismissable: true) }
                 if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
                     if note.off { card(note, "Open Settings", model.openSettings) } else { card(note, "Choose more photos", model.chooseMorePhotos) }
                 }
-            }
-        }
-    }
-
-    private func reading(_ status: HomeStatus?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let status, status.phase != .caughtUp || !snap.caughtUpDismissed {
-                HStack {
-                    NavigationLink(value: status.phase == .settingUp ? Route.setup : Route.status) {
-                        StatusRow(status: status, due: model.caughtUpDue, celebrate: model.celebrate)
-                    }.buttonStyle(.plain)
-                    if status.phase == .caughtUp {
-                        Button(action: model.dismissCaughtUp) {
-                            Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityLabel("Dismiss reading status")
+                if nudge {
+                    Button(action: addFolder) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Retriever also searches folders you add.").font(.subheadline).foregroundStyle(Color.secondary)
+                            Text("Add a folder")
+                        }
                     }
                 }
-                if status.phase == .paused { Button("Resume reading", action: model.resume) }
             }
-
         }
     }
 
@@ -316,53 +207,57 @@ private struct HomeStatusSection: View {
     }
 }
 
-/// A section's title, in the case it was written in.
-private struct SectionHeader: View {
-    let title: String
-
-    init(_ title: String) { self.title = title }
-
-    var body: some View {
-        Text(title).textCase(nil).accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// An icon, a name and an optional second line; one element for VoiceOver.
-private struct HomeRow: View {
-    let icon: String
-    let title: String
-    var detail: String?
+/// The one status line (clarity-proposal section 3) as list rows: the dog, what is happening and one plain detail, a
+/// thin bar while reading or downloading, then its one button, spelled out, on a row of its own. On Home and in Settings
+/// the line opens Reading status (setup while setting up); Reading status shows it without the link or the small dog.
+struct StatusLine: View {
+    let status: ReadingStatus
+    let model: AppModel
+    var link = true
+    /// Home's line only: its x hides "All done" until new files come, and its dog plays the one celebration.
+    var dismissable = false
+    @State private var choosing = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).foregroundStyle(.tint).frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                if let detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+        HStack {
+            if link {
+                NavigationLink(value: status.phase == .settingUp ? Route.setup : Route.status) { row }
+            } else {
+                row
+            }
+            if dismissable && status.action == .dismiss {
+                Button(action: model.dismissCaughtUp) {
+                    Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ", "))
+        if let action = status.action, action != .dismiss {
+            if action == .continue_ {
+                NavigationLink(action.label, value: Route.setup)
+            } else {
+                Button {
+                    run(action)
+                } label: {
+                    Text(action.label).fixedSize(horizontal: false, vertical: true)
+                }
+                .sheet(isPresented: $choosing) { CommitSheet(model: model) }
+            }
+        }
     }
-}
 
-/// The status as one row: the dog, what is happening and what it means for search, then the way to Reading status.
-private struct StatusRow: View {
-    let status: HomeStatus
-    var due = false
-    var celebrate: () -> Void = {}
-
-    var body: some View {
-        HStack(spacing: 12) {
-            StatusDog(mood: mood, width: 56, icon: "checkmark.circle.fill", due: due && status.phase == .caughtUp, done: celebrate)
+    private var row: some View {
+        HStack(alignment: .top, spacing: 12) {
+            // Reading status has its own large dog.
+            if link {
+                StatusDog(
+                    mood: mood, width: 28, icon: "checkmark.circle.fill", due: dismissable && model.caughtUpDue && status.action == .dismiss,
+                    done: model.celebrate)
+            }
             VStack(alignment: .leading, spacing: 4) {
-                Text(status.title)
-                    .monospacedDigit().multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                Text(status.title).font(.headline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
                 if let detail = status.detail { Note(detail) }
-                // One remedy at a time, as on Android: Resume while paused, Dismiss when caught up, and setting up leads
-                // back to setup's access step; the whole row still opens Reading status.
-                if ![.settingUp, .paused, .caughtUp].contains(status.phase) {
-                    Text(Words.shared.READING_STATUS).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true)
+                if let percent = status.percent, status.active || status.phase == .downloading {
+                    ProgressView(value: Double(percent.intValue), total: 100).accessibilityHidden(true)
                 }
             }
         }
@@ -370,12 +265,58 @@ private struct StatusRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Walking while files are read, resting otherwise; "all caught up" plays its pose once, then keeps a check.
+    /// Walking while files are read, resting otherwise; "all done" plays its pose once, then keeps a check.
     private var mood: MascotMood? {
-        switch status.phase {
-        case .reading, .looking: .walking
-        case .caughtUp: nil
-        default: .resting
+        if status.active || status.phase == .looking { return .walking }
+        return status.action == .dismiss ? nil : .resting
+    }
+
+    private func run(_ action: StatusAction) {
+        switch action {
+        case .allowAccess: model.openSettings()
+        case .chooseWhen: choosing = true
+        case .readFor15: model.readNow()
+        case .stop: if status.phase == .downloading { model.cancelDownload() } else { model.endReadNow() }
+        case .resume: model.resume()
+        case .tryAgain: if status.phase == .tuning { model.retryTune() } else { model.downloadModel() }
+        default: break
         }
+    }
+}
+
+/// A section's title, in the case it was written in.
+struct SectionHeader: View {
+    let title: String
+
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        // As Home's other headers: full contrast, not the list's grey.
+        Text(title).font(.title3.bold()).foregroundStyle(Color.primary).textCase(nil).accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// An icon, a name and an optional count; one element for VoiceOver. At accessibility sizes the count goes under the
+/// name, so neither breaks mid-word; Label scales the icon with the text.
+private struct HomeRow: View {
+    let icon: String
+    let title: String
+    var detail: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Label {
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout())
+            layout {
+                Text(title).layoutPriority(1)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                // Primary, as the app's notes are: secondary grey fails contrast on the grouped rows.
+                if let detail { Text(detail).monospacedDigit() }
+            }
+        } icon: {
+            Image(systemName: icon).foregroundStyle(.tint)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ", "))
     }
 }

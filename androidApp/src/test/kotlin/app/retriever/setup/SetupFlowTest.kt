@@ -9,13 +9,16 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.CoreDispatchers
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.ReadingPhase
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.Retriever
 import app.retriever.core.SetupMark
 import app.retriever.core.SetupStage
+import app.retriever.core.StopReason
 import app.retriever.core.UpgradeStage
 import app.retriever.indexing.IndexService
 import app.retriever.model.ModelDownload
@@ -147,7 +150,7 @@ class SetupFlowTest {
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         r.pause()
-        assertEquals("Reading paused", f.ui.first { it.pauseReason != null }.pauseReason)
+        assertEquals(ReadingPolicy.stopCopy(StopReason.PAUSED, DeviceWords.ANDROID), f.ui.first { it.pauseReason != null }.pauseReason)
         r.resume()
         // Resumed with nothing to read: a quiet phase with a title, which the old rule showed as a pause.
         val quiet = r.readingStatus().first { it.phase != ReadingPhase.PAUSED }

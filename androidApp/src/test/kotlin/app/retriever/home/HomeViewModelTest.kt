@@ -144,30 +144,13 @@ class HomeViewModelTest {
         assertEquals(2, r.starredFiles().size)
     }
 
-    @Test fun unchangedListsKeepTheirInstances() {
-        val docs = pdfs
-        val old = HomeFacts(photos, emptyList(), docs, emptyList(), 0, 1, 0, 0)
-        // A refresh builds equal lists as new objects; only a list that really changed is replaced.
-        val fresh = HomeFacts(photos.toList(), emptyList(), docs.toList(), listOf(photos[0]), 1, 1, 0, 0).reusing(old)
-        assertSame(old.newMedia, fresh.newMedia)
-        assertSame(old.newDocs, fresh.newDocs)
+    @Test fun unchangedFactsKeepTheirInstance() {
+        val old = HomeFacts(photos, emptyList(), pdfs, emptyList(), 0, 1, 0, 0)
+        // A refresh builds equal facts as new objects; only facts that really changed are replaced.
+        assertSame(old, HomeFacts(photos.toList(), emptyList(), pdfs.toList(), emptyList(), 0, 1, 0, 0).reusing(old))
+        val fresh = HomeFacts(photos.toList(), emptyList(), pdfs.toList(), listOf(photos[0]), 1, 1, 0, 0).reusing(old)
         assertEquals(listOf(photos[0]), fresh.starred)
         assertEquals(1L, fresh.starredCount)
-    }
-
-    @Test fun readinessSaysWhereAKindStands() {
-        val ui = HomeUi(
-            counts = mapOf(Kind.PHOTO to 100L, Kind.PDF to 10L, Kind.DOC to 5L, Kind.OTHER to 3L),
-            waiting = 40,
-            pending = mapOf(Kind.PHOTO to 40L),
-            inside = Kind.entries.toSet() - Kind.DOC,
-        )
-        assertEquals("40 waiting to read", ui.readiness(Kind.PHOTO))
-        assertEquals(null, ui.readiness(Kind.PDF))
-        assertEquals(null, ui.readiness(Kind.PDF, Kind.DOC))
-        assertEquals("Name only", ui.readiness(Kind.DOC))
-        assertEquals("Name only", ui.readiness(Kind.OTHER))
-        assertEquals("100 waiting to read", ui.copy(pending = mapOf(Kind.PHOTO to 100L)).readiness(Kind.PHOTO))
     }
 
     @Test fun starredFilesAreCounted() = runTest {
@@ -216,14 +199,15 @@ class HomeViewModelTest {
     }
 
     /** Every section's source answers before any section draws, so none is later inserted above another. */
-    @Test fun sectionsWaitForTheFactsTheSuggestionsAndOnThisDay() = runTest {
+    @Test fun sectionsWaitForTheFactsAndOnThisDay() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         assertFalse(vm.ui.value.sectionsReady)
         vm.now = { ZonedDateTime.now() }
         vm.onResume()
         val ui = vm.ui.first { it.sectionsReady }
-        assertTrue(ui.home != null && ui.suggestions != null && ui.memoriesDay != null)
+        // The suggestions live in the search bar now, so Home's sections don't wait for them.
+        assertTrue(ui.home != null && ui.memoriesDay != null)
     }
 
     /** A read that fails is logged and skipped, never thrown into Home's scope; the suggestions answer none, so Home draws. */

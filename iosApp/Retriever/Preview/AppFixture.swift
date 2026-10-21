@@ -19,6 +19,10 @@ enum AppFixture {
     case waitingForWifi, downloadFailed, tuning
     case meaning(Int)
     case reading(done: Int, total: Int)
+    /// Home's status line (clarity-proposal section 3): reading while plugged in, waiting to be plugged in, plugged in
+    /// but charging up first, Read for 15 minutes, the meaning pass after the download, the first day (found by name
+    /// only), and no access at all (Photos off, no folder).
+    case readingWhileCharging, unplugged, chargingUp, readNow, meaningPass, firstDay, lostAccess
     case caughtUp, paused
     case skipped(Int)
     case noAccess
@@ -62,7 +66,7 @@ extension AppModel {
                     .photo: .init(read: read - screenshots - pdfs, planned: 40),
                 ], readyToTry: read >= 30, pending: 54 - read)
             sample = (1...54).map {
-                SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Waiting to read")
+                SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Not read yet")
             }
             snap.reading = ReadingPreview(current: done ? nil : files[0], recent: read == 0 ? [] : Array(files.dropFirst()))
         }
@@ -70,7 +74,40 @@ extension AppModel {
         func withoutModel(_ state: (ModelDownload.State, Double)) {
             (snap.setUp, modelMissing, download, tune) = (false, true, state, .idle)
         }
+        /// Partway through reading the whole phone, as `.reading` is.
+        func midway(running: Bool) {
+            (snap.indexed, snap.pending, snap.running, snap.lastStop) = (1_204, 4_106, running, nil)
+            snap.pendingByKind = [.photo: 4_106]
+            snap.reading = ReadingPreview(current: running ? files[0] : nil, recent: Array(files.dropFirst()))
+        }
+        /// Pins core's decision for a state the snapshot alone can't say (plugged in, minutes of Read for 15 left).
+        func decided(_ blocker: StopReason?, minutes: Int32 = 0, pluggedIn: Bool = false) {
+            snap.readingStatus = ReadingPolicy.shared.decide(
+                progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
+                readNowMinutes: minutes, pluggedIn: pluggedIn, mark: ReadMark(percent: 0, files: 0))
+        }
         switch fixture {
+        case .readingWhileCharging:
+            midway(running: true)
+            decided(nil, pluggedIn: true)
+        case .unplugged:
+            midway(running: false)
+            snap.lastStop = .unplugged
+            decided(.unplugged)
+        case .chargingUp:
+            midway(running: false)
+            snap.lastStop = .chargingUp
+            decided(.chargingUp, pluggedIn: true)
+        case .readNow:
+            midway(running: true)
+            decided(nil, minutes: 12)
+        case .meaningPass:
+            (snap.meaningWaiting, snap.running, snap.lastStop) = (1_204, true, nil)
+            snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
+        case .firstDay:
+            (snap.indexed, snap.waiting, snap.trial, snap.lastStop) = (0, 3_142, true, nil)
+        case .lostAccess:
+            (photos, folders, snap.byKind, snap.indexed) = (.denied, [], [.pdf: 12, .doc: 9], 21)
         case .firstRun: inSetup(.notDetermined)
         case .photosLimited: inSetup(.limited)
         case .photosDenied: inSetup(.denied)
@@ -147,12 +184,6 @@ extension AppModel {
             file("Electricity bill October.pdf", .pdf, "Retriever/Download", size: 340_000, daysAgo: 1),
             file("Trip itinerary.docx", .doc, "Retriever/Documents", size: 88_000, daysAgo: 14),
         ]
-        home = HomeFacts(
-            newMedia: [],
-            newShots: (1...6).map { file("Screenshot \($0).png", .screenshot, "Photos/Screenshots", size: 400_000, daysAgo: Double($0)) },
-            newDocs: docs,
-            starred: [docs[0], docs[2]], starredCount: 2,
-            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, topFolders: [], kindTotals: [:], folderTotals: [])
         // Photos never says a size on iOS; folder files do.
         kindTotals = snap.byKind.filter { $0.value > 0 }.mapValues { n in
             FileTotals(files: Int64(n), knownBytes: 0, unknownSizes: Int64(n))
@@ -164,10 +195,15 @@ extension AppModel {
             FolderTotals(path: "Retriever/Download", totals: FileTotals(files: 64, knownBytes: 120_000_000, unknownSizes: 0)),
             FolderTotals(path: "Retriever/Documents", totals: FileTotals(files: 31, knownBytes: 8_400_000, unknownSizes: 0)),
         ]
+        home = HomeFacts(
+            newMedia: (1...4).map { file("Photo \($0).jpg", .photo, "Photos", size: 2_400_000, daysAgo: Double($0) / 2) },
+            newShots: (1...3).map { file("Screenshot \($0).png", .screenshot, "Photos/Screenshots", size: 400_000, daysAgo: Double($0)) },
+            newDocs: docs,
+            starred: [docs[0], docs[2]], starredCount: 2,
+            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, kindTotals: kindTotals, folderTotals: [])
         storage = Storage(index: 412_000_000, model: ModelVariant.m440.generic.sizeBytes, cache: 38_000_000)
         starred = ["folder://fixture/Lease agreement 2026.pdf", "folder://fixture/Trip itinerary.docx"]
         self.suggestions = suggestions
-        suggestionsLoaded = true
         trySuggestions = suggestions
     }
 
@@ -190,8 +226,8 @@ extension AppModel {
     /// Prefs as a fresh install keeps them, with a first search made.
     private static func prefs(searchTried: Bool) -> Prefs {
         Prefs(
-            kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, readNowUntil: 0, nameSearchHintDismissed: false,
-            scheduleOfferDismissed: false, excludedFolders: [], paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
+            kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, readNowUntil: 0, excludedFolders: [],
+            paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false)
     }

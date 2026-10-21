@@ -54,7 +54,7 @@ enum IndexTask {
     /// BGTaskScheduler error 1 (unavailable).
     @available(iOS 26.0, *)
     static func submitContinued(_ snap: AppModel.Snap) throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: "0 files read this session")
+        let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
         // No .gpu: it needs the continued-processing GPU entitlement, and backendNow picks the CPU once the app leaves.

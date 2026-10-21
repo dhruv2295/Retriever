@@ -23,7 +23,8 @@ import org.robolectric.util.ReflectionHelpers
 class WelcomeExamplesTest {
     @get:Rule val rule = createComposeRule()
 
-    private val queries = listOf("“sunset at the beach”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”")
+    private val queries =
+        listOf("“sunset at the beach”", "“the photo of the medicine box”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”")
 
     @Test fun welcomeExposesFullExamplesImmediatelyWithMotionOff() {
         ReflectionHelpers.callStaticMethod<Void>(

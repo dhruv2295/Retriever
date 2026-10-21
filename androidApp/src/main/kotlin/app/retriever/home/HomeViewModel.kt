@@ -5,9 +5,6 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.retriever.access.AccessService
-import app.retriever.core.FileState
-import app.retriever.core.FileTotals
-import app.retriever.core.FolderTotals
 import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
@@ -15,7 +12,6 @@ import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.Store
-import app.retriever.core.Words
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
@@ -50,31 +46,21 @@ data class HomeUi(
     val rereads: Long = 0L,
     val meaningWaiting: Long = 0L,
     val readingStatus: ReadingStatus? = null,
-    val nameSearchHintDismissed: Boolean = false,
-    val scheduleOfferDismissed: Boolean = false,
     val skipped: Long = 0L,
-    val readByKind: Map<Kind, Long> = emptyMap(),
     val caughtUpDismissed: Boolean = false,
     val waiting: Long = 0L,
     val trial: Boolean = false,
     /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
     val rest: Long = 0L,
-    /** Files still waiting to be read, by kind. */
-    val pending: Map<Kind, Long> = emptyMap(),
-    /** "Try searching" examples for the kinds that are fully read; null until core has answered (the view model's start). */
+    /** Words from the person's own files for the search bar's "Try:"; null until core has answered (the view model's start). */
     val suggestions: List<String>? = emptyList(),
     val home: HomeFacts? = null,
     val paused: Boolean = false,
-    /** The kinds whose insides are read; the rest are found by name. */
-    val inside: Set<Kind> = Kind.entries.toSet(),
     /** Some access to files; false once it was taken away in Settings. */
     val hasAccess: Boolean = true,
     val starred: Int = 0,
     /** Setup's access step is done: core's [app.retriever.core.SetupInputs.libraryChosen]. */
     val libraryChosen: Boolean = false,
-    /** Count and size by kind, and by folder, for section subtitles and More on your phone; empty until loaded. */
-    val kindTotals: Map<Kind, FileTotals> = emptyMap(),
-    val folderTotals: List<FolderTotals> = emptyList(),
     /** Past years' photos and videos on [memoriesDay], newest year first. */
     val memories: List<YearMemory> = emptyList(),
     val memoriesDay: LocalDate? = null,
@@ -96,7 +82,6 @@ data class HomeUi(
 
     fun withCounts(c: Store.Counts): HomeUi = copy(
         counts = c.byKind,
-        readByKind = c.readByKind,
         contentRead = c.progress.contentRead,
         partlyRead = c.progress.partlyRead,
         skipped = c.progress.couldntRead,
@@ -107,17 +92,13 @@ data class HomeUi(
         waiting = c.progress.scheduled,
         rest = c.waiting,
         trial = c.trial,
-        pending = c.byKindState.filterKeys { it.second == FileState.PENDING }.mapKeys { it.key.first },
     )
 
     /**
-     * Every source of Home's sections has answered once: the facts, the suggestions, and On this day where it can show.
+     * Every source of Home's sections has answered once: the facts, and On this day where it can show.
      * The sections draw together, in their fixed order, so none is inserted later above another.
      */
-    val sectionsReady: Boolean get() = home != null && suggestions != null && (!showOnThisDay || !hasAccess || memoriesDay != null)
-
-    /** A section's reading line: core's rule, so mixed sections such as Documents read the same on iOS. */
-    fun readiness(vararg kinds: Kind): String? = Words.kindProgress(kinds.toList(), inside, pending, waiting)
+    val sectionsReady: Boolean get() = home != null && (!showOnThisDay || !hasAccess || memoriesDay != null)
 }
 
 /**
@@ -145,15 +126,8 @@ internal fun onThisDayRanges(today: LocalDate, zone: ZoneId): List<Triple<Int, L
         Triple(it, from, to)
     }
 
-/** The lists that did not change are the old instances, so the strips showing them skip recomposing on a refresh. */
-internal fun HomeFacts.reusing(old: HomeFacts?): HomeFacts = old?.let {
-    copy(
-        newMedia = if (newMedia == it.newMedia) it.newMedia else newMedia,
-        newShots = if (newShots == it.newShots) it.newShots else newShots,
-        newDocs = if (newDocs == it.newDocs) it.newDocs else newDocs,
-        starred = if (starred == it.starred) it.starred else starred,
-    )
-} ?: this
+/** Unchanged facts are the old instance, so the strips showing them skip recomposing on a refresh. */
+internal fun HomeFacts.reusing(old: HomeFacts?): HomeFacts = if (this == old) old else this
 
 class HomeViewModel(private val retriever: Retriever, private val access: AccessService, private val indexer: IndexService) : ViewModel() {
     /** The local clock; replaced in tests. */
@@ -182,13 +156,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         // Core's facts follow files coming, going and changing, never a file being read.
         launch {
             retriever.home().collect { h ->
-                _ui.update {
-                    it.copy(
-                        home = h.reusing(it.home),
-                        kindTotals = if (h.kindTotals == it.kindTotals) it.kindTotals else h.kindTotals,
-                        folderTotals = if (h.folderTotals == it.folderTotals) it.folderTotals else h.folderTotals,
-                    )
-                }
+                _ui.update { it.copy(home = h.reusing(it.home)) }
                 // Photos from past years can arrive today (a restored phone): look again while there are none.
                 _ui.value.let { u ->
                     if (u.showOnThisDay && u.memoriesDay != null && u.memoriesDay == today.value && u.memories.isEmpty()) loadMemories(u.memoriesDay)
@@ -211,11 +179,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 _ui.update {
                     it.copy(
                         paused = p.paused,
-                        inside = retriever.readInside(),
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
-                        nameSearchHintDismissed = p.nameSearchHintDismissed,
-                        scheduleOfferDismissed = p.scheduleOfferDismissed,
                     )
                 }
             }
@@ -249,8 +214,6 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = false) } }
     }
 
-    fun dismissNameSearchHint() = launchCatching { retriever.dismissNameSearchHint() }
-    fun dismissScheduleOffer() = launchCatching { retriever.dismissScheduleOffer() }
     fun decideLater() = launchCatching {
         retriever.decideLater()
         indexer.cancel()
@@ -269,4 +232,9 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
 
     /** "Index now": lifts a pause and starts a batch, which WorkManager runs past this screen. */
     fun resume() = launchCatching { indexer.resume() }
+
+    /** The status line's Read for 15 minutes; the line says so from the tap. */
+    fun readNow() = launchCatching { indexer.readNow() }
+
+    fun stopReadNow() = launchCatching { indexer.endReadNow() }
 }

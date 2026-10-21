@@ -2,11 +2,12 @@
 
 ## Purpose
 
-The first screen once the app is set up: the search bar, one library hero with reading status and top folders, one row of recent or content-derived
-searches, then the person's own pictures and files in a fixed order (photos and videos mosaic, screenshots, documents,
-On this day, Starred, kind tiles, Tidy up). It says what can be searched and how far reading has got. The visual
-decisions (Gallery layout, grafts taken and rejected) are in the Home v2 spec; this note records only how the code
-holds them. The search bar and results are in `search-ui.md`.
+The first screen once the app is set up, and where you start looking for something. In order: the title
+"Retriever", one status line (core's `ReadingPolicy.line`: what is happening and whether to do anything), Starred,
+Recently added, On this day, Browse, and the optional search-by-meaning offer last under "Optional". The search bar sits
+at the bottom and asks "What are you looking for?"; its suggestions are recent searches, or "Try:" words from the
+person's own files when there are none. Design and reasons: `retriever-flow/clarity-proposal.md`; as built:
+`clarity.md`. The search bar and results are in `search-ui.md`.
 
 ## Mechanism and why
 
@@ -19,29 +20,28 @@ holds them. The search bar and results are in `search-ui.md`.
   (`sample-quickstart.md`, Core API for the apps). Collect them only while Home shows.
 - **Stable lists.** `HomeFacts.reusing` hands back the old list instances for strips that did not change, so the
   `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`.
-- **Sections draw together.** Below the hero, nothing draws until the home facts, the suggestions, On this day (where
-  it can show) and the recent searches have all answered (`sectionsReady` and `recentLoaded`, on both platforms), so no
-  section lands above one already shown. A failed On this day lookup counts as an answer with no memories, a failed
+- **Sections draw together.** Below the status line, nothing draws until the home facts and On this day (where it can
+  show) have answered (`sectionsReady`, on both platforms), so no section lands above one already shown. The
+  suggestions belong to the search bar now and don't hold Home back. A failed On this day lookup counts as an answer with no memories, a failed
   recent-searches read as none, and a failed suggestions read as no suggestions.
-- **Long press.** The photo mosaic, screenshots, documents and starred cards carry the same file menu as Search and
+- **Long press.** Recently added and Starred tiles carry the same file menu as Search and
   Browse ("More options", with matching screen-reader actions).
 - **Fixed order, hide at zero.** Sections never move because a count changed; one with nothing to say is not drawn.
-  `Words.kindProgress` (core, shared by both apps) turns counts into the section subtitle: "Name only", "{N} waiting to read" while files are scheduled, otherwise nothing.
+  Sections carry no reading subtitles; how far reading has got is the status line's job.
 - **User-facing kinds only, enforced in SQL.** No Home picture or "newest" list can hold an OTHER file; the Starred strip
   and its count use the visible-starred queries, while the full Starred list still holds OTHER stars.
 - **On this day without a date library in core.** The platform computes each past year's local-day range with real zone
   rules (`onThisDayRanges`, `dayRange` on Android; `Calendar` on iOS) and core answers with `Retriever.onThisDay`. The
   result is asked once per local date and again when the date changes. The person can hide it (`showOnThisDay`).
-- **Library hero.** Compact: "Your files", "{L} files in your library", "{C} files read · {P} partly read", and one
-  status row with the mascot and a "Reading status" link; no kind bar. The status follows the actual
-  reading/paused/caught-up state, one reason and one remedy at a time, and waits on `SetupInputs.libraryChosen`.
-  The upgrade row sits under the status. The commit choice sits outside the hero.
-- **More on your phone.** A list with count and size per kind (`kindTotals`, every kind including Other), then the
-  largest folders (`folderTotals`, each folder's own files, most first) and All folders, opening existing Browse/Folder
-  routes. Unknown sizes are counted apart: "Size unavailable", never "0 B".
-- **Status and commit choice.** The existing status mapping and mascot sit inside the hero. The
-  commit card shows only when the first run's short read is done and files still wait; "Read everything" opens the
-  setup's three answers as a sheet. The hours estimate is `null` until `ESTIMATE_CALIBRATED` (see `onboarding.md`).
+- **The status line.** One line under the title, the dog beside it and a thin bar only while reading or
+  downloading; its one button is spelled out on a row of its own ("Choose when to read" opens the choice sheet,
+  "Read for 15 minutes", "Stop", "Resume", "Allow access", "Try again"); the whole line opens Reading status. A
+  download or its setup is the line itself. It shows only once core's live `readingStatus()` has answered, since that
+  carries the saved "N% read" mark. All done carries an [x].
+- **Browse.** Photos, Videos, Screenshots, Documents (PDFs too), Audio, then Folders: name and count only, a kind
+  with no files hidden; sizes are in Settings → Storage. Three a row, two at large text.
+- **Optional.** The search-by-meaning offer is a flat row at the end with a tonal Download and Not now
+  (`UpgradePolicy.showOnHome`), never the strongest button on Home.
 - **Dismissal.** `Prefs.dismissedReadingCycle` hides All caught up across launches. The first actual file read after dismissal advances `readingCycle`; empty scans and renames do not. The existing celebration budget remains separate.
 - **Mascot.** Placement follows `docs/motion-api.md`: `WALKING` on the empty first-scan state, `NO_MATCH` on an empty
   library, `CAUGHT_UP` once ever on the status line (`Celebration`, Store meta `celebrated`, haptic 0.2 s after the pop).
@@ -54,8 +54,8 @@ holds them. The search bar and results are in `search-ui.md`.
 ## Owner files
 
 - `androidApp/src/main/kotlin/app/retriever/home/HomeViewModel.kt`: `HomeUi`, `Celebration`, day ranges, `reusing`
-- `androidApp/src/main/kotlin/app/retriever/home/HomeScreen.kt`: status, commit card, empty Home, celebration effect
-- `androidApp/src/main/kotlin/app/retriever/home/HomeSections.kt`: the strips, mosaic, On this day, kind tiles
+- `androidApp/src/main/kotlin/app/retriever/home/HomeScreen.kt`: the status line, the choice sheet, empty Home, celebration effect
+- `androidApp/src/main/kotlin/app/retriever/home/HomeSections.kt`: Starred, Recently added, On this day, Browse
 - `core/src/commonMain/kotlin/app/retriever/core/Retriever.kt`: `home()`, `onThisDay`, `counts()`, `celebrated()`
 - `iosApp/Retriever/Views/HomeView.swift`, `iosApp/Retriever/Views/HomeSections.swift`, `iosApp/Retriever/AppModel.swift`
 
@@ -78,12 +78,11 @@ holds them. The search bar and results are in `search-ui.md`.
   `theCelebrationIsNotSpentUntilItIsMarked`, `readEverythingCommitsTheScopeAndSchedulesTheReading`,
   `aDayIsRangedByTheZonesRulesAcrossDstChanges`, `twentyNinthOfFebruaryIsOnlyInLeapYears`,
   `onThisDayAsksOncePerLocalDateAndAgainWhenTheDateChanges`, `hidingOnThisDayIsAtOnceAndTheStatusSwitchBringsItBack`.
-- Android screenshots: `HomeShotsTest` (`caughtUpLight`, `caughtUpDark`, `aKindNotReadInsideIsFoundByName`) and
-  `AdaptiveShotsTest`; recomposition: `RecompositionTest` in `search/`.
+- Android screenshots: `HomeShotsTest` (every status-line state in light and dark, `defaultLargestText` with two Browse
+  columns) and `AdaptiveShotsTest`; recomposition: `RecompositionTest` in `search/`.
 - iOS, `iosApp/RetrieverTests/HomeModelTests.swift`: `testNoOtherFileInAnyHomeList`,
   `testFirstRunSaysLookingUntilAScanFinishes`, `testSectionsHideWhenTheyHaveNothingToSay`,
-  `testTilesAreFixedOrderAndOnlyForCountsAboveZero`, `testCommitCardShowsOnlyWhenTheShortReadIsDoneAndFilesWait`,
-  `testCaughtUpIsCelebratedOnceEverNotForALaterCatchUpOrAfterRelaunch`, `testAnUnchangedSnapshotDoesNotReassignSnap`.
+  `testTilesAreFixedOrderAndOnlyForCountsAboveZero`, `testCaughtUpIsCelebratedOnceEverNotForALaterCatchUpOrAfterRelaunch`, `testAnUnchangedSnapshotDoesNotReassignSnap`.
 
 ## Known limits
 

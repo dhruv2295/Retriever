@@ -17,7 +17,6 @@ extension AppModel {
             p.doCopy(
                 kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging,
                 schedule: charging.map { $0 ? .charging : .battery } ?? p.schedule, readNowUntil: p.readNowUntil,
-                nameSearchHintDismissed: p.nameSearchHintDismissed, scheduleOfferDismissed: p.scheduleOfferDismissed,
                 excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
@@ -67,16 +66,6 @@ extension AppModel {
                 keepReading()
             } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
-    }
-
-    func dismissNameSearchHint() {
-        snap?.nameSearchHintDismissed = true
-        Task { try? await services?.retriever.dismissNameSearchHint() }
-    }
-
-    func dismissScheduleOffer() {
-        snap?.scheduleOfferDismissed = true
-        Task { try? await services?.retriever.dismissScheduleOffer() }
     }
 
     func decideLater() {
@@ -273,11 +262,7 @@ extension AppModel {
                 Task { @MainActor in self?.apply(home: facts) }
             },
             services.retriever.observeSuggestions(fileIds: nil) { @Sendable [weak self] terms in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if self.suggestions != terms { self.suggestions = terms }
-                    if !self.suggestionsLoaded { self.suggestionsLoaded = true }
-                }
+                Task { @MainActor in if let self, self.suggestions != terms { self.suggestions = terms } }
             },
         ]
     }

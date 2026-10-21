@@ -27,8 +27,16 @@ enum class ReadingSchedule(val title: String) {
     MANUAL("When I start it"),
 }
 
-/** A null title is a stop's: [ReadingPolicy.stopCopy] words it for the device. */
-enum class ReadingPhase(val title: String? = null) {
+/**
+ * Every state the status line can be in. The first five come from [ReadingPolicy.line] (setup, access, the meaning
+ * download); the rest from [ReadingPolicy.decide]. Each app maps a phase to its icon and mascot only.
+ */
+enum class ReadingPhase {
+    SETTING_UP,
+    NO_ACCESS,
+    DOWNLOADING,
+    DOWNLOAD_STOPPED,
+    TUNING,
     PAUSED,
     POWER_SAVE,
     HOT,
@@ -37,33 +45,87 @@ enum class ReadingPhase(val title: String? = null) {
     BUSY,
     CHARGING,
     MANUAL,
-    SAMPLE("Reading your sample"),
-    SAMPLE_READY("Your sample is ready to try"),
-    MEANING("Adding search by meaning"),
-    DEEPENING("Reading more of your long files"),
-    READING("Reading your files"),
+    READ_NOW,
+    SAMPLE,
+    SAMPLE_READY,
+    MEANING,
+    DEEPENING,
+    READING,
     WAITING,
-    LOOKING("Checking for new files…"),
-    CAUGHT_UP("Up to date"),
-    LIMITED("Scheduled reading finished"),
-    NO_CONTENT("No content read yet"),
+    LOOKING,
+    CAUGHT_UP,
+    LIMITED,
+    NO_CONTENT,
 }
 
-data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail: String? = null) {
-    val active: Boolean get() = phase == ReadingPhase.READING || phase == ReadingPhase.SAMPLE || phase == ReadingPhase.DEEPENING ||
-        phase == ReadingPhase.MEANING
+/** The status line's one button. Each app maps it to its own button and call; [label] is what the button says. */
+enum class StatusAction(val label: String) {
+    CONTINUE(Words.CONTINUE),
+    ALLOW_ACCESS("Allow access"),
+    CHOOSE_WHEN(Words.CHOOSE_WHEN),
+    READ_FOR_15(Words.READ_FOR_15),
+    STOP("Stop"),
+    RESUME("Resume"),
+    DISMISS("Dismiss"),
+    TRY_AGAIN(Words.TRY_AGAIN),
+}
+
+private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING)
+private val STOPS = setOf(
+    ReadingPhase.PAUSED,
+    ReadingPhase.POWER_SAVE,
+    ReadingPhase.HOT,
+    ReadingPhase.LOW_BATTERY,
+    ReadingPhase.CHARGING_UP,
+    ReadingPhase.BUSY,
+    ReadingPhase.CHARGING,
+    ReadingPhase.MANUAL,
+)
+
+/**
+ * The one status line, on Home, Reading status, setup and the notification: what is happening, one plain [detail], and
+ * an [action] only when there is something to do. [percent]: the line's figure (the share read, never falling; the
+ * meaning pass's share for MEANING; the download's for DOWNLOADING), null when it has none. Each app draws the bar only
+ * while [active] or downloading.
+ */
+data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail: String? = null, val action: StatusAction? = null, val percent: Int? = null) {
+    val active: Boolean get() = phase in ACTIVE
 
     /**
-     * Why reading stopped, or null: only a stop phase's title is a reason, never "Up to date" or "Checking…". Nor is
+     * Why reading stopped, or null: only a stop phase's title is a reason, never "All done" or "Checking…". Nor is
      * WAITING, the system's turn between batches: no blocker holds it, so it never freezes a screen.
      */
-    val pause: String? get() = title.takeIf { phase.title == null && phase != ReadingPhase.WAITING }
+    val pause: String? get() = title.takeIf { phase in STOPS }
 }
 
-/** Home's status row; each app maps [phase] to its colour and icon. */
-enum class HomePhase { SETTING_UP, READING, LOOKING, PAUSED, WAITING, CAUGHT_UP }
+/** The share of files read, whole percent, 100 only with nothing waiting. */
+internal fun percentRead(p: ReadingProgress): Int = if (p.waiting == 0L) 100 else (p.contentRead * 100 / (p.contentRead + p.waiting)).toInt()
 
-data class HomeStatus(val phase: HomePhase, val title: String, val detail: String? = null)
+/**
+ * The highest "N% read" shown and how many files were counted then ([ReadingProgress.contentRead] + waiting). The figure
+ * never falls: when new files lower the share, the line names them ("Reading 42 new files") until the old one is passed.
+ */
+data class ReadMark(val percent: Int = 0, val files: Long = 0) {
+    fun next(p: ReadingProgress): ReadMark = percentRead(p).let { if (it >= percent) ReadMark(it, p.contentRead + p.waiting) else this }
+
+    /** Files that came since [percent] was shown, while the share is under it; 0 otherwise. */
+    internal fun newFiles(p: ReadingProgress): Long = if (percentRead(p) < percent) (p.contentRead + p.waiting - files).coerceAtLeast(0) else 0
+
+    internal fun encode() = "$percent,$files"
+
+    internal companion object {
+        fun decode(s: String?): ReadMark? = s?.split(',')?.takeIf { it.size == 2 }?.let { (p, f) ->
+            ReadMark(p.toIntOrNull() ?: return null, f.toLongOrNull() ?: return null)
+        }
+    }
+}
+
+/**
+ * The model download or its setup, as the platform knows it, for the status line; null when neither is under way.
+ * [percent]: null while unknown. [stopped]: the download failed or waits for Wi-Fi, or the setup failed. [size]: the
+ * platform's format of [Retriever.modelDownloadBytes]. [settingUp]: the download is done and the setup (the tune) runs.
+ */
+data class DownloadState(val percent: Int?, val stopped: Boolean, val size: String, val settingUp: Boolean = false)
 
 /** Shared by the reader and every progress surface. Opening the app never overrides the saved schedule. */
 object ReadingPolicy {
@@ -83,42 +145,83 @@ object ReadingPolicy {
         else -> null
     }
 
-    /** Why reading stopped, as every surface says it. */
+    /** Why reading stopped, as every surface titles it; DONE and BUDGET are the system's turn between batches. */
     fun stopCopy(stop: StopReason, words: DeviceWords): String = when (stop) {
-        StopReason.PAUSED -> "Reading paused"
-        StopReason.POWER_SAVE -> "Paused for ${words.powerSave}"
-        StopReason.HOT -> "Paused to cool down"
-        StopReason.LOW_BATTERY -> "Paused for low battery"
+        StopReason.PAUSED -> "Paused"
+        StopReason.POWER_SAVE -> "Paused while ${words.powerSave} is on"
+        StopReason.HOT -> "Paused to let your ${words.device} cool down"
+        StopReason.LOW_BATTERY -> "Paused, battery is low"
         StopReason.CHARGING_UP -> "Charging up first"
         StopReason.BUSY -> "Waiting until you put your ${words.device} down"
-        StopReason.UNPLUGGED -> "Waiting to charge"
-        StopReason.MANUAL -> "Reading stopped for now"
-        StopReason.DONE, StopReason.BUDGET -> "Waiting for ${words.os}"
+        StopReason.UNPLUGGED -> "Waiting until you plug in"
+        StopReason.MANUAL -> "Reading only when you start it"
+        StopReason.DONE, StopReason.BUDGET -> "Taking a short break"
     }
 
     /**
-     * Home's first row; null with nothing in the library, where Home shows its empty state instead. [libraryChosen]:
-     * [SetupInputs.libraryChosen]; before it, the row leads back to setup's access step. Reading needs no model download.
+     * Home's status line: lost access first, then setup's access step, then the model download or its setup (a stopped
+     * download gives way while reading runs), else [reading]: null before core's live status arrives, so a first frame
+     * never shows a share under the saved mark. Null with nothing in the library, where Home shows its empty
+     * state instead. [libraryChosen]: [SetupInputs.libraryChosen].
      */
-    fun homeStatus(libraryChosen: Boolean, libraryTotal: Long, reading: ReadingStatus): HomeStatus? = when {
-        !libraryChosen -> HomeStatus(HomePhase.SETTING_UP, Words.CHOOSE_ACCESS)
+    fun line(
+        reading: ReadingStatus?,
+        libraryChosen: Boolean,
+        hasAccess: Boolean,
+        libraryTotal: Long,
+        words: DeviceWords,
+        download: DownloadState? = null,
+    ): ReadingStatus? = when {
+        !hasAccess -> ReadingStatus(
+            ReadingPhase.NO_ACCESS,
+            "Retriever can’t see your files",
+            "Search still works on the files it has already read." + if (words.ios) " This opens your ${words.device}’s Settings." else "",
+            StatusAction.ALLOW_ACCESS,
+        )
+
+        !libraryChosen -> ReadingStatus(ReadingPhase.SETTING_UP, "Finish setting up", "Choose what Retriever can look through.", StatusAction.CONTINUE)
+
+        download != null && (!download.stopped || reading?.active != true) -> when {
+            download.settingUp && download.stopped -> ReadingStatus(ReadingPhase.TUNING, Words.tuneFailed(words), action = StatusAction.TRY_AGAIN)
+
+            download.settingUp -> ReadingStatus(ReadingPhase.TUNING, Words.tuneTitle(words), Words.tuneBody(words))
+
+            download.stopped -> ReadingStatus(
+                ReadingPhase.DOWNLOAD_STOPPED,
+                "Download paused",
+                "It carries on when you’re on Wi-Fi. If your ${words.device} is full, it needs ${Words.keepTogether(download.size)} free.",
+                StatusAction.TRY_AGAIN,
+            )
+
+            else -> ReadingStatus(
+                ReadingPhase.DOWNLOADING,
+                "Downloading search by meaning" + (download.percent?.let { " · $it%" } ?: ""),
+                "You can keep using Retriever.",
+                StatusAction.STOP,
+                download.percent,
+            )
+        }
 
         libraryTotal == 0L -> null
 
-        else -> HomeStatus(
-            when {
-                reading.phase == ReadingPhase.PAUSED -> HomePhase.PAUSED
-                reading.phase == ReadingPhase.CAUGHT_UP || reading.phase == ReadingPhase.LIMITED -> HomePhase.CAUGHT_UP
-                reading.phase == ReadingPhase.LOOKING -> HomePhase.LOOKING
-                reading.active -> HomePhase.READING
-                else -> HomePhase.WAITING
-            },
-            reading.title,
-            reading.detail,
-        )
+        else -> reading
     }
 
-    fun decide(progress: ReadingProgress, blocker: StopReason?, running: Boolean, reading: Boolean, words: DeviceWords): ReadingStatus {
+    /**
+     * The reading part of the status line. [readNowMinutes]: what is left of a Read for 15 minutes, rounded up, 0 with
+     * none; it shows from the tap, before the reader starts. [pluggedIn]: [DeviceState.pluggedIn]. [mark]: the figure shown
+     * so far ([ReadMark.next] of [progress] is taken here too). No hours, nights or "by morning": [ESTIMATE_CALIBRATED].
+     */
+    fun decide(
+        progress: ReadingProgress,
+        blocker: StopReason?,
+        running: Boolean,
+        reading: Boolean,
+        words: DeviceWords,
+        readNowMinutes: Int = 0,
+        pluggedIn: Boolean = false,
+        mark: ReadMark = ReadMark(),
+    ): ReadingStatus {
         val phase = when {
             blocker == StopReason.PAUSED -> ReadingPhase.PAUSED
 
@@ -133,15 +236,16 @@ object ReadingPolicy {
                 else -> ReadingPhase.WAITING
             }
 
+            readNowMinutes > 0 && progress.unfinished -> ReadingPhase.READ_NOW
+
             reading && progress.sample -> ReadingPhase.SAMPLE
 
+            // While first reads remain, the meaning pass only interleaves with them: READING says so in its detail.
             reading && progress.scheduled == 0L && progress.meaningWaiting > 0 -> ReadingPhase.MEANING
 
             reading && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
 
-            reading -> ReadingPhase.READING
-
-            running && progress.unfinished -> ReadingPhase.READING
+            reading || (running && progress.unfinished) -> ReadingPhase.READING
 
             progress.unfinished -> ReadingPhase.WAITING
 
@@ -151,70 +255,141 @@ object ReadingPolicy {
 
             running -> ReadingPhase.LOOKING
 
-            progress.partlyRead > 0 || progress.couldntRead > 0 -> ReadingPhase.LIMITED
+            progress.partlyRead > 0 -> ReadingPhase.LIMITED
 
             else -> ReadingPhase.CAUGHT_UP
         }
-        val title = when {
-            phase == ReadingPhase.READING && !reading -> "Starting reading…"
-            phase == ReadingPhase.MEANING -> "Adding search by meaning to ${progress.meaningWaiting} files"
-            phase == ReadingPhase.DEEPENING -> "Reading more of ${progress.laterPasses} long files"
-            else -> phase.title ?: stopCopy(blocker ?: StopReason.DONE, words)
+        val shown = mark.next(progress)
+        val newFiles = shown.newFiles(progress)
+        val meaning = progress.contentRead.takeIf { it > 0 }?.let { ((it - progress.meaningWaiting) * 100 / it).toInt() }
+        val readShare = "${shown.percent}% read"
+        val title = when (phase) {
+            ReadingPhase.CHARGING -> "${stopCopy(StopReason.UNPLUGGED, words)} · $readShare"
+
+            ReadingPhase.READ_NOW -> "Reading for 15 minutes · $readNowMinutes min left"
+
+            ReadingPhase.SAMPLE -> "Trying a few of your files"
+
+            ReadingPhase.SAMPLE_READY -> "Ready to try"
+
+            ReadingPhase.MEANING -> "Adding search by meaning · ${meaning ?: 0}%"
+
+            ReadingPhase.DEEPENING -> "Reading the rest of some long files"
+
+            ReadingPhase.READING -> if (newFiles > 0) {
+                "Reading ${Words.plural(newFiles, "new file")}"
+            } else {
+                "${if (pluggedIn) "Reading while you charge" else "Reading your files"} · $readShare"
+            }
+
+            ReadingPhase.LOOKING -> "Checking for new files…"
+
+            ReadingPhase.CAUGHT_UP -> "All done. Retriever has read everything it can"
+
+            ReadingPhase.LIMITED -> "All done. A few long files were read only in part"
+
+            ReadingPhase.NO_CONTENT -> "Ready to find files by name"
+
+            else -> stopCopy(blocker ?: StopReason.DONE, words)
         }
         val detail = when (phase) {
-            ReadingPhase.PAUSED -> "Search still works. Resume whenever you’re ready."
-            ReadingPhase.POWER_SAVE -> "Reading can resume when it’s off."
-            ReadingPhase.HOT -> "Reading can resume when your ${words.device} cools down."
-            ReadingPhase.LOW_BATTERY -> "Plug in to continue."
+            ReadingPhase.PAUSED -> "Search still works."
+
+            ReadingPhase.POWER_SAVE -> "Carries on when ${words.powerSave} is off."
+
+            ReadingPhase.HOT -> "Carries on by itself."
+
+            ReadingPhase.LOW_BATTERY -> "Plug in and Retriever carries on."
+
             ReadingPhase.CHARGING_UP -> "Reading starts once your battery has a bit more charge."
-            ReadingPhase.BUSY -> "Reading can continue when the screen is off or Retriever is open."
-            ReadingPhase.CHARGING -> "Plug in, or choose Read now for a short session."
-            ReadingPhase.MANUAL -> "Keep searching names and the content read so far."
-            ReadingPhase.WAITING -> "Progress is saved. Open Retriever to continue when your reading settings allow."
-            ReadingPhase.MEANING -> "Search by words already works for these files."
-            ReadingPhase.SAMPLE_READY -> "Choose when to read more."
-            ReadingPhase.NO_CONTENT -> "You can still search by name. Review files or choose when to read more."
-            ReadingPhase.CAUGHT_UP -> "New files will be read using your schedule."
+
+            ReadingPhase.BUSY -> "Or open Retriever and it reads now."
+
+            ReadingPhase.CHARGING -> "Retriever carries on when your ${words.device} is charging."
+
+            ReadingPhase.MANUAL -> "You can find any file by its name."
+
+            ReadingPhase.READ_NOW -> "Uses some battery. " + if (words.ios) "Keep Retriever open." else "Stops on its own."
+
+            ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
+
+            ReadingPhase.SAMPLE_READY -> "Search for a word you remember."
+
+            ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
+
+            ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
+
+            ReadingPhase.READING -> if (progress.meaningWaiting > 0) {
+                "Also adding search by meaning · ${meaning ?: 0}%"
+            } else {
+                if (words.ios) {
+                    "Search works the whole time. Retriever reads while it’s open, and sometimes when iOS allows."
+                } else {
+                    "You can close Retriever; it carries on. Search works the whole time."
+                }
+            }
+
+            ReadingPhase.WAITING -> "Your ${words.device} decides when Retriever carries on. Nothing is lost."
+
+            ReadingPhase.CAUGHT_UP -> "It reads new files by itself.".takeIf { blocker != StopReason.MANUAL }
+
+            ReadingPhase.NO_CONTENT -> "To find them by what’s inside, Retriever reads them here on this ${words.device}. Nothing is sent anywhere."
+
             else -> null
         }
-        return ReadingStatus(phase, title, detail)
+        val action = when (phase) {
+            ReadingPhase.PAUSED -> StatusAction.RESUME
+            ReadingPhase.CHARGING, ReadingPhase.MANUAL -> StatusAction.READ_FOR_15
+            ReadingPhase.READ_NOW -> StatusAction.STOP
+            ReadingPhase.SAMPLE_READY, ReadingPhase.NO_CONTENT -> StatusAction.CHOOSE_WHEN
+            ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> StatusAction.DISMISS
+            else -> null
+        }
+        // The sample has its own count, so no share of the whole phone while it runs.
+        val percent = when (phase) {
+            ReadingPhase.MEANING -> meaning
+            ReadingPhase.SAMPLE, ReadingPhase.SAMPLE_READY, ReadingPhase.NO_CONTENT -> null
+            else -> shown.percent
+        }
+        return ReadingStatus(phase, title, detail, action, percent)
     }
 }
 
 internal const val SESSION_START_KEY = "reading_session_start_chunk"
 internal const val SESSION_READ_KEY = "reading_session_read"
+internal const val READ_MARK_KEY = "read_mark"
 
 /**
- * Says how far Retriever has read one file, in the reading contract's words, for File info on both platforms. [stored] null is
- * a file the index has not met yet. Content already read stays read even if reading was switched off since; the index records
- * no reason for a failure, only how many times it tried.
+ * What one file can be found by, for File info's [Words.FOUND_BY] row on both platforms. [stored] null is a file the
+ * index has not met yet. Content already read stays read even if reading was switched off since; the index records no
+ * reason for a failure, only how many times it tried.
  */
 fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): String {
     val extent = stored?.extent
     return when {
-        kind == Kind.OTHER -> "Name only · Reading isn’t supported for this type"
+        kind == Kind.OTHER -> "Its name. Retriever can’t look inside this kind of file yet."
 
         stored?.contentRead == true -> when {
-            stored.state == FileState.PENDING -> "Partly read · Waiting to read more"
+            stored.state == FileState.PENDING -> "Name and its beginning. The rest is not read yet."
 
-            stored.state == FileState.SKIPPED -> "Partly read · Couldn’t finish reading"
+            stored.state == FileState.SKIPPED -> "Name and part of what’s inside. Retriever couldn’t finish reading it."
 
             stored.partial || extent == ReadExtent.FIRST_PART || extent == ReadExtent.FIRST_PART_DEEPENING ||
-                extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Partly read · Only the beginning is included"
+                extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Name and its beginning"
 
-            extent == ReadExtent.MEANING_LIMITED -> "Partly read · Couldn’t finish meaning search"
+            extent == ReadExtent.MEANING_LIMITED -> "Name and what’s inside. Search by meaning couldn’t finish."
 
-            extent == ReadExtent.DEEPENING -> "Partly read · More meaning search to come"
+            extent == ReadExtent.DEEPENING -> "Name and what’s inside. Search by meaning is still to come."
 
-            else -> "Read"
+            else -> "Name and what’s inside"
         }
 
-        !readInside -> "Name only · Reading is off for this type"
+        !readInside -> "Its name. Reading is off for this kind of file."
 
-        stored?.state == FileState.SKIPPED -> "Couldn’t read · Retriever tried ${stored.attempts} times"
+        stored?.state == FileState.SKIPPED -> "Its name. Retriever couldn’t read it after ${Words.plural(stored.attempts.toLong(), "try", "tries")}."
 
-        stored?.state == FileState.INDEXED -> "Name only · No readable content"
+        stored?.state == FileState.INDEXED -> "Its name. Nothing inside could be read."
 
-        else -> "Waiting to read"
+        else -> "Its name. Not read yet."
     }
 }

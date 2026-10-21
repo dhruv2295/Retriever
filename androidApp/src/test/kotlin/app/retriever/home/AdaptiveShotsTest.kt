@@ -106,8 +106,8 @@ abstract class AdaptiveShotsTest(private val size: String) {
         )
         val home = readyHome.copy(waiting = 0, contentRead = 5_330, home = facts)
         val actions = SearchActions()
-        SearchContent(ready, home, actions) { padding, state, side, fill ->
-            HomeBody(home, IndexState(lastStop = StopReason.DONE), emptyList(), actions, {}, {}, state, padding, side, fill)
+        SearchContent(ready, home, actions) { padding, state, side, _ ->
+            HomeBody(home, IndexState(lastStop = StopReason.DONE), actions, state, padding, side)
         }
     }
 

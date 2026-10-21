@@ -2,6 +2,9 @@ package app.retriever.settings
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.assertCountEquals
@@ -22,6 +25,9 @@ import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPolicy
+import app.retriever.core.ReadingProgress
+import app.retriever.core.StopReason
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.model.ModelState
@@ -58,6 +64,8 @@ class SettingsShotsTest {
         storage = storage,
         build = build,
         upgrade = UpgradeUi(UpgradeStage.DONE, ModelState.Done, sizeBytes = build.sizeBytes),
+        readingStatus = ReadingPolicy.decide(ReadingProgress(read = 1_200, scheduled = 2_100), StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID),
+        large = 212L to 41_000_000_000L,
     )
 
     /** No download yet, or removed: the same offer as Try and Home. */
@@ -76,9 +84,49 @@ class SettingsShotsTest {
 
     private fun page(name: String, ui: SettingsUi, dark: Boolean = false, fontScale: Float = 1f) = shot(name, dark, fontScale) { SettingsContent(ui) }
 
-    @Test fun settingsLight() = page("settings_light", ready)
+    @Test fun settingsLight() {
+        page("clarity_settings_light", ready)
+        rule.onNodeWithText("Waiting until you plug in · 36% read").assertExists()
+        rule.onNodeWithText(Words.FREE_UP_SPACE).assertExists()
+        rule.onNodeWithText(Words.NEVER_DELETES).assertExists()
+        listOf("session", "Name only", "Manage access", "Excluded", "Saved search data").forEach {
+            rule.onAllNodesWithText(it, substring = true).assertCountEquals(0)
+        }
+    }
 
-    @Test fun settingsDark() = page("settings_dark", ready, dark = true)
+    @Test fun settingsDark() = page("clarity_settings_dark", ready, dark = true)
+
+    /** Read for 15 minutes shows at once in the Reading line above it; the line opens Reading status. */
+    @Test fun readForFifteenMinutesShowsInTheLine() {
+        val seen = mutableListOf<String>()
+        var ui by mutableStateOf(ready)
+        val actions = SettingsActions(readNow = { seen += "read" }, stopReadNow = { seen += "stop" }, openStatus = { seen += "status" })
+        rule.setContent { ShotTheme(dark = false) { SettingsContent(ui, actions = actions) } }
+        rule.onNodeWithText(Words.READ_FOR_15).performScrollTo().performClick()
+        ui =
+            ready.copy(
+                readingStatus = ReadingPolicy.decide(
+                    ReadingProgress(read = 1_200, scheduled = 2_100),
+                    null,
+                    false,
+                    false,
+                    DeviceWords.ANDROID,
+                    readNowMinutes = 15,
+                ),
+            )
+        rule.onNodeWithText("Reading for 15 minutes · 15 min left").assertExists()
+        rule.onNodeWithText("Stop").performClick()
+        rule.onNodeWithText("Reading for 15 minutes · 15 min left").performClick()
+        assertEquals(listOf("read", "stop", "status"), seen)
+    }
+
+    @Test fun freeUpSpaceOpensLargeFilesAndDuplicates() {
+        val seen = mutableListOf<String>()
+        show(actions = SettingsActions(openLarge = { seen += "large" }, openDuplicates = { seen += "copies" }))
+        rule.onNodeWithText("${Words.largeFiles(212)} · ${Format.bytes(41_000_000_000)}").performScrollTo().performClick()
+        rule.onNodeWithText(Words.FIND_DUPLICATES).performScrollTo().performClick()
+        assertEquals(listOf("large", "copies"), seen)
+    }
 
     @Test fun settingsBigText() = page("settings_text1_5", ready, fontScale = 1.5f)
 
@@ -137,7 +185,7 @@ class SettingsShotsTest {
                 )
             }
         }
-        rule.onNodeWithText("Automatic reading").performScrollTo().performClick()
+        rule.onNodeWithText(Words.WHEN_TO_READ).performScrollTo().performClick()
         rule.onNodeWithText("Also on battery").performClick()
         for (label in listOf("Save recent searches", "Use mobile data for downloads", "Wallpaper colours", "PDFs", "Remove search download")) {
             rule.onNodeWithText(label).performScrollTo().performClick()
@@ -155,7 +203,7 @@ class SettingsShotsTest {
             }
         }
         rule.onNodeWithText("Save recent searches").performScrollTo().assertIsOff()
-        rule.onNodeWithText("While charging").performScrollTo().assertExists()
+        rule.onNodeWithText("While charging", substring = true).performScrollTo().assertExists()
         rule.onNodeWithText("Wallpaper colours").performScrollTo().assertIsOn()
     }
 
@@ -183,20 +231,20 @@ class SettingsShotsTest {
 
     @Test fun groupsComeInTheSpecifiedOrder() {
         show()
-        val order = listOf("Reading", "Included files", "Privacy", "Storage and downloads", "Appearance", "About").map(::top)
+        val order = listOf(Words.HOW_IT_WORKS, "Reading", "Included files", "Privacy", "Storage and downloads", "Appearance", "About").map(::top)
         assertEquals(order.sorted(), order)
         assertEquals(order.distinct(), order)
         // On this day lives in Appearance, below Storage, not in Reading status.
-        assertTrue(top("Show On this day") > top("Appearance") && top("Show On this day") < top("About"))
+        assertTrue(top(Words.SHOW_ON_THIS_DAY) > top("Appearance") && top(Words.SHOW_ON_THIS_DAY) < top("About"))
     }
 
     @Test fun includedFilesHoldAccessTypesAndExcludedFolders() {
         val seen = mutableListOf<String>()
         show(actions = SettingsActions(openAccess = { seen += "access" }, removeExcluded = { seen += "include $it" }))
 
-        rule.onNodeWithText("Manage access").performScrollTo().performClick()
+        rule.onNodeWithText(Words.WHAT_IT_CAN_SEE).performScrollTo().performClick()
         rule.onNodeWithText("Read these file types").assertExists()
-        rule.onNodeWithText("Excluded folders").assertExists()
+        rule.onNodeWithText(Words.FOLDERS_TO_SKIP).assertExists()
         rule.onNodeWithText(INCLUDED_FILES_FOOTER).assertExists()
         rule.onNodeWithText("Include folder").performScrollTo().performClick()
 
@@ -207,7 +255,7 @@ class SettingsShotsTest {
     @Test fun audioIsNameOnlyNotASwitch() {
         show()
         rule.onNodeWithText("Audio").performScrollTo().assertExists()
-        rule.onNodeWithText("Name only on this device").assertExists()
+        rule.onNodeWithText(Words.FOUND_BY_NAME).assertExists()
         assertEquals(0, rule.onAllNodes(isToggleable() and hasText("Audio")).fetchSemanticsNodes().size)
     }
 
@@ -245,7 +293,7 @@ class SettingsShotsTest {
     @Test fun storageNamesTheSavedDataAndTheOptionalDownloadWithTheirSizes() {
         show()
         val context = RuntimeEnvironment.getApplication()
-        rule.onNodeWithText("Saved search data · ${Format.bytes(storage.indexBytes)}").performScrollTo().assertExists()
+        rule.onNodeWithText("${Words.whatItHasRead(DeviceWords.ANDROID)} · ${Format.bytes(storage.indexBytes)}").performScrollTo().assertExists()
         rule.onNodeWithText("${Words.UPGRADE_TITLE} · ${Format.downloadSize(context, build.sizeBytes)}").assertExists()
         rule.onNodeWithText("Downloaded").assertExists()
     }
@@ -292,7 +340,7 @@ class SettingsShotsTest {
                 SettingsContent(ready.copy(prefs = ready.prefs.copy(showOnThisDay = false)), actions = SettingsActions(setOnThisDay = { restored = it }))
             }
         }
-        rule.onNodeWithText("Show On this day").performScrollTo().performClick()
+        rule.onNodeWithText(Words.SHOW_ON_THIS_DAY).performScrollTo().performClick()
         assertTrue(restored)
         rule.onAllNodesWithText("Wallpaper colours").assertCountEquals(0)
     }

@@ -11,7 +11,8 @@ import XCTest
     func testFolderActionsAreInTheSpecOrderWithDeleteLast() {
         XCTAssertEqual(FileAction.available("folder://documents/test.txt"), [.star, .share, .open, .info, .rename, .delete])
         XCTAssertEqual(
-            FileAction.allCases.map { $0.title(starred: false) }, ["Add to Starred", "Share", "Open in another app", "File info", "Rename", "Delete"])
+            FileAction.allCases.map { $0.title(starred: false) },
+            ["Add to Starred", "Share", "Open in another app", "File info", "Rename", "Delete from \(Copy.device)"])
         XCTAssertEqual(FileAction.star.title(starred: true), "Remove from Starred")
         XCTAssertFalse(FileAction.allCases.contains { $0.icon(starred: false).isEmpty }, "every item has an icon")
     }
@@ -23,8 +24,8 @@ import XCTest
     func testReadingComesFromTheSharedCore() {
         let file = SourceFile(uri: "folder://1/a.pdf", name: "a.pdf", folder: "", mime: "", kind: .pdf, size: 1, modifiedAt: 0, takenAt: nil)
         let partly = Store.StoredFile(id: 1, file: file, attempts: 0, state: .indexed, partial: true, extent: nil, contentRead: true)
-        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: partly, readInside: true), "Partly read · Only the beginning is included")
-        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: nil, readInside: true), "Waiting to read")
+        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: partly, readInside: true), "Name and its beginning")
+        XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: nil, readInside: true), "Its name. Not read yet.")
     }
 
     func testThePlaceIsTheFoldersOwnName() {

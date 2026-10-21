@@ -87,16 +87,26 @@ struct ReadyFiles: View {
 
 struct RecentlyRead: View {
     let files: [SourceFile]
+    @State private var shown: [SourceFile] = []
     @Environment(\.openFile) private var openFile
+
+    /// Newest first when the strip first shows; after that a newly read file joins at the far end, so the tiles on screen
+    /// never move as files are read (core's list is newest first, and drawing it as is shifted every tile per file).
+    /// ponytail: grows by a tile per file while the screen stays open; the stack is lazy.
+    static func held(_ shown: [SourceFile], _ files: [SourceFile]) -> [SourceFile] {
+        guard !shown.isEmpty else { return files }
+        let had = Set(shown.map(\.uri))
+        return shown + files.filter { !had.contains($0.uri) }.reversed()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Recently read").font(.headline).accessibilityAddTraits(.isHeader)
             ScrollView(.horizontal) {
                 LazyHStack(spacing: 8) {
-                    ForEach(files, id: \.uri) { file in
+                    ForEach(shown, id: \.uri) { file in
                         Button {
-                            openFile(file, among: files)
+                            openFile(file, among: shown)
                         } label: {
                             FileTile(file: file).equatable().frame(width: 56, height: 56)
                         }
@@ -110,6 +120,7 @@ struct RecentlyRead: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Recently read")
         }
+        .onChange(of: files, initial: true) { _, files in shown = Self.held(shown, files) }
     }
 }
 

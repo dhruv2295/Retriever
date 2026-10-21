@@ -65,8 +65,8 @@ class SetupTest {
     @Test fun losingAccessReturnsToTheWelcomeAndStopsTheSteps() {
         val revoked = at(SetupMark.TRYING, access = false, planned = 30)
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, revoked.stage to revoked.step)
-        val status = ReadingPolicy.homeStatus(revoked.libraryChosen, 0, ReadingStatus(ReadingPhase.CAUGHT_UP, ""))
-        assertEquals(HomeStatus(HomePhase.SETTING_UP, "Choose what Retriever can search"), status)
+        val status = ReadingPolicy.line(ReadingStatus(ReadingPhase.CAUGHT_UP, ""), revoked.libraryChosen, hasAccess = true, 0, DeviceWords.ANDROID)
+        assertEquals(ReadingPhase.SETTING_UP to StatusAction.CONTINUE, status?.phase to status?.action)
     }
 
     @Test fun theUpgradeOffersThenDownloadsTunesAndAddsMeaning() {
@@ -106,21 +106,23 @@ class SetupTest {
         assertEquals("Files you can try", Words.FILES_TO_TRY)
         assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
         assertEquals("Try it on your own files", Words.SAMPLE_TITLE)
-        assertEquals("Picking a few of your files…", Words.SAMPLE_PICKING)
-        fun sample(readyToTry: Boolean, pending: Int) = TasteProgress(emptyMap(), emptySet(), if (readyToTry) 20 else 3, null, readyToTry, pending)
         assertEquals(
-            "See progress and pause a reading session. We can also let you know when your sample is ready.",
+            "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent.",
+            Words.SAMPLE_PICKING,
+        )
+        fun sample(readyToTry: Boolean, pending: Int) = TasteProgress(emptyMap(), emptySet(), if (readyToTry) 20 else 3, null, readyToTry, pending)
+        val plain = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
+        assertEquals(
+            "$plain We can also let you know when your sample is ready.",
             Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 10)),
         )
-        val plain = "See progress and pause a reading session."
         assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = true, pending = 10)), "ready: its message is already claimed")
         assertEquals(plain, Words.notificationsAsk(decided = true, sample(readyToTry = false, pending = 10)))
         assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 0)))
         assertEquals("12 of 40 files read", Words.readOf(12, 40))
-        assertEquals("0 of 1 file read", Words.readOf(0, 1))
-        assertEquals("Retriever reads the files on this phone to find them by what’s inside. Nothing leaves your phone.", Words.wholeDeviceNote(android))
+        assertEquals("Retriever reads the files on this phone to find them by what’s inside.", Words.wholeDeviceNote(android))
         assertEquals(
-            "iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your iPad.",
+            "iOS lets Retriever read your photos and the folders you pick in Files.",
             Words.iosAccessNote(DeviceWords.ios("iPad")),
         )
         assertEquals("Download for meaning search", Words.upgradeHint(2, UpgradeStage.OFFER))
@@ -141,12 +143,12 @@ class SetupTest {
     @Test fun sampleNote() {
         assertNull(Words.sampleNote(reading = false, readyToTry = true, secondsLeft = 90), "nothing while paused or done")
         assertEquals("You can try search once a few files are read.", Words.sampleNote(true, false, null))
-        assertEquals("You can try search now. Retriever keeps reading the rest.", Words.sampleNote(true, true, null))
+        assertEquals("Ready to try. Search for a word you remember from a recent file.", Words.sampleNote(true, true, null))
         assertEquals("Less than a minute left. You can try search once a few files are read.", Words.sampleNote(true, false, 59))
-        assertEquals("About a minute left. You can try search now.", Words.sampleNote(true, true, 60))
-        assertEquals("About a minute left. You can try search now.", Words.sampleNote(true, true, 89))
-        assertEquals("About 2 minutes left. You can try search now.", Words.sampleNote(true, true, 90))
-        assertEquals("About 3 minutes left. You can try search now.", Words.sampleNote(true, true, 170))
+        assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 60))
+        assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 89))
+        assertEquals("About 2 minutes left. Ready to try.", Words.sampleNote(true, true, 90))
+        assertEquals("About 3 minutes left. Ready to try.", Words.sampleNote(true, true, 170))
     }
 
     @Test fun totalsCountEveryAccessibleFileWithUnknownSizesApart() {

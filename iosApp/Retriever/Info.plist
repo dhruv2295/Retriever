@@ -7,7 +7,7 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Retriever reads your photos on this iPhone to make them searchable. Nothing leaves the device.</string>
+	<string>Retriever reads your photos on this iPhone so you can find them by what’s in them. Nothing leaves your iPhone.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>UIBackgroundModes</key>

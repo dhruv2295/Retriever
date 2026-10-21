@@ -24,6 +24,9 @@
             ("search.wordsOnly", "caughtUp"), ("search.lessLikely", "caughtUp"), ("search.nothingWell", "caughtUp"),
             ("search.firstPart", "caughtUp"), ("search.error", "caughtUp"), ("search.loading", "caughtUp"),
             ("search.noAccess", "noAccess"), ("search.reading", "reading(done: 1204, total: 5310)"),
+            ("home.charging", "readingWhileCharging"), ("home.firstDay", "firstDay"), ("home.unplugged", "unplugged"),
+            ("home.chargingUp", "chargingUp"), ("home.readNow", "readNow"), ("home.downloading", "downloading(0.34)"),
+            ("home.meaning", "meaningPass"), ("home.noAccess", "lostAccess"), ("settings", "caughtUp"),
         ]
 
         private static let liveRoutes: [(raw: String, path: [Route])] = [

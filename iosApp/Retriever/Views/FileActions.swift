@@ -28,7 +28,7 @@ enum FileAction: CaseIterable {
         case .open: "Open in another app"
         case .info: "File info"
         case .rename: "Rename"
-        case .delete: "Delete"
+        case .delete: Words.shared.deleteFrom(words: Copy.words)
         }
     }
 
@@ -281,7 +281,7 @@ struct FileActionsHost: ViewModifier {
             .confirmationDialog("Delete this file?", isPresented: showing(.delete), titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { actions.delete(model: model) }.disabled(actions.busy)
             } message: {
-                Text("This removes the original from \(actions.file.map(FileActions.place) ?? "its folder").")
+                Text(Words.shared.deleteConfirm(words: Copy.words))
             }
             .alert("Couldn't finish", isPresented: Binding(get: { actions.error != nil }, set: { if !$0 { actions.error = nil } })) {
                 Button("OK") { actions.error = nil }
@@ -320,7 +320,7 @@ private struct FileInfoSheet: View {
                         }
                         LabeledContent(Words.shared.MODIFIED, value: info.modified)
                         ForEach(info.facts, id: \.label) { LabeledContent($0.label, value: $0.value) }
-                        LabeledContent("Reading", value: info.reading)
+                        LabeledContent(Words.shared.FOUND_BY, value: info.reading)
                     }
                 } else {
                     ProgressView().frame(maxWidth: .infinity)

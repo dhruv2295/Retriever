@@ -126,8 +126,8 @@ class FirstFrameStatusViewModelTest {
         rule.setContent {
             ShotTheme(dark = false) { StatusContent(null, Prefs(), IndexState(), emptyList(), skippedOpen = false, batteryHint = false) }
         }
-        rule.onNodeWithText("Reading status").assertExists()
-        rule.onNodeWithText("Up to date").assertDoesNotExist()
+        rule.onNodeWithText(app.retriever.core.Words.READING_STATUS).assertExists()
+        rule.onNodeWithText("All done", substring = true).assertDoesNotExist()
         rule.onAllNodesWithText("0 of 0", substring = true).assertCountEquals(0)
     }
 }
