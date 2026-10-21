@@ -120,9 +120,9 @@ class SetupTest {
         assertEquals(plain, Words.notificationsAsk(decided = true, sample(readyToTry = false, pending = 10)))
         assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 0)))
         assertEquals("12 of 40 files processed", Words.readOf(12, 40))
-        assertEquals("Retriever processes the files on this phone to find them by what’s inside.", Words.wholeDeviceNote(android))
+        assertEquals("Retriever looks inside the files on this phone so you can find them by what’s in them.", Words.wholeDeviceNote(android))
         assertEquals(
-            "iOS lets Retriever read your photos and the folders you pick in Files.",
+            "iOS lets Retriever see your photos and the folders you pick in Files.",
             Words.iosAccessNote(DeviceWords.ios("iPad")),
         )
         assertEquals("Download for meaning search", Words.upgradeHint(2, UpgradeStage.OFFER))

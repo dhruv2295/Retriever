@@ -13,7 +13,7 @@ Wherever the app describes its own work on files (extracting text, OCR, labels, 
 "Processed in part", "Processing now", "Recently processed", "Couldn't process N files", "Process for 15 minutes",
 "When to process", and the Processing screen. The first-day line says Retriever "processes them here on this
 {device}: it looks at the words and pictures inside each file. Nothing is sent anywhere." "Read" stays for the
-document reader, the OS's access ("iOS lets Retriever read your photos") and loading a list. Code names
+document reader, the OS's access ("iOS lets Retriever see your photos") and loading a list. Code names
 (`ReadingProgress`, `readCount`, `WHEN_TO_READ`, routes, tags) are unchanged. The shared labels both screens use
 (`DETAILS`, `STARTING`, `PROCESSING_NOW`, `RECENTLY_PROCESSED`, `PROCESSING_YOUR_FILES`, `PROCESS_THESE_KINDS`,
 `couldntProcess(n)`) live in `Words`.

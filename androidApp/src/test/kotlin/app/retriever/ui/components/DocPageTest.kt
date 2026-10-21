@@ -131,6 +131,12 @@ class DocPageTest {
         assertEquals("    println(\"hello\")", cells("Main.kt", Fixtures.text.getValue("Main.kt"))[1])
     }
 
+    @Test fun markupStartsAtItsFirstElement() {
+        val xml = "<?xml version=\"1.0\"?>\n<!-- generated -->\n<?xml-stylesheet href=\"a.xsl\"?>\n" +
+            "<!DOCTYPE feed [\n<!ENTITY a \"b\">\n]>\n\n<feed>\n\t<title>Garden news</title>\n</feed>"
+        assertEquals(listOf("<feed>", "    <title>Garden news</title>", "</feed>"), cells("Feed.xml", xml.encodeToByteArray()))
+    }
+
     @Test fun aColouredLogShowsItsTextWithoutEscapes() {
         val log = "\u001B[32mINFO\u001B[0m build started\n\u000C\n\u001B[31mERROR\u001B[0m step failed".encodeToByteArray()
         assertEquals(listOf("INFO build started", "", "", "ERROR step failed"), cells("Build.log", log))

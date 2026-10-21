@@ -135,7 +135,7 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Words.shared.ADD_FOLDERS_FROM_FILES, "Add folders from Files")
         XCTAssertEqual(
             Words.shared.iosAccessNote(words: Copy.words),
-            "iOS lets Retriever read your photos and the folders you pick in Files.")
+            "iOS lets Retriever see your photos and the folders you pick in Files.")
         XCTAssertEqual(
             Words.shared.SAMPLE_PICKING, "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent.")
         XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 0), "12 of 40 files processed")

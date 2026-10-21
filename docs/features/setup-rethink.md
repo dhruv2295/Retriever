@@ -122,7 +122,7 @@ to find them by what’s inside. Nothing leaves your {device}."; `WHOLE_PHONE_RE
 phone."; `ALL_FILES_OFF` "Turn on “Allow access to manage all files” to search your whole phone, or choose what to
 include."; `CHOOSE_INSTEAD` "Choose what to include instead"; `INCLUDE_TITLE` "Choose what to include";
 `SEARCH_ALL_PHOTOS` "Search all your photos"; `ADD_FOLDERS_FROM_FILES` "Add folders from Files"; `iosAccessNote(w)`
-"iOS lets Retriever read your photos and the folders you pick in Files. Nothing leaves your {device}.";
+"iOS lets Retriever see your photos and the folders you pick in Files. Nothing leaves your {device}.";
 `SAMPLE_PICKING` "Picking a few of your files…" (was `STARTING`); `readOf(read, planned)` "12 of 40 files processed"; `READ`
 "Read". `seeAll(planned)` is reused.
 Delete once grep shows no user: `CHOOSE_ACCESS`, `ACCESS_BODY`, `GET_STARTED`, `CHOOSE_FILE_ACCESS`, `FILES_AND_FOLDERS`,

@@ -61,6 +61,16 @@ internal object DocPage {
     private val PROSE = setOf("txt", "md", "markdown", "rtf", "html", "htm")
     private val GRID = setOf("csv", "tsv")
 
+    /**
+     * Markup's prolog: the XML declaration and xml-* instructions, comments, DOCTYPE (with its subset), and the blanks between.
+     * Only `<?xml` instructions, so a PHP file's `<?php … ?>` code stays.
+     */
+    private val PROLOG =
+        Regex(
+            """\A(?:[ \t]*\r?\n|<\?xml.*?\?>|<!--.*?-->|<!DOCTYPE(?:[^>\[]|\[.*?])*>)*""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+        )
+
     /** A terminal colour or cursor sequence, or a lone escape. */
     private val ANSI = Regex("\u001B(\\[[0-9;?]*[A-Za-z])?")
 
@@ -92,7 +102,7 @@ internal object DocPage {
             ext == "html" || ext == "htm" || m == "text/html" -> prose(stripHtml(htmlBody(raw)))
             ext == "rtf" || "rtf" in m -> prose(stripRtf(raw))
             ext in PROSE || ext.isEmpty() -> prose(raw)
-            else -> page(Look.CODE, raw.lines().dropWhile { it.isBlank() }.take(MAX_ROWS).map { listOf(it.replace("\t", "    ")) })
+            else -> page(Look.CODE, raw.removePrefix("\uFEFF").replace(PROLOG, "").lines().take(MAX_ROWS).map { listOf(it.replace("\t", "    ")) })
         }
     }
 

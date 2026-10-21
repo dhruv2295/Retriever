@@ -180,9 +180,9 @@ object Words {
     const val ONLY_SELECTED_PHOTOS = "Only the photos you selected are included."
     const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
 
-    fun wholeDeviceNote(words: DeviceWords): String = "Retriever processes the files on this ${words.device} to find them by what’s inside."
+    fun wholeDeviceNote(words: DeviceWords): String = "Retriever looks inside the files on this ${words.device} so you can find them by what’s in them."
 
-    fun iosAccessNote(words: DeviceWords): String = "iOS lets Retriever read your photos and the folders you pick in Files."
+    fun iosAccessNote(words: DeviceWords): String = "iOS lets Retriever see your photos and the folders you pick in Files."
 
     // The sample.
     const val SAMPLE_TITLE = "Try it on your own files"
