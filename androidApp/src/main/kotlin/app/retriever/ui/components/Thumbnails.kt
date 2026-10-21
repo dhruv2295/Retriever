@@ -131,8 +131,10 @@ object Thumbnails {
 
             Kind.PDF -> pdfPage(context, uri, (Locator.pageOf(locator) ?: 1) - 1, n)
 
-            // A provider that draws documents (Drive, say) gives a real page; local storage has none, and the miss is cached.
+            // A provider that draws documents (Drive, say) gives a real page; local storage has none, so the file's head is
+            // drawn as one. A file with neither keeps its type card, and the miss is cached.
             Kind.DOC, Kind.OTHER -> runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
+                ?: DocPage.render(context, file, n)
 
             else -> null
         }
@@ -176,7 +178,8 @@ fun ThumbnailImage(
     val shown = bitmap
     val fade by animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     Box(modifier.background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
-        KindFace(file, iconSize, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        // A document's page leaves the cell's colour around it, so the type card underneath goes once the page is in.
+        if (shown == null || fade < 1f) KindFace(file, iconSize, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade })
         }
@@ -196,8 +199,8 @@ internal fun KindFace(file: SourceFile, iconSize: Dp = 24.dp, tint: Color = Mate
 }
 
 /**
- * Android has no system thumbnailer for Office files and the index keeps no lines worth showing, so a document is a
- * sheet of paper with its type on it. The badge shows if it fits the page less 4 dp a side, else the kind's icon.
+ * A document before its page is drawn ([DocPage]), or when it has none to draw (unreadable, encrypted, unknown, no
+ * access): a sheet of paper with its type on it. The badge shows if it fits the page less 4 dp a side, else the kind's icon.
  */
 @Composable
 private fun DocCard(badge: String, icon: @Composable () -> Unit) {
