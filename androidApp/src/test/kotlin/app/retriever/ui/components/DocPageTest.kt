@@ -67,6 +67,13 @@ class DocPageTest {
         assertEquals(listOf(listOf("Item", "Amount", ""), listOf("Rent", "1200", ""), listOf("Coffee", "", "0.3")), rows("Budget.xlsx", Fixtures.xlsx))
     }
 
+    @Test fun aBigWorkbookKeepsItsSharedStrings() {
+        val (rows, took) = measureTimedValue { rows("Big.xlsx", Fixtures.bigXlsx) }
+        println("DOCPAGE big xlsx: ${took.inWholeMicroseconds / 1000.0} ms")
+        assertEquals(listOf(listOf("Item", "Amount"), listOf("Rent", "1200")), rows.take(2))
+        assertTrue("big xlsx took $took", took < 2.seconds)
+    }
+
     @Test fun pptxReadsSlideOneOnly() {
         assertEquals(Look.SLIDE, (read("Deck.pptx", Fixtures.pptx) as Head.Page).look)
         assertEquals(listOf("Garden plan", "Plant in spring", "Water weekly"), cells("Deck.pptx", Fixtures.pptx))
@@ -100,6 +107,10 @@ class DocPageTest {
         assertEquals("Quarterly letter", cells("Letter.docx", Fixtures.withMetafile).first())
     }
 
+    @Test fun aBrokenThumbnailLeavesTheDrawnPage() {
+        assertEquals("Quarterly letter", cells("Letter.docx", Fixtures.brokenPicture).first())
+    }
+
     @Test fun aThumbnailPastTheBudgetLeavesTheDrawnPage() {
         assertEquals("Garden plan", cells("Deck.pptx", Fixtures.mediaBeforePicture).first())
     }
@@ -118,6 +129,11 @@ class DocPageTest {
         }
         // Code keeps its indentation; tabs become spaces.
         assertEquals("    println(\"hello\")", cells("Main.kt", Fixtures.text.getValue("Main.kt"))[1])
+    }
+
+    @Test fun aColouredLogShowsItsTextWithoutEscapes() {
+        val log = "\u001B[32mINFO\u001B[0m build started\n\u000C\n\u001B[31mERROR\u001B[0m step failed".encodeToByteArray()
+        assertEquals(listOf("INFO build started", "", "", "ERROR step failed"), cells("Build.log", log))
     }
 
     @Test fun htmlShowsItsBodyTextAndNoCssOrScript() {
@@ -312,6 +328,9 @@ private object Fixtures {
         )
     }
 
+    /** Word stores the thumbnail after the document; this one has no image in it. */
+    val brokenPicture = zip(types, "word/document.xml" to documentXml, "docProps/thumbnail.jpeg" to Random(9).nextBytes(4096))
+
     val withMetafile = zip(types, "docProps/thumbnail.emf" to ByteArray(64) { 1 }, "word/document.xml" to documentXml)
 
     val xlsx = zip(
@@ -329,6 +348,20 @@ private object Fixtures {
         ),
         "xl/sharedStrings.xml" to s("<sst><si><t>Item</t></si><si><t>Amount</t></si><si><t>Rent</t></si><si><r><t>Cof</t></r><r><t>fee</t></r></si></sst>"),
     )
+
+    /** About 5 MB of sheet ahead of its shared strings, as a big Excel export stores them. */
+    val bigXlsx by lazy {
+        val sheet = StringBuilder("<worksheet><sheetData>")
+        sheet.append("<row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c></row>")
+        sheet.append("<row r=\"2\"><c r=\"A2\" t=\"s\"><v>2</v></c><c r=\"B2\"><v>1200</v></c></row>")
+        for (r in 3..60_000) sheet.append("<row r=\"$r\"><c r=\"A$r\"><v>$r</v></c><c r=\"B$r\"><v>${r * 2}</v></c></row>")
+        sheet.append("</sheetData></worksheet>")
+        zip(
+            types,
+            "xl/worksheets/sheet1.xml" to sheet.toString().encodeToByteArray(),
+            "xl/sharedStrings.xml" to s("<sst><si><t>Item</t></si><si><t>Amount</t></si><si><t>Rent</t></si></sst>"),
+        )
+    }
 
     private val slide1 = s(
         """

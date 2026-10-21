@@ -46,6 +46,9 @@ internal sealed interface Head {
 internal object DocPage {
     /** Inflated bytes one zip pass may read in all: a big media folder ahead of the text ends the pass, not the phone's time. */
     private const val ZIP_BUDGET = 4 shl 20
+
+    /** More for a workbook until its shared strings are read: tens of MB of sheets inflate in a few hundred ms. */
+    private const val XLSX_ALLOWANCE = 28 shl 20
     private const val ZIP_ENTRIES = 1000
     private const val ENTRY_HEAD = 256 shl 10
     private const val PICTURE_BYTES = 1 shl 20
@@ -57,6 +60,9 @@ internal object DocPage {
     private val TEXTS = setOf("word/document.xml", "ppt/slides/slide1.xml", "xl/worksheets/sheet1.xml", "xl/sharedStrings.xml", "content.xml")
     private val PROSE = setOf("txt", "md", "markdown", "rtf", "html", "htm")
     private val GRID = setOf("csv", "tsv")
+
+    /** A terminal colour or cursor sequence, or a lone escape. */
+    private val ANSI = Regex("\u001B(\\[[0-9;?]*[A-Za-z])?")
 
     /** Zip formats: without the zip signature (encrypted, or not what the name says) they have no head to show. */
     private val CONTAINERS = setOf("docx", "xlsx", "pptx", "odt", "ods", "odp", "epub")
@@ -76,9 +82,11 @@ internal object DocPage {
         val known = ext in FileRules.DOC_TEXT_EXTENSIONS || ext in PROSE || ext in GRID
         val text = ext !in CONTAINERS && (known || m.startsWith("text/") || m == "application/json")
         if (!text) return null
-        val raw = head.readCapped(TEXT_HEAD) {}
+        val read = head.readCapped(TEXT_HEAD) {}
         // decodeText reads any byte as Windows-1252, so a binary file renamed .txt shows as control characters: no text instead.
-        if (raw.isEmpty() || raw.any { it.isISOControl() && it != '\t' && it != '\n' && it != '\r' }) return null
+        // Escape (a log's colours) and form feed are a text file's own; neither is drawn.
+        if (read.isEmpty() || read.any { it.isISOControl() && it !in "\t\n\r\u000C\u001B" }) return null
+        val raw = read.replace(ANSI, "").replace('\u000C', '\n')
         return when {
             ext in GRID || m == "text/csv" || m == "text/tab-separated-values" -> page(Look.GRID, delimited(raw, if (ext == "tsv" || "tab" in m) '\t' else ','))
             ext == "html" || ext == "htm" || m == "text/html" -> prose(stripHtml(htmlBody(raw)))
@@ -90,21 +98,25 @@ internal object DocPage {
 
     /**
      * One pass over the zip, keeping the head of each entry worth having and stopping at an embedded thumbnail.
-     * ponytail: streamed, so a thumbnail stored after the budget is missed and the drawn page shows; a seekable ZipFile
-     * over the file descriptor if a cold-Try trace says it matters.
+     * ponytail: streamed, so a thumbnail stored after the budget is missed and the drawn page shows, and a workbook whose
+     * sheets inflate past the allowance before its shared strings shows blank labels; a seekable ZipFile over the file
+     * descriptor if a cold-Try trace says it matters.
      */
     private fun zip(input: InputStream): Head? {
         val parts = mutableMapOf<String, String>()
         var left = ZIP_BUDGET
+        // Excel stores the sheets before xl/sharedStrings.xml, and a stream reaches it only by inflating them in full.
+        var stringsDue = false
         runCatching {
             ZipInputStream(input).use { zip ->
                 val buf = ByteArray(8192)
 
                 // Every byte of every entry is read here, kept or not: nextEntry would otherwise inflate the rest uncounted.
-                fun entry(keep: Int): ByteArray {
+                // Until the shared strings are read, the entries ahead of them leave their head's worth of the budget.
+                fun entry(keep: Int, floor: Int): ByteArray {
                     val out = ByteArrayOutputStream()
-                    while (left > 0) {
-                        val read = zip.read(buf)
+                    while (left > floor) {
+                        val read = zip.read(buf, 0, minOf(buf.size, left - floor))
                         if (read < 0) break
                         left -= read
                         if (out.size() < keep) out.write(buf, 0, minOf(read, keep - out.size()))
@@ -113,15 +125,24 @@ internal object DocPage {
                 }
                 repeat(ZIP_ENTRIES) {
                     val name = zip.nextEntry?.name ?: return@use
-                    when (name) {
-                        // A picture cut by a cap would not decode: only a whole one counts.
-                        in PICTURES -> entry(PICTURE_BYTES).takeIf { left > 0 && it.size < PICTURE_BYTES }?.let { return Head.Picture(it) }
-
-                        in TEXTS -> parts[name] = decodeText(entry(ENTRY_HEAD))
-
-                        else -> entry(0)
+                    if (name.startsWith("xl/") && !stringsDue && "xl/sharedStrings.xml" !in parts) {
+                        stringsDue = true
+                        left += XLSX_ALLOWANCE
                     }
-                    if (left <= 0) return@use
+                    val floor = if (stringsDue && name != "xl/sharedStrings.xml") ENTRY_HEAD else 0
+                    when (name) {
+                        // A picture cut by a cap would not decode, nor would one with no readable header: only a whole,
+                        // decodable one counts, else the pass goes on to the text.
+                        in PICTURES -> entry(PICTURE_BYTES, floor)
+                            .takeIf { left > floor && it.size < PICTURE_BYTES && bounds(it) != null }
+                            ?.let { return Head.Picture(it) }
+
+                        in TEXTS -> parts[name] = decodeText(entry(ENTRY_HEAD, floor))
+
+                        else -> entry(0, floor)
+                    }
+                    if (name == "xl/sharedStrings.xml") stringsDue = false
+                    if (left <= floor) return@use
                 }
             }
         }
@@ -283,10 +304,13 @@ internal object DocPage {
         return bitmap
     }
 
+    /** The picture's size from its header alone; null when it has none an image decoder reads. */
+    private fun bounds(bytes: ByteArray): BitmapFactory.Options? = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        .also { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, it) }
+        .takeIf { it.outWidth > 0 && it.outHeight > 0 }
+
     private fun picture(bytes: ByteArray, n: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val bounds = bounds(bytes) ?: return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= n) sample *= 2
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })

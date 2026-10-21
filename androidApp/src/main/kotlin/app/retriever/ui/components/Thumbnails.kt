@@ -134,7 +134,7 @@ object Thumbnails {
             // A provider that draws documents (Drive, say) gives a real page; local storage has none, so the file's head is
             // drawn as one. A file with neither keeps its type card, and the miss is cached.
             Kind.DOC, Kind.OTHER -> runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
-                ?: DocPage.render(context, file, n)
+                ?: withContext(renderDispatcher) { DocPage.render(context, file, n) }
 
             else -> null
         }
