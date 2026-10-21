@@ -134,6 +134,15 @@ class StatusLineTest {
         assertEquals("Processing your files · 0% done", decide(whole, reading = true, mark = ReadMark().next(sample)).title)
     }
 
+    /** A fresh install shows its status before the first scan has written a file; that empty 100% must not become the mark. */
+    @Test fun anEmptyLibraryNeverSetsTheMark() {
+        val empty = ReadingProgress()
+        assertEquals(100, percentRead(empty))
+        assertEquals(ReadMark(), ReadMark().next(empty))
+        val scanned = ReadingProgress(read = 77, scheduled = 25_670)
+        assertEquals("Processing your files · 0% done", decide(scanned, reading = true, mark = ReadMark().next(empty)).title)
+    }
+
     @Test fun theShareIsWholeAndReachesAHundredOnlyWhenNothingWaits() {
         assertEquals(99, percentRead(ReadingProgress(read = 999, scheduled = 1)))
         assertEquals(100, percentRead(ReadingProgress(read = 3)))

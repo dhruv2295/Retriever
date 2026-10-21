@@ -105,9 +105,14 @@ internal fun percentRead(p: ReadingProgress): Int = if (p.waiting == 0L) 100 els
  * The highest "N% done" shown and how many files were counted then ([ReadingProgress.contentRead] + waiting). The figure
  * never falls: when new files lower the share, the line names them ("Processing 42 new files") until the old one is passed.
  * The quick try never moves it: its share counts only the planned files, so widening to the whole phone would read as new files.
+ * Nor does an empty library: its 100% (nothing waiting) would turn the first scan's files into "new files".
  */
 data class ReadMark(val percent: Int = 0, val files: Long = 0) {
-    fun next(p: ReadingProgress): ReadMark = if (p.sample) this else percentRead(p).let { if (it >= percent) ReadMark(it, p.contentRead + p.waiting) else this }
+    fun next(p: ReadingProgress): ReadMark = if (p.sample || p.contentRead + p.waiting == 0L) {
+        this
+    } else {
+        percentRead(p).let { if (it >= percent) ReadMark(it, p.contentRead + p.waiting) else this }
+    }
 
     /** Files that came since [percent] was shown, while the share is under it; 0 otherwise. */
     internal fun newFiles(p: ReadingProgress): Long = if (percentRead(p) < percent) (p.contentRead + p.waiting - files).coerceAtLeast(0) else 0
