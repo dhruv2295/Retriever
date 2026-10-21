@@ -1294,10 +1294,6 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
-    /** The first extracted lines for a thumbnail; never metadata or another file's words. */
-    @Throws(Throwable::class)
-    suspend fun textPreview(file: SourceFile): String? = io { store.textPreview(file) }
-
     private val suggestionLock = Mutex()
     private val contentSuggestions = ContentSuggestions()
 

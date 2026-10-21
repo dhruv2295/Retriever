@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +41,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -52,7 +50,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.ui.Format
@@ -117,11 +114,7 @@ private fun ReadingThumb(file: SourceFile, size: Dp, reduceMotion: Boolean, modi
     }
     Crossfade(loaded, modifier, animationSpec = if (reduceMotion) snap() else tween(150), label = "Reading picture") { (f, bitmap) ->
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
-            when {
-                bitmap != null -> Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                f.kind == Kind.DOC || f.kind == Kind.OTHER -> TextThumbnail(f)
-                else -> Icon(painterResource(kindIcon(f.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            if (bitmap != null) Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) else KindFace(f)
         }
     }
 }
@@ -139,13 +132,13 @@ private fun Modifier.readingSweep(size: Dp, position: State<Float>): Modifier {
 }
 
 /**
- * Files you can try: one tile size for every cell, so a document's text tile never widens its row. Four columns, two
+ * Files you can try: one tile size for every cell. Four columns, two
  * past [LARGE_TEXT]; a plain FlowRow of fixed sizes, no weights, so nothing asks a tile for its intrinsics.
  */
 @Composable
 internal fun ReadyFiles(files: List<SourceFile>, onOpen: ((SourceFile) -> Unit)? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Files you can try", style = MaterialTheme.typography.titleSmall)
+        Text(Words.FILES_TO_TRY, style = MaterialTheme.typography.titleSmall)
         val columns = if (LocalDensity.current.fontScale > LARGE_TEXT) 2 else 4
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // Whole pixels, rounded down, so a full row never overflows the width by a rounding pixel.
@@ -155,7 +148,7 @@ internal fun ReadyFiles(files: List<SourceFile>, onOpen: ((SourceFile) -> Unit)?
                 verticalArrangement = Arrangement.spacedBy(GAP),
                 maxItemsInEachRow = columns,
                 modifier = Modifier.semantics {
-                    contentDescription = "Ready to search"
+                    contentDescription = Words.FILES_TO_TRY
                     collectionInfo = CollectionInfo((files.size + columns - 1) / columns, columns)
                 },
             ) {

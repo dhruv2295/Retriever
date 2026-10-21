@@ -427,22 +427,45 @@ class SetupStatusShotsTest {
     @Test fun trySuggestionsArriveWithoutMovingThePage() {
         val terms = mutableStateOf<List<String>?>(null)
         rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        val before = top("Files you can try")
+        val before = top(Words.FILES_TO_TRY)
         rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
         terms.value = listOf("invoice", "deposit", "lease")
         rule.waitForIdle()
         rule.onNodeWithText("invoice").assertExists()
-        assertEquals(before, top("Files you can try"))
+        assertEquals(before, top(Words.FILES_TO_TRY))
     }
 
     @Test fun tryWithoutSuggestionsHoldsTheSameRow() {
         val terms = mutableStateOf<List<String>?>(null)
         rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        val before = top("Files you can try")
+        val before = top(Words.FILES_TO_TRY)
         terms.value = emptyList()
         rule.waitForIdle()
         rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
-        assertEquals(before, top("Files you can try"))
+        assertEquals(before, top(Words.FILES_TO_TRY))
+    }
+
+    /** The phone's bug: the scope line waited for the search's scope and landed a moment late, pushing the grid down. */
+    @Test fun tryScopeLineIsThereOnTheFirstFrame() {
+        val search = mutableStateOf(scoped.copy(scope = null))
+        rule.setContent { ShotTheme(false) { TryItContent(tryUi, search.value, SearchActions(), SetupActions()) } }
+        rule.onNodeWithText(Words.searchingTry(tryUi.taste!!.read.toLong())).assertExists()
+        val before = top(Words.FILES_TO_TRY)
+        search.value = scoped
+        rule.waitForIdle()
+        assertEquals(before, top(Words.FILES_TO_TRY))
+    }
+
+    /** One body at a time, as on iOS: the line without suggestions replaces the body, not joins it. */
+    @Test fun tryShowsOneBodyAtATime() {
+        val terms = mutableStateOf<List<String>?>(listOf("invoice"))
+        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
+        rule.onNodeWithText(Words.TRY_BODY).assertExists()
+        rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
+        terms.value = emptyList()
+        rule.waitForIdle()
+        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
+        rule.onAllNodesWithText(Words.TRY_BODY).assertCountEquals(0)
     }
 
     @Test fun tryOffersTheUpgradeOnceSearched() {

@@ -309,8 +309,7 @@ all sheet's title becomes `readOf(read, planned)`.
 - `StoredFile.contentRead` is set on every stored file (from `files.reach`), not only after `withExtents`.
 - Text files decode with `decodeText` on both platforms (BOM, UTF-16, UTF-8, else Windows-1252; binary reads as
   nothing). iOS reads text through `NativeExtractor.readBytes`; `textHead` is gone from the bridge and from
-  `iosApp/Retriever/Core/Extractor.swift`. `textPreview` returns null for text that still holds U+FFFD (read before
-  this change), so a tile shows no text rather than garbage until the file is read again.
+  `iosApp/Retriever/Core/Extractor.swift`. (`textPreview`, which tiles once drew from, is gone: `try-previews.md`.)
 - Schema 7 (`6.sqm`): `files.reach`, and `files_by_reach` replaces `files_by_kind_state`. The upgrade fills `reach` from
   the chunks already read (one pass at first launch).
 
@@ -353,8 +352,10 @@ HomeModelTests.
   failed `suggestions()` read is logged and answers none, so Home still draws (an uncaught one ended the process on iOS
   and crashed `HomeViewModel`'s scope on Android).
 - **Try.** Scope line `searchingTry(TasteProgress.read)`. Chips or the no-suggestions line never move the page: Android's
-  suggestions row holds its height from the first frame, and iOS has them before Try opens (`watchSetup`). Android: one Back now leaves a chip's results (the expanded
-  bar no longer takes focus with the keyboard down).
+  suggestions row holds its height from the first frame, and iOS has them before Try opens (`watchSetup`). A chip's search opens no keyboard on
+  either platform, so one Back leaves its results; on Android the field refuses focus until it is touched
+  (`try-previews.md`; run 5 showed the earlier give-back losing to the keyboard). The scope line is there from the first
+  frame on both.
 - **Choose.** The "From your selected … folders" line is gone on both.
 - **Reading status.** The mascot walks while reading runs (`settles = false`; Android's `Mascot` now reads `settles`
   live, it had captured it once). Core keeps `IndexState.currentFile` from one file to the next and clears it only when

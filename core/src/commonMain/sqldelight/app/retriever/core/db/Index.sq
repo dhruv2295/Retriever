@@ -504,13 +504,6 @@ readContentVersions:
 SELECT f.id, (SELECT MAX(c.id) FROM chunks c WHERE c.file_id = f.id) AS revision FROM files f
 WHERE f.state = 'INDEXED' AND f.reach & 1;
 
--- Bounded preview of this exact file revision, from extracted content only.
-textPreview:
-SELECT substr(content_text, 1, 400) AS preview FROM chunks JOIN files ON files.id = chunks.file_id
-WHERE files.uri = ? AND files.modified_at = ? AND files.size = ? AND files.state = 'INDEXED'
-AND content_text IS NOT NULL AND trim(content_text) != ''
-ORDER BY ordinal, chunks.id LIMIT 1;
-
 -- The bits of reach (Store.Reach), each set when some chunk of the file is so. Ordinal 0 is a name vector, metadata
 -- text is not extracted content, and labels are content even without a model.
 --   1 content: words, labels or a picture's vector;   2 tail text: words waiting for a vector;

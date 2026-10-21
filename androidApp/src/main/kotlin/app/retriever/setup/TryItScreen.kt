@@ -22,7 +22,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -96,16 +98,18 @@ fun TryItContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(Words.TRY_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-            Text(Words.TRY_BODY, style = MaterialTheme.typography.bodyLarge)
-            search.scope?.let { Muted(Words.searchingTry(ui.taste?.read?.toLong() ?: 0)) }
+            // One body at a time, as on iOS. Both are laid out, so the longer holds the height and nothing below moves.
+            val bare = suggestions?.isEmpty() == true
+            Box {
+                Body(Words.TRY_BODY, shown = !bare)
+                Body(Words.TRY_WITHOUT_SUGGESTIONS, shown = bare)
+            }
+            // From the sample's count, which is there on the first frame: it never waits for the search's scope.
+            Muted(Words.searchingTry(ui.taste?.read?.toLong() ?: 0))
             // One chip row's height, held from the first frame.
             Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {
-                when {
-                    suggestions == null -> Unit
-
-                    suggestions.isEmpty() -> Text(Words.TRY_WITHOUT_SUGGESTIONS, style = MaterialTheme.typography.bodyMedium)
-
-                    else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!suggestions.isNullOrEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         for (term in suggestions) key(term) { SuggestionChip(onClick = { fill(term, true) }, label = { Text(term) }) }
                     }
                 }
@@ -118,4 +122,10 @@ fun TryItContent(
             upgrade?.let { UpgradeCard(it, upgradeActions) }
         }
     }
+}
+
+/** A body line that holds its height when not [shown]: invisible and silent, so only the shown one is read. */
+@Composable
+private fun Body(text: String, shown: Boolean) {
+    Text(text, style = MaterialTheme.typography.bodyLarge, modifier = if (shown) Modifier else Modifier.alpha(0f).clearAndSetSemantics {})
 }

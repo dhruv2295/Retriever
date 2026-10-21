@@ -42,7 +42,7 @@ enum Thumbnails {
             if file.kind == .pdf, let page = Locator.shared.pageOf(l: locator)?.intValue {
                 image = await Task.detached { pdfPage(url, index: page - 1, pixels: pixels) }.value
             } else {
-                image = await quickLook(url, pixels: pixels)
+                image = await quickLook(url, pixels: pixels)?.uiImage
             }
         } else {
             image = nil
@@ -103,32 +103,10 @@ enum Thumbnails {
         return page.thumbnail(of: CGSize(width: pixels, height: pixels), for: .cropBox)
     }
 
-    private static func quickLook(_ url: URL, pixels: CGFloat) async -> UIImage? {
-        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: pixels, height: pixels), scale: 1, representationTypes: .thumbnail)
-        guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage else { return nil }
-        // A mostly-white page (docx, short pdf) fills the tile with white; nil shows the kind's icon instead.
-        return isBlank(image) ? nil : image
-    }
-
-    /// True when the picture is near-white everywhere once shrunk to 16x16, i.e. a page with no visible content.
-    // ponytail: fixed 0.93 cut-off; a very pale genuine image would show the icon too.
-    nonisolated private static func isBlank(_ image: UIImage) -> Bool {
-        guard let cg = image.cgImage else { return false }
-        let n = 16
-        var px = [UInt8](repeating: 0, count: n * n * 4)
-        let drew = px.withUnsafeMutableBytes { buf -> Bool in
-            guard
-                let ctx = CGContext(
-                    data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
-                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            else { return false }
-            ctx.setFillColor(UIColor.white.cgColor)
-            ctx.fill(CGRect(x: 0, y: 0, width: n, height: n))
-            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: n, height: n))
-            return true
-        }
-        guard drew else { return false }
-        return stride(from: 0, to: px.count, by: 4).allSatisfy { min(px[$0], px[$0 + 1], px[$0 + 2]) > 237 }
+    /// A real page, sheet or slide where Quick Look can draw one, else the system's icon for the type.
+    nonisolated static func quickLook(_ url: URL, pixels: CGFloat) async -> QLThumbnailRepresentation? {
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: pixels, height: pixels), scale: 1, representationTypes: .all)
+        return try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
     }
 }
 
@@ -149,12 +127,6 @@ struct Thumb: View {
     @Environment(\.services) private var services
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var image: UIImage?
-    @State private var text: String?
-
-    // Reserve two lines each for the name and content, plus padding and spacing.
-    private var showsText: Bool {
-        (file.kind == .doc || file.kind == .other) && points >= UIFont.preferredFont(forTextStyle: .caption2).lineHeight * 4 + 20
-    }
 
     private var pixels: CGFloat { bucketed ? Thumbnails.bucket(points * scale) : points * scale }
 
@@ -168,38 +140,17 @@ struct Thumb: View {
             .overlay {
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill().id(ObjectIdentifier(image)).transition(.opacity)
-                } else if showsText {
-                    // As many lines of what it says as the tile holds, five down to two, else the kind's icon.
-                    ViewThatFits(in: .vertical) {
-                        ForEach([5, 3, 2], id: \.self) { lines in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(file.name).font(.caption2.bold()).lineLimit(2)
-                                if let text { Text(text).font(.caption2).lineLimit(lines) }
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(8)
-                            .accessibilityIdentifier("thumb-text")
-                        }
-                        Image(systemName: Format.icon(file.kind)).font(.title2).foregroundStyle(.secondary)
-                    }
                 } else {
                     Image(systemName: Format.icon(file.kind)).font(.title2).foregroundStyle(.secondary)
                 }
             }
             .clipped()
-            .task(id: Self.requestID(file, locator: locator, pixels: pixels) + "|\(showsText)") {
-                text = nil
-                if showsText {
-                    image = nil
-                    text = try? await services?.retriever.textPreview(file: file)
-                } else {
-                    // The picture shown stays until the next is decoded (a new file in the same place, as Reading now
-                    // has), then gives way in a short fade; a first picture simply appears.
-                    let next = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
-                    guard !Task.isCancelled else { return }
-                    withAnimation(image == nil || reduceMotion ? nil : .easeInOut(duration: 0.2)) { image = next }
-                }
+            .task(id: Self.requestID(file, locator: locator, pixels: pixels)) {
+                // The picture shown stays until the next is decoded (a new file in the same place, as Reading now
+                // has), then gives way in a short fade; a first picture simply appears.
+                let next = await Thumbnails.load(file, locator: locator, pixels: pixels, services: services)
+                guard !Task.isCancelled else { return }
+                withAnimation(image == nil || reduceMotion ? nil : .easeInOut(duration: 0.2)) { image = next }
             }
             .accessibilityHidden(true)
     }

@@ -1,5 +1,6 @@
 import Photos
 import RetrieverCore
+import UIKit
 import XCTest
 
 @testable import Retriever
@@ -115,6 +116,20 @@ final class CopyTests: XCTestCase {
         }
     }
 
+    /// Try names the next step; "Try searching inside" left "inside what?".
+    func testTryWords() {
+        XCTAssertEqual(Words.shared.TRY_TITLE, "Find a file you know")
+        XCTAssertEqual(Words.shared.TRY_BODY, "Type something you remember from it, like a name, a place or an amount, or tap a suggestion.")
+        XCTAssertEqual(Words.shared.TRY_WITHOUT_SUGGESTIONS, "Open one of these files, then type something you remember from it.")
+        XCTAssertEqual(Words.shared.FILES_TO_TRY, "Files you can try")
+    }
+
+    /// The navigation bar's large title, on one line on the narrowest iPhone (375 pt) less its 20 pt margins.
+    func testTryTitleFitsALargeTitle() {
+        let width = (Words.shared.TRY_TITLE as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 34, weight: .bold)]).width
+        XCTAssertLessThanOrEqual(width, 375 - 40)
+    }
+
     /// The welcome's iOS ask and the pile's count line.
     func testWelcomeAskAndSampleCountWords() {
         XCTAssertEqual(Words.shared.SEARCH_ALL_PHOTOS, "Search all your photos")
@@ -152,7 +167,7 @@ final class CopyTests: XCTestCase {
                 Copy.reading(setting).title, Copy.reading(AppModel.Snap(paused: true)).title, Copy.reading(AppModel.Snap(running: true)).title,
                 Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
                 Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
-                Copy.backgroundNote, Copy.deepReading(3), Words.shared.tuneFailed(words: Copy.words), Copy.filesYouCanTry,
+                Copy.backgroundNote, Copy.deepReading(3), Words.shared.tuneFailed(words: Copy.words), Words.shared.FILES_TO_TRY,
                 Words.shared.welcomeBody(words: Copy.words), Words.shared.upgradeBody(size: "388 MB", words: Copy.words),
                 Words.shared.tuneTitle(words: Copy.words), Words.shared.tuneBody(words: Copy.words),
             ] + home(setting) + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))

@@ -116,6 +116,20 @@ class ReadingFilesTest {
         }
     }
 
+    /** The owner's bug: a document showed its name and raw text. Now its tile is a type card with no readable text. */
+    @Test fun aDocumentInTheTryGridShowsItsTypeNotItsText() {
+        val letter = SourceFile("demo:letter", "Letter.docx", "Documents", "application/msword", Kind.DOC, 100, 1_760_000_000_000)
+        rule.setContent { ShotTheme(false) { ReadyFiles(listOf(file(1), letter, file(3)), onOpen = {}) } }
+        rule.onNodeWithTag("badge:DOCX", useUnmergedTree = true).assertIsDisplayed()
+        // The header and the badge are the only text, read through cleared parents too: no name, no content.
+        val texts = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text), useUnmergedTree = true)
+            .fetchSemanticsNodes().flatMap { n -> n.config[SemanticsProperties.Text].map { it.text } }
+        assertEquals(listOf(Words.FILES_TO_TRY, "DOCX"), texts)
+        // The badge is drawn, not announced.
+        rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text)).assertCountEquals(1)
+        rule.onNodeWithTag("recent:demo:letter").assertContentDescriptionEquals("Letter.docx, ${Words.kindLabel(Kind.DOC)}, ${Format.date(letter.modifiedAt)}")
+    }
+
     // --- The sample's pile ---
 
     /** Every fifth file a document, so the pile always holds a text tile. */

@@ -194,9 +194,10 @@ object Words {
         "${formatCount(read)} of ${formatCount(planned)} ${kindLabelPlural(kind).let { if (kind == Kind.PDF) it else it.lowercase() }} read"
 
     // Try.
-    const val TRY_TITLE = "Try searching inside"
-    const val TRY_BODY = "Describe something you remember, or choose a suggestion."
-    const val TRY_WITHOUT_SUGGESTIONS = "Open a file, then try a word you remember from it."
+    const val TRY_TITLE = "Find a file you know"
+    const val TRY_BODY = "Type something you remember from it, like a name, a place or an amount, or tap a suggestion."
+    const val TRY_WITHOUT_SUGGESTIONS = "Open one of these files, then type something you remember from it."
+    const val FILES_TO_TRY = "Files you can try"
     const val CHOOSE_WHEN = "Choose when to read more"
 
     /** Try's scope: names cover the whole library, words inside only the [read] files ([TasteProgress.read]). */

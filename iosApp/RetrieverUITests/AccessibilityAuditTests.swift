@@ -255,6 +255,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "the suggestions are there on the first frame")
         suggestion.tap()
         XCTAssertTrue(suggestion.waitForNonExistence(timeout: 5), "the results replace Try's start")
+        XCTAssertEqual(app.keyboards.count, 0, "a suggestion searches without the keyboard")
         app.navigationBars.buttons["Back"].tap()
         XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and Try's start is back")
         XCTAssertTrue(app.buttons["Choose when to read more"].exists, "still on Try")
@@ -349,9 +350,6 @@ final class AccessibilityAuditTests: XCTestCase {
                     return true
                 }
                 if issue.auditType != .hitRegion, self.underABar(element, in: app) { return true }
-                // A document preview's miniature page: hidden from VoiceOver and sized to its tile like a photo, falling
-                // back to the kind's icon when its text no longer fits. The tile's own name and label carry the text.
-                if [.textClipped, .dynamicType].contains(issue.auditType), element.identifier == "thumb-text" { return true }
                 // These literal source filenames are the correct viewer titles, not missing app-authored labels.
                 if route.hasPrefix("viewer."), issue.auditType == .sufficientElementDescription,
                     ["Document_01.pdf", "talk-and-show.mp4", "IMG_1001.jpg"].contains(element.label),

@@ -68,7 +68,7 @@ struct ReadyFiles: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(Copy.filesYouCanTry).font(.headline).accessibilityAddTraits(.isHeader)
+            Text(Words.shared.FILES_TO_TRY).font(.headline).accessibilityAddTraits(.isHeader)
             LazyVGrid(columns: gridColumns(typeSize, spacing: 8), spacing: 8) {
                 ForEach(files, id: \.uri) { file in
                     Button {
@@ -80,7 +80,7 @@ struct ReadyFiles: View {
                 }
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel(Copy.filesYouCanTry)
+            .accessibilityLabel(Words.shared.FILES_TO_TRY)
         }
     }
 }

@@ -178,7 +178,7 @@ fun FileRow(
 }
 
 @Composable
-fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "", preview: suspend (SourceFile) -> String? = ::loadTextPreview) {
+fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "") {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { size.roundToPx() }
     val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, file.size, px, locator) {
@@ -191,10 +191,8 @@ fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: St
         val shown = bitmap
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
-        } else if (file.kind == Kind.DOC || file.kind == Kind.OTHER) {
-            TextThumbnail(file, preview)
         } else {
-            Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            KindFace(file)
         }
     }
 }

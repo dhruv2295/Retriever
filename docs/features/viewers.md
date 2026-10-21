@@ -107,4 +107,8 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
 - Zoom on the PDF is a re-rendered bucket at a capped scale, not vector zoom (Jetpack PDF would be).
 - iOS: folder images open in Quick Look; Quick Look has no match highlight (the "Text from this file" sheet does); PDFs
   have no previous/next match; the audio route relies on AVPlayer reading the format, with "Open in another app" as the way out.
+- Document tiles: Android has no system thumbnailer for Office files, so unless the file's provider gives a thumbnail a
+  docx, xlsx, pptx, csv, txt and the like show a type card (`DocCard`: the extension on a page, or the kind's icon when
+  it does not fit), not the page. iOS shows Quick Look's picture, or the type's system icon. Square tiles centre-crop a
+  portrait page, as they do PDFs.
 - Audio focus is ExoPlayer's own (`setAudioAttributes(AudioAttributes.DEFAULT, true)`); how it behaves against a call or another player is not judged without a device.
