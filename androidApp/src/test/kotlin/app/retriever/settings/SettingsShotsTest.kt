@@ -86,8 +86,8 @@ class SettingsShotsTest {
 
     @Test fun settingsLight() {
         page("clarity_settings_light", ready)
-        rule.onNodeWithText("Waiting until you plug in").assertExists()
-        rule.onNodeWithText("1,200 of 3,300 files done.", substring = true).assertExists()
+        rule.onNodeWithText("Waits until you charge").assertExists()
+        rule.onNodeWithText("of 3,300 files processed", substring = true).assertExists()
         rule.onNodeWithText(Words.FREE_UP_SPACE).assertExists()
         rule.onNodeWithText(Words.NEVER_DELETES).assertExists()
         listOf("session", "Name only", "Manage access", "Excluded", "Saved search data").forEach {

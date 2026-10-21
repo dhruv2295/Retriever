@@ -29,7 +29,7 @@ class TrialReviewRegressionTest {
         assertEquals(NextRun.DONE, r.taste())
         assertEquals(listOf(store.fileByUri(file.uri)!!.id), r.scopeIds.value)
         assertFalse(r.tasteDecided())
-        assertFalse(r.tasteProgress().first().readyToTry, "name-only completion cannot unlock Try")
+        assertEquals(0 to 1, r.tasteProgress().first().let { it.read to it.done }, "found by name only: processed, not read")
         val counts = r.counts().first()
         assertEquals(0L, counts.byState[FileState.PENDING])
         assertEquals(0L, counts.waiting)

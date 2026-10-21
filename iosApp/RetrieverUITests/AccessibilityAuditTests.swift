@@ -42,18 +42,19 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let routes = [
         "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.samplePicking", "setup.sampleStart",
         "setup.reading",
-        "setup.readingPaused", "setup.sampleDone", "setup.try", "setup.tryNoSuggestions", "setup.choose",
+        "setup.readingPaused", "setup.sampleDone", "setup.choose", "setup.chooseSkipped",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
-        "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "settings", "search.empty", "search.wordsOnly", "search.noModel",
+        "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "settings", "search.empty", "search.wordsOnly",
+        "search.noModel",
         "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
     ]
 
     /// The fixture routes by screen, light and dark each, so a screen's change reruns only its own audits and the parallel
     /// runner can spread them. Every route sits in exactly one area (testEveryFixtureRouteIsInExactlyOneAuditArea).
     private static let setupRoutes = [
-        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.try", "setup.tryNoSuggestions", "setup.choose",
+        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.choose", "setup.chooseSkipped",
     ]
     private static let upgradeRoutes = ["upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning"]
     private static let statusAndSettingsRoutes = [
@@ -62,6 +63,7 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let homeRoutes = ["home.caughtUp", "home.reading", "home.empty", "home.upgrade"]
     private static let homeStatusLineRoutes = [
         "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.readNow", "home.downloading", "home.meaning", "home.noAccess",
+        "home.notNow", "home.counting",
     ]
     private static let searchResultRoutes = ["search.wordsOnly", "search.noModel", "search.lessLikely", "search.nothingWell", "search.firstPart"]
     private static let searchStateRoutes = ["search.empty", "search.error", "search.loading", "search.noAccess", "search.reading"]
@@ -129,7 +131,7 @@ final class AccessibilityAuditTests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(more.isHittable)
-        let continueButton = app.buttons["Start the one-minute try"]
+        let continueButton = app.buttons["Start the demo"]
         XCTAssertTrue(continueButton.isHittable)
         XCTAssertLessThanOrEqual(more.frame.maxY, continueButton.frame.minY, "the footer never covers it")
     }
@@ -183,34 +185,44 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTContext.runActivity(named: route) { _ in
                 do {
                     if Self.sampleRoutes.contains(route) {
-                        // One pile element saying the count, with See all as its action; its cards are not separate elements.
+                        // One pile element saying the count, with See the files as its action; its cards are not separate elements.
                         let pile = app.descendants(matching: .any)["sample-pile"].firstMatch
-                        let picking = "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent."
-                        let counts = ["setup.samplePicking": picking, "setup.sampleStart": picking, "setup.sampleDone": "54 of 54 files processed"]
-                        // No "of 54" while files are left: the plan can still shrink.
-                        let count = counts[route] ?? "30 files processed"
+                        let counts = [
+                            "setup.samplePicking": "Picking your recent files…", "setup.sampleStart": "0 of 30 files processed",
+                            "setup.sampleDone": "30 of 30 files processed",
+                        ]
+                        // Always "of 30": the total is fixed once the files are picked.
+                        let count = counts[route] ?? "12 of 30 files processed"
                         XCTAssertEqual(pile.label, count)
                         XCTAssertTrue(app.staticTexts[count].exists)
                         XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
-                        // Before the plan See all keeps its place, unseen and out of VoiceOver's way.
-                        // No total while files are left, as the count: "See the files" until the plan is done.
-                        let seeAll = route == "setup.sampleDone" ? "See all 54 files" : "See the files"
-                        XCTAssertEqual(app.buttons[seeAll].exists, route != "setup.samplePicking")
-                        XCTAssertFalse(app.buttons["See all 0 files"].exists)
-                        XCTAssertEqual(app.buttons["Try search"].isEnabled, !["setup.samplePicking", "setup.sampleStart"].contains(route))
-                        XCTAssertTrue(app.buttons["Skip for now"].exists)
+                        // Before the files are picked See the files keeps its place, unseen and out of VoiceOver's way.
+                        XCTAssertEqual(app.buttons["See the 30 files"].exists, route != "setup.samplePicking")
+                        // The search works from the first frame, and Continue is the one way on, enabled throughout.
+                        XCTAssertTrue(app.searchFields["Search the demo files"].exists)
+                        XCTAssertTrue(app.buttons["Continue"].isEnabled)
+                        XCTAssertFalse(app.buttons["Try search"].exists)
+                        XCTAssertFalse(app.buttons["Skip for now"].exists)
+                        // Chips once the demo has three suggestions; before, the hint in their place.
+                        let chips = !["setup.samplePicking", "setup.sampleStart"].contains(route)
+                        XCTAssertEqual(app.buttons["wifi password"].exists, chips)
+                        XCTAssertEqual(app.staticTexts["Type a word you remember from a recent photo, screenshot or document."].exists, !chips)
                         XCTAssertFalse(app.staticTexts["Taking a short break"].exists, "no status leaks in before the plan")
                         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '/'")).firstMatch.exists)
                         XCTAssertEqual(
                             app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists, route == "setup.readingPaused")
+                        XCTAssertEqual(
+                            app.staticTexts["The demo is done. Next: the other 25,763 files on your iPhone."].exists, route == "setup.sampleDone")
                     }
-                    if route.hasPrefix("setup.try") {
-                        XCTAssertTrue(app.staticTexts["Searching every file’s name, and inside the 54 files processed so far."].exists)
-                        XCTAssertTrue(app.buttons["Choose when to process"].exists)
-                        XCTAssertTrue(app.buttons["Skip for now"].exists)
+                    // How the demo ended, first on the choice; nothing after a skip. The button starts a long job, never Done.
+                    if route.hasPrefix("setup.choose") {
+                        XCTAssertEqual(app.staticTexts["Demo done: 30 of 30 files processed"].exists, route == "setup.choose")
+                        XCTAssertTrue(app.staticTexts["Now, the rest of your iPhone"].exists)
+                        XCTAssertTrue(app.buttons["Start processing"].exists)
+                        XCTAssertFalse(app.buttons["Done"].exists)
+                        // Whole-phone access makes "your selected photos and folders" untrue; the count above says enough.
+                        XCTAssertFalse(app.staticTexts["From your selected photos and folders"].exists)
                     }
-                    // Whole-phone access makes "your selected photos and folders" untrue; the count above says enough.
-                    if route == "setup.choose" { XCTAssertFalse(app.staticTexts["From your selected photos and folders"].exists) }
                     if route == "search.noModel" {
                         XCTAssertFalse(app.staticTexts["Words only"].exists, "retired: nothing is broken")
                         XCTAssertTrue(app.buttons["Download for meaning search"].exists, "one result is few: the hint shows")
@@ -223,8 +235,10 @@ final class AccessibilityAuditTests: XCTestCase {
                     let lines =
                         [
                             "home.charging": ("Processing while you charge", nil),
-                            "home.firstDay": ("Ready to find files by name", "Choose when to process"),
-                            "home.unplugged": ("Waiting until you plug in", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
+                            "home.firstDay": ("Only names can be found for now", "Choose when to process"),
+                            "home.notNow": ("Only names can be found for now", "Choose when to process"),
+                            "home.counting": ("Counting your files…", nil),
+                            "home.unplugged": ("Waits until you charge", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
                             "home.readNow": ("Processing for 15 minutes · 12 min left", "Stop"),
                             "home.downloading": ("Downloading search by meaning · 34%", "Stop"), "home.meaning": ("Adding search by meaning", nil),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
@@ -234,14 +248,19 @@ final class AccessibilityAuditTests: XCTestCase {
                         if let button = line.1 { XCTAssertTrue(app.buttons[button].exists, "\(route): \(button)") }
                         XCTAssertFalse(app.staticTexts["Your files"].exists, "no counts on Home")
                     }
-                    // The line's live count, not a percent: 1,204 processed of 5,310 (1,938 of 3,142 with meaning).
+                    // The line's live count, not a percent: 1,204 processed of 5,310 (1,938 of 3,142 with meaning); the
+                    // demo's 30 carry over to Not now's whole-phone count. Counting has no count and no bar.
                     let liveCounts = [
-                        "home.charging": "1,204 of 5,310 files done", "home.unplugged": "1,204 of 5,310 files done",
-                        "home.meaning": "1,938 of 3,142 files done",
+                        "home.charging": "1,204 of 5,310 files processed", "home.unplugged": "1,204 of 5,310 files processed",
+                        "home.meaning": "1,938 of 3,142 files have search by meaning", "home.notNow": "30 of 25,793 files processed",
+                        "status.reading": "1,204 of 5,310 files processed",
                     ]
                     if let count = liveCounts[route] {
                         let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", count)).firstMatch
                         XCTAssertTrue(shown.exists, "\(route): \(count)")
+                    }
+                    if route == "home.counting" {
+                        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS ' files processed'")).firstMatch.exists)
                     }
                     try audit(app, route: route)
                 } catch { XCTFail("\(route): \(error)") }
@@ -252,38 +271,39 @@ final class AccessibilityAuditTests: XCTestCase {
 
     private static let sampleRoutes = ["setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.readingPaused", "setup.sampleDone"]
 
-    /// The sample's group was left-aligned under a centred dog and pile, with the spare height in one band above the
+    /// The demo's group was left-aligned under a centred dog and pile, with the spare height in one band above the
     /// footer, and rows came and went between states. Now it is centred both ways, and every state lays out the same rows.
-    func testTheSampleGroupSitsCentredAndHoldsItsPlaceInEveryState() {
+    func testTheDemoGroupSitsCentredAndHoldsItsPlaceInEveryState() {
         var frames: [String: (title: CGRect, count: CGRect, bar: CGRect)] = [:]
         for route in Self.sampleRoutes {
             let app = XCUIApplication()
             app.launchArguments = ["-mutedMedia", "-route", route]
             launch(app)
             defer { app.terminate() }
-            let title = app.staticTexts["Try it on your own files"]
+            let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'A short demo on'")).firstMatch
             let group = app.descendants(matching: .any)["step-content"].firstMatch
             let actions = app.descendants(matching: .any)["step-actions"].firstMatch
-            let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'processed' OR label BEGINSWITH 'Trying'")).firstMatch
+            let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'processed' OR label BEGINSWITH 'Picking'")).firstMatch
             let bar = app.progressIndicators.firstMatch
             XCTAssertTrue(title.exists && count.exists && group.exists && actions.exists && bar.exists, route)
             // The pile's own frame follows its turned cards, so the group's centre line stands in for it.
             XCTAssertEqual(title.frame.midX, group.frame.midX, accuracy: 1, "\(route): the title is centred")
             XCTAssertEqual(count.frame.midX, group.frame.midX, accuracy: 1, "\(route): the count is centred")
-            // Centred between the status bar and the pinned actions. The status bar's height is not exposed, but every
-            // portrait iPhone's lies between 20 and 62 pt, which bounds the centre; a group pinned to the top, with the
-            // spare height in one band above the actions, sits well above that. The group's test frame spans only its
-            // accessible rows, and before the plan See all is laid out but hidden, so its frame ends short there; the
-            // rows' equal frames below carry the centring over to that state.
-            if route != "setup.samplePicking", group.frame.height + 32 < actions.frame.minY - 62 {
-                XCTAssertGreaterThanOrEqual(group.frame.midY, (20 + actions.frame.minY) / 2 - 1, "\(route): spare height split above and below")
-                XCTAssertLessThanOrEqual(group.frame.midY, (62 + actions.frame.minY) / 2 + 1, "\(route): spare height split above and below")
+            // Centred between the bar above (the navigation bar, with the search field under it before iOS 26) and the
+            // pinned actions. A group pinned to the top, with the spare height in one band above the actions, sits well
+            // above that. The group's test frame spans only its accessible rows, and before the plan See the files is
+            // laid out but hidden, so its frame ends short there; the rows' equal places below carry the centring over.
+            let top = app.navigationBars.firstMatch.frame.maxY
+            if route != "setup.samplePicking", group.frame.height + 32 < actions.frame.minY - top {
+                XCTAssertEqual(group.frame.midY, (top + actions.frame.minY) / 2, accuracy: 12, "\(route): spare height split above and below")
             }
             frames[route] = (title.frame, count.frame, bar.frame)
         }
         let first = frames["setup.samplePicking"]
         for (route, f) in frames {
-            XCTAssertEqual(f.title, first?.title, "\(route): the title never moves between states")
+            // Its height is held by the longest title, so picking's shorter one sits on the same centre line.
+            XCTAssertEqual(f.title.midY, first?.title.midY ?? 0, accuracy: 0.5, "\(route): the title never moves between states")
+            XCTAssertEqual(f.title.midX, first?.title.midX ?? 0, accuracy: 0.5, "\(route): the title never moves between states")
             // The count sits on the bar: the long picking sentence and a short count end at the same line.
             XCTAssertEqual(f.count.maxY, first?.count.maxY ?? 0, accuracy: 0.5, "\(route): the count never moves between states")
             XCTAssertEqual(f.bar, first?.bar, "\(route): the bar never moves between states")
@@ -311,21 +331,22 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertGreaterThan(names.count, 1, "the files did turn over")
     }
 
-    /// After a suggestion's results, Back took two presses on Android; here it left Try altogether. One Back returns to
-    /// Try's start, the next to the sample.
-    func testOneBackLeavesASuggestionsResults() {
+    /// After a chip's results, Back took two presses on Android. Results open the full search; one Back returns to the
+    /// demo, which has no Back of its own.
+    func testOneBackLeavesAChipsResults() {
         let app = XCUIApplication()
-        app.launchArguments = ["-mutedMedia", "-route", "setup.try"]
+        app.launchArguments = ["-mutedMedia", "-route", "setup.reading"]
         launch(app)
         defer { app.terminate() }
         let suggestion = app.buttons["wifi password"]
-        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "the suggestions are there on the first frame")
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "the chips are there on the first frame")
+        XCTAssertFalse(app.navigationBars.buttons["Back"].exists, "the demo has no Back")
         suggestion.tap()
-        XCTAssertTrue(suggestion.waitForNonExistence(timeout: 5), "the results replace Try's start")
-        XCTAssertEqual(app.keyboards.count, 0, "a suggestion searches without the keyboard")
+        XCTAssertTrue(suggestion.waitForNonExistence(timeout: 5), "the results replace the demo")
+        XCTAssertEqual(app.keyboards.count, 0, "a chip searches without the keyboard")
         app.navigationBars.buttons["Back"].tap()
-        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and Try's start is back")
-        XCTAssertTrue(app.buttons["Choose when to process"].exists, "still on Try")
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and the demo is back")
+        XCTAssertTrue(app.buttons["Continue"].exists, "still on the demo")
     }
 
     /// Home's tiles offer the file actions every other file has on a long press.
@@ -397,7 +418,7 @@ final class AccessibilityAuditTests: XCTestCase {
             // A partial glyph cannot be measured; every kind is audited fully visible in testKindLegendContrastInBothAppearances.
             if self.clippedByLegend(issue.element, in: app) { return true }
             if let element = issue.element, self.underABar(element, in: app) { return true }
-            // WCAG 1.4.3 exempts inactive controls: Try search shows disabled until the sample is ready.
+            // WCAG 1.4.3 exempts inactive controls.
             if issue.element?.isEnabled == false { return true }
             print("CONTRAST \(route): \(issue.compactDescription) \(String(describing: issue.element))")
             return false
@@ -457,7 +478,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // The live count's sentence pushes these buttons lower, where the resize loses them.
         ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
-        ("settings", "Best choice. Only while your iPhone is charging and you’re not using it. You can pause any time."),
+        ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
     ]
 
     func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {
@@ -534,7 +555,6 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchArguments = ["-mutedMedia", "-route", "home.caughtUp"]
             launch(app)
             XCTAssertTrue(app.staticTexts["All done. Retriever has processed everything it can"].exists)
-            XCTAssertFalse(app.staticTexts["3,142 files processed"].exists, "counts live in Reading status")
             // The status line sits at the top; what scrolled under the bottom search bar is audited elsewhere.
             try app.performAccessibilityAudit(for: .contrast) { issue in issue.element.map { self.underABar($0, in: app) } ?? false }
             app.terminate()

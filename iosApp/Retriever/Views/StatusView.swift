@@ -67,12 +67,11 @@ struct StatusContent: View {
         }
     }
 
-    /// The counts, for whoever wants them; Home never shows them.
+    /// The count's breakdown, for whoever wants it.
     private var details: some View {
         DisclosureGroup(Words.shared.DETAILS) {
-            Text(Words.shared.readCount(read: Int64(snap.indexed), partlyRead: Int64(snap.partlyRead))).monospacedDigit()
-            if snap.pending + snap.waiting > 0 { Text(Words.shared.notReadYet(files: Int64(snap.pending + snap.waiting))).monospacedDigit() }
-            if snap.nameOnly > 0 { Text("\(Copy.count(snap.nameOnly)) \(Words.shared.FOUND_BY_NAME.lowercased())").monospacedDigit() }
+            // What the line's processed files are, then what is left: its parts add up to the count.
+            Text(Words.shared.breakdown(progress: snap.readProgress)).monospacedDigit()
         }
     }
 

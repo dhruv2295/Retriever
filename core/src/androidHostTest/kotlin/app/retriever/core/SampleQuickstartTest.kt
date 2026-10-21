@@ -9,6 +9,7 @@ import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -123,13 +124,30 @@ class SampleQuickstartTest {
         assertTrue(countScans.get() <= screens.size + 1 + 2 * ids.size, "${countScans.get()} library counts")
     }
 
+    /**
+     * Run 4's shape: the Pixel ran 3 to 5 times slower than the seeds, and the old trim turned "of 81" into "of 77" mid-way.
+     * Now a pace measured at five times the budget (a tune, then every file) never shrinks the plan: the demo's total is
+     * the same from the first file to the last.
+     */
     @Test
-    fun theSampleTrimsToItsBudgetInWallTime() {
-        val pending = (1..10).map { Store.StoredFile(it.toLong(), testFile("d$it.txt"), 0) }
-        val costs = pending.associate { it.id to 3_000.0 } // 30 s of inference left
-        assertEquals(emptySet(), tasteDrops(pending, costs, 90_000.0, 0.0, null, keepOne = false), "seeded: 30 s fits 90 s")
-        assertEquals(emptySet(), tasteDrops(pending, costs, 90_000.0, 30_000.0, 1.0, keepOne = false), "30 s left of 60")
-        assertEquals(4, tasteDrops(pending, costs, 90_000.0, 30_000.0, 3.0, keepOne = false).size, "90 s of wall time left of 60: keep 18 s of inference")
-        assertEquals(9, tasteDrops(pending, costs, 90_000.0, 100_000.0, 3.0, keepOne = true).size, "past the budget, one file is still a trial")
+    fun theDemosTotalIsFixedFromTheFirstFileToTheLast() = runBlocking {
+        withTimeout(20.seconds) {
+            val docs = (1..30).map { testFile("d$it.txt", modifiedAt = it * 7_200_000L) }
+            store.upsertFiles(docs)
+            store.setTaste(docs.map { store.fileByUri(it.uri)!!.id })
+            // 15 s a document: 450 s of work in a 90 s budget.
+            store.setMeta(Retriever.SPEED_KEY, SpeedBook().add(Kind.DOC, 15_000.0, 1.0).encode())
+            val totals = mutableListOf<Int>()
+            lateinit var r: Retriever
+            val extractor = FakeExtractor(docs.associate { it.name to listOf(textPiece("words of ${it.name}")) }) {
+                totals += store.tasteIds().size
+            }
+            r = testRetriever(store, docs, extractor, factory = FakeFactory { listOf(Backend.CPU) }).apply { uiVisible = true }
+            r.calibrate(Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList()), tuneAgain = false)
+            r.refreshSetUp()
+            r.taste()
+            assertEquals(List(30) { 30 }, totals, "the plan never shrinks while it is read")
+            assertEquals(30 to 30, r.tasteProgress().first().let { it.done to it.planned })
+        }
     }
 }

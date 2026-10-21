@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -114,6 +115,7 @@ class HomeShotsTest {
     private val memories = listOf(memory(2023, 8, 0), memory(2021, 0, 1), memory(2019, 3, 2))
 
     private val reading = ReadingProgress(read = 1_200, scheduled = 2_100, nameOnly = 372)
+    private val afterDemo = ReadingProgress(read = 28, scheduled = 25_763, nameOnly = 2)
 
     private fun line(p: ReadingProgress = reading, stop: StopReason? = null, on: Boolean = stop == null, minutes: Int = 0, pluggedIn: Boolean = true) =
         ReadingPolicy.decide(p, stop, on, on, DeviceWords.ANDROID, minutes, pluggedIn)
@@ -146,6 +148,22 @@ class HomeShotsTest {
             ) to
                 UpgradeUi()
             ),
+        // The demo's 30 files carried over to the whole phone: 30 of 25,793, a bar that has only just begun.
+        "charging" to (base.copy(readingStatus = line(afterDemo)) to UpgradeUi()),
+        "unplugged_demo" to (base.copy(readingStatus = line(afterDemo, stop = StopReason.UNPLUGGED, pluggedIn = false)) to UpgradeUi()),
+        "not_now" to (
+            base.copy(
+                contentRead = 28,
+                nameOnly = 2,
+                waiting = 0,
+                rest = 25_763,
+                trial = true,
+                notNow = true,
+                readingStatus = line(afterDemo.copy(scheduled = 0, notScheduled = 25_763, sample = true, notNow = true), on = false),
+            ) to
+                UpgradeUi()
+            ),
+        "counting" to (base.copy(readingStatus = line(afterDemo.copy(counted = false))) to UpgradeUi()),
         "unplugged" to (base.copy(readingStatus = line(stop = StopReason.UNPLUGGED, pluggedIn = false)) to UpgradeUi()),
         "charging_up" to (base.copy(readingStatus = line(stop = StopReason.CHARGING_UP)) to UpgradeUi()),
         "read_now" to (base.copy(readingStatus = line(minutes = 12, pluggedIn = false)) to UpgradeUi()),
@@ -170,13 +188,13 @@ class HomeShotsTest {
         HomeBody(home, index, actions, state, padding, side, homeActions, celebration, upgrade, upgradeActions, offer)
     }
 
-    private fun shot(state: String, dark: Boolean, fontScale: Float = 1f) {
+    private fun shot(state: String, dark: Boolean, fontScale: Float = 1f, prefix: String = "clarity_home") {
         val (ui, upgrade) = states.getValue(state)
         tallWindowForBigText(fontScale)
         rule.setContent { ShotTheme(dark, fontScale) { Screen(ui, upgrade = upgrade) } }
         rule.waitForIdle()
         rule.shot(
-            "clarity_home_${state}_" + if (fontScale > 1f) {
+            "${prefix}_${state}_" + if (fontScale > 1f) {
                 "text2"
             } else if (dark) {
                 "dark"
@@ -195,10 +213,11 @@ class HomeShotsTest {
     @Test fun defaultLight() {
         shot("default", false)
         rule.onNodeWithText("Processing while you charge").assertExists()
-        // A live count, not a percent that sits still for minutes.
-        rule.onNodeWithText("1,200 of 3,300 files done. You can close Retriever; it carries on. Search works the whole time.").assertExists()
-        // Home is a starting place: no counts of the phone, no report, no Tidy up.
-        rule.onNodeWithText("files processed", substring = true).assertDoesNotExist()
+        // A live count by the one rule (name-only files count), not a percent that sits still for minutes.
+        rule.onNodeWithText(Words.readOf(1_572, 3_672)).assertExists()
+        rule.onNodeWithText("You can close Retriever; it carries on. Search works the whole time.").assertExists()
+        rule.onAllNodesWithText("%", substring = true).assertCountEquals(0)
+        // Home is a starting place: no report, no Tidy up.
         rule.onNodeWithText("Tidy up").assertDoesNotExist()
         rule.onNodeWithText(Words.UPGRADE_TITLE).assertDoesNotExist()
     }
@@ -219,7 +238,8 @@ class HomeShotsTest {
 
     @Test fun firstDayLight() {
         shot("first_day", false)
-        rule.onNodeWithText("Ready to find files by name").assertExists()
+        rule.onNodeWithText("Only names can be found for now").assertExists()
+        rule.onNodeWithText(Words.readOf(372, 3_672)).assertExists()
         rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
     }
 
@@ -227,8 +247,9 @@ class HomeShotsTest {
 
     @Test fun unpluggedLight() {
         shot("unplugged", false)
-        rule.onNodeWithText("Waiting until you plug in").assertExists()
-        rule.onNodeWithText("1,200 of 3,300 files done. Retriever carries on when your phone is charging.").assertExists()
+        rule.onNodeWithText("Waits until you charge").assertExists()
+        rule.onNodeWithText(Words.readOf(1_572, 3_672)).assertExists()
+        rule.onNodeWithText("Retriever carries on when your phone is charging.").assertExists()
         rule.onNodeWithText(Words.READ_FOR_15).assertExists()
     }
 
@@ -237,7 +258,7 @@ class HomeShotsTest {
     @Test fun chargingUpLight() {
         shot("charging_up", false)
         rule.onNodeWithText("Charging up first").assertExists()
-        rule.onNodeWithText("1,200 of 3,300 files done. Processing starts once your battery has a bit more charge.").assertExists()
+        rule.onNodeWithText("Processing starts once your battery has a bit more charge.").assertExists()
     }
 
     @Test fun chargingUpDark() = shot("charging_up", true)
@@ -262,7 +283,7 @@ class HomeShotsTest {
     @Test fun meaningLight() {
         shot("meaning", false)
         rule.onNodeWithText("Adding search by meaning").assertExists()
-        rule.onNodeWithText("2,200 of 3,300 files done.", substring = true).assertExists()
+        rule.onNodeWithText(Words.meaningOf(2_200, 3_300)).assertExists()
     }
 
     @Test fun meaningDark() = shot("meaning", true)
@@ -334,15 +355,58 @@ class HomeShotsTest {
 
     @Test fun chooseWhenToReadOpensTheThreeAnswersAsASheet() {
         val chosen = mutableListOf<Boolean>()
-        rule.setContent { ShotTheme(false) { Screen(states.getValue("first_day").first, homeActions = HomeActions(commit = { chosen += it })) } }
+        rule.setContent { ShotTheme(false) { Screen(states.getValue("not_now").first, homeActions = HomeActions(commit = { chosen += it })) } }
         rule.onNodeWithText(Words.CHOOSE_WHEN).performClick()
-        rule.onNodeWithText(Words.CHOOSE_TITLE).assertExists()
+        val title = Words.chooseTitle(DeviceWords.ANDROID)
+        rule.onNodeWithText(title).assertExists()
+        // Home's sheet has no demo line, and the count is the whole phone's rest.
+        rule.onAllNodesWithText("Demo", substring = true).assertCountEquals(0)
+        rule.onNodeWithText(Words.chooseBody(25_763)).assertExists()
         rule.onNodeWithText(Words.READ_15_NOW).assertExists()
-        rule.onNodeWithText(Words.DONE).performClick()
+        rule.onNodeWithText(Words.START_PROCESSING).performClick()
         rule.waitForIdle()
         assertEquals(listOf(true), chosen)
-        rule.onNodeWithText(Words.CHOOSE_TITLE).assertDoesNotExist()
+        rule.onNodeWithText(title).assertDoesNotExist()
     }
+
+    // The demo flow's Home renders: the count and a bar exactly done / total on every state, none while counting.
+
+    @Test fun demoChargingLight() {
+        shot("charging", false, prefix = "demo_home")
+        rule.onNodeWithText("Processing while you charge").assertExists()
+        rule.onNodeWithText(Words.readOf(30, 25_793)).assertExists()
+        assertEquals(30L to 25_793L, states.getValue("charging").first.readingStatus!!.let { it.done to it.total })
+    }
+
+    @Test fun demoChargingDark() = shot("charging", true, prefix = "demo_home")
+
+    @Test fun demoChargingLargestText() = shot("charging", false, fontScale = 2f, prefix = "demo_home")
+
+    @Test fun demoUnpluggedLight() {
+        shot("unplugged_demo", false, prefix = "demo_home")
+        rule.onNodeWithText("Waits until you charge").assertExists()
+        rule.onNodeWithText(Words.readOf(30, 25_793)).assertExists()
+    }
+
+    @Test fun demoUnpluggedDark() = shot("unplugged_demo", true, prefix = "demo_home")
+
+    @Test fun demoNotNowLight() {
+        shot("not_now", false, prefix = "demo_home")
+        rule.onNodeWithText("Only names can be found for now").assertExists()
+        rule.onNodeWithText(Words.readOf(30, 25_793)).assertExists()
+        rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
+    }
+
+    @Test fun demoNotNowDark() = shot("not_now", true, prefix = "demo_home")
+
+    @Test fun demoCountingLight() {
+        shot("counting", false, prefix = "demo_home")
+        rule.onNodeWithText("Counting your files…").assertExists()
+        rule.onAllNodesWithText("files processed", substring = true).assertCountEquals(0)
+        rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)).assertCountEquals(0)
+    }
+
+    @Test fun demoCountingDark() = shot("counting", true, prefix = "demo_home")
 
     @Test fun dismissingAllDoneHidesTheLine() {
         var dismissed = 0

@@ -56,15 +56,15 @@ extension AppModel {
 
     // MARK: Setup answers
 
-    /// Continue, Try search, Choose when to read more: the person's answer on a setup screen.
+    /// The person's answer on a setup screen: Start the demo, the demo's Continue, Back.
     func setSetupMark(_ mark: SetupMark) {
         guard let retriever = services?.retriever else { return }
         Task { try? await retriever.setSetupMark(mark: mark) }
     }
 
-    /// Search by name: skips the sample's screens, never access. With access in place it is chosen at once; otherwise
+    /// Skip the demo: straight to the choice, never past access. With access in place it is chosen at once; otherwise
     /// the welcome's own ask follows (Photos, when iOS has not asked yet).
-    func searchByName() {
+    func skipDemo() {
         guard let retriever = services?.retriever else { return }
         Task {
             _ = try? await retriever.skipFirstRun()
@@ -76,31 +76,26 @@ extension AppModel {
         }
     }
 
-    /// Go to Home: setup ends at launch; the sample keeps reading.
-    func goHome() {
-        guard let retriever = services?.retriever else { return }
-        Task { try? await retriever.skipFirstRun() }
-    }
-
-    /// Nothing waits beyond the sample (core's `counts.waiting`), so Try ends in Go to Home; unknown is not nothing.
+    /// Nothing waits beyond the demo (core's `counts.waiting`), so Continue processes everything; unknown is not nothing.
     var nothingLeft: Bool { snap?.waiting == 0 }
 
-    /// Try's "Choose when to read more", or, with nothing beyond the sample, reading everything.
-    func chooseWhenToReadMore() {
-        if let mark = SetupPolicy.shared.afterTry(nothingLeft: nothingLeft) { setSetupMark(mark) } else { commitScope() }
+    /// The demo's Continue, enabled throughout: the choice of when to process the rest (core stops the demo where it
+    /// is), or, with nothing beyond the demo, processing everything.
+    func continueFromDemo() {
+        if let mark = SetupPolicy.shared.afterDemo(nothingLeft: nothingLeft) { setSetupMark(mark) } else { commitScope() }
     }
 
-    /// Back from Try to the sample, or from the choice to Try.
+    /// Back from the choice: to the demo, or to the welcome after Skip the demo.
     func setupBack() {
-        guard let stage = setup?.stage, let mark = SetupPolicy.shared.back(stage: stage) else { return }
+        guard let setup, let mark = SetupPolicy.shared.back(stage: setup.stage, skipped: setup.skipped) else { return }
         setSetupMark(mark)
     }
 
-    /// The sample's progress and files while the sample or Try shows, and Try's suggestions from once Try can open, so
-    /// they are on Try's first frame. Closed on every other stage: core then does none of this work.
+    /// The demo's progress, files and chips while it shows, so they are on its first frame; its progress on the choice
+    /// too, which says how the demo ended. Closed on every other stage: core then does none of this work.
     func watchSetup(stage: SetupStage?) {
         guard let services else { return }
-        let sampling = stage == .sample || stage == .try_
+        let sampling = stage == .sample || stage == .choose
         if sampling, sampleObservations.isEmpty {
             sampleObservations = [
                 services.retriever.observeTasteProgress { @Sendable [weak self] p in
@@ -108,7 +103,7 @@ extension AppModel {
                     Task { @MainActor in
                         guard let self else { return }
                         if self.taste != taste { self.taste = taste }
-                        // The plan and readiness arrive here; Try's suggestions follow them.
+                        // The plan arrives here; the chips follow it.
                         self.watchSetup(stage: self.setup?.stage)
                     }
                 },
@@ -121,7 +116,7 @@ extension AppModel {
             for observation in sampleObservations { observation.close() }
             sampleObservations = []
         }
-        let ids = sampling && (stage == .try_ || taste.readyToTry) ? sampleIds : []
+        let ids = stage == .sample ? sampleIds : []
         guard ids != trySuggestionsObservation?.ids ?? [] else { return }
         trySuggestionsObservation?.handle.close()
         trySuggestionsObservation = nil
@@ -132,7 +127,7 @@ extension AppModel {
         trySuggestionsObservation = (ids, handle)
     }
 
-    /// The sample's planned files: Try searches inside these.
+    /// The demo's files: its search looks inside these.
     var sampleIds: [Int64] {
         guard let services else { return (0..<Int64(taste.planned)).map { $0 } }
         return (services.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value) ?? []
@@ -271,14 +266,15 @@ struct TasteSnap: Equatable, Sendable {
     }
 
     var counts: [Kind: Count] = [:]
-    var readyToTry = false
-    /// Planned files still waiting to be read. A Name only file is done without ever counting as read.
+    /// Planned files still waiting. A name-only or unopenable file is done without ever counting as read.
     var pending = 0
     /// The rest at this phone's measured pace in wall time; nil until measured (core's `TasteProgress.secondsLeft`).
     var secondsLeft: Int?
 
     var read: Int { counts.values.reduce(0) { $0 + $1.read } }
     var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
+    /// The one count rule: every planned file no longer waiting (core's `TasteProgress.done`).
+    var done: Int { planned - pending }
 
     /// For a screen reader only: "6 of 6 screenshots read, 4 of 8 PDFs read".
     var spoken: String {
@@ -287,13 +283,13 @@ struct TasteSnap: Equatable, Sendable {
             .joined(separator: ", ")
     }
 
-    init(counts: [Kind: Count] = [:], readyToTry: Bool = false, pending: Int = 0, secondsLeft: Int? = nil) {
-        (self.counts, self.readyToTry, self.pending, self.secondsLeft) = (counts, readyToTry, pending, secondsLeft)
+    init(counts: [Kind: Count] = [:], pending: Int = 0, secondsLeft: Int? = nil) {
+        (self.counts, self.pending, self.secondsLeft) = (counts, pending, secondsLeft)
     }
 
     init(_ p: TasteProgress) {
         self.init(
-            counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) }, readyToTry: p.readyToTry,
+            counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) },
             pending: Int(p.pending), secondsLeft: p.secondsLeft?.intValue)
     }
 }

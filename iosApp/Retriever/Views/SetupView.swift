@@ -2,8 +2,9 @@ import Photos
 import RetrieverCore
 import SwiftUI
 
-/// First run on core's stage machine (`SetupInputs.stage`): the welcome with its access choice, the sample read with no download, Try,
-/// then when to read more. Every stage follows from stored state, so each resumes after the app is closed.
+/// First run on core's stage machine (`SetupInputs.stage`): the welcome with its access choice, the demo (processing
+/// and its search on one screen), then when to process the rest. Every stage follows from stored state, so each resumes
+/// after the app is closed.
 struct SetupView: View {
     let model: AppModel
     /// In Home's stack (its status row leads here): back to Home once setup has nothing left to ask.
@@ -15,9 +16,8 @@ struct SetupView: View {
         Group {
             switch stage {
             case .welcome: WelcomeStep(model: model)
-            case .try_: TryStep(model: model)
             case .choose: ChooseStep(model: model)
-            default: SampleStep(model: model)
+            default: DemoStep(model: model)
             }
         }
         .id(stage)
@@ -29,12 +29,11 @@ struct SetupView: View {
     }
 }
 
-/// One setup screen: its content scrolls, its actions stay at the bottom. Content shorter than the screen sits in the
-/// middle of it, the spare height split above and below.
-private struct StepPage<Content: View, Actions: View>: View {
+/// A setup screen's content: it scrolls, and content shorter than the screen sits in the middle of it, the spare
+/// height split above and below.
+private struct StepContent<Content: View>: View {
     var alignment: HorizontalAlignment = .leading
     @ViewBuilder let content: Content
-    @ViewBuilder let actions: Actions
 
     var body: some View {
         GeometryReader { screen in
@@ -50,7 +49,15 @@ private struct StepPage<Content: View, Actions: View>: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .safeAreaInset(edge: .bottom) {
+    }
+}
+
+/// The actions pinned under a setup screen's content.
+private struct StepActions<Actions: View>: ViewModifier {
+    @ViewBuilder let actions: Actions
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) { actions }
                 .controlSize(.large)
                 .padding(.horizontal, 24)
@@ -70,14 +77,14 @@ private func wide(_ title: String) -> some View {
     Text(title).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
 }
 
-/// The welcome and the one decision it asks: all photos, folders from Files, or search by name.
+/// The welcome and the one decision it asks: all photos, folders from Files, or skip the demo.
 private struct WelcomeStep: View {
     let model: AppModel
     @State private var picking = false
     @State private var folderNote: String?
 
     var body: some View {
-        StepPage {
+        StepContent {
             MascotView(mood: .welcome, settles: false).frame(width: 260).frame(maxWidth: .infinity)
             Text(Words.shared.WELCOME_TITLE).font(.title.bold()).accessibilityAddTraits(.isHeader)
             Text(Words.shared.WELCOME_BODY)
@@ -94,22 +101,26 @@ private struct WelcomeStep: View {
             Button(Words.shared.ADD_FOLDERS_FROM_FILES) { picking = true }.buttonStyle(.bordered)
             if let folderNote { Note(folderNote) }
             // Last in the content, just above the footer: in the pinned footer it clipped at larger text.
-            Text(Words.shared.NEXT_TRY)
-        } actions: {
-            // Access in place: start the try. Not asked yet: ask for all photos. Refused: only Settings can change it.
-            if model.accessGiven {
-                Button {
-                    model.setSetupMark(.accessChosen)
-                } label: {
-                    wide(Words.shared.START_THE_TRY)
-                }.buttonStyle(.primaryAction)
-            } else if model.photos == .notDetermined {
-                Button(action: model.requestPhotos) { wide(Words.shared.SEARCH_ALL_PHOTOS) }.buttonStyle(.primaryAction)
-            } else {
-                Button(action: model.openSettings) { wide("Open Settings") }.buttonStyle(.primaryAction)
-            }
-            Button(action: model.searchByName) { wide(Words.shared.SEARCH_BY_NAME) }
+            Text(Words.shared.welcomeNext(words: Copy.words)).fixedSize(horizontal: false, vertical: true)
+            Text(Words.shared.welcomeAfterDemo(words: Copy.words)).fixedSize(horizontal: false, vertical: true)
         }
+        .modifier(
+            StepActions {
+                // Access in place: start the demo. Not asked yet: ask for all photos. Refused: only Settings can change it.
+                if model.accessGiven {
+                    Button {
+                        model.setSetupMark(.accessChosen)
+                    } label: {
+                        wide(Words.shared.START_THE_DEMO)
+                    }.buttonStyle(.primaryAction)
+                } else if model.photos == .notDetermined {
+                    Button(action: model.requestPhotos) { wide(Words.shared.SEARCH_ALL_PHOTOS) }.buttonStyle(.primaryAction)
+                } else {
+                    Button(action: model.openSettings) { wide("Open Settings") }.buttonStyle(.primaryAction)
+                }
+                Button(action: model.skipDemo) { wide(Words.shared.SKIP_THE_DEMO) }
+            }
+        )
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             folderNote = model.addFolders(urls).map(Copy.addFolderResult).joined(separator: "\n")
@@ -117,9 +128,36 @@ private struct WelcomeStep: View {
     }
 }
 
-/// Reading a few files with no download: the retriever's pile of what is read, and Try search once enough is.
-private struct SampleStep: View {
+/// The demo, one screen: the real search over the demo's files (`SearchView` with a `Trial`), the demo's progress under
+/// its field until a word is typed, and Continue pinned below, enabled throughout.
+private struct DemoStep: View {
     let model: AppModel
+    @State private var search: SearchModel
+    @State private var path: [Route] = []
+
+    init(model: AppModel) {
+        self.model = model
+        _search = State(initialValue: SearchModel(services: model.services))
+    }
+
+    var body: some View {
+        AppStack(model: model, path: $path) {
+            SearchView(model: model, search: search, trial: Trial(ids: model.sampleIds, photoSearch: model.meaningSearch))
+                .toolbar { SetupBack(model: model, search: search) }
+                .modifier(
+                    StepActions {
+                        Button(action: model.continueFromDemo) { wide(Words.shared.CONTINUE) }.buttonStyle(.primaryAction)
+                    })
+        }
+    }
+}
+
+/// Under the demo's search field before a word is typed: what the demo is, the pile of its newest files, the one count
+/// and its bar, one muted line, words to try, and the list of its files. Every row is laid out from the first frame,
+/// so the centred group never moves between states.
+struct DemoIntro: View {
+    let model: AppModel
+    let search: SearchModel
     @State private var seeingAll = false
 
     var body: some View {
@@ -127,66 +165,114 @@ private struct SampleStep: View {
         let taste = model.taste
         let sample = model.sample ?? []
         let pause = model.progress.reading.pauseReason
-        // One predicate for the mascot, the time line and the pile: planning, or reading, not stopped, with files left.
-        // Not `running`: it drops between two sample batches, and the mascot would sit down for that gap.
+        // One predicate for the mascot and the time line: picking, or processing, not stopped, with files left.
+        // Not `running`: it drops between two demo batches, and the mascot would sit down for that gap.
         let reading = model.setup?.step == .plan || (pause == nil && taste.pending > 0)
         let planned = Int64(taste.planned)
-        // Before the plan exists (it syncs the library first), there is nothing to count or see yet: the sample is starting.
-        let starting = planned == 0 || (taste.read == 0 && taste.pending > 0)
-        let count = starting ? Words.shared.SAMPLE_PICKING : Words.shared.readOf(read: Int64(taste.read), planned: planned, pending: Int64(taste.pending))
-        // One muted slot: why it stopped, else the time and whether search can be tried, else nothing.
+        let done = Int64(taste.done)
+        // The files are picked in under a second; the total is fixed from then on.
+        let picking = planned == 0
+        let count = picking ? Words.shared.DEMO_PICKING : Words.shared.readOf(done: done, total: planned)
         let note =
-            pause
-            ?? Words.shared.sampleNote(
-                reading: reading, readyToTry: taste.readyToTry, secondsLeft: taste.secondsLeft.map { KotlinInt(int: Int32($0)) })
-            ?? (planned > 0 && taste.pending == 0 ? Words.shared.SAMPLE_DONE : nil)
-        // Every row is laid out from the first frame, before the plan too, so the centred group never moves.
-        StepPage(alignment: .center) {
-            MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160)
-            Text(Words.shared.SAMPLE_TITLE).font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityValue(taste.spoken)
-            SamplePileView(
-                cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
-                hint: Words.shared.seeAll(files: planned, pending: Int64(taste.pending)), seeAll: planned > 0 ? { seeingAll = true } : nil
-            )
-            // A new pile at the first delivery: the files read by then are there from its start, so they never settle again.
-            .id(model.sample == nil)
+            picking
+            ? Words.shared.DEMO_PICKING_NOTE
+            : taste.pending == 0
+                ? Words.shared.demoDone(rest: model.snap?.readProgress.rest, words: Copy.words)
+                : pause ?? Words.shared.demoNote(secondsLeft: taste.secondsLeft.map { KotlinInt(int: Int32($0)) })
+        StepContent(alignment: .center) {
+            // The full demo's title holds the height, so picking's shorter one never moves the rows under it.
+            ZStack {
+                Text(Words.shared.demoTitle(files: Int64(TasteKt.DEMO_FILES))).hidden()
+                Text(Words.shared.demoTitle(files: planned))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityValue(taste.spoken)
+            }
+            .font(.title2.bold())
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 16) {
+                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 96)
+                SamplePileView(
+                    cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
+                    hint: Words.shared.seeAll(files: planned), seeAll: picking ? nil : { seeingAll = true }
+                )
+                // A new pile at the first delivery: the files done by then are there from its start, so they never settle again.
+                .id(model.sample == nil)
+            }
             VStack(spacing: 8) {
                 // The picking sentence's height is held throughout, so the shorter count never pulls the group up.
                 ZStack(alignment: .bottom) {
-                    Text(Words.shared.SAMPLE_PICKING).hidden()
+                    Text(Words.shared.DEMO_PICKING).hidden()
                     Text(count).monospacedDigit()
                 }
-                .multilineTextAlignment(.center)
-                // Fills when every planned file is done, read or not; the line above counts the read ones.
-                ProgressView(value: Double(taste.planned - taste.pending), total: Double(max(taste.planned, 1))).accessibilityHidden(true)
+                .fixedSize(horizontal: false, vertical: true)
+                // Exactly the count's numbers: done of planned, name-only and unopenable files included.
+                ProgressView(value: Double(done), total: Double(max(planned, 1))).accessibilityHidden(true)
             }
-            // Two lines kept for the note whether it shows or not; larger text still grows it.
+            // Two lines kept for the note; larger text still grows it.
             ZStack {
                 Text(" \n ").hidden()
-                if let note { Text(note) }
+                Text(note)
             }
             .font(.subheadline)
             .fixedSize(horizontal: false, vertical: true)
-            let seeAll = Button(Words.shared.seeAll(files: planned, pending: Int64(taste.pending))) { seeingAll = true }
-            if planned > 0 { seeAll } else { seeAll.hidden() }
-        } actions: {
-            Button {
-                model.setSetupMark(.trying)
-            } label: {
-                wide(Words.shared.TRY_SEARCH)
-            }
-            .buttonStyle(.primaryAction)
-            .disabled(!taste.readyToTry)
-            Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) }
+            DemoChips(terms: model.trySuggestions, search: search)
+            let seeAll = Button(Words.shared.seeAll(files: planned)) { seeingAll = true }
+            if picking { seeAll.hidden() } else { seeAll }
         }
         .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: model.sample ?? []) }
     }
 }
 
-/// The last twelve files read, dropped on a pile at core's angles and offsets (Gallery's), in a fixed square, so
-/// the screen never moves as files arrive. One element: the count, and See all as its action.
+/// Words from the demo's files to search for, once there are three; until then, what to type. One row, or two when
+/// the words are long, never cut at the edge; the slot keeps two rows' height, so the chips arriving never move the
+/// rows above.
+private struct DemoChips: View {
+    let terms: [String]
+    let search: SearchModel
+
+    var body: some View {
+        ZStack {
+            Text(Words.shared.DEMO_HINT).hidden()
+            twoRows(["Try", "Try", "Try"]).hidden()
+            if terms.count >= 3 {
+                let shown = Array(terms.prefix(3))
+                ViewThatFits(in: .horizontal) {
+                    row(shown, label: true)
+                    twoRows(shown)
+                    VStack(spacing: 8) {
+                        Text(Words.shared.TRY_LABEL)
+                        ForEach(shown, id: \.self, content: chip)
+                    }
+                }
+            } else {
+                Text(Words.shared.DEMO_HINT)
+            }
+        }
+        .font(.subheadline)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func twoRows(_ terms: [String]) -> some View {
+        VStack(spacing: 8) {
+            row(Array(terms.prefix(2)), label: true)
+            row(Array(terms.dropFirst(2)), label: false)
+        }
+    }
+
+    private func row(_ terms: [String], label: Bool) -> some View {
+        HStack {
+            if label { Text(Words.shared.TRY_LABEL) }
+            ForEach(terms, id: \.self, content: chip)
+        }
+    }
+
+    private func chip(_ term: String) -> some View {
+        Button(term) { search.setText(term) }.buttonStyle(.bordered).accessibilityHint("Searches for this")
+    }
+}
+
+/// The demo's newest files, dropped on a pile at core's angles and offsets (Gallery's), in a fixed square, so the
+/// screen never moves as files arrive and no private file fills it. One element: the count, and See the files as its action.
 struct SamplePileView: View {
     let cards: [SampleFile]
     /// Shown as blank cards while nothing is read.
@@ -240,7 +326,6 @@ struct SamplePileView: View {
             }
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: CGFloat(SamplePile.shared.FOOTPRINT_DP))
-            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .disabled(seeAll == nil)
@@ -275,7 +360,7 @@ struct SamplePileView: View {
     }
 }
 
-/// "See all": every planned file in plan order, read or not; a read one opens in the viewer.
+/// See the files: every demo file in plan order, processed or not, each with its note; a read one opens in the viewer.
 private struct SampleList: View {
     let model: AppModel
     let sample: [SampleFile]
@@ -284,11 +369,9 @@ private struct SampleList: View {
 
     var body: some View {
         AppStack(model: model, path: $path) {
-            // It lists every planned file, read or not, so it says how many are read.
+            // The demo's own count, as its screen says it.
             SampleRows(sample: sample)
-                .navigationTitle(
-                    Words.shared.readOf(read: Int64(sample.filter(\.read).count), planned: Int64(sample.count), pending: Int64(model.taste.pending))
-                )
+                .navigationTitle(Words.shared.readOf(done: Int64(model.taste.done), total: Int64(model.taste.planned)))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
@@ -325,51 +408,19 @@ private struct SampleRows: View {
     }
 }
 
-/// The real search, names over the whole library and words inside the sample.
-private struct TryStep: View {
-    let model: AppModel
-    @State private var search: SearchModel
-    @State private var path: [Route] = []
-
-    init(model: AppModel) {
-        self.model = model
-        _search = State(initialValue: SearchModel(services: model.services))
-    }
-
-    var body: some View {
-        let more = !model.nothingLeft
-        AppStack(model: model, path: $path) {
-            SearchView(model: model, search: search, trial: Trial(ids: model.sampleIds, photoSearch: model.meaningSearch))
-                .toolbar { SetupBack(model: model, search: search) }
-                .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 8) {
-                        Button(action: model.chooseWhenToReadMore) { wide(more ? Words.shared.CHOOSE_WHEN : Words.shared.GO_TO_HOME) }
-                            .buttonStyle(.primaryAction)
-                        if more { Button(action: model.goHome) { wide(Words.shared.GO_TO_HOME) } }
-                    }
-                    .controlSize(.large)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 8)
-                    .background(.background)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("step-actions")
-                }
-        }
-        .onChange(of: model.taste.pending, initial: true) { _, pending in search.stillReading = pending }
-    }
-}
-
-/// When to read the rest; no mascot, the decision is the focal point.
+/// When to process the rest; no mascot, the decision is the focal point.
 private struct ChooseStep: View {
     let model: AppModel
 
     var body: some View {
-        // A stack of its own, as Try has, so the toolbar's Back shows.
+        let taste = model.taste
+        // A stack of its own, so the toolbar's Back shows.
         NavigationStack {
             ScrollView {
                 ReadingChoice(
-                    charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) },
-                    notNow: model.decideLater
+                    ended: Words.shared.demoEnded(done: Int64(taste.done), planned: Int64(taste.planned), skipped: model.setup?.skipped ?? false),
+                    rest: model.snap?.readProgress.rest,
+                    charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) }, notNow: model.decideLater
                 )
                 .padding(24)
                 .frame(maxWidth: 560)
@@ -381,20 +432,22 @@ private struct ChooseStep: View {
     }
 }
 
-/// Back from Try to the sample, or from the choice to Try, by core's rule. On Try's results it first goes back to Try's
-/// own start, in one press.
+/// Back from the choice to the demo, or to the welcome after Skip the demo, by core's rule. On the demo's results it
+/// goes back to the demo itself, in one press; the demo has no Back of its own.
 private struct SetupBack: ToolbarContent {
     let model: AppModel
     var search: SearchModel?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button("Back", systemImage: "chevron.backward") {
-                if let search, search.active {
-                    search.setText("")
-                    search.clearPhoto()
-                } else {
-                    model.setupBack()
+            if search?.active ?? true {
+                Button("Back", systemImage: "chevron.backward") {
+                    if let search, search.active {
+                        search.setText("")
+                        search.clearPhoto()
+                    } else {
+                        model.setupBack()
+                    }
                 }
             }
         }
@@ -450,18 +503,26 @@ struct Busy: View {
     SetupView(model: AppModel(fixture: .photosDenied))
 }
 
-#Preview("Sample starting") {
+#Preview("Demo starting") {
     SetupView(model: AppModel(fixture: .sampleStart))
 }
 
-#Preview("Sample reading") {
+#Preview("Demo processing") {
     SetupView(model: AppModel(fixture: .sampleReading))
 }
 
-#Preview("Sample paused") {
+#Preview("Demo paused") {
     SetupView(model: AppModel(fixture: .samplePaused))
 }
 
-#Preview("Sample done") {
+#Preview("Demo done") {
     SetupView(model: AppModel(fixture: .sampleDone))
+}
+
+#Preview("Choose, after the demo") {
+    SetupView(model: AppModel(fixture: .choosing))
+}
+
+#Preview("Choose, after a skip") {
+    SetupView(model: AppModel(fixture: .chooseSkipped))
 }

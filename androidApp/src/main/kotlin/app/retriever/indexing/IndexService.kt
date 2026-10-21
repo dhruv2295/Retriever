@@ -168,13 +168,13 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         work.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
-    /** The first run's short read has enough to try; for a person who left the app while it read. */
-    fun notifyReadyToTry(files: Int) = Notifications.readyToTry(context, files)
+    /** The first run's demo is done; for a person who left the app while it ran. */
+    fun notifyDemoDone(done: Int, planned: Int) = Notifications.demoDone(context, done, planned)
 
     suspend fun notifySampleIfReady() {
         if (retriever.uiVisible || !context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()) return
         val sample = retriever.tasteProgress().first()
-        if (sample.readyToTry && retriever.claimSampleNotification()) notifyReadyToTry(sample.read)
+        if (sample.planned > 0 && sample.pending == 0 && retriever.claimSampleNotification()) notifyDemoDone(sample.done, sample.planned)
     }
 
     /** Stops the current and follow-up runs; the periodic run stays scheduled. */

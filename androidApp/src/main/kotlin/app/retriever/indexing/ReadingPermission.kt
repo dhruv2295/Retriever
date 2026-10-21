@@ -39,10 +39,11 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
     }
     DisposableEffect(Unit) { onDispose { runPending() } }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { runPending() }
-    // Core words it from the sample's state; the dialog waits the one frame the answer takes, so its text never changes
+    // Core words it from the demo's state; the dialog waits the one frame the answer takes, so its text never changes
     // while it is up.
     val asked by remember(asking) {
-        if (asking) retriever.tasteProgress().map { Words.notificationsAsk(retriever.setup.value?.decided == true, it) } else flowOf(null)
+        val running = retriever.setup.value?.demoRunning == true
+        if (asking) retriever.tasteProgress().map { Words.notificationsAsk(running, it) } else flowOf(null)
     }.collectAsStateWithLifecycle(null)
     val text = asked
     if (asking && text != null) {

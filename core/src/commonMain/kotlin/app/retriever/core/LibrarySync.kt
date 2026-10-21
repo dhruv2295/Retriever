@@ -8,6 +8,9 @@ import kotlin.concurrent.Volatile
 
 data class SyncResult(val added: Int, val changed: Int, val removed: Int, val fullScan: Boolean)
 
+/** Written once a full scan's files are all in the store: from then on the counts cover the whole phone. */
+internal const val LAST_FULL_SCAN_KEY = "last_full_scan_ms"
+
 class LibrarySync(private val store: Store, private val source: FileSource, private val now: () -> Long) {
     /** File names in memory once [loadNames] ran; each sync then swaps in a new snapshot, so running searches keep theirs. */
     @Volatile
@@ -149,7 +152,7 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
 
     private companion object {
         const val TOKEN = "source_token"
-        const val LAST_FULL = "last_full_scan_ms"
+        const val LAST_FULL = LAST_FULL_SCAN_KEY
         const val EXCLUDES = "scan_excludes"
         const val RULES = "scan_rules_version"
         const val DAY_MS = 24L * 60 * 60 * 1000

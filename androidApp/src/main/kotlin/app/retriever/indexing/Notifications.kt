@@ -34,9 +34,9 @@ object Notifications {
     const val CHANNEL = "indexing"
 
     fun createChannel(context: Context) {
-        val channel = NotificationChannel(CHANNEL, "Processing progress", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL, Words.PROGRESS_CHANNEL, NotificationManager.IMPORTANCE_LOW)
             .apply {
-                description = "Shows how far processing has got, and once when your sample is ready to try."
+                description = Words.PROGRESS_CHANNEL_BODY
                 setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
@@ -45,8 +45,8 @@ object Notifications {
     }
 
     fun progress(context: Context, counts: ReadingProgress, status: ReadingStatus?, cancel: PendingIntent): Notification {
-        // The status line's own words: its detail, else what is processed so far.
-        val text = status?.detail ?: Words.readCount(counts.contentRead)
+        // The status line's own words: its count, then its detail; else what is processed so far.
+        val text = listOfNotNull(status?.count, status?.detail).joinToString(". ").ifEmpty { Words.readCount(counts.contentRead) }
         return NotificationCompat.Builder(context, CHANNEL)
             .setContentTitle(status?.title ?: Words.STARTING)
             .setContentText(text)
@@ -63,12 +63,12 @@ object Notifications {
     }
 
     /** Posted only when notifications are allowed; tapping it opens the app where the first run left off. */
-    fun readyToTry(context: Context, files: Int) {
+    fun demoDone(context: Context, done: Int, planned: Int) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (files <= 0 || !manager.areNotificationsEnabled()) return
+        if (planned <= 0 || !manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle("Ready to try")
-            .setContentText("${Words.readCount(files.toLong())}. Open Retriever to try it.")
+            .setContentTitle(Words.DEMO_DONE_NOTICE_TITLE)
+            .setContentText(Words.demoDoneNotice(done.toLong(), planned.toLong()))
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion(context))
@@ -76,12 +76,12 @@ object Notifications {
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
             .build()
-        manager.notify(READY_TO_TRY_ID, notification)
+        manager.notify(DEMO_DONE_ID, notification)
     }
 
-    private const val READY_TO_TRY_ID = 2
+    private const val DEMO_DONE_ID = 2
 
-    fun cancelSample(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(READY_TO_TRY_ID)
+    fun cancelSample(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(DEMO_DONE_ID)
 
     const val OPEN_STATUS = "app.retriever.OPEN_READING_STATUS"
 

@@ -2,7 +2,6 @@ package app.retriever.setup
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composer
 import androidx.compose.runtime.CompositionTracer
 import androidx.compose.runtime.InternalComposeTracingApi
@@ -48,7 +47,6 @@ import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
 import app.retriever.ui.Format
 import app.retriever.ui.components.ReadingNow
-import app.retriever.ui.components.ReadyFiles
 import app.retriever.ui.components.RecentlyRead
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -79,59 +77,7 @@ class ReadingFilesTest {
 
     @After fun untrace() = Composer.setTracer(null)
 
-    @Test fun fourCellsShareARowAtSeveralWidthsAndTheLastRowKeepsItsSize() {
-        val width = mutableStateOf(239.dp)
-        rule.setContent { ShotTheme(false, 1f) { Column(Modifier.width(width.value)) { ReadyFiles((1..5).map(::file), onOpen = {}) } } }
-        for (dp in listOf(239, 280, 327, 360)) {
-            rule.runOnIdle { width.value = dp.dp }
-            val cells = (1..5).map { rule.onNodeWithTag("recent:demo:$it").fetchSemanticsNode().boundsInRoot }
-            assertEquals(1, cells.take(4).map { it.top }.distinct().size)
-            assertTrue(cells[4].top > cells[0].bottom)
-            cells.forEach { assertEquals(cells[0].width, it.width, 1f) }
-        }
-    }
-
-    @Test fun trialReadyFilesOpenInTheViewer() {
-        var opened: SourceFile? = null
-        rule.setContent { ShotTheme(false) { ReadyFiles(recent, onOpen = { opened = it }) } }
-        rule.onNodeWithTag("recent:${recent[0].uri}").performClick()
-        assertEquals(recent[0], opened)
-    }
-
-    /**
-     * The screenshot bug: a document's text tile among photos widened its row to two cells. Every tile is one square
-     * size, four to a row, two past large text.
-     */
-    @Test fun tryGridTilesShareOneSizeWithADocumentAmongPhotos() {
-        val mixed = listOf(file(1), file(2, Kind.DOC), file(3), file(4, Kind.PDF), file(5), file(6, Kind.VIDEO))
-        val scale = mutableStateOf(1f)
-        rule.setContent { ShotTheme(false, scale.value) { ReadyFiles(mixed, onOpen = {}) } }
-        for ((s, columns) in listOf(1f to 4, 2f to 2)) {
-            rule.runOnIdle { scale.value = s }
-            val cells = mixed.map { rule.onNodeWithTag("recent:${it.uri}").fetchSemanticsNode().boundsInRoot }
-            cells.forEach {
-                assertEquals(cells[0].width, it.width, 1f)
-                assertEquals(it.width, it.height, 1f)
-            }
-            assertEquals(columns, cells.count { it.top == cells[0].top })
-        }
-    }
-
-    /** The owner's bug: a document showed its name and raw text. Now its tile is a type card with no readable text. */
-    @Test fun aDocumentInTheTryGridShowsItsTypeNotItsText() {
-        val letter = SourceFile("demo:letter", "Letter.docx", "Documents", "application/msword", Kind.DOC, 100, 1_760_000_000_000)
-        rule.setContent { ShotTheme(false) { ReadyFiles(listOf(file(1), letter, file(3)), onOpen = {}) } }
-        rule.onNodeWithTag("badge:DOCX", useUnmergedTree = true).assertIsDisplayed()
-        // The header and the badge are the only text, read through cleared parents too: no name, no content.
-        val texts = rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text), useUnmergedTree = true)
-            .fetchSemanticsNodes().flatMap { n -> n.config[SemanticsProperties.Text].map { it.text } }
-        assertEquals(listOf(Words.FILES_TO_TRY, "DOCX"), texts)
-        // The badge is drawn, not announced.
-        rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text)).assertCountEquals(1)
-        rule.onNodeWithTag("recent:demo:letter").assertContentDescriptionEquals("Letter.docx, ${Words.kindLabel(Kind.DOC)}, ${Format.date(letter.modifiedAt)}")
-    }
-
-    // --- The sample's pile ---
+    // --- The demo's pile ---
 
     /** Every fifth file a document, so the pile always holds a text tile. */
     private fun card(i: Int) = SampleFile(i, file(i, if (i % 5 == 1) Kind.DOC else Kind.PHOTO), read = true, note = null)
@@ -143,7 +89,7 @@ class ReadingFilesTest {
                 listOf(Kind.PHOTO, Kind.PDF, Kind.DOC),
                 reduceMotion,
                 "12 of 40 files processed",
-                Words.seeAll(40, 0),
+                Words.seeAll(40),
                 onSeeAll,
             )
         }
@@ -161,8 +107,8 @@ class ReadingFilesTest {
         assertEquals(bounds.toString(), 1, bounds.distinct().size)
     }
 
-    @Test fun thePileHoldsTheLastTwelveReadDocumentsIncluded() {
-        pile(mutableStateOf((0 until 20).map(::card)))
+    @Test fun thePileHoldsTheLastThreeReadDocumentsIncluded() {
+        pile(mutableStateOf((0 until 22).map(::card)))
         rule.onAllNodes(
             SemanticsMatcher("a pile card") {
                 it.config.getOrElseNullable(SemanticsProperties.TestTag) { null }?.startsWith("card:") == true
@@ -170,9 +116,9 @@ class ReadingFilesTest {
             useUnmergedTree = true,
         )
             .assertCountEquals(SamplePile.SHOWN)
-        rule.onNodeWithTag("card:7", useUnmergedTree = true).assertDoesNotExist()
-        (8 until 20).forEach { rule.onNodeWithTag("card:$it", useUnmergedTree = true).assertIsDisplayed() }
-        rule.onNodeWithTag("card:16", useUnmergedTree = true).assertIsDisplayed() // a document
+        rule.onNodeWithTag("card:18", useUnmergedTree = true).assertDoesNotExist()
+        (19 until 22).forEach { rule.onNodeWithTag("card:$it", useUnmergedTree = true).assertIsDisplayed() }
+        rule.onNodeWithTag("card:21", useUnmergedTree = true).assertIsDisplayed() // a document
     }
 
     @Test fun thePileIsOneNodeThatSaysTheCountAndOpensSeeAll() {
@@ -181,7 +127,7 @@ class ReadingFilesTest {
         rule.onAllNodes(hasContentDescription("files processed", substring = true)).assertCountEquals(1)
         pileNode()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
-            .assert(SemanticsMatcher("See all as its action") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == Words.seeAll(40, 0) })
+            .assert(SemanticsMatcher("See all as its action") { it.config.getOrElseNullable(SemanticsActions.OnClick) { null }?.label == Words.seeAll(40) })
             .performClick()
         assertEquals(1, opened)
         // The cards say nothing of their own.
@@ -225,22 +171,15 @@ class ReadingFilesTest {
         val cards = mutableStateOf((0 until 5).map(::card))
         pile(cards)
         rule.waitForIdle()
-        assertEquals(5, tiles)
+        assertEquals(SamplePile.SHOWN, tiles)
         tiles = 0
         cards.value = (0 until 6).map(::card).map { it.copy() }
         rule.waitForIdle()
         assertEquals("Only the new card may compose", 1, tiles)
     }
 
-    @Test fun recentAndReadyCellsAnnounceNameKindAndDate() {
-        rule.setContent {
-            ShotTheme(false, 1f) {
-                Column {
-                    ReadyFiles(listOf(recent[0]), onOpen = {})
-                    RecentlyRead(listOf(recent[1]), running = false) {}
-                }
-            }
-        }
+    @Test fun recentCellsAnnounceNameKindAndDate() {
+        rule.setContent { ShotTheme(false, 1f) { RecentlyRead(recent.take(2), running = false) {} } }
         recent.take(2).forEach { file ->
             rule.onNodeWithTag("recent:${file.uri}")
                 .assertContentDescriptionEquals("${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}")
@@ -353,27 +292,6 @@ class ReadingFilesTest {
         rule.onNodeWithText("5.jpg").assertExists()
     }
 
-    @Test fun insertingARecentFileDoesNotRecomposeExistingCellsAcrossRows() {
-        var cells = 0
-        Composer.setTracer(object : CompositionTracer {
-            override fun traceEventStart(key: Int, dirty1: Int, dirty2: Int, info: String) {
-                if (info.substringBefore(" (").endsWith(".FileTile")) cells++
-            }
-            override fun traceEventEnd() = Unit
-            override fun isTraceInProgress() = true
-        })
-        val files = mutableStateOf(recent)
-        val open: (SourceFile) -> Unit = {}
-        rule.setContent { ShotTheme(false, 1f) { ReadyFiles(files.value, open) } }
-        rule.waitForIdle()
-        assertEquals(4, cells)
-        cells = 0
-        files.value = listOf(file(5)) + recent.map { it.copy() }
-        rule.waitForIdle()
-        assertEquals("Only the new cell may compose, even across a row boundary", 1, cells)
-    }
-
-    /** Recently read fills at its end, so no tile moves, then holds still while reading runs and catches up when it stops. */
     @Test fun theStatusStripNeverShiftsWhileReading() {
         var cells = 0
         Composer.setTracer(object : CompositionTracer {
@@ -503,13 +421,17 @@ class ReadingFilesTest {
                     Modifier,
                     readingStatus = ReadingStatus(
                         ReadingPhase.CHARGING,
-                        "Waiting until you plug in",
-                        "30 of 40 files done. Retriever carries on when your phone is charging.",
+                        "Waits until you charge",
+                        "Retriever carries on when your phone is charging.",
+                        count = "30 of 40 files processed",
+                        done = 30,
+                        total = 40,
                     ),
                 )
             }
         }
-        rule.onNodeWithText("30 of 40 files done. Retriever carries on when your phone is charging.").assertExists()
+        rule.onNodeWithText("30 of 40 files processed").assertExists()
+        rule.onNodeWithText("Retriever carries on when your phone is charging.").assertExists()
         rule.onNodeWithText("Let Retriever process files while you’re not using it").assertExists()
     }
 }

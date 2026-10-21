@@ -85,7 +85,7 @@ object FileRules {
 
     private fun at(f: SourceFile) = f.takenAt ?: f.modifiedAt
 
-    /** A varied first read within [budget], or the single cheapest eligible file when none fits. */
+    /** A varied first read of at most [DEMO_FILES] within [budget], or the single cheapest eligible file when none fits. */
     fun planTaste(files: List<SourceFile>, costMs: (SourceFile) -> Double, budget: Duration): TastePlan {
         val byKind = files.filter { it.kind in TASTE_SHARES }.groupBy { it.kind }
         val budgetMs = budget.inWholeMilliseconds.toDouble().coerceAtLeast(0.0)
@@ -119,9 +119,10 @@ object FileRules {
             byKind.values.flatten().minWithOrNull(compareBy<SourceFile>(costMs).thenBy { it.uri })
                 ?.let { listOf(listOf(it)) }.orEmpty()
         }
-        val all = ordered.flatten()
+        // Two of each kind first, then the rest, cut at the demo's size.
+        val all = (ordered.flatMap { it.take(2) } + ordered.flatMap { it.drop(2) }).take(DEMO_FILES)
         return TastePlan(
-            ids = (ordered.flatMap { it.take(2) } + ordered.flatMap { it.drop(2) }).map { it.uri },
+            ids = all.map { it.uri },
             byKind = all.groupingBy { it.kind }.eachCount(),
             oldest = all.minOfOrNull(::at),
             newest = all.maxOfOrNull(::at),

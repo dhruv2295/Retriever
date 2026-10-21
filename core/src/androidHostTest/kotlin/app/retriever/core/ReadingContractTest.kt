@@ -14,8 +14,11 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
 class ReadingContractTest {
+    /** A store whose first full scan is written, so its counts are whole ([ReadingProgress.counted]). */
+    private fun scanned() = newStore().also { it.setMeta(LAST_FULL_SCAN_KEY, "1") }
+
     @Test fun keywordReadingCountsAsReadAndWaitingForMeaningIsSeparate() {
-        val store = newStore()
+        val store = scanned()
         val files = listOf(testFile("a.txt"), testFile("b.jpg", Kind.PHOTO), testFile("c.jpg", Kind.PHOTO), testFile("d.txt"))
         store.upsertFiles(files)
         val (a, b, c, d) = files.map { store.fileByUri(it.uri)!!.id }
@@ -38,7 +41,7 @@ class ReadingContractTest {
     }
 
     @Test fun realOutcomesPartitionMetadataFailuresTailsAndDisabledKinds() {
-        val store = newStore()
+        val store = scanned()
         val files = (1..9).map { testFile("$it.txt", if (it == 9) Kind.AUDIO else Kind.DOC) }
         store.upsertFiles(files)
         val ids = files.map { store.fileByUri(it.uri)!!.id }
@@ -113,36 +116,63 @@ class ReadingContractTest {
         val store = newStore().also { it.setProfile(PROFILE) }
         val files = (1..4).map { testFile("$it.txt") }
         store.upsertFiles(files)
+        store.setMeta(LAST_FULL_SCAN_KEY, "1")
         store.replaceChunks(store.fileByUri(files[0].uri)!!.id, listOf(Store.NewChunk(1, "", "words", null)))
         val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
         fun facade() = testRetriever(store, files, FakeExtractor(), monitor = unplugged)
         val first = facade().apply { refreshSetUp() }
         val waiting = first.readingStatus().first()
         assertEquals(
-            listOf("Waiting until you plug in", "1 of 4 files done. Retriever carries on when your phone is charging.", 25),
-            listOf(waiting.title, waiting.detail, waiting.percent),
+            listOf("Waits until you charge", "1 of 4 files processed", "Retriever carries on when your phone is charging.", 1L, 4L),
+            listOf(waiting.title, waiting.count, waiting.detail, waiting.done, waiting.total),
         )
         first.readNow()
         val tapped = first.readingStatus().first { it.phase == ReadingPhase.READ_NOW }
         assertEquals("Processing for 15 minutes · 15 min left" to StatusAction.STOP, tapped.title to tapped.action)
 
-        // Four new files reach a collector already watching: 1 of 8, an honest 12%, with no relaunch or new subscription.
+        // Four new files reach a collector already watching: 1 of 8, with no relaunch or new subscription.
         val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
         val watching = launch(Dispatchers.Default) { first.readingStatus().collect { lines.send(it) } }
         suspend fun next(count: String) = withTimeout(5_000) {
             var s: ReadingStatus
             do {
                 s = lines.receive()
-            } while (s.detail?.startsWith(count) != true)
+            } while (s.count != count)
             s
         }
-        next("1 of 4 files done")
+        next("1 of 4 files processed")
         store.upsertFiles((5..8).map { testFile("$it.txt") })
-        assertEquals(12, next("1 of 8 files done").percent)
+        assertEquals(1L to 8L, next("1 of 8 files processed").let { it.done to it.total })
         watching.cancel()
         val second = facade().apply { refreshSetUp() }
         second.endReadNowSession()
-        assertEquals("Waiting until you plug in" to 12, second.readingStatus().first().let { it.title to it.percent })
+        assertEquals("Waits until you charge" to 8L, second.readingStatus().first().let { it.title to it.total })
+    }
+
+    /**
+     * "Counting your files…" until the first full scan is written, then the count, without a relaunch. The scan's end is a
+     * meta write, which countChanges never sees; the sync's own signal ([Retriever.synced]) wakes the line. This run also
+     * re-reads for other reasons, so it pins the outcome, not that signal alone.
+     */
+    @Test fun theLineCountsOnceTheFirstFullScanIsWritten() = runBlocking {
+        val store = newStore().also { it.setProfile(PROFILE) }
+        val files = (1..4).map { testFile("$it.txt") }
+        store.upsertFiles(files)
+        val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
+        val r = testRetriever(store, files, FakeExtractor(), monitor = unplugged).apply { refreshSetUp() }
+        val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
+        val watching = launch(Dispatchers.Default) { r.readingStatus().collect { lines.send(it) } }
+        assertEquals("Counting your files…", withTimeout(5_000) { lines.receive() }.title)
+        r.indexBatch(1.minutes) // its sync is the first full scan, and every row is already in
+        val counted = withTimeout(5_000) {
+            var s: ReadingStatus
+            do {
+                s = lines.receive()
+            } while (s.phase == ReadingPhase.COUNTING)
+            s
+        }
+        assertEquals("0 of 4 files processed", counted.count)
+        watching.cancel()
     }
 
     @Test fun savingPowerEndsTheExplicitSessionEvenWhileVisible() = runBlocking {
@@ -165,7 +195,7 @@ class ReadingContractTest {
         store.setTaste(listOf(id))
         val r = testRetriever(store, listOf(file), FakeExtractor())
         store.markFailed(id, 3)
-        assertFalse(r.tasteProgress().first().readyToTry)
+        assertEquals(0, r.tasteProgress().first().read)
         assertFalse(r.claimSampleNotification())
         store.replaceChunks(id, listOf(Store.NewChunk(1, "", "read content", null)))
         assertTrue(r.claimSampleNotification())
@@ -186,7 +216,7 @@ class ReadingContractTest {
     }
 
     @Test fun aCapAndQueuedMeaningWorkRemainSeparateFacts() {
-        val store = newStore()
+        val store = scanned()
         val file = testFile("long.txt")
         store.upsertFiles(listOf(file))
         val id = store.fileByUri(file.uri)!!.id

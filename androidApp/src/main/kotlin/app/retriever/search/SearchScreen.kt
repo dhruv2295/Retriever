@@ -177,7 +177,7 @@ fun SearchScreen(
     }
 }
 
-/** The screen's actions on this view model; the first run's try-it hosts the same search with the same ones. */
+/** The screen's actions on this view model; the first run's demo hosts the same search with the same ones. */
 fun SearchViewModel.actions(context: Context, onNavigate: (Route) -> Unit) = SearchActions(
     onQuery = this::setQuery,
     onSubmit = { submit(it) },
@@ -210,8 +210,10 @@ fun SearchContent(
     home: HomeUi,
     actions: SearchActions,
     modifier: Modifier = Modifier,
-    /** What sits beside the bar; null is the Settings button. The first run's try-it puts Skip here. */
-    topBarAction: (@Composable () -> Unit)? = null,
+    /** The field's placeholder; the demo's names its files. */
+    placeholder: String = Words.SEARCH_FIELD,
+    /** Under the docked bar, pinned with it: the demo's Continue. With one, there is no top bar: nothing goes there. */
+    footer: (@Composable () -> Unit)? = null,
     /** The Home page: the padding the top bar leaves, its list state, the side gutter, and fill (a past search into the field; true also runs it). */
     homeContent: @Composable (PaddingValues, LazyStaggeredGridState, Dp, (String, Boolean) -> Unit) -> Unit,
 ) {
@@ -270,7 +272,7 @@ fun SearchContent(
         }
     }
 
-    // A search run from a chip (Home's, Try's) opens the bar on its results with nothing to type. M3 asks the opening
+    // A search run from a chip (Home's, the demo's) opens the bar on its results with nothing to type. M3 asks the opening
     // bar's field for focus, and taking it back afterwards loses to the keyboard on a phone, so the field turns down that
     // one request: no keyboard, and one Back leaves the results. Every later one (a touch, TalkBack's double-tap, Tab)
     // focuses it as usual. Not "until the bar settles": M3's request can land after that, and the keyboard came back.
@@ -321,7 +323,7 @@ fun SearchContent(
                 focus.clearFocus()
                 keyboard?.hide()
             },
-            placeholder = { Text(Words.SEARCH_FIELD, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            placeholder = { Text(placeholder, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             leadingIcon = {
                 if (bar.currentValue == SearchBarValue.Expanded) {
                     IconButton(onClick = closeSearch) {
@@ -351,26 +353,26 @@ fun SearchContent(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(title = {}, actions = {
-                if (topBarAction != null) {
-                    topBarAction()
-                } else {
+            if (footer == null) {
+                TopAppBar(title = {}, actions = {
                     IconButton(onClick = {
                         actions.onNavigate(SettingsRoute)
                     }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings") }
-                }
-            })
+                })
+            }
         },
         bottomBar = {
             // Docked at the bottom, in a thumb's reach; opaque, so Home's rows never show through it. safeDrawing holds
             // the navigation bar and the keyboard.
-            Box(
+            Column(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 SearchBar(state = bar, inputField = { inputField() }, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
+                footer?.invoke()
             }
         },
     ) { padding ->

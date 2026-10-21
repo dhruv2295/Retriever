@@ -44,10 +44,10 @@ final class ReadingFilesTests: XCTestCase {
         (0..<count).map { SampleFile(index: Int32($0), file: file($0 + 1), read: $0 < read, note: nil) }
     }
 
-    /// The pile holds the last twelve read files, in plan order, each at its own index's slot.
-    func testThePileShowsTheLastTwelveReadInPlanOrder() {
+    /// The pile holds the last three processed files, in plan order, each at its own index's slot.
+    func testThePileShowsTheLastThreeReadInPlanOrder() {
         let shown = SamplePile.shared.shown(files: sample(30, read: 20))
-        XCTAssertEqual(shown.map(\.index), Array(8..<20).map(Int32.init))
+        XCTAssertEqual(shown.map(\.index), Array(17..<20).map(Int32.init))
         XCTAssertTrue(SamplePile.shared.shown(files: sample(5, read: 0)).isEmpty)
     }
 
@@ -67,14 +67,15 @@ final class ReadingFilesTests: XCTestCase {
                 return host.sizeThatFits(in: CGSize(width: width, height: 4000))
             }
             for count in [1, 12, 20] { XCTAssertEqual(size(count), size(0), "\(count) cards at \(width) pt") }
-            XCTAssertEqual(size(0).height, min(224, width), accuracy: 1)
+            XCTAssertEqual(size(0).height, min(CGFloat(SamplePile.shared.FOOTPRINT_DP), width), accuracy: 1)
         }
     }
 
     func testTheSampleIsSpokenByKindNotShownAsSlashCounts() {
-        let taste = TasteSnap(counts: [.photo: .init(read: 12, planned: 40), .pdf: .init(read: 3, planned: 5)], readyToTry: true, pending: 30)
+        let taste = TasteSnap(counts: [.photo: .init(read: 12, planned: 40), .pdf: .init(read: 3, planned: 5)], pending: 28)
         XCTAssertEqual(taste.read, 15)
         XCTAssertEqual(taste.planned, 45)
+        XCTAssertEqual(taste.done, 17, "a name-only or unopenable file is done without being read")
         XCTAssertTrue(taste.spoken.contains("12 of 40 photos processed"), taste.spoken)
         XCTAssertTrue(taste.spoken.contains("3 of 5 PDFs processed"), taste.spoken)
         XCTAssertFalse(taste.spoken.contains("/"))

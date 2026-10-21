@@ -62,6 +62,10 @@ final class AppModel {
         var accessChosen = true
         /// For core's policies that read them whole (`UpgradePolicy.showOnHome`); nil on most fixtures.
         var prefs: Prefs?
+        /// The phone's files are all counted once; until then Home says "Counting your files…" (core's `ReadingProgress.counted`).
+        var counted = true
+        /// Not now was chosen after the demo (core's `ReadingProgress.notNow`).
+        var notNow = false
 
         /// The kinds iOS reads inside, in the order Settings lists them. There is no audio source on iOS.
         static let inside: [Kind] = [.pdf, .doc, .screenshot, .photo, .video]
@@ -72,7 +76,7 @@ final class AppModel {
             ReadingProgress(
                 read: Int64(max(0, indexed - partlyRead)), partlyRead: Int64(partlyRead), scheduled: Int64(pending), notScheduled: Int64(waiting),
                 nameOnly: Int64(nameOnly), couldntRead: Int64(skipped), laterPasses: Int64(tailFiles), sample: trial, rereads: Int64(rereads),
-                meaningWaiting: Int64(meaningWaiting))
+                meaningWaiting: Int64(meaningWaiting), counted: counted, notNow: notNow)
         }
         var total: Int { Int(readProgress.libraryTotal) }
         var libraryTotal: Int { byKind.values.reduce(0, +) }
@@ -175,7 +179,7 @@ final class AppModel {
     var storage: Storage?
     /// "Try:" words from the person's own files, offered in the search bar while there is no history.
     var suggestions: [String] = []
-    /// Try's suggestions from the sample's files, held from before Try opens (`watchSetup`).
+    /// The demo's chips: suggestions from its files, held while the demo shows (`watchSetup`).
     var trySuggestions: [String] = []
     /// Home's newest files, folder count and large files; nil until the first load.
     var fileRevision = 0
@@ -221,7 +225,7 @@ final class AppModel {
     @ObservationIgnored var markCelebrated: () async -> Void = {}
 
     @ObservationIgnored var observation: KotlinAutoCloseable?
-    /// Open only while the sample or Try shows (`watchSetup`).
+    /// Open only while the demo shows (`watchSetup`).
     @ObservationIgnored var sampleObservations: [KotlinAutoCloseable] = []
     @ObservationIgnored var trySuggestionsObservation: (ids: [Int64], handle: KotlinAutoCloseable)?
     @ObservationIgnored var tokens: [NSObjectProtocol] = []
@@ -429,6 +433,8 @@ extension AppModel.Snap {
         rereads = Int(coverage.rereads)
         meaningWaiting = Int(coverage.meaningWaiting)
         nameOnly = Int(coverage.nameOnly)
+        counted = coverage.counted
+        notNow = coverage.notNow
         readingStatus = s.reading
         automaticReading = s.prefs.automaticReading
         readNowUntil = s.prefs.readNowUntil

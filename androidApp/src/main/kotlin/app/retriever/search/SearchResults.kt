@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.access.Photos
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
@@ -164,14 +165,12 @@ internal fun Results(
         }
     }
     if (scope != null) {
-        Column(Modifier.padding(horizontal = edge, vertical = 8.dp)) {
-            Text(Words.searchingTry(ui.sampleRead.toLong()), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
-            if (ui.unread >
-                0
-            ) {
-                Text(Words.stillReading(ui.unread.toLong()), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        val finished = ui.unread == 0 && ui.samplePlanned > 0
+        Text(
+            Words.demoSearchScope(ui.sampleDone.toLong(), finished, DeviceWords.ANDROID),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = edge, vertical = 8.dp),
+        )
     }
     parsed?.let {
         InputChip(

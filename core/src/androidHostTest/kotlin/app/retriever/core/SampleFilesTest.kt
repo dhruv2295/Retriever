@@ -40,13 +40,7 @@ class SampleFilesTest {
             }
             assertTrue(files.any { it.read } && files.any { it.note == "Found by name" } && files.any { it.note == "Not processed yet" }, files.toString())
             assertTrue(files.dropWhile { it.note != "Not processed yet" }.all { it.note == "Not processed yet" }, "the plan reads in order")
-
-            // A trim drops pending files only, all after the read ones, so every read file keeps its index.
-            store.setMeta(TASTE_BUDGET_KEY, "0")
-            r.trimTaste()
-            val trimmed = r.sampleFiles().first()
-            assertTrue(trimmed.size < files.size, "the trim dropped pending files")
-            assertEquals(files.filter { it.read }, trimmed.filter { it.read })
+            assertEquals(files.size, r.tasteProgress().first().planned, "See the N files lists every planned file")
         }
     }
 }

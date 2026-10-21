@@ -35,6 +35,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -144,4 +145,16 @@ fun EmptyState(
         Text(description, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         if (action != null) Button(onClick = action.second) { Text(action.first) }
     }
+}
+
+/** Every count's bar: exactly [done] / [total], on a quiet track with no gap or end dot, so an empty bar looks empty. */
+@Composable
+fun CountBar(done: Long, total: Long, modifier: Modifier = Modifier) {
+    LinearProgressIndicator(
+        progress = { if (total > 0) done.toFloat() / total else 0f },
+        modifier = modifier,
+        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        gapSize = 0.dp,
+        drawStopIndicator = {},
+    )
 }

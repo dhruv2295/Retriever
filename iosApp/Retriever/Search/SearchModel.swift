@@ -165,10 +165,8 @@ final class SearchModel {
     /// `loadRecent` has answered, so Home knows whether its chips row shows.
     private(set) var recentLoaded = false
     private(set) var literal = false
-    /// The files the first run's short read planned: while set, every search stays inside them.
+    /// The demo's files: while set, every search stays inside them.
     var fileIds: [Int64]?
-    /// Planned files not read yet, for the try-it header. Own property, so only the line that shows it redraws.
-    var stillReading = 0
     private var retries = 0
     /// Times "no matches" was shown (Prefs.noMatchSeen); after a few, the dog stops moving for it.
     private(set) var noMatchSeen: Int

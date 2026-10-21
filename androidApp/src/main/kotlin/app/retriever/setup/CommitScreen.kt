@@ -24,20 +24,29 @@ import app.retriever.core.DeviceWords
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Words
 
-/** Selection is local; only the confirmation authorizes reading. Shared by setup and the Home sheet. */
+/** Selection is local; only the confirmation authorizes processing. Shared by setup and the Home sheet. */
 @Composable
 fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifier) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(Words.CHOOSE_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-        Text(Words.MORE_FILES, style = MaterialTheme.typography.bodyLarge)
-        Text(Words.CHOOSE_PACE, style = MaterialTheme.typography.bodyMedium)
+        ui.taste?.let { Words.demoEnded(it.done.toLong(), it.planned.toLong(), ui.setup.skipped) }?.let {
+            Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(Words.chooseTitle(DeviceWords.ANDROID), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
+        Text(Words.chooseBody(ui.rest), style = MaterialTheme.typography.bodyLarge)
+        Text(Words.choosePace(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
         val labels = listOf(ReadingSchedule.CHARGING.title, Words.READ_15_NOW, Words.NOT_NOW)
-        val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.readNowBody(DeviceWords.ANDROID), Words.NOT_NOW_BODY)
+        val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.chargingAndNowBody(DeviceWords.ANDROID), Words.NOT_NOW_BODY)
         Column(Modifier.selectableGroup()) {
             labels.forEachIndexed { i, label ->
                 ListItem(
                     headlineContent = { Text(label) },
+                    // Above the title, not trailing, so the description keeps the row's full width.
+                    overlineContent = if (i == 0) {
+                        { Text(Words.RECOMMENDED, color = MaterialTheme.colorScheme.primary) }
+                    } else {
+                        null
+                    },
                     supportingContent = { Text(details[i]) },
                     leadingContent = { RadioButton(selected == i, onClick = null) },
                     modifier = Modifier.selectable(selected == i, role = Role.RadioButton) { selected = i },
@@ -51,7 +60,7 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
                 else -> actions.decideLater()
             }
         }, modifier = Modifier.fillMaxWidth()) {
-            Text(listOf(Words.DONE, "Start processing", Words.DONE)[selected])
+            Text(if (selected == 2) Words.GO_TO_HOME else Words.START_PROCESSING)
         }
     }
 }

@@ -10,8 +10,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +17,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,7 +35,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +54,6 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
-import app.retriever.core.TasteProgress
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
@@ -84,11 +81,11 @@ fun SetupScreen(
     var folderError by rememberSaveable { mutableStateOf<String?>(null) }
     var seeAll by rememberSaveable { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { flow.refresh() }
-    // Leaves once setup is done or skipped; access is never skipped.
+    // Leaves once a choice is made; access is never skipped.
     if (!ui.setup.showSetup) {
         androidx.compose.runtime.LaunchedEffect(Unit) { onDone() }
     }
-    BackHandler(enabled = SetupPolicy.back(ui.stage) != null, onBack = flow::back)
+    BackHandler(enabled = SetupPolicy.back(ui.stage, ui.setup.skipped) != null, onBack = flow::back)
     val activity = LocalActivity.current
     val mediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -106,8 +103,8 @@ fun SetupScreen(
     }
     val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
     val actions = SetupActions(
-        searchByName = {
-            flow.searchByName()
+        skipDemo = {
+            flow.skipDemo()
             if (!ui.access.ready) allowFiles()
         },
         allowFiles = allowFiles,
@@ -125,16 +122,14 @@ fun SetupScreen(
             including = false
             flow.continueFromAccess()
         },
-        tryNow = flow::tryNow,
         seeAll = { seeAll = true },
         continueToCommit = flow::continueToCommit,
         commit = { charging -> requestReading { flow.commit(charging) } },
         decideLater = flow::decideLater,
-        skip = flow::skip,
     )
-    // The real Search is a Scaffold with lazy lists, so it cannot sit inside SetupContent's scrolling column.
-    if (ui.stage == SetupStage.TRY) {
-        TryItScreen(ui, actions, onNavigate)
+    // The demo is hosted by the real Search, whose field and full-screen results sit outside SetupContent's scroll.
+    if (ui.stage == SetupStage.SAMPLE) {
+        DemoScreen(ui, actions, onNavigate)
     } else {
         SetupContent(ui, modifier, actions = actions, allFilesOff = allFilesOff)
     }
@@ -153,7 +148,7 @@ fun SetupScreen(
     }
 }
 
-/** One screen for the whole first run: a persistent mascot above the stage's body, which slides on to the next. */
+/** The welcome and the choice: a persistent mascot above the stage's body, which slides on to the next. */
 @Composable
 fun SetupContent(
     ui: SetupUi,
@@ -163,14 +158,16 @@ fun SetupContent(
     reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
 ) {
     val stage = ui.stage
-    val taste = ui.taste
-    val mascotWidth by animateDpAsState(
-        if (stage == SetupStage.WELCOME) 260.dp else 160.dp,
-        if (reduceMotion) snap() else spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS),
-    )
-    Scaffold(modifier.fillMaxSize().safeDrawingPadding(), bottomBar = {
-        if (stage == SetupStage.SAMPLE) Surface { SampleFooter(taste?.readyToTry == true, actions) }
-    }) { padding ->
+    Scaffold(
+        modifier.fillMaxSize().safeDrawingPadding(),
+        bottomBar = {
+            if (stage == SetupStage.WELCOME) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.widthIn(max = 552.dp)) { WelcomeActions(ui, allFilesOff, actions) }
+                }
+            }
+        },
+    ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             Column(
                 // Capped inside the scroll, so the gutters scroll too. At least the viewport tall, with spare height split
@@ -179,8 +176,8 @@ fun SetupContent(
                     .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
             ) {
-                if (stage != SetupStage.CHOOSE) {
-                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(mascotWidth), settles = false)
+                if (stage == SetupStage.WELCOME) {
+                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(260.dp), settles = false)
                 }
                 val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
                 val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
@@ -199,15 +196,12 @@ fun SetupContent(
                 ) { s ->
                     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                         when (s) {
-                            SetupStage.WELCOME -> Welcome(ui, allFilesOff, actions)
-
-                            // Drawn before core's first progress too: picking, at 0, never a blank frame.
-                            SetupStage.SAMPLE -> SampleStage(ui, taste ?: TasteProgress(emptyMap(), emptySet(), 0, null, false), actions, reduceMotion)
+                            SetupStage.WELCOME -> Welcome(ui, actions)
 
                             SetupStage.CHOOSE -> CommitStage(ui, actions)
 
-                            // TRY is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
-                            SetupStage.TRY, SetupStage.DONE -> Unit
+                            // SAMPLE is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
+                            SetupStage.SAMPLE, SetupStage.DONE -> Unit
                         }
                     }
                 }
@@ -221,7 +215,7 @@ private const val SPATIAL_DAMPING = 0.9f
 private const val SPATIAL_STIFFNESS = 700f
 private const val EFFECTS_STIFFNESS = 1600f
 
-/** The motion is the state: it walks while the sample reads and rests once it is done. */
+/** The motion is the state: it walks while the demo processes and rests once it is paused or done. */
 internal fun SetupUi.mood(): MascotMood = when {
     stage == SetupStage.WELCOME -> MascotMood.WELCOME
     stage == SetupStage.SAMPLE && reading -> MascotMood.WALKING

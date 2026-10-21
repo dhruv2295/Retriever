@@ -13,34 +13,42 @@ class SetupTest {
     private fun at(mark: SetupMark, access: Boolean = true, skipped: Boolean = false, decided: Boolean = false, planned: Int = 0) =
         SetupInputs(mark, skipped, decided, planned).withAccess(access)
 
-    @Test fun welcomeAsksAccessThenPlanSampleTryChooseDone() {
+    @Test fun welcomeAsksAccessThenPlanDemoChooseDone() {
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE, access = false).let { it.stage to it.step })
         // Access granted is not enough: the person confirms it on the welcome, and nothing runs before.
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE).let { it.stage to it.step })
         assertTrue(at(SetupMark.NONE).showSetup)
         assertEquals(SetupStage.SAMPLE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN).let { it.stage to it.step })
         assertEquals(SetupStage.SAMPLE to SetupStep.READ_SAMPLE, at(SetupMark.ACCESS_CHOSEN, planned = 30).let { it.stage to it.step })
-        assertEquals(SetupStage.TRY to SetupStep.READ_SAMPLE, at(SetupMark.TRYING, planned = 30).let { it.stage to it.step })
         assertEquals(SetupStage.CHOOSE to SetupStep.READ_SAMPLE, at(SetupMark.CHOOSING, planned = 30).let { it.stage to it.step })
         assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.CHOOSING, decided = true, planned = 30).let { it.stage to it.step })
         assertTrue(at(SetupMark.ACCESS_CHOSEN, planned = 30).showSetup)
+        assertTrue(at(SetupMark.CHOOSING, planned = 30).showSetup, "setup shows until a choice is made")
         assertFalse(at(SetupMark.CHOOSING, decided = true).showSetup)
     }
 
-    @Test fun backLeavesTryForTheSampleAndTheChoiceForTry() {
-        assertEquals(SetupMark.ACCESS_CHOSEN, SetupPolicy.back(SetupStage.TRY))
-        assertEquals(SetupMark.TRYING, SetupPolicy.back(SetupStage.CHOOSE))
+    @Test fun backFromTheChoiceReturnsToTheDemoOrAfterASkipToTheWelcome() {
+        assertEquals(SetupMark.ACCESS_CHOSEN, SetupPolicy.back(SetupStage.CHOOSE, skipped = false))
+        assertEquals(SetupStage.SAMPLE, at(SetupPolicy.back(SetupStage.CHOOSE, skipped = false)!!, planned = 30).stage)
+        assertEquals(SetupMark.NONE, SetupPolicy.back(SetupStage.CHOOSE, skipped = true))
+        assertEquals(SetupStage.WELCOME, at(SetupPolicy.back(SetupStage.CHOOSE, skipped = true)!!, planned = 30).stage)
         for (stage in listOf(SetupStage.WELCOME, SetupStage.SAMPLE, SetupStage.DONE)) {
-            assertNull(SetupPolicy.back(stage), "$stage has no setup screen behind it")
+            assertNull(SetupPolicy.back(stage, skipped = false), "$stage has no setup screen behind it")
         }
-        // Each mark Back sets lands on the screen before.
-        assertEquals(SetupStage.SAMPLE, at(SetupPolicy.back(SetupStage.TRY)!!, planned = 30).stage)
-        assertEquals(SetupStage.TRY, at(SetupPolicy.back(SetupStage.CHOOSE)!!, planned = 30).stage)
     }
 
-    @Test fun afterTryChoosesOnlyWhenFilesWaitBeyondTheSample() {
-        assertEquals(SetupMark.CHOOSING, SetupPolicy.afterTry(nothingLeft = false))
-        assertNull(SetupPolicy.afterTry(nothingLeft = true), "nothing to choose: read everything")
+    /** The Try screen is gone: a mark saved on it resumes the demo, never the welcome (an unknown mark's NONE). */
+    @Test fun aSavedTryingResumesTheDemo() {
+        assertEquals(SetupMark.ACCESS_CHOSEN, SetupMark.saved("TRYING"))
+        assertEquals(SetupStage.SAMPLE, at(SetupMark.saved("TRYING")!!, planned = 30).stage)
+        assertEquals(SetupMark.CHOOSING, SetupMark.saved("CHOOSING"))
+        assertNull(SetupMark.saved("STARTED"))
+        assertNull(SetupMark.saved(null))
+    }
+
+    @Test fun afterTheDemoChoosesOnlyWhenFilesWaitBeyondIt() {
+        assertEquals(SetupMark.CHOOSING, SetupPolicy.afterDemo(nothingLeft = false))
+        assertNull(SetupPolicy.afterDemo(nothingLeft = true), "nothing to choose: process everything")
     }
 
     @Test fun anEmptyLibraryNeedsNoChoice() {
@@ -48,22 +56,30 @@ class SetupTest {
         assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.ACCESS_CHOSEN, decided = true).let { it.stage to it.step })
     }
 
-    @Test fun goToHomeKeepsTheSampleReadingButNeverSkipsAccess() {
-        val left = at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30)
-        assertEquals(SetupStage.DONE to SetupStep.READ_SAMPLE, left.stage to left.step)
-        assertFalse(left.showSetup)
-        assertEquals(SetupStep.PLAN, at(SetupMark.TRYING, skipped = true).step, "a plan interrupted by the process is made on return")
+    @Test fun skipTheDemoLeadsToTheChoiceButNeverSkipsAccess() {
+        val skipped = at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30)
+        assertEquals(SetupStage.CHOOSE to SetupStep.READ_SAMPLE, skipped.stage to skipped.step)
+        assertTrue(skipped.showSetup, "a skip leads to the choice, not past it")
+        assertEquals(SetupStage.CHOOSE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN, skipped = true).let { it.stage to it.step })
+        assertEquals(SetupStage.DONE, at(SetupMark.ACCESS_CHOSEN, skipped = true, decided = true).stage)
 
-        // Search by name before access: setup opens on the welcome until access is chosen, and nothing runs.
+        // A skip before access: setup opens on the welcome until access is chosen, and nothing runs.
         val noAccess = at(SetupMark.NONE, access = false, skipped = true)
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, noAccess.stage to noAccess.step)
         assertTrue(noAccess.showSetup)
         assertFalse(noAccess.libraryChosen)
-        assertEquals(SetupStage.DONE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN, skipped = true).let { it.stage to it.step })
+    }
+
+    /** One rule for "the demo is still running": the reading bypass, the notification ask and its demo line all use it. */
+    @Test fun theDemoRunsUntilStoppedSkippedOrDecided() {
+        assertTrue(at(SetupMark.ACCESS_CHOSEN, planned = 30).demoRunning)
+        assertFalse(at(SetupMark.CHOOSING, planned = 30).demoRunning, "its Continue stops it")
+        assertFalse(at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30).demoRunning)
+        assertFalse(at(SetupMark.ACCESS_CHOSEN, decided = true, planned = 30).demoRunning)
     }
 
     @Test fun losingAccessReturnsToTheWelcomeAndStopsTheSteps() {
-        val revoked = at(SetupMark.TRYING, access = false, planned = 30)
+        val revoked = at(SetupMark.CHOOSING, access = false, planned = 30)
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, revoked.stage to revoked.step)
         val status = ReadingPolicy.line(ReadingStatus(ReadingPhase.CAUGHT_UP, ""), revoked.libraryChosen, hasAccess = true, 0, DeviceWords.ANDROID)
         assertEquals(ReadingPhase.SETTING_UP to StatusAction.CONTINUE, status?.phase to status?.action)
@@ -98,27 +114,12 @@ class SetupTest {
         assertEquals("8 files · Size unavailable", Words.countAndSize(FileTotals(8, 0, 8), "Zero KB"))
         assertEquals("3 of 7 photos processed", Words.kindRead(3, 7, Kind.PHOTO))
         assertEquals("1 of 2 PDFs processed", Words.kindRead(1, 2, Kind.PDF))
-        assertEquals("Searching every file’s name, and inside the 1 file processed so far.", Words.searchingTry(1))
-        assertEquals("Searching every file’s name, and inside the 124 files processed so far.", Words.searchingTry(124))
-        assertEquals("Find a file you know", Words.TRY_TITLE)
-        assertEquals("Type something you remember from it, like a name, a place or an amount, or tap a suggestion.", Words.TRY_BODY)
-        assertEquals("Open one of these files, then type something you remember from it.", Words.TRY_WITHOUT_SUGGESTIONS)
-        assertEquals("Files you can try", Words.FILES_TO_TRY)
         assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
-        assertEquals("Try it on your own files", Words.SAMPLE_TITLE)
-        assertEquals(
-            "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent.",
-            Words.SAMPLE_PICKING,
-        )
-        fun sample(readyToTry: Boolean, pending: Int) = TasteProgress(emptyMap(), emptySet(), if (readyToTry) 20 else 3, null, readyToTry, pending)
+        fun demo(pending: Int) = TasteProgress(emptyMap(), emptySet(), 3, null, pending, 30)
         val plain = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
-        assertEquals(
-            "$plain We can also let you know when your sample is ready.",
-            Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 10)),
-        )
-        assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = true, pending = 10)), "ready: its message is already claimed")
-        assertEquals(plain, Words.notificationsAsk(decided = true, sample(readyToTry = false, pending = 10)))
-        assertEquals(plain, Words.notificationsAsk(decided = false, sample(readyToTry = false, pending = 0)))
+        assertEquals("$plain We can also let you know when the demo is done.", Words.notificationsAsk(demoRunning = true, demo(pending = 10)))
+        assertEquals(plain, Words.notificationsAsk(demoRunning = false, demo(pending = 10)), "stopped, skipped or decided")
+        assertEquals(plain, Words.notificationsAsk(demoRunning = true, demo(pending = 0)))
         assertEquals("12 of 40 files processed", Words.readOf(12, 40))
         assertEquals("Retriever looks inside the files on this phone so you can find them by what’s in them.", Words.wholeDeviceNote(android))
         assertEquals(
@@ -139,16 +140,14 @@ class SetupTest {
         assertFalse(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = true))
     }
 
-    /** The sample's muted line: a measured time once there is one, then whether search can be tried yet. */
-    @Test fun sampleNote() {
-        assertNull(Words.sampleNote(reading = false, readyToTry = true, secondsLeft = 90), "nothing while paused or done")
-        assertEquals("You can try search once a few files are processed.", Words.sampleNote(true, false, null))
-        assertEquals("Ready to try. Search for a word you remember from a recent file.", Words.sampleNote(true, true, null))
-        assertEquals("Less than a minute left. You can try search once a few files are processed.", Words.sampleNote(true, false, 59))
-        assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 60))
-        assertEquals("About a minute left. Ready to try.", Words.sampleNote(true, true, 89))
-        assertEquals("About 2 minutes left. Ready to try.", Words.sampleNote(true, true, 90))
-        assertEquals("About 3 minutes left. Ready to try.", Words.sampleNote(true, true, 170))
+    /** The demo's muted line: a measured time once there is one, else "About a minute."; search works from the first frame. */
+    @Test fun demoNote() {
+        assertEquals("About a minute.", Words.demoNote(null))
+        assertEquals("Less than a minute left.", Words.demoNote(59))
+        assertEquals("About a minute left.", Words.demoNote(60))
+        assertEquals("About a minute left.", Words.demoNote(89))
+        assertEquals("About 2 minutes left.", Words.demoNote(90))
+        assertEquals("About 3 minutes left.", Words.demoNote(170))
     }
 
     @Test fun totalsCountEveryAccessibleFileWithUnknownSizesApart() {

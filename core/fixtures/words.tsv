@@ -5,7 +5,7 @@ stop	HOT	android	Paused to let your phone cool down
 stop	LOW_BATTERY	android	Paused, battery is low
 stop	CHARGING_UP	android	Charging up first
 stop	BUSY	android	Waiting until you put your phone down
-stop	UNPLUGGED	android	Waiting until you plug in
+stop	UNPLUGGED	android	Waits until you charge
 stop	MANUAL	android	Processing only when you start it
 stop	DONE	android	Taking a short break
 stop	BUDGET	android	Taking a short break
@@ -15,7 +15,7 @@ stop	HOT	iphone	Paused to let your iPhone cool down
 stop	LOW_BATTERY	iphone	Paused, battery is low
 stop	CHARGING_UP	iphone	Charging up first
 stop	BUSY	iphone	Waiting until you put your iPhone down
-stop	UNPLUGGED	iphone	Waiting until you plug in
+stop	UNPLUGGED	iphone	Waits until you charge
 stop	MANUAL	iphone	Processing only when you start it
 stop	DONE	iphone	Taking a short break
 stop	BUDGET	iphone	Taking a short break

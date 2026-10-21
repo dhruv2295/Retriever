@@ -88,11 +88,12 @@ data class SearchUi(
     val launched: Int = 0,
     /** Something the person asked for failed; the screen says so once and calls [SearchViewModel.errorShown]. */
     val error: String? = null,
-    /** The first run's planned files: every search stays inside them (the try-it screen). Null: the whole library. */
+    /** The demo's planned files: every search stays inside them (the demo screen). Null: the whole library. */
     val scope: List<Long>? = null,
-    /** Planned files not read yet, the files and photos read so far; only while [scope] is set. */
+    /** The demo's files still waiting, processed and planned ([TasteProgress]), and its photos read; only while [scope] is set. */
     val unread: Int = 0,
-    val sampleRead: Int = 0,
+    val sampleDone: Int = 0,
+    val samplePlanned: Int = 0,
     val photosRead: Int = 0,
 ) {
     /** Searching by photo needs the model and, on the first run, enough photos read for it to mean something. */
@@ -160,7 +161,7 @@ class SearchViewModel(
         // The short read's progress, only while a screen scopes the search to it.
         viewModelScope.launch {
             _ui.map { it.scope != null }.distinctUntilChanged().flatMapLatest { if (it) retriever.tasteProgress() else emptyFlow() }.collect { p ->
-                _ui.update { it.copy(unread = p.pending, sampleRead = p.read, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
+                _ui.update { it.copy(unread = p.pending, sampleDone = p.done, samplePlanned = p.planned, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
             }
         }
         // Loaded even when the read fails, so Home's sections never wait on it.

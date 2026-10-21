@@ -8,11 +8,10 @@ import SwiftUI
 enum AppFixture {
     /// Setup's welcome and its access choice: not asked yet, limited or denied Photos, or a folder added.
     case firstRun, photosLimited, photosDenied, folderAdded
-    /// Setup's sample read with no download: picking (no plan yet), starting, reading, paused, or done; then Try and the
-    /// choice of when to read more.
+    /// Setup's demo with no download: picking (no plan yet), starting, processing, paused, or done; then the choice of
+    /// when to process the rest, after the demo or after Skip the demo.
     case samplePicking, sampleStart, sampleReading, samplePaused, sampleDone
-    case trying(suggestions: Bool)
-    case choosing
+    case choosing, chooseSkipped
     /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
     case noModel
     case downloading(Double)
@@ -21,8 +20,9 @@ enum AppFixture {
     case reading(done: Int, total: Int)
     /// Home's status line (clarity-proposal section 3): reading while plugged in, waiting to be plugged in, plugged in
     /// but charging up first, Read for 15 minutes, the meaning pass after the download, the first day (found by name
-    /// only), and no access at all (Photos off, no folder).
-    case readingWhileCharging, unplugged, chargingUp, readNow, meaningPass, firstDay, lostAccess
+    /// only), Not now chosen after the demo, the phone's files still being counted, and no access at all (Photos off,
+    /// no folder).
+    case readingWhileCharging, unplugged, chargingUp, readNow, meaningPass, firstDay, notNow, counting, lostAccess
     case caughtUp, paused
     case skipped(Int)
     case noAccess
@@ -52,20 +52,22 @@ extension AppModel {
             (photos, download, tune, modelMissing, folders) = (access, (.idle, 0), .idle, true, picked)
             setup = SetupInputs(mark: .none, skipped: false, decided: false, planned: 0, accessGiven: false)
         }
-        /// The sample, read with no download: `read` of 54 planned files, reading while any wait.
-        func inSample(_ mark: SetupMark, read: Int = 30) {
-            let done = read == 54
-            (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, read, 54 - read, 3_088, true)
+        /// The demo, processed with no download: `read` of its 30 files, processing while any wait. No chips before the
+        /// first file: the hint holds their place.
+        func inSample(_ mark: SetupMark, read: Int = 12) {
+            let done = read == 30
+            (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, read, 30 - read, 25_763, true)
             (snap.running, download, tune, modelMissing) = (!done, (.idle, 0), .idle, true)
-            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 54, accessGiven: false)
+            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 30, accessGiven: false)
             let screenshots = min(read, 6)
             let pdfs = min(max(read - 6, 0), 8)
             taste = TasteSnap(
                 counts: [
                     .screenshot: .init(read: screenshots, planned: 6), .pdf: .init(read: pdfs, planned: 8),
-                    .photo: .init(read: read - screenshots - pdfs, planned: 40),
-                ], readyToTry: read >= 30, pending: 54 - read)
-            sample = (1...54).map {
+                    .photo: .init(read: read - screenshots - pdfs, planned: 16),
+                ], pending: 30 - read)
+            if read == 0 { suggestions = [] }
+            sample = (1...30).map {
                 SampleFile(index: Int32($0 - 1), file: Self.readingFile($0), read: $0 <= read, note: $0 <= read ? nil : "Not processed yet")
             }
             snap.reading = ReadingPreview(current: done ? nil : files[0], recent: read == 0 ? [] : Array(files.dropFirst()))
@@ -106,6 +108,11 @@ extension AppModel {
             snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
         case .firstDay:
             (snap.indexed, snap.waiting, snap.trial, snap.lastStop) = (0, 3_142, true, nil)
+        case .notNow:
+            // The demo's 30 carry over: "30 of 25,793 files processed".
+            (snap.indexed, snap.waiting, snap.trial, snap.notNow, snap.lastStop) = (30, 25_763, true, true, nil)
+        case .counting:
+            snap.counted = false
         case .lostAccess:
             (photos, folders, snap.byKind, snap.indexed) = (.denied, [], [.pdf: 12, .doc: 9], 21)
         case .firstRun: inSetup(.notDetermined)
@@ -123,11 +130,12 @@ extension AppModel {
             snap.running = false
             snap.reading.current = nil
             snap.reading.pauseReason = "Paused while you use other apps. It carries on when you come back."
-        case .sampleDone: inSample(.accessChosen, read: 54)
-        case .trying(let offered):
-            inSample(.trying, read: 54)
-            if !offered { suggestions = [] }
-        case .choosing: inSample(.choosing, read: 54)
+        case .sampleDone: inSample(.accessChosen, read: 30)
+        case .choosing: inSample(.choosing, read: 30)
+        case .chooseSkipped:
+            inSample(.accessChosen, read: 0)
+            setup = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 0, accessGiven: false)
+            (taste, sample) = (TasteSnap(), nil)
         case .noModel: withoutModel((.idle, 0))
         case .downloading(let p): withoutModel((.downloading, p))
         case .waitingForWifi: withoutModel((.waitingForWifi, 0))
@@ -207,7 +215,7 @@ extension AppModel {
         trySuggestions = suggestions
     }
 
-    /// What reading shows: the file being read, then the newest read. A mix of kinds, as a sample reads them.
+    /// What reading shows: the file being read, then the newest read. A mix of kinds, as the demo processes them.
     private static let readingFiles = (1...8).map(readingFile)
 
     nonisolated private static func readingFile(_ i: Int) -> SourceFile {

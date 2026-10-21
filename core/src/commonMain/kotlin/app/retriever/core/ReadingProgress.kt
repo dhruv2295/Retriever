@@ -14,10 +14,20 @@ data class ReadingProgress(
     val rereads: Long = 0,
     /** Files read without vectors that the model will add search by meaning to; a subset count, never a partition bucket. */
     val meaningWaiting: Long = 0,
+    /** The phone's files have all been counted once (the first full scan is written); until then the totals still grow. */
+    val counted: Boolean = true,
+    /** Not now was chosen after the demo: only names can be found until the person chooses when to process. */
+    val notNow: Boolean = false,
 ) {
     val contentRead: Long get() = read + partlyRead
     val waiting: Long get() = scheduled + notScheduled
-    val libraryTotal: Long get() = contentRead + waiting + nameOnly + couldntRead
+    val libraryTotal: Long get() = processed + waiting
+
+    /** The one count rule: every file no longer waiting, searchable inside, found by name only or couldn't be opened. */
+    val processed: Long get() = contentRead + nameOnly + couldntRead
+
+    /** The files still to process, null until they are all counted ("the rest of your files"). */
+    val rest: Long? get() = waiting.takeIf { counted }
     val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0 || meaningWaiting > 0
 }
 
@@ -37,6 +47,8 @@ enum class ReadingPhase {
     DOWNLOADING,
     DOWNLOAD_STOPPED,
     TUNING,
+    COUNTING,
+    NOT_NOW,
     PAUSED,
     POWER_SAVE,
     HOT,
@@ -47,7 +59,6 @@ enum class ReadingPhase {
     MANUAL,
     READ_NOW,
     SAMPLE,
-    SAMPLE_READY,
     MEANING,
     DEEPENING,
     READING,
@@ -55,7 +66,6 @@ enum class ReadingPhase {
     LOOKING,
     CAUGHT_UP,
     LIMITED,
-    NO_CONTENT,
 }
 
 /** The status line's one button. Each app maps it to its own button and call; [label] is what the button says. */
@@ -70,20 +80,6 @@ enum class StatusAction(val label: String) {
     TRY_AGAIN(Words.TRY_AGAIN),
 }
 
-private val COUNTED = setOf(
-    ReadingPhase.PAUSED,
-    ReadingPhase.POWER_SAVE,
-    ReadingPhase.HOT,
-    ReadingPhase.LOW_BATTERY,
-    ReadingPhase.CHARGING_UP,
-    ReadingPhase.BUSY,
-    ReadingPhase.CHARGING,
-    ReadingPhase.MANUAL,
-    ReadingPhase.WAITING,
-    ReadingPhase.READ_NOW,
-    ReadingPhase.MEANING,
-    ReadingPhase.READING,
-)
 private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING)
 private val STOPS = setOf(
     ReadingPhase.PAUSED,
@@ -97,12 +93,20 @@ private val STOPS = setOf(
 )
 
 /**
- * The one status line, on Home, Processing, setup and the notification: what is happening, one plain [detail], and
- * an [action] only when there is something to do. [percent]: the bar's figure, the same numbers as the detail's count
- * ([Words.filesDone]: files done of all to do; the meaning pass's for MEANING; the download's for DOWNLOADING), null when
- * it has none. Each app draws the bar only while [active] or downloading; Processing draws it whenever it is there.
+ * The one status line, on Home, Processing, setup and the notification: what is happening, the [count] line ("30 of
+ * 25,793 files processed", [Words.readOf]), one plain [detail], and an [action] only when there is something to do. The bar
+ * is exactly [done] / [total], the count's own numbers (the meaning pass's for MEANING, the download's percent of 100 for
+ * DOWNLOADING); all three are null with no bar. The apps draw it from these two numbers, never a percent.
  */
-data class ReadingStatus(val phase: ReadingPhase, val title: String, val detail: String? = null, val action: StatusAction? = null, val percent: Int? = null) {
+data class ReadingStatus(
+    val phase: ReadingPhase,
+    val title: String,
+    val detail: String? = null,
+    val action: StatusAction? = null,
+    val count: String? = null,
+    val done: Long? = null,
+    val total: Long? = null,
+) {
     val active: Boolean get() = phase in ACTIVE
 
     /**
@@ -145,7 +149,7 @@ object ReadingPolicy {
         StopReason.LOW_BATTERY -> "Paused, battery is low"
         StopReason.CHARGING_UP -> "Charging up first"
         StopReason.BUSY -> "Waiting until you put your ${words.device} down"
-        StopReason.UNPLUGGED -> "Waiting until you plug in"
+        StopReason.UNPLUGGED -> "Waits until you charge"
         StopReason.MANUAL -> "Processing only when you start it"
         StopReason.DONE, StopReason.BUDGET -> "Taking a short break"
     }
@@ -189,9 +193,12 @@ object ReadingPolicy {
                 "Downloading search by meaning" + (download.percent?.let { " · $it%" } ?: ""),
                 "You can keep using Retriever.",
                 StatusAction.STOP,
-                download.percent,
+                done = download.percent?.toLong(),
+                total = download.percent?.let { 100L },
             )
         }
+
+        reading?.phase == ReadingPhase.COUNTING -> reading
 
         libraryTotal == 0L -> null
 
@@ -200,9 +207,10 @@ object ReadingPolicy {
 
     /**
      * The reading part of the status line. [readNowMinutes]: what is left of a Read for 15 minutes, rounded up, 0 with
-     * none; it shows from the tap, before the reader starts. [pluggedIn]: [DeviceState.pluggedIn]. A live count, not a
-     * percent: 1% of a big library is minutes of work, and a count moves with every file (and a dip when new files come
-     * explains itself). No hours, nights or "by morning": [ESTIMATE_CALIBRATED].
+     * none; it shows from the tap, before the reader starts. [pluggedIn]: [DeviceState.pluggedIn]. A live count by the
+     * one rule ([ReadingProgress.processed] of [ReadingProgress.libraryTotal]), not a percent: 1% of a big library is
+     * minutes of work, and a count moves with every file (and a dip when new files come explains itself). "Counting your
+     * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED].
      */
     fun decide(
         progress: ReadingProgress,
@@ -213,7 +221,14 @@ object ReadingPolicy {
         readNowMinutes: Int = 0,
         pluggedIn: Boolean = false,
     ): ReadingStatus {
+        // The demo in front has its own count; Not now's numbers are the whole phone's.
+        val demo = progress.sample && !progress.notNow
         val phase = when {
+            !progress.counted && !demo -> ReadingPhase.COUNTING
+
+            // Not now pauses, so it comes before the person's own Pause.
+            progress.notNow -> ReadingPhase.NOT_NOW
+
             blocker == StopReason.PAUSED -> ReadingPhase.PAUSED
 
             progress.unfinished && blocker != null -> when (blocker) {
@@ -240,9 +255,8 @@ object ReadingPolicy {
 
             progress.unfinished -> ReadingPhase.WAITING
 
-            progress.sample && progress.contentRead == 0L -> ReadingPhase.NO_CONTENT
-
-            progress.sample -> ReadingPhase.SAMPLE_READY
+            // The demo is done and the choice waits.
+            progress.sample -> ReadingPhase.NOT_NOW
 
             running -> ReadingPhase.LOOKING
 
@@ -250,24 +264,18 @@ object ReadingPolicy {
 
             else -> ReadingPhase.CAUGHT_UP
         }
-        // The count and the bar are the same numbers: files done of all to do, or for MEANING files with meaning of all done.
-        val (done, total) = if (phase == ReadingPhase.MEANING) {
-            progress.contentRead - progress.meaningWaiting to progress.contentRead
-        } else {
-            progress.contentRead to progress.contentRead + progress.waiting
-        }
         val title = when (phase) {
+            ReadingPhase.COUNTING -> "Counting your files…"
+            ReadingPhase.NOT_NOW -> "Only names can be found for now"
             ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
             ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
-            ReadingPhase.SAMPLE -> "Trying a few of your files"
-            ReadingPhase.SAMPLE_READY -> "Ready to try"
+            ReadingPhase.SAMPLE -> "Processing the demo files"
             ReadingPhase.MEANING -> "Adding search by meaning"
             ReadingPhase.DEEPENING -> "Processing the rest of some long files"
             ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
             ReadingPhase.LOOKING -> "Checking for new files…"
             ReadingPhase.CAUGHT_UP -> "All done. Retriever has processed everything it can"
             ReadingPhase.LIMITED -> "All done. A few long files were processed only in part"
-            ReadingPhase.NO_CONTENT -> "Ready to find files by name"
             else -> stopCopy(blocker ?: StopReason.DONE, words)
         }
         val sentence = when (phase) {
@@ -291,8 +299,6 @@ object ReadingPolicy {
 
             ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
 
-            ReadingPhase.SAMPLE_READY -> "Search for a word you remember."
-
             ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
 
             ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
@@ -307,30 +313,25 @@ object ReadingPolicy {
 
             ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
 
-            ReadingPhase.NO_CONTENT ->
-                "To find them by what’s inside, Retriever processes them here on this ${words.device}: " +
-                    "it looks at the words and pictures inside each file. Nothing is sent anywhere."
-
             else -> null
         }
-        // The live count leads every line of work in progress or stopped part-way; the sample has its own count.
-        val detail = when {
-            phase == ReadingPhase.DEEPENING -> "${Words.notReadYet(progress.laterPasses)}. $sentence"
-            phase in COUNTED && total > 0 && !progress.sample -> "${Words.filesDone(done, total)}. $sentence"
-            else -> sentence
-        }
+        val detail = if (phase == ReadingPhase.DEEPENING) "${Words.notReadYet(progress.laterPasses)}. $sentence" else sentence
         val action = when (phase) {
             ReadingPhase.PAUSED -> StatusAction.RESUME
             ReadingPhase.CHARGING, ReadingPhase.MANUAL -> StatusAction.READ_FOR_15
             ReadingPhase.READ_NOW -> StatusAction.STOP
-            ReadingPhase.SAMPLE_READY, ReadingPhase.NO_CONTENT -> StatusAction.CHOOSE_WHEN
+            ReadingPhase.NOT_NOW -> StatusAction.CHOOSE_WHEN
             ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> StatusAction.DISMISS
             else -> null
         }
-        // The sample has its own count, so no share of the whole phone while it runs. Deepening's first reads are all done:
-        // a full bar beside work going on reads as stuck.
-        val percent = if (progress.sample || phase == ReadingPhase.DEEPENING || total == 0L) null else (done * 100 / total).toInt()
-        return ReadingStatus(phase, title, detail, action, percent)
+        // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
+        // its first reads are all done, and a full bar beside work going on reads as stuck.
+        val meaning = phase == ReadingPhase.MEANING
+        val (done, total) = if (meaning) progress.contentRead - progress.meaningWaiting to progress.contentRead else progress.processed to progress.libraryTotal
+        val none = !progress.counted || phase == ReadingPhase.DEEPENING || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
+        if (none) return ReadingStatus(phase, title, detail, action)
+        val count = if (meaning) Words.meaningOf(done, total) else Words.readOf(done, total)
+        return ReadingStatus(phase, title, detail, action, count, done, total)
     }
 }
 

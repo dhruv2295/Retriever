@@ -1,13 +1,23 @@
 package app.retriever.core
 
 /** How far the person has answered setup, kept in Store meta so every stage resumes after process death. */
-enum class SetupMark { NONE, ACCESS_CHOSEN, TRYING, CHOOSING }
+enum class SetupMark {
+    NONE,
+    ACCESS_CHOSEN,
+    CHOOSING,
+    ;
+
+    internal companion object {
+        /** A saved mark: TRYING (the Try screen, gone) resumes the demo; one this version never had (STARTED) reads as NONE. */
+        fun saved(name: String?): SetupMark? = if (name == "TRYING") ACCESS_CHOSEN else entries.firstOrNull { it.name == name }
+    }
+}
 
 internal const val SETUP_MARK_KEY = "setup_mark"
 internal const val SETUP_SKIPPED_KEY = "setup_skipped"
 
-/** What setup shows. WELCOME holds the access ask; TRY and CHOOSE follow the person's taps on the sample screen; DONE ends setup. */
-enum class SetupStage { WELCOME, SAMPLE, TRY, CHOOSE, DONE }
+/** What setup shows. WELCOME holds the access ask; SAMPLE is the demo; CHOOSE follows its Continue or the welcome's skip; DONE ends setup. */
+enum class SetupStage { WELCOME, SAMPLE, CHOOSE, DONE }
 
 /**
  * What the app runs next; each is safe to run twice. PLAN: [Retriever.planOrCommit]. READ_SAMPLE: read the plan in
@@ -17,8 +27,8 @@ enum class SetupStep { NONE, PLAN, READ_SAMPLE, SCHEDULE }
 
 /**
  * Setup's inputs. [Retriever.setup] fills every field but [accessGiven], which only the platform knows: photos, media or
- * file access granted, or a folder added. [skipped]: Go to Home, or Search by name, was chosen; the sample still reads.
- * [decided]: the person chose what happens after the sample, or never had one. [planned]: the sample's files, 0 before the plan.
+ * file access granted, or a folder added. [skipped]: Skip the demo was chosen, so setup goes to the choice. [decided]: the
+ * person chose what happens after the demo, or never had one. [planned]: the demo's files, 0 before the plan.
  */
 data class SetupInputs(
     val mark: SetupMark = SetupMark.NONE,
@@ -29,19 +39,21 @@ data class SetupInputs(
 ) {
     fun withAccess(given: Boolean): SetupInputs = copy(accessGiven = given)
 
+    /** The demo is still the person's to watch: neither stopped (its Continue, or Skip the demo) nor decided. */
+    val demoRunning: Boolean get() = !decided && !skipped && mark != SetupMark.CHOOSING
+
     /** Access was given and confirmed, so there is a library to read and search. */
     val libraryChosen: Boolean get() = mark >= SetupMark.ACCESS_CHOSEN && accessGiven
 
     val stage: SetupStage get() = when {
         !libraryChosen -> SetupStage.WELCOME
-        skipped || decided -> SetupStage.DONE
-        mark == SetupMark.CHOOSING -> SetupStage.CHOOSE
-        mark == SetupMark.TRYING -> SetupStage.TRY
+        decided -> SetupStage.DONE
+        skipped || mark == SetupMark.CHOOSING -> SetupStage.CHOOSE
         else -> SetupStage.SAMPLE
     }
 
-    /** Open on setup at launch, else on Home. Skipping never skips access: without it there is nothing to search. */
-    val showSetup: Boolean get() = stage != SetupStage.DONE && (!skipped || stage == SetupStage.WELCOME)
+    /** Open on setup at launch until a choice is made, else on Home. */
+    val showSetup: Boolean get() = stage != SetupStage.DONE
 
     val step: SetupStep get() = when {
         !libraryChosen -> SetupStep.NONE
@@ -53,18 +65,21 @@ data class SetupInputs(
 
 /** The person's moves between setup's screens, the same on both platforms. */
 object SetupPolicy {
-    /** Back: Try returns to the sample, the choice to Try; null where setup has no screen to go back to. */
-    fun back(stage: SetupStage): SetupMark? = when (stage) {
-        SetupStage.TRY -> SetupMark.ACCESS_CHOSEN
-        SetupStage.CHOOSE -> SetupMark.TRYING
-        else -> null
+    /**
+     * Back from the choice: to the demo (its done state), or to the welcome after Skip the demo ([skipped]); null where
+     * setup has no screen to go back to. [Retriever.setSetupMark] NONE clears the skip.
+     */
+    fun back(stage: SetupStage, skipped: Boolean): SetupMark? = when {
+        stage != SetupStage.CHOOSE -> null
+        skipped -> SetupMark.NONE
+        else -> SetupMark.ACCESS_CHOSEN
     }
 
     /**
-     * Try's last button: the choice of when to read more, or, null, with nothing beyond the sample ([nothingLeft]: core's
-     * [ReadingProgress.notScheduled] is 0, an unknown count is not), read everything with nothing to choose.
+     * The demo's Continue: the choice of when to process the rest, or, null, with nothing beyond the demo ([nothingLeft]:
+     * core's [ReadingProgress.notScheduled] is 0, an unknown count is not), process everything with nothing to choose.
      */
-    fun afterTry(nothingLeft: Boolean): SetupMark? = if (nothingLeft) null else SetupMark.CHOOSING
+    fun afterDemo(nothingLeft: Boolean): SetupMark? = if (nothingLeft) null else SetupMark.CHOOSING
 }
 
 /**

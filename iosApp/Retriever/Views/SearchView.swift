@@ -13,7 +13,7 @@ import os
 
 // MARK: Screen
 
-/// First run's Try: this same screen, words inside the sample's planned files and names everywhere.
+/// First run's demo: this same screen, words inside the demo's files and names everywhere.
 struct Trial: Equatable {
     var ids: [Int64]
     /// The field's photo button: search by photo needs the meaning upgrade.
@@ -57,22 +57,24 @@ struct SearchView: View {
             if search.active {
                 ResultsView(search: search, textOnly: textOnly, pinned: fixedSnap, photos: model.photos, model: model, trial: trial, open: open)
             } else if trial != nil {
-                TryItIntro(search: search, model: model)
+                DemoIntro(model: model, search: search)
             } else {
                 LiveHome(pinned: fixedSnap, model: model, addFolder: { addingFolder = true })
             }
         }
         .modifier(WarmOnSearch(retriever: model.services?.retriever))
-        .navigationTitle(trial == nil ? "Retriever" : Words.shared.TRY_TITLE)
+        // The demo's title is its content's first line, so its bar says nothing.
+        .navigationTitle(trial == nil ? "Retriever" : "")
+        .navigationBarTitleDisplayMode(trial == nil ? .automatic : .inline)
         .searchable(
             text: Binding(get: { search.text }, set: search.setText), isPresented: $presented, placement: Self.placement,
-            prompt: Words.shared.SEARCH_FIELD
+            prompt: trial == nil ? Words.shared.SEARCH_FIELD : Words.shared.SEARCH_DEMO
         )
         .searchScopes($search.scope, activation: .onSearchPresentation) {
             // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
             ForEach(SearchModel.Scope.allCases) { Text($0 == .documents ? "Docs" : $0.title).tag($0) }
         }
-        // No recents or examples on the first run: the intro says what to try.
+        // No recents or examples on the first run: the demo offers its own words.
         .searchSuggestions { if trial == nil { suggestions } }
         .onSubmit(of: .search) { search.record() }
         .toolbar {
@@ -170,7 +172,7 @@ private struct LiveHome: View {
 /// and are read. SwiftUI calls no `onDisappear` when the app leaves the foreground, so the scene's phase closes them too.
 private struct RefreshHome: ViewModifier {
     let model: AppModel
-    /// Try is this screen too, but shows none of Home's facts.
+    /// The demo is this screen too, but shows none of Home's facts.
     let home: Bool
     @Environment(\.scenePhase) private var phase
     @State private var shown = false
@@ -338,12 +340,10 @@ private struct ResultsView: View {
 
     @ViewBuilder private func header(_ answer: SearchModel.Answer) -> some View {
         if trial != nil {
-            // Names come from the whole library; this says where the words inside are looked for.
-            VStack(alignment: .leading, spacing: 2) {
-                Text(Words.shared.searchingTry(read: Int64(model.taste.read))).font(.subheadline.weight(.semibold))
-                StillReading(search: search)
-            }
-            .accessibilityElement(children: .combine)
+            // Names come from the whole phone; this says where the words inside are looked for.
+            let taste = model.taste
+            Text(Words.shared.demoSearchScope(done: Int64(taste.done), finished: taste.planned > 0 && taste.pending == 0, words: Copy.words))
+                .font(.subheadline).fixedSize(horizontal: false, vertical: true)
         }
         switch search.screen {
         case .searching: Text(Words.shared.SEARCHING_CONTENTS).font(.footnote).foregroundStyle(.secondary)
@@ -452,54 +452,6 @@ private struct ResultsView: View {
     private struct Rows {
         let starred: Set<String>
         let similar: ((SourceFile) -> Void)?
-    }
-}
-
-/// Under the field before the first word of Try: up to three suggestions from what was read, or else the files
-/// themselves to open and remember a word from. The title is the navigation bar's.
-private struct TryItIntro: View {
-    let search: SearchModel
-    let model: AppModel
-
-    var body: some View {
-        // Kept on the model from before Try opens (`watchSetup`), so they are here on the first frame and nothing moves.
-        let suggestions = model.trySuggestions
-        let files = (model.sample ?? []).filter(\.read).map(\.file)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(suggestions.isEmpty ? Words.shared.TRY_WITHOUT_SUGGESTIONS : Words.shared.TRY_BODY)
-                Text(Words.shared.searchingTry(read: Int64(model.taste.read))).font(.subheadline.weight(.semibold))
-                StillReading(search: search)
-                if suggestions.isEmpty {
-                    ReadyFiles(files: files)
-                } else {
-                    ForEach(suggestions, id: \.self) { term in
-                        Button {
-                            search.setText(term)
-                        } label: {
-                            Label(term, systemImage: "magnifyingglass")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Searches for this")
-                    }
-                }
-                // In the scrolling content, not the pinned actions, so it never squeezes them at large text sizes.
-                if model.upgradeOnHome { UpgradeCard(model: model, compact: true).padding(.top, 8) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24).padding(.top, 16)
-        }
-    }
-}
-
-/// "Still reading 38 more" while the short read goes on. Own view, so each file read redraws this line alone.
-private struct StillReading: View {
-    let search: SearchModel
-
-    var body: some View {
-        if search.stillReading > 0 {
-            Text(Words.shared.stillReading(files: Int64(search.stillReading))).font(.footnote).foregroundStyle(.secondary).monospacedDigit()
-        }
     }
 }
 

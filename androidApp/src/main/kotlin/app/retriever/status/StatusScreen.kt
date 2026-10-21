@@ -82,7 +82,7 @@ import app.retriever.home.Celebration
 import app.retriever.home.rememberCelebrating
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
-import app.retriever.ui.Format
+import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.Header
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ReadingNow
@@ -188,10 +188,7 @@ fun StatusContent(
     readingStatus: ReadingStatus? = null,
 ) {
     val progress = counts?.progress
-    val contentRead = progress?.contentRead ?: 0
-    val waiting = progress?.waiting ?: 0
     val skipped = progress?.couldntRead ?: 0
-    val total = progress?.libraryTotal ?: 0
     val unfinished = progress?.unfinished == true
     val failure = error ?: index.lastError
     val status =
@@ -249,7 +246,10 @@ fun StatusContent(
                     } else {
                         status?.detail?.let { Muted(it) }
                     }
-                    status?.percent?.let { LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) }
+                    status?.count?.let { Text(it, style = MaterialTheme.typography.bodyLarge.tabular()) }
+                    val done = status?.done
+                    val total = status?.total
+                    if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth().padding(vertical = 4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (status?.action) {
                             StatusAction.RESUME -> Button(onClick = actions.resume) { Text(StatusAction.RESUME.label) }
@@ -267,9 +267,7 @@ fun StatusContent(
 
                 Header(Words.DETAILS)
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(Words.readCount(contentRead, progress?.partlyRead ?: 0), style = MaterialTheme.typography.bodyLarge.tabular())
-                    if (waiting > 0) Muted(Words.notReadYet(waiting))
-                    if ((progress?.nameOnly ?: 0) > 0) Muted("${Format.count(progress?.nameOnly ?: 0)} ${Words.FOUND_BY_NAME.lowercase()}")
+                    Text(Words.breakdown(counts.progress), style = MaterialTheme.typography.bodyLarge.tabular())
                 }
 
                 if (skipped > 0) {

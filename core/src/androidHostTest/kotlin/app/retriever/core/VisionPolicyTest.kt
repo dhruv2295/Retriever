@@ -131,8 +131,9 @@ class VisionPolicyTest {
         assertEquals(90, cpu.seconds)
         r.uiVisible = false
         val gpu = r.planTaste()
-        assertEquals(100, gpu.ids.size)
-        assertEquals(10, gpu.seconds)
+        // All 100 fit the GPU's pace; the demo takes 30 of them.
+        assertEquals(DEMO_FILES, gpu.ids.size)
+        assertEquals(3, gpu.seconds)
         // Actual reads can raise the tier without erasing Tune's measurements.
         r.uiVisible = true
         r.taste()

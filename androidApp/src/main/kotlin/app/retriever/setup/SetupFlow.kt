@@ -29,17 +29,19 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Setup's screen state: core's [SetupInputs] with this phone's access, and the sample's progress. */
+/** Setup's screen state: core's [SetupInputs] with this phone's access, and the demo's progress. */
 data class SetupUi(
     val setup: SetupInputs = SetupInputs(),
     val access: Access = Access.NONE,
     /** Too little memory for the model: names and words only. */
     val textOnly: Boolean = false,
     val ramGb: Double = 0.0,
-    /** The sample's progress, from core; null until first read. */
+    /** The demo's progress, from core; null until first read. */
     val taste: TasteProgress? = null,
-    /** Files beyond the sample, core's [app.retriever.core.ReadingProgress.notScheduled]; null until counted. */
+    /** Files beyond the demo, core's [app.retriever.core.ReadingProgress.notScheduled]; null until counted. */
     val moreFiles: Long? = null,
+    /** Files still to process, core's [app.retriever.core.ReadingProgress.rest]: null until the phone's files are all counted. */
+    val rest: Long? = null,
     /** Why reading stopped, core's [app.retriever.core.ReadingStatus.pause]; null unless a stop holds it. */
     val pauseReason: String? = null,
     /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
@@ -53,7 +55,7 @@ data class SetupUi(
      */
     val reading: Boolean get() = setup.step == SetupStep.PLAN || (pauseReason == null && (taste?.pending ?: 0) > 0)
 
-    /** Nothing waits beyond the sample, so Try ends in Go to Home, not in the schedule choice; unknown is not nothing. */
+    /** Nothing waits beyond the demo, so its Continue processes everything, with no choice to make; unknown is not nothing. */
     val nothingLeft get() = moreFiles == 0L
 }
 
@@ -82,7 +84,7 @@ class SetupFlow(
     private val library = channelFlow<Nothing> {
         launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
         launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
-        launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled) } } }
+        launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled, rest = c.progress.rest) } } }
         launch { retriever.tasteProgress().collect { p -> _ui.update { it.copy(taste = p) } } }
     }
     val ui: StateFlow<SetupUi> = merge(_ui, library).stateIn(scope, SharingStarted.WhileSubscribed(5_000), _ui.value)
@@ -99,13 +101,13 @@ class SetupFlow(
                 _ui.update { it.copy(setup = s, access = a) }
             }
         }
-        // "Ready to try" reaches a person who left during the sample; on screen, the button says it. Claimed while visible
-        // too, so a sample seen on screen is never announced later. Watched only until the sample is decided or ready.
+        // "The demo is done" reaches a person who left during the demo; on screen, the demo says it. Claimed while visible
+        // too, so a demo seen on screen is never announced later. Watched only until the demo is decided or done.
         scope.launch {
             retriever.setup.filterNotNull().map { !it.decided }.distinctUntilChanged().collectLatest { sampling ->
                 if (!sampling) return@collectLatest
-                val p = retriever.tasteProgress().first { it.readyToTry && it.byKind.isNotEmpty() && (retriever.uiVisible || notificationsGranted()) }
-                if (retriever.claimSampleNotification()) index.notifyReadyToTry(p.read)
+                val p = retriever.tasteProgress().first { it.planned > 0 && it.pending == 0 && (retriever.uiVisible || notificationsGranted()) }
+                if (retriever.claimSampleNotification()) index.notifyDemoDone(p.done, p.planned)
             }
         }
         // Each step is safe twice; a failed plan is not retried in a loop, only on the next launch or access change.
@@ -143,39 +145,34 @@ class SetupFlow(
     }
 
     /**
-     * Setup ends at launch, with access confirmed at once when it is in place; without it the welcome stays, and the
-     * screen asks for it as the primary button does. The sample reads in the background.
+     * Skip the demo: the choice of when to process, with access confirmed at once when it is in place; without it the
+     * welcome stays, and the screen asks for it as the primary button does.
      */
-    fun searchByName() = launch {
+    fun skipDemo() = launch {
         retriever.skipFirstRun()
         if (access.state.value.ready) retriever.setSetupMark(SetupMark.ACCESS_CHOSEN)
     }
 
     fun continueFromAccess() = mark(SetupMark.ACCESS_CHOSEN)
 
-    fun tryNow() = mark(SetupMark.TRYING)
-
-    /** Back from Try to the sample, or from the choice to Try. */
+    /** Back from the choice: to the demo, or to the welcome after Skip the demo. */
     fun back() {
-        SetupPolicy.back(_ui.value.stage)?.let(::mark)
+        _ui.value.setup.let { SetupPolicy.back(it.stage, it.skipped) }?.let(::mark)
     }
 
-    /** From Try: the schedule choice, or Home (read everything) when the sample already was everything. */
+    /** The demo's Continue: the choice of when to process, or Home (process everything) when the demo already was everything. */
     fun continueToCommit() = launch {
-        SetupPolicy.afterTry(_ui.value.nothingLeft)?.let { retriever.setSetupMark(it) } ?: retriever.commitScope()
+        SetupPolicy.afterDemo(_ui.value.nothingLeft)?.let { retriever.setSetupMark(it) } ?: retriever.commitScope()
     }
 
     /** While charging or Read now: the rest is read, and the person is done choosing. */
     fun commit(whileCharging: Boolean) = launch { retriever.commit(whileCharging) }
 
-    /** Not now: the scope stays on the sample and Home offers the choice again. */
+    /** Not now: the scope stays on the demo and Home offers the choice again. */
     fun decideLater() = launch {
         retriever.decideLater()
         index.cancel()
     }
-
-    /** Go to Home; the sample carries on. */
-    fun skip() = launch { retriever.skipFirstRun() }
 
     private fun mark(m: SetupMark) = launch { retriever.setSetupMark(m) }
 
@@ -211,16 +208,14 @@ class SetupFlow(
 
 /** What setup's screens can ask for; every default does nothing, so a test passes only what it checks. */
 class SetupActions(
-    val searchByName: () -> Unit = {},
+    val skipDemo: () -> Unit = {},
     val allowFiles: () -> Unit = {},
     val chooseInstead: () -> Unit = {},
     val allowMedia: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val continueFromAccess: () -> Unit = {},
-    val tryNow: () -> Unit = {},
     val seeAll: () -> Unit = {},
     val continueToCommit: () -> Unit = {},
     val commit: (whileCharging: Boolean) -> Unit = {},
     val decideLater: () -> Unit = {},
-    val skip: () -> Unit = {},
 )

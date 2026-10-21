@@ -39,10 +39,12 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
@@ -219,8 +221,7 @@ class Retriever(
 
     private fun loadSetup(): SetupInputs {
         val stored = store.meta(SETUP_MARK_KEY)
-        // A mark this version no longer has (STARTED) reads as NONE.
-        val saved = stored?.let { m -> SetupMark.entries.firstOrNull { it.name == m } }
+        val saved = SetupMark.saved(stored)
         // Set up before this setup existed: past access and done with setup, a sample still running included. A text-only
         // phone never tunes, and from before setupStarted it shows only as saved prefs.
         val legacy = stored == null && (store.prefs().setupStarted || store.profile() != null || (textOnly && store.hasPrefs()))
@@ -234,14 +235,24 @@ class Retriever(
         ).also { _setup.value = it }
     }
 
-    /** The person's answer on a setup screen: Continue, Try search, Choose when to read more (or back). */
+    /**
+     * The person's answer on a setup screen: Start the demo, its Continue, or Back. CHOOSING stops the demo where it is (its
+     * unfinished files join the rest); NONE, Back to the welcome, clears a skip.
+     */
     @Throws(Throwable::class)
-    suspend fun setSetupMark(mark: SetupMark) = io {
-        store.setMeta(SETUP_MARK_KEY, mark.name)
-        loadSetup()
+    suspend fun setSetupMark(mark: SetupMark): SetupInputs {
+        val setup = io {
+            store.inTransaction {
+                store.setMeta(SETUP_MARK_KEY, mark.name)
+                if (mark == SetupMark.NONE) store.deleteMeta(SETUP_SKIPPED_KEY)
+            }
+            loadSetup()
+        }
+        if (mark == SetupMark.CHOOSING) cancelBatch()
+        return setup
     }
 
-    /** Go to Home, or Search by name: setup ends at launch; a sample keeps reading, and Home offers what comes after it. */
+    /** Skip the demo: setup goes to the choice, with no demo line. */
     @Throws(Throwable::class)
     suspend fun skipFirstRun() = io {
         store.setFlag(SETUP_SKIPPED_KEY)
@@ -417,7 +428,9 @@ class Retriever(
     private fun countsKeyNow() = countsKey(modelMissing.value, setUp.value, sampleIds.value, prefs.value)
 
     private val sharedCounts: Flow<Store.Counts> by lazy {
-        watched(combine(store.countChanges(), modelMissing, setUp, sampleIds, prefs) { _, m, s, ids, p -> countsKey(m, s, ids, p) }, ::countsKeyNow, ::countsOf)
+        // [library] too: a full scan's end (ReadingProgress.counted) is a meta write, which countChanges never sees.
+        val changes = merge(store.countChanges(), library.drop(1).map { })
+        watched(combine(changes, modelMissing, setUp, sampleIds, prefs) { _, m, s, ids, p -> countsKey(m, s, ids, p) }, ::countsKeyNow, ::countsOf)
     }
 
     /** Counts always describe usable content, including saved text when the model is absent. Shared; see [watched]. */
@@ -426,7 +439,12 @@ class Retriever(
     @Volatile
     private var lowBattery = false
 
-    private fun sampleSession(): Boolean = store.sampleIds() != null && !store.flag(TASTE_DECIDED_KEY)
+    /** The demo runs in front: planned, and [SetupInputs.demoRunning]. */
+    private fun sampleSession(): Boolean = store.sampleIds() != null && SetupInputs(
+        mark = SetupMark.saved(store.meta(SETUP_MARK_KEY)) ?: SetupMark.NONE,
+        skipped = store.flag(SETUP_SKIPPED_KEY),
+        decided = store.flag(TASTE_DECIDED_KEY),
+    ).demoRunning
 
     /**
      * Why content can't be read now, or null when it can. Called between chunks, by the subscribed UI, and by a platform deciding
@@ -457,7 +475,7 @@ class Retriever(
         return Tick(blocker, if (left > 0) ((left + 59_999) / 60_000).toInt() else 0, monitor.state().pluggedIn)
     }
 
-    /** Each conflated count change is one decision, so the line's "N of M files done" moves as files finish. */
+    /** Each conflated count change is one decision, so the line's "N of M files processed" moves as files finish. */
     private val sharedStatus: Flow<ReadingStatus> by lazy {
         val ticks = flow {
             while (true) {
@@ -514,7 +532,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun claimSampleNotification(): Boolean = io {
         store.inTransaction {
-            if (store.tasteScope() != Scope.SAMPLE || store.flag(TASTE_DECIDED_KEY) || store.flag("sample_notified") ||
+            if (!sampleSession() || store.flag("sample_notified") ||
                 store.indexedIn(store.tasteIds()).isEmpty()
             ) {
                 false
@@ -621,6 +639,9 @@ class Retriever(
             val requireCharging = { _: DeviceState -> readingBlocker() == StopReason.UNPLUGGED }
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
+            // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
+            // choice, whose wider scope takes it with the rest. MANUAL, so no follow-up is scheduled until then.
+            if (store.sampleIds() != null && !sampleSession()) return end(StopReason.MANUAL)
             // Cancels cooperative extraction too, including a long PDF before its first embedding chunk.
             val owner = currentCoroutineContext().job
             // On the real clock, not [dispatchers]: a test's virtual time would spin this loop while the batch waits.
@@ -635,7 +656,6 @@ class Retriever(
             }
             // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
             selectPace(factory.profileNow(stored, uiVisible))
-            trimTaste()
             val ids = loadScope()
             fun pendingNow(): Pair<Map<Kind, Long>, Long> {
                 val currentIds = sampleIds.value
@@ -649,7 +669,7 @@ class Retriever(
 
             // An open app deepens once nothing is pending; in the background only with the screen off. The schedule gates both.
             fun canDeepen(): Boolean {
-                val trialInFront = ids != null && uiVisible && !store.flag(TASTE_DECIDED_KEY)
+                val trialInFront = uiVisible && sampleSession()
                 val current = readingMonitor.state()
                 return (mayDeepen || trialInFront) && !keywordOnly && (!current.screenOn || uiVisible)
             }
@@ -677,7 +697,6 @@ class Retriever(
                 visionBackend = e?.visionBackend ?: Backend.CPU,
             )
             selectPace(openedProfile)
-            trimTaste()
             val configuration = model.currentConfiguration
             val changedConfiguration = {
                 val current = factory.profileNow(store.profile() ?: stored, uiVisible)
@@ -696,7 +715,7 @@ class Retriever(
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
                 IndexEngine(
                     store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
-                    // One at a time: a measured pace can trim the remaining plan after any success.
+                    // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
                     onCurrent = ::onCurrent,
@@ -746,7 +765,7 @@ class Retriever(
     private fun synced(result: SyncResult) {
         if (result.removed > 0 || result.added > 0) _starred.value = store.starredUris()
         if (result.removed > 0) reconcileRecentFiles()
-        if (result.added > 0 || result.changed > 0 || result.removed > 0) libraryChanged()
+        if (result.fullScan || result.added > 0 || result.changed > 0 || result.removed > 0) libraryChanged()
     }
 
     private fun reconcileRecentFiles() {
@@ -786,7 +805,6 @@ class Retriever(
                 etaMinutes = eta.minutes,
             )
         }
-        if (m.ok) trimTaste()
     }
 
     private fun saveBook() {
@@ -928,23 +946,9 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun hasPendingTaste(): Boolean = io {
-        // Paused or decided (Not now), the sample waits for the person, so screen-off and Battery Saver changes must not resume it.
-        !store.prefs().paused && !store.flag(TASTE_DECIDED_KEY) &&
-            store.sampleIds()?.let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) } == true
-    }
-
-    /** Under indexLock: keeps completed work and drops what [tasteDrops] says no longer fits the budget in wall time. */
-    internal fun trimTaste() {
-        val ids = store.sampleIds() ?: return
-        val pending = store.pendingIn(ids)
-        val costs = pending.associate { it.id to eta.book.costMs(it.file) }
-        val ratio = eta.wallRatio?.takeIf { eta.book.measures(pending.byKind().first) }
-        val drop = tasteDrops(pending, costs, tasteBudgetMs(), eta.wallMs, ratio, keepOne = store.indexedIn(ids).isEmpty())
-        if (drop.isEmpty()) return
-        store.setTaste(ids.filterNot { it in drop })
-        loadScope()
-        val (counts, bytes) = pending.filterNot { it.id in drop }.byKind()
-        eta.replan(counts.mapValues { it.value.toLong() }, bytes)
+        // Paused, stopped or decided (Not now), the demo waits for the person, so screen-off and Battery Saver changes must not resume it.
+        !store.prefs().paused && sampleSession() &&
+            store.tasteIds().let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) }
     }
 
     private val sharedTaste: Flow<TasteProgress> by lazy {
@@ -953,7 +957,7 @@ class Retriever(
             val planned = store.storedIn(ids).groupingBy { it.file.kind }.eachCount()
             val (pending, videoBytes) = store.pendingIn(ids).byKind()
             val searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount()
-            TasteProgress.of(planned, pending, videoBytes, eta.book, searchable, eta.shownRatio(tasteBudgetMs()))
+            TasteProgress.of(ids.size, planned, pending, videoBytes, eta.book, searchable, eta.shownRatio(tasteBudgetMs()))
         }
     }
 
@@ -1006,11 +1010,12 @@ class Retriever(
     /** "Not yet": decided, and the scope stays SAMPLE. What was read stays searchable; Home offers the choice again. */
     @Throws(Throwable::class)
     suspend fun decideLater() {
-        pause()
         io {
             store.setFlag(TASTE_DECIDED_KEY)
             loadSetup()
         }
+        // After the flag: the pause re-reads the counts, which then say Not now.
+        pause()
     }
 
     /** True once the person chose (commit or Not yet) or never had a short read: the try-it and commit screens are done. */
@@ -1474,7 +1479,6 @@ class Retriever(
         val vision = factory.profileNow(profile, uiVisible).visionBackend
         eta.book = eta.book.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs)
         saveBook()
-        trimTaste()
         return result.copy(profile = profile)
     }
 

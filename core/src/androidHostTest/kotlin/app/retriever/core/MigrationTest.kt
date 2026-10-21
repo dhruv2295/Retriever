@@ -196,7 +196,11 @@ class MigrationTest {
             assertTrue(store.storedById(1)!!.contentRead)
             assertFalse(store.storedById(2)!!.contentRead)
             val counts = store.countsNow(kinds = setOf(Kind.DOC))
-            assertEquals(ReadingProgress(partlyRead = 1, scheduled = 1, nameOnly = 1, laterPasses = 1), counts.progress)
+            assertEquals(
+                ReadingProgress(partlyRead = 1, scheduled = 1, nameOnly = 1, laterPasses = 1, counted = false),
+                counts.progress,
+                "no scan in this database",
+            )
             assertEquals(MeaningCounts(partlyAdded = 1, added = 1), counts.meaning)
         }
     }

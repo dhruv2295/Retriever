@@ -609,6 +609,8 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
             sample = ids != null,
             meaningWaiting = scoped.filter { it.meaning }.sumOf { it.n },
             rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
+            counted = meta(LAST_FULL_SCAN_KEY) != null,
+            notNow = ids != null && flag(TASTE_DECIDED_KEY),
         )
         val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
         val indexed = library.filter { it.state == FileState.INDEXED }
@@ -745,6 +747,10 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     fun setMeta(key: String, value: String) {
         q.setMeta(key, value)
         if (key == PREFS_KEY) saveUserState()
+    }
+
+    internal fun deleteMeta(key: String) {
+        q.deleteMeta(key)
     }
 
     /** Into a database with no settings yet (new, or deleted and made again); never through [meta] or [setMeta]. */

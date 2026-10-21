@@ -66,7 +66,8 @@ class SetupFlowTest {
         WorkManagerTestInitHelper.closeWorkDatabase()
     }
 
-    private val docs = (1..30).map { testFile("doc$it.txt", Kind.DOC) }
+    // More than the demo takes, so something is left for the choice.
+    private val docs = (1..40).map { testFile("doc$it.txt", Kind.DOC) }
 
     /** An ordinary phone with no model: reading needs none. */
     private fun TestScope.noModel(): Retriever = testRetriever(
@@ -87,7 +88,7 @@ class SetupFlowTest {
         assertTrue(ui.setup.showSetup)
     }
 
-    /** All-files access already on: the welcome's Continue confirms it, survives the process, and the sample plans. */
+    /** All-files access already on: Start the demo confirms it, survives the process, and the demo plans. */
     @Test fun continueFromTheWelcomeWithAccessInPlaceSurvivesTheProcess() = runTest {
         val r = noModel()
         r.refreshSetUp()
@@ -97,39 +98,50 @@ class SetupFlowTest {
         assertEquals(SetupStage.SAMPLE, flow(r, backgroundScope).ui.value.stage)
     }
 
-    @Test fun continueFromAccessPlansTheSampleAndReadsItWithoutAModel() = runTest {
+    @Test fun continueFromAccessPlansTheDemoAndProcessesItWithoutAModel() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         f.continueFromAccess()
         val sample = f.ui.first { it.stage == SetupStage.SAMPLE && it.setup.planned > 0 }
         assertFalse(sample.setup.decided)
-        r.tasteProgress().first { it.readyToTry }
+        val p = r.tasteProgress().first { it.planned > 0 && it.pending == 0 }
+        assertEquals(p.planned, p.done)
         // Every planned file in plan order, the read ones first.
         val files = f.ui.first { s -> s.sample.orEmpty().any { it.read } }.sample!!
         assertEquals(sample.setup.planned, files.size)
         assertEquals(files.indices.toList(), files.map { it.index })
-        f.tryNow()
-        f.ui.first { it.stage == SetupStage.TRY }
+    }
+
+    /** Continue goes to the choice, never past it; Back returns to the demo. */
+    @Test fun continueLeadsToTheChoiceAndBackToTheDemo() = runTest {
+        val r = noModel()
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        f.continueFromAccess()
+        f.ui.first { it.stage == SetupStage.SAMPLE && it.moreFiles != null }
+        f.continueToCommit()
+        val choosing = f.ui.first { it.stage == SetupStage.CHOOSE }
+        assertTrue("the choice is still setup", choosing.setup.showSetup)
         f.back()
         f.ui.first { it.stage == SetupStage.SAMPLE }
     }
 
-    /** Search by name with access in place confirms it at once and goes Home while the sample reads. */
-    @Test fun searchByNameWithAccessGoesHomeWhileTheSampleReads() = runTest {
+    /** Skip the demo with access in place confirms it at once and leads to the choice, not past it; Back returns to the welcome. */
+    @Test fun skipTheDemoWithAccessLeadsToTheChoice() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
-        f.searchByName()
-        val home = f.ui.first { !it.setup.showSetup }
-        assertEquals(SetupStage.DONE, home.stage)
-        assertTrue(home.setup.skipped)
-        // The sample is still planned and read in the background.
-        f.ui.first { it.setup.planned > 0 }
+        f.skipDemo()
+        val choosing = f.ui.first { it.stage == SetupStage.CHOOSE }
+        assertTrue(choosing.setup.skipped)
+        assertTrue("a choice is still to make", choosing.setup.showSetup)
+        f.back()
+        f.ui.first { it.stage == SetupStage.WELCOME }
     }
 
-    /** Without access, Search by name stays on the welcome: skipping never skips access. */
-    @Test fun searchByNameWithoutAccessStaysOnTheWelcome() = runTest {
+    /** Without access, Skip the demo stays on the welcome: skipping never skips access. */
+    @Test fun skipTheDemoWithoutAccessStaysOnTheWelcome() = runTest {
         shadowOf(app).denyPermissions(*Access.mediaPermissions(35).toTypedArray())
         shadowOf(app.getSystemService(AppOpsManager::class.java))
             .setMode("android:manage_external_storage", Process.myUid(), app.packageName, AppOpsManager.MODE_ERRORED)
@@ -137,7 +149,7 @@ class SetupFlowTest {
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         assertFalse(f.ui.value.access.ready)
-        f.searchByName()
+        f.skipDemo()
         val skipped = f.ui.first { it.setup.skipped }
         assertEquals(SetupStage.WELCOME, skipped.stage)
         assertEquals(SetupMark.NONE, skipped.setup.mark)
@@ -145,10 +157,12 @@ class SetupFlowTest {
     }
 
     /** Setup shows a stop's reason only: "Up to date" or "Checking for new files…" is no pause. */
-    @Test fun onlyAStopReachesTheSampleAsAPause() = runTest {
+    @Test fun onlyAStopReachesTheDemoAsAPause() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
+        // Counted first: until the phone's files are, the line says "Counting your files…", which is no stop either.
+        r.planTaste()
         r.pause()
         assertEquals(ReadingPolicy.stopCopy(StopReason.PAUSED, DeviceWords.ANDROID), f.ui.first { it.pauseReason != null }.pauseReason)
         r.resume()
@@ -158,19 +172,20 @@ class SetupFlowTest {
         f.ui.first { it.pauseReason == null }
     }
 
-    @Test fun goToHomeFromTheSampleLeavesSetupForGood() = runTest {
+    /** Not now on the choice is the one way out without choosing, and it holds after the process. */
+    @Test fun notNowLeavesSetupForGood() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
-        f.continueFromAccess()
-        f.ui.first { it.stage == SetupStage.SAMPLE }
-        f.skip()
+        f.skipDemo()
+        f.ui.first { it.stage == SetupStage.CHOOSE }
+        f.decideLater()
         f.ui.first { !it.setup.showSetup }
         r.refreshSetUp()
         assertFalse(flow(r, backgroundScope).ui.value.setup.showSetup)
     }
 
-    /** The library's counts and the sample's files are core's shared flows: watched only while a screen collects. */
+    /** The library's counts and the demo's files are core's shared flows: watched only while a screen collects. */
     @Test fun theLibraryIsWatchedOnlyWhileAScreenCollects() = runTest {
         val r = noModel()
         r.refreshSetUp()

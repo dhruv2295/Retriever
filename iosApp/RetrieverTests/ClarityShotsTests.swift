@@ -25,7 +25,23 @@ final class ClarityShotsTests: XCTestCase {
         try await shot(.statusReading, largest: true)
     }
 
-    private func shot(_ route: DebugRoute, dark: Bool = false, largest: Bool = false) async throws {
+    /// The first run as docs/features/demo-flow.md lays it out, then Home and Processing under the one count rule:
+    /// iosApp/build/shots/demo_*.png. The welcome is the one with access in place, so it shows Start the demo.
+    private static let demoStates: [DebugRoute] = [
+        .setupFolders, .setupSamplePicking, .setupReading, .setupSampleDone, .setupChoose, .setupChooseSkipped,
+        .homeCharging, .homeUnplugged, .homeNotNow, .homeCounting, .statusReading,
+    ]
+
+    func testTheDemoFlowRenders() async throws {
+        try FileManager.default.createDirectory(at: Self.out, withIntermediateDirectories: true)
+        for route in Self.demoStates {
+            for dark in [false, true] { try await shot(route, dark: dark, prefix: "demo") }
+        }
+        try await shot(.setupReading, largest: true, prefix: "demo")
+        try await shot(.homeCharging, largest: true, prefix: "demo")
+    }
+
+    private func shot(_ route: DebugRoute, dark: Bool = false, largest: Bool = false, prefix: String = "clarity") async throws {
         let model = AppModel(fixture: route.fixture)
         model.memoriesLoaded = true
         let screen = route.screen(model, path: .constant([]))
@@ -52,7 +68,7 @@ final class ClarityShotsTests: XCTestCase {
         }
         let pixels = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
         XCTAssertGreaterThan(Set(stride(from: 0, to: pixels.count, by: 97).map { pixels[$0] }).count, 8, "\(route.rawValue) rendered blank")
-        let name = "clarity_\(route.rawValue.replacingOccurrences(of: ".", with: "_"))_\(largest ? "largest" : dark ? "dark" : "light").png"
+        let name = "\(prefix)_\(route.rawValue.replacingOccurrences(of: ".", with: "_"))_\(largest ? "largest" : dark ? "dark" : "light").png"
         try XCTUnwrap(image.pngData()).write(to: Self.out.appendingPathComponent(name))
     }
 }

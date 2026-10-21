@@ -10,7 +10,7 @@
             ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"), ("setup.samplePicking", "samplePicking"),
             ("setup.sampleStart", "sampleStart"),
             ("setup.reading", "sampleReading"), ("setup.readingPaused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
-            ("setup.try", "trying(suggestions: true)"), ("setup.tryNoSuggestions", "trying(suggestions: false)"), ("setup.choose", "choosing"),
+            ("setup.choose", "choosing"), ("setup.chooseSkipped", "chooseSkipped"),
             ("setup.textOnly", "textOnly(ramGb: 3.0)"),
             ("upgrade.offer", "noModel"), ("upgrade.download", "downloading(0.34)"), ("upgrade.waitingWifi", "waitingForWifi"),
             ("upgrade.failed", "downloadFailed"), ("upgrade.tuning", "tuning"), ("upgrade.meaning", "meaning(1204)"),
@@ -26,7 +26,8 @@
             ("search.noAccess", "noAccess"), ("search.reading", "reading(done: 1204, total: 5310)"),
             ("home.charging", "readingWhileCharging"), ("home.firstDay", "firstDay"), ("home.unplugged", "unplugged"),
             ("home.chargingUp", "chargingUp"), ("home.readNow", "readNow"), ("home.downloading", "downloading(0.34)"),
-            ("home.meaning", "meaningPass"), ("home.noAccess", "lostAccess"), ("settings", "caughtUp"),
+            ("home.meaning", "meaningPass"), ("home.noAccess", "lostAccess"), ("home.notNow", "notNow"), ("home.counting", "counting"),
+            ("settings", "caughtUp"),
         ]
 
         private static let liveRoutes: [(raw: String, path: [Route])] = [

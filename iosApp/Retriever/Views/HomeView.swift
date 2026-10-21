@@ -207,8 +207,8 @@ private struct HomeStatusSection: View {
     }
 }
 
-/// The one status line (clarity-proposal section 3) as list rows: the dog, what is happening and one plain detail, a
-/// thin bar while reading or downloading, then its one button, spelled out, on a row of its own. On Home and in Settings
+/// The one status line (clarity-proposal section 3) as list rows: the dog, what is happening, the count and its bar,
+/// one plain detail, then its one button, spelled out, on a row of its own. On Home and in Settings
 /// the line opens Reading status (setup while setting up); Reading status shows it without the link or the small dog.
 struct StatusLine: View {
     let status: ReadingStatus
@@ -255,10 +255,12 @@ struct StatusLine: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title).font(.headline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
-                if let detail = status.detail { Note(detail) }
-                if let percent = status.percent, status.active || status.phase == .downloading {
-                    ProgressView(value: Double(percent.intValue), total: 100).accessibilityHidden(true)
+                // "30 of 25,793 files processed", and a bar of exactly those numbers; core leaves both out while it counts.
+                if let count = status.count { Text(count).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
+                if let done = status.done, let total = status.total, total.int64Value > 0 {
+                    ProgressView(value: Double(done.int64Value), total: Double(total.int64Value)).accessibilityHidden(true)
                 }
+                if let detail = status.detail { Note(detail) }
             }
         }
         .padding(.vertical, 2)

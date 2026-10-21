@@ -10,9 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Kind
-import app.retriever.core.Part
-import app.retriever.core.Piece
-import app.retriever.core.TRY_AFTER_FILES
+import app.retriever.core.SetupMark
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.flow.first
@@ -55,39 +53,34 @@ class ReadingPermissionTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithText("Show a notification while Retriever processes your files?").fetchSemanticsNodes().isNotEmpty() }
     }
 
-    /** The first Home's ask, once the sample is read: no promise about a sample that is already done. */
-    @Test fun theSampleSentenceGoesOnceTheSampleIsDone() {
+    /** With no demo waiting: no promise about a demo that is already done. */
+    @Test fun theDemoSentenceGoesOnceTheDemoIsDone() {
         ask(testRetriever())
         rule.onNodeWithText(PLAIN).assertExists()
     }
 
-    @Test fun theSampleSentenceStaysWhileTheSampleReads() {
+    @Test fun theDemoSentenceStaysWhileTheDemoRuns() {
         val retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) })
         runBlocking { retriever.planTaste() }
         ask(retriever)
         rule.onNodeWithText("$PLAIN $SAMPLE_LINE").assertExists()
     }
 
-    /** Ready to try with files still to read (the ask after Try): the one message is claimed, so nothing is promised. */
-    @Test fun theSampleSentenceGoesOnceTheSampleIsReadyToTry() {
-        var extracted = 0
-        lateinit var retriever: app.retriever.core.Retriever
-        retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) }, extract = {
-            if (++extracted > TRY_AFTER_FILES) retriever.cancelBatch()
-            listOf(Piece("", listOf(Part.Text("read content")), "read content", "read content"))
-        }).apply { uiVisible = true }
+    /** The ask on the choice, after Continue stopped the demo part-way: no demo message will come, so none is promised. */
+    @Test fun theDemoSentenceGoesOnceTheDemoIsStopped() {
+        val retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) })
         val sample = runBlocking {
             retriever.planTaste()
-            retriever.taste()
+            retriever.setSetupMark(SetupMark.CHOOSING)
             retriever.tasteProgress().first()
         }
-        assertTrue("ready with files pending: $sample", sample.readyToTry && sample.pending > 0)
+        assertTrue("files pending: $sample", sample.pending > 0)
         ask(retriever)
         rule.onNodeWithText(PLAIN).assertExists()
     }
 
     private companion object {
         const val PLAIN = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
-        const val SAMPLE_LINE = "We can also let you know when your sample is ready."
+        const val SAMPLE_LINE = "We can also let you know when the demo is done."
     }
 }

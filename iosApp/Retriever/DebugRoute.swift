@@ -43,9 +43,8 @@
         case setupReading = "setup.reading"
         case setupReadingPaused = "setup.readingPaused"
         case setupSampleDone = "setup.sampleDone"
-        case setupTry = "setup.try"
-        case setupTryNoSuggestions = "setup.tryNoSuggestions"
         case setupChoose = "setup.choose"
+        case setupChooseSkipped = "setup.chooseSkipped"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
@@ -73,6 +72,8 @@
         case homeDownloading = "home.downloading"
         case homeMeaning = "home.meaning"
         case homeNoAccess = "home.noAccess"
+        case homeNotNow = "home.notNow"
+        case homeCounting = "home.counting"
         case settings
         /// Home with its photo mosaic.
         case homePhotos = "home.photos"
@@ -146,9 +147,8 @@
             case .setupReading: .sampleReading
             case .setupReadingPaused: .samplePaused
             case .setupSampleDone: .sampleDone
-            case .setupTry: .trying(suggestions: true)
-            case .setupTryNoSuggestions: .trying(suggestions: false)
             case .setupChoose: .choosing
+            case .setupChooseSkipped: .chooseSkipped
             case .upgradeOffer, .homeUpgrade, .searchNoModel: .noModel
             case .upgradeDownload, .homeDownloading: .downloading(0.34)
             case .homeCharging: .readingWhileCharging
@@ -158,6 +158,8 @@
             case .homeReadNow: .readNow
             case .homeMeaning: .meaningPass
             case .homeNoAccess: .lostAccess
+            case .homeNotNow: .notNow
+            case .homeCounting: .counting
             case .upgradeWaitingWifi: .waitingForWifi
             case .upgradeFailed: .downloadFailed
             case .upgradeTuning: .tuning
@@ -175,10 +177,10 @@
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
             case .setupWelcome, .setupLimited, .setupDenied, .setupFolders, .setupSamplePicking, .setupSampleStart, .setupReading,
-                .setupReadingPaused, .setupSampleDone, .setupTry, .setupTryNoSuggestions, .setupChoose, .setupTextOnly:
+                .setupReadingPaused, .setupSampleDone, .setupChoose, .setupChooseSkipped, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
-                // Settings' Storage and downloads entry, alone: the same card as Try's and Home's.
+                // Settings' Storage and downloads entry, alone: the same card as Home's.
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
@@ -217,7 +219,8 @@
             switch self {
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
-            case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeNoAccess:
+            case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeNoAccess,
+                .homeNotNow, .homeCounting:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {

@@ -30,13 +30,18 @@ class NotificationsTest {
             ReadingStatus(
                 ReadingPhase.READING,
                 "Processing your files",
-                "240 of 247 files done. You can close Retriever; it carries on. Search works the whole time.",
+                "You can close Retriever; it carries on. Search works the whole time.",
+                count = "243 of 250 files processed",
+                done = 243,
+                total = 250,
             ),
             pause,
         )
         // The status line's own words, as on Home.
         assertEquals("Processing your files", n.extras.getString(Notification.EXTRA_TITLE))
-        assertEquals("240 of 247 files done. You can close Retriever; it carries on. Search works the whole time.", n.extras.getString(Notification.EXTRA_TEXT))
+        // The count left the detail, so the notification puts it back in front.
+        val text = "243 of 250 files processed. You can close Retriever; it carries on. Search works the whole time."
+        assertEquals(text, n.extras.getString(Notification.EXTRA_TEXT))
         assertEquals("Pause", n.actions.single().title)
         assertEquals(Notification.VISIBILITY_PRIVATE, n.visibility)
         val channel = context.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel(Notifications.CHANNEL)

@@ -412,6 +412,9 @@ SELECT value FROM index_meta WHERE key = ?;
 setMeta:
 INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?);
 
+deleteMeta:
+DELETE FROM index_meta WHERE key = ?;
+
 bumpMeta:
 INSERT OR REPLACE INTO index_meta (key, value)
 VALUES (:key, CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = :key), 0) + 1 AS TEXT));

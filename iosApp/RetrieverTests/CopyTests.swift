@@ -27,7 +27,7 @@ final class CopyTests: XCTestCase {
 
     func testFinishedTrialAndScanningHaveAccurateStatus() {
         let trial = AppModel.Snap(setUp: true, indexed: 24, trial: true, waiting: 200)
-        XCTAssertEqual(Copy.homeStatus(trial)?.title, "Ready to try")
+        XCTAssertEqual(Copy.homeStatus(trial)?.title, "Only names can be found for now", "the demo is done and the choice waits")
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 24, running: true))?.title, "Checking for new files…")
     }
 
@@ -35,7 +35,7 @@ final class CopyTests: XCTestCase {
         typealias Snap = AppModel.Snap
         XCTAssertEqual(Copy.reading(Snap(running: true)).title, "Checking for new files…")
         XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Processing your files")
-        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).detail?.hasPrefix("0 of 4 files done. "), true)
+        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).count, "0 of 4 files processed")
         XCTAssertEqual(Copy.reading(Snap(pending: 4, paused: true)).title, "Paused")
         XCTAssertEqual(Copy.reading(Snap(indexed: 4)).title, "All done. Retriever has processed everything it can")
     }
@@ -50,7 +50,7 @@ final class CopyTests: XCTestCase {
             XCTAssertFalse(snap.isCaughtUp)
         }
         snap.tailFiles = 0
-        XCTAssertEqual(Copy.reading(snap).title, "Ready to try")
+        XCTAssertEqual(Copy.reading(snap).title, "Only names can be found for now")
     }
 
     func testModelSizeUsesNonAdaptiveDownloadFormatter() {
@@ -76,8 +76,9 @@ final class CopyTests: XCTestCase {
     func testHomeStatusReadingShowsHowFar() {
         let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true))
         XCTAssertEqual(status?.title, "Processing your files")
-        XCTAssertEqual(status?.detail?.hasPrefix("5 of 10 files done. "), true, "A batch without an active file already says how far")
-        XCTAssertEqual(status?.percent?.intValue, 50, "the bar is the count's numbers")
+        XCTAssertEqual(status?.count, "5 of 10 files processed", "A batch without an active file already says how far")
+        XCTAssertEqual(status?.done?.int64Value, 5, "the bar is the count's numbers")
+        XCTAssertEqual(status?.total?.int64Value, 10)
         XCTAssertEqual(status?.phase, .reading)
     }
 
@@ -104,56 +105,53 @@ final class CopyTests: XCTestCase {
     }
 
     /// Setup's sentences are core's; the shell adds only "iPhone" for "this device".
-    func testSetupSaysGoToHomeAndNeverSkipOrDownload() {
-        XCTAssertEqual(Words.shared.GO_TO_HOME, "Skip for now")
-        XCTAssertEqual(Words.shared.searchingTry(read: 54), "Searching every file’s name, and inside the 54 files processed so far.")
+    func testSetupSaysWhatComesNextAndNeverDownload() {
+        XCTAssertEqual(Words.shared.GO_TO_HOME, "Go to Home")
+        XCTAssertEqual(
+            Words.shared.demoSearchScope(done: 12, finished: false, words: Copy.words),
+            "Finds any file on your iPhone by its name. Looks inside the 12 demo files processed so far.")
         XCTAssertEqual(Copy.photosAccess(.limited), Words.shared.SELECTED_PHOTOS)
         XCTAssertEqual(Copy.photosAccess(.authorized), Words.shared.ALL_PHOTOS)
         XCTAssertNil(Copy.photosAccess(.notDetermined))
-        let welcome = Words.shared.WELCOME_BODY
         XCTAssertTrue(Words.shared.nothingSent(words: Copy.words).contains("your \(Copy.device)"))
-        for text in [Words.shared.WELCOME_TITLE, welcome, Words.shared.iosAccessNote(words: Copy.words), Words.shared.SAMPLE_TITLE] {
+        XCTAssertTrue(Words.shared.welcomeNext(words: Copy.words).contains("here on your \(Copy.device)"))
+        let texts = [
+            Words.shared.WELCOME_TITLE, Words.shared.WELCOME_BODY, Words.shared.iosAccessNote(words: Copy.words), Words.shared.demoTitle(files: 30),
+            Words.shared.welcomeNext(words: Copy.words), Words.shared.welcomeAfterDemo(words: Copy.words),
+        ]
+        for text in texts {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("download"), text)
             XCTAssertFalse(text.localizedCaseInsensitiveContains("skip"), text)
         }
     }
 
-    /// Try names the next step; "Try searching inside" left "inside what?".
-    func testTryWords() {
-        XCTAssertEqual(Words.shared.TRY_TITLE, "Find a file you know")
-        XCTAssertEqual(Words.shared.TRY_BODY, "Type something you remember from it, like a name, a place or an amount, or tap a suggestion.")
-        XCTAssertEqual(Words.shared.TRY_WITHOUT_SUGGESTIONS, "Open one of these files, then type something you remember from it.")
-        XCTAssertEqual(Words.shared.FILES_TO_TRY, "Files you can try")
-    }
-
-    /// The navigation bar's large title, on one line on the narrowest iPhone (375 pt) less its 20 pt margins.
-    func testTryTitleFitsALargeTitle() {
-        let width = (Words.shared.TRY_TITLE as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 34, weight: .bold)]).width
-        XCTAssertLessThanOrEqual(width, 375 - 40)
+    /// The demo's lines as the iPhone says them; the rest of the wording is core's (WordsTest).
+    func testTheDemoNamesTheDevice() {
+        XCTAssertEqual(Words.shared.demoTitle(files: 30), "A short demo on 30 of your recent files")
+        XCTAssertEqual(
+            Words.shared.demoDone(rest: KotlinLong(value: 25_763), words: Copy.words), "The demo is done. Next: the other 25,763 files on your iPhone.")
+        XCTAssertEqual(Words.shared.chooseTitle(words: Copy.words), "Now, the rest of your iPhone")
+        XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))
     }
 
     /// The welcome's iOS ask and the pile's count line.
-    func testWelcomeAskAndSampleCountWords() {
+    func testWelcomeAskAndDemoCountWords() {
         XCTAssertEqual(Words.shared.SEARCH_ALL_PHOTOS, "Search all your photos")
         XCTAssertEqual(Words.shared.ADD_FOLDERS_FROM_FILES, "Add folders from Files")
         XCTAssertEqual(
             Words.shared.iosAccessNote(words: Copy.words),
             "iOS lets Retriever see your photos and the folders you pick in Files.")
-        XCTAssertEqual(
-            Words.shared.SAMPLE_PICKING, "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent.")
-        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 0), "12 of 40 files processed")
-        XCTAssertEqual(Words.shared.readOf(read: 12, planned: 40, pending: 28), "12 files processed", "no total while the plan can shrink")
+        XCTAssertEqual(Words.shared.DEMO_PICKING, "Picking your recent files…")
+        XCTAssertEqual(Words.shared.readOf(done: 12, total: 30), "12 of 30 files processed", "always the total: it is fixed at picking")
         XCTAssertEqual(Words.shared.READ, "Found by what’s inside")
-        XCTAssertEqual(
-            Words.shared.sampleNote(reading: true, readyToTry: false, secondsLeft: nil), "You can try search once a few files are processed.",
-            "no time before it is measured")
-        XCTAssertEqual(Words.shared.sampleNote(reading: true, readyToTry: true, secondsLeft: 170), "About 3 minutes left. Ready to try.")
-        XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, percent: nil).pause, "not a pause")
+        XCTAssertEqual(Words.shared.demoNote(secondsLeft: nil), "About a minute.", "no time before it is measured")
+        XCTAssertEqual(Words.shared.demoNote(secondsLeft: 170), "About 3 minutes left.")
+        XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, count: nil, done: nil, total: nil).pause, "not a pause")
     }
 
     func testCommitCopyHasNoFigures() {
         let figure = /\d+(,\d+)?( to \d+)? (hours?|minutes?|nights?|days?)/
-        for text in [Words.shared.MORE_FILES, Words.shared.CHOOSE_PACE, Copy.backgroundNote] {
+        for text in [Words.shared.chooseBody(rest: KotlinLong(value: 25_763)), Words.shared.choosePace(words: Copy.words), Copy.backgroundNote] {
             // "Process for 15 minutes" is the action's name, not an estimate of how long processing takes.
             XCTAssertNil(text.replacingOccurrences(of: Words.shared.READ_FOR_15, with: "").firstMatch(of: figure), text)
         }
@@ -167,29 +165,41 @@ final class CopyTests: XCTestCase {
             return try XCTUnwrap(model.statusLine(model.live))
         }
         // A live count, not a percent: 1,204 processed of 5,310, the bar the same numbers.
-        let count = Words.shared.filesDone(done: 1_204, total: 5_310)
+        let count = "1,204 of 5,310 files processed"
         XCTAssertEqual(try line(.readingWhileCharging).title, "Processing while you charge")
-        XCTAssertEqual(try line(.readingWhileCharging).detail?.hasPrefix(count + ". "), true)
-        XCTAssertEqual(try line(.readingWhileCharging).percent?.intValue, 22)
-        XCTAssertEqual(try line(.unplugged).title, "Waiting until you plug in")
-        XCTAssertEqual(try line(.unplugged).detail?.hasPrefix(count + ". "), true)
+        XCTAssertEqual(try line(.readingWhileCharging).count, count)
+        XCTAssertEqual(try line(.readingWhileCharging).done?.int64Value, 1_204)
+        XCTAssertEqual(try line(.readingWhileCharging).total?.int64Value, 5_310)
+        XCTAssertEqual(try line(.unplugged).title, "Waits until you charge")
+        XCTAssertEqual(try line(.unplugged).count, count)
         XCTAssertEqual(try line(.unplugged).phase, .charging)
         XCTAssertEqual(try line(.unplugged).action, .readFor15)
         XCTAssertEqual(try line(.chargingUp).title, "Charging up first")
         XCTAssertEqual(try line(.readNow).title, "Processing for 15 minutes · 12 min left")
         XCTAssertEqual(try line(.readNow).action, .stop)
-        XCTAssertEqual(try line(.readNow).detail, count + ". Uses some battery. Keep Retriever open.")
+        XCTAssertEqual(try line(.readNow).detail, "Uses some battery. Keep Retriever open.")
+        XCTAssertEqual(try line(.readNow).count, count)
         let downloading = try line(.downloading(0.34))
         XCTAssertEqual(downloading.phase, .downloading)
-        XCTAssertEqual(downloading.percent?.intValue, 34)
+        XCTAssertEqual(downloading.done?.int64Value, 34)
+        XCTAssertEqual(downloading.total?.int64Value, 100)
+        XCTAssertNil(downloading.count)
         XCTAssertEqual(downloading.action, .stop)
         XCTAssertEqual(try line(.waitingForWifi).phase, .downloadStopped)
         XCTAssertEqual(try line(.tuning).phase, .tuning)
         XCTAssertEqual(try line(.meaningPass).phase, .meaning)
         XCTAssertEqual(try line(.meaningPass).title, "Adding search by meaning")
-        XCTAssertEqual(try line(.meaningPass).detail?.hasPrefix(Words.shared.filesDone(done: 1_938, total: 3_142) + ". "), true)
-        XCTAssertEqual(try line(.firstDay).phase, .noContent)
+        XCTAssertEqual(try line(.meaningPass).count, "1,938 of 3,142 files have search by meaning")
+        XCTAssertEqual(try line(.firstDay).phase, .notNow)
         XCTAssertEqual(try line(.firstDay).action, .chooseWhen)
+        // The demo's 30 carry over to the whole phone's count.
+        XCTAssertEqual(try line(.notNow).title, "Only names can be found for now")
+        XCTAssertEqual(try line(.notNow).count, "30 of 25,793 files processed")
+        XCTAssertEqual(try line(.notNow).action, .chooseWhen)
+        let counting = try line(.counting)
+        XCTAssertEqual(counting.title, "Counting your files…")
+        XCTAssertNil(counting.count, "no count or bar until the files are all counted")
+        XCTAssertNil(counting.done)
         XCTAssertEqual(try line(.caughtUp).action, .dismiss)
         XCTAssertEqual(try line(.lostAccess).phase, .noAccess)
         XCTAssertNotEqual(try line(.noAccess).phase, .noAccess, "a folder still gives files, so Photos keeps its own note")
@@ -207,7 +217,7 @@ final class CopyTests: XCTestCase {
                 Copy.reading(setting).title, Copy.reading(AppModel.Snap(paused: true)).title, Copy.reading(AppModel.Snap(running: true)).title,
                 Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
                 Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
-                Copy.backgroundNote, Copy.screenKeptOn, Words.shared.tuneFailed(words: Copy.words), Words.shared.FILES_TO_TRY,
+                Copy.backgroundNote, Copy.screenKeptOn, Words.shared.tuneFailed(words: Copy.words), Words.shared.DEMO_HINT,
                 Words.shared.WELCOME_BODY, Words.shared.upgradeBody(size: "388 MB", words: Copy.words),
                 Words.shared.tuneTitle(words: Copy.words), Words.shared.tuneBody(words: Copy.words),
             ] + home(setting) + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))

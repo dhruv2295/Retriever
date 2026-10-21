@@ -23,7 +23,7 @@ final class AppModelTests: XCTestCase {
             (.firstRun, false, 0, .notDetermined),
             (.photosLimited, false, 0, .limited),
             (.photosDenied, false, 0, .denied),
-            (.sampleReading, false, 3_142, .authorized),
+            (.sampleReading, false, 25_793, .authorized),
             (.downloading(0.3), false, 3_142, .authorized),
             (.tuning, false, 3_142, .authorized),
             (.reading(done: 1_204, total: 5_310), true, 5_310, .authorized),
@@ -124,9 +124,10 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.tune, .idle)
     }
 
-    /// The sample's flows ran for the app's whole life, so core recounted the sample on every file read long after
-    /// setup ended. They are open only on the stages that show them, and Try's suggestions only once Try can open.
-    func testTheSampleFlowsAreOpenOnlyWhileTheSampleOrTryShows() async {
+    /// The demo's flows ran for the app's whole life, so core recounted the demo on every file read long after setup
+    /// ended. They are open only on the stages that show them (the choice says how the demo ended), and its chips only
+    /// on the demo once its files are picked.
+    func testTheDemoFlowsAreOpenOnlyWhileTheDemoOrTheChoiceShows() async {
         let model = AppModel(services: AppServices.temporary())
         model.watchSetup(stage: .welcome)
         XCTAssertTrue(model.sampleObservations.isEmpty)
@@ -134,20 +135,19 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.sampleObservations.count, 2)
         model.watchSetup(stage: .sample)
         XCTAssertEqual(model.sampleObservations.count, 2, "opened once, not again on every change")
-        XCTAssertNil(model.trySuggestionsObservation, "Try can't open yet: nothing is planned or ready")
-        model.watchSetup(stage: .try_)
+        XCTAssertNil(model.trySuggestionsObservation, "no chips before the files are picked")
+        model.watchSetup(stage: .choose)
         XCTAssertEqual(model.sampleObservations.count, 2)
-        for stage in [SetupStage.choose, .done] {
-            model.watchSetup(stage: stage)
-            XCTAssertTrue(model.sampleObservations.isEmpty, "\(stage)")
-            XCTAssertNil(model.trySuggestionsObservation, "\(stage)")
-        }
+        XCTAssertNil(model.trySuggestionsObservation)
+        model.watchSetup(stage: .done)
+        XCTAssertTrue(model.sampleObservations.isEmpty)
+        XCTAssertNil(model.trySuggestionsObservation)
     }
 
-    /// Try's suggestions are the model's from before Try opens, so Try's first frame already has them.
-    func testTryReadsItsSuggestionsFromTheModel() {
-        XCTAssertEqual(AppModel(fixture: .trying(suggestions: true)).trySuggestions.count, 3)
-        XCTAssertTrue(AppModel(fixture: .trying(suggestions: false)).trySuggestions.isEmpty)
+    /// The demo's chips are the model's, so the demo's first frame already has them; before any file, the hint.
+    func testTheDemoReadsItsChipsFromTheModel() {
+        XCTAssertEqual(AppModel(fixture: .sampleReading).trySuggestions.count, 3)
+        XCTAssertTrue(AppModel(fixture: .sampleStart).trySuggestions.isEmpty)
     }
 
     // MARK: Setup on core's stage machine
@@ -157,7 +157,7 @@ final class AppModelTests: XCTestCase {
         let table: [(AppFixture, SetupStage, Bool)] = [
             (.firstRun, .welcome, true), (.photosLimited, .welcome, true), (.photosDenied, .welcome, true),
             (.folderAdded, .welcome, true), (.sampleStart, .sample, true), (.sampleReading, .sample, true), (.sampleDone, .sample, true),
-            (.trying(suggestions: true), .try_, true), (.choosing, .choose, true), (.caughtUp, .done, false),
+            (.choosing, .choose, true), (.chooseSkipped, .choose, true), (.caughtUp, .done, false),
         ]
         for (fixture, stage, shown) in table {
             let setup = AppModel(fixture: fixture).setup
@@ -172,9 +172,9 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(AppModel(fixture: .photosLimited).accessGiven)
         XCTAssertFalse(AppModel(fixture: .photosDenied).accessGiven)
         XCTAssertTrue(AppModel(fixture: .folderAdded).accessGiven)
-        // Access taken away later brings back the welcome's ask, even after Go to Home.
+        // Access taken away later brings back the welcome's ask, even after the choice was made.
         let model = AppModel(fixture: .caughtUp)
-        model.setupInputs = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 54, accessGiven: false)
+        model.setupInputs = SetupInputs(mark: .accessChosen, skipped: false, decided: true, planned: 30, accessGiven: false)
         XCTAssertFalse(model.setup?.showSetup ?? true)
         (model.photos, model.folders) = (.denied, [])
         XCTAssertEqual(model.setup?.stage, .welcome)
@@ -205,27 +205,28 @@ final class AppModelTests: XCTestCase {
     func testAccessAnsweredAfterSetupLeavesTheMarkAlone() async throws {
         let services = AppServices.temporary()
         let model = AppModel(services: services)
-        try await services.retriever.setSetupMark(mark: .trying)
-        let trying = await eventually { model.setupInputs?.mark == .trying }
-        XCTAssertTrue(trying)
+        try await services.retriever.setSetupMark(mark: .choosing)
+        let choosing = await eventually { model.setupInputs?.mark == .choosing }
+        XCTAssertTrue(choosing)
         model.photos = .authorized
         model.accessChanged()
         let regressed = await eventually(timeout: 2) { model.setupInputs?.mark == .accessChosen }
         XCTAssertFalse(regressed)
     }
 
-    /// Search by name skips the sample's screens, never access; the sample still reads.
-    func testGoToHomeKeepsReadingTheSample() {
-        let skipped = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 54, accessGiven: true)
-        XCTAssertEqual(skipped.stage, .done)
-        XCTAssertFalse(skipped.showSetup)
+    /// Skip the demo leads to the choice, never past it; setup shows until a choice is made.
+    func testSkipTheDemoLeadsToTheChoice() {
+        let skipped = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 30, accessGiven: true)
+        XCTAssertEqual(skipped.stage, .choose)
+        XCTAssertTrue(skipped.showSetup)
         XCTAssertEqual(skipped.step, .readSample)
     }
 
-    func testTryOffersTheNextStepOrHomeWhenNothingIsLeft() {
-        let model = AppModel(fixture: .trying(suggestions: true))
-        XCTAssertEqual(model.sampleIds.count, 54, "Try searches the sample's planned files")
-        XCTAssertEqual(model.snap?.waiting, 3_088)
+    func testTheDemoSearchesItsOwnFilesAndKnowsWhatIsLeft() {
+        let model = AppModel(fixture: .sampleDone)
+        XCTAssertEqual(model.sampleIds.count, 30, "the demo searches inside its own files")
+        XCTAssertEqual(model.snap?.waiting, 25_763)
+        XCTAssertFalse(model.nothingLeft, "Continue leads to the choice")
     }
 
     // MARK: The meaning upgrade

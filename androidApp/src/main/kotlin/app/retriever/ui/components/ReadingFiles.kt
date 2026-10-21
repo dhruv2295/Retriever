@@ -13,12 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -41,10 +38,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -132,33 +127,6 @@ private fun Modifier.readingSweep(size: Dp, position: State<Float>): Modifier {
 }
 
 /**
- * Files you can try: one tile size for every cell. Four columns, two
- * past [LARGE_TEXT]; a plain FlowRow of fixed sizes, no weights, so nothing asks a tile for its intrinsics.
- */
-@Composable
-internal fun ReadyFiles(files: List<SourceFile>, onOpen: ((SourceFile) -> Unit)? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(Words.FILES_TO_TRY, style = MaterialTheme.typography.titleSmall)
-        val columns = if (LocalDensity.current.fontScale > LARGE_TEXT) 2 else 4
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            // Whole pixels, rounded down, so a full row never overflows the width by a rounding pixel.
-            val cell = with(LocalDensity.current) { ((constraints.maxWidth - GAP.roundToPx() * (columns - 1)) / columns).toDp() }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(GAP),
-                verticalArrangement = Arrangement.spacedBy(GAP),
-                maxItemsInEachRow = columns,
-                modifier = Modifier.semantics {
-                    contentDescription = Words.FILES_TO_TRY
-                    collectionInfo = CollectionInfo((files.size + columns - 1) / columns, columns)
-                },
-            ) {
-                for (file in files) key(file.uri) { FileTile(file, cell, onOpen = onOpen) }
-            }
-        }
-    }
-}
-
-/**
  * Recently read, held still: a strip that moved with every file read (twice a second) could be neither read nor tapped.
  * It fills in reading order, so a tile keeps its place as the next one lands at the end, then holds while [running] and
  * catches up when reading stops. [files] is core's, newest first.
@@ -186,7 +154,7 @@ internal fun RecentlyRead(files: List<SourceFile>, running: Boolean, onOpen: (So
 private const val RECENT_SHOWN = 6
 
 /**
- * One file's preview at a fixed [size], the same everywhere it shows: the sample's pile, Try's grid, Recently read.
+ * One file's preview at a fixed [size], the same everywhere it shows: the demo's pile, Recently read.
  * With [onOpen] it opens on tap, offers the file menu on long press and says "name, kind, date"; without, it is
  * decoration and says nothing.
  */
@@ -213,8 +181,3 @@ internal fun FileTile(file: SourceFile, size: Dp, modifier: Modifier = Modifier,
         )
     }
 }
-
-private val GAP = 8.dp
-
-/** Font scale past which Try's grid has two columns. */
-private const val LARGE_TEXT = 1.3f

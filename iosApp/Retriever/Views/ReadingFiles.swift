@@ -60,31 +60,6 @@ private struct ReadingSweep: View {
     }
 }
 
-/// The sample's files read so far, each opening in the viewer: Try's fallback and "See all".
-struct ReadyFiles: View {
-    let files: [SourceFile]
-    @Environment(\.openFile) private var openFile
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(Words.shared.FILES_TO_TRY).font(.headline).accessibilityAddTraits(.isHeader)
-            LazyVGrid(columns: gridColumns(typeSize, spacing: 8), spacing: 8) {
-                ForEach(files, id: \.uri) { file in
-                    Button {
-                        openFile(file, among: files)
-                    } label: {
-                        FileTile(file: file).equatable()
-                    }
-                    .buttonStyle(.plain).accessibilityHint("Open file")
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Words.shared.FILES_TO_TRY)
-        }
-    }
-}
-
 struct RecentlyRead: View {
     let files: [SourceFile]
     @State private var shown: [SourceFile] = []

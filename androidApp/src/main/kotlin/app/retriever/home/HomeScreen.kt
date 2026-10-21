@@ -17,7 +17,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +75,7 @@ import app.retriever.setup.CommitStage
 import app.retriever.setup.SetupActions
 import app.retriever.setup.SetupUi
 import app.retriever.ui.Format
+import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.contentPaddingFor
 import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
@@ -261,7 +261,7 @@ internal fun HomeBody(
         ModalBottomSheet(onDismissRequest = { choosing = false }) {
             Box(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
                 CommitStage(
-                    SetupUi(moreFiles = ui.rest),
+                    SetupUi(rest = ui.progress.rest),
                     SetupActions(commit = {
                         choosing = false
                         home.commit(it)
@@ -282,7 +282,9 @@ internal fun HomeBody(
  */
 @Composable
 internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> Unit)?, onAction: (StatusAction) -> Unit, modifier: Modifier = Modifier) {
-    val percent = status.percent?.takeIf { status.active || status.phase == ReadingPhase.DOWNLOADING }
+    val done = status.done
+    val total = status.total
+    val bar = done != null && total != null
     Column(modifier) {
         ListItem(
             leadingContent = { Mascot(mood, Modifier.width(24.dp)) },
@@ -291,15 +293,16 @@ internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> 
                     status.title,
                     modifier = Modifier.semantics(mergeDescendants = true) {
                         liveRegion = LiveRegionMode.Polite
-                        if (percent != null) contentDescription = status.title.substringBefore(" · ")
+                        if (bar) contentDescription = status.title.substringBefore(" · ")
                     },
                 )
             },
-            supportingContent = if (status.detail != null || percent != null) {
+            supportingContent = if (status.detail != null || status.count != null || bar) {
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        status.count?.let { Text(it) }
+                        if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth())
                         status.detail?.let { Text(it) }
-                        if (percent != null) LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
                     }
                 }
             } else {

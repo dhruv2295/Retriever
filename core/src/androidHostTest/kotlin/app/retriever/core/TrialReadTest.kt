@@ -17,42 +17,6 @@ class TrialReadTest {
     private fun test(body: suspend () -> Unit) = runBlocking { withTimeout(20.seconds) { body() } }
 
     @Test
-    fun tuneTrimsAnOldOversizedPlanAtMeasuredPaceAndKeepsReadFiles() = test {
-        val files = (1..40).map { testFile("v$it.mp4", Kind.VIDEO, size = 5_000_000) } +
-            (1..100).map { testFile("p$it.jpg", Kind.PHOTO) }
-        val store = newStore(sig)
-        store.upsertFiles(files)
-        val ids = files.map { store.fileByUri(it.uri)!!.id }
-        store.setTaste(ids)
-        store.replaceChunks(ids.first(), emptyList())
-        val book = SpeedBook().add(Kind.VIDEO, 25_000.0, 5_000_000.0).add(Kind.PHOTO, 1000.0, 1.0)
-        store.setMeta(Retriever.SPEED_KEY, book.encode())
-        val r = testRetriever(store, files, FakeExtractor(), factory = FakeFactory { listOf(Backend.CPU) })
-        r.calibrate(Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList()), tuneAgain = false)
-        val remaining = store.pendingIn(store.tasteIds())
-        assertTrue(remaining.sumOf { book.costMs(it.file) } <= 90_000)
-        assertTrue(remaining.none { it.file.kind == Kind.VIDEO }, "videos go before photos")
-        assertTrue(ids.first() in store.tasteIds(), "already read video remains searchable in the trial")
-        assertEquals(FileState.INDEXED, store.storedById(ids.first())!!.state)
-        assertEquals(90, remaining.size)
-        val restarted = testRetriever(store, files, FakeExtractor())
-        restarted.refreshSetUp()
-        assertEquals(store.tasteIds(), restarted.scopeIds.value)
-    }
-
-    @Test
-    fun reasonableRemainingPlanIsNotTrimmed() = test {
-        val files = (1..4).map { testFile("v$it.mp4", Kind.VIDEO, size = 5_000_000) }
-        val store = newStore(sig)
-        store.upsertFiles(files)
-        val ids = files.map { store.fileByUri(it.uri)!!.id }
-        store.setTaste(ids)
-        val r = testRetriever(store, files, FakeExtractor())
-        r.trimTaste()
-        assertEquals(ids, store.tasteIds(), "100 seconds is within the wide-margin tolerance")
-    }
-
-    @Test
     fun currentFilePrecedesExtractionAndRecentSuccessesAreBoundedAndRestored() = test {
         val files = (1..30).map { testFile("d$it.txt", modifiedAt = it * 7_200_000L) }
         val store = newStore(sig).also { it.setProfile(PROFILE) }

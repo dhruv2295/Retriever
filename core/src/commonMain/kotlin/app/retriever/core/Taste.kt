@@ -10,25 +10,30 @@ import kotlin.math.ceil
 enum class Scope { SAMPLE, ALL }
 
 /**
- * The short read's progress. [byKind]: (read, planned) per kind; [readyKinds]: kinds with nothing left to read; [secondsLeft]:
- * the plan's pending files at this phone's measured pace in wall time, null until that is measured ([Words.sampleNote]).
- * [readyToTry]: [TRY_AFTER_FILES] read, or the plan done. [pending]: planned files still to read. A Name only or Couldn't
- * read file is done without being read, so this is not planned minus [read].
+ * The demo's progress, by the one count rule: [done] of [planned] files processed, and the bar is exactly done / planned.
+ * [planned] is fixed when the files are picked; a file found by name only, one Retriever couldn't open, and one deleted
+ * since all count as done. [byKind]: (read, planned) per kind, for a screen reader; [readyKinds]: kinds with nothing
+ * left; [read]: files whose insides are searchable; [pending]: files still waiting; [secondsLeft]: the pending files at
+ * this phone's measured pace in wall time, null until that is measured ([Words.demoNote]).
  */
 data class TasteProgress(
     val byKind: Map<Kind, Pair<Int, Int>>,
     val readyKinds: Set<Kind>,
     val read: Int,
     val secondsLeft: Int?,
-    val readyToTry: Boolean,
-    val pending: Int = 0,
+    val pending: Int,
+    val planned: Int,
 ) {
+    val done: Int get() = planned - pending
+
     internal companion object {
         /**
-         * [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the ETA does. [wallRatio]:
-         * [Eta.shownRatio], null before a share of the budget is read; the time also waits for every pending kind's pace.
+         * [total]: the plan's size; [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the
+         * ETA does. [wallRatio]: [Eta.shownRatio], null before a share of the budget is read; the time also waits for every
+         * pending kind's pace.
          */
         fun of(
+            total: Int,
             planned: Map<Kind, Int>,
             pending: Map<Kind, Int>,
             pendingVideoBytes: Long,
@@ -37,17 +42,15 @@ data class TasteProgress(
             wallRatio: Double?,
         ): TasteProgress {
             val byKind = planned.mapValues { (k, n) -> (searchable[k] ?: 0) to n }
-            val read = byKind.values.sumOf { it.first }
-            val left = pending.values.sum()
             val pendingFiles = pending.mapValues { it.value.toLong() }
             return TasteProgress(
                 byKind = byKind,
                 readyKinds = planned.keys - pending.filterValues { it > 0 }.keys,
-                read = read,
+                read = byKind.values.sumOf { it.first },
                 secondsLeft = wallRatio?.takeIf { planned.isNotEmpty() && book.measures(pendingFiles) }
                     ?.let { ceil(book.ms(pendingFiles, pendingVideoBytes) * it / 1000).toInt() },
-                readyToTry = read > 0 && (left == 0 || read >= TRY_AFTER_FILES),
-                pending = left,
+                pending = pending.values.sum(),
+                planned = total,
             )
         }
     }
@@ -58,15 +61,15 @@ data class SampleFile(val index: Int, val file: SourceFile, val read: Boolean, v
 
 // Adapted from google-ai-edge/gallery SmartAlbumScreen.kt (Apache-2.0): STACK_ANGLES and STACK_OFFSETS.
 
-/** The sample's pile: each card's slot follows its plan index, so a card never moves once it lands. Offsets in dp. */
+/** The demo's pile: each card's slot follows its plan index, so a card never moves once it lands. Offsets in dp. */
 object SamplePile {
-    const val SHOWN = 12
-    const val CARD_DP = 168
-    const val FOOTPRINT_DP = 224
+    const val SHOWN = 3
+    const val CARD_DP = 96
+    const val FOOTPRINT_DP = 128
 
-    private val ANGLES = floatArrayOf(0f, 4f, 8f, 12f, 7f, 2f, -3f, -8f, -12f, -7f, -2f, 3f)
-    private val DX = intArrayOf(0, 9, -9, 11, -8, 7, -11, 9, -9, 8, -7, 10)
-    private val DY = intArrayOf(0, -7, -5, 6, 8, -9, -7, 8, 6, -8, -9, 7)
+    private val ANGLES = floatArrayOf(0f, 4f, -4f)
+    private val DX = intArrayOf(0, 6, -6)
+    private val DY = intArrayOf(0, -4, 4)
 
     fun angle(i: Int): Float = ANGLES[i % SHOWN]
 
@@ -78,8 +81,8 @@ object SamplePile {
     fun shown(files: List<SampleFile>): List<SampleFile> = files.filter { it.read }.takeLast(SHOWN)
 }
 
-/** Files read before "Try it now" shows, unless the plan is smaller. */
-const val TRY_AFTER_FILES = 20
+/** The demo's size: [FileRules.planTaste] picks at most this many, which also fit its time budget. */
+const val DEMO_FILES = 30
 
 internal const val TASTE_SCOPE_KEY = "taste_scope"
 internal const val TASTE_BUDGET_KEY = "taste_budget_ms"
@@ -106,33 +109,6 @@ internal fun Store.setTaste(ids: List<Long>) = inTransaction {
 internal fun Store.flag(key: String): Boolean = meta(key) != null
 
 internal fun Store.setFlag(key: String) = setMeta(key, "1")
-
-/**
- * The pending planned files to drop so the rest fits the budget: videos first, then the costliest, keeping one when
- * nothing is read yet (an over-budget file is still a trial). [ratio] is wall time per ms of inference this session
- * ([Eta.wallRatio]), given once every pending kind has a measured pace: then what is left, at [costs] × [ratio], must fit
- * [budgetMs] less the [wallMs] already spent. Without it, seeds price the rest, with 1.5× slack before anything goes.
- */
-internal fun tasteDrops(
-    pending: List<Store.StoredFile>,
-    costs: Map<Long, Double>,
-    budgetMs: Double,
-    wallMs: Double,
-    ratio: Double?,
-    keepOne: Boolean,
-): Set<Long> {
-    var left = costs.values.sum()
-    val target = if (ratio == null) budgetMs else (budgetMs - wallMs) / ratio
-    if (left <= if (ratio == null) budgetMs * 1.5 else target) return emptySet()
-    val minimum = if (keepOne) 1 else 0
-    val drop = mutableSetOf<Long>()
-    for (file in pending.sortedWith(compareByDescending<Store.StoredFile> { it.file.kind == Kind.VIDEO }.thenByDescending { costs.getValue(it.id) })) {
-        if (left <= target || pending.size - drop.size <= minimum) break
-        drop += file.id
-        left -= costs.getValue(file.id)
-    }
-    return drop
-}
 
 /** Files per kind, and the bytes of the videos among them. */
 internal fun List<Store.StoredFile>.byKind(): Pair<Map<Kind, Int>, Long> =

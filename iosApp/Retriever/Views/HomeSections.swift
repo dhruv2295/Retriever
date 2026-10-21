@@ -291,20 +291,30 @@ struct StatusDog: View {
     }
 }
 
-/// When to read: the same three choices and one Done on Home's sheet and in setup.
+/// When to process the rest: the same three choices and one button on Home's sheet and in setup. The button starts a
+/// long job, so it never says Done; with Not now picked it says Go to Home.
 struct ReadingChoice: View {
+    /// How the demo ended, first; nil after Skip the demo and on Home's sheet.
+    var ended: String?
+    /// Core's `ReadingProgress.rest`: nil until the phone's files are all counted.
+    let rest: KotlinLong?
     let charging: () -> Void
     let readNow: () -> Void
     let notNow: () -> Void
     @State private var selected = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(Words.shared.CHOOSE_TITLE).font(.title2.bold()).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
-            Text(Words.shared.MORE_FILES).fixedSize(horizontal: false, vertical: true)
-            Note(Words.shared.CHOOSE_PACE)
+            if let ended { Text(ended).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
+            Text(Words.shared.chooseTitle(words: Copy.words)).font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            Text(Words.shared.chooseBody(rest: rest)).fixedSize(horizontal: false, vertical: true)
+            Note(Words.shared.choosePace(words: Copy.words))
             let titles = [ReadingSchedule.charging.title, Words.shared.READ_15_NOW, Words.shared.NOT_NOW]
-            let details = [Words.shared.whileChargingBody(words: Copy.words), Words.shared.readNowBody(words: Copy.words), Words.shared.NOT_NOW_BODY]
+            let details = [
+                Words.shared.whileChargingBody(words: Copy.words), Words.shared.chargingAndNowBody(words: Copy.words), Words.shared.NOT_NOW_BODY,
+            ]
             ForEach(0..<3, id: \.self) { index in
                 Button {
                     selected = index
@@ -312,7 +322,20 @@ struct ReadingChoice: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: selected == index ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(titles[index]).font(.headline)
+                            let title = Text(titles[index]).font(.headline)
+                            if index == 0 {
+                                // Beside the title, or under it at accessibility sizes, so neither breaks mid-word.
+                                let layout =
+                                    typeSize.isAccessibilitySize
+                                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+                                layout {
+                                    title
+                                    if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                                    Text(Words.shared.RECOMMENDED).font(.subheadline.weight(.semibold))
+                                }
+                            } else {
+                                title
+                            }
                             Text(details[index]).font(.subheadline)
                         }
                         .fixedSize(horizontal: false, vertical: true)
@@ -327,7 +350,8 @@ struct ReadingChoice: View {
                 default: notNow()
                 }
             } label: {
-                Text(Words.shared.DONE).frame(maxWidth: .infinity)
+                Text(selected == 2 ? Words.shared.GO_TO_HOME : Words.shared.START_PROCESSING).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
             }.buttonStyle(.primaryAction).controlSize(.large)
         }
     }
@@ -339,6 +363,7 @@ struct CommitSheet: View {
     var body: some View {
         ScrollView {
             ReadingChoice(
+                rest: model.snap?.readProgress.rest,
                 charging: {
                     model.commit(whileCharging: true)
                     dismiss()

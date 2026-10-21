@@ -52,6 +52,9 @@ data class HomeUi(
     val trial: Boolean = false,
     /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
     val rest: Long = 0L,
+    /** Core's [ReadingProgress.counted] and [ReadingProgress.notNow]. */
+    val counted: Boolean = true,
+    val notNow: Boolean = false,
     /** Words from the person's own files for the search bar's "Try:"; null until core has answered (the view model's start). */
     val suggestions: List<String>? = emptyList(),
     val home: HomeFacts? = null,
@@ -78,6 +81,8 @@ data class HomeUi(
         trial,
         rereads,
         meaningWaiting,
+        counted = counted,
+        notNow = notNow,
     )
 
     fun withCounts(c: Store.Counts): HomeUi = copy(
@@ -92,6 +97,8 @@ data class HomeUi(
         waiting = c.progress.scheduled,
         rest = c.waiting,
         trial = c.trial,
+        counted = c.progress.counted,
+        notNow = c.progress.notNow,
     )
 
     /**

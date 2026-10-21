@@ -20,7 +20,8 @@ expect fun formatCount(n: Long): String
 
 /**
  * The sentences both apps show around numbers, dates and files, in plain words a first-time user knows: "your phone" or
- * "your files", never "library"; "found by name", never "name only"; Retriever "processes" files, never reads, analyzes,
+ * "your files", never "library"; "found by name", never "name only" (the one exception is [breakdown]'s "by name only",
+ * as demo-flow.md words it); Retriever "processes" files, never reads, analyzes,
  * indexes, learns or scans them; "processed in part", never "partly read"; "15 minutes", never "session"; nothing about
  * a "schedule". Sizes and dates stay with each platform's formatter.
  */
@@ -39,8 +40,26 @@ object Words {
 
     fun files(n: Long): String = plural(n, "file")
 
-    /** The status line's live count, as its detail's first sentence: "312 of 25,747 files done". */
-    fun filesDone(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} done"
+    /**
+     * Every count line, by the one count rule ([ReadingProgress.processed], [TasteProgress.done]): "30 of 25,793 files
+     * processed". The bar beside it is exactly [done] / [total].
+     */
+    fun readOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} processed"
+
+    /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by meaning". */
+    fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by meaning"
+
+    /**
+     * Processing's Details: what the count's processed files are, then what is left. "535 found by what’s inside · 597 by
+     * name only · 4 in part · 25,125 to go"; in part and couldn't open only when there are some.
+     */
+    fun breakdown(progress: ReadingProgress): String = listOfNotNull(
+        "${formatCount(progress.read)} found by what’s inside",
+        "${formatCount(progress.nameOnly)} by name only",
+        progress.partlyRead.takeIf { it > 0 }?.let { "${formatCount(it)} in part" },
+        progress.couldntRead.takeIf { it > 0 }?.let { "${formatCount(it)} couldn’t be opened" },
+        notReadYet(progress.waiting),
+    ).joinToString(" · ")
 
     fun largeFiles(n: Long): String = "${files(n)} over 100${NBSP}MB"
 
@@ -135,13 +154,13 @@ object Words {
 
     // Shared actions.
 
-    /** Setup's way out before it ends (Try, Choose): Home, with the sample still reading. */
-    const val GO_TO_HOME = "Skip for now"
     const val CONTINUE = "Continue"
     const val TRY_AGAIN = "Try again"
     const val DOWNLOAD = "Download"
     const val NOT_NOW = "Not now"
     const val CANCEL = "Cancel"
+
+    /** Closes a sheet or dialog; never a button that starts work. */
     const val DONE = "Done"
     const val READ_FOR_15 = "Process for 15 minutes"
 
@@ -151,14 +170,22 @@ object Words {
     // Welcome. No download note: reading needs none.
     const val WELCOME_TITLE = "Find files by what’s inside"
 
-    /** The welcome's way past the sample: it skips the try, not the search. */
-    const val SEARCH_BY_NAME = "Skip the try"
+    /** The welcome's primary button once access is in place, and its text button, which leads to the choice. */
+    const val START_THE_DEMO = "Start the demo"
+    const val SKIP_THE_DEMO = "Skip the demo"
 
-    /** One line above the welcome's buttons: what follows the access choice. */
-    const val NEXT_TRY = "Next, a one-minute try: Retriever processes a few of your recent files so you can search them right away."
+    /**
+     * Above the welcome's buttons: what follows the access choice, and what "process" means, said once. "Up to": the files
+     * are not picked yet.
+     */
+    fun welcomeNext(words: DeviceWords): String =
+        "Next, a short demo. Retriever processes up to $DEMO_FILES of your recent files, so you can watch it work and search them. " +
+            "Processing means Retriever looks at the words and pictures inside a file, here on your ${words.device}. " +
+            "Nothing is changed, copied or sent. It takes a minute or two."
 
-    /** The welcome's primary button once access is in place. */
-    const val START_THE_TRY = "Start the one-minute try"
+    /** The welcome's second paragraph. */
+    fun welcomeAfterDemo(words: DeviceWords): String = "After the demo, you choose when Retriever processes the rest of your ${words.device}. " +
+        "That takes hours, so most people let it happen while the ${words.device} charges."
     const val WELCOME_BODY = "Remember what it says or shows, even if you’ve forgotten the name."
 
     /** The welcome's privacy promise, on its own line and larger than the body. */
@@ -187,94 +214,139 @@ object Words {
 
     fun iosAccessNote(words: DeviceWords): String = "iOS lets Retriever see your photos and the folders you pick in Files."
 
-    // The sample.
-    const val SAMPLE_TITLE = "Try it on your own files"
+    // The demo: processing and search on one screen.
 
-    /** The sample's count line before its plan exists. */
-    const val SAMPLE_PICKING = "Trying a few of your recent files to show you how it works. About a minute. Nothing is changed or sent."
+    /** The demo's title: it describes, never orders. [files]: [TasteProgress.planned], 0 before the files are picked. */
+    fun demoTitle(files: Long): String = when (files) {
+        0L -> "A short demo on your recent files"
+        1L -> "A short demo on your most recent file"
+        else -> "A short demo on ${formatCount(files)} of your recent files"
+    }
 
-    /** The sample's muted line once it has read everything it planned. */
-    const val SAMPLE_DONE = "All done. Now try finding something."
-    const val TRY_SEARCH = "Try search"
+    /** The count line, and the muted line under it, while the files are picked (under a second). */
+    const val DEMO_PICKING = "Picking your recent files…"
+    const val DEMO_PICKING_NOTE = "You can search them while you wait."
 
-    /** A sample file whose content is all searchable. */
+    /**
+     * The muted line while the demo processes: the time left once measured ([TasteProgress.secondsLeft]), else "About a
+     * minute.". Paused, the app shows the pause's reason ([ReadingStatus.pause]); done, [demoDone].
+     */
+    fun demoNote(secondsLeft: Int?): String {
+        val s = secondsLeft ?: return "About a minute."
+        val minutes = (s / 60.0).roundToInt()
+        return when {
+            s < 60 -> "Less than a minute left."
+            minutes == 1 -> "About a minute left."
+            else -> "About $minutes minutes left."
+        }
+    }
+
+    /** The muted line once the demo is done. [rest]: [ReadingProgress.rest], null until the phone's files are all counted. */
+    fun demoDone(rest: Long?, words: DeviceWords): String = "The demo is done." + when (rest) {
+        null -> " Next: the rest of your files."
+        0L -> ""
+        1L -> " Next: the other file on your ${words.device}."
+        else -> " Next: the other ${files(rest)} on your ${words.device}."
+    }
+
+    /** The demo's search field. */
+    const val SEARCH_DEMO = "Search the demo files"
+
+    /** The chips' slot until the demo has three suggestions. */
+    const val DEMO_HINT = "Type a word you remember from a recent photo, screenshot or document."
+
+    /**
+     * Above the demo's results: names cover the whole phone, words inside only the demo's [done] files. [finished]: the
+     * demo is done ([TasteProgress.pending] is 0).
+     */
+    fun demoSearchScope(done: Long, finished: Boolean, words: DeviceWords): String = when {
+        finished -> "Finds any file on your ${words.device} by its name, and looks inside the ${plural(done, "demo file")}."
+
+        // The first frame: nothing processed yet, so no "0 demo files".
+        done == 0L -> "Finds any file on your ${words.device} by its name."
+
+        else -> "Finds any file on your ${words.device} by its name. Looks inside the ${plural(done, "demo file")} processed so far."
+    }
+
+    /** Opens the list of the demo's files, each with its note. */
+    fun seeAll(files: Long): String = if (files == 1L) "See the file" else "See the ${files(files)}"
+
+    /** A demo file whose content is all searchable. */
     const val READ = "Found by what’s inside"
     const val FOUND_BY_NAME = "Found by name"
 
     /** File info's row for [readingLabel]. */
     const val FOUND_BY = "Found by"
 
-    /** No total while [pending] files are left, since the plan can still shrink (124 must never become 86 on screen). */
-    fun seeAll(files: Long, pending: Long): String = if (pending > 0) "See the files" else "See all ${files(files)}"
-
-    /**
-     * The sample's count: "79 files processed" while [pending] files are left, since the plan can still shrink and "of 124"
-     * would become "of 86"; "84 of 86 files processed" once it stops changing.
-     */
-    fun readOf(read: Long, planned: Long, pending: Long = 0): String =
-        if (pending > 0) readCount(read) else "${formatCount(read)} of ${files(planned)} processed"
-
-    /**
-     * The sample's muted line while it reads, null otherwise (paused or done), so no stale time stays on screen: the time
-     * left once measured ([TasteProgress.secondsLeft]), then whether search can be tried yet ([TasteProgress.readyToTry]).
-     */
-    fun sampleNote(reading: Boolean, readyToTry: Boolean, secondsLeft: Int?): String? {
-        if (!reading) return null
-        val time = secondsLeft?.let {
-            val minutes = (it / 60.0).roundToInt()
-            when {
-                it < 60 -> "Less than a minute left."
-                minutes == 1 -> "About a minute left."
-                else -> "About $minutes minutes left."
-            }
-        }
-        return when {
-            !readyToTry -> listOfNotNull(time, "You can try search once a few files are processed.").joinToString(" ")
-            time == null -> "Ready to try. Search for a word you remember from a recent file."
-            else -> "$time Ready to try."
-        }
-    }
-
     /** For a screen reader, never on screen: "12 of 40 photos processed". */
     fun kindRead(read: Long, planned: Long, kind: Kind): String =
         "${formatCount(read)} of ${formatCount(planned)} ${kindLabelPlural(kind).let { if (kind == Kind.PDF) it else it.lowercase() }} processed"
 
-    // Try.
-    const val TRY_TITLE = "Find a file you know"
-    const val TRY_BODY = "Type something you remember from it, like a name, a place or an amount, or tap a suggestion."
-    const val TRY_WITHOUT_SUGGESTIONS = "Open one of these files, then type something you remember from it."
-    const val FILES_TO_TRY = "Files you can try"
     const val CHOOSE_WHEN = "Choose when to process"
 
-    /** Labels words from the person's own files wherever they are offered (Home's search suggestions with no history). */
+    /** Labels words from the person's own files wherever they are offered (the demo's chips, Home's search with no history). */
     const val TRY_LABEL = "Try:"
 
-    /** Try's scope: names cover the whole library, words inside only the [read] files ([TasteProgress.read]). */
-    fun searchingTry(read: Long): String = "Searching every file’s name, and inside the ${files(read)} processed so far."
+    // When to process the rest: after the demo, and from Home's status line.
 
-    // Choose when to process, after Try and from Home's status line.
-    const val CHOOSE_TITLE = "When should Retriever process your files?"
-    const val MORE_FILES = "You can already find every file by its name. To find them by what’s inside, Retriever needs to process them."
+    /**
+     * The choice's first line: how the demo ended, null after Skip the demo ([skipped]) or with no demo. [done] and
+     * [planned]: [TasteProgress.done] and [TasteProgress.planned].
+     */
+    fun demoEnded(done: Long, planned: Long, skipped: Boolean): String? = when {
+        skipped || planned == 0L -> null
+        done >= planned -> "Demo done: ${readOf(done, planned)}"
+        else -> "Demo stopped at ${formatCount(done)} of ${formatCount(planned)}."
+    }
 
-    /** No hours or nights: the estimate is not calibrated yet ([ESTIMATE_CALIBRATED]). */
-    const val CHOOSE_PACE = "It processes a bit each time, so it can take a while. You can use Retriever the whole time."
-    const val READ_15_NOW = "Process for 15 minutes now"
-    const val NOT_NOW_BODY = "You can choose later in Settings."
+    fun chooseTitle(words: DeviceWords): String = "Now, the rest of your ${words.device}"
 
+    /** [rest]: [ReadingProgress.rest]; null until the phone's files are all counted, so no number that still grows. */
+    fun chooseBody(rest: Long?): String = when (rest) {
+        null -> "The rest of your files aren’t processed yet. Until they are, you can find them by name, but not by what’s inside."
+        1L -> "1 file isn’t processed yet. Until it is, you can find it by name, but not by what’s inside."
+        else -> "${files(rest)} aren’t processed yet. Until they are, you can find them by name, but not by what’s inside."
+    }
+
+    /** No figure: the estimate is not calibrated yet ([ESTIMATE_CALIBRATED]). */
+    fun choosePace(words: DeviceWords): String =
+        "Processing them takes hours, so Retriever does a little at a time. You can use your ${words.device} and Retriever the whole time."
+
+    /** Beside the first option, While charging. */
+    const val RECOMMENDED = "Recommended"
+    const val READ_15_NOW = "While charging, and 15 minutes now"
+    const val NOT_NOW_BODY = "Only names can be found until you choose. You can choose any time from Home."
+
+    /** The choice's button: it starts a long job, so never "Done"; [GO_TO_HOME] when Not now is picked. */
+    const val START_PROCESSING = "Start processing"
+    const val GO_TO_HOME = "Go to Home"
+
+    /** While charging, on the choice and in Settings' When to process. */
     fun whileChargingBody(words: DeviceWords): String =
-        "Best choice. Only while your ${words.device} is charging and you’re not using it. You can pause any time."
+        "When your ${words.device} is charging and you’re not using it, usually overnight. You can pause any time."
 
+    /** [READ_15_NOW]'s line on the choice. */
+    fun chargingAndNowBody(words: DeviceWords): String =
+        "Starts right away and uses some battery, then carries on while charging." + if (words.ios) " Keep Retriever open." else ""
+
+    /** Settings' Process for 15 minutes. */
     fun readNowBody(words: DeviceWords): String = "Uses some battery. Stops early if your ${words.device} gets warm. Then carries on while charging." +
         if (words.ios) " Keep Retriever open." else ""
 
     /**
-     * The notification ask's body (Android). The sample's line only while an undecided [sample] still has files to read
-     * and is not ready to try: once it is, its one message is already claimed, so the line would promise a message that
-     * never comes.
+     * The notification ask's body (Android). The demo's line only while the demo runs ([SetupInputs.demoRunning]) with files
+     * still to process: once it is stopped, skipped or decided there is no demo message to promise.
      */
-    fun notificationsAsk(decided: Boolean, sample: TasteProgress): String =
+    fun notificationsAsk(demoRunning: Boolean, demo: TasteProgress): String =
         "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts." +
-            if (!decided && !sample.readyToTry && sample.pending > 0) " We can also let you know when your sample is ready." else ""
+            if (demoRunning && demo.pending > 0) " We can also let you know when the demo is done." else ""
+
+    // The notification channel and the one demo-done notice (Android).
+    const val PROGRESS_CHANNEL = "Processing progress"
+    const val PROGRESS_CHANNEL_BODY = "Shows how far processing has got, and once when the demo is done."
+    const val DEMO_DONE_NOTICE_TITLE = "The demo is done"
+
+    fun demoDoneNotice(done: Long, planned: Long): String = "${readOf(done, planned)}. Open Retriever to search them."
 
     // Search.
     const val SEARCH_FIELD = "What are you looking for?"

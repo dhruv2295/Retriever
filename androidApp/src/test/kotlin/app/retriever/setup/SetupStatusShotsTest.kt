@@ -6,13 +6,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -41,11 +46,9 @@ import app.retriever.core.SourceFile
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.TasteProgress
-import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.HomeUi
-import app.retriever.model.UpgradeUi
 import app.retriever.search.SearchActions
 import app.retriever.search.SearchPane
 import app.retriever.search.SearchUi
@@ -116,8 +119,9 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.wholeDeviceNote(DeviceWords.ANDROID)).assertExists()
         rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertExists()
         rule.onNodeWithText(Words.CHOOSE_INSTEAD).assertExists()
-        rule.onNodeWithText(Words.NEXT_TRY).assertExists()
-        rule.onNodeWithText(Words.SEARCH_BY_NAME).assertExists()
+        rule.onNodeWithText(Words.welcomeNext(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.welcomeAfterDemo(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.SKIP_THE_DEMO).assertExists()
         rule.onNodeWithText(Words.ALL_FILES_OFF).assertDoesNotExist()
         // No download on the way in.
         rule.onAllNodesWithText("MB", substring = true).assertCountEquals(0)
@@ -130,12 +134,12 @@ class SetupStatusShotsTest {
 
     @Test fun welcomeButtonsCallTheirActions() {
         val calls = mutableListOf<String>()
-        val actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }, searchByName = { calls += "names" })
+        val actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }, skipDemo = { calls += "skip" })
         setup("setup_welcome_buttons", welcome, actions = actions)
-        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).performScrollTo().performClick()
+        rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).performClick()
         rule.onNodeWithText(Words.CHOOSE_INSTEAD).performScrollTo().performClick()
-        rule.onNodeWithText(Words.SEARCH_BY_NAME).performScrollTo().performClick()
-        assertEquals(listOf("files", "choose", "names"), calls)
+        rule.onNodeWithText(Words.SKIP_THE_DEMO).performClick()
+        assertEquals(listOf("files", "choose", "skip"), calls)
     }
 
     /** Back from Settings with the switch still off: what to do, under the button. */
@@ -145,17 +149,28 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertExists()
     }
 
-    /** All-files access already on: Continue confirms it, with no trip to Settings. */
-    @Test fun welcomeWithAllFilesContinuesWithoutSettings() {
+    private val granted = SetupUi(setup = SetupInputs(accessGiven = true), access = Access.ALL)
+
+    /** All-files access already on: Start the demo confirms it, with no trip to Settings. */
+    @Test fun welcomeWithAllFilesStartsTheDemoWithoutSettings() {
         val calls = mutableListOf<String>()
-        val granted = SetupUi(setup = SetupInputs(accessGiven = true), access = Access.ALL)
-        setup("setup_welcome_ready_light", granted, actions = SetupActions(allowFiles = { calls += "settings" }, continueFromAccess = { calls += "continue" }))
+        setup("demo_welcome_light", granted, actions = SetupActions(allowFiles = { calls += "settings" }, continueFromAccess = { calls += "continue" }))
         rule.onNodeWithText(Words.WHOLE_PHONE_READY).assertExists()
         rule.onNodeWithText(Words.SEARCH_WHOLE_PHONE).assertDoesNotExist()
-        rule.onNodeWithText(Words.NEXT_TRY).assertExists()
-        rule.onNodeWithText(Words.START_THE_TRY).performScrollTo().performClick()
+        rule.onNodeWithText(Words.welcomeNext(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.SKIP_THE_DEMO).assertExists()
+        rule.onNodeWithText(Words.START_THE_DEMO).performClick()
         assertEquals(listOf("continue"), calls)
     }
+
+    /** At font 1.0 on a 411×891 phone both choices show without scrolling: they are pinned below the welcome. */
+    @Test fun welcomeShowsBothChoicesWithoutScrolling() {
+        setup("demo_welcome_fits_light", granted)
+        rule.onNodeWithText(Words.START_THE_DEMO).assertIsDisplayed()
+        rule.onNodeWithText(Words.SKIP_THE_DEMO).assertIsDisplayed()
+    }
+
+    @Test fun welcomeReadyDark() = setup("demo_welcome_dark", granted, dark = true)
 
     // --- Choose what to include ---
 
@@ -207,288 +222,221 @@ class SetupStatusShotsTest {
         assertEquals(listOf("media", "folder", "continue"), calls)
     }
 
-    // --- The sample ---
+    // --- The demo ---
 
-    /** [read] of a 71-file plan; Name only files are done without being read, so pending is what is left. */
-    private fun progress(read: Int, pending: Int = 71 - read): TasteProgress {
-        val plan = linkedMapOf(Kind.SCREENSHOT to 15, Kind.DOC to 12, Kind.PDF to 10, Kind.PHOTO to 32, Kind.VIDEO to 2)
+    /** [read] of a 30-file plan; name-only files are done without being read, so pending is what is left. */
+    private fun progress(read: Int, pending: Int = 30 - read): TasteProgress {
+        val plan = linkedMapOf(Kind.SCREENSHOT to 6, Kind.DOC to 6, Kind.PDF to 4, Kind.PHOTO to 12, Kind.VIDEO to 2)
         var left = read
         val byKind = plan.mapValues { (_, n) -> minOf(left, n).also { left -= it } to n }
-        // The time left is measured once files are read: none before the first.
+        // The time left is measured once files are processed: none before the first.
         val secondsLeft = when {
             read == 0 -> null
             pending == 0 -> 0
             else -> 75
         }
-        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, secondsLeft, read >= 20, pending)
+        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, secondsLeft, pending, 30)
     }
 
     /** The plan's files, the first [read] of them read; every fourth one a document, the rest photos with previews. */
-    private fun planFiles(read: Int) = (0 until 71).map { i ->
+    private fun planFiles(read: Int) = (0 until 30).map { i ->
         val doc = i % 4 == 1
         val f = if (doc) {
             SourceFile("demo:doc-$i", "Notes $i.txt", "Documents", "text/plain", Kind.DOC, 2_000, 1_760_000_000_000)
         } else {
-            previewFiles[
-                i %
-                    previewFiles.size,
-            ]
+            previewFiles[i % previewFiles.size]
         }
-        SampleFile(i, f.copy(uri = "${f.uri}#$i"), i < read, if (i < read) null else "Waiting to read")
+        SampleFile(i, f.copy(uri = "${f.uri}#$i"), i < read, if (i < read) null else "Waiting")
     }
 
-    private val chosen = SetupInputs(SetupMark.ACCESS_CHOSEN, planned = 71, accessGiven = true)
-    private fun sample(read: Int, pending: Int = 71 - read, pause: String? = null) =
-        SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), pauseReason = pause)
+    private val chosen = SetupInputs(SetupMark.ACCESS_CHOSEN, planned = 30, accessGiven = true)
+    private fun sample(read: Int, pending: Int = 30 - read, pause: String? = null) =
+        SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), pauseReason = pause, rest = 25_763)
 
+    /** Access chosen, the files not picked yet. */
+    private val picking = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, null, 0, 0))
     private val start = sample(0)
+    private val processing = sample(12)
+    private val paused = sample(12, pause = "Waits until you charge")
 
-    /** Access chosen, the plan still syncing the library: nothing is counted and no file has arrived. */
-    private val planning = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, null, false))
-    private val readingFew = sample(30)
-    private val paused = sample(30, pause = "Waiting to charge")
-    private val readFew = sample(66, pending = 0)
+    /** 27 searchable inside and 3 name-only or couldn't open: the count and the bar still say 30 of 30. */
+    private val done = sample(27, pending = 0)
+    private val scoped = SearchUi(setUp = true, scope = (1L..30L).toList(), unread = 18, sampleDone = 12, samplePlanned = 30, photosRead = 12)
+    private val terms = listOf("invoice", "deposit", "lease")
 
-    @Test fun sampleStart() {
-        setup("setup_sample_start_light", start)
-        rule.onNodeWithText(Words.SAMPLE_PICKING).assertIsDisplayed()
-        rule.onNodeWithText(Words.TRY_SEARCH).assertIsNotEnabled()
-        rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
-        // No time before it is measured.
-        rule.onAllNodesWithText("left.", substring = true).assertCountEquals(0)
+    private fun demo(
+        name: String,
+        ui: SetupUi,
+        dark: Boolean = false,
+        fontScale: Float = 1f,
+        suggestions: List<String>? = terms,
+        actions: SetupActions = SetupActions(),
+    ) {
+        // The phone's own height at every text size: at 2.0 the body scrolls under the pinned footer.
+        rule.setContent { ShotTheme(dark, fontScale) { DemoContent(ui, scoped, SearchActions(), actions, suggestions = suggestions, reduceMotion = true) } }
+        rule.shot(name)
     }
 
-    @Test fun samplePlanningIsTheStart() {
-        setup("setup_sample_planning_light", planning)
-        rule.onNodeWithText(Words.SAMPLE_PICKING).assertIsDisplayed()
+    @Test fun demoPicking() {
+        demo("demo_picking_light", picking, suggestions = null)
+        rule.onNodeWithText(Words.demoTitle(0)).assertIsDisplayed()
+        rule.onNodeWithText(Words.DEMO_PICKING).assertIsDisplayed()
+        rule.onNodeWithText(Words.DEMO_PICKING_NOTE).assertIsDisplayed()
+        rule.onNodeWithText(Words.DEMO_HINT).assertIsDisplayed()
         rule.onAllNodesWithText(Words.readOf(0, 0)).assertCountEquals(0)
-        rule.onAllNodesWithText(Words.seeAll(0, 0)).assertCountEquals(0)
+        rule.onAllNodesWithText(Words.seeAll(0)).assertCountEquals(0)
         // The pile says where things stand but opens nothing yet.
-        rule.onNodeWithContentDescription(Words.SAMPLE_PICKING).assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        rule.onNodeWithContentDescription(Words.DEMO_PICKING).assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
+        // Search works from the first frame, and Continue is never grey.
+        rule.onNodeWithText(Words.SEARCH_DEMO).assertIsDisplayed()
+        rule.onNodeWithText(Words.CONTINUE).assertIsEnabled()
     }
 
-    /** A cold relaunch mid-sample: progress arrives before the files, and the files read by then land without settling. */
+    @Test fun demoPickingDark() = demo("demo_picking_dark", picking, dark = true, suggestions = null)
+
+    @Test fun demoProcessing() {
+        demo("demo_processing_light", processing)
+        rule.onNodeWithText(Words.demoTitle(30)).assertIsDisplayed()
+        rule.onNodeWithText(Words.readOf(12, 30)).assertIsDisplayed()
+        rule.onNodeWithText(Words.demoNote(75)).assertIsDisplayed()
+        rule.onNodeWithText("invoice").assertIsDisplayed()
+        rule.onAllNodesWithText(Words.DEMO_HINT).assertCountEquals(0)
+        rule.onNodeWithText(Words.seeAll(30)).assertIsDisplayed()
+        // No try, sample, Skip or Settings on the demo: Continue is the only way on.
+        listOf("Try search", "Skip", "sample", "Settings").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
+    }
+
+    @Test fun demoProcessingDark() = demo("demo_processing_dark", processing, dark = true)
+
+    @Test fun demoProcessingLargestText() = demo("demo_processing_text2", processing, fontScale = 2f)
+
+    /** Fewer than three suggestions: the hint holds the slot. */
+    @Test fun demoHintUntilThreeSuggestions() {
+        demo("demo_hint_light", processing, suggestions = terms.take(2))
+        rule.onNodeWithText(Words.DEMO_HINT).assertIsDisplayed()
+        rule.onAllNodesWithText("invoice").assertCountEquals(0)
+    }
+
+    @Test fun demoPaused() {
+        demo("demo_paused_light", paused)
+        rule.onNodeWithText("Waits until you charge").assertIsDisplayed()
+        rule.onAllNodesWithText("left.", substring = true).assertCountEquals(0)
+        rule.onNodeWithText(Words.readOf(12, 30)).assertIsDisplayed()
+    }
+
+    @Test fun demoPausedDark() = demo("demo_paused_dark", paused, dark = true)
+
+    @Test fun demoDone() {
+        var continued = false
+        demo("demo_done_light", done, actions = SetupActions(continueToCommit = { continued = true }))
+        // Name-only and couldn't-open files count: 30 of 30, not 27.
+        rule.onNodeWithText(Words.readOf(30, 30)).assertIsDisplayed()
+        rule.onNodeWithText(Words.demoDone(25_763, DeviceWords.ANDROID)).assertIsDisplayed()
+        rule.onAllNodesWithText("left.", substring = true).assertCountEquals(0)
+        rule.onNodeWithText(Words.CONTINUE).performClick()
+        assertTrue(continued)
+    }
+
+    @Test fun demoDoneDark() = demo("demo_done_dark", done, dark = true)
+
+    /** The spec's check on a 6.3" phone at default text: title, pile, count, chips, the field and Continue, no scroll. */
+    @Test fun demoFitsWithoutScrolling() {
+        demo("demo_fit_light", processing)
+        val field = rule.onNodeWithText(Words.SEARCH_DEMO).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithText(Words.CONTINUE).assertIsDisplayed()
+        val count = Words.readOf(12, 30)
+        val rows = listOf(
+            rule.onNodeWithText(Words.demoTitle(30)),
+            rule.onNodeWithContentDescription(count),
+            rule.onNodeWithText(count),
+            rule.onNodeWithText("lease"),
+        )
+        for (node in rows) {
+            val bounds = node.assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("$bounds above the footer $field", bounds.bottom <= field.top)
+        }
+    }
+
+    /**
+     * At twice the text the body scrolls under the pinned footer once it no longer fits. On a 411 × 891 window it still
+     * fits (demo_processing_text2), so this is a smaller phone's height.
+     */
+    @Test fun demoScrollsAtLargestText() {
+        RuntimeEnvironment.setQualifiers("+h640dp")
+        demo("demo_scroll_text2", processing, fontScale = 2f)
+        val continueTop = rule.onNodeWithText(Words.CONTINUE).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top
+        rule.onNodeWithText(Words.seeAll(30)).assertIsNotDisplayed().performScrollTo().assertIsDisplayed()
+        assertEquals(continueTop, rule.onNodeWithText(Words.CONTINUE).fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    /** A cold relaunch mid-demo: progress arrives before the files, and the files processed by then land without settling. */
     @Test fun theFirstDeliveryNeverReplaysThePile() {
-        val ui = mutableStateOf(readingFew.copy(sample = null))
+        val ui = mutableStateOf(processing.copy(sample = null))
         rule.mainClock.autoAdvance = false
-        rule.setContent { ShotTheme(false) { SetupContent(ui.value, reduceMotion = false) } }
+        rule.setContent { ShotTheme(false) { DemoContent(ui.value, scoped, SearchActions(), SetupActions(), reduceMotion = false) } }
         rule.mainClock.advanceTimeByFrame()
-        ui.value = readingFew
+        ui.value = processing
         rule.waitForIdle()
         rule.mainClock.advanceTimeByFrame()
-        fun top() = rule.onNodeWithTag("card:29", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        fun top() = rule.onNodeWithTag("card:11", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val first = top()
         rule.mainClock.advanceTimeBy(2_000)
         assertEquals(top(), first)
     }
 
-    @Test fun sampleStartBigText() = setup("setup_sample_start_text2", start, fontScale = 2f)
-
-    @Test fun sampleReading() {
-        setup("clarity_sample_light", readingFew)
-        rule.onAllNodesWithText(Words.readCount(30)).assertCountEquals(1)
-        rule.onNodeWithText("About a minute left. Ready to try.").assertExists()
-        rule.onNodeWithText(Words.TRY_SEARCH).assertIsEnabled()
-        rule.onAllNodesWithText("/", substring = true).assertCountEquals(0)
-        rule.onAllNodesWithText("Up to date").assertCountEquals(0)
-    }
-
-    /** A 6.3" phone at default text: the pile and both footer buttons fit with no scroll. */
-    @Test fun sampleFitsWithoutScrolling() {
-        setup("setup_sample_fit_light", readingFew)
-        val pile = rule.onNodeWithContentDescription(Words.readCount(30)).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val tryButton = rule.onNodeWithText(Words.TRY_SEARCH).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        rule.onNodeWithText(Words.GO_TO_HOME).assertIsDisplayed()
-        assertTrue("$pile above $tryButton", pile.bottom <= tryButton.top)
-    }
-
-    @Test fun sampleReadingDark() = setup("clarity_sample_dark", readingFew, dark = true)
-
-    @Test fun sampleReadingBigText() = setup("setup_sample_reading_text2", readingFew, fontScale = 2f)
-
-    @Test fun samplePaused() {
-        setup("setup_sample_paused_light", paused)
-        rule.onNodeWithText("Waiting to charge").assertExists()
-        rule.onAllNodesWithText("left.", substring = true).assertCountEquals(0)
-        rule.onNodeWithText(Words.readCount(30)).assertExists()
-    }
-
-    @Test fun samplePausedBigText() = setup("setup_sample_paused_text2", paused, fontScale = 2f)
-
-    @Test fun sampleDone() {
-        var tried = false
-        setup("setup_sample_done_light", readFew, actions = SetupActions(tryNow = { tried = true }))
-        // Five Name only files: the label counts what was read, the bar what is done.
-        rule.onNodeWithText(Words.readOf(66, 71)).assertExists()
-        rule.onNodeWithText(Words.SAMPLE_DONE).assertExists()
-        rule.onAllNodesWithText("left.", substring = true).assertCountEquals(0)
-        rule.onNodeWithText(Words.TRY_SEARCH).assertIsDisplayed().performClick()
-        assertEquals(true, tried)
-    }
-
-    @Test fun sampleDoneDark() = setup("setup_sample_done_dark", readFew, dark = true)
-
-    @Test fun sampleDoneBigText() = setup("setup_sample_done_text2", readFew, fontScale = 2f)
-
     @Test fun seeAllOpensFromThePileAndTheButton() {
         var opened = 0
-        setup("setup_sample_see_all", readingFew, actions = SetupActions(seeAll = { opened++ }))
-        rule.onNodeWithContentDescription(Words.readCount(30)).performClick()
-        // No total while the plan can still shrink.
-        rule.onNodeWithText(Words.seeAll(71, pending = 41)).performScrollTo().performClick()
+        demo("demo_see_all", processing, actions = SetupActions(seeAll = { opened++ }))
+        rule.onNodeWithContentDescription(Words.readOf(12, 30)).performClick()
+        rule.onNodeWithText(Words.seeAll(30)).performClick()
         assertEquals(2, opened)
     }
 
-    @Test fun theMascotWalksOnlyWhileTheSampleReads() {
+    @Test fun theMascotWalksOnlyWhileTheDemoProcesses() {
         assertEquals(MascotMood.WALKING, start.mood())
-        assertEquals(MascotMood.WALKING, planning.mood())
-        assertEquals(MascotMood.WALKING, readingFew.mood())
+        assertEquals(MascotMood.WALKING, picking.mood())
+        assertEquals(MascotMood.WALKING, processing.mood())
         assertEquals(MascotMood.RESTING, paused.mood())
-        assertEquals(MascotMood.RESTING, readFew.mood())
+        assertEquals(MascotMood.RESTING, done.mood())
         assertEquals(MascotMood.WELCOME, welcome.mood())
     }
 
-    /** Before core's first progress (picking): the title, the pile's placeholders, the count and the note, never blank. */
-    @Test fun theSampleNeverStartsBlank() {
-        setup("setup_sample_no_progress_light", planning.copy(taste = null))
-        rule.onNodeWithText(Words.SAMPLE_TITLE).assertIsDisplayed()
-        rule.onNodeWithText(Words.SAMPLE_PICKING).assertIsDisplayed()
-        rule.onNodeWithText(Words.sampleNote(reading = true, readyToTry = false, secondsLeft = null)!!).assertIsDisplayed()
+    /** Before core's first progress: the title, the pile's placeholders, the count and the note, never blank. */
+    @Test fun theDemoNeverStartsBlank() {
+        demo("demo_no_progress_light", picking.copy(taste = null), suggestions = null)
+        rule.onNodeWithText(Words.demoTitle(0)).assertIsDisplayed()
+        rule.onNodeWithText(Words.DEMO_PICKING).assertIsDisplayed()
+        rule.onNodeWithText(Words.DEMO_PICKING_NOTE).assertIsDisplayed()
     }
-
-    private fun centreX(text: String) = rule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.center.x
 
     private fun top(text: String) = rule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.top
 
-    private fun bottom(text: String) = rule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.bottom
-
-    /** Centred on the pile's axis, and every row in place from the first frame: picking, reading and done stand alike. */
-    @Test fun theSampleIsCentredAndNeverShifts() {
-        val ui = mutableStateOf(planning)
-        rule.setContent { ShotTheme(false) { SetupContent(ui.value, reduceMotion = true) } }
-        val titleTop = top(Words.SAMPLE_TITLE)
-        val countBottom = bottom(Words.SAMPLE_PICKING)
-        for (state in listOf(start, readingFew, readFew)) {
+    /** Every row in place from the first frame: picking, processing and done stand alike. */
+    @Test fun theDemoNeverShifts() {
+        val ui = mutableStateOf(picking)
+        rule.setContent { ShotTheme(false) { DemoContent(ui.value, scoped, SearchActions(), SetupActions(), suggestions = null, reduceMotion = true) } }
+        val countTop = top(Words.DEMO_PICKING)
+        val hintTop = top(Words.DEMO_HINT)
+        for (state in listOf(start, processing, done)) {
             ui.value = state
             rule.waitForIdle()
-            assertEquals(titleTop, top(Words.SAMPLE_TITLE))
-            val read = state.taste!!.read
-            val pending = state.taste.pending.toLong()
-            val count = if (read > 0) Words.readOf(read.toLong(), 71, pending) else Words.SAMPLE_PICKING
-            // The count sits on the bar whether it is the long picking sentence or a short count.
-            assertEquals(countBottom, bottom(count))
-            val pile = rule.onNodeWithContentDescription(count).fetchSemanticsNode().boundsInRoot.center.x
-            val dp = rule.density.density
-            for (text in listOf(Words.SAMPLE_TITLE, count, Words.seeAll(71, pending))) {
-                assertEquals("$text centred", pile / dp, centreX(text) / dp, 1f)
-            }
+            assertEquals(countTop, top(Words.readOf(state.taste!!.done.toLong(), 30)))
+            assertEquals(hintTop, top(Words.DEMO_HINT))
         }
-    }
-
-    /** Spare height is split above and below the group, not left as a band under it. */
-    @Test fun spareHeightIsSplitAboveAndBelow() {
-        RuntimeEnvironment.setQualifiers("+h1500dp")
-        val height = mutableStateOf(1_000.dp)
-        rule.setContent { ShotTheme(false) { Box(Modifier.height(height.value)) { SetupContent(readingFew, reduceMotion = true) } } }
-        val before = top(Words.SAMPLE_TITLE)
-        height.value = 1_200.dp
-        rule.waitForIdle()
-        assertEquals(100f, (top(Words.SAMPLE_TITLE) - before) / rule.density.density, 2f)
     }
 
     /** A pile narrower than its full size keeps its shape: each card's offset shrinks with the cards, as on iOS. */
     @Test fun pileSlotsShrinkWithThePile() {
-        val cards = planFiles(4).take(4)
-        rule.setContent { ShotTheme(false) { Box(Modifier.width(112.dp)) { SamplePile(cards, emptyList(), true, "pile", "see", null) } } }
+        val cards = planFiles(3).take(3)
+        rule.setContent { ShotTheme(false) { Box(Modifier.width(96.dp)) { SamplePile(cards, emptyList(), true, "pile", "see", null) } } }
         fun centre(i: Int) = rule.onNodeWithTag("card:$i", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.center
-        val scale = 112f / SamplePile.FOOTPRINT_DP
+        val scale = 96f / SamplePile.FOOTPRINT_DP
         val dp = rule.density.density
-        assertEquals(SamplePile.dx(3) * scale, (centre(3).x - centre(0).x) / dp, 0.5f)
-        assertEquals(SamplePile.dy(3) * scale, (centre(3).y - centre(0).y) / dp, 0.5f)
+        assertEquals(SamplePile.dx(2) * scale, (centre(2).x - centre(0).x) / dp, 0.5f)
+        assertEquals(SamplePile.dy(2) * scale, (centre(2).y - centre(0).y) / dp, 0.5f)
     }
 
-    // --- Try it and the commit choice ---
-
-    private val tryUi = readFew.copy(setup = chosen.copy(mark = SetupMark.TRYING))
-    private val scoped = SearchUi(setUp = true, scope = (1L..79L).toList(), unread = 31, sampleRead = 48, photosRead = 12)
     private fun file(name: String, kind: Kind) = SourceFile("demo:$name", name, "Pictures", "image/png", kind, 120_000, 1_760_000_000_000)
-
-    @Test fun tryWithoutSuggestionsLight() {
-        shot("setup_tryit_empty_light") { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
-        rule.onNodeWithText(Words.TRY_TITLE).assertExists()
-        rule.onNodeWithText(Words.searchingTry(tryUi.taste!!.read.toLong())).assertExists()
-        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
-        rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
-        rule.onNodeWithText(Words.GO_TO_HOME).assertExists()
-        rule.onAllNodesWithText("Settings").assertCountEquals(0)
-    }
-
-    @Test fun tryWithSuggestionsShowsThree() {
-        val terms = mutableStateOf(emptyList<String>())
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
-        terms.value = listOf("invoice", "deposit", "lease")
-        rule.waitForIdle()
-        rule.onNodeWithText("invoice").assertExists()
-        rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
-        rule.shot("setup_tryit_suggestions_light")
-    }
-
-    /** The suggestions (or the line without them) land in a row held from the first frame: nothing below moves. */
-    @Test fun trySuggestionsArriveWithoutMovingThePage() {
-        val terms = mutableStateOf<List<String>?>(null)
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        val before = top(Words.FILES_TO_TRY)
-        rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
-        terms.value = listOf("invoice", "deposit", "lease")
-        rule.waitForIdle()
-        rule.onNodeWithText("invoice").assertExists()
-        assertEquals(before, top(Words.FILES_TO_TRY))
-    }
-
-    @Test fun tryWithoutSuggestionsHoldsTheSameRow() {
-        val terms = mutableStateOf<List<String>?>(null)
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        val before = top(Words.FILES_TO_TRY)
-        terms.value = emptyList()
-        rule.waitForIdle()
-        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
-        assertEquals(before, top(Words.FILES_TO_TRY))
-    }
-
-    /** The phone's bug: the scope line waited for the search's scope and landed a moment late, pushing the grid down. */
-    @Test fun tryScopeLineIsThereOnTheFirstFrame() {
-        val search = mutableStateOf(scoped.copy(scope = null))
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, search.value, SearchActions(), SetupActions()) } }
-        rule.onNodeWithText(Words.searchingTry(tryUi.taste!!.read.toLong())).assertExists()
-        val before = top(Words.FILES_TO_TRY)
-        search.value = scoped
-        rule.waitForIdle()
-        assertEquals(before, top(Words.FILES_TO_TRY))
-    }
-
-    /** One body at a time, as on iOS: the line without suggestions replaces the body, not joins it. */
-    @Test fun tryShowsOneBodyAtATime() {
-        val terms = mutableStateOf<List<String>?>(listOf("invoice"))
-        rule.setContent { ShotTheme(false) { TryItContent(tryUi, scoped, SearchActions(), SetupActions(), suggestions = terms.value) } }
-        rule.onNodeWithText(Words.TRY_BODY).assertExists()
-        rule.onAllNodesWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertCountEquals(0)
-        terms.value = emptyList()
-        rule.waitForIdle()
-        rule.onNodeWithText(Words.TRY_WITHOUT_SUGGESTIONS).assertExists()
-        rule.onAllNodesWithText(Words.TRY_BODY).assertCountEquals(0)
-    }
-
-    @Test fun tryOffersTheUpgradeOnceSearched() {
-        shot("setup_tryit_upgrade_light") {
-            TryItContent(tryUi, scoped, SearchActions(), SetupActions(), upgrade = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976))
-        }
-        rule.onNodeWithText(Words.UPGRADE_TITLE).assertExists()
-    }
-
-    @Test fun tryEmptyDark() = shot("setup_tryit_empty_dark", dark = true) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
-
-    @Test fun tryEmptyBigText() = shot("setup_tryit_empty_text1_5", fontScale = 1.5f) { TryItContent(tryUi, scoped, SearchActions(), SetupActions()) }
 
     private val answered = scoped.answered(
         "boarding pass",
@@ -498,58 +446,92 @@ class SetupStatusShotsTest {
         ),
     )
 
-    @Test fun tryItAfterSearchLight() {
-        shot("setup_tryit_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
-        rule.onNodeWithText(Words.searchingTry(48)).assertExists()
-        rule.onNodeWithText("Still processing 31 more").assertExists()
+    /** Above the demo's results: names cover the whole phone, the words inside only the demo files processed so far. */
+    @Test fun demoResultsSayWhatTheySearch() {
+        shot("demo_results_light") { SearchPane(answered, HomeUi(), SearchActions()) }
+        rule.onNodeWithText(Words.demoSearchScope(12, finished = false, words = DeviceWords.ANDROID)).assertExists()
         rule.onAllNodesWithText("Photos").assertCountEquals(0)
     }
 
-    @Test fun tryItAfterSearchDark() = shot("setup_tryit_results_dark", dark = true) { SearchPane(answered, HomeUi(), SearchActions()) }
-
-    @Test fun tryItAfterSearchBigText() = shot("setup_tryit_results_text1_5", fontScale = 1.5f) { SearchPane(answered, HomeUi(), SearchActions()) }
-
-    @Test fun tryGoesHomeWhenNothingIsLeft() {
-        shot("setup_tryit_done_light") { TryItContent(tryUi.copy(moreFiles = 0), scoped, SearchActions(), SetupActions()) }
-        rule.onAllNodesWithText(Words.GO_TO_HOME).assertCountEquals(2)
-        rule.onAllNodesWithText(Words.CHOOSE_WHEN).assertCountEquals(0)
+    @Test fun demoResultsOnceDone() {
+        shot("demo_results_done_light") { SearchPane(answered.copy(unread = 0, sampleDone = 30), HomeUi(), SearchActions()) }
+        rule.onNodeWithText(Words.demoSearchScope(30, finished = true, words = DeviceWords.ANDROID)).assertExists()
     }
 
-    private val commitUi = tryUi.copy(setup = chosen.copy(mark = SetupMark.CHOOSING))
+    @Test fun demoResultsDark() = shot("demo_results_dark", dark = true) { SearchPane(answered, HomeUi(), SearchActions()) }
 
-    @Test fun commitLight() {
-        shot("clarity_choose_light") { SetupContent(commitUi) }
-        rule.onNodeWithText(Words.CHOOSE_TITLE).assertExists()
-        rule.onNodeWithText(Words.CHOOSE_PACE).assertExists()
-        // No hours, nights, sessions or schedules.
-        listOf("hour", "night", "session", "schedule", "library").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
-        // The count above says what is waiting; where it comes from was never true of whole-phone access.
-        rule.onAllNodesWithText("From your selected", substring = true).assertCountEquals(0)
+    // --- When to process the rest ---
+
+    private val afterDemo = done.copy(setup = chosen.copy(mark = SetupMark.CHOOSING))
+    private val afterSkip = SetupUi(setup = SetupInputs(SetupMark.ACCESS_CHOSEN, skipped = true, accessGiven = true), access = Access.ALL, rest = 25_793)
+
+    @Test fun chooseAfterTheDemo() {
+        shot("demo_choose_after_demo_light") { SetupContent(afterDemo) }
+        rule.onNodeWithText(Words.demoEnded(30, 30, skipped = false)!!).assertExists()
+        rule.onNodeWithText(Words.chooseTitle(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.chooseBody(25_763)).assertExists()
+        rule.onNodeWithText(Words.choosePace(DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.RECOMMENDED).assertExists()
+        // No sessions, schedules or "Done" on a button that starts hours of work.
+        listOf("session", "schedule", "library").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
+        rule.onAllNodesWithText(Words.DONE).assertCountEquals(0)
+        rule.onNodeWithText(Words.START_PROCESSING).assertExists()
     }
 
-    @Test fun commitDark() = shot("clarity_choose_dark", dark = true) { SetupContent(commitUi) }
+    @Test fun chooseAfterTheDemoDark() = shot("demo_choose_after_demo_dark", dark = true) { SetupContent(afterDemo) }
 
-    @Test fun commitBigText() = shot("setup_commit_text1_5", fontScale = 1.5f) { SetupContent(commitUi) }
+    @Test fun chooseAfterAStoppedDemo() {
+        shot("demo_choose_stopped_light") { SetupContent(processing.copy(setup = chosen.copy(mark = SetupMark.CHOOSING))) }
+        rule.onNodeWithText(Words.demoEnded(12, 30, skipped = false)!!).assertExists()
+    }
 
-    @Test fun threeButtonsCallTheirActions() {
+    @Test fun chooseAfterSkip() {
+        shot("demo_choose_after_skip_light") { SetupContent(afterSkip) }
+        rule.onAllNodesWithText("Demo", substring = true).assertCountEquals(0)
+        rule.onNodeWithText(Words.chooseBody(25_793)).assertExists()
+    }
+
+    @Test fun chooseAfterSkipDark() = shot("demo_choose_after_skip_dark", dark = true) { SetupContent(afterSkip) }
+
+    /** Before the phone's files are all counted, no number that still grows. */
+    @Test fun chooseBeforeTheCount() {
+        shot("demo_choose_uncounted_light") { SetupContent(afterSkip.copy(rest = null)) }
+        rule.onNodeWithText(Words.chooseBody(null)).assertExists()
+    }
+
+    @Test fun chooseBigText() = shot("demo_choose_text1_5", fontScale = 1.5f) { SetupContent(afterDemo) }
+
+    /** Spare height is split above and below the group, not left as a band under it. */
+    @Test fun spareHeightIsSplitAboveAndBelow() {
+        RuntimeEnvironment.setQualifiers("+h1500dp")
+        val height = mutableStateOf(1_000.dp)
+        rule.setContent { ShotTheme(false) { Box(Modifier.height(height.value)) { SetupContent(afterSkip, reduceMotion = true) } } }
+        val title = Words.chooseTitle(DeviceWords.ANDROID)
+        val before = top(title)
+        height.value = 1_200.dp
+        rule.waitForIdle()
+        assertEquals(100f, (top(title) - before) / rule.density.density, 2f)
+    }
+
+    @Test fun threeOptionsCallTheirActions() {
         val calls = mutableListOf<String>()
         val actions = SetupActions(commit = { calls += "commit($it)" }, decideLater = { calls += "later" })
-        shot("setup_commit_buttons") { SetupContent(commitUi, actions = actions) }
+        shot("setup_commit_buttons") { SetupContent(afterDemo, actions = actions) }
         rule.onNodeWithText("While charging").performClick()
         assertEquals(emptyList<String>(), calls)
-        rule.onNodeWithText(Words.DONE).performClick()
+        rule.onNodeWithText(Words.START_PROCESSING).performClick()
         rule.onNodeWithText(Words.READ_15_NOW).performClick()
-        rule.onNodeWithText("Start processing").performClick()
+        rule.onNodeWithText(Words.START_PROCESSING).performClick()
         rule.onNodeWithText(Words.NOT_NOW).performClick()
-        rule.onNodeWithText(Words.DONE).performClick()
+        rule.onNodeWithText(Words.GO_TO_HOME).performClick()
         assertEquals(listOf("commit(true)", "commit(false)", "later"), calls)
     }
 
-    @Test fun continueAsksForTheCommitChoice() {
-        var continued = false
-        shot("setup_tryit_continue") { TryItContent(tryUi, scoped, SearchActions(), SetupActions(continueToCommit = { continued = true })) }
-        rule.onNodeWithText(Words.CHOOSE_WHEN).performScrollTo().performClick()
-        assertEquals(true, continued)
+    /** Radio rows: one selectable group, each row a radio button, so a screen reader says "1 of 3, selected". */
+    @Test fun theOptionsAreRadioRows() {
+        rule.setContent { ShotTheme(false) { SetupContent(afterDemo) } }
+        rule.onNodeWithText("While charging").assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsSelected()
+        rule.onNodeWithText(Words.NOT_NOW).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsNotSelected()
     }
 
     private val lowMemory = SetupUi(textOnly = true, ramGb = 3.0)
@@ -648,15 +630,20 @@ class SetupStatusShotsTest {
         status("clarity_status_reading_light", tall = true)
         rule.onNodeWithText(Words.READING_STATUS).assertExists()
         rule.onNodeWithText("Processing your files").assertExists()
-        // The headline's count and Details' are the same numbers: 3,412 processed and 8,118 to go of 11,530.
-        rule.onNodeWithText("3,412 of 11,530 files done.", substring = true).assertExists()
-        rule.onNodeWithText("3,412 files processed", substring = true).assertExists()
+        // The count and Details' breakdown are the same numbers: its parts add up to the count's X, and "to go" is Y − X.
+        val p = reading.progress
+        rule.onNodeWithText(Words.readOf(p.processed, p.libraryTotal)).assertExists()
+        rule.onNodeWithText(Words.breakdown(p)).assertExists()
+        rule.onAllNodesWithText("% done", substring = true).assertCountEquals(0)
         // Reading now keeps the file's name beside a small tile.
         rule.onNodeWithText(previewFiles.first().name).assertExists()
         rule.onNodeWithText("Pause").assertExists()
         rule.onNodeWithText("Details").assertExists()
-        rule.onNodeWithText(Words.notReadYet(8_118)).assertExists()
     }
+
+    @Test fun processingLight() = status("demo_status_light", tall = true)
+
+    @Test fun processingDark() = status("demo_status_dark", dark = true, tall = true)
 
     @Test fun statusReadingDark() = status("clarity_status_reading_dark", dark = true, tall = true)
 

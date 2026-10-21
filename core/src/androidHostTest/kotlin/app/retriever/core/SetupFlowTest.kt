@@ -42,8 +42,6 @@ class SetupFlowTest {
         process().planOrCommit()
         assertEquals(plan, store.tasteIds(), "a plan already made is kept, never redrawn")
 
-        process().setSetupMark(SetupMark.TRYING)
-        assertEquals(SetupStage.TRY, process().inputs().stage)
         process().setSetupMark(SetupMark.CHOOSING)
         assertEquals(SetupStage.CHOOSE, process().inputs().stage)
         process().decideLater()
@@ -62,17 +60,35 @@ class SetupFlowTest {
         assertEquals(SetupStage.WELCOME, inputs.stage)
     }
 
+    /** The Try screen is gone: a person who left the app on it comes back to the demo, not the welcome. */
     @Test
-    fun goToHomeIsRememberedAndTheSampleCarriesOn() = test {
+    fun aSavedTryingResumesTheDemo() = test {
+        val store = newStore()
+        val r = testRetriever(store, files, FakeExtractor())
+        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
+        r.planOrCommit()
+        store.setMeta(SETUP_MARK_KEY, "TRYING")
+        val back = testRetriever(store, files, FakeExtractor()).inputs()
+        assertEquals(SetupStage.SAMPLE to SetupStep.READ_SAMPLE, back.stage to back.step)
+    }
+
+    @Test
+    fun skipTheDemoLeadsToTheChoiceAndBackToTheWelcome() = test {
         val r = testRetriever(newStore(), files, FakeExtractor(), modelReady = { false })
         r.setSetupMark(SetupMark.ACCESS_CHOSEN)
         r.planOrCommit()
         r.skipFirstRun()
         val left = r.inputs()
         assertTrue(left.skipped)
-        assertFalse(left.showSetup)
-        assertEquals(SetupStage.DONE to SetupStep.READ_SAMPLE, left.stage to left.step)
-        assertTrue(r.hasPendingTaste(), "the sample still reads")
+        assertTrue(left.showSetup, "setup shows until a choice is made")
+        assertEquals(SetupStage.CHOOSE, left.stage)
+        assertFalse(r.hasPendingTaste(), "a skipped demo doesn't run in front")
+
+        r.setSetupMark(SetupPolicy.back(left.stage, left.skipped)!!)
+        val welcome = r.inputs()
+        assertEquals(SetupStage.WELCOME to false, welcome.stage to welcome.skipped)
+        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
+        assertEquals(SetupStage.SAMPLE, r.inputs().stage, "Start the demo after Back runs the demo")
     }
 
     @Test

@@ -73,21 +73,40 @@ class FileRulesTest {
         assertTrue(plan.seconds <= 90, "seconds=${plan.seconds}")
     }
 
+    /** A budget that picks fewer than the demo's 30, so the spread across time and the guards show uncut. */
+    private val uncut = FileRules.planTaste(big, { seeds.getValue(it.kind) }, 20.seconds)
+
+    /**
+     * The demo is at most 30 files, cut from the existing order: two of each kind first (videos by size, the rest the
+     * newest), so every kind the budget picked stays in.
+     */
+    @Test
+    fun theDemoIsThirtyFilesTwoOfEachKindFirst() {
+        assertEquals(DEMO_FILES, plan.ids.size)
+        assertEquals(plan.ids.size, plan.byKind.values.sum(), "byKind describes the cut plan")
+        assertEquals(seeds.keys, plan.byKind.keys)
+        val picks = plan.ids.map { byUri.getValue(it) }
+        for (kind in plan.byKind.keys - Kind.VIDEO) {
+            assertEquals(big.filter { it.kind == kind }.maxOf { it.modifiedAt }, picks.filter { it.kind == kind }.maxOf { it.modifiedAt }, "$kind")
+        }
+        assertTrue(plan.seconds <= 90)
+    }
+
     @Test
     fun planTasteCoversOldestBinAndNewest() {
+        assertTrue(uncut.ids.size < DEMO_FILES, "uncut")
         val photos = big.filter { it.kind == Kind.PHOTO }.sortedBy { it.modifiedAt }
-        val n = plan.byKind.getValue(Kind.PHOTO)
+        val n = uncut.byKind.getValue(Kind.PHOTO)
         val firstBin = photos.take(photos.size / (n - 2)).maxOf { it.modifiedAt }
-        val times = plan.ids.map { byUri.getValue(it) }.filter { it.kind == Kind.PHOTO }.map { it.modifiedAt }
+        val times = uncut.ids.map { byUri.getValue(it) }.filter { it.kind == Kind.PHOTO }.map { it.modifiedAt }
         assertTrue(times.min() <= firstBin)
         assertEquals(photos.last().modifiedAt, times.max())
-        assertEquals(plan.newest, big.maxOf { it.modifiedAt }.takeIf { it == plan.newest })
     }
 
     @Test
     fun planTasteHonoursBurstAndFolderGuards() {
-        for ((kind, n) in plan.byKind) {
-            val picks = plan.ids.map { byUri.getValue(it) }.filter { it.kind == kind }
+        for ((kind, n) in uncut.byKind) {
+            val picks = uncut.ids.map { byUri.getValue(it) }.filter { it.kind == kind }
             assertEquals(n, picks.size)
             for (a in picks) for (b in picks) if (a !== b) assertTrue(kotlin.math.abs(a.modifiedAt - b.modifiedAt) >= 3_600_000L)
             val cap = kotlin.math.ceil(0.4 * n).toInt()
