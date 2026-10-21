@@ -148,8 +148,14 @@ object Words {
     // Welcome. No download note: reading needs none.
     const val WELCOME_TITLE = "Find files by what’s inside"
 
-    /** The welcome's way past the sample: it skips the quick try, not the search. */
-    const val SEARCH_BY_NAME = "Skip the quick try"
+    /** The welcome's way past the sample: it skips the try, not the search. */
+    const val SEARCH_BY_NAME = "Skip the try"
+
+    /** One line above the welcome's buttons: what follows the access choice. */
+    const val NEXT_TRY = "Next, a one-minute try: Retriever processes a few of your recent files so you can search them right away."
+
+    /** The welcome's primary button once access is in place. */
+    const val START_THE_TRY = "Start the one-minute try"
     const val WELCOME_BODY = "Remember what it says or shows, even if you’ve forgotten the name."
 
     /** The welcome's privacy promise, on its own line and larger than the body. */

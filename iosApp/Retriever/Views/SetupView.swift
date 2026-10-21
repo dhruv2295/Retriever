@@ -93,13 +93,15 @@ private struct WelcomeStep: View {
             // In the content, not the footer: three stacked actions left no room for a label to wrap at larger text.
             Button(Words.shared.ADD_FOLDERS_FROM_FILES) { picking = true }.buttonStyle(.bordered)
             if let folderNote { Note(folderNote) }
+            // Last in the content, just above the footer: in the pinned footer it clipped at larger text.
+            Text(Words.shared.NEXT_TRY)
         } actions: {
-            // Access in place: Continue. Not asked yet: ask for all photos. Refused: only Settings can change it.
+            // Access in place: start the try. Not asked yet: ask for all photos. Refused: only Settings can change it.
             if model.accessGiven {
                 Button {
                     model.setSetupMark(.accessChosen)
                 } label: {
-                    wide(Words.shared.CONTINUE)
+                    wide(Words.shared.START_THE_TRY)
                 }.buttonStyle(.primaryAction)
             } else if model.photos == .notDetermined {
                 Button(action: model.requestPhotos) { wide(Words.shared.SEARCH_ALL_PHOTOS) }.buttonStyle(.primaryAction)
