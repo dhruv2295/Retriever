@@ -92,7 +92,7 @@ class TrialReviewRegressionTest {
         )
         repeat(3) { assertEquals(NextRun.DONE, r.indexBatch(120.seconds)) }
         assertEquals(3, source.calls.size)
-        monitor.state = monitor.state.copy(powerSave = false, charging = true)
+        monitor.state = monitor.state.copy(powerSave = false, charging = true, pluggedIn = true)
         assertEquals(NextRun.DONE, r.indexBatch(120.seconds))
         assertEquals(4, source.calls.size)
     }

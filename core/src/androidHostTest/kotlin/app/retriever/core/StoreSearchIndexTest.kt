@@ -379,4 +379,14 @@ class IndexEngineTest {
         assertEquals(StopReason.UNPLUGGED, result.stopReason)
         assertEquals(0, result.processed)
     }
+
+    @Test
+    fun aPluggedInPhoneReadsBeforeItsLevelRises() = runTest {
+        val store = newStore()
+        store.upsertFiles(CORPUS.keys.map { testFile(it) })
+        val monitor = FakeMonitor(DeviceState(8.0, charging = false, 84, Thermal.NONE, pluggedIn = true))
+        val result = engine(store, monitor = monitor).batch(requireCharging = true)
+        assertEquals(StopReason.DONE, result.stopReason)
+        assertEquals(CORPUS.size, result.processed)
+    }
 }

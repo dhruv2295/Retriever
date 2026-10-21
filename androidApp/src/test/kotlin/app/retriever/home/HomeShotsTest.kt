@@ -146,13 +146,12 @@ class HomeShotsTest {
         index: IndexState,
         actions: SearchActions = SearchActions(),
         recent: List<String>? = recents,
-        charging: Boolean = false,
         onResume: () -> Unit = {},
         onHideOnThisDay: () -> Unit = {},
         onCommit: (Boolean) -> Unit = {},
         celebration: Celebration = Celebration(),
     ) = SearchContent(SearchUi(recent = recent.orEmpty()), home, actions) { padding, state, side, fill ->
-        HomeBody(home, index, charging, recent, actions, onResume, {}, state, padding, side, fill, onHideOnThisDay, onCommit, celebration)
+        HomeBody(home, index, recent, actions, onResume, {}, state, padding, side, fill, onHideOnThisDay, onCommit, celebration)
     }
 
     private val reading = caughtUp.copy(
@@ -180,6 +179,8 @@ class HomeShotsTest {
             "commit" -> Screen(caughtUp.copy(rest = 26_214), IndexState(lastStop = StopReason.DONE), actions)
 
             "waiting" -> Screen(reading.copy(), IndexState(lastStop = StopReason.UNPLUGGED), actions)
+
+            "charging_up" -> Screen(reading.copy(), IndexState(lastStop = StopReason.CHARGING_UP), actions)
 
             "no_access" -> Screen(caughtUp.copy(hasAccess = false, libraryChosen = false), IndexState(lastStop = StopReason.DONE), actions)
 
@@ -261,12 +262,6 @@ class HomeShotsTest {
 
     @Test fun readingDark() = shot("reading", true)
 
-    @Test fun readingOnTheChargerDoesNotAdviseCharging() {
-        rule.setContent { ShotTheme(false) { Screen(reading, readingIndex, charging = true) } }
-        rule.onNodeWithText("Reading your files").assertExists()
-        rule.onNodeWithText("Faster while charging", substring = true).assertDoesNotExist()
-    }
-
     @Test fun pausedLight() {
         shot("paused", false)
         rule.onNodeWithText("Reading paused").assertExists()
@@ -340,6 +335,12 @@ class HomeShotsTest {
     @Test fun statusCardRestsWhileWaiting() {
         shot("waiting", false)
         rule.onNodeWithText("Waiting to charge").assertExists()
+    }
+
+    @Test fun pluggedInAtLowBatteryChargesUpFirst() {
+        shot("charging_up", false)
+        rule.onNodeWithText("Charging up first").assertExists()
+        rule.onNodeWithText("Reading starts once your battery has a bit more charge.", substring = true).assertExists()
     }
 
     @Test fun theDogPopsOnceWhenFirstFullyCaughtUp() {
@@ -682,7 +683,7 @@ class HomeShotsTest {
             ShotTheme(false) {
                 SearchContent(SearchUi(), caughtUp, SearchActions()) { padding, state, side, fill ->
                     HomeBody(
-                        caughtUp, IndexState(lastStop = StopReason.DONE), false, emptyList(), SearchActions(), {}, {}, state, padding, side, fill,
+                        caughtUp, IndexState(lastStop = StopReason.DONE), emptyList(), SearchActions(), {}, {}, state, padding, side, fill,
                         upgrade = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976), upgradeActions = UpgradeActions(notNow = {}),
                     )
                 }

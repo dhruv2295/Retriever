@@ -18,7 +18,7 @@ data class FileMetric(
     val cause: Throwable? = null,
 )
 
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, MANUAL }
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL }
 
 private class ReadingStopped(val reason: StopReason) : CancellationException()
 
@@ -201,7 +201,7 @@ class IndexEngine(
             busy -> StopReason.BUSY
             state.powerSave -> StopReason.POWER_SAVE
             state.hot && pauseWhenHot -> StopReason.HOT
-            requireCharging && !state.charging -> StopReason.UNPLUGGED
+            requireCharging && !state.pluggedIn -> StopReason.UNPLUGGED
             else -> null
         }
 

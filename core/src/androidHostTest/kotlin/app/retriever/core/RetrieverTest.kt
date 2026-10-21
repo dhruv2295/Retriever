@@ -184,6 +184,7 @@ class RetrieverTest {
             StopReason.BUDGET to NextRun.SOON,
             StopReason.HOT to NextRun.AFTER_COOLDOWN,
             StopReason.UNPLUGGED to NextRun.WHEN_CHARGING,
+            StopReason.CHARGING_UP to NextRun.WHEN_CHARGING,
             StopReason.BUSY to NextRun.WHEN_IDLE,
             StopReason.DONE to NextRun.DONE,
             StopReason.PAUSED to NextRun.DONE,

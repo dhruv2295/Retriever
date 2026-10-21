@@ -119,6 +119,7 @@ object ThermalRest {
     val STOP_AT = Thermal.MODERATE
 }
 
+/** [charging] is Android's "level rising", false for up to 15 minutes after plugging in below 90%; [pluggedIn] is on a charger. */
 data class DeviceState(
     val ramGb: Double,
     val charging: Boolean,
@@ -126,6 +127,7 @@ data class DeviceState(
     val thermal: Thermal,
     val screenOn: Boolean = false,
     val powerSave: Boolean = false,
+    val pluggedIn: Boolean = charging,
 ) {
     val hot: Boolean get() = thermal >= ThermalRest.STOP_AT
 }

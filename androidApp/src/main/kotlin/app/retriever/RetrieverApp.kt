@@ -69,17 +69,25 @@ class RetrieverApp :
         }
         Notifications.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-        // Screen-off hands a direct trial to durable work, or resumes a batch held back by another app.
+        // Screen-off hands a direct trial to durable work, or resumes a batch held back by another app. Plugging in resumes an
+        // open app's batch at once: WorkManager's charging constraint waits for the level to rise, up to 15 minutes.
         ContextCompat.registerReceiver(
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
                     scope.launch {
-                        if (intent.action == PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) index.powerSaveChanged() else index.screenOff()
+                        when (intent.action) {
+                            PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> index.powerSaveChanged()
+                            Intent.ACTION_POWER_CONNECTED -> resumeHeld(StopReason.UNPLUGGED)
+                            else -> index.screenOff()
+                        }
                     }
                 }
             },
-            IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED) },
+            IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
+                addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+                addAction(Intent.ACTION_POWER_CONNECTED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
     }
@@ -105,12 +113,8 @@ class RetrieverApp :
             if (retriever.uiVisible) retriever.warmSearch()
         }
         // The setup is null until start() settles it, which a cold start's first onStart beats.
-        scope.launch {
-            if (!libraryChosen() || !retriever.uiVisible) return@launch
-            // A batch held back for the charger, a busy phone or Battery Saver runs now, if the saved schedule allows it.
-            val held = retriever.state.value.lastStop.let { it == StopReason.UNPLUGGED || it == StopReason.BUSY || it == StopReason.POWER_SAVE }
-            if (!index.readTrial() && held && retriever.readingBlocker() == null) index.indexNow()
-        }
+        // A batch held back for the charger, a busy phone or Battery Saver runs now, if the saved schedule allows it.
+        scope.launch { if (resumable() && !index.readTrial()) resumeHeld(StopReason.UNPLUGGED, StopReason.BUSY, StopReason.POWER_SAVE) }
         scope.launch {
             // Picks setup and the upgrade up where they stopped, whichever screen the user comes back to. Built once
             // the setup settles, so they seed from what is stored.
@@ -119,6 +123,13 @@ class RetrieverApp :
             get<UpgradeFlow>().refresh()
         }
     }
+
+    /** With the app open, a batch whose last stop was one of [stops] runs now, unless something else still blocks it. */
+    private suspend fun resumeHeld(vararg stops: StopReason) {
+        if (resumable() && retriever.state.value.lastStop in stops && retriever.readingBlocker() == null) index.indexNow()
+    }
+
+    private suspend fun resumable() = libraryChosen() && retriever.uiVisible
 
     override fun onStop(owner: LifecycleOwner) {
         warmUp?.cancel()

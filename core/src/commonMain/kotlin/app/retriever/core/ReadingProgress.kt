@@ -33,6 +33,7 @@ enum class ReadingPhase(val title: String? = null) {
     POWER_SAVE,
     HOT,
     LOW_BATTERY,
+    CHARGING_UP,
     BUSY,
     CHARGING,
     MANUAL,
@@ -74,11 +75,11 @@ object ReadingPolicy {
         prefs.paused -> StopReason.PAUSED
         device.powerSave -> StopReason.POWER_SAVE
         device.hot -> StopReason.HOT
-        !device.charging && (lowBattery || device.batteryPct in 0..LOW_BATTERY) -> StopReason.LOW_BATTERY
+        !device.charging && (lowBattery || device.batteryPct in 0..LOW_BATTERY) -> if (device.pluggedIn) StopReason.CHARGING_UP else StopReason.LOW_BATTERY
         device.screenOn && !visible -> StopReason.BUSY
         sampleSession || prefs.readNowUntil > now -> null
         prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
-        prefs.automaticReading == ReadingSchedule.CHARGING && !device.charging -> StopReason.UNPLUGGED
+        prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn -> StopReason.UNPLUGGED
         else -> null
     }
 
@@ -88,6 +89,7 @@ object ReadingPolicy {
         StopReason.POWER_SAVE -> "Paused for ${words.powerSave}"
         StopReason.HOT -> "Paused to cool down"
         StopReason.LOW_BATTERY -> "Paused for low battery"
+        StopReason.CHARGING_UP -> "Charging up first"
         StopReason.BUSY -> "Waiting until you put your ${words.device} down"
         StopReason.UNPLUGGED -> "Waiting to charge"
         StopReason.MANUAL -> "Reading stopped for now"
@@ -124,6 +126,7 @@ object ReadingPolicy {
                 StopReason.POWER_SAVE -> ReadingPhase.POWER_SAVE
                 StopReason.HOT -> ReadingPhase.HOT
                 StopReason.LOW_BATTERY -> ReadingPhase.LOW_BATTERY
+                StopReason.CHARGING_UP -> ReadingPhase.CHARGING_UP
                 StopReason.BUSY -> ReadingPhase.BUSY
                 StopReason.UNPLUGGED -> ReadingPhase.CHARGING
                 StopReason.MANUAL -> ReadingPhase.MANUAL
@@ -163,6 +166,7 @@ object ReadingPolicy {
             ReadingPhase.POWER_SAVE -> "Reading can resume when it’s off."
             ReadingPhase.HOT -> "Reading can resume when your ${words.device} cools down."
             ReadingPhase.LOW_BATTERY -> "Plug in to continue."
+            ReadingPhase.CHARGING_UP -> "Reading starts once your battery has a bit more charge."
             ReadingPhase.BUSY -> "Reading can continue when the screen is off or Retriever is open."
             ReadingPhase.CHARGING -> "Plug in, or choose Read now for a short session."
             ReadingPhase.MANUAL -> "Keep searching names and the content read so far."

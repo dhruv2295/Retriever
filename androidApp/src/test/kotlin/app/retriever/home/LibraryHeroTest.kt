@@ -37,7 +37,7 @@ class LibraryHeroTest {
         rule.setContent {
             ShotTheme(false) {
                 HomeBody(
-                    ui, index, false, emptyList(),
+                    ui, index, emptyList(),
                     SearchActions(onNavigate = {
                         destination = it
                     }),

@@ -1,10 +1,5 @@
 package app.retriever.home
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,7 +33,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -130,7 +124,7 @@ fun HomeScreen(
         onPauseOrDispose {}
     }
     HomeBody(
-        ui, index, rememberCharging(), recent, actions, vm::resume, {
+        ui, index, recent, actions, vm::resume, {
             openAllFilesSettings(context)
         }, state, padding, side, fill, vm::hideOnThisDay, { charging ->
             requestReading { vm.commit(charging) }
@@ -159,30 +153,11 @@ internal fun rememberCelebrating(enabled: Boolean, celebration: Celebration): Bo
     return celebrating
 }
 
-/** Whether the phone is on a charger, from the sticky battery broadcast, kept current while shown. */
-@Composable
-private fun rememberCharging(): Boolean {
-    val context = LocalContext.current
-    var charging by remember { mutableStateOf(false) }
-    DisposableEffect(context) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(c: Context, intent: Intent) {
-                charging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
-            }
-        }
-        // The sticky value arrives at once through the return value, and again to the receiver.
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { receiver.onReceive(context, it) }
-        onDispose { context.unregisterReceiver(receiver) }
-    }
-    return charging
-}
-
 /** [fill] puts a past search in the field and opens the bar; true also runs it. */
 @Composable
 internal fun HomeBody(
     ui: HomeUi,
     index: IndexState,
-    charging: Boolean,
     /** Null until the recent searches have loaded. */
     recent: List<String>?,
     actions: SearchActions,
@@ -226,13 +201,13 @@ internal fun HomeBody(
                     EmptyHome(looking)
                 }
             } else {
-                item(key = "status", span = FullLine) { Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration) }
+                item(key = "status", span = FullLine) { Status(ui, index, actions.onNavigate, onResume, onAllowAccess, celebration) }
             }
             return@LazyVerticalStaggeredGrid
         }
         item(key = "hero", span = FullLine) {
             LibraryHero(ui) {
-                Status(ui, index, charging, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
+                Status(ui, index, actions.onNavigate, onResume, onAllowAccess, celebration, onDismissCaughtUp)
             }
         }
         if (!ui.nameSearchHintDismissed) {
@@ -286,7 +261,6 @@ internal fun HomeBody(
 private fun Status(
     ui: HomeUi,
     index: IndexState,
-    charging: Boolean,
     go: (Route) -> Unit,
     onResume: () -> Unit,
     onAllowAccess: () -> Unit,

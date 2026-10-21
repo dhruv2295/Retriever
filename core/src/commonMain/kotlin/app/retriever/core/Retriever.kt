@@ -1520,7 +1520,7 @@ class Retriever(
             StopReason.BUSY -> NextRun.WHEN_IDLE
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE
             StopReason.PAUSED, StopReason.MANUAL -> NextRun.DONE
-            StopReason.LOW_BATTERY -> NextRun.WHEN_CHARGING
+            StopReason.LOW_BATTERY, StopReason.CHARGING_UP -> NextRun.WHEN_CHARGING
         }
     }
 }

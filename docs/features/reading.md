@@ -29,7 +29,15 @@ keeps the existing schedule. Not now persists Pause at a safe boundary and retai
 
 Decision precedence is manual pause, safety/schedule blocker, actual reading phase, scheduled wait, completion. Both
 platforms stop at low battery (20%, with a recovery margin), power saving or heat. Android also waits while another app
-uses the screen. iOS background starts remain subject to an OS grant. The existing measured vision fallback stays in
+uses the screen.
+
+"While charging" means plugged in (`DeviceState.pluggedIn`), not "level rising" (`charging`). Android's
+`BatteryManager.isCharging` is the latter and stays false for up to 15 minutes after plugging in below 90% (AOSP
+`BatteryStatsImpl`), so Android reads `EXTRA_PLUGGED` from the sticky `ACTION_BATTERY_CHANGED`; iOS's `.charging`/`.full`
+answers both. Low battery stops an unplugged phone at 20% or less ("Paused for low battery"), and a plugged-in one only
+while its level is not yet rising ("Charging up first"). Plugging in with the app open resumes a batch stopped as
+unplugged at once (`ACTION_POWER_CONNECTED`); background starts stay with WorkManager's charging constraint and iOS's
+`requiresExternalPower`. iOS background starts remain subject to an OS grant. The existing measured vision fallback stays in
 place. Reading rechecks between chunks, including keyword-only reading and the meaning pass, and reserves one tail
 opportunity per eight first-pass files.
 

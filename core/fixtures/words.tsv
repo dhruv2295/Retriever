@@ -3,6 +3,7 @@ stop	PAUSED	android	Reading paused
 stop	POWER_SAVE	android	Paused for Battery Saver
 stop	HOT	android	Paused to cool down
 stop	LOW_BATTERY	android	Paused for low battery
+stop	CHARGING_UP	android	Charging up first
 stop	BUSY	android	Waiting until you put your phone down
 stop	UNPLUGGED	android	Waiting to charge
 stop	MANUAL	android	Reading stopped for now
@@ -12,6 +13,7 @@ stop	PAUSED	iphone	Reading paused
 stop	POWER_SAVE	iphone	Paused for Low Power Mode
 stop	HOT	iphone	Paused to cool down
 stop	LOW_BATTERY	iphone	Paused for low battery
+stop	CHARGING_UP	iphone	Charging up first
 stop	BUSY	iphone	Waiting until you put your iPhone down
 stop	UNPLUGGED	iphone	Waiting to charge
 stop	MANUAL	iphone	Reading stopped for now

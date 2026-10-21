@@ -16,6 +16,7 @@ class BatchPolicyTest {
 
     /** On the charger, screen off, cool: every check passes. */
     private val plugged = DeviceState(8.0, charging = true, batteryPct = 80, thermal = Thermal.NONE)
+    private val unplugged = plugged.copy(charging = false, pluggedIn = false)
 
     private object NoHasher : ContentHasher {
         override suspend fun quickHash(uri: String, size: Long): String? = null
@@ -66,7 +67,7 @@ class BatchPolicyTest {
         val cases = listOf(
             plugged.copy(thermal = Thermal.SEVERE) to NextRun.AFTER_COOLDOWN,
             plugged.copy(screenOn = true) to NextRun.WHEN_IDLE,
-            plugged.copy(charging = false) to NextRun.WHEN_CHARGING,
+            unplugged to NextRun.WHEN_CHARGING,
         )
         for ((state, next) in cases) {
             val f = Fx(state = state)
@@ -103,7 +104,7 @@ class BatchPolicyTest {
             val f = Fx(files = (1..3).map { testFile("f$it.txt", modifiedAt = it.toLong()) })
             f.r.updatePrefs { it.copy(onlyWhileCharging = true) }
             f.r.uiVisible = visible
-            f.onExtract = { f.monitor.state = f.monitor.state.copy(charging = false) }
+            f.onExtract = { f.monitor.state = f.monitor.state.copy(charging = false, pluggedIn = false) }
             val next = f.r.indexBatch(1.minutes)
             assertEquals(NextRun.WHEN_CHARGING, next)
             assertEquals(StopReason.UNPLUGGED, f.r.state.value.lastStop)
@@ -113,17 +114,35 @@ class BatchPolicyTest {
 
     @Test
     fun aLowBatteryStopsAHiddenAppWithoutTheChargingSetting() = test {
-        val low = Fx(state = plugged.copy(charging = false, batteryPct = 15))
+        val low = Fx(state = unplugged.copy(batteryPct = 15))
         assertEquals(NextRun.WHEN_CHARGING, low.r.indexBatch(1.minutes))
         assertEquals(StopReason.LOW_BATTERY, low.r.state.value.lastStop)
         assertTrue(low.factory.opened.isEmpty())
         low.r.uiVisible = true
         assertEquals(NextRun.WHEN_CHARGING, low.r.indexBatch(1.minutes))
 
-        val unknown = Fx(state = plugged.copy(charging = false, batteryPct = Int.MIN_VALUE))
+        val unknown = Fx(state = unplugged.copy(batteryPct = Int.MIN_VALUE))
         unknown.r.setReadingSchedule(ReadingSchedule.BATTERY)
         assertEquals(NextRun.DONE, unknown.r.indexBatch(1.minutes), "an unknown level is not low")
         assertEquals(1L, unknown.indexed())
+    }
+
+    /** Android's "charging" means the level is rising, false for up to 15 minutes after plugging in below 90%. */
+    @Test
+    fun theChargerRuleAsksWhetherThePhoneIsPluggedInNotWhetherItsLevelRises() = test {
+        val f = Fx()
+        f.r.uiVisible = true
+        val notRising = plugged.copy(charging = false, batteryPct = 84, screenOn = true)
+        val cases = listOf(
+            notRising to null,
+            unplugged.copy(batteryPct = 84, screenOn = true) to StopReason.UNPLUGGED,
+            notRising.copy(batteryPct = 15) to StopReason.CHARGING_UP,
+            notRising.copy(batteryPct = 15, charging = true) to null,
+        )
+        for ((state, stop) in cases) {
+            f.monitor.state = state
+            assertEquals(stop, f.r.readingBlocker(), "$state")
+        }
     }
 
     @Test
@@ -145,7 +164,7 @@ class BatchPolicyTest {
         val cases = listOf(
             plugged.copy(powerSave = true) to StopReason.POWER_SAVE,
             plugged.copy(thermal = Thermal.SEVERE) to StopReason.HOT,
-            plugged.copy(charging = false, batteryPct = 10) to StopReason.LOW_BATTERY,
+            unplugged.copy(batteryPct = 10) to StopReason.LOW_BATTERY,
         )
         for ((state, stop) in cases) {
             val f = Fx(state = state)

@@ -20,6 +20,8 @@ package app.retriever.core.android
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
@@ -41,7 +43,7 @@ private fun memoryBytes(context: Context): Long = memoryInfo(context).let {
     if (Build.VERSION.SDK_INT >= 34) it.advertisedMem else it.totalMem
 }
 
-class AndroidDeviceMonitor(context: Context) : DeviceMonitor {
+class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
     private val ramGb by lazy { nominalRamGb(memoryBytes(context)) }
@@ -53,6 +55,8 @@ class AndroidDeviceMonitor(context: Context) : DeviceMonitor {
         thermal = thermal(powerManager.currentThermalStatus),
         screenOn = powerManager.isInteractive,
         powerSave = powerManager.isPowerSaveMode,
+        // A null receiver reads the sticky broadcast without registering.
+        pluggedIn = (context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,
     )
 
     private fun thermal(status: Int): Thermal = when (status) {

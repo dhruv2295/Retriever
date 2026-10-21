@@ -32,7 +32,9 @@ class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
         }
         return DeviceState(
             ramGb = ramGb,
+            // iOS reports plugged in (charging or full), never "level rising": the same flag answers both.
             charging = charging,
+            pluggedIn = charging,
             batteryPct = batteryPct,
             thermal = thermal,
             powerSave = info.lowPowerModeEnabled,

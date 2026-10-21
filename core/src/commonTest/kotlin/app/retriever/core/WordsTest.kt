@@ -15,6 +15,7 @@ class WordsTest {
             StopReason.POWER_SAVE to ("Paused for Battery Saver" to "Paused for Low Power Mode"),
             StopReason.HOT to ("Paused to cool down" to "Paused to cool down"),
             StopReason.LOW_BATTERY to ("Paused for low battery" to "Paused for low battery"),
+            StopReason.CHARGING_UP to ("Charging up first" to "Charging up first"),
             StopReason.BUSY to ("Waiting until you put your phone down" to "Waiting until you put your iPhone down"),
             StopReason.UNPLUGGED to ("Waiting to charge" to "Waiting to charge"),
             StopReason.MANUAL to ("Reading stopped for now" to "Reading stopped for now"),
@@ -52,6 +53,10 @@ class WordsTest {
 
     @Test fun deviceWordsReachTheDetails() {
         assertEquals("Reading can resume when your phone cools down.", ReadingPolicy.decide(waiting, StopReason.HOT, false, false, android).detail)
+        assertEquals(
+            ReadingPhase.CHARGING_UP to "Reading starts once your battery has a bit more charge.",
+            ReadingPolicy.decide(waiting, StopReason.CHARGING_UP, false, false, android).let { it.phase to it.detail },
+        )
         assertEquals(
             "Reading can resume when your iPad cools down.",
             ReadingPolicy.decide(waiting, StopReason.HOT, false, false, DeviceWords.ios("iPad")).detail,
