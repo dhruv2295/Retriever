@@ -29,11 +29,11 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,26 +51,26 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.core.Kind
 import app.retriever.core.Locator
-import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.android.ImageBytes
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import org.koin.core.context.GlobalContext
+import kotlin.math.roundToInt
 
 object Thumbnails {
     private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
@@ -131,6 +131,9 @@ object Thumbnails {
 
             Kind.PDF -> pdfPage(context, uri, (Locator.pageOf(locator) ?: 1) - 1, n)
 
+            // A provider that draws documents (Drive, say) gives a real page; local storage has none, and the miss is cached.
+            Kind.DOC, Kind.OTHER -> runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
+
             else -> null
         }
     }
@@ -173,67 +176,59 @@ fun ThumbnailImage(
     val shown = bitmap
     val fade by animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     Box(modifier.background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
-        if (shown == null && (file.kind == Kind.DOC || file.kind == Kind.OTHER)) {
-            TextThumbnail(file)
-        } else {
-            Icon(
-                painterResource(kindIcon(file.kind)),
-                contentDescription = null,
-                modifier = Modifier.size(iconSize),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            )
-        }
+        KindFace(file, iconSize, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
         if (shown != null) {
             Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade })
         }
     }
 }
 
-internal suspend fun loadTextPreview(file: SourceFile): String? = GlobalContext.getOrNull()?.getOrNull<Retriever>()?.textPreview(file)
-
-/** Documents without pictures use their own extracted text; the enclosing card supplies the accessible file name. */
+/**
+ * What a cell shows before (or instead of) a picture: a document's type card, any other kind's icon. Drawn from the
+ * name alone, so it is there on the first frame; the cell's label already says "name, kind, date".
+ */
 @Composable
-internal fun TextThumbnail(file: SourceFile, preview: suspend (SourceFile) -> String? = ::loadTextPreview) {
-    val text by produceState<String?>(null, file) {
-        value = try {
-            preview(file)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
+internal fun KindFace(file: SourceFile, iconSize: Dp = 24.dp, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    val icon = @Composable {
+        Icon(painterResource(kindIcon(file.kind)), contentDescription = null, modifier = Modifier.size(iconSize).testTag("kind-icon"), tint = tint)
     }
-    val title = MaterialTheme.typography.labelSmall
-    val body = MaterialTheme.typography.bodySmall
-    val titleHeight = with(LocalDensity.current) { title.lineHeight.toDp() }
-    val bodyHeight = with(LocalDensity.current) { body.lineHeight.toDp() }
-    // A plain Layout, not BoxWithConstraints: weighted FlowRow cells ask their tiles for intrinsics, which a
-    // SubcomposeLayout cannot answer. The text is cut to whole lines by height; Ellipsis marks the cut.
-    Layout(
-        contents = listOf(
-            { Icon(painterResource(kindIcon(file.kind)), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            {
-                Column(Modifier.fillMaxSize().padding(8.dp)) {
-                    Text(file.name, style = title, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
-                    text?.let { Text(it, style = body, maxLines = MAX_TEXT_LINES, overflow = TextOverflow.Ellipsis) }
-                }
-            },
-        ),
-        modifier = Modifier.fillMaxSize().clearAndSetSemantics {},
-    ) { (icon, column), c ->
-        val lines = ((c.maxHeight.toDp() - 16.dp - titleHeight * 2) / bodyHeight).toInt().coerceAtMost(MAX_TEXT_LINES)
-        val p = if (lines < 2) {
-            icon.first().measure(c.copy(minWidth = 0, minHeight = 0))
-        } else {
-            // Room for the title and [lines] body lines, plus half a line of slack so rounding never drops one.
-            val h = (16.dp + titleHeight + bodyHeight * lines + bodyHeight / 2).roundToPx().coerceAtMost(c.maxHeight)
-            column.first().measure(c.copy(minHeight = 0, maxHeight = h))
-        }
-        // Unbounded only while a parent asks for intrinsics: then the content's own size is the answer.
-        val w = if (c.hasBoundedWidth) c.maxWidth else p.width
-        val h = if (c.hasBoundedHeight) c.maxHeight else p.height
-        layout(w, h) { if (lines < 2) p.place((w - p.width) / 2, (h - p.height) / 2) else p.place(0, 0) }
-    }
+    if (file.kind == Kind.DOC || file.kind == Kind.OTHER) DocCard(file.name.substringAfterLast('.', "").uppercase(), icon) else icon()
 }
 
-private const val MAX_TEXT_LINES = 6
+/**
+ * Android has no system thumbnailer for Office files and the index keeps no lines worth showing, so a document is a
+ * sheet of paper with its type on it. The badge shows if it fits the page less 4 dp a side, else the kind's icon.
+ */
+@Composable
+private fun DocCard(badge: String, icon: @Composable () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val paper = RoundedCornerShape(4.dp)
+    // A plain Layout, not BoxWithConstraints: a parent asking for intrinsics would break a SubcomposeLayout.
+    Layout(
+        contents = listOf(
+            { Box(Modifier.background(colors.surfaceBright, paper).border(1.dp, colors.outlineVariant, paper)) },
+            {
+                // Cleared: the cell's label already names the file; the tag is for tests only.
+                Box(Modifier.testTag("badge:$badge").clearAndSetSemantics {}) {
+                    val style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    Text(badge, style = style, color = colors.onSurfaceVariant, maxLines = 1, softWrap = false)
+                }
+            },
+            icon,
+        ),
+    ) { (page, text, glyph), c ->
+        val i = glyph.first().measure(Constraints())
+        // Unbounded only while a parent asks for intrinsics: then the icon's size is the answer.
+        val w = if (c.hasBoundedWidth) c.maxWidth else i.width
+        val h = if (c.hasBoundedHeight) c.maxHeight else i.height
+        val inset = (minOf(w, h) * 0.12f).roundToInt()
+        val p = page.first().measure(Constraints.fixed((w - 2 * inset).coerceAtLeast(0), (h - 2 * inset).coerceAtLeast(0)))
+        val t = text.first().measure(Constraints())
+        val room = 8.dp.roundToPx()
+        val shown = if (badge.isNotEmpty() && t.width <= p.width - room && t.height <= p.height - room) t else i
+        layout(w, h) {
+            p.place(inset, inset)
+            shown.place((w - shown.width) / 2, (h - shown.height) / 2)
+        }
+    }
+}

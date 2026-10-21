@@ -160,7 +160,6 @@ enum Copy {
 
     // MARK: Setup
 
-    static let filesYouCanTry = "Files you can try"
     /// Not "several nights" as a number: nothing is measured in the background until the first run has timed itself.
     static let commitNights = "A large library can take hours of reading, spread across several sessions. You don’t need to wait."
 }

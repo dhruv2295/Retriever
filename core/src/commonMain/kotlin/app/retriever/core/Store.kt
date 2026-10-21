@@ -365,9 +365,6 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
         }
     }
 
-    /** Null rather than replacement characters: text read as UTF-8 before [decodeText] knew its encoding shows nothing. */
-    fun textPreview(file: SourceFile): String? = q.textPreview(file.uri, file.modifiedAt, file.size).executeAsOneOrNull()?.preview?.takeUnless { '�' in it }
-
     internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
         val counts = inChunks(ids) { listOf(q.tailCountsIn(it) { chunks, files -> chunks to files }.executeAsOne()) }
         return counts.sumOf { it.first } to counts.sumOf { it.second }
