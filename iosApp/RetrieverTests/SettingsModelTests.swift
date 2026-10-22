@@ -24,7 +24,7 @@ final class SettingsModelTests: XCTestCase {
 
     override func setUp() async throws {
         UserDefaults.standard.removeObject(forKey: Self.legacyKey)
-        services = AppServices.temporary()
+        services = temporaryServices()
         try await services.retriever.refreshSetUp()
     }
 

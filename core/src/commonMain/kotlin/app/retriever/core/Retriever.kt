@@ -26,6 +26,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -1051,6 +1052,17 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun release() {
         model.release()
+    }
+
+    /**
+     * Closes the index database, for a facade that is done (tests make one per case); the app's lives as long as it does.
+     * Stops the batch and the background sync first; the store then waits out any statement still running.
+     */
+    @Throws(Throwable::class)
+    suspend fun close() {
+        cancelBatch()
+        background.coroutineContext.job.cancelAndJoin()
+        store.close()
     }
 
     /** Hidden work gives memory back when its last user finishes; an imminent follow-up keeps the model warm. */

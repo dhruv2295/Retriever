@@ -14,7 +14,7 @@ import os
 final class HomeModelTests: XCTestCase {
     private var services: AppServices!
 
-    override func setUp() async throws { services = AppServices.temporary() }
+    override func setUp() async throws { services = temporaryServices() }
 
     func testFixtureFactsAreWhatHomeShows() throws {
         let home = try XCTUnwrap(AppModel(fixture: .caughtUp).home)

@@ -15,8 +15,12 @@ import kotlinx.serialization.json.jsonObject
 enum class FileState { PENDING, INDEXED, SKIPPED }
 
 /** [userState]: where settings and stars outlive this database; see [UserState]. */
-class Store(private val driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
-    private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
+class Store(driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
+    private val driver = GatedDriver(driver)
+    private val q = IndexDb(this.driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
+
+    /** Closes the database once no statement or transaction is running; a later call throws instead of reaching SQLite. */
+    suspend fun close() = driver.closeWhenIdle()
 
     /** Retries run by [retryingMatch]; a test spy. */
     internal var retries = 0

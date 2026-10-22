@@ -93,7 +93,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testComebackSetsCoreVisibilityBeforeStartingTheLoop() async {
-        let services = AppServices.temporary()
+        let services = temporaryServices()
         let model = AppModel(services: services)
         // Past access with a folder: core plans (an empty library reads everything), then reading runs.
         model.folders = ["Work"]
@@ -128,7 +128,7 @@ final class AppModelTests: XCTestCase {
     /// ended. They are open only on the stages that show them (the choice says how the demo ended), and its chips only
     /// on the demo once its files are picked.
     func testTheDemoFlowsAreOpenOnlyWhileTheDemoOrTheChoiceShows() async {
-        let model = AppModel(services: AppServices.temporary())
+        let model = AppModel(services: temporaryServices())
         model.watchSetup(stage: .welcome)
         XCTAssertTrue(model.sampleObservations.isEmpty)
         model.watchSetup(stage: .sample)
@@ -184,7 +184,7 @@ final class AppModelTests: XCTestCase {
     /// On the welcome, all photos or a folder added chooses access at once; selected photos wait for Continue.
     func testAllPhotosOrAFolderChoosesAccessOnTheWelcome() async {
         for (photos, folders, chosen) in [(PHAuthorizationStatus.authorized, [String](), true), (.notDetermined, ["Work"], true), (.limited, [], false)] {
-            let services = AppServices.temporary()
+            let services = temporaryServices()
             let model = AppModel(services: services)
             let loaded = await eventually { model.setup?.stage == .welcome }
             XCTAssertTrue(loaded)
@@ -203,7 +203,7 @@ final class AppModelTests: XCTestCase {
 
     /// A later stage keeps its mark when Photos is answered from Home or Search.
     func testAccessAnsweredAfterSetupLeavesTheMarkAlone() async throws {
-        let services = AppServices.temporary()
+        let services = temporaryServices()
         let model = AppModel(services: services)
         try await services.retriever.setSetupMark(mark: .choosing)
         let choosing = await eventually { model.setupInputs?.mark == .choosing }

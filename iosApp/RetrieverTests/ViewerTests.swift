@@ -180,7 +180,7 @@ final class ViewerTests: XCTestCase {
     }
 
     func testFolderViewerUsesItsEnvironmentAndVideoUsesPlaybackAudio() async throws {
-        let services = AppServices.temporary()
+        let services = temporaryServices()
         let uri = "folder://documents/environment.pdf"
         let url = try XCTUnwrap(services.folders.resolve(uri))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -7,7 +7,7 @@ import XCTest
 final class StarredTests: XCTestCase {
     private var services: AppServices!
 
-    override func setUp() async throws { services = AppServices.temporary() }
+    override func setUp() async throws { services = temporaryServices() }
 
     func testFixtureHasStars() {
         XCTAssertEqual(AppModel(fixture: .caughtUp).starred.count, 2)
