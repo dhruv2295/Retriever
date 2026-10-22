@@ -32,6 +32,14 @@ tool, not a search feature, and it only ever deletes what the person selected.
   in added folders are compared (PhotoKit has no public byte size), they are removed, and the oldest copy is kept by
   default.
 
+## In search
+
+Search shows one file kept in several folders as one result: `SearchEngine.foldCopies` folds hits of the same name, size
+and modified second (size known) into the best-ranked one, which lists the rest in `Hit.copies`. The result says
+"2 copies" (`Words.copies`), opens itself, and its long-press menu offers "Open the copy in {folder}"
+(`Words.openCopyIn`) for each other copy. No content hash is stored, so this is a name+size+date match, not the
+byte comparison above.
+
 ## Owner files
 
 - `core/src/commonMain/kotlin/app/retriever/core/Duplicates.kt`: `DuplicateFinder`, `DuplicateGroup`, `ContentHasher`

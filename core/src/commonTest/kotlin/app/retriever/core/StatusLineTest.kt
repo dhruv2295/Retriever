@@ -2,6 +2,7 @@ package app.retriever.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -104,6 +105,16 @@ class StatusLineTest {
         assertTrue(tapped.active)
         assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, minutes = 15).phase, "a stop still wins")
         assertEquals(ReadingPhase.CAUGHT_UP, decide(ReadingProgress(read = 3), minutes = 15).phase, "nothing left to read")
+    }
+
+    /** Processing never shows Pause beside a session's Stop: one ends the 15 minutes, the other stopped everything. */
+    @Test fun pauseShowsOnlyWhenNoSessionRuns() {
+        val session = decide(running = true, reading = true, minutes = 12)
+        assertEquals(StatusAction.STOP, session.action)
+        assertFalse(session.offersPause(waiting), "the session's Stop is the only button")
+        assertTrue(decide(running = true, reading = true).offersPause(waiting), "processing by the schedule can be paused")
+        assertFalse(decide(stop = StopReason.PAUSED).offersPause(waiting), "already paused: Resume only")
+        assertFalse(decide(ReadingProgress(read = 3)).offersPause(ReadingProgress(read = 3)), "nothing left to pause")
     }
 
     /** Setup shows a stop's reason only: "All done" before the plan exists is not a pause, nor is the system's turn. */

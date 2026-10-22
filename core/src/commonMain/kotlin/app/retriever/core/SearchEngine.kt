@@ -66,6 +66,8 @@ class SearchEngine(
         /** Found by its name or folder, so the matched words are in the name. */
         val byName: Boolean,
         val matchReason: String? = null,
+        /** Exact copies of this file in other folders, folded into it ([foldCopies]); it opens itself, a long press reaches these. */
+        val copies: List<Hit> = emptyList(),
     ) {
         // Swift gets no default arguments, so six-argument callers (the iOS fixtures) use this one.
         constructor(file: SourceFile, fileId: Long, chunkId: Long, locator: String, snippet: String?, score: Double) :
@@ -504,7 +506,9 @@ class SearchEngine(
                 Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName, reason)
             }
             val (s, weak) = hits.partition { it.fileId in strong }
-            (s + weak) to s.size
+            // A group's first copy is its best-ranked, so the strong ones stay first.
+            val folded = foldCopies(s + weak)
+            folded to folded.count { it.fileId in strong }
         }
     }
 
@@ -516,6 +520,22 @@ class SearchEngine(
         private const val MAX_PASSES = 3
         const val SNIPPET = 160
         private const val DAY_MS = 86_400_000L
+
+        /**
+         * One result per file kept in several folders: hits of the same name, size and modified second fold into the
+         * first, which lists the rest in [Hit.copies]. A file of unknown size (0) never folds.
+         * ponytail: no content hash is stored, so two different files agreeing on all three fold too, and a fold leaves
+         * fewer than the limit shown; Find duplicate files hashes, add a stored hash if that ever misleads.
+         */
+        fun foldCopies(hits: List<Hit>): List<Hit> {
+            val groups = LinkedHashMap<Any, MutableList<Hit>>()
+            for (h in hits) {
+                val f = h.file
+                val key: Any = if (f.size > 0) Triple(f.name, f.size, f.modifiedAt.floorDiv(1000)) else h.fileId
+                groups.getOrPut(key) { ArrayList() } += h
+            }
+            return groups.values.map { g -> if (g.size == 1) g[0] else g[0].copy(copies = g.drop(1)) }
+        }
 
         internal fun contentSnippet(text: String, words: List<String>): String {
             val snippet = bestSentence(text, words)

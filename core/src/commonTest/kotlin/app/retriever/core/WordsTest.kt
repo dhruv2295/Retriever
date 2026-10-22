@@ -192,4 +192,9 @@ class WordsTest {
         assertEquals("79 of 124 files processed", Words.readOf(79, 124))
         assertEquals("0 of 1 file processed", Words.readOf(0, 1))
     }
+
+    @Test fun aFoldedResultSaysHowManyCopies() {
+        assertEquals("2 copies", Words.copies(2))
+        assertEquals("Open the copy in Downloads", Words.openCopyIn("Downloads"))
+    }
 }

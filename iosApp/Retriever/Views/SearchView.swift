@@ -424,7 +424,9 @@ private struct ResultsView: View {
                 ForEach(hits, id: \.fileId) { hit in
                     ResultCell(
                         file: hit.file, locator: hit.locator, starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) },
-                        extent: answer.extents[hit.fileId], onFindSimilar: rows.similar, matchReason: hit.matchReason)
+                        extent: answer.extents[hit.fileId], onFindSimilar: rows.similar,
+                        matchReason: [hit.matchReason, copiesNote(hit)].compactMap { $0 }.joined(separator: " · ").nonEmpty,
+                        copies: hit.copies.map(\.file), onOpenCopy: { copy in openCopy(copy, of: hit) })
                 }
             }
         }
@@ -440,12 +442,25 @@ private struct ResultsView: View {
                 ForEach(hits, id: \.fileId) { hit in
                     FileButton(
                         file: hit.file, locator: hit.locator, snippet: hit.snippet, styledName: answer.names[hit.fileId], extent: answer.extents[hit.fileId],
-                        starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) }, onFindSimilar: rows.similar)
-                    if let reason = hit.matchReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                        starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) }, onFindSimilar: rows.similar,
+                        copies: hit.copies.map(\.file), onOpenCopy: { copy in openCopy(copy, of: hit) })
+                    if let reason = [hit.matchReason, copiesNote(hit)].compactMap({ $0 }).joined(separator: " · ").nonEmpty {
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                    }
                     Divider()
                 }
             }
         }
+    }
+
+    /// "2 copies" on a result that stands for the same file in several folders; nil for one file.
+    private func copiesNote(_ hit: SearchEngine.Hit) -> String? {
+        hit.copies.isEmpty ? nil : Words.shared.copies(n: Int32(hit.copies.count + 1))
+    }
+
+    /// The menu's "Open the copy in …": the other copy opens as its own hit.
+    private func openCopy(_ copy: SourceFile, of hit: SearchEngine.Hit) {
+        if let other = hit.copies.first(where: { $0.file.uri == copy.uri }) { open(other) }
     }
 
     /// What every row of one pass shares, read once.
@@ -491,4 +506,9 @@ struct SectionTitle: View {
     let model = AppModel(fixture: .caughtUp)
     NavigationStack { SearchView(model: model, search: .fixture(recent: ["electricity bill", "passport photo"])) }
         .environment(model)
+}
+
+extension String {
+    /// Nil for the empty string, so joined optional notes show no empty line.
+    fileprivate var nonEmpty: String? { isEmpty ? nil : self }
 }

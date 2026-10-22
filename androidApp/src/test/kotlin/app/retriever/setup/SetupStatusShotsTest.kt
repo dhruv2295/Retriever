@@ -37,6 +37,8 @@ import app.retriever.core.FileState
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPolicy
+import app.retriever.core.ReadingStatus
 import app.retriever.core.SampleFile
 import app.retriever.core.SamplePile
 import app.retriever.core.SearchEngine
@@ -582,10 +584,11 @@ class SetupStatusShotsTest {
         textOnly: Boolean = false,
         tall: Boolean = false,
         prefs: Prefs = this.prefs,
+        readingStatus: ReadingStatus? = null,
     ) = shot(name, dark, fontScale, tall) {
         StatusContent(
             counts, prefs, index, skippedFiles, open, batteryHint = true,
-            actions = StatusActions(openSettings = {}), access = access, textOnly = textOnly,
+            actions = StatusActions(openSettings = {}), access = access, textOnly = textOnly, readingStatus = readingStatus,
         )
     }
 
@@ -664,6 +667,15 @@ class SetupStatusShotsTest {
         rule.onNodeWithText("Paused").assertExists()
         rule.onNodeWithText("Resume").assertExists()
         rule.onNodeWithText("Pause").assertDoesNotExist()
+    }
+
+    /** A Process for 15 minutes shows its Stop alone: a Pause beside it looked the same and stopped all processing. */
+    @Test fun statusReadNowShowsOnlyStop() {
+        val session = ReadingPolicy.decide(reading.progress, null, running = true, reading = true, DeviceWords.ANDROID, readNowMinutes = 12)
+        status("clarity_status_read_now_light", readingStatus = session, tall = true)
+        rule.onNodeWithText("Processing for 15 minutes", substring = true).assertExists()
+        rule.onNodeWithText("Stop").assertExists()
+        rule.onNodeWithText(Words.PAUSE).assertDoesNotExist()
     }
 
     @Test fun statusPausedDark() = status("clarity_status_paused_dark", index = pausedIndex, prefs = prefs.copy(paused = true), dark = true, tall = true)

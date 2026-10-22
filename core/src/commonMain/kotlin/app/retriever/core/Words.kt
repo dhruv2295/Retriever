@@ -149,6 +149,9 @@ object Words {
     const val RECENTLY_PROCESSED = "Recently processed"
     const val PROCESSING_YOUR_FILES = "Processing your files"
 
+    /** Processing's second button, only where [ReadingStatus.offersPause] says: never beside a session's Stop. */
+    const val PAUSE = "Pause"
+
     /** Settings' header over the per-kind switches. */
     const val PROCESS_THESE_KINDS = "Process these file types"
 
@@ -354,6 +357,12 @@ object Words {
     const val TEXT_MATCHES = "Text matches"
     const val RELATED = "Related to your search"
     const val SEARCHING_CONTENTS = "Searching file contents…"
+
+    /** A result that stands for exact copies ([SearchEngine.Hit.copies]): "2 copies". */
+    fun copies(n: Int): String = plural(n.toLong(), "copy", "copies")
+
+    /** The result menu's way to the other copy, by its folder's own name: "Open the copy in Downloads". */
+    fun openCopyIn(folder: String): String = "Open the copy in $folder"
     const val NO_MATCHES = "Nothing found"
     const val NO_MATCHES_DETAIL = "Try a word from the file’s name."
 

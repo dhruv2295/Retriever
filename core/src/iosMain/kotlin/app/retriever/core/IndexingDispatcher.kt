@@ -4,6 +4,7 @@ package app.retriever.core
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
+import platform.Foundation.NSLock
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_queue_attr_make_with_qos_class
 import platform.darwin.dispatch_queue_create
@@ -15,5 +16,16 @@ actual val indexingDispatcher: CoroutineDispatcher = object : CoroutineDispatche
 
     override fun dispatch(context: CoroutineContext, block: Runnable) {
         dispatch_async(queue) { block.run() }
+    }
+}
+
+private val exclusiveLock = NSLock()
+
+internal actual fun <T> exclusive(block: () -> T): T {
+    exclusiveLock.lock()
+    try {
+        return block()
+    } finally {
+        exclusiveLock.unlock()
     }
 }

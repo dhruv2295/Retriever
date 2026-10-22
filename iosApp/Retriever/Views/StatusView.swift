@@ -62,8 +62,8 @@ struct StatusContent: View {
         if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }
         if model.screenKeptOn { Note(Copy.screenKeptOn) }
         // Resume and Stop are the line's own button.
-        if !snap.paused && snap.readProgress.unfinished && status.action != .stop {
-            Button(action: model.pause) { Text("Pause processing").fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
+        if status.offersPause(progress: snap.readProgress) {
+            Button(action: model.pause) { Text(Words.shared.PAUSE).fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         }
     }
 

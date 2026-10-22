@@ -114,6 +114,13 @@ data class ReadingStatus(
      * WAITING, the system's turn between batches: no blocker holds it, so it never freezes a screen.
      */
     val pause: String? get() = title.takeIf { phase in STOPS }
+
+    /**
+     * Processing's [Words.PAUSE] beside the line's own button: only while work is left, nothing has paused it, and no
+     * Process for 15 minutes runs. During one the line's Stop ends it; a Pause beside it looked the same and stopped all
+     * processing.
+     */
+    fun offersPause(progress: ReadingProgress): Boolean = progress.unfinished && phase != ReadingPhase.PAUSED && action != StatusAction.STOP
 }
 
 /**

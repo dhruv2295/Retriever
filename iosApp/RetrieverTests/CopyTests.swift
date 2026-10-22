@@ -7,6 +7,19 @@ import XCTest
 
 @MainActor
 final class CopyTests: XCTestCase {
+    /// Processing shows a Process for 15 minutes' Stop alone: a Pause beside it looked the same and stopped everything.
+    func testPauseNeverShowsBesideASessionsStop() throws {
+        let session = AppModel(fixture: .readNow)
+        let snap = try XCTUnwrap(session.snap)
+        let status = try XCTUnwrap(session.statusLine(snap))
+        XCTAssertEqual(status.action, .stop)
+        XCTAssertTrue(snap.readProgress.unfinished, "work is left, so only the session hides Pause")
+        XCTAssertFalse(status.offersPause(progress: snap.readProgress))
+        let charging = AppModel(fixture: .readingWhileCharging)
+        let chargingSnap = try XCTUnwrap(charging.snap)
+        XCTAssertTrue(try XCTUnwrap(charging.statusLine(chargingSnap)).offersPause(progress: chargingSnap.readProgress))
+    }
+
     func testHomeStatusFollowsTheIndex() {
         XCTAssertNil(Copy.homeStatus(nil))
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(accessChosen: false))?.title, "Finish setting up")
