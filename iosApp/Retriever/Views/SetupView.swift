@@ -33,17 +33,18 @@ struct SetupView: View {
 /// height split above and below.
 private struct StepContent<Content: View>: View {
     var alignment: HorizontalAlignment = .leading
+    var spacing: CGFloat = 16
     @ViewBuilder let content: Content
 
     var body: some View {
         GeometryReader { screen in
             ScrollView {
-                VStack(alignment: alignment, spacing: 16) { content }
+                VStack(alignment: alignment, spacing: spacing) { content }
                     .multilineTextAlignment(alignment == .center ? .center : .leading)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("step-content")
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, spacing)
                     .frame(maxWidth: 560)
                     .frame(maxWidth: .infinity, minHeight: screen.size.height)
             }
@@ -61,7 +62,7 @@ private struct StepActions<Actions: View>: ViewModifier {
             VStack(spacing: 8) { actions }
                 .controlSize(.large)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 12)
+                .padding(.vertical, 8)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
                 // Opaque: text over a material takes on what scrolls behind it, and the previews would show through.
@@ -84,8 +85,8 @@ private struct WelcomeStep: View {
     @State private var folderNote: String?
 
     var body: some View {
-        StepContent {
-            MascotView(mood: .welcome, settles: false).frame(width: 260).frame(maxWidth: .infinity)
+        StepContent(spacing: 8) {
+            MascotView(mood: .welcome, settles: false).frame(width: 180).frame(maxWidth: .infinity)
             Text(Words.shared.WELCOME_TITLE).font(.title.bold()).accessibilityAddTraits(.isHeader)
             Text(Words.shared.WELCOME_BODY)
             Text(Words.shared.nothingSent(words: Copy.words)).font(.headline)

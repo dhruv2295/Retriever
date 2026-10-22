@@ -48,7 +48,7 @@ private fun Gallery(start: MascotMood?) {
     ) {
         Section("Reading", listOf(MascotMood.WALKING, MascotMood.RESTING), start)
         Section("Search", listOf(MascotMood.SEARCHING, MascotMood.NO_MATCH, MascotMood.NO_MATCH_QUIET), start)
-        Section("Welcome (260 dp)", listOf(MascotMood.WELCOME), start, width = 260)
+        Section("Welcome (180 dp)", listOf(MascotMood.WELCOME), start, width = 180)
         Section("All caught up", listOf(MascotMood.CAUGHT_UP), start)
     }
 }

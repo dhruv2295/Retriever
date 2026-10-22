@@ -9,7 +9,7 @@
                 VStack(spacing: 20) {
                     Section(title: "Reading", moods: [.walking, .resting])
                     Section(title: "Search", moods: [.searching, .noMatch, .noMatchQuiet])
-                    Section(title: "Welcome (260 pt)", moods: [.welcome], width: 260)
+                    Section(title: "Welcome (180 pt)", moods: [.welcome], width: 180)
                     Section(title: "All caught up", moods: [.caughtUp])
                 }
                 .padding()

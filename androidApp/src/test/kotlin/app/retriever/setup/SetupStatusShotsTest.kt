@@ -18,6 +18,7 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -168,6 +169,13 @@ class SetupStatusShotsTest {
         setup("demo_welcome_fits_light", granted)
         rule.onNodeWithText(Words.START_THE_DEMO).assertIsDisplayed()
         rule.onNodeWithText(Words.SKIP_THE_DEMO).assertIsDisplayed()
+        // Both sentences of the demo paragraph sit fully above the pinned bar, with no scrolling. The bar starts 8 dp above its buttons.
+        val barTop = rule.onNodeWithText(Words.START_THE_DEMO).getUnclippedBoundsInRoot().top - 8.dp
+        listOf(Words.welcomeNext(DeviceWords.ANDROID), Words.welcomeAfterDemo(DeviceWords.ANDROID)).forEach { text ->
+            val node = rule.onNodeWithText(text)
+            node.assertIsDisplayed()
+            assertTrue("$text ends at ${node.getUnclippedBoundsInRoot().bottom}, buttons start at $barTop", node.getUnclippedBoundsInRoot().bottom <= barTop)
+        }
     }
 
     @Test fun welcomeReadyDark() = setup("demo_welcome_dark", granted, dark = true)

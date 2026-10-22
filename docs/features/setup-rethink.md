@@ -14,7 +14,7 @@ before reading, and four equal access rows that read as a filtered-down app.
 
 ## Screens and states
 
-**Welcome (access folded in; the ACCESS stage is deleted).** Mascot `WELCOME` 260 dp, title, body, `WelcomeExamples`,
+**Welcome (access folded in; the ACCESS stage is deleted).** Mascot `WELCOME` 180 dp, title, body, `WelcomeExamples`,
 then one decision. `textOnlyNote` stays.
 - Android, no all-files access: note `wholeDeviceNote`, primary **Search your whole phone**, a quiet `TextButton`
   **Choose what to include instead**, footer `TextButton` **Search by name**. The primary launches

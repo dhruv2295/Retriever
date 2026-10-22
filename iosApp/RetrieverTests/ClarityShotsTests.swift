@@ -41,6 +41,10 @@ final class ClarityShotsTests: XCTestCase {
         try await shot(.homeCharging, largest: true, prefix: "demo")
     }
 
+    private static func scrollViews(in view: UIView) -> [UIScrollView] {
+        ((view as? UIScrollView).map { [$0] } ?? []) + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
     private func shot(_ route: DebugRoute, dark: Bool = false, largest: Bool = false, prefix: String = "clarity") async throws {
         let model = AppModel(fixture: route.fixture)
         model.memoriesLoaded = true
@@ -49,11 +53,13 @@ final class ClarityShotsTests: XCTestCase {
             .environment(\.dynamicTypeSize, largest ? .accessibility5 : .large)
             .environment(\.horizontalSizeClass, .compact)
         let host = UIHostingController(rootView: screen)
+        // The welcome is drawn at an iPhone Pro's own size, where it must fit without scrolling above its pinned footer.
+        let fitsPhone = route == .setupFolders && !largest
         // UIKit's own size too: the bars, the search field and @ScaledMetric tiles follow the trait, not the environment.
         if largest { host.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 393, height: largest ? 2_400 : 1_400)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: largest ? 2_400 : fitsPhone ? 852 : 1_400)
         window.overrideUserInterfaceStyle = dark ? .dark : .light
         window.rootViewController = host
         window.makeKeyAndVisible()
@@ -65,6 +71,13 @@ final class ClarityShotsTests: XCTestCase {
         }
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             _ = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        if fitsPhone {
+            let scroll = try XCTUnwrap(Self.scrollViews(in: host.view).max { $0.bounds.height < $1.bounds.height })
+            let inset = scroll.adjustedContentInset
+            XCTAssertLessThanOrEqual(
+                scroll.contentSize.height + inset.top + inset.bottom, scroll.bounds.height,
+                "the welcome scrolls at 393×852: content \(scroll.contentSize.height), footer inset \(inset.bottom)")
         }
         let pixels = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
         XCTAssertGreaterThan(Set(stride(from: 0, to: pixels.count, by: 97).map { pixels[$0] }).count, 8, "\(route.rawValue) rendered blank")

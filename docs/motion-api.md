@@ -5,7 +5,7 @@ The animated golden retriever, for Wave 6. One component per platform, one share
 | | Android | iOS |
 |---|---|---|
 | Component | `app.retriever.motion.Mascot(mood, modifier)` | `MascotView(mood:)` |
-| Size | `Modifier.width(160.dp)` (welcome: `260.dp`); height follows the art | `.frame(width: 160)` (welcome: `260`) |
+| Size | `Modifier.width(160.dp)` (welcome: `180.dp`); height follows the art | `.frame(width: 160)` (welcome: `180`) |
 | Moods | `app.retriever.core.motion.MascotMood` | the same enum, from `RetrieverCore` |
 | Gallery (debug) | `adb shell am start -n app.retriever/.MascotGalleryActivity` (`--es mood WALKING` to open on one) | launch with `-route mascot.gallery` |
 
@@ -23,7 +23,7 @@ text carries the state, as today.
 | `NO_MATCH` | Lifts its head, looks at you with a happy tongue-out smile, once (2.2 s), then holds | Empty states: "No matches", "Nothing like this yet", "No matches in Photos", no starred match, Keep useful files close, Choose files to search, No folders yet, No duplicates found, empty Browse and Home (`EmptyState` in FileRow.kt, `StateView` in ResultViews.swift). **Not** on errors: those use `TROUBLE`, so a failure never gets a grin |
 | `TROUBLE` | Still, sheepish; never animated (`mascot_trouble_still.webp`; every failure state draws it through the mascot component, so there is no plain-image copy) | Every failure state: download failed, no space, tune failed, "Search hit a snag", "Couldn't open this file", "Couldn't play this video", "Couldn't show this photo", "Couldn't look for duplicates" |
 | `NO_MATCH_QUIET` | The end pose of `NO_MATCH`, no motion | The same places once the person has seen "No matches" 3 times (keep the count in Prefs) |
-| `WELCOME` | One hello: dip, head tilt, three tail wags. 2.6 s, then holds | First-run welcome only, at 260 dp |
+| `WELCOME` | One hello: dip, head tilt, three tail wags. 2.6 s, then holds | First-run welcome only, at 180 dp |
 | `CAUGHT_UP` | One happy bounce: squint, wag, ears up. 1.3 s, then holds | Home status or Status header, the first time either is on screen after the first full read; then never again (Store meta `celebrated`). Haptic on the pop, 0.2 s after it appears: Android `HapticFeedbackType.Confirm`, iOS `.sensoryFeedback(.success, trigger:)` |
 
 Mood changes are graceful: a loop finishes the loop it is in, a one-shot finishes, a hold switches at once. So

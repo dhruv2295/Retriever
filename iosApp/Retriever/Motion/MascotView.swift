@@ -3,7 +3,7 @@ import RetrieverCore
 import SwiftUI
 import UIKit
 
-/// The golden retriever, animated. Give it a width (160 in most places, 260 on the welcome); its height follows the
+/// The golden retriever, animated. Give it a width (160 in most places, 180 on the welcome); its height follows the
 /// art. Decorative: screens carry the state in text, so it is hidden from VoiceOver.
 ///
 /// Frames are animated WebPs (Motion/Frames, shared with Android) played by ImageIO, which decodes them as they show;

@@ -49,7 +49,7 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
   `TasteProgress.read`).
 - **Commit.** "Read everything" sets `Scope.ALL` and schedules the reading; "Not yet" keeps `SAMPLE`, and Home's status line
   offers "Choose when to process" (the same sheet). A returning user (no plan) never sees the sample.
-- **Mascot** per `docs/motion-api.md`: `WELCOME` at 260 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`
+- **Mascot** per `docs/motion-api.md`: `WELCOME` at 180 dp, 160 dp on the setup steps, `WALKING` while reading, `RESTING`
   when paused.
 
 ### What is switched off, and what turns it on

@@ -162,7 +162,7 @@ fun SetupContent(
         modifier.fillMaxSize().safeDrawingPadding(),
         bottomBar = {
             if (stage == SetupStage.WELCOME) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                     Box(Modifier.widthIn(max = 552.dp)) { WelcomeActions(ui, allFilesOff, actions) }
                 }
             }
@@ -173,11 +173,11 @@ fun SetupContent(
                 // Capped inside the scroll, so the gutters scroll too. At least the viewport tall, with spare height split
                 // above and below, for every stage alike, so nothing switches arrangement between stages.
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
-                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
+                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
                 if (stage == SetupStage.WELCOME) {
-                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp).width(260.dp), settles = false)
+                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).width(180.dp), settles = false)
                 }
                 val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
                 val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
@@ -194,7 +194,7 @@ fun SetupContent(
                     },
                     label = "stage",
                 ) { s ->
-                    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (s) {
                             SetupStage.WELCOME -> Welcome(ui, actions)
 

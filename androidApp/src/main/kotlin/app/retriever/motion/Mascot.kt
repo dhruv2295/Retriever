@@ -41,7 +41,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
- * The golden retriever, animated. Give it a width (160.dp in most places, 260.dp on the welcome); its height follows
+ * The golden retriever, animated. Give it a width (160.dp in most places, 180.dp on the welcome); its height follows
  * the art. Decorative: screens carry the state in text, so it has no content description.
  *
  * Frames are animated WebPs (assets, shared with iOS) played by the platform's [AnimatedImageDrawable], which decodes

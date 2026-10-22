@@ -50,7 +50,7 @@ internal fun WelcomeExamples(textOnly: Boolean) {
 }
 
 private val EXAMPLE_QUERIES =
-    listOf("“sunset at the beach”", "“the photo of the medicine box”", "“the Wi-Fi password screenshot”", "“lease that mentions the deposit”")
+    listOf("“sunset at the beach”", "“the photo of the medicine box”", "“the Wi-Fi password screenshot”")
 
 /** Only this row observes each character; restoring the screen shows the completed examples. */
 @Composable
