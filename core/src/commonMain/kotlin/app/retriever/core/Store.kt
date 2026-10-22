@@ -1,6 +1,8 @@
 package app.retriever.core
 
 import app.cash.sqldelight.EnumColumnAdapter
+import app.cash.sqldelight.TransactionWithReturn
+import app.cash.sqldelight.TransactionWithoutReturn
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
@@ -15,8 +17,17 @@ import kotlinx.serialization.json.jsonObject
 enum class FileState { PENDING, INDEXED, SKIPPED }
 
 /** [userState]: where settings and stars outlive this database; see [UserState]. */
-class Store(private val driver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
+class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
+    private val driver = GatedDriver(sqlDriver)
     private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
+
+    /** Closes the database once no statement or transaction is running; a later call throws instead of reaching SQLite. */
+    suspend fun close() = driver.closeWhenIdle()
+
+    // Each whole transaction holds the gate, so close waits for its commit and hooks even when one of them throws.
+    private fun transaction(body: TransactionWithoutReturn.() -> Unit) = driver.counted { q.transaction(false, body) }
+
+    private fun <R> transactionWithResult(body: TransactionWithReturn<R>.() -> R): R = driver.counted { q.transactionWithResult(false, body) }
 
     /** Retries run by [retryingMatch]; a test spy. */
     internal var retries = 0
@@ -93,11 +104,11 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     internal fun <R> inTransaction(body: () -> R): R {
         // restoreUserState writes under the lazy's lock; taking it inside this transaction could deadlock against it.
         restored.value
-        return q.transactionWithResult { body() }
+        return transactionWithResult { body() }
     }
 
     fun upsertFiles(files: List<SourceFile>) {
-        q.transaction {
+        transaction {
             var backfilled = false
             for (f in files) {
                 q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
@@ -121,7 +132,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     }
 
     fun removeFiles(uris: List<String>) {
-        q.transaction {
+        transaction {
             for (uri in uris) {
                 val id = q.fileIdByUri(uri).executeAsOneOrNull() ?: continue
                 q.chunkIdsForFile(id).executeAsList().forEach { q.deleteFts(it) }
@@ -175,7 +186,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     /** Drops what was read inside files of [kinds] and keeps the files: what extraction gives a kind that is off. */
     fun deleteChunksOfKinds(kinds: Set<Kind>) {
         val k = kinds.map { it.name }
-        q.transaction {
+        transaction {
             q.deleteFtsOfKinds(k)
             q.deleteChunksOfKinds(k)
             q.clearPartialOfKinds(k)
@@ -261,7 +272,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
 
     /** Keeps extracted text and labels; queues only missing vectors for [sig]. Callers compare [signature] first. */
     fun resetForModel(sig: Signature) {
-        q.transaction {
+        transaction {
             q.resetForNewModel()
             q.setMeta(SIGNATURE_KEY, sig.value)
             refreshAllReach()
@@ -278,7 +289,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
         chunks.firstOrNull { it.vector != null && it.vector.signature != index }?.let {
             throw IllegalStateException("vector signature ${it.vector?.signature?.value} does not match index ${index?.value}")
         }
-        q.transaction {
+        transaction {
             // The file was removed (excluded folder, deleted duplicate) while it was being indexed.
             val stored = q.fileById(fileId, ::storedFile).executeAsOneOrNull() ?: return@transaction
             if (!stillCurrent()) return@transaction markFailed(fileId, (stored.attempts - 1).coerceAtLeast(0))
@@ -348,7 +359,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     }
 
     fun setTailAttempts(id: Long, attempts: Int) {
-        q.transaction {
+        transaction {
             q.setTailAttempts(attempts.toLong(), id)
             q.fileIdOfChunk(id).executeAsOneOrNull()?.let { q.refreshReach(listOf(it)) }
         }
@@ -356,7 +367,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
 
     /** Replaces a tail chunk too long for the model with [parts], each a new tail chunk at the same place. */
     fun splitTailChunk(id: Long, parts: List<String>) {
-        q.transaction {
+        transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (text in parts) {
                 q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text }, c.labels, 0L)
@@ -405,7 +416,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
      */
     fun setChunkVector(id: Long, vector: Vector) {
         check(vector.signature == signature()) { "vector signature ${vector.signature.value} does not match index" }
-        q.transaction {
+        transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual)
             val newId = q.lastId().executeAsOne()
@@ -706,7 +717,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     /** Moves stars of files that are gone to the same file under a new uri; see Index.sq. */
     internal fun relinkStars() {
         // Counts every orphaned star, moved or not: a spare save at worst.
-        val orphans = q.transactionWithResult {
+        val orphans = transactionWithResult {
             q.relinkStars()
             q.changes().executeAsOne()
         }
@@ -794,7 +805,7 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
             log("user state is unreadable (${e::class.simpleName}); starting without it", null)
             return
         }
-        q.transaction {
+        transaction {
             state.prefs?.let { q.setMeta(PREFS_KEY, JSON.encodeToString(it)) }
             state.starred.forEach { q.restoreStar(it.uri, it.starredAt, it.name, it.size, it.modifiedAt) }
         }

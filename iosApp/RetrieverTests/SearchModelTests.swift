@@ -229,7 +229,7 @@ final class SearchModelTests: XCTestCase {
     }
 
     func testReturningReusesACompleteAnswerButAnExplicitRetryRuns() async throws {
-        let model = SearchModel(services: AppServices.temporary())
+        let model = SearchModel(services: temporaryServices())
         model.setText("videos")
         await model.search(model.key)
         let before = try XCTUnwrap(model.phase as? SearchPhaseResults)
@@ -245,7 +245,7 @@ final class SearchModelTests: XCTestCase {
     }
 
     func testReturningToCompleteWordsOnlyResultsSearchesAgain() async throws {
-        let model = SearchModel(services: AppServices.temporary())
+        let model = SearchModel(services: temporaryServices())
         model.setText("rent")
         for _ in 0...Int(SearchTiming.shared.WORDS_ONLY_RETRIES) {
             await model.search(model.key)
@@ -279,7 +279,7 @@ final class SearchModelTests: XCTestCase {
         XCTAssertTrue(stuck.closed)
         XCTAssertThrowsError(try outcome.get())
 
-        let retriever = AppServices.temporary().retriever
+        let retriever = temporaryServices().retriever
         let replaced = Task {
             try await awaitSearch { retriever.searchCancellable(q: "rent", kinds: nil, limit: 20, onlyStarred: false, literal: false, done: $0) }
         }

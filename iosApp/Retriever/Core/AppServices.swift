@@ -85,6 +85,9 @@ final class AppServices: Sendable {
         if Thread.isMainThread { MainActor.assumeIsolated(onMain) } else { DispatchQueue.main.async(execute: onMain) }
     }
 
+    /// Closes the index database. Tests close every temporary set; the shared one lives as long as the app.
+    func close() async throws { try await retriever.close() }
+
     /// A fresh set under one temporary directory, for tests.
     static func temporary() -> AppServices {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("retriever-test-\(UUID().uuidString)")
