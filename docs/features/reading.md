@@ -66,7 +66,7 @@ usable-file subtitle for that session. Refusal is shown in-app.
 
 Android asks once when scheduling or starting reading (`Words.notificationsAsk`; its sample sentence shows only while
 the sample still reads, decided before the dialog opens). Declining never prevents reading. Progress is silent, private on
-the lock screen, contains no file details, and has Pause processing and a Processing destination. The service removes
+the lock screen, contains no file details, and has Pause and a Processing destination. The service removes
 it at the end. A persisted claim permits one usable-sample notification while hidden and permission is granted; opening
 the app cancels it. iOS retains its system-owned continued-task UI without a second permission or local notification.
 
