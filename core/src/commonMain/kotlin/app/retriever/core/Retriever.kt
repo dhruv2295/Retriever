@@ -687,7 +687,9 @@ class Retriever(
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending.values.sum() == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
-                (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
+                (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
+                // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
+                (!keywordOnly || store.laterChunkCount() == 0L)
             if (idle) return end(StopReason.DONE)
             val e = if (keywordOnly) {
                 null

@@ -170,13 +170,13 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         }.also { currentCoroutineContext().ensureActive() }
     }
 
-    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
+    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? {
         currentCoroutineContext().ensureActive()
         val uri = file.uri.toUri()
         return when (file.kind) {
             Kind.PDF -> {
                 val page = Locator.pageOf(locator)?.minus(1) ?: return emptyList()
-                val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: error("PDF unavailable")
+                val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return null
                 fd.use {
                     openPdf(fd).use { pdf ->
                         if (page >= pdf.pageCount) emptyList() else pdf.page(page).use { scannedPage(it, locator, it.text, chunkChars(profile.maxTokens)) }

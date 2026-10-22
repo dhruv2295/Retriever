@@ -18,18 +18,15 @@ fun ocrScripts(languageTags: List<String>): Set<OcrScript> {
 }
 
 /**
- * The recognizers to try on one image, in order: the phone's own languages' scripts. A phone set to Hindi or Chinese
- * starts with that script (its recognizer reads Latin too), others with Latin. A script the phone doesn't list is tried
- * only when a reading shows its letters ([readScripts]), never just because a reading was unsure: most unsure readings
- * are photos with a little text, and a second recognizer doubled their cost.
+ * The recognizers to try on one image, in order. The phone's own languages only pick what goes first: a phone set to
+ * Hindi or Chinese starts with that script (its recognizer reads Latin too), others with Latin. Devanagari is always a
+ * fallback, as an English phone in India still holds Hindi bills and chats.
  */
 fun ocrOrder(languageTags: List<String>): List<OcrScript> {
     val mine = ocrScripts(languageTags) - OcrScript.LATIN
     val first = ocrScripts(languageTags.take(1)) - OcrScript.LATIN
-    return (first + OcrScript.LATIN + mine).distinct()
+    return (first + OcrScript.LATIN + mine + OcrScript.DEVANAGARI).distinct()
 }
-
-private val DEVANAGARI_LETTERS = Regex("[\\u0900-\\u097F\\uA8E0-\\uA8FF]")
 
 /** One recognizer's text and its own confidence in it (0 to 1, averaged over the text). */
 class OcrReading(val text: String, val confidence: Float) {
@@ -49,23 +46,14 @@ class OcrReading(val text: String, val confidence: Float) {
 
 /**
  * Reads with each script of [order] until one gives clean, confident text, keeping the best reading so far. A blank
- * reading means the image holds no text (or a recognizer is not there yet), so the other scripts are not tried. An
- * unsure reading that holds Devanagari letters (a Hindi bill on an English phone) tries Devanagari next, when [order]
- * doesn't have it.
+ * reading means the image holds no text (or a recognizer is not there yet), so the other scripts are not tried.
  */
 suspend fun readScripts(order: List<OcrScript>, read: suspend (OcrScript) -> OcrReading): String {
     var best = OcrReading.NONE
-    val queue = ArrayDeque(order)
-    var devanagari = OcrScript.DEVANAGARI in order
-    while (true) {
-        val script = queue.removeFirstOrNull() ?: break
+    for (script in order) {
         val reading = read(script)
         best = maxOf(best, reading, compareBy({ !it.sparse }, { it.text.isNotBlank() && !looksBroken(it.text) }, { it.confidence }))
         if (!best.sparse || reading.text.isBlank()) break
-        if (!devanagari && DEVANAGARI_LETTERS.containsMatchIn(reading.text)) {
-            devanagari = true
-            queue += OcrScript.DEVANAGARI
-        }
     }
     return best.text
 }

@@ -137,4 +137,59 @@ class FirstPassTest {
         assertEquals(0, heads, "keyword-only reading never deepens, so it leaves nothing for later")
         assertEquals(5, store.chunkTexts(store.fileByUri(pdf.uri)!!.id).size, "every page's words")
     }
+
+    /** The model went (removed, or the phone became keyword-only) with pages and moments left: they still resolve. */
+    @Test
+    fun withoutTheModelLeftPagesAreOcrdAndLeftMomentsDropped() = kotlinx.coroutines.runBlocking {
+        val store = newStore()
+        val pdf = testFile("scan.pdf", Kind.PDF)
+        val clip = testFile("clip.mp4", Kind.VIDEO)
+        val files = listOf(pdf, clip)
+        store.upsertFiles(files)
+        val words = listOf("apple", "banana", "cherry", "damson", "elderberry")
+        fun page(n: Int) = imageWithText(Locator.page(n), ByteArray(n), "page $n of the signed lease, clause ${n * 7}, ${words[n - 1]}", 800)
+        val extractor = object : Extractor {
+            override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = emptyList()
+
+            override suspend fun extractHead(file: SourceFile, profile: DeviceProfile) = if (file.kind == Kind.PDF) {
+                pdfPieces(5, false, { "" }, { i, _ -> page(i + 1) }, 800, PDF_HEAD_OCR_PAGES)
+            } else {
+                listOf(Piece("0:05", listOf(Part.Image(ByteArray(5))), null), later("0:15"))
+            }
+
+            override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
+                assertEquals(Kind.PDF, file.kind, "no frame is decoded without the model")
+                return page(Locator.pageOf(locator) ?: 0)
+            }
+        }
+        engine(store, extractor).runBatch(1.minutes, requireCharging = false)
+        assertEquals(3L, store.laterChunkCount())
+
+        val r = testRetriever(store, files, extractor, modelReady = { false })
+        r.indexBatch(1.minutes)
+
+        assertEquals(0L, store.laterChunkCount())
+        assertEquals(Locator.page(5), SearchEngine(store, FakeEmbedder()).search("elderberry", SearchEngine.Mode.KEYWORD).hits.single().locator)
+        assertEquals(listOf("0:05"), vectorLocators(store).filter { ":" in it }, "the moment read stays; the one left goes")
+    }
+
+    @Test
+    fun aMomentThatCannotBeReadNowIsAFailedTryNotACrash() = runTest {
+        val store = newStore()
+        val clip = testFile("clip.mp4", Kind.VIDEO)
+        store.upsertFiles(listOf(clip))
+        val extractor = object : Extractor {
+            override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = emptyList()
+
+            override suspend fun extractHead(file: SourceFile, profile: DeviceProfile) =
+                listOf(Piece("0:05", listOf(Part.Image(ByteArray(5))), null), later("0:15"))
+            // No visual(): the default later() has no frame to give.
+        }
+        engine(store, extractor).runBatch(1.minutes, requireCharging = false)
+        repeat(IndexEngine.MAX_TAIL_ATTEMPTS + 1) {
+            assertEquals(StopReason.DONE, engine(store, extractor).runBatch(1.minutes, requireCharging = false, deepen = true).stopReason)
+        }
+        assertEquals(1L, store.chunkCount() - store.vectorCount(), "the placeholder stays, its tries spent")
+        assertEquals(0L, store.tailChunkCount())
+    }
 }

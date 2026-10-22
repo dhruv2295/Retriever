@@ -35,12 +35,11 @@ class OcrScriptsTest {
     }
 
     @Test
-    fun theFirstLanguageGoesFirstAndOnlyThePhonesScriptsAreListed() {
-        assertEquals(listOf(latin), ocrOrder(listOf("en-IN")))
+    fun theFirstLanguageGoesFirstAndDevanagariIsAlwaysAFallback() {
+        assertEquals(listOf(latin, OcrScript.DEVANAGARI), ocrOrder(listOf("en-IN")))
         assertEquals(listOf(OcrScript.DEVANAGARI, latin), ocrOrder(listOf("hi-IN", "en-IN")))
-        assertEquals(listOf(latin, OcrScript.DEVANAGARI), ocrOrder(listOf("en-IN", "hi-IN")))
-        assertEquals(listOf(OcrScript.CHINESE, latin), ocrOrder(listOf("zh-CN")))
-        assertEquals(listOf(latin, OcrScript.JAPANESE), ocrOrder(listOf("en-US", "ja-JP")))
+        assertEquals(listOf(OcrScript.CHINESE, latin, OcrScript.DEVANAGARI), ocrOrder(listOf("zh-CN")))
+        assertEquals(listOf(latin, OcrScript.JAPANESE, OcrScript.DEVANAGARI), ocrOrder(listOf("en-US", "ja-JP")))
     }
 
     @Test
@@ -48,8 +47,7 @@ class OcrScriptsTest {
         val english = "Electricity bill for September, amount due 1,240 by the 5th"
         val hindi = "बिजली बिल सितंबर के लिए, कुल राशि 1,240 रुपये पाँच तारीख तक देय"
         val tried = mutableListOf<OcrScript>()
-        // A phone that lists Hindi after English.
-        val order = ocrOrder(listOf("en-IN", "hi-IN"))
+        val order = ocrOrder(listOf("en-IN"))
         fun sure(text: String) = OcrReading(text, 0.85f)
         // An English image: Latin reads it, so Devanagari never runs.
         assertEquals(
@@ -60,7 +58,7 @@ class OcrScriptsTest {
             },
         )
         assertEquals(listOf(latin), tried)
-        // A Hindi bill: Latin gets a few stray letters, Devanagari reads it.
+        // A Hindi bill on an English phone: Latin gets a few stray letters, Devanagari reads it.
         tried.clear()
         assertEquals(
             hindi,
@@ -104,43 +102,12 @@ class OcrScriptsTest {
     }
 
     @Test
-    fun aLowConfidenceGarbageReadingFallsThroughOnlyToThePhonesScripts() = kotlinx.coroutines.test.runTest {
-        val tried = mutableListOf<OcrScript>()
-        readScripts(ocrOrder(listOf("en-IN", "hi-IN"))) {
-            tried += it
+    fun aLowConfidenceGarbageReadingStillFallsThrough() = kotlinx.coroutines.test.runTest {
+        var reads = 0
+        readScripts(ocrOrder(listOf("en-IN"))) {
+            reads++
             OcrReading("fastft faT y", 0.3f)
         }
-        assertEquals(listOf(latin, OcrScript.DEVANAGARI), tried)
-        // An English-only phone: an unsure reading (a photo with a little text, mostly) costs no second recognizer.
-        tried.clear()
-        assertEquals(
-            "fastft faT y",
-            readScripts(ocrOrder(listOf("en-IN"))) {
-                tried += it
-                OcrReading("fastft faT y", 0.3f)
-            },
-        )
-        assertEquals(listOf(latin), tried)
-    }
-
-    @Test
-    fun devanagariLettersInAnUnsureReadingTryDevanagariOnAnEnglishPhone() = kotlinx.coroutines.test.runTest {
-        val hindi = "बिजली बिल सितंबर के लिए, कुल राशि 1,240 रुपये पाँच तारीख तक देय"
-        val tried = mutableListOf<OcrScript>()
-        assertEquals(
-            hindi,
-            readScripts(ocrOrder(listOf("en-US"))) {
-                tried += it
-                if (it == latin) OcrReading("Total बिल 1,240", 0.45f) else OcrReading(hindi, 0.81f)
-            },
-        )
-        assertEquals(listOf(latin, OcrScript.DEVANAGARI), tried)
-        // A sure reading with a Devanagari word in it is done.
-        tried.clear()
-        readScripts(ocrOrder(listOf("en-US"))) {
-            tried += it
-            OcrReading("Namaste नमस्ते means hello", 0.9f)
-        }
-        assertEquals(listOf(latin), tried)
+        assertEquals(2, reads)
     }
 }

@@ -31,7 +31,7 @@ import androidx.work.WorkerParameters
 import app.retriever.core.IndexState
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
-import app.retriever.core.ThermalRest
+import app.retriever.core.StopReason
 import app.retriever.core.indexingDispatcher
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
@@ -91,13 +91,12 @@ class IndexWorker(
                 var next = retriever.indexBatch(8.minutes, waitForLock = trial)
 
                 // A foreground service has no 10 minute limit (WorkManager stops it at Android 15's FGS timeout): on a
-                // charger or in front, batches follow each other here, and heat rests here, polling until the phone cools.
+                // charger or in front, batches follow each other here, resting as restBefore says; heat polls until the phone cools.
                 fun holds() = IndexService.holdsForeground(next, retriever.prefs.value.paused, retriever.uiVisible, retriever.deviceState().pluggedIn)
                 while (foreground && holds()) {
-                    if (next == NextRun.AFTER_COOLDOWN) {
-                        delay(ThermalRest.POLL)
-                        if (!retriever.deviceState().cooled) continue
-                    }
+                    val lastStop = retriever.state.value.lastStop
+                    delay(IndexService.restBefore(next, lastStop))
+                    if (next == NextRun.AFTER_COOLDOWN && lastStop == StopReason.HOT && !retriever.deviceState().cooled) continue
                     index.notifySampleIfReady()
                     next = retriever.indexBatch(8.minutes)
                 }

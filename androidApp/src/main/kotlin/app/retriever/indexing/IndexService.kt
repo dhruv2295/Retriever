@@ -99,7 +99,9 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         if (retriever.hasPendingTaste()) {
             continueTrial()
         } else if (startsOnCharger(retriever.deviceState().pluggedIn, retriever.readingBlocker(), retriever.hasWork())) {
-            continueOnCharger()
+            // A charger run resting between batches (heat, a refused model open) holds the foreground service: replacing it
+            // would end the service, which could not be started again from here.
+            if (!chargerRunAlive()) continueOnCharger()
         } else if (retriever.state.value.lastStop == StopReason.BUSY) {
             continueLater(10.seconds)
         }
@@ -119,6 +121,8 @@ class IndexService(private val context: Context, private val retriever: Retrieve
      * after batch. Refused, it is an ordinary run with follow-ups, as before.
      */
     internal suspend fun continueOnCharger() = continueInForeground(CHARGER)
+
+    private suspend fun chargerRunAlive() = work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { CHARGER in it.tags && !it.state.isFinished }
 
     private suspend fun continueInForeground(tag: String) {
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
@@ -236,6 +240,17 @@ class IndexService(private val context: Context, private val retriever: Retrieve
          */
         fun holdsForeground(next: NextRun, paused: Boolean, visible: Boolean, pluggedIn: Boolean) =
             !paused && (visible || pluggedIn) && (next == NextRun.SOON || next == NextRun.AFTER_COOLDOWN)
+
+        /**
+         * The wait before a held run's next batch. Heat polls (the run then checks [app.retriever.core.DeviceState.cooled]);
+         * a model open refused for memory rests as a WorkManager follow-up would; a model closed mid-batch (SOON with no stop
+         * reason) keeps the old 10 s spacing; a batch that ran out of time goes on at once.
+         */
+        fun restBefore(next: NextRun, lastStop: StopReason?): Duration = when {
+            next == NextRun.AFTER_COOLDOWN -> if (lastStop == StopReason.HOT) ThermalRest.POLL else ThermalRest.RECHECK
+            lastStop == null -> 10.seconds
+            else -> Duration.ZERO
+        }
 
         const val CHARGER = "charger"
         const val TRIAL = "trial"

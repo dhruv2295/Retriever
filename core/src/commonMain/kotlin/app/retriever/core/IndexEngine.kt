@@ -48,6 +48,8 @@ class IndexEngine(
     private val pendingPage: () -> List<Store.StoredFile> = { store.pending(PAGE, store.prefs().sampleSize) },
     /** The next text chunks to embed; empty ends the deepen pass. */
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
+    /** Without the model: the [LATER] placeholders still to resolve. */
+    private val laterPage: () -> List<Store.TailChunk> = { store.laterChunks(PAGE) },
     /**
      * Before extraction starts, after any wait for the UI. Never cleared between two files, so every surface keeps saying
      * the batch reads (no "Getting started…" blink per file); the batch's end clears it.
@@ -120,7 +122,17 @@ class IndexEngine(
                     }
                     continue
                 }
-                if (!deepen || embedder == null) return stop(StopReason.DONE)
+                if (embedder == null) {
+                    // Without the model a page left for later is still read (OCR needs none) and a moment is dropped, so
+                    // no file waits for a deepen pass that can't come.
+                    try {
+                        embedTail(laterPage().firstOrNull() ?: return stop(StopReason.DONE), null)
+                    } catch (s: ReadingStopped) {
+                        return stop(s.reason)
+                    }
+                    continue
+                }
+                if (!deepen) return stop(StopReason.DONE)
                 if (tails.isEmpty()) tails += tailPage()
                 try {
                     embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
@@ -144,30 +156,37 @@ class IndexEngine(
 
     /**
      * Embeds one tail chunk. The attempt is counted first, so a chunk that fails, or kills the process
-     * natively, drops out of the queue after three tries and stays keyword-only.
+     * natively, drops out of the queue after three tries and stays keyword-only. Without [embedder] only a [LATER]
+     * placeholder comes here, read without vectors.
      */
-    private suspend fun embedTail(tail: Store.TailChunk, embedder: Embedder) {
+    private suspend fun embedTail(tail: Store.TailChunk, embedder: Embedder?) {
         store.setTailAttempts(tail.id, tail.attempts + 1)
         try {
             checkpoint()
             val file = store.file(tail.fileId) ?: return
             onCurrent(file)
             if (tail.locator.startsWith(LATER)) {
-                val pieces = extractor.later(file, tail.locator.removePrefix(LATER), settings().profile)
-                val chunks = if (pieces.isEmpty()) {
-                    emptyList()
+                // A kind no longer read (a video without the model) holds nothing; null is a failed try, counted above.
+                val pieces = if (readsInside(file, settings())) {
+                    extractor.later(file, tail.locator.removePrefix(LATER), settings().profile) ?: return
                 } else {
-                    draftChunks(file, pieces) { parts ->
+                    emptyList()
+                }
+                val embed: (suspend (List<Part>) -> Vector)? = embedder?.let { e ->
+                    { parts ->
                         checkpoint()
-                        embedder.embed(parts)
+                        e.embed(parts)
                     }
                 }
+                val chunks = if (pieces.isEmpty()) emptyList() else draftChunks(file, pieces, embed = embed)
                 store.replaceTailChunk(tail.id, chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) })
                 return
             }
+            if (embedder == null) return
             val parts = when {
                 // The image alone, as the first pass embedded it: words on an image chunk are an OCR scrap for keyword search.
-                tail.visual -> listOf(checkNotNull(extractor.visual(file, tail.locator)) { "image unavailable" })
+                // No image now is a failed try, counted above.
+                tail.visual -> listOf(extractor.visual(file, tail.locator) ?: return)
 
                 tail.ordinal == 0 -> file.namePiece().modelParts(file.name)
 
@@ -288,9 +307,17 @@ class IndexEngine(
         /** One tail chunk is embedded after every this many first-pass files, so a long backlog still deepens. */
         const val TAIL_EVERY = 8
 
-        /** Files read while one embeds: two on a charger, one on battery, fewer as the phone warms; none while the app shows. */
-        fun readAheadDepth(state: DeviceState, visible: Boolean): Int =
-            if (visible) 0 else minOf(state.aheadRoom, if (state.pluggedIn) ThermalRest.MAX_READ_AHEAD else 1)
+        /**
+         * Files read while one embeds: two on a charger, one on battery or under [TWO_AHEAD_MIN_RAM_GB] (two files' decoded
+         * pages beside the model), fewer as the phone warms; none while the app shows.
+         */
+        fun readAheadDepth(state: DeviceState, visible: Boolean): Int = if (visible) {
+            0
+        } else {
+            minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)
+        }
+
+        const val TWO_AHEAD_MIN_RAM_GB = 6.0
 
         /** Attempts before a file is skipped (Couldn't read). */
         const val MAX_FILE_ATTEMPTS = 3

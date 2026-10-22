@@ -17,6 +17,7 @@ import app.retriever.core.CoreDispatchers
 import app.retriever.core.Kind
 import app.retriever.core.NextRun
 import app.retriever.core.StopReason
+import app.retriever.core.ThermalRest
 import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.MEDIA
 import app.retriever.indexing.IndexService.Companion.NOW
@@ -42,6 +43,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -101,6 +103,25 @@ class IndexServiceTest {
         retriever.pause()
         service.screenOff()
         assertTrue("a Pause holds", infos(CONTINUE).none { !it.state.isFinished })
+    }
+
+    @Test fun aSecondScreenOffKeepsTheChargerRunThatHoldsTheService() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        retriever.commit(whileCharging = true)
+        val service = IndexService(context, retriever)
+        service.screenOff()
+        val holding = infos(CONTINUE).single { !it.state.isFinished }.id
+
+        service.screenOff() // the screen goes off again while that run rests between batches
+        assertEquals(listOf(holding), infos(CONTINUE).filter { !it.state.isFinished }.map { it.id })
+    }
+
+    @Test fun aHeldRunRestsByWhyItStopped() {
+        assertEquals("heat polls", ThermalRest.POLL, IndexService.restBefore(NextRun.AFTER_COOLDOWN, StopReason.HOT))
+        assertEquals("a model open refused for memory", ThermalRest.RECHECK, IndexService.restBefore(NextRun.AFTER_COOLDOWN, null))
+        assertEquals("a model closed mid-batch", 10.seconds, IndexService.restBefore(NextRun.SOON, null))
+        assertEquals("out of time", Duration.ZERO, IndexService.restBefore(NextRun.SOON, StopReason.BUDGET))
     }
 
     @Test fun foregroundRunsStartOnlyOnAChargerWithReadingAllowedAndWorkLeft() {

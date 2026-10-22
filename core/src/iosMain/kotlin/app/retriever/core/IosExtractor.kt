@@ -30,12 +30,20 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         }.also { currentCoroutineContext().ensureActive() }
     }
 
-    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
-        if (file.kind != Kind.PDF) return super.later(file, locator, profile)
+    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? {
         currentCoroutineContext().ensureActive()
-        val page = (Locator.pageOf(locator) ?: return emptyList()) - 1
-        return scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens))
-            .ifEmpty { error("PDF page unavailable") }
+        return when (file.kind) {
+            Kind.PDF -> {
+                val page = (Locator.pageOf(locator) ?: return emptyList()) - 1
+                // No render now is a failed try, as Android's unreadable page is.
+                scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens)).ifEmpty { null }
+            }
+
+            // No frame: the moment holds nothing and its placeholder goes, as on Android.
+            Kind.VIDEO -> super.later(file, locator, profile).orEmpty()
+
+            else -> super.later(file, locator, profile)
+        }
     }
 
     private fun scannedPage(uri: String, i: Int, layer: String, maxChars: Int): List<Piece> = autoreleasepool {

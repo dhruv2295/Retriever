@@ -46,6 +46,8 @@ class ThermalTest {
         assertEquals(2, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = false))
         assertEquals(1, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f, pluggedIn = false), visible = false))
         assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = true))
+        assertEquals(1, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f).copy(ramGb = 4.0), visible = false), "under 6 GB: one file's pages at a time")
+        assertEquals(2, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f).copy(ramGb = 6.0), visible = false))
     }
 
     @Test

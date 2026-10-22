@@ -324,6 +324,18 @@ SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL;
 vectorsDeleted:
 SELECT value FROM index_meta WHERE key = 'vectors_deleted';
 
+-- Pages and moments left for the deepen pass (Extraction.LATER), for a batch without the model to resolve.
+laterChunks:
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
+FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE f.state = 'INDEXED' AND c.locator LIKE 'later:%' AND c.tail_attempts < 3
+ORDER BY c.id
+LIMIT ?;
+
+laterChunkCount:
+SELECT COUNT(*) FROM chunks c JOIN files f ON f.id = c.file_id
+WHERE f.state = 'INDEXED' AND c.locator LIKE 'later:%' AND c.tail_attempts < 3;
+
 tailChunks:
 SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
 FROM chunks c JOIN files f ON f.id = c.file_id

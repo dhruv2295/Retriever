@@ -392,6 +392,13 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
 
     fun tailChunkCount(): Long = q.tailChunkCount().executeAsOne()
 
+    /** [LATER] placeholders with tries left, oldest first. */
+    fun laterChunks(limit: Int): List<TailChunk> = q.laterChunks(limit.toLong()) { id, fileId, ordinal, locator, text, name, attempts, visual ->
+        TailChunk(id, name, text, attempts.toInt(), fileId, ordinal.toInt(), locator, visual != 0L)
+    }.executeAsList()
+
+    fun laterChunkCount(): Long = q.laterChunkCount().executeAsOne()
+
     /**
      * Gives a tail chunk its vector. The chunk moves to a new id, so a loaded [VectorTable] picks it up by
      * paging past its last id instead of rescanning every row.

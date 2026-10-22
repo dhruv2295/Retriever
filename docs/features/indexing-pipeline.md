@@ -28,7 +28,7 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.
 - **Read ahead on an accelerator.** While a file embeds on the GPU or NPU with the app hidden, the next files' extraction
   starts beside it (`IndexEngine.readAhead`), so CPU decode and OCR overlap the accelerator. `IndexEngine.readAheadDepth`:
-  two files on a charger, one on battery, fewer as the phone warms (`DeviceState.aheadRoom`), none while the app shows.
+  two files on a charger (one under 6 GB of RAM), one on battery, fewer as the phone warms (`DeviceState.aheadRoom`), none while the app shows.
   Each attempt is counted when its read starts and given back on any stop. Never on CPU inference. Read-ahead runs on
   `CoreDispatchers.readAhead` (Android: two background-priority threads, `readAheadDispatcher`), the same priority as
   inline extraction on `indexing`, whose one thread the embed holds. `ReadAheadBenchTest` (blocking stand-ins at a tenth
@@ -40,7 +40,10 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   (`DOC_HEAD_CHUNKS`), 8 for a screenshot's OCR (`HEAD_TEXT_CHUNKS`); with the model there, a video's first pass embeds
   one moment and a scanned PDF's OCRs its first 3 pages, the rest `LATER` placeholders (visual tails) that the deepen pass
   reads through `Extractor.later` and replaces (`Store.replaceTailChunk`). One tail is embedded per 8 first-pass files
-  (`TAIL_EVERY`). Placeholders and image tails with tries left count as Processed in part and later passes, as text tails do. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
+  (`TAIL_EVERY`). Placeholders and image tails with tries left count as Processed in part and later passes, as text tails do.
+  `later` returning null is a failed try (three and the placeholder stays); empty drops the placeholder. If the model goes
+  (removed, or keyword-only), a batch still runs while placeholders remain: it OCRs left pages without vectors and drops
+  left moments (`laterChunks`), so no file waits for a deepen pass that can't come. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
 - **Idle batches do not open the model.** `runBatch` checks for no pending files, no tail work and a matching signature
   and returns DONE before `ModelHost.open`.
 - **ETA.** `Eta` and `SpeedBook` (Estimate.kt) record time per unit per kind, persisted in store meta, and `readEstimate`

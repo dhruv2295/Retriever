@@ -38,9 +38,12 @@ interface Extractor {
     /** Re-reads only the pixels at a stored locator, never OCR or document text. */
     suspend fun visual(file: SourceFile, locator: String): Part.Image? = null
 
-    /** What a [later] placeholder at [locator] holds, read in the deepen pass; empty when there is nothing there. */
-    suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> =
-        listOf(Piece(locator, listOf(checkNotNull(visual(file, locator)) { "image unavailable" }), null))
+    /**
+     * What a [later] placeholder at [locator] holds, read in the deepen pass: empty when there is nothing there (the
+     * placeholder goes), null when it can't be read now (a failed try; after three the placeholder stays as it is).
+     */
+    suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? =
+        visual(file, locator)?.let { listOf(Piece(locator, listOf(it), null)) }
 }
 
 interface EmbedderFactory {
