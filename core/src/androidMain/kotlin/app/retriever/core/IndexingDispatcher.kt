@@ -8,12 +8,15 @@ import java.util.concurrent.Executors
 
 actual val indexingDispatcher: CoroutineDispatcher by lazy { newIndexingDispatcher() }
 
+/** Extraction read ahead of the embedding file, at the same background priority: a thread per file it may read ahead. */
+val readAheadDispatcher: CoroutineDispatcher by lazy { newIndexingDispatcher(ThermalRest.MAX_READ_AHEAD, "Retriever-ahead") }
+
 /** The app keeps one for its process; isolated hosts can close their executor when finished. */
-fun newIndexingDispatcher(): ExecutorCoroutineDispatcher = Executors.newSingleThreadExecutor { work ->
+fun newIndexingDispatcher(threads: Int = 1, name: String = "Retriever-index"): ExecutorCoroutineDispatcher = Executors.newFixedThreadPool(threads) { work ->
     Thread({
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
         work.run()
-    }, "Retriever-index").apply { isDaemon = true }
+    }, name).apply { isDaemon = true }
 }.asCoroutineDispatcher()
 
 private val exclusiveLock = Any()

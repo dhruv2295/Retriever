@@ -38,7 +38,7 @@ class ReadAheadTest {
                 withTimeout(5.seconds) { bStarted.await() }
             }
         }
-        val result = IndexEngine(store, extractor, embedder, FakeMonitor(), settingsOf(), readAheadWhen = { true })
+        val result = IndexEngine(store, extractor, embedder, FakeMonitor(), settingsOf(), readAheadDepth = { 1 })
             .runBatch(1.minutes, requireCharging = false)
 
         assertEquals(BatchResult(3, 0, StopReason.DONE), result)
@@ -59,7 +59,7 @@ class ReadAheadTest {
             settingsOf(),
             onFile = { done++ },
             policyStop = { StopReason.MANUAL.takeIf { done > 0 } },
-            readAheadWhen = { true },
+            readAheadDepth = { 1 },
         )
 
         assertEquals(StopReason.MANUAL, engine.runBatch(1.minutes, requireCharging = false).stopReason)
@@ -70,6 +70,41 @@ class ReadAheadTest {
     }
 
     @Test
+    fun onAChargerTwoFilesAreReadWhileOneEmbedsAndAStopGivesBothAttemptsBack(): Unit = runBlocking {
+        val store = newStore().apply { upsertFiles(files) }
+        val bothStarted = CompletableDeferred<Unit>()
+        val started = mutableSetOf<String>()
+        val extractor = FakeExtractor(pieces) {
+            synchronized(started) {
+                started += it.name
+                if (started.containsAll(listOf("b.txt", "c.txt"))) bothStarted.complete(Unit)
+            }
+        }
+        var done = 0
+        // a's embed waits until b and c are both being read: with one file ahead this would time out.
+        val embedder = OnGpu(FakeEmbedder()) { parts ->
+            if ("a.txt" in (parts.single() as Part.Text).text) withTimeout(5.seconds) { bothStarted.await() }
+        }
+        val engine = IndexEngine(
+            store,
+            extractor,
+            embedder,
+            FakeMonitor(),
+            settingsOf(),
+            onFile = { done++ },
+            policyStop = { StopReason.MANUAL.takeIf { done > 0 } },
+            readAheadDepth = { IndexEngine.readAheadDepth(it, visible = false) },
+        )
+
+        assertEquals(StopReason.MANUAL, engine.runBatch(1.minutes, requireCharging = false).stopReason)
+        assertEquals(FileState.INDEXED, store.fileByUri(files[0].uri)!!.state)
+        for (f in files.drop(1)) {
+            val stored = store.fileByUri(f.uri)!!
+            assertEquals(FileState.PENDING to 0, stored.state to stored.attempts, "${f.name} was read ahead, then the stop gave its attempt back")
+        }
+    }
+
+    @Test
     fun onCpuOrWhileShownNothingIsReadAhead() = runTest {
         for ((backend, allowed) in listOf(Backend.CPU to true, Backend.GPU to false)) {
             val store = newStore().apply { upsertFiles(files) }
@@ -77,7 +112,7 @@ class ReadAheadTest {
             val embedder = OnGpu(FakeEmbedder(), backend) { parts ->
                 if ("a.txt" in (parts.single() as Part.Text).text) bAttemptsWhileAEmbeds = store.fileByUri(files[1].uri)!!.attempts
             }
-            IndexEngine(store, FakeExtractor(pieces), embedder, FakeMonitor(), settingsOf(), readAheadWhen = { allowed })
+            IndexEngine(store, FakeExtractor(pieces), embedder, FakeMonitor(), settingsOf(), readAheadDepth = { if (allowed) 1 else 0 })
                 .runBatch(1.minutes, requireCharging = false)
             assertEquals(3L, store.vectorCount().toLong())
             assertEquals(0, bAttemptsWhileAEmbeds, "$backend, read ahead allowed $allowed: b untouched while a embeds")

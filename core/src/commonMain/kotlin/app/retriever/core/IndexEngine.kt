@@ -56,8 +56,8 @@ class IndexEngine(
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
     private val policyStop: (() -> StopReason?)? = null,
-    /** Asked per file: may the next file be read while this one embeds (see readAhead)? */
-    private val readAheadWhen: () -> Boolean = { false },
+    /** Asked per file: how many of the next files may be read while this one embeds (see readAhead, [readAheadDepth])? */
+    private val readAheadDepth: (DeviceState) -> Int = { 0 },
     private val readAheadContext: CoroutineContext = Dispatchers.Default,
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
@@ -68,25 +68,29 @@ class IndexEngine(
         // Pages, so the queue's sort runs once per PAGE files rather than once per file.
         val files = ArrayDeque<Store.StoredFile>()
         val tails = ArrayDeque<Store.TailChunk>()
-        var ahead: Ahead? = null
+        // The files read ahead, in order: always the first ones of [files].
+        val ahead = ArrayDeque<Ahead>()
         val scope = CoroutineScope(currentCoroutineContext())
 
-        // While a file embeds on the GPU or NPU the CPU is free, so the next file's decode and OCR run beside it. Never on CPU
+        // While a file embeds on the GPU or NPU the CPU is free, so the next files' decode and OCR run beside it. Never on CPU
         // inference (the two would share cores) and never while the app shows (its frames come first). The tail
         // interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS never
         // gets here (a backgrounded iOS app infers on CPU).
-        fun readAhead() {
+        fun readAhead(state: DeviceState) {
             val e = embedder ?: return
-            if (ahead != null || e.backend == Backend.CPU || e.visionBackend == Backend.CPU || !readAheadWhen()) return
-            val next = files.firstOrNull()?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
-            val now = settings()
-            val inside = readsInside(next.file, now)
-            store.recordAttempt(next.id, next.attempts + 1)
-            ahead = Ahead(
-                next,
-                inside,
-                scope.async(readAheadContext) { runCatching { extract(next.file, inside, now.profile) } },
-            )
+            if (e.backend == Backend.CPU || e.visionBackend == Backend.CPU) return
+            val depth = readAheadDepth(state)
+            while (ahead.size < depth) {
+                val next = files.getOrNull(ahead.size)?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
+                val now = settings()
+                val inside = readsInside(next.file, now)
+                store.recordAttempt(next.id, next.attempts + 1)
+                ahead += Ahead(
+                    next,
+                    inside,
+                    scope.async(readAheadContext) { runCatching { extract(next.file, inside, now.profile) } },
+                )
+            }
         }
         try {
             while (true) {
@@ -99,16 +103,15 @@ class IndexEngine(
                 if (files.isEmpty()) files += pendingPage()
                 val next = files.removeFirstOrNull()
                 if (next != null) {
-                    val mine = ahead?.takeIf { it.stored.id == next.id }
-                    if (mine != null) ahead = null
+                    val mine = ahead.firstOrNull()?.takeIf { it.stored.id == next.id }?.also { ahead.removeFirst() }
                     val metric = try {
-                        index(next, now, state, mine, ::readAhead)
+                        index(next, now, state, mine) { readAhead(state) }
                     } catch (s: ReadingStopped) {
                         return stop(s.reason)
                     }
                     if (metric.ok) processed++ else failed++
                     onFile(metric)
-                    if (deepen && embedder != null && (processed + failed) % HEAD_TEXT_CHUNKS == 0) {
+                    if (deepen && embedder != null && (processed + failed) % TAIL_EVERY == 0) {
                         try {
                             tailPage().firstOrNull()?.let { embedTail(it, embedder) }
                         } catch (s: ReadingStopped) {
@@ -126,8 +129,8 @@ class IndexEngine(
                 }
             }
         } finally {
-            // A stop never charges a file, including the one read ahead.
-            ahead?.let {
+            // A stop never charges a file, including the ones read ahead.
+            for (it in ahead) {
                 it.pieces.cancel()
                 store.markFailed(it.stored.id, it.stored.attempts)
             }
@@ -149,9 +152,22 @@ class IndexEngine(
             checkpoint()
             val file = store.file(tail.fileId) ?: return
             onCurrent(file)
+            if (tail.locator.startsWith(LATER)) {
+                val pieces = extractor.later(file, tail.locator.removePrefix(LATER), settings().profile)
+                val chunks = if (pieces.isEmpty()) {
+                    emptyList()
+                } else {
+                    draftChunks(file, pieces) { parts ->
+                        checkpoint()
+                        embedder.embed(parts)
+                    }
+                }
+                store.replaceTailChunk(tail.id, chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) })
+                return
+            }
             val parts = when {
-                tail.visual -> listOf(checkNotNull(extractor.visual(file, tail.locator)) { "image unavailable" }) +
-                    listOfNotNull(tail.text?.let { Part.Text(Prefix.document(file.name, it)) })
+                // The image alone, as the first pass embedded it: words on an image chunk are an OCR scrap for keyword search.
+                tail.visual -> listOf(checkNotNull(extractor.visual(file, tail.locator)) { "image unavailable" })
 
                 tail.ordinal == 0 -> file.namePiece().modelParts(file.name)
 
@@ -178,8 +194,12 @@ class IndexEngine(
     private fun readsInside(file: SourceFile, settings: IndexSettings) =
         file.kind in settings.kinds && file.kind != Kind.AUDIO && (embedder != null || file.kind != Kind.VIDEO)
 
-    private suspend fun extract(file: SourceFile, inside: Boolean, profile: DeviceProfile): List<Piece> =
-        if (inside) tracedAsync("extract") { extractor.extract(file, profile) } else emptyList()
+    /** With the model here, the deepen pass will follow, so a video or scanned PDF may leave its rest for it. */
+    private suspend fun extract(file: SourceFile, inside: Boolean, profile: DeviceProfile): List<Piece> = when {
+        !inside -> emptyList()
+        embedder != null -> tracedAsync("extract") { extractor.extractHead(file, profile) }
+        else -> tracedAsync("extract") { extractor.extract(file, profile) }
+    }
 
     /** A file whose extraction started while the one before it was embedding; its attempt is already counted. */
     private class Ahead(val stored: Store.StoredFile, val readInside: Boolean, val pieces: Deferred<Result<List<Piece>>>)
@@ -257,8 +277,20 @@ class IndexEngine(
             else -> null
         }
 
-        /** Text-only pieces embedded per file on the first pass; the rest wait for the deepen pass. */
+        /** Text-only pieces embedded per file on the first pass (a screenshot's OCR); the rest wait for the deepen pass. */
         const val HEAD_TEXT_CHUNKS = 8
+
+        /** A document's or PDF's opening embedded on the first pass; the rest of it waits for the deepen pass. */
+        const val DOC_HEAD_CHUNKS = 2
+
+        fun headTextChunks(kind: Kind) = if (kind == Kind.DOC || kind == Kind.PDF) DOC_HEAD_CHUNKS else HEAD_TEXT_CHUNKS
+
+        /** One tail chunk is embedded after every this many first-pass files, so a long backlog still deepens. */
+        const val TAIL_EVERY = 8
+
+        /** Files read while one embeds: two on a charger, one on battery, fewer as the phone warms; none while the app shows. */
+        fun readAheadDepth(state: DeviceState, visible: Boolean): Int =
+            if (visible) 0 else minOf(state.aheadRoom, if (state.pluggedIn) ThermalRest.MAX_READ_AHEAD else 1)
 
         /** Attempts before a file is skipped (Couldn't read). */
         const val MAX_FILE_ATTEMPTS = 3
@@ -282,10 +314,11 @@ internal class ChunkDraft<V : Any>(
 
 /**
  * What a file stores, shared by IndexEngine and RetrievalEval so the eval measures production's rules: the first
- * [IndexEngine.HEAD_TEXT_CHUNKS] text pieces get vectors (the rest wait for the deepen pass), an over-long text
+ * [IndexEngine.headTextChunks] text pieces get vectors (the rest wait for the deepen pass), an over-long text
  * piece is split in half, and the name gets a vector only when nothing else could be embedded. [embed] returns
  * what the caller keeps: a stored [Vector], or raw floats in the eval. With no [embed] (text-only mode) every
- * piece is stored without a vector; image locators are kept for a later pixels-only read.
+ * piece is stored without a vector; image locators are kept for a later pixels-only read. A [later] piece is stored
+ * as an empty placeholder for the deepen pass.
  */
 internal suspend fun <V : Any> draftChunks(
     file: SourceFile,
@@ -295,6 +328,7 @@ internal suspend fun <V : Any> draftChunks(
 ): List<ChunkDraft<V>> {
     val chunks = mutableListOf<ChunkDraft<V>>()
     var headText = 0
+    val head = IndexEngine.headTextChunks(file.kind)
 
     suspend fun add(piece: Piece, depth: Int = 0) {
         val textOnly = piece.parts.all { it is Part.Text }
@@ -304,7 +338,7 @@ internal suspend fun <V : Any> draftChunks(
             chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText, piece.labels, !textOnly)
             return
         }
-        if (textOnly && headText >= IndexEngine.HEAD_TEXT_CHUNKS) {
+        if (textOnly && headText >= head) {
             chunks += ChunkDraft(chunks.size + 1, piece.locator, text, null, piece.contentText)
             return
         }
@@ -323,7 +357,12 @@ internal suspend fun <V : Any> draftChunks(
         if (textOnly) headText++
         chunks += ChunkDraft(chunks.size + 1, piece.locator, text, vector, piece.contentText, piece.labels, !textOnly)
     }
-    for (piece in pieces) if (piece.parts.isNotEmpty()) add(piece)
+    for (piece in pieces) {
+        when {
+            piece.locator.startsWith(LATER) -> chunks += ChunkDraft(chunks.size + 1, piece.locator, null, null, visual = true)
+            piece.parts.isNotEmpty() -> add(piece)
+        }
+    }
 
     // Names reach keyword search through file_fts, so a name vector is only worth a model call when
     // nothing else of the file could be embedded (as Gallery's SmartAlbumIndexingWorker keeps one

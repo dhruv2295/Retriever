@@ -29,7 +29,7 @@ class CoverageTest {
         index(store, mapOf(file.name to textFile(words)))
 
         assertEquals("notes.txt", keyword(store, "quokka").single().file.name)
-        assertEquals(IndexEngine.HEAD_TEXT_CHUNKS, store.vectorCount(), "only the head is embedded on the first pass")
+        assertEquals(IndexEngine.DOC_HEAD_CHUNKS, store.vectorCount(), "only the opening is embedded on the first pass")
         assertTrue(store.chunkCount() > 300)
     }
 
@@ -74,7 +74,7 @@ class CoverageTest {
         val ids = files.map { store.fileByUri(it.uri)!!.id }
         assertEquals(mapOf(ids[0] to ReadExtent.DEEPENING, ids[1] to ReadExtent.DEEPENING), store.readExtents(ids))
         val counts = store.countsNow()
-        assertEquals(24L, counts.tailChunks)
+        assertEquals(2L * (20 - IndexEngine.DOC_HEAD_CHUNKS), counts.tailChunks)
         assertEquals(2L, counts.tailFiles)
 
         index(store, emptyMap(), deepen = true)
@@ -128,6 +128,6 @@ class CoverageTest {
         r.uiVisible = true
         assertEquals(NextRun.DONE, r.indexBatch(1.minutes, deepen = false))
         assertEquals(0L, store.countsByState()[FileState.PENDING] ?: 0L)
-        assertEquals(12L, store.tailChunkCount(), "the tail is left for a later batch")
+        assertEquals(20L - IndexEngine.DOC_HEAD_CHUNKS, store.tailChunkCount(), "the tail is left for a later batch")
     }
 }

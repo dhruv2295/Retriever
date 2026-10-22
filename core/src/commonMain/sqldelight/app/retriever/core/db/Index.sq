@@ -251,10 +251,10 @@ ORDER BY name COLLATE NOCASE ASC, id LIMIT :limit;
 fileById:
 SELECT * FROM files WHERE id = ?;
 
--- Cheap kinds first (screenshots, documents, PDFs), then photos and videos interleaved newest first, audio last.
+-- Cheap kinds first (screenshots, documents, PDFs), then photos, then videos (seconds of frames each), newest first, audio last.
 pendingFiles:
 SELECT * FROM files WHERE state = 'PENDING'
-ORDER BY CASE kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, modified_at DESC
+ORDER BY CASE kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 4 WHEN 'AUDIO' THEN 5 ELSE 6 END, modified_at DESC
 LIMIT ?;
 
 -- Sample mode: the pending files among the newest :n of one kind, read or not, so the sample never grows past n.
@@ -278,12 +278,12 @@ UPDATE files SET state = 'INDEXED', attempts = ?, partial = ? WHERE id = ?;
 partialFiles:
 SELECT id FROM files WHERE id IN ? AND partial = 1;
 
--- Files with a later pass to come: text beside vectors already added. A file with no vector yet only waits for meaning,
+-- Files with a later pass to come: text, or a page or moment left for later, beside vectors already added. A file with no vector yet only waits for meaning,
 -- a count and never a Partly read file.
 deepeningFiles:
 SELECT DISTINCT c.file_id FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
-  AND length(trim(c.content_text)) > 0
+  AND (length(trim(c.content_text)) > 0 OR c.visual = 1)
   AND EXISTS (SELECT 1 FROM chunks d WHERE d.file_id = c.file_id AND d.ordinal > 0
     AND (d.vector IS NOT NULL OR (d.tail_attempts >= 3 AND length(trim(d.content_text)) > 0)));
 
@@ -311,9 +311,10 @@ INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text
 lastId:
 SELECT last_insert_rowid();
 
--- hasText and ordinal give the row's modality (Modality.of); at is the capture time for date filters.
+-- hasText and ordinal give the row's modality (Modality.of): an image's words (an OCR scrap) leave it an image. at is the
+-- capture time for date filters.
 vectorsAfter:
-SELECT c.id, c.file_id, c.vector, c.scale, f.kind, c.text IS NOT NULL AS hasText, c.ordinal, COALESCE(f.taken_at, f.modified_at) AS at
+SELECT c.id, c.file_id, c.vector, c.scale, f.kind, (c.text IS NOT NULL AND c.visual = 0) AS hasText, c.ordinal, COALESCE(f.taken_at, f.modified_at) AS at
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.vector IS NOT NULL AND c.id > ? ORDER BY c.id LIMIT ?;
 
@@ -327,7 +328,7 @@ tailChunks:
 SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE f.state = 'INDEXED' AND c.vector IS NULL AND c.tail_attempts < 3
-ORDER BY CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 3 WHEN 'AUDIO' THEN 4 ELSE 5 END, f.modified_at DESC, c.id
+ORDER BY CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 4 WHEN 'AUDIO' THEN 5 ELSE 6 END, f.modified_at DESC, c.id
 LIMIT ?;
 
 tailChunksIn:
@@ -517,7 +518,7 @@ WHERE f.state = 'INDEXED' AND f.reach & 1;
 
 -- The bits of reach (Store.Reach), each set when some chunk of the file is so. Ordinal 0 is a name vector, metadata
 -- text is not extracted content, and labels are content even without a model.
---   1 content: words, labels or a picture's vector;   2 tail text: words waiting for a vector;
+--   1 content: words, labels or a picture's vector;   2 tail text: words waiting for a vector, or a picture with tries left;
 --   4 tail queued: 2, with tries left;   8 meaning queued: no vector yet, with tries left;
 --   16 meaning reached: a vector, or words whose tries ran out;   32 any vector (ordinal 0 too);   64 any chunk without one.
 refreshReach:
@@ -525,9 +526,9 @@ UPDATE files SET reach =
   EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
     AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
   + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL
-    AND length(trim(c.content_text)) > 0)
+    AND (length(trim(c.content_text)) > 0 OR (c.visual = 1 AND c.tail_attempts < 3)))
   + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
-    AND length(trim(c.content_text)) > 0)
+    AND (length(trim(c.content_text)) > 0 OR c.visual = 1))
   + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
   + 16 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
     AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(c.content_text)) > 0)))

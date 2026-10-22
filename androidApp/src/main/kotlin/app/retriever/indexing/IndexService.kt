@@ -98,6 +98,8 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         if (retriever.state.value.running) return
         if (retriever.hasPendingTaste()) {
             continueTrial()
+        } else if (startsOnCharger(retriever.deviceState().pluggedIn, retriever.readingBlocker(), retriever.hasWork())) {
+            continueOnCharger()
         } else if (retriever.state.value.lastStop == StopReason.BUSY) {
             continueLater(10.seconds)
         }
@@ -109,11 +111,20 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     /** Short user-started work uses expedited WorkManager, avoiding device-idle maintenance windows. */
-    internal suspend fun continueTrial() {
+    internal suspend fun continueTrial() = continueInForeground(TRIAL)
+
+    /**
+     * The app just left with the phone on a charger and files to read: a run that asks for a foreground service while
+     * Android still allows it (just after leaving a visible state) and holds it for as long as the charger does, batch
+     * after batch. Refused, it is an ordinary run with follow-ups, as before.
+     */
+    internal suspend fun continueOnCharger() = continueInForeground(CHARGER)
+
+    private suspend fun continueInForeground(tag: String) {
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
             // Expedited work rejects battery/charging/idle constraints; core checks battery, heat and Battery Saver per file.
-            .setInputData(workDataOf(TRIAL to true))
-            .addTag(TRIAL)
+            .setInputData(workDataOf(tag to true))
+            .addTag(tag)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
         work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
@@ -216,6 +227,17 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     internal companion object {
+        /** Leaving on a charger with reading allowed (Pause, schedule, heat, power) and something to read starts a foreground run. */
+        fun startsOnCharger(pluggedIn: Boolean, blocker: StopReason?, hasWork: Boolean) = pluggedIn && blocker == null && hasWork
+
+        /**
+         * A run holding a foreground service starts its next batch at once (or rests from heat in place) while the app shows
+         * or the phone charges, unless paused; anything else ends it, and WorkManager schedules what follows.
+         */
+        fun holdsForeground(next: NextRun, paused: Boolean, visible: Boolean, pluggedIn: Boolean) =
+            !paused && (visible || pluggedIn) && (next == NextRun.SOON || next == NextRun.AFTER_COOLDOWN)
+
+        const val CHARGER = "charger"
         const val TRIAL = "trial"
         const val NOW = "index-now"
         const val CONTINUE = "index-continue"

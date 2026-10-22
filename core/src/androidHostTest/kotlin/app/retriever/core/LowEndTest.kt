@@ -72,7 +72,7 @@ class LowEndTest {
         r.indexBatch(1.minutes, deepen = true)
         assertEquals(1, reads)
         assertEquals(1, images)
-        assertEquals(2, store.vectorCount())
+        assertEquals(1, store.vectorCount(), "the picture; its short OCR stays keyword-only")
         assertEquals(1L, r.counts().first().meaning.added)
     }
 

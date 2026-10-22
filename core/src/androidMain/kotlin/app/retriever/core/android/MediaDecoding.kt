@@ -12,6 +12,7 @@ import android.net.Uri
 import androidx.core.graphics.scale
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.Moment
+import app.retriever.core.headOrder
 import app.retriever.core.moments
 import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayOutputStream
@@ -177,7 +178,10 @@ object MediaDecoding {
         }
     }
 
-    /** One bright [maxSide] px JPEG per moment; a moment whose frame and ±1 s neighbours are all black is dropped. */
+    /**
+     * One bright [maxSide] px JPEG per moment; a moment whose frame and ±1 s neighbours are all black is dropped. With
+     * [head], one moment only ([headOrder]), and the moments not tried come back without a frame, to read later.
+     */
     fun momentFrames(
         context: Context,
         uri: Uri,
@@ -186,20 +190,32 @@ object MediaDecoding {
         ctx: CoroutineContext,
         log: MediaLog,
         maxSide: Int = 512,
-    ): List<Pair<Moment, ByteArray>> {
+        head: Boolean = false,
+    ): List<Pair<Moment, ByteArray?>> {
         if (everySec <= 0 || definitelyUnsupported(context, uri, log)) return emptyList()
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            moments(durationMs, everySec, audioSec).mapNotNull { m ->
+            val all = moments(durationMs, everySec, audioSec)
+            fun frame(m: Moment): ByteArray? {
                 ctx.ensureActive()
-                listOf(m.frameMs, m.frameMs - 1000, m.frameMs + 1000)
+                return listOf(m.frameMs, m.frameMs - 1000, m.frameMs + 1000)
                     .filter { it >= m.startMs && it < m.endMs }
                     .firstNotNullOfOrNull { brightJpeg(retriever, it, maxSide) }
-                    ?.let { m to it }
             }
+            if (!head) return all.mapNotNull { m -> frame(m)?.let { m to it } }
+            val black = mutableSetOf<Int>()
+            for (i in headOrder(all.size)) {
+                val jpeg = frame(all[i])
+                if (jpeg == null) {
+                    black += i
+                    continue
+                }
+                return all.withIndex().filter { it.index !in black }.map { (j, m) -> m to jpeg.takeIf { j == i } }
+            }
+            emptyList()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -210,12 +226,15 @@ object MediaDecoding {
         }
     }
 
-    /** A stored video locator during a model change; no sound or OCR is read again. */
+    /**
+     * A stored video locator, in the deepen pass or a model change; no sound or OCR is read again. A black frame tries
+     * its ±1 s neighbours, as the first read did; null when all are black.
+     */
     fun frameJpeg(context: Context, uri: Uri, ms: Long): ByteArray? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
-            brightJpeg(retriever, ms, 512)
+            listOf(ms, ms + 1000, ms - 1000).filter { it >= 0 }.firstNotNullOfOrNull { brightJpeg(retriever, it, 512) }
         } finally {
             retriever.release()
         }

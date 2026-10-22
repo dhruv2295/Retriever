@@ -12,7 +12,8 @@ never count as content. Q separates scheduled files from files outside the sampl
 otherwise their counts cover the library and persist across batches.
 
 Content is extracted text, OCR or classifier labels, or an embedded image; none of these needs the model. Partly read
-includes extraction caps and long-file tails missing vectors beside embedded chunks, including exhausted tail retries.
+includes extraction caps and long-file tails missing vectors beside embedded chunks, including exhausted tail retries,
+and a video's moments or a scanned PDF's pages left for the deepen pass.
 Waiting for meaning (`meaningWaiting`, phase MEANING, "Adding search by meaning" with "N of M files done", shown after the download on Home, Processing and Settings) counts files with queued vectors and none yet:
 read without the model, or cleared by a model change. It is a subset count like later passes, so C = F + P is unchanged,
 and it is zero while the model is absent. Requeued first passes remain scheduled. Only queued

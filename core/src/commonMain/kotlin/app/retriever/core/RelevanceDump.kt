@@ -211,7 +211,7 @@ suspend fun dumpLibrary(
                     }
                 }
                 if (v == null) keywordOnly++
-                v?.let { RelevanceDump.Chunk(Modality.of(file.kind, c.text != null, c.ordinal.toLong()), it.scale, it.bytes) }
+                v?.let { RelevanceDump.Chunk(Modality.of(file.kind, c.text != null && !c.visual, c.ordinal.toLong()), it.scale, it.bytes) }
             }
         } catch (e: CancellationException) {
             throw e

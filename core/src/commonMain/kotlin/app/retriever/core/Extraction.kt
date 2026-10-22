@@ -351,16 +351,31 @@ val DocFormat.textEntry: String? get() = when (this) {
     else -> null
 }
 
-/** OCR stays in text chunks, independently of the image's vector and classifier labels. */
-fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int, labels: String? = null): List<Piece> =
-    listOf(Piece(locator, listOf(Part.Image(jpeg)), null, labels = labels)) +
-        Chunker.chunks(ocr, maxChars = maxChars).map { Piece(locator, listOf(Part.Text(it)), it, it) }
+/**
+ * OCR stays in text chunks, independently of the image's vector and classifier labels. OCR under [MIN_TEXT_CHARS] (a
+ * price, a date, a sign) is too little to embed on its own, as [textPieces] holds for a page: it stays on the image's
+ * chunk, for keyword search only.
+ */
+fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int, labels: String? = null): List<Piece> {
+    val scrap = ocr.trim().takeIf { it.isNotEmpty() && it.length < MIN_TEXT_CHARS }
+    return listOf(Piece(locator, listOf(Part.Image(jpeg)), scrap, scrap, labels)) + textPieces(locator, ocr, maxChars)
+}
+
+/** Scanned PDF pages read (render and OCR) on the first pass while the model is there to add the rest later. */
+const val PDF_HEAD_OCR_PAGES = 3
+
+/** Locator prefix of a page or video moment left for the deepen pass; its chunk is a placeholder until [Extractor.later] reads it. */
+const val LATER = "\u0000later:"
+
+/** A page or moment at [locator] left for the deepen pass. */
+fun later(locator: String) = Piece(LATER + locator, emptyList(), null)
 
 /**
  * A PDF's pieces: each page by its text layer ([text]), else rendered and read by OCR ([scanned], given the page
  * index and its layer text) up to [PDF_OCR_PAGES], then skipped and the file marked [cutShort]. A file known to have
  * no text layer ([hasTextLayer] false), or not known (null) with no text on any page so far, stops opening pages once
- * the OCR cap is spent: they have nothing left to give. A page that throws is left out.
+ * the OCR cap is spent: they have nothing left to give. A page that throws is left out. Past [ocrNow] OCR pages, a page
+ * to OCR is left [later] instead, still counting toward the cap.
  */
 suspend fun pdfPieces(
     pageCount: Int,
@@ -368,6 +383,7 @@ suspend fun pdfPieces(
     text: (Int) -> String,
     scanned: suspend (Int, String) -> List<Piece>,
     maxChars: Int,
+    ocrNow: Int = PDF_OCR_PAGES,
 ): List<Piece> {
     val pieces = mutableListOf<Piece>()
     var ocrPages = 0
@@ -389,7 +405,7 @@ suspend fun pdfPieces(
 
                 ocrPages < PDF_OCR_PAGES -> {
                     ocrPages++
-                    scanned(i, layer)
+                    if (ocrPages <= ocrNow) scanned(i, layer) else listOf(later(locator))
                 }
 
                 else -> {

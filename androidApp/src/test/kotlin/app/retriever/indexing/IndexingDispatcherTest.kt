@@ -8,6 +8,7 @@ import app.retriever.core.Embedder
 import app.retriever.core.Kind
 import app.retriever.core.ModelVariant
 import app.retriever.core.Part
+import app.retriever.core.Piece
 import app.retriever.core.Prefix
 import app.retriever.core.Signature
 import app.retriever.core.Tier
@@ -110,6 +111,40 @@ class IndexingDispatcherTest {
             batch.await()
             assertTrue(r.state.value.toString(), extracted)
             assertEquals(listOf(Process.THREAD_PRIORITY_DEFAULT, Process.THREAD_PRIORITY_BACKGROUND), calls)
+        }
+    }
+
+    /** Read-ahead extraction takes the indexing thread's background priority, not the shared pool's normal one. */
+    @Test fun extractionReadAheadRunsAtTheIndexingPriority(): Unit = runBlocking {
+        val ahead = newIndexingDispatcher(2, "test-ahead")
+        try {
+            val priorities = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Int>>())
+            val gpu = object : Embedder {
+                override val signature = Signature.of(ModelVariant.M740.generic, 70, 512)
+                override val backend = Backend.GPU
+
+                override suspend fun embedRaw(parts: List<Part>): FloatArray {
+                    delay(50) // long enough for the next files' reads to start beside it
+                    return FloatArray(768).also { it[0] = 1f }
+                }
+
+                override fun close() {}
+            }
+            val r = testRetriever(
+                files = listOf("a.txt", "b.txt", "c.txt").map { testFile(it, Kind.DOC) },
+                extract = {
+                    priorities += it.name to priority()
+                    listOf(Piece("", listOf(Part.Text("words of ${it.name}")), "words of ${it.name}"))
+                },
+                embedder = gpu,
+                profile = DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.GPU, 70, 5, false, false),
+                dispatchers = CoreDispatchers(indexing = indexingDispatcher, readAhead = ahead),
+            )
+            r.indexBatch(1.minutes)
+            assertEquals(listOf("a.txt", "b.txt", "c.txt"), priorities.map { it.first }.sorted())
+            assertTrue(priorities.toString(), priorities.all { it.second == Process.THREAD_PRIORITY_BACKGROUND })
+        } finally {
+            ahead.close()
         }
     }
 }

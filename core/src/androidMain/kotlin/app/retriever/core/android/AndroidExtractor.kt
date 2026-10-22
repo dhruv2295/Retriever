@@ -3,7 +3,6 @@ package app.retriever.core.android
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.pdf.PdfRenderer
@@ -29,6 +28,8 @@ import app.retriever.core.OCR_SHORT_PX
 import app.retriever.core.OCR_WIDTH
 import app.retriever.core.OcrReading
 import app.retriever.core.OcrScript
+import app.retriever.core.PDF_HEAD_OCR_PAGES
+import app.retriever.core.PDF_OCR_PAGES
 import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.SourceFile
@@ -41,6 +42,7 @@ import app.retriever.core.decodeText
 import app.retriever.core.docFormat
 import app.retriever.core.fitSize
 import app.retriever.core.imageWithText
+import app.retriever.core.later
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
@@ -149,28 +151,56 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         if (labeler.isInitialized()) labeler.value.close()
     }
 
-    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
+    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = read(file, profile, head = false)
+
+    override suspend fun extractHead(file: SourceFile, profile: DeviceProfile): List<Piece> = read(file, profile, head = true)
+
+    private suspend fun read(file: SourceFile, profile: DeviceProfile, head: Boolean): List<Piece> {
         currentCoroutineContext().ensureActive()
         val uri = file.uri.toUri()
         val maxChars = chunkChars(profile.maxTokens)
         val ctx = currentCoroutineContext()
         return when (file.kind) {
             Kind.PHOTO, Kind.SCREENSHOT -> picture(uri, maxChars, file.kind == Kind.PHOTO)
-            Kind.PDF -> pdf(uri, maxChars)
+            Kind.PDF -> pdf(uri, maxChars, if (head) PDF_HEAD_OCR_PAGES else PDF_OCR_PAGES)
             Kind.DOC -> doc(file, uri, maxChars)
             Kind.AUDIO -> emptyList()
-            Kind.VIDEO -> video(uri, profile, ctx)
+            Kind.VIDEO -> video(uri, profile, ctx, head)
             Kind.OTHER -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
     }
 
+    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
+        currentCoroutineContext().ensureActive()
+        val uri = file.uri.toUri()
+        return when (file.kind) {
+            Kind.PDF -> {
+                val page = Locator.pageOf(locator)?.minus(1) ?: return emptyList()
+                val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: error("PDF unavailable")
+                fd.use {
+                    openPdf(fd).use { pdf ->
+                        if (page >= pdf.pageCount) emptyList() else pdf.page(page).use { scannedPage(it, locator, it.text, chunkChars(profile.maxTokens)) }
+                    }
+                }
+            }
+
+            // A moment whose frame turned out black holds nothing, as the first read would have dropped it.
+            Kind.VIDEO -> MediaDecoding.frameJpeg(context, uri, Locator.msOf(locator) ?: return emptyList())
+                ?.let { listOf(Piece(locator, listOf(Part.Image(it)), null)) }.orEmpty()
+
+            else -> super.later(file, locator, profile)
+        }
+    }
+
     private suspend fun picture(uri: Uri, maxChars: Int, photo: Boolean): List<Piece> {
         // Sections for a Perfetto capture: which of the four steps a photo's time goes to.
-        val jpeg = traced("pic.thumb") { ImageBytes.jpeg(context, uri, 512) } ?: return emptyList()
+        val thumb = traced("pic.thumb") { ImageBytes.thumbnail(context, uri, 512) } ?: return emptyList()
         // GC owns these pixels: native ML Kit tasks may still hold them after coroutine cancellation.
         val bitmap = traced("pic.decode") { ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX) }
         val text = bitmap?.let { tracedAsync("pic.ocr") { ocr(it) } }.orEmpty()
-        val labels = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { tracedAsync("pic.labels") { labels(it) } }
+        // The same 512 px pixels label and embed; only after labeling, as compress recycles them.
+        val labels = tracedAsync("pic.labels") { labels(thumb) }
+        val jpeg = runCatching { ImageBytes.compress(thumb) }.getOrNull() ?: return emptyList()
         return imageWithText("", jpeg, text, maxChars, labels)
     }
 
@@ -248,7 +278,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         OcrReading.NONE
     }
 
-    private suspend fun pdf(uri: Uri, maxChars: Int): List<Piece> {
+    private suspend fun pdf(uri: Uri, maxChars: Int, ocrNow: Int): List<Piece> {
         val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return emptyList()
         return fd.use {
             // Password-protected PDFs (bank statements, policies) can't be read without the password; leave
@@ -265,6 +295,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
                     text = { i -> renderer.page(i).use { it.text } },
                     scanned = { i, layer -> renderer.page(i).use { scannedPage(it, Locator.page(i + 1), layer, maxChars) } },
                     maxChars,
+                    ocrNow,
                 )
             }
         }
@@ -317,9 +348,10 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         xlsx: Boolean = false,
     ): String = context.contentResolver.openInputStream(uri)?.use { zipText(it, order, onCut, strip, single, xlsx) }.orEmpty()
 
-    private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext): List<Piece> {
+    private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> {
         val audioSec = 0
-        return MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, audioSec, ctx, log).map { (m, jpeg) ->
+        return MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, audioSec, ctx, log, head = head).map { (m, jpeg) ->
+            if (jpeg == null) return@map later(momentLocator(m, false))
             val audio = if (audioSec > 1) MediaDecoding.audioAt(context, uri, m.audioFromMs, m.audioToMs, ctx, log) else null
             Piece(momentLocator(m, audio != null), momentParts(jpeg, m.frameMs, audio), null)
         }
@@ -382,10 +414,12 @@ object ImageBytes {
         runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull()
     }
 
-    /** The embed image: MediaStore's cached thumbnail when it has one (no full decode), else a decode at [maxSide]. */
-    fun jpeg(context: Context, uri: Uri, maxSide: Int): ByteArray? =
-        runCatching { compress(context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null)) }.getOrNull()
-            ?: bitmap(context, uri, maxSide)?.let { runCatching { compress(it) }.getOrNull() }
+    /** The embed image's pixels: MediaStore's cached thumbnail when it has one (no full decode), else a decode at [maxSide]. */
+    fun thumbnail(context: Context, uri: Uri, maxSide: Int): Bitmap? =
+        runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull() ?: bitmap(context, uri, maxSide)
+
+    /** The embed image, as [thumbnail] reads it. */
+    fun jpeg(context: Context, uri: Uri, maxSide: Int): ByteArray? = thumbnail(context, uri, maxSide)?.let { runCatching { compress(it) }.getOrNull() }
 
     /** A bundled drawable as an embed image, decoded straight from the APK's resources. */
     fun jpeg(resources: Resources, id: Int, maxSide: Int): ByteArray? =

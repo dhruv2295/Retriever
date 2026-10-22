@@ -16,6 +16,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import app.retriever.core.CoreDispatchers
 import app.retriever.core.Kind
 import app.retriever.core.NextRun
+import app.retriever.core.StopReason
 import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.MEDIA
 import app.retriever.indexing.IndexService.Companion.NOW
@@ -32,6 +33,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -82,6 +84,43 @@ class IndexServiceTest {
         assertEquals(1, live.size)
         WorkManagerTestInitHelper.getTestDriver(context)!!.setInitialDelayMet(live.single().id)
         assertEquals(WorkInfo.State.RUNNING, work.getWorkInfoById(live.single().id).get()!!.state)
+    }
+
+    @Test fun leavingOnAChargerWithFilesToReadStartsAForegroundRunUnlessPaused() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        retriever.commit(whileCharging = true)
+        val service = IndexService(context, retriever)
+
+        service.screenOff()
+        val live = infos(CONTINUE).single { !it.state.isFinished }
+        assertTrue("asks for its foreground service", IndexService.CHARGER in live.tags)
+        assertEquals(false, live.constraints.requiresDeviceIdle())
+
+        work.cancelAllWork().result.get()
+        retriever.pause()
+        service.screenOff()
+        assertTrue("a Pause holds", infos(CONTINUE).none { !it.state.isFinished })
+    }
+
+    @Test fun foregroundRunsStartOnlyOnAChargerWithReadingAllowedAndWorkLeft() {
+        assertTrue(IndexService.startsOnCharger(pluggedIn = true, blocker = null, hasWork = true))
+        assertFalse(IndexService.startsOnCharger(pluggedIn = false, blocker = null, hasWork = true))
+        assertFalse(IndexService.startsOnCharger(pluggedIn = true, blocker = null, hasWork = false))
+        for (blocker in listOf(StopReason.PAUSED, StopReason.HOT, StopReason.POWER_SAVE, StopReason.MANUAL, StopReason.UNPLUGGED)) {
+            assertFalse(blocker.name, IndexService.startsOnCharger(pluggedIn = true, blocker = blocker, hasWork = true))
+        }
+    }
+
+    @Test fun aForegroundRunHoldsOnAChargerOrInFrontUntilPausedOrDone() {
+        fun holds(next: NextRun, paused: Boolean = false, visible: Boolean = false, pluggedIn: Boolean = true) =
+            IndexService.holdsForeground(next, paused, visible, pluggedIn)
+        assertTrue("the next batch at once", holds(NextRun.SOON))
+        assertTrue("heat rests in place", holds(NextRun.AFTER_COOLDOWN))
+        assertTrue("in front on battery", holds(NextRun.SOON, visible = true, pluggedIn = false))
+        assertFalse("hidden on battery: WorkManager's follow-ups", holds(NextRun.SOON, pluggedIn = false))
+        assertFalse("Pause", holds(NextRun.SOON, paused = true))
+        for (next in listOf(NextRun.DONE, NextRun.WHEN_CHARGING, NextRun.WHEN_IDLE, NextRun.RETRY)) assertFalse(next.name, holds(next))
     }
 
     @Test fun screenOffTrialReplacesIdleWithoutAnIdleConstraint() = runBlocking {
