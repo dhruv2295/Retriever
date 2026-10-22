@@ -103,6 +103,7 @@ class Calibration(
             gpuStallsRendering = gpu?.renderingStalls == true,
             cpuImageMs = results.firstOrNull { it.backend == Backend.CPU && it.ok }?.imageMs,
             gpuImageMs = gpu?.takeIf { it.ok }?.imageMs,
+            gpuError = gpu?.takeUnless { it.ok }?.error,
         )
         return CalibrationResult(results, chosen, profile)
     }

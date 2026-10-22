@@ -1491,7 +1491,7 @@ class Retriever(
         log(
             "Tune: " + result.backends.joinToString("; ") {
                 "${it.backend} image ${it.imageMs?.toInt()} ms, query ${it.queryMs?.toInt()} ms, frame gap ${it.maxFrameGapMs.toInt()} ms" +
-                    if (it.ok) "" else " (failed)"
+                    if (it.ok) "" else " (failed: ${it.error})"
             } + "; chose ${result.chosen}",
             null,
         )

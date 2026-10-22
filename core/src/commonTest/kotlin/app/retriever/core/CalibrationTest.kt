@@ -131,6 +131,16 @@ class CalibrationTest {
     }
 
     @Test
+    fun aGpuTurnedDownKeepsItsReasonInTheProfile() = runTest {
+        val clock = TestTimeSource()
+        val factory = Factory(clock, imageMs = mapOf(Backend.GPU to 10_000.milliseconds))
+        val r = Calibration(factory, clock).run(samples, ModelVariant.M740.generic, ramGb = 8.0)
+        assertEquals(Backend.CPU, r.chosen)
+        assertNull(r.profile.gpuImageMs)
+        assertEquals("much slower than CPU", r.profile.gpuError)
+    }
+
+    @Test
     fun withEqualPhotoTimesTheFasterQueryBackendWins() = runTest {
         val clock = TestTimeSource()
         val factory = Factory(clock, mapOf(Backend.CPU to 60.milliseconds, Backend.GPU to 10.milliseconds))

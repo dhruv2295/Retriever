@@ -105,6 +105,8 @@ data class DeviceProfile(
     @SerialName("gpuVisionStalls") val gpuStallsRendering: Boolean = false,
     val cpuImageMs: Double? = null,
     val gpuImageMs: Double? = null,
+    /** Why Tune turned the GPU down, kept so a phone stuck on CPU shows the reason. */
+    val gpuError: String? = null,
     /** Resolved for an open; null in the stored profile means follow the measured policy. */
     val visionBackend: Backend? = null,
 )
