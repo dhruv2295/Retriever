@@ -26,7 +26,6 @@ import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -54,8 +53,14 @@ class IndexServiceTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val work get() = WorkManager.getInstance(context)
 
+    // Parks on a deferred the class holds: a coroutine suspended in awaitCancellation() is unreachable, so a GC collected
+    // it with WorkManager's future and the run turned FAILED (FutureGarbageCollectedException).
     private class Parked(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-        override suspend fun doWork(): Result = awaitCancellation()
+        override suspend fun doWork(): Result = PARKED.await()
+    }
+
+    private companion object {
+        val PARKED = CompletableDeferred<ListenableWorker.Result>()
     }
 
     @Before fun setUp() {
@@ -309,6 +314,11 @@ class IndexServiceTest {
 
         // KEEP drops the second request, and the running batch comes back soon for the change instead.
         assertEquals(NextRun.SOON, runBlocking { retriever.indexBatch(1.minutes) })
+        // A GC here once collected a parked run (see Parked); it must stay RUNNING.
+        repeat(3) {
+            System.gc()
+            Thread.sleep(50)
+        }
         val errors = ShadowLog.getLogs().filter { it.throwable != null }.joinToString("\n") { it.msg + "\n" + it.throwable.stackTraceToString() }
         assertEquals(errors, WorkInfo.State.RUNNING, infos(NOW).single().state)
     }
