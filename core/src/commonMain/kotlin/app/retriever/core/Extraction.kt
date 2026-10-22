@@ -364,8 +364,11 @@ fun imageWithText(locator: String, jpeg: ByteArray, ocr: String, maxChars: Int, 
 /** Scanned PDF pages read (render and OCR) on the first pass while the model is there to add the rest later. */
 const val PDF_HEAD_OCR_PAGES = 3
 
-/** Locator prefix of a page or video moment left for the deepen pass; its chunk is a placeholder until [Extractor.later] reads it. */
-const val LATER = "\u0000later:"
+/**
+ * Locator prefix of a page or video moment left for the deepen pass; its chunk is a placeholder until [Extractor.later]
+ * reads it. Printable, unlike [CUT_SHORT]: it is stored, and SQLite's native drivers bind a string only up to a NUL.
+ */
+const val LATER = "later:"
 
 /** A page or moment at [locator] left for the deepen pass. */
 fun later(locator: String) = Piece(LATER + locator, emptyList(), null)
