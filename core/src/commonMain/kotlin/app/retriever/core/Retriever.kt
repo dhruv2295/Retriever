@@ -630,6 +630,7 @@ class Retriever(
         var used: Embedder? = null
         var build: ModelBuild? = null
         var watchdog: Job? = null
+        val processedBefore = _state.value.processed
         fun end(reason: StopReason): NextRun {
             stop = reason
             return nextRunFor(reason, changedSinceSync)
@@ -761,6 +762,13 @@ class Retriever(
             watchdog?.cancel()
             saveBook()
             _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error) }
+            // Why each batch ended, so a phone that reads nothing says which rule stopped it.
+            val device = monitor.state()
+            log(
+                "Batch ended: ${stop ?: "error"} after ${started.elapsedNow().inWholeSeconds} s, ${_state.value.processed - processedBefore} files; " +
+                    "thermal ${device.thermal}, headroom ${device.headroom}, screen ${if (device.screenOn) "on" else "off"}, plugged ${device.pluggedIn}",
+                null,
+            )
         }
     }
 
