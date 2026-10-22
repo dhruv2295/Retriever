@@ -3,6 +3,9 @@ package app.retriever.core
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -89,6 +92,23 @@ class SetupFlowTest {
         assertEquals(SetupStage.WELCOME to false, welcome.stage to welcome.skipped)
         r.setSetupMark(SetupMark.ACCESS_CHOSEN)
         assertEquals(SetupStage.SAMPLE, r.inputs().stage, "Start the demo after Back runs the demo")
+    }
+
+    /**
+     * A reload (the app's launch refresh) racing an answer must never publish the inputs it read before the answer was
+     * written: that stale NONE sent the iOS AppModelTests' model back to the welcome, whose access step then marked
+     * ACCESS_CHOSEN over CHOOSING.
+     */
+    @Test
+    fun aReloadRacingAnAnswerNeverPublishesWhatItReadBefore() = runBlocking {
+        repeat(400) { run ->
+            val r = testRetriever(newStore(), files, FakeExtractor(), modelReady = { false })
+            coroutineScope {
+                launch(Dispatchers.Default) { r.refreshSetUp() }
+                launch(Dispatchers.Default) { r.setSetupMark(SetupMark.CHOOSING) }
+            }
+            assertEquals(SetupMark.CHOOSING, r.setup.value?.mark, "run $run")
+        }
     }
 
     @Test

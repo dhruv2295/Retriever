@@ -43,6 +43,8 @@ struct ResultCell: View {
     var extent: ReadExtent?
     var onFindSimilar: ((SourceFile) -> Void)?
     var matchReason: String?
+    var copies: [SourceFile] = []
+    var onOpenCopy: (SourceFile) -> Void = { _ in }
 
     var body: some View {
         Button(action: onOpen) {
@@ -59,7 +61,7 @@ struct ResultCell: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint(Format.openHint(locator))
-        .resultActions(file, starred: starred, onFindSimilar)
+        .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy)
     }
 
     private var label: String {
@@ -195,20 +197,29 @@ struct FileButton: View {
     var starred = false
     let onOpen: () -> Void
     var onFindSimilar: ((SourceFile) -> Void)?
+    var copies: [SourceFile] = []
+    var onOpenCopy: (SourceFile) -> Void = { _ in }
 
     var body: some View {
         Button(action: onOpen) {
             FileRowView(file: file, locator: locator, snippet: snippet, styledName: styledName, subtitle: subtitle, extent: extent, coverage: coverage)
         }
         .buttonStyle(.plain)
-        .resultActions(file, starred: starred, onFindSimilar)
+        .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy)
     }
 }
 
 extension View {
     /// `starred` comes from the list's own read of the stars, so starring one file redraws that row, not every one.
-    func resultActions(_ file: SourceFile, starred: Bool, _ onFindSimilar: ((SourceFile) -> Void)?) -> some View {
-        modifier(ResultActions(file: file, starred: starred, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil }))
+    /// `copies` are a search result's other copies (`SearchEngine.Hit.copies`), listed first, each opened by `onOpenCopy`.
+    func resultActions(
+        _ file: SourceFile, starred: Bool, _ onFindSimilar: ((SourceFile) -> Void)?, copies: [SourceFile] = [],
+        onOpenCopy: @escaping (SourceFile) -> Void = { _ in }
+    ) -> some View {
+        modifier(
+            ResultActions(
+                file: file, starred: starred, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil },
+                copies: copies, openCopy: onOpenCopy))
     }
 }
 
@@ -217,11 +228,25 @@ private struct ResultActions: ViewModifier {
     let file: SourceFile
     let starred: Bool
     let similar: ((SourceFile) -> Void)?
+    let copies: [SourceFile]
+    let openCopy: (SourceFile) -> Void
+
+    @ViewBuilder private var items: some View {
+        ForEach(copies, id: \.uri) { copy in
+            Button {
+                openCopy(copy)
+            } label: {
+                Label(Words.shared.openCopyIn(folder: FileActions.place(copy)), systemImage: "arrow.up.forward.square")
+            }
+        }
+        if !copies.isEmpty { Divider() }
+        FileActionButtons(file: file, starred: starred, similar: similar)
+    }
 
     func body(content: Content) -> some View {
         content
-            .accessibilityActions { FileActionButtons(file: file, starred: starred, similar: similar) }
-            .contextMenu { FileActionButtons(file: file, starred: starred, similar: similar) }
+            .accessibilityActions { items }
+            .contextMenu { items }
             .sensoryFeedback(trigger: starred) { _, now in now ? .success : .impact(weight: .light) }
     }
 }

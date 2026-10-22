@@ -257,7 +257,7 @@ fun StatusContent(
                             StatusAction.STOP -> OutlinedButton(onClick = actions.stopReadNow) { Text(StatusAction.STOP.label) }
                             else -> Unit
                         }
-                        if (unfinished && !prefs.paused) OutlinedButton(onClick = actions.pause) { Text("Pause") }
+                        if (status?.offersPause(counts.progress) == true) OutlinedButton(onClick = actions.pause) { Text(Words.PAUSE) }
                     }
                     // Laid out from the batch's start, before core names its first file, so the row never blinks in.
                     if (status?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 48.dp)

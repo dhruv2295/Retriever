@@ -15,3 +15,7 @@ fun newIndexingDispatcher(): ExecutorCoroutineDispatcher = Executors.newSingleTh
         work.run()
     }, "Retriever-index").apply { isDaemon = true }
 }.asCoroutineDispatcher()
+
+private val exclusiveLock = Any()
+
+internal actual fun <T> exclusive(block: () -> T): T = synchronized(exclusiveLock, block)

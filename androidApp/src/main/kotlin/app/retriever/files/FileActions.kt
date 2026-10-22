@@ -133,7 +133,8 @@ private fun perform(action: FileAction, file: SourceFile, starred: Boolean, onSt
 
 /**
  * The one file menu: [fileActions] in order, Delete last under a divider. [starred] and [onStar] default to the Retriever's
- * set; a list that shows Undo passes its own. [similar] adds Find similar after Open, for an image.
+ * set; a list that shows Undo passes its own. [similar] adds Find similar after Open, for an image. [copies] lists a
+ * search result's other copies first, each opened by [openCopy].
  */
 @Composable
 internal fun FileActionItems(
@@ -143,11 +144,24 @@ internal fun FileActionItems(
     onStar: ((Boolean) -> Unit)? = null,
     onDeleted: () -> Unit = {},
     similar: (() -> Unit)? = null,
+    copies: List<SourceFile> = emptyList(),
+    openCopy: (SourceFile) -> Unit = {},
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
     Column {
+        for (copy in copies) {
+            DropdownMenuItem(
+                text = { Text(Words.openCopyIn(friendlyFolder(copy.folder))) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = null) },
+                onClick = {
+                    dismiss()
+                    openCopy(copy)
+                },
+            )
+        }
+        if (copies.isNotEmpty()) HorizontalDivider()
         for (action in fileActions(file.uri)) {
             if (action == FileAction.INFO && similar != null) {
                 DropdownMenuItem(
@@ -186,14 +200,21 @@ internal fun FilePressMenu(
     onStar: ((Boolean) -> Unit)? = null,
     onDeleted: () -> Unit = {},
     similar: (() -> Unit)? = null,
+    copies: List<SourceFile> = emptyList(),
+    openCopy: (SourceFile) -> Unit = {},
     content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit,
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
-    val actions = remember(file.uri, on, host) {
+    val actions = remember(file.uri, on, host, copies) {
         Modifier.semantics {
-            customActions = fileActions(file.uri).map { action ->
+            customActions = copies.map { copy ->
+                CustomAccessibilityAction(Words.openCopyIn(friendlyFolder(copy.folder))) {
+                    openCopy(copy)
+                    true
+                }
+            } + fileActions(file.uri).map { action ->
                 CustomAccessibilityAction(action.label(on)) {
                     perform(action, file, on, write, host, onDeleted)
                     true
@@ -202,7 +223,7 @@ internal fun FilePressMenu(
         }
     }
     PressMenu(content = { menu -> content(menu, actions) }, modifier = modifier) { dismiss ->
-        FileActionItems(file, dismiss, on, write, onDeleted, similar)
+        FileActionItems(file, dismiss, on, write, onDeleted, similar, copies, openCopy)
     }
 }
 

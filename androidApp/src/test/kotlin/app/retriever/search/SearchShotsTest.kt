@@ -342,6 +342,24 @@ class SearchShotsTest {
         rule.onNodeWithText("Remove from Starred").assertExists()
     }
 
+    /** One file kept in two folders is one result saying "2 copies"; it opens the first, and its menu opens the other. */
+    @Test fun copiesAreOneResultAndTheMenuOpensTheOther() {
+        fun lease(id: Long, folder: String) =
+            hit(id, SourceFile("demo:$folder/Lease.pdf", "Lease.pdf", folder, "application/pdf", Kind.PDF, 1_200_000, 1_760_000_000_000))
+        val folded = lease(1, "Download").copy(copies = listOf(lease(9, "Documents")))
+        val opened = mutableListOf<Long>()
+        val actions = SearchActions(onOpenHit = { opened += it.fileId })
+        rule.setContent { ShotTheme(false, 1f) { Pane(ready.answered("lease", listOf(folded, mixedHits[3])), actions) } }
+        rule.onNodeWithText(Words.copies(2), substring = true).assertExists()
+        rule.onAllNodesWithText("Lease.pdf", substring = true).assertCountEquals(1)
+        rule.shot("search_results_copies_light")
+        rule.onNodeWithText("Lease.pdf", substring = true).performClick()
+        rule.onNodeWithText("Lease.pdf", substring = true).performTouchInput { longClick() }
+        rule.shot("search_results_copies_menu_light")
+        rule.onNodeWithText(Words.openCopyIn("Documents")).performClick()
+        assertEquals(listOf(1L, 9L), opened)
+    }
+
     @Test fun aRecordingIsNotUnderDocuments() {
         val note = hit(7, file("Voice note.m4a", Kind.AUDIO), chunkId = 70, locator = "0:12")
         fun render(hits: List<SearchEngine.Hit>) = rule.setContent {

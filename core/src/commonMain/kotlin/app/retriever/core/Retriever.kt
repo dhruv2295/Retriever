@@ -206,9 +206,11 @@ class Retriever(
     /** The first run's planned ids while only they are read (scope SAMPLE); null reads everything. Mirrors Store meta. */
     private val sampleIds = MutableStateFlow<List<Long>?>(null)
 
-    private fun loadScope(): List<Long>? = store.sampleIds().also {
-        sampleIds.value = it
-        loadSetup()
+    private fun loadScope(): List<Long>? = exclusive {
+        store.sampleIds().also {
+            sampleIds.value = it
+            _setup.value = readSetup()
+        }
     }
 
     /** The planned ids while only they are read, for a search scoped to them ([search]'s `scope`); null once everything is read. */
@@ -219,7 +221,13 @@ class Retriever(
     /** Setup's persisted inputs, null until [refreshSetUp] loads them; the platform adds [SetupInputs.withAccess]. */
     val setup: StateFlow<SetupInputs?> = _setup.asStateFlow()
 
-    private fun loadSetup(): SetupInputs {
+    /**
+     * Reads and publishes as one step: the launch's reload and an answer run at once, and a read taken before the answer
+     * was written must not land after it (it sent iOS back to the welcome, which then marked access chosen over CHOOSING).
+     */
+    private fun loadSetup(): SetupInputs = exclusive { readSetup().also { _setup.value = it } }
+
+    private fun readSetup(): SetupInputs {
         val stored = store.meta(SETUP_MARK_KEY)
         val saved = SetupMark.saved(stored)
         // Set up before this setup existed: past access and done with setup, a sample still running included. A text-only
@@ -232,7 +240,7 @@ class Retriever(
             // No scope yet reads as ALL elsewhere; here it is a plan still to make, unless setup predates plans.
             decided = store.flag(TASTE_DECIDED_KEY) || scope == Scope.ALL.name || (scope == null && legacy),
             planned = store.tasteIds().size,
-        ).also { _setup.value = it }
+        )
     }
 
     /**
@@ -1147,7 +1155,7 @@ class Retriever(
         val hits = store.captured(req.kinds ?: Kind.entries.toSet(), req.from ?: Long.MIN_VALUE, req.to ?: Long.MAX_VALUE, req.onlyStarred, req.limit)
             .map { SearchEngine.Hit(it.file, it.id, 0L, "", null, 0.0, false) }
         // No words were left to match by meaning, so nothing is missing: the screen must not say meaning results are on the way.
-        return SearchEngine.SearchResult(hits, vectorLane = true)
+        return SearchEngine.SearchResult(SearchEngine.foldCopies(hits), vectorLane = true)
     }
 
     private fun newEngine(e: Embedder) = SearchEngine(store, e, nameIndex = { sync.names })

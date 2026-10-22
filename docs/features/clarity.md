@@ -107,7 +107,8 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
   status section only when no line or note is there.
 - **Search bar**: placeholder "What are you looking for?" (wraps to two lines at large text on Android), "Try:" words
   from the person's own files when there is no history.
-- **Processing**: the status line with Resume / Process for 15 minutes / Stop, Processing now with the file's name beside
+- **Processing**: the status line with Resume / Process for 15 minutes / Stop, and "Pause" beside it only where
+  `ReadingStatus.offersPause` says (work left, not paused, no Process for 15 minutes: a session shows its Stop alone), Processing now with the file's name beside
   a small tile, counts under Details. Recently processed fills at its end and holds still while reading runs; on Android the
   row reads a local copy of the held list, because a LazyRow content lambda capturing only the holder was skipped and
   the strip never updated.

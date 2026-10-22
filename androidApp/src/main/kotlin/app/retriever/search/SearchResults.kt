@@ -316,15 +316,19 @@ private class HitActions(
     val star: (SourceFile, Boolean) -> Unit,
 )
 
-/** [content] is a result; a long press on it opens a menu to star it, and to find similar when [similar]. */
+/**
+ * [content] is a result; a long press on it opens a menu to star it, to find similar when [similar], and to open each of
+ * its other copies.
+ */
 @Composable
 private fun HitMenu(
-    file: SourceFile,
+    hit: SearchEngine.Hit,
     act: HitActions,
     similar: Boolean,
     modifier: Modifier = Modifier,
     content: @Composable (onLongClick: () -> Unit, actions: Modifier) -> Unit,
 ) {
+    val file = hit.file
     // Derived per file, so starring one file recomposes that file's menu and no other.
     val starred by remember(file.uri) { derivedStateOf { file.uri in act.starred() } }
     app.retriever.files.FilePressMenu(
@@ -333,6 +337,8 @@ private fun HitMenu(
         starred = starred,
         onStar = { act.star(file, it) },
         similar = act.findSimilar?.takeIf { similar }?.let { find -> { find(file) } },
+        copies = hit.copies.map { it.file },
+        openCopy = { copy -> hit.copies.firstOrNull { it.file == copy }?.let(act.open) },
         content = content,
     )
 }
@@ -445,7 +451,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
     if (titled) sectionHeader("media", "Photos and videos")
     items(hits, key = { it.fileId }, contentType = { "thumb" }) { hit ->
         HitMenu(
-            hit.file,
+            hit,
             act,
             similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects),
@@ -460,7 +466,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     onLongClick = menu,
                     onLongClickLabel = "More options",
                 )
-                hit.reason?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                listOfNotNull(hit.reason, hit.copiesNote).joinToString(" · ").ifEmpty { null }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             }
         }
     }
@@ -479,7 +485,7 @@ private fun LazyGridScope.docSection(
     if (titled) sectionHeader(headerKey, header)
     items(hits, key = { it.fileId }, span = { GridItemSpan(maxLineSpan) }, contentType = { "row" }) { hit ->
         HitMenu(
-            hit.file,
+            hit,
             act,
             similar = hit.file.kind == Kind.SCREENSHOT && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects).bleed(16.dp),
@@ -491,7 +497,7 @@ private fun LazyGridScope.docSection(
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
-                readNote = listOfNotNull(hit.reason, Words.extent(extents[hit.fileId])).joinToString(" · ").ifEmpty { null },
+                readNote = listOfNotNull(hit.reason, Words.extent(extents[hit.fileId]), hit.copiesNote).joinToString(" · ").ifEmpty { null },
                 onLongClick = menu,
                 onLongClickLabel = "More options",
                 onClick = { act.open(hit) },
@@ -509,3 +515,6 @@ private fun Modifier.bleed(by: Dp): Modifier = layout { measurable, constraints 
 
 /** Why the hit matched, as far as its provenance says: core's reason, or that its name matched. */
 private val SearchEngine.Hit.reason: String? get() = matchReason ?: Words.NAME_MATCHES.takeIf { byName }
+
+/** "2 copies" on a result that stands for the same file in several folders. */
+private val SearchEngine.Hit.copiesNote: String? get() = copies.takeIf { it.isNotEmpty() }?.let { Words.copies(it.size + 1) }

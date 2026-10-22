@@ -29,6 +29,18 @@ class ExactNameTest {
         assertEquals(listOf(ids["lease.jpg"], ids["notes.txt"]), engine.search("lease").hits.map { it.fileId })
     }
 
+    /** One file kept in two folders is one result that holds the other copy; a same-named file of another size stays its own. */
+    @Test fun copiesInTwoFoldersAreOneResult() = runTest {
+        fun pdf(folder: String, size: Long = 2_048) =
+            SourceFile("content://test/$folder/lease.pdf", "lease.pdf", folder, "application/pdf", Kind.PDF, size, 1_700_000_000_123L)
+        val (engine, _) = engine(newStore(), listOf(pdf("Download"), pdf("Documents"), pdf("Old", size = 99)), emptyList())
+        val hits = engine.search("lease").hits
+        assertEquals(2, hits.size, hits.map { it.file.folder }.toString())
+        val folded = hits.single { it.file.size == 2_048L }
+        assertEquals(setOf("Download", "Documents"), (listOf(folded) + folded.copies).map { it.file.folder }.toSet())
+        assertTrue(hits.single { it.file.size == 99L }.copies.isEmpty())
+    }
+
     @Test fun theLimitCannotDropTheExactFile() = runTest {
         val distractors = List(25) { testFile("notes-$it.txt") to "lease" }
         val (engine, ids) = engine(newStore(), listOf(testFile("lease.jpg", Kind.PHOTO)), distractors)

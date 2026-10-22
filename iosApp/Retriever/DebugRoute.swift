@@ -37,6 +37,7 @@
         case statusReadingTurnover = "status.readingTurnover"
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
+        case statusReadNow = "status.readNow"
         case statusSkipped = "status.skipped"
         case setupSamplePicking = "setup.samplePicking"
         case setupSampleStart = "setup.sampleStart"
@@ -59,6 +60,7 @@
         case searchLessLikely = "search.lessLikely"
         case searchNothingWell = "search.nothingWell"
         case searchFirstPart = "search.firstPart"
+        case searchCopies = "search.copies"
         case homeCaughtUp = "home.caughtUp"
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
@@ -155,7 +157,7 @@
             case .homeFirstDay: .firstDay
             case .homeUnplugged: .unplugged
             case .homeChargingUp: .chargingUp
-            case .homeReadNow: .readNow
+            case .homeReadNow, .statusReadNow: .readNow
             case .homeMeaning: .meaningPass
             case .homeNoAccess: .lostAccess
             case .homeNotNow: .notNow
@@ -184,7 +186,7 @@
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
-            case .statusReading, .statusCaughtUp, .statusPaused, .statusSkipped, .statusTextOnly, .statusTailFiles:
+            case .statusReading, .statusCaughtUp, .statusPaused, .statusReadNow, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
                 MascotGallery()
@@ -248,6 +250,8 @@
             case .searchFirstPart:
                 SearchView(
                     model: model, search: .fixture(text: "security deposit", hits: Fixtures.hits, extents: [1: .firstPart, 2: .deepening]), presented: true)
+            case .searchCopies:
+                SearchView(model: model, search: .fixture(text: "lease", hits: Fixtures.copies), presented: true)
             case .searchError:
                 SearchView(model: model, search: .fixture(text: "electricity bill", failed: true), presented: true)
             case .searchLoading:
@@ -349,6 +353,20 @@
                 uri: "folder://fixture/\(name)", name: name, folder: folder, mime: "application/pdf", kind: kind, size: 240_000,
                 modifiedAt: Int64((Date().timeIntervalSince1970 - daysAgo * 86400) * 1000), takenAt: nil)
         }
+
+        /// One lease kept in Downloads and in Home, as core folds it: one result, "2 copies".
+        static let copies: [SearchEngine.Hit] = {
+            let lease = { (folder: String, id: Int64) in
+                SearchEngine.Hit(file: file("Lease agreement 2026.pdf", .pdf, folder, daysAgo: 40), fileId: id, chunkId: 0, locator: "", snippet: nil, score: 1)
+            }
+            let first = lease("Retriever/Downloads", 1)
+            return [
+                SearchEngine.Hit(
+                    file: first.file, fileId: 1, chunkId: 0, locator: "", snippet: nil, score: 1, byName: true, matchReason: nil,
+                    copies: [lease("Retriever/Home", 9)]),
+                hits[1],
+            ]
+        }()
 
         static let hits: [SearchEngine.Hit] = [
             SearchEngine.Hit(

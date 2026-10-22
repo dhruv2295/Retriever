@@ -13,7 +13,7 @@ final class ClarityShotsTests: XCTestCase {
 
     private static let states: [DebugRoute] = [
         .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeCaughtUp,
-        .homeNoAccess, .statusReading, .statusPaused, .settings, .setupChoose, .setupWelcome, .setupReading,
+        .homeNoAccess, .statusReading, .statusPaused, .statusReadNow, .searchCopies, .settings, .setupChoose, .setupWelcome, .setupReading,
     ]
 
     func testEveryClarityStateRenders() async throws {
