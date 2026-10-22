@@ -36,7 +36,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
     ]
     private static let statusText = [
-        "Processing now", "Photo", "9 October 2025", "Recently processed", "Pause processing",
+        "Processing now", "Photo", "9 October 2025", "Recently processed", "Pause",
         "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your iPhone is charging. Process for 15 minutes uses some battery.",
     ]
     private static let routes = [

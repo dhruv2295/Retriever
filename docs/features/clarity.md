@@ -132,7 +132,7 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
 - The status line reads the device and clock fresh on every decision (`tick()` inside the read), so Resume and Read for
   15 minutes show at once; there is no timing test for that lag.
 - Browse's Documents opens PDFs only (or documents when there are none): a file list takes one kind.
-- iOS still hard-codes "Starred", "On This Day", "Pause processing" and some Settings footnotes; they belong in core
+- iOS still hard-codes "Starred", "On This Day" and some Settings footnotes; they belong in core
   `Words`.
 - The iPad sidebar keeps its folder list; only its words changed.
 
