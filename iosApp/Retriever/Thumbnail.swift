@@ -32,6 +32,7 @@ enum Thumbnails {
         guard let services else { return nil }
         let uri = file.uri
         let image: UIImage?
+        var keep = true
         if file.kind == .video, Locator.shared.msOf(l: locator) != nil || !uri.hasPrefix("ph://") {
             // A folder video has no poster frame, so it shows the first second.
             let ms = Locator.shared.msOf(l: locator)?.int64Value ?? 1000
@@ -42,12 +43,17 @@ enum Thumbnails {
             if file.kind == .pdf, let page = Locator.shared.pageOf(l: locator)?.intValue {
                 image = await Task.detached { pdfPage(url, index: page - 1, pixels: pixels) }.value
             } else {
-                image = await quickLook(url, pixels: pixels)?.uiImage
+                // The icon is also Quick Look's answer when a busy or just-booted system can't draw the page in time,
+                // so it shows but isn't kept: the next appearance asks again.
+                // ponytail: a type that only ever has an icon asks each time (under a second cold, milliseconds warm).
+                let shown = await quickLook(url, pixels: pixels)
+                image = shown?.uiImage
+                keep = shown?.type != .icon
             }
         } else {
             image = nil
         }
-        if let image { cache.setObject(image, forKey: key, cost: image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) }
+        if let image, keep { cache.setObject(image, forKey: key, cost: image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) }
         return image
     }
 
