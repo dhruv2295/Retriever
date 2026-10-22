@@ -1,5 +1,6 @@
 package app.retriever.indexing
 
+import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import android.provider.MediaStore
@@ -258,6 +259,9 @@ class IndexService(private val context: Context, private val retriever: Retrieve
             lastStop == null -> 10.seconds
             else -> Duration.ZERO
         }
+
+        /** Cached: Android 14+ freezes the process 10 s later, whatever it is running. */
+        fun aboutToFreeze(importance: Int) = importance >= ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED
 
         /** How often a phone in use on its charger is checked for being put down. */
         val BUSY_RECHECK = 5.minutes

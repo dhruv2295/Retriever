@@ -85,7 +85,8 @@ class IndexWorkerTest {
                     single(PlatformReady) { { platformReady } }
                     single { IndexService(context, retriever) }
                     single { Calibrator(context, retriever, get()) }
-                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
+                    single { ChargingBoost(context) }
+                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get(), get()) }
                 },
             )
         }

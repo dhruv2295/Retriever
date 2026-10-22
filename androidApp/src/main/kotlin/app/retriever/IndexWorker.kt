@@ -17,6 +17,7 @@
 
 package app.retriever
 
+import android.app.ActivityManager
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -33,6 +34,7 @@ import app.retriever.core.NextRun
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.indexingDispatcher
+import app.retriever.indexing.ChargingBoost
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
@@ -45,6 +47,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 // Stays in app.retriever: WorkManager persists this class name in pending work specs.
@@ -56,6 +59,7 @@ class IndexWorker(
     private val index: IndexService,
     private val platformReady: () -> Boolean,
     private val calibrator: Calibrator,
+    private val boost: ChargingBoost,
 ) : CoroutineWorker(context, params) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val notificationId: Int = params.id.hashCode()
@@ -91,6 +95,8 @@ class IndexWorker(
                 val foreground = (trial || charger || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
+                val boosting = launch { boostWhileRunning() }
+                val guard = launch { stopBeforeFreeze() }
                 // Before the batch, so a GPU that passes serves this run; its minute comes out of the batch's budget.
                 val started = TimeSource.Monotonic.markNow()
                 if (!trial) {
@@ -116,11 +122,14 @@ class IndexWorker(
                     next = retriever.indexBatch(8.minutes)
                 }
                 progress?.cancel()
+                boosting.cancel()
+                guard.cancel()
                 next
             }
             index.notifySampleIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
+            boost.release()
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
             // Our own notify() posts outlive the worker when there was no foreground service to own them.
             notificationManager.cancel(notificationId)
@@ -128,6 +137,38 @@ class IndexWorker(
         // Never Result.retry(): NOW work waiting in WorkManager's backoff (up to 5 h) would make indexNow's KEEP drop every
         // Resume, setting change and first-run commit until it ran. A failed batch rests through CONTINUE instead.
         Result.success()
+    }
+
+    /** On a charger, keeps the processing threads off the small cores (see [ChargingBoost]) and times each file for its hint. */
+    private suspend fun boostWhileRunning() = coroutineScope {
+        launch {
+            var last = retriever.state.value.processed
+            retriever.state.collect { s ->
+                if (s.processed > last) boost.fileDone()
+                last = s.processed
+            }
+        }
+        while (true) {
+            boost.apply(retriever.deviceState().pluggedIn)
+            delay(10.seconds)
+        }
+    }
+
+    /**
+     * WorkManager can run this worker in-process with no job behind it (GreedyScheduler). Once the app is hidden and holds no
+     * foreground service, Android ranks it cached and freezes it 10 s later, mid-batch or mid model open, and nothing restarts
+     * it: a Pixel 8 Pro read nothing for hours that way. Stopping the batch first lets the normal follow-up run as a real job.
+     */
+    private suspend fun stopBeforeFreeze() {
+        while (true) {
+            delay(2.seconds)
+            val state = ActivityManager.RunningAppProcessInfo().also(ActivityManager::getMyMemoryState)
+            if (IndexService.aboutToFreeze(state.importance)) {
+                Log.w("Retriever", "Cached with no job or service: stopping the batch before Android freezes the app")
+                retriever.cancelBatch()
+                return
+            }
+        }
     }
 
     // Android 11 implements expedited work as a foreground service and needs its notification before doWork.

@@ -1,5 +1,6 @@
 package app.retriever.indexing
 
+import android.app.ActivityManager
 import android.content.Context
 import android.os.PowerManager
 import android.provider.MediaStore
@@ -128,6 +129,18 @@ class IndexServiceTest {
         assertEquals("a model closed mid-batch", 10.seconds, IndexService.restBefore(NextRun.SOON, null))
         assertEquals("out of time", Duration.ZERO, IndexService.restBefore(NextRun.SOON, StopReason.BUDGET))
         assertEquals("a phone in use", IndexService.BUSY_POLL, IndexService.restBefore(NextRun.WHEN_IDLE, StopReason.BUSY))
+    }
+
+    @Test fun onlyACachedProcessIsAboutToBeFrozen() {
+        assertTrue(IndexService.aboutToFreeze(ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED))
+        // A bound job service, a foreground service or the app in front keep it running.
+        for (importance in listOf(
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE,
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE,
+            ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND,
+        )) {
+            assertFalse(importance.toString(), IndexService.aboutToFreeze(importance))
+        }
     }
 
     @Test fun foregroundRunsStartOnlyOnAChargerWithReadingAllowedAndWorkLeft() {
