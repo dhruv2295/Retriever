@@ -95,9 +95,11 @@ class ReadAheadTest {
         IndexEngine(store, extractor, null, FakeMonitor(), settingsOf()).runBatch(1.minutes, requireCharging = false)
         assertEquals(listOf("a.txt"), extractor.names, "no frames are decoded without the model")
         assertEquals(FileState.INDEXED, store.fileByUri(clip.uri)!!.state)
+        assertEquals(1L, store.countsNow().progress.nameOnly, "found by name, as before")
 
         store.resetForModel(SIG)
         assertEquals(FileState.PENDING, store.fileByUri(clip.uri)!!.state, "the model's arrival queues the video for its frames")
+        assertEquals(1L, store.countsNow().progress.scheduled, "it shows as not processed yet, as a requeued kind does")
         assertEquals(FileState.INDEXED, store.fileByUri(testFile("a.txt").uri)!!.state, "text already read stays read")
 
         val embedder = FakeEmbedder()
