@@ -10,7 +10,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -83,9 +82,6 @@ import app.retriever.model.UpgradeFlow
 import app.retriever.model.UpgradeUi
 import app.retriever.model.actions
 import app.retriever.model.tuneSummary
-import app.retriever.nav.BrowseRoute
-import app.retriever.nav.DuplicatesRoute
-import app.retriever.nav.Route
 import app.retriever.ui.Format
 import app.retriever.ui.components.Header
 import app.retriever.ui.components.Muted
@@ -102,10 +98,6 @@ private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHO
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
 
 internal const val INCLUDED_FILES_FOOTER = Words.KIND_OFF + " A folder to skip is left out of search."
-
-/** The confirmation for removing the download; [size] is what is on the phone, null when it can't be read. */
-internal fun removeDownloadMessage(size: String?): String =
-    (if (size != null) "This frees $size. " else "") + "File names and text already processed still work. Search by meaning needs the download again."
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
 data class SettingsUi(
@@ -133,8 +125,6 @@ data class SettingsUi(
     val notificationsOn: Boolean = true,
     /** The Reading row's line, as on Home; null until core answers. */
     val readingStatus: ReadingStatus? = null,
-    /** Free up space's large files as (count, bytes); null until counted. */
-    val large: Pair<Long, Long>? = null,
 )
 
 class SettingsActions(
@@ -162,22 +152,13 @@ class SettingsActions(
     val openAccess: () -> Unit = {},
     val clearRecentSearches: () -> Unit = {},
     val openNotificationSettings: () -> Unit = {},
-    val openLarge: () -> Unit = {},
-    val openDuplicates: () -> Unit = {},
 )
 
 @Composable
-fun SettingsScreen(
-    onBack: () -> Unit,
-    onStatus: () -> Unit = {},
-    onNavigate: (Route) -> Unit = {},
-    vm: SettingsViewModel = koinViewModel(),
-    upgradeFlow: UpgradeFlow = koinInject(),
-) {
+fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val state by vm.uiState.collectAsStateWithLifecycle()
     val readingStatus by vm.readingStatus.collectAsStateWithLifecycle()
-    val large by vm.large.collectAsStateWithLifecycle()
     val upgrade by upgradeFlow.ui.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
@@ -236,8 +217,6 @@ fun SettingsScreen(
             openNotices = { showNotices = true },
             openAccess = onStatus,
             clearRecentSearches = vm::clearRecentSearches,
-            openLarge = { onNavigate(BrowseRoute(sort = "LARGEST", title = "Large files")) },
-            openDuplicates = { onNavigate(DuplicatesRoute) },
             openNotificationSettings = {
                 val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                 context.startActivity(page)
@@ -256,7 +235,6 @@ fun SettingsScreen(
             notificationsOn = notificationsOn,
             upgrade = upgrade,
             readingStatus = readingStatus,
-            large = large,
         ),
         actions = actions,
         snackbar = snackbar,
@@ -355,6 +333,12 @@ fun SettingsContent(
                     )
                     if (adjust) TuneRow(ui.tune, actions.tuneAgain)
                 }
+                // Text-only phones can't run it, so they have no section for it.
+                if (!ui.textOnly) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Header(Words.SEARCH_BY_MEANING)
+                    SearchByMeaning(ui, actions)
+                }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Included files")
                 ListItem(headlineContent = { Text(Words.WHAT_IT_CAN_SEE) }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
@@ -414,8 +398,8 @@ fun SettingsContent(
                 )
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Storage and downloads")
-                Storage(ui, actions)
+                Header("Storage")
+                Storage(ui)
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Appearance")
@@ -464,8 +448,8 @@ fun SettingsContent(
     if (ui.confirmFree) {
         AlertDialog(
             onDismissRequest = actions.dismissFreeUpSpace,
-            title = { Text("Remove the search download?") },
-            text = { Text(removeDownloadMessage(ui.storage?.modelBytes?.let { Format.downloadSize(LocalContext.current, it) })) },
+            title = { Text(Words.REMOVE_DOWNLOAD_ASK) },
+            text = { Text(Words.removeDownloadMessage(ui.storage?.modelBytes?.let { Format.downloadSize(LocalContext.current, it) })) },
             confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text("Remove download") } },
             dismissButton = { TextButton(onClick = actions.dismissFreeUpSpace) { Text("Cancel") } },
         )
@@ -520,33 +504,28 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
     )
 }
 
+/** What Retriever keeps on the phone: each a title, then its size. Large files and duplicates are on Home. */
 @Composable
-private fun ColumnScope.Storage(ui: SettingsUi, actions: SettingsActions) {
-    ListItem(headlineContent = { Text("${Words.whatItHasRead(DeviceWords.ANDROID)} · ${ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…"}") })
-    // Large files and duplicates live here, never on Home; nothing is deleted from these lists without asking.
-    Text(Words.FREE_UP_SPACE, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp))
-    ui.large?.takeIf { it.first > 0 }?.let { (n, bytes) ->
-        ListItem(
-            headlineContent = { Text("${Words.largeFiles(n)} · ${Format.bytes(bytes)}") },
-            leadingContent = { Icon(painterResource(R.drawable.ic_storage), contentDescription = null) },
-            modifier = Modifier.clickable(role = Role.Button, onClick = actions.openLarge),
-        )
-    }
+private fun Storage(ui: SettingsUi) {
     ListItem(
-        headlineContent = { Text(Words.FIND_DUPLICATES) },
-        leadingContent = { Icon(painterResource(R.drawable.ic_content_copy), contentDescription = null) },
-        modifier = Modifier.clickable(role = Role.Button, onClick = actions.openDuplicates),
+        headlineContent = { Text(Words.RETRIEVERS_DATA) },
+        supportingContent = { Text(Words.keptOn(ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…", DeviceWords.ANDROID)) },
     )
-    Muted(Words.NEVER_DELETES, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
     if (ui.textOnly) return
-    ui.storage?.cacheBytes?.takeIf { it > 0 }?.let { ListItem(headlineContent = { Text("Temporary files · ${Format.bytes(it)}") }) }
-    // The same upgrade as Try and Home until it is done; then what it costs and how to remove it.
+    ui.storage?.cacheBytes?.takeIf { it > 0 }?.let {
+        ListItem(headlineContent = { Text(Words.TEMPORARY_FILES) }, supportingContent = { Text(Words.keptOn(Format.bytes(it), DeviceWords.ANDROID)) })
+    }
+}
+
+/** The optional download: the same upgrade as Try and Home until it is done; then its size and how to remove it. */
+@Composable
+private fun SearchByMeaning(ui: SettingsUi, actions: SettingsActions) {
     if (ui.upgrade.stage == UpgradeStage.DONE) {
         val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
-        ListItem(headlineContent = { Text("${Words.UPGRADE_TITLE} · $size") }, supportingContent = { Text("Downloaded") })
+        ListItem(headlineContent = { Text(Words.UPGRADE_TITLE) }, supportingContent = { Text(Words.downloaded(size)) })
         ListItem(
-            headlineContent = { Text("Remove search download", color = MaterialTheme.colorScheme.error) },
-            supportingContent = { Text("File names and text already processed still work.") },
+            headlineContent = { Text(Words.REMOVE_DOWNLOAD, color = MaterialTheme.colorScheme.error) },
+            supportingContent = { Text(Words.NAMES_STILL_WORK) },
             modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
         )
     } else {

@@ -492,6 +492,8 @@ class ProductStoreTest {
         val groups = store.sizeCollisions(minSize = 60)
         assertEquals(listOf(200L, 100L), groups.map { it.first().file.size })
         assertEquals(listOf(3, 2), groups.map { it.size })
+        // Home's count of possible copies is the same set, counted in SQL.
+        assertEquals(5L, store.sizeCollisionCount(minSize = 60))
     }
 
     @Test

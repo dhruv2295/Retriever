@@ -14,16 +14,13 @@ struct SettingsView: View {
         @State private var loadedProblems = false
     #endif
 
-    /// The confirmation for removing the download; `size` is what is on the phone, nil when it can't be read.
-    static func removeDownloadMessage(size: String?) -> String {
-        (size.map { "This frees \($0). " } ?? "") + "File names and text already processed still work. Search by meaning needs the download again."
-    }
-
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
         Form {
             howItWorks
             reading(snap)
+            // Text-only devices can't run it, so they have no section for it.
+            if !snap.textOnly { searchByMeaning(snap) }
             includedFiles(snap)
             Section {
                 Toggle("Save recent searches", isOn: Binding(get: { snap.rememberSearches }, set: model.setRememberSearches))
@@ -35,7 +32,6 @@ struct SettingsView: View {
                 Text("Saved on this \(Copy.device) only. Nothing is sent anywhere.")
             }
             storage(snap)
-            freeUpSpace
             Section("Appearance") {
                 Toggle(Words.shared.SHOW_ON_THIS_DAY, isOn: Binding(get: { snap.showOnThisDay }, set: model.setShowOnThisDay))
             }
@@ -62,10 +58,10 @@ struct SettingsView: View {
                 searchesCleared = true
             }
         }
-        .confirmationDialog("Remove the search download?", isPresented: $confirmingFree, titleVisibility: .visible) {
+        .confirmationDialog(Words.shared.REMOVE_DOWNLOAD_ASK, isPresented: $confirmingFree, titleVisibility: .visible) {
             Button("Remove download", role: .destructive, action: model.freeUpSpace)
         } message: {
-            Text(Self.removeDownloadMessage(size: model.storage.map { Copy.downloadSize($0.model) }))
+            Text(Words.shared.removeDownloadMessage(size: model.storage.map { Copy.downloadSize($0.model) }))
         }
     }
 
@@ -181,45 +177,31 @@ struct SettingsView: View {
         }
     }
 
+    /// What Retriever keeps on the device: each a title, then its size. Large files and duplicates are on Home.
     @ViewBuilder private func storage(_ snap: AppModel.Snap) -> some View {
         let sizes = model.storage
-        Section {
-            Text("\(Words.shared.whatItHasRead(words: Copy.words)) · \(sizes.map { Copy.bytes($0.index) } ?? "…")")
-            if !snap.textOnly {
-                if let cache = sizes?.cache, cache > 0, !model.modelMissing {
-                    Text("Temporary files · \(Copy.bytes(cache))")
-                }
-                // The same upgrade as Try and Home until it is done; then what it costs and how to remove it.
-                if model.upgrade == .done {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(Words.shared.UPGRADE_TITLE) · \(modelSize(snap, sizes))")
-                        Text("Downloaded").font(.footnote).foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                    Button("Remove search download", role: .destructive) { confirmingFree = true }
-                } else {
-                    UpgradeCard(model: model)
-                }
-                Toggle("Use mobile data for downloads", isOn: Binding(get: { model.useMobileData }, set: model.setUseMobileData))
+        Section("Storage") {
+            TitleAndDetail(title: Words.shared.RETRIEVERS_DATA, detail: Words.shared.keptOn(size: sizes.map { Copy.bytes($0.index) } ?? "…", words: Copy.words))
+            if !snap.textOnly, let cache = sizes?.cache, cache > 0, !model.modelMissing {
+                TitleAndDetail(title: Words.shared.TEMPORARY_FILES, detail: Words.shared.keptOn(size: Copy.bytes(cache), words: Copy.words))
             }
-        } header: {
-            Text("Storage and downloads")
-        } footer: {
-            if !snap.textOnly { Text(model.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Downloads wait for Wi-Fi, so they won't use your data.") }
         }
     }
 
-    /// Large files and duplicates, here and never on Home.
-    private var freeUpSpace: some View {
+    /// The optional download: the same upgrade as Try and Home until it is done; then its size and how to remove it.
+    private func searchByMeaning(_ snap: AppModel.Snap) -> some View {
         Section {
-            if let large = model.home?.largeCount, large > 0 {
-                NavigationLink(value: HomeTile.largeFiles) { LabeledContent("Large files", value: Words.shared.largeFiles(n: large)) }
+            if model.upgrade == .done {
+                TitleAndDetail(title: Words.shared.UPGRADE_TITLE, detail: Words.shared.downloaded(size: modelSize(snap, model.storage)))
+                Button(Words.shared.REMOVE_DOWNLOAD, role: .destructive) { confirmingFree = true }
+            } else {
+                UpgradeCard(model: model)
             }
-            NavigationLink(Words.shared.FIND_DUPLICATES, value: Route.duplicates)
+            Toggle("Use mobile data for downloads", isOn: Binding(get: { model.useMobileData }, set: model.setUseMobileData))
         } header: {
-            Text(Words.shared.FREE_UP_SPACE)
+            Text(Words.shared.SEARCH_BY_MEANING)
         } footer: {
-            Text(Words.shared.NEVER_DELETES)
+            Text(model.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Downloads wait for Wi-Fi, so they won't use your data.")
         }
     }
 
@@ -268,6 +250,22 @@ struct SettingsView: View {
         case .video: "Videos"
         default: "Other files"
         }
+    }
+}
+
+/// A row's title with its detail beneath, read as one.
+private struct TitleAndDetail: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Never compressed by the row: a two-line title clipped at the larger text sizes.
+            Text(title).fixedSize(horizontal: false, vertical: true)
+            // Primary, as the app's notes are: secondary grey nearly fails contrast on the grouped rows.
+            Text(detail).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

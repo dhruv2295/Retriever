@@ -208,7 +208,7 @@ extension AppModel {
             newShots: (1...3).map { file("Screenshot \($0).png", .screenshot, "Photos/Screenshots", size: 400_000, daysAgo: Double($0)) },
             newDocs: docs,
             starred: [docs[0], docs[2]], starredCount: 2,
-            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, kindTotals: kindTotals, folderTotals: [])
+            folders: 12, largeCount: 4, largeBytes: 6_400_000_000, possibleCopies: 38, kindTotals: kindTotals, folderTotals: [])
         storage = Storage(index: 412_000_000, model: ModelVariant.m440.generic.sizeBytes, cache: 38_000_000)
         starred = ["folder://fixture/Lease agreement 2026.pdf", "folder://fixture/Trip itinerary.docx"]
         self.suggestions = suggestions

@@ -77,10 +77,6 @@ class SettingsViewModel(
     /** The Reading row's line: the same as Home's, so Read for 15 minutes shows there from the tap. */
     val readingStatus: StateFlow<ReadingStatus?> = retriever.readingStatus().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    /** Free up space's large files, as (count, bytes); null until counted. */
-    val large: StateFlow<Pair<Long, Long>?> =
-        retriever.home().map { it.largeCount to it.largeBytes }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
     private fun ui(prefs: Prefs, facts: Triple<Backend?, String?, ModelBuild?>, missing: Boolean, build: ModelBuild, l: Local) = SettingsUi(
         prefs, backend = facts.first, detail = facts.second, loadedBuild = facts.third, tune = l.tune, storage = l.storage,
         modelMissing = missing, build = build, textOnly = retriever.textOnly, ramGb = retriever.probe.ramGb,

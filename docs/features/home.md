@@ -4,7 +4,7 @@
 
 The first screen once the app is set up, and where you start looking for something. In order: the title
 "Retriever", one status line (core's `ReadingPolicy.line`: what is happening and whether to do anything), Starred,
-Recently added, On this day, Browse, and the optional search-by-meaning offer last under "Optional". The search bar sits
+Recently added, On this day, Browse, the optional search-by-meaning offer under "Optional", and Free up space last. The search bar sits
 at the bottom and asks "What are you looking for?"; its suggestions are recent searches, or "Try:" words from the
 person's own files when there are none. Design and reasons: `retriever-flow/clarity-proposal.md`; as built:
 `clarity.md`. The search bar and results are in `search-ui.md`.
@@ -39,9 +39,16 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
   download or its setup is the line itself. It shows only once core's live `readingStatus()` has answered; its detail
   starts with the live count ("312 of 25,747 files done"). All done carries an [x].
 - **Browse.** Photos, Videos, Screenshots, Documents (PDFs too), Audio, then Folders: name and count only, a kind
-  with no files hidden; sizes are in Settings → Storage. Three a row, two at large text.
-- **Optional.** The search-by-meaning offer is a flat row at the end with a tonal Download and Not now
+  with no files hidden. Three a row, two at large text.
+- **Optional.** The search-by-meaning offer is a flat row after Browse with a tonal Download and Not now
   (`UpgradePolicy.showOnHome`), never the strongest button on Home.
+- **Free up space.** Last: "Large files" ("56 files over 100 MB · 35.4 GB", storage icon; opens every file, largest
+  first) and "Find duplicate files" ("38 files might be copies", a file-copy icon / `doc.on.doc`; opens Duplicates), each
+  a list row with a chevron, then "Retriever never deletes anything without asking you first." A row shows only when it
+  has something (`HomeFacts.largeCount`, `HomeFacts.possibleCopies`), and the section only when one does. Possible copies
+  are the duplicate finder's free first stage (files sharing a size of 64 KB or more, one SQL count in `home()`); the
+  hashing scan runs only when Duplicates opens, so Home never claims copies were found. On an iPad the sidebar lists the
+  same rows by the same rule.
 - **Dismissal.** `Prefs.dismissedReadingCycle` hides All caught up across launches. The first actual file processed after dismissal advances `readingCycle`; empty scans and renames do not. The existing celebration budget remains separate.
 - **Mascot.** Placement follows `docs/motion-api.md`: `WALKING` on the empty first-scan state, `NO_MATCH` on an empty
   library, `CAUGHT_UP` once ever on the status line (`Celebration`, Store meta `celebrated`, haptic 0.2 s after the pop).
@@ -79,10 +86,11 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
   `aDayIsRangedByTheZonesRulesAcrossDstChanges`, `twentyNinthOfFebruaryIsOnlyInLeapYears`,
   `onThisDayAsksOncePerLocalDateAndAgainWhenTheDateChanges`, `hidingOnThisDayIsAtOnceAndTheStatusSwitchBringsItBack`.
 - Android screenshots: `HomeShotsTest` (every status-line state in light and dark, `defaultLargestText` with two Browse
-  columns) and `AdaptiveShotsTest`; recomposition: `RecompositionTest` in `search/`.
+  columns, `home_tools_light`/`_dark`/`_text2_0` for Free up space, `freeUpSpaceIsLastAndOpensLargeFilesAndDuplicates`,
+  `freeUpSpaceHidesARowWithNothingAndTheSectionWhenBothAreEmpty`) and `AdaptiveShotsTest`; recomposition: `RecompositionTest` in `search/`.
 - iOS, `iosApp/RetrieverTests/HomeModelTests.swift`: `testNoOtherFileInAnyHomeList`,
   `testFirstRunSaysLookingUntilAScanFinishes`, `testSectionsHideWhenTheyHaveNothingToSay`,
-  `testTilesAreFixedOrderAndOnlyForCountsAboveZero`, `testCaughtUpIsCelebratedOnceEverNotForALaterCatchUpOrAfterRelaunch`, `testAnUnchangedSnapshotDoesNotReassignSnap`.
+  `testTilesAreFixedOrderAndOnlyForCountsAboveZero`, `testFreeUpSpaceShowsARowOnlyWhenItHasSomethingAndNoSectionWhenNeitherHas`, `testCaughtUpIsCelebratedOnceEverNotForALaterCatchUpOrAfterRelaunch`, `testAnUnchangedSnapshotDoesNotReassignSnap`.
 
 ## Known limits
 

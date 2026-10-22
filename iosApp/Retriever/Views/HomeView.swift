@@ -1,5 +1,5 @@
-// Home, under the search field: one status line, then Starred, Recently added, On This Day and Browse, and the optional
-// search-by-meaning offer last (clarity-proposal section 2). One inset-grouped List; a section with nothing in it is hidden.
+// Home, under the search field: one status line, then Starred, Recently added, On This Day and Browse, the optional
+// search-by-meaning offer, and Free up space last. One inset-grouped List; a section with nothing in it is hidden.
 
 import Photos
 import RetrieverCore
@@ -92,6 +92,33 @@ struct HomeList: View {
                 UpgradeCard(model: model, compact: true)
             } header: {
                 SectionHeader(Words.shared.OPTIONAL)
+            }
+        }
+        // On an iPad the sidebar holds these too.
+        if sizeClass != .regular { freeUpSpace }
+    }
+
+    /// Large files and possible copies, a row each only when there are some; nothing is deleted without asking.
+    @ViewBuilder private var freeUpSpace: some View {
+        if let home = model.home, home.largeCount > 0 || home.possibleCopies > 0 {
+            Section {
+                if home.largeCount > 0 {
+                    NavigationLink(value: HomeTile.largeFiles) {
+                        HomeRow(
+                            icon: "externaldrive", title: Words.shared.LARGE_FILES,
+                            detail: Words.shared.largeFilesDetail(n: home.largeCount, size: Copy.bytes(home.largeBytes)), below: true)
+                    }
+                }
+                if home.possibleCopies > 0 {
+                    NavigationLink(value: Route.duplicates) {
+                        HomeRow(
+                            icon: "doc.on.doc", title: Words.shared.FIND_DUPLICATES, detail: Words.shared.possibleCopies(n: home.possibleCopies), below: true)
+                    }
+                }
+            } header: {
+                SectionHeader(Words.shared.FREE_UP_SPACE)
+            } footer: {
+                Text(Words.shared.NEVER_DELETES)
             }
         }
     }
@@ -298,22 +325,25 @@ struct SectionHeader: View {
     }
 }
 
-/// An icon, a name and an optional count; one element for VoiceOver. At accessibility sizes the count goes under the
-/// name, so neither breaks mid-word; Label scales the icon with the text.
+/// An icon, a name and an optional count; one element for VoiceOver. At accessibility sizes, or [below], the detail goes
+/// under the name, so neither breaks mid-word; Label scales the icon with the text.
 private struct HomeRow: View {
     let icon: String
     let title: String
     var detail: String?
+    /// A sentence, not a count: always under the name, a size smaller.
+    var below = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Label {
-            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout())
+            let stacked = below || typeSize.isAccessibilitySize
+            let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout())
             layout {
                 Text(title).layoutPriority(1)
-                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                if !stacked { Spacer(minLength: 8) }
                 // Primary, as the app's notes are: secondary grey fails contrast on the grouped rows.
-                if let detail { Text(detail).monospacedDigit() }
+                if let detail { Text(detail).font(below ? .subheadline : .body).monospacedDigit() }
             }
         } icon: {
             Image(systemName: icon).foregroundStyle(.tint)

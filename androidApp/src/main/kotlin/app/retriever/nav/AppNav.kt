@@ -131,7 +131,7 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
                 },
             ) { SearchScreen(onNavigate = go) }
             composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
-            composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }, onNavigate = go) }
+            composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
             composable<FoldersRoute> { FoldersScreen(go, back) }
             composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
             composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }

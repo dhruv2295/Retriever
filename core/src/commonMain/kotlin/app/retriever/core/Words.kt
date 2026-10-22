@@ -417,12 +417,34 @@ object Words {
     const val KIND_OFF = "Turned off: Retriever still finds these by name, but forgets what’s inside them. Your files aren’t touched."
     const val SHOW_ON_THIS_DAY = "Show On this day (photos from this date in past years)"
 
-    /** Settings → Storage, where large files and duplicates live (never Home). */
+    /** Settings → Storage: a title, then its size and where it is kept. */
+    const val RETRIEVERS_DATA = "Retriever’s data"
+    const val TEMPORARY_FILES = "Temporary files"
+
+    fun keptOn(size: String, words: DeviceWords): String = "${keepTogether(size)} · kept on this ${words.device}"
+
+    /** Settings → Search by meaning, once downloaded: what it costs and how to give the space back. */
+    const val SEARCH_BY_MEANING = "Search by meaning"
+    const val REMOVE_DOWNLOAD = "Remove search download"
+    const val REMOVE_DOWNLOAD_ASK = "Remove the search download?"
+    const val NAMES_STILL_WORK = "File names and text already processed still work."
+
+    fun downloaded(size: String): String = "Downloaded · ${keepTogether(size)}"
+
+    /** The confirmation for removing the download; [size] is what is on the device, null when it can't be read. */
+    fun removeDownloadMessage(size: String?): String =
+        (if (size != null) "This frees ${keepTogether(size)}. " else "") + "$NAMES_STILL_WORK Search by meaning needs the download again."
+
+    /** Home's last section: large files and possible copies. Nothing is deleted from either list without asking. */
     const val FREE_UP_SPACE = "Free up space"
+    const val LARGE_FILES = "Large files"
     const val FIND_DUPLICATES = "Find duplicate files"
     const val NEVER_DELETES = "Retriever never deletes anything without asking you first."
 
-    fun whatItHasRead(words: DeviceWords): String = "What Retriever has processed · stays on this ${words.device}"
+    fun largeFilesDetail(n: Long, size: String): String = "${largeFiles(n)} · ${keepTogether(size)}"
+
+    /** Files sharing a size with another: copies are possible, not yet found. */
+    fun possibleCopies(n: Long): String = "${files(n)} might be copies"
 
     // A file's menu.
     fun deleteFrom(words: DeviceWords): String = "Delete from ${words.device}"

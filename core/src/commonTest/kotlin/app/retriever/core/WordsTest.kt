@@ -90,7 +90,7 @@ class WordsTest {
             Words.readNowBody(DeviceWords.ios("iPad")),
         )
         assertEquals("When your phone is charging and you’re not using it, usually overnight. You can pause any time.", Words.whileChargingBody(android))
-        assertEquals("What Retriever has processed · stays on this iPhone", Words.whatItHasRead(iphone))
+        assertEquals("47.6\u00A0MB · kept on this iPhone", Words.keptOn("47.6 MB", iphone))
         assertEquals("Delete from phone" to "This deletes the file from your phone.", Words.deleteFrom(android) to Words.deleteConfirm(android))
     }
 

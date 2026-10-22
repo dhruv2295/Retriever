@@ -229,7 +229,7 @@ struct HomeTile: Equatable, Identifiable {
     let count: Int
     let route: Route
 
-    static var largeFiles: Route { .files(FileQuery(sort: .largest, title: "Large files")) }
+    static var largeFiles: Route { .files(FileQuery(sort: .largest, title: Words.shared.LARGE_FILES)) }
     @MainActor static let kinds: [Kind] = [.photo, .video, .screenshot, .pdf, .doc, .audio, .other]
 
     /// Every kind with files in it, the busiest folders (each counting its own files only), then All folders.

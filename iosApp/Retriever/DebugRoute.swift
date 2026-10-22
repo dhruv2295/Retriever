@@ -182,7 +182,7 @@
                 .setupReadingPaused, .setupSampleDone, .setupChoose, .setupChooseSkipped, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
-                // Settings' Storage and downloads entry, alone: the same card as Home's.
+                // Settings' Search by meaning entry, alone: the same card as Home's.
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
@@ -230,7 +230,7 @@
                     model.home = h.doCopy(
                         newMedia: (1...6).map { Fixtures.file("Photo \($0).jpg", .photo, "Photos", daysAgo: Double($0)) }, newShots: h.newShots,
                         newDocs: h.newDocs, starred: h.starred, starredCount: h.starredCount, folders: h.folders, largeCount: h.largeCount,
-                        largeBytes: h.largeBytes, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
+                        largeBytes: h.largeBytes, possibleCopies: h.possibleCopies, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
                 }
             case .searchNoModel:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Array(Fixtures.hits.prefix(1)), vectorLane: false), presented: true)

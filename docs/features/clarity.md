@@ -66,7 +66,8 @@ What it decides, beyond the proposal's table:
 | `HomeFacts.browse: List<BrowseKind(title, kinds, files)>` | Browse: Photos, Videos, Screenshots, Documents (DOC + PDF), Audio, in that order; no sizes; a kind with no files is left out. Folders is the app's last tile (`HomeFacts.folders`) |
 
 `topFolders` and `FolderCount` are deleted. `newMedia`, `newShots` and `newDocs` stay as `recentlyAdded`'s inputs;
-`largeCount`/`largeBytes` feed Settings' Free up space.
+`largeCount`/`largeBytes` and `possibleCopies` (files sharing a size, `Store.sizeCollisionCount`) feed Home's Free up
+space, its last section (`home.md`).
 
 ### Words (proposal section 4)
 
@@ -84,7 +85,8 @@ this phone", `SAMPLE_PICKING`, `READ` "Found by what's inside", `CHOOSE_WHEN` "C
 | `WELCOME_BODY`, `nothingSent(words)` (was `welcomeBody`) | the welcome's body, and its own larger line "Nothing leaves your phone. No account, nothing sent anywhere." |
 | `MORE_FILES` (was `moreFiles(n)`), `CHOOSE_TITLE`, `CHOOSE_PACE`, `READ_15_NOW`, `NOT_NOW_BODY`, `whileChargingBody(words)`, `readNowBody(words)`, `DONE` | Choose when to process |
 | `READ_FOR_15`, `OPTIONAL`, `TRY_LABEL` "Try:", `RECENTLY_ADDED`, `SAMPLE_DONE`, `FOUND_BY_NAME`, `FOUND_BY` | Home, the sample, File info |
-| `HOW_IT_WORKS`, `WHEN_TO_READ`, `WHAT_IT_CAN_SEE`, `FOLDERS_TO_SKIP`, `KIND_OFF`, `SHOW_ON_THIS_DAY`, `whatItHasRead(words)`, `FREE_UP_SPACE`, `FIND_DUPLICATES`, `NEVER_DELETES`, `deleteFrom(words)`, `deleteConfirm(words)` | Settings and the file menu (both apps hard-code the old ones today) |
+| `HOW_IT_WORKS`, `WHEN_TO_READ`, `WHAT_IT_CAN_SEE`, `FOLDERS_TO_SKIP`, `KIND_OFF`, `SHOW_ON_THIS_DAY`, `RETRIEVERS_DATA`, `keptOn(size, words)`, `TEMPORARY_FILES`, `SEARCH_BY_MEANING`, `downloaded(size)`, `REMOVE_DOWNLOAD`, `REMOVE_DOWNLOAD_ASK`, `NAMES_STILL_WORK`, `removeDownloadMessage(size)`, `deleteFrom(words)`, `deleteConfirm(words)` | Settings and the file menu |
+| `FREE_UP_SPACE`, `LARGE_FILES`, `largeFilesDetail(n, size)`, `FIND_DUPLICATES`, `possibleCopies(n)`, `NEVER_DELETES` | Home's Free up space |
 | `DeviceWords.ios` | iOS reads only while open and opens Settings for access |
 
 Removed (nothing used them, or their surface is cut): `inLibrary`, `MORE_ON_PHONE_BODY`, `CHOOSE_ACCESS`,
@@ -101,7 +103,8 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
 
 - **Home** (both): "Retriever", the status line (dog 24 dp / 28 pt, bar only while reading or downloading, its one
   button on its own row; the whole line opens Processing), Starred, Recently added, On this day, Browse, then the
-  "Optional" offer as a flat row with a tonal (Android) or bordered (iOS) Download and Not now. Strip tiles are 112 dp
+  "Optional" offer as a flat row with a tonal (Android) or bordered (iOS) Download and Not now, then Free up space (Large
+  files and Find duplicate files as list rows with icons, counts and chevrons, each hidden when it has nothing). Strip tiles are 112 dp
   grown with the font scale on Android; Browse is three a row, two at large text (cell width rounded down to whole dp).
   On iOS, Browse rows put the count under the name at accessibility sizes, and the add-a-folder nudge shows in the
   status section only when no line or note is there.
@@ -112,7 +115,9 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
   a small tile, counts under Details. Recently processed fills at its end and holds still while reading runs; on Android the
   row reads a local copy of the held list, because a LazyRow content lambda capturing only the holder was skipped and
   the strip never updated.
-- **Settings**: "How Retriever works and your privacy" first; Reading shows the live status line, so Read for 15
+- **Settings**: "How Retriever works and your privacy" first, then Reading, then Search by meaning (the optional
+  download, its size and state, and Remove search download); Storage is a title with its size beneath, never a sentence
+  joined by a dot. Reading shows the live status line, so Read for 15
   minutes visibly turns it into "Processing for 15 minutes · N min left". When to process under "While charging" uses
   `Words.whileChargingBody` on both apps.
 - **iOS tiles and headers**: a strip tile is a `Menu` with a primary action (tap opens, long press shows the file menu):
