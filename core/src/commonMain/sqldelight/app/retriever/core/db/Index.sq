@@ -222,6 +222,11 @@ SELECT * FROM files
 WHERE size IN (SELECT size FROM files WHERE size >= :minSize GROUP BY size HAVING COUNT(*) > 1)
 ORDER BY size DESC, modified_at ASC;
 
+-- How many files share a size with another: the finder's first, cheap stage, so Home knows whether copies are possible.
+sizeCollisionCount:
+SELECT COUNT(*) FROM files
+WHERE size IN (SELECT size FROM files WHERE size >= :minSize GROUP BY size HAVING COUNT(*) > 1);
+
 requeue:
 UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'INDEXED' AND kind IN ?;
 

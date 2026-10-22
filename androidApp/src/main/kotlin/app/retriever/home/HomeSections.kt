@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,11 +55,13 @@ import app.retriever.core.Words
 import app.retriever.core.YearMemory
 import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
+import app.retriever.nav.DuplicatesRoute
 import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
 import app.retriever.search.SearchActions
 import app.retriever.ui.Format
 import app.retriever.ui.components.FileTile
+import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbnailImage
 import app.retriever.ui.components.kindIcon
 import app.retriever.ui.tabular
@@ -65,7 +69,7 @@ import app.retriever.viewer.Opener
 import java.time.LocalDate
 import java.time.ZoneId
 
-// Home's sections: Starred, Recently added, On this day and Browse. Small tiles only: no private picture full-width.
+// Home's sections: Starred, Recently added, On this day, Browse and Free up space. Small tiles only: no private picture full-width.
 // Colour tokens only, except the white text and black scrim that sit on photos.
 
 private val StripPadding = PaddingValues(horizontal = 16.dp)
@@ -150,6 +154,35 @@ internal fun BrowseSection(kinds: List<BrowseKind>, folders: Long, go: (Route) -
             }
         }
     }
+}
+
+/** Home's last section: large files and possible copies, a row each only when there are some. */
+@Composable
+internal fun FreeUpSpaceSection(facts: HomeFacts, go: (Route) -> Unit) {
+    Column {
+        SectionHeader(Words.FREE_UP_SPACE)
+        if (facts.largeCount > 0) {
+            ToolRow(R.drawable.ic_storage, Words.LARGE_FILES, Words.largeFilesDetail(facts.largeCount, Format.bytes(facts.largeBytes))) {
+                go(BrowseRoute(sort = "LARGEST", title = Words.LARGE_FILES))
+            }
+        }
+        if (facts.possibleCopies > 0) {
+            ToolRow(R.drawable.ic_file_copy, Words.FIND_DUPLICATES, Words.possibleCopies(facts.possibleCopies)) { go(DuplicatesRoute) }
+        }
+        Muted(Words.NEVER_DELETES, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+    }
+}
+
+@Composable
+private fun ToolRow(icon: Int, title: String, detail: String, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(detail, style = MaterialTheme.typography.bodyMedium.tabular()) },
+        leadingContent = { Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(role = Role.Button, onClick = onClick),
+    )
 }
 
 @Composable

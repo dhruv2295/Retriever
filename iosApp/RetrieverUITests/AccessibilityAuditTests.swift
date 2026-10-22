@@ -479,6 +479,8 @@ final class AccessibilityAuditTests: XCTestCase {
         ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
+        // Search by meaning sits just under When to process, at the first screen's fold.
+        ("settings", "Search by meaning"), ("settings", "Search by meaning and what’s in your photos"),
     ]
 
     func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {

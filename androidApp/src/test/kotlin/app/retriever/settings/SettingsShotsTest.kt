@@ -65,7 +65,6 @@ class SettingsShotsTest {
         build = build,
         upgrade = UpgradeUi(UpgradeStage.DONE, ModelState.Done, sizeBytes = build.sizeBytes),
         readingStatus = ReadingPolicy.decide(ReadingProgress(read = 1_200, scheduled = 2_100), StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID),
-        large = 212L to 41_000_000_000L,
     )
 
     /** No download yet, or removed: the same offer as Try and Home. */
@@ -77,7 +76,13 @@ class SettingsShotsTest {
 
     private fun shot(name: String, dark: Boolean = false, fontScale: Float = 1f, content: @Composable () -> Unit) {
         // Tall enough for the whole page, so the rows below the fold are in the shot too.
-        RuntimeEnvironment.setQualifiers(if (fontScale != 1f) "+h2400dp" else "+h1900dp")
+        RuntimeEnvironment.setQualifiers(
+            when {
+                fontScale > 1.5f -> "+h3600dp"
+                fontScale != 1f -> "+h2400dp"
+                else -> "+h1900dp"
+            },
+        )
         rule.setContent { ShotTheme(dark, fontScale, content) }
         rule.shot(name)
     }
@@ -85,17 +90,26 @@ class SettingsShotsTest {
     private fun page(name: String, ui: SettingsUi, dark: Boolean = false, fontScale: Float = 1f) = shot(name, dark, fontScale) { SettingsContent(ui) }
 
     @Test fun settingsLight() {
-        page("clarity_settings_light", ready)
+        page("settings_light", ready)
         rule.onNodeWithText("Waits until you charge").assertExists()
         rule.onNodeWithText("of 3,300 files processed", substring = true).assertExists()
-        rule.onNodeWithText(Words.FREE_UP_SPACE).assertExists()
-        rule.onNodeWithText(Words.NEVER_DELETES).assertExists()
-        listOf("session", "Name only", "Manage access", "Excluded", "Saved search data").forEach {
-            rule.onAllNodesWithText(it, substring = true).assertCountEquals(0)
-        }
+        rule.onNodeWithText(Words.SEARCH_BY_MEANING).assertExists()
+        // Large files and duplicates live on Home now; no storage sentence is joined by a dot.
+        val gone = listOf(Words.FREE_UP_SPACE, Words.FIND_DUPLICATES, Words.NEVER_DELETES, "stays on")
+        (gone + listOf("session", "Name only", "Manage access", "Excluded", "Saved search data"))
+            .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
 
-    @Test fun settingsDark() = page("clarity_settings_dark", ready, dark = true)
+    @Test fun settingsDark() = page("settings_dark", ready, dark = true)
+
+    @Test fun settingsLargestText() {
+        page("settings_text2_0", ready, fontScale = 2f)
+        rule.onNodeWithText(Words.RETRIEVERS_DATA).assertExists()
+    }
+
+    @Test fun settingsOfferLight() = page("settings_offer_light", offered)
+
+    @Test fun settingsOfferDark() = page("settings_offer_dark", offered, dark = true)
 
     /** Read for 15 minutes shows at once in the Reading line above it; the line opens Reading status. */
     @Test fun readForFifteenMinutesShowsInTheLine() {
@@ -121,14 +135,6 @@ class SettingsShotsTest {
         assertEquals(listOf("read", "stop", "status"), seen)
     }
 
-    @Test fun freeUpSpaceOpensLargeFilesAndDuplicates() {
-        val seen = mutableListOf<String>()
-        show(actions = SettingsActions(openLarge = { seen += "large" }, openDuplicates = { seen += "copies" }))
-        rule.onNodeWithText("${Words.largeFiles(212)} · ${Format.bytes(41_000_000_000)}").performScrollTo().performClick()
-        rule.onNodeWithText(Words.FIND_DUPLICATES).performScrollTo().performClick()
-        assertEquals(listOf("large", "copies"), seen)
-    }
-
     @Test fun settingsBigText() = page("settings_text1_5", ready, fontScale = 1.5f)
 
     @Test fun settingsWithDialogLight() = dialog("settings_free_dialog_light", dark = false)
@@ -141,7 +147,7 @@ class SettingsShotsTest {
         val bitmap = rule.onNode(isDialog()).captureToImage().asAndroidBitmap()
         File("build/shots/${name}_dialog.png").also { it.parentFile?.mkdirs() }
             .outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        rule.onNodeWithText("Remove the search download?").assertExists()
+        rule.onNodeWithText(Words.REMOVE_DOWNLOAD_ASK).assertExists()
     }
 
     @Test fun modelRemoved() = page(
@@ -160,10 +166,11 @@ class SettingsShotsTest {
         offered.copy(upgrade = offered.upgrade.copy(stage = UpgradeStage.DOWNLOAD, model = ModelState.Failed(spaceMessage(build)))),
     )
 
-    @Test fun textOnlyPhone() = page(
-        "settings_text_only_light",
-        ready.copy(textOnly = true, ramGb = 3.0, readable = setOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)),
-    )
+    @Test fun textOnlyPhone() {
+        page("settings_text_only_light", ready.copy(textOnly = true, ramGb = 3.0, readable = setOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)))
+        // It can't run search by meaning, so nothing offers it.
+        rule.onAllNodesWithText(Words.SEARCH_BY_MEANING, substring = true).assertCountEquals(0)
+    }
 
     @Test fun noticesPage() = shot("settings_notices_light") {
         NoticesContent("# Third-party notices\n\nRetriever includes code adapted from the open-source projects below.") {}
@@ -232,7 +239,9 @@ class SettingsShotsTest {
 
     @Test fun groupsComeInTheSpecifiedOrder() {
         show()
-        val order = listOf(Words.HOW_IT_WORKS, Words.READING_STATUS, "Included files", "Privacy", "Storage and downloads", "Appearance", "About").map(::top)
+        val order =
+            listOf(Words.HOW_IT_WORKS, Words.READING_STATUS, Words.SEARCH_BY_MEANING, "Included files", "Privacy", "Storage", "Appearance", "About")
+                .map(::top)
         assertEquals(order.sorted(), order)
         assertEquals(order.distinct(), order)
         // On this day lives in Appearance, below Storage, not in Reading status.
@@ -294,9 +303,11 @@ class SettingsShotsTest {
     @Test fun storageNamesTheSavedDataAndTheOptionalDownloadWithTheirSizes() {
         show()
         val context = RuntimeEnvironment.getApplication()
-        rule.onNodeWithText("${Words.whatItHasRead(DeviceWords.ANDROID)} · ${Format.bytes(storage.indexBytes)}").performScrollTo().assertExists()
-        rule.onNodeWithText("${Words.UPGRADE_TITLE} · ${Format.downloadSize(context, build.sizeBytes)}").assertExists()
-        rule.onNodeWithText("Downloaded").assertExists()
+        rule.onNodeWithText(Words.RETRIEVERS_DATA).performScrollTo().assertExists()
+        rule.onNodeWithText(Words.keptOn(Format.bytes(storage.indexBytes), DeviceWords.ANDROID)).assertExists()
+        rule.onNodeWithText(Words.TEMPORARY_FILES).assertExists()
+        rule.onNodeWithText(Words.UPGRADE_TITLE).performScrollTo().assertExists()
+        rule.onNodeWithText(Words.downloaded(Format.downloadSize(context, build.sizeBytes))).assertExists()
     }
 
     @Test fun theOfferKeepsItsSizeWhenTheModelIsNotThere() {
@@ -318,14 +329,14 @@ class SettingsShotsTest {
         show(ready.copy(confirmFree = true), SettingsActions(freeUpSpace = { freed++ }))
         val size = Format.downloadSize(RuntimeEnvironment.getApplication(), build.sizeBytes)
 
-        rule.onNodeWithText("Remove the search download?").assertExists()
-        rule.onNodeWithText(removeDownloadMessage(size)).assertExists()
+        rule.onNodeWithText(Words.REMOVE_DOWNLOAD_ASK).assertExists()
+        rule.onNodeWithText(Words.removeDownloadMessage(size)).assertExists()
         rule.onNodeWithText("Remove download").performClick()
 
         assertEquals(1, freed)
         assertEquals(
             "File names and text already processed still work. Search by meaning needs the download again.",
-            removeDownloadMessage(null),
+            Words.removeDownloadMessage(null),
         )
     }
 

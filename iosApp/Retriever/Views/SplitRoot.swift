@@ -2,7 +2,7 @@
 // "Bringing robust navigation structure to your SwiftUI app" (Apple sample code licence): a NavigationSplitView whose
 // sidebar selection roots the detail column's own stack. Modified for Retriever: the detail column is AppStack, and
 // the selection is read from the one path RootView keeps, so a switch to compact width and back loses nothing.
-// The sidebar holds Search, Reading, Settings, Browse and Free up space; Home keeps the pictures.
+// The sidebar holds Search, Reading, Settings, Browse and Free up space (as Home lists it); Home keeps the pictures.
 
 import RetrieverCore
 import SwiftUI
@@ -35,6 +35,7 @@ struct SplitRoot<Home: View>: View {
     }
 
     private var largeFiles: Int { Int(model.home?.largeCount ?? 0) }
+    private var possibleCopies: Bool { (model.home?.possibleCopies ?? 0) > 0 }
 
     /// Every page the sidebar lists, so a first page on the stack that is one of them selects its row.
     private var pages: Set<Route> {
@@ -67,11 +68,16 @@ struct SplitRoot<Home: View>: View {
                         }
                     }
                 }
-                Section(Words.shared.FREE_UP_SPACE) {
-                    if largeFiles > 0 {
-                        Label("Large files", systemImage: "externaldrive").badge(Copy.count(largeFiles)).tag(Dest.page(HomeTile.largeFiles))
+                // As on Home: a row only when it has something, and no section when neither has.
+                if largeFiles > 0 || possibleCopies {
+                    Section(Words.shared.FREE_UP_SPACE) {
+                        if largeFiles > 0 {
+                            Label(Words.shared.LARGE_FILES, systemImage: "externaldrive").badge(Copy.count(largeFiles)).tag(Dest.page(HomeTile.largeFiles))
+                        }
+                        if possibleCopies {
+                            Label(Words.shared.FIND_DUPLICATES, systemImage: "doc.on.doc").tag(Dest.page(.duplicates))
+                        }
                     }
-                    Label(Words.shared.FIND_DUPLICATES, systemImage: "square.on.square").tag(Dest.page(.duplicates))
                 }
             }
             .navigationTitle("Retriever")

@@ -100,6 +100,8 @@ data class HomeFacts(
     val folders: Long,
     val largeCount: Long,
     val largeBytes: Long,
+    /** Files that share a size with another, so could be copies; Home's Find duplicate files shows only when some do. */
+    val possibleCopies: Long = 0,
     val kindTotals: Map<Kind, FileTotals> = emptyMap(),
     val folderTotals: List<FolderTotals> = emptyList(),
 ) {
@@ -1287,6 +1289,7 @@ class Retriever(
                 folders = store.folderCount(),
                 largeCount = largeCount,
                 largeBytes = largeBytes,
+                possibleCopies = store.sizeCollisionCount(DuplicateFinder.MIN_SIZE),
                 kindTotals = store.kindTotals(),
                 folderTotals = store.folderTotals(),
             )

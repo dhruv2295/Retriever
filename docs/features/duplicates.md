@@ -28,6 +28,8 @@ tool, not a search feature, and it only ever deletes what the person selected.
   prompt, whatever the person chose, the index is the truth: sync and scan again, so no state has to survive the prompt
   (the process may die behind it). Cancel is no failure.
 - **Mascot.** `WALKING` while it looks, `NO_MATCH` when there are none, `TROUBLE` on failure.
+- **The way in.** Home's Free up space shows "Find duplicate files" only while `HomeFacts.possibleCopies` (files sharing
+  a size above the floor, one SQL count) is above zero: with no shared size the scan is sure to find nothing.
 - **iOS.** `DuplicatesView.swift` is a port of the Android screen with the same nil-while-looking state; only files
   in added folders are compared (PhotoKit has no public byte size), they are removed, and the oldest copy is kept by
   default.

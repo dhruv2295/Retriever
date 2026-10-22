@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -38,6 +39,7 @@ import app.retriever.model.ModelState
 import app.retriever.model.UpgradeActions
 import app.retriever.model.UpgradeUi
 import app.retriever.nav.BrowseRoute
+import app.retriever.nav.DuplicatesRoute
 import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
@@ -47,6 +49,7 @@ import app.retriever.search.SearchContent
 import app.retriever.search.SearchUi
 import app.retriever.shot
 import app.retriever.tallWindowForBigText
+import app.retriever.ui.Format
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -104,6 +107,7 @@ class HomeShotsTest {
         folders = 148,
         largeCount = 212,
         largeBytes = 41_000_000_000,
+        possibleCopies = 38,
         kindTotals = counts.mapValues { (_, n) -> FileTotals(n, n * 1_000_000, 0) },
     )
 
@@ -429,7 +433,44 @@ class HomeShotsTest {
         assertEquals(1, done)
     }
 
-    @Test fun theOptionalDownloadIsTheLastRowAndCanBeDismissed() {
+    /** Home's bottom, in a window tall enough for the whole page, so Free up space is in the shot. */
+    private fun tools(name: String, dark: Boolean, fontScale: Float = 1f) {
+        RuntimeEnvironment.setQualifiers(if (fontScale > 1f) "+h5200dp" else "+h3000dp")
+        rule.setContent { ShotTheme(dark, fontScale) { Screen(base) } }
+        rule.waitForIdle()
+        rule.onNodeWithText(Words.FREE_UP_SPACE).assertIsDisplayed()
+        rule.shot(name)
+    }
+
+    @Test fun toolsLight() = tools("home_tools_light", dark = false)
+
+    @Test fun toolsDark() = tools("home_tools_dark", dark = true)
+
+    @Test fun toolsLargestText() = tools("home_tools_text2_0", dark = false, fontScale = 2f)
+
+    @Test fun freeUpSpaceIsLastAndOpensLargeFilesAndDuplicates() {
+        val went = mutableListOf<Route>()
+        RuntimeEnvironment.setQualifiers("+h3000dp")
+        rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onNavigate = { went += it })) } }
+        assertTrue(top(Words.FREE_UP_SPACE) > top(Words.MORE_ON_PHONE))
+        rule.onNodeWithText(Words.largeFilesDetail(212, Format.bytes(41_000_000_000))).performClick()
+        rule.onNodeWithText(Words.possibleCopies(38)).performClick()
+        rule.onNodeWithText(Words.NEVER_DELETES).assertExists()
+        assertEquals(listOf(BrowseRoute(sort = "LARGEST", title = Words.LARGE_FILES), DuplicatesRoute), went)
+    }
+
+    @Test fun freeUpSpaceHidesARowWithNothingAndTheSectionWhenBothAreEmpty() {
+        var home by mutableStateOf(facts.copy(possibleCopies = 0))
+        RuntimeEnvironment.setQualifiers("+h3000dp")
+        rule.setContent { ShotTheme(false) { Screen(base.copy(home = home)) } }
+        rule.onNodeWithText(Words.LARGE_FILES).assertExists()
+        rule.onNodeWithText(Words.FIND_DUPLICATES).assertDoesNotExist()
+        home = home.copy(largeCount = 0, largeBytes = 0)
+        rule.onNodeWithText(Words.FREE_UP_SPACE).assertDoesNotExist()
+        rule.onNodeWithText(Words.NEVER_DELETES).assertDoesNotExist()
+    }
+
+    @Test fun theOptionalDownloadFollowsBrowseAndCanBeDismissed() {
         var dismissed = 0
         val offer = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976)
         rule.setContent { ShotTheme(false) { Screen(base, upgrade = offer, upgradeActions = UpgradeActions(notNow = { dismissed++ }), offer = true) } }

@@ -217,10 +217,10 @@ final class SettingsModelTests: XCTestCase {
 
     func testRemoveDownloadConfirmationNamesTheSizeAndWhatKeepsWorking() {
         XCTAssertEqual(
-            SettingsView.removeDownloadMessage(size: "388 MB"),
-            "This frees 388 MB. File names and text already processed still work. Search by meaning needs the download again.")
+            Words.shared.removeDownloadMessage(size: "388 MB"),
+            "This frees 388\u{00A0}MB. File names and text already processed still work. Search by meaning needs the download again.")
         XCTAssertEqual(
-            SettingsView.removeDownloadMessage(size: nil),
+            Words.shared.removeDownloadMessage(size: nil),
             "File names and text already processed still work. Search by meaning needs the download again.")
     }
 

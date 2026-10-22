@@ -215,6 +215,9 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
     /** Groups of two or more files with the same size, at least [minSize] bytes, largest size first. */
     fun sizeCollisions(minSize: Long): List<List<StoredFile>> = q.sizeCollisions(minSize, ::storedFile).executeAsList().groupBy { it.file.size }.values.toList()
 
+    /** How many files [sizeCollisions] would return, without reading them. */
+    fun sizeCollisionCount(minSize: Long): Long = q.sizeCollisionCount(minSize).executeAsOne()
+
     /** Every known file by URI, in one query. */
     fun knownFiles(): Map<String, SourceFile> = q.allFiles(::storedFile).executeAsList().associate { it.file.uri to it.file }
 

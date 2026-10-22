@@ -115,18 +115,35 @@ final class HomeModelTests: XCTestCase {
 
     func testCaughtUpHomeShowsEverySection() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
-        // Starred, Recently added and Browse have headers; the status line leads without one.
+        // Starred, Recently added, Browse and Free up space have headers; the status line leads without one.
         let layout = try await layout(model)
-        XCTAssertEqual(layout.headers, 3)
+        XCTAssertEqual(layout.headers, 4)
         // The status line ("All done", its x on the same row); one strip of starred files; one strip of recently added;
-        // Photos, Videos, Screenshots, Documents and All folders. No counts, chips, cleaner or download card.
-        XCTAssertEqual(layout.items, [1, 1, 1, 5])
+        // Photos, Videos, Screenshots, Documents and All folders; Large files and Find duplicate files. No chips or download card.
+        XCTAssertEqual(layout.items, [1, 1, 1, 5, 2])
+    }
+
+    func testFreeUpSpaceShowsARowOnlyWhenItHasSomethingAndNoSectionWhenNeitherHas() async throws {
+        let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
+        let h = try XCTUnwrap(model.home)
+        func facts(large: Int64, copies: Int64) -> HomeFacts {
+            h.doCopy(
+                newMedia: h.newMedia, newShots: h.newShots, newDocs: h.newDocs, starred: h.starred, starredCount: h.starredCount,
+                folders: h.folders, largeCount: large, largeBytes: large * 200_000_000, possibleCopies: copies, kindTotals: h.kindTotals,
+                folderTotals: h.folderTotals)
+        }
+        model.home = facts(large: 4, copies: 0)
+        let largeOnly = try await layout(model)
+        XCTAssertEqual(largeOnly.items, [1, 1, 1, 5, 1], "Large files alone: no copies are possible")
+        model.home = facts(large: 0, copies: 0)
+        let neither = try await layout(model)
+        XCTAssertEqual(neither.items, [1, 1, 1, 5], "nothing to free: no section")
     }
 
     func testWithoutPhotosAccessTheNoteFollowsTheLineAndFolderFilesStay() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
         let denied = try await layout(model, photos: .denied)
-        XCTAssertEqual(denied.items, [2, 1, 1, 5], "the status line and the Photos note; the fixture's files are from added folders")
+        XCTAssertEqual(denied.items, [2, 1, 1, 5, 2], "the status line and the Photos note; the fixture's files are from added folders")
     }
 
     func testSectionsHideWhenTheyHaveNothingToSay() async throws {
@@ -138,7 +155,7 @@ final class HomeModelTests: XCTestCase {
         try XCTSkipUnless(model.starred.isEmpty, "this simulator holds stars")
         model.home = HomeFacts(
             newMedia: [], newShots: [], newDocs: [], starred: [], starredCount: 0, folders: 0, largeCount: 0, largeBytes: 0,
-            kindTotals: [:], folderTotals: [])
+            possibleCopies: 0, kindTotals: [:], folderTotals: [])
         let snap = AppModel.Snap(setUp: true, byKind: [.pdf: 3, .screenshot: 2], indexed: 5)
         let layout = try await layout(model, snap: snap)
         // No new files, kinds, folders or stars: the status line alone. The nudge to add a folder (5 files is nearly
@@ -402,8 +419,8 @@ final class HomeModelTests: XCTestCase {
         }
         model.home = h.doCopy(
             newMedia: media, newShots: h.newShots, newDocs: h.newDocs, starred: stars, starredCount: Int64(starred),
-            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, kindTotals: h.kindTotals,
-            folderTotals: h.folderTotals)
+            folders: h.folders, largeCount: h.largeCount, largeBytes: h.largeBytes, possibleCopies: h.possibleCopies,
+            kindTotals: h.kindTotals, folderTotals: h.folderTotals)
         return model
     }
 

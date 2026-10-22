@@ -82,7 +82,8 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
 // Home: where you start looking for something, with one calm line on how well Retriever knows the phone so far.
-// Order: title, status line, Starred, Recently added, On this day, Browse, then the optional download. Colour tokens only.
+// Order: title, status line, Starred, Recently added, On this day, Browse, the optional download, then Free up space.
+// Colour tokens only.
 
 private val FullLine = StaggeredGridItemSpan.FullLine
 
@@ -253,6 +254,9 @@ internal fun HomeBody(
                     UpgradeCard(upgrade, upgradeActions, compact = true)
                 }
             }
+        }
+        if (facts.largeCount > 0 || facts.possibleCopies > 0) {
+            item(key = "free", span = FullLine, contentType = "free") { FreeUpSpaceSection(facts, actions.onNavigate) }
         }
     }
     // The status line's Try again asks too, where no card is drawn; the offer's card asks for itself.
