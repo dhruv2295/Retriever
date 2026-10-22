@@ -25,9 +25,10 @@ final class ThumbnailsTests: XCTestCase {
     }
 
     func testAWordFileShowsItsPage() async throws {
-        // A generic one-page document from the evaluation corpus, under a generic name.
-        let corpus = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../eval/corpus/docs/Doc_A.docx")
-        try FileManager.default.copyItem(at: corpus, to: folder.appendingPathComponent("Letter.docx"))
+        // A generic one-page document (eval/make-corpus.sh's Doc_A.docx) kept beside this file: eval/corpus is generated
+        // and ignored, so a checkout without it failed here on every simulator.
+        let letter = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Letter.docx")
+        try FileManager.default.copyItem(at: letter, to: folder.appendingPathComponent("Letter.docx"))
         let shown = try await representation("Letter.docx")
         XCTAssertEqual(shown.type, .thumbnail)
     }
