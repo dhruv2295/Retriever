@@ -52,6 +52,7 @@ import app.retriever.core.android.MediaStoreSource
 import app.retriever.core.android.SafSource
 import app.retriever.core.db.IndexDb
 import app.retriever.core.indexingDispatcher
+import app.retriever.core.readAheadDispatcher
 import app.retriever.diagnostics.ExitReasons
 import app.retriever.diagnostics.LogSink
 import app.retriever.duplicates.DuplicatesViewModel
@@ -208,7 +209,7 @@ val appModule = module {
             log = log,
             now = System::currentTimeMillis,
             zoneOffsetMs = { java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()).toLong() },
-            dispatchers = CoreDispatchers(indexing = indexingDispatcher),
+            dispatchers = CoreDispatchers(indexing = indexingDispatcher, readAhead = readAheadDispatcher),
             frames = AndroidFrameSource(androidContext()),
             lastExitCrashed = androidContext().let { app -> { ExitReasons.lastExitCrashed(app) } },
         )

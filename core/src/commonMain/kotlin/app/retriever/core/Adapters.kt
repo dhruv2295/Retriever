@@ -29,8 +29,21 @@ interface Extractor {
     /** One file in, searchable pieces out, on the caller's worker context. Chunk 0 is added by the core. */
     suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece>
 
+    /**
+     * The first pass's read while the model is there to deepen later: a video's one moment and a scanned PDF's first
+     * [PDF_HEAD_OCR_PAGES] pages, the rest left as [later] placeholders. By default, the whole file now.
+     */
+    suspend fun extractHead(file: SourceFile, profile: DeviceProfile): List<Piece> = extract(file, profile)
+
     /** Re-reads only the pixels at a stored locator, never OCR or document text. */
     suspend fun visual(file: SourceFile, locator: String): Part.Image? = null
+
+    /**
+     * What a [later] placeholder at [locator] holds, read in the deepen pass: empty when there is nothing there (the
+     * placeholder goes), null when it can't be read now (a failed try; after three the placeholder stays as it is).
+     */
+    suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? =
+        visual(file, locator)?.let { listOf(Piece(locator, listOf(it), null)) }
 }
 
 interface EmbedderFactory {

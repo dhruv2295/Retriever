@@ -139,4 +139,18 @@ class ExtractionTest {
         assertEquals(3, xlsxOrder("xl/worksheets/sheet2.xml"))
         assertEquals(null, xlsxOrder("xl/worksheets/_rels/sheet1.xml.rels"))
     }
+
+    @Test
+    fun shortOcrStaysOnThePictureAndLongOcrBecomesTextPieces() {
+        val scrap = imageWithText("", byteArrayOf(1), " 4471 \n", 800)
+        assertEquals(1, scrap.size, "under $MIN_TEXT_CHARS characters: no text piece to embed")
+        assertEquals("4471", scrap.single().keywordText)
+        assertEquals("4471", scrap.single().contentText)
+
+        val sentence = "Electricity bill for September, amount due 1,240 by the 5th"
+        val long = imageWithText("p. 2", byteArrayOf(1), sentence, 800, "receipt")
+        assertEquals(listOf(null, sentence), long.map { it.keywordText })
+        assertEquals("receipt", long.first().labels)
+        assertEquals(listOf("p. 2", "p. 2"), long.map { it.locator })
+    }
 }

@@ -29,13 +29,16 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import app.retriever.core.IndexState
+import app.retriever.core.NextRun
 import app.retriever.core.Retriever
+import app.retriever.core.StopReason
 import app.retriever.core.indexingDispatcher
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -81,10 +84,24 @@ class IndexWorker(
                 // A trial handoff owns its foreground service before waiting for the direct batch to stop. A run that can't read
                 // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
                 val trial = inputData.getBoolean(IndexService.TRIAL, false)
-                val foreground = (trial || (!retriever.state.value.running && retriever.uiVisible)) &&
+                val charger = inputData.getBoolean(IndexService.CHARGER, false)
+                val foreground = (trial || charger || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
-                retriever.indexBatch(8.minutes, waitForLock = trial).also { progress?.cancel() }
+                var next = retriever.indexBatch(8.minutes, waitForLock = trial)
+
+                // A foreground service has no 10 minute limit (WorkManager stops it at Android 15's FGS timeout): on a
+                // charger or in front, batches follow each other here, resting as restBefore says; heat polls until the phone cools.
+                fun holds() = IndexService.holdsForeground(next, retriever.prefs.value.paused, retriever.uiVisible, retriever.deviceState().pluggedIn)
+                while (foreground && holds()) {
+                    val lastStop = retriever.state.value.lastStop
+                    delay(IndexService.restBefore(next, lastStop))
+                    if (next == NextRun.AFTER_COOLDOWN && lastStop == StopReason.HOT && !retriever.deviceState().cooled) continue
+                    index.notifySampleIfReady()
+                    next = retriever.indexBatch(8.minutes)
+                }
+                progress?.cancel()
+                next
             }
             index.notifySampleIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)

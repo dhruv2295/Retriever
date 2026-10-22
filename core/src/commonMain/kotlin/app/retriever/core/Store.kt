@@ -368,12 +368,36 @@ class Store(private val driver: SqlDriver, internal val log: (String, Throwable?
         }
     }
 
+    /** Replaces a [LATER] placeholder with what was read there, at its place in the file; with nothing, it just goes. */
+    fun replaceTailChunk(id: Long, chunks: List<NewChunk>) {
+        val index = signature()
+        check(chunks.all { it.vector == null || it.vector.signature == index }) { "vector signature does not match index ${index?.value}" }
+        q.transaction {
+            val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
+            for (n in chunks) {
+                val v = n.vector
+                q.insertChunk(c.file_id, c.ordinal, n.locator, n.text, v?.bytes, v?.scale?.toDouble(), n.contentText, n.labels, if (n.visual) 1L else 0L)
+                if (n.text != null || n.labels != null) q.insertFts(q.lastId().executeAsOne(), n.text, n.labels)
+            }
+            q.deleteFts(id)
+            q.deleteChunk(id)
+            q.refreshReach(listOf(c.file_id))
+        }
+    }
+
     internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
         val counts = inChunks(ids) { listOf(q.tailCountsIn(it) { chunks, files -> chunks to files }.executeAsOne()) }
         return counts.sumOf { it.first } to counts.sumOf { it.second }
     }
 
     fun tailChunkCount(): Long = q.tailChunkCount().executeAsOne()
+
+    /** [LATER] placeholders with tries left, oldest first. */
+    fun laterChunks(limit: Int): List<TailChunk> = q.laterChunks(limit.toLong()) { id, fileId, ordinal, locator, text, name, attempts, visual ->
+        TailChunk(id, name, text, attempts.toInt(), fileId, ordinal.toInt(), locator, visual != 0L)
+    }.executeAsList()
+
+    fun laterChunkCount(): Long = q.laterChunkCount().executeAsOne()
 
     /**
      * Gives a tail chunk its vector. The chunk moves to a new id, so a loaded [VectorTable] picks it up by

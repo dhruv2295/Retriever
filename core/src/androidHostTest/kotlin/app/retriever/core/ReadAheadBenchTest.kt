@@ -36,7 +36,7 @@ class ReadAheadBenchTest {
 
     private fun msPerFile(readAhead: Boolean, n: Int = 40): Double = Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { indexing ->
         val store = newStore().apply { upsertFiles(List(n) { testFile("IMG_$it.jpg", Kind.PHOTO, modifiedAt = n - it.toLong()) }) }
-        val engine = IndexEngine(store, SlowExtractor(80), Gpu(48), FakeMonitor(), settingsOf(), readAheadWhen = { readAhead })
+        val engine = IndexEngine(store, SlowExtractor(80), Gpu(48), FakeMonitor(), settingsOf(), readAheadDepth = { if (readAhead) 1 else 0 })
         runBlocking { withContext(indexing) { measureTime { engine.runBatch(10.minutes, requireCharging = false) } } }.inWholeMilliseconds.toDouble() / n
     }
 

@@ -21,19 +21,29 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   during the batch), PAUSED to DONE. A thrown error is RETRY. Each platform turns `NextRun` into its own scheduling call.
   This is the shape of Apple's and Android's "do a slice, then ask to be run again" guidance for deferrable work.
 - **Phone policy in one place.** `IndexEngine.stopReason` is read before every file: Pause, budget, busy (screen on while
-  the app is hidden), thermal at MODERATE or worse, and charging when the setting or a battery at 20% or less requires it
+  the app is hidden), heat (`DeviceState.hot`: Android's thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), and charging when the setting or a battery at 20% or less requires it
   and the app is hidden. Battery Saver also pauses hidden reading before sync, so waiting never walks folders. A visible app reads on battery.
 - **Per-file loop.** `IndexEngine` pages pending files, extracts, then embeds per piece. Each embed first `awaitUi()`s:
   it suspends while a search runs or the UI is typing or scrolling, so a query waits behind at most one native call.
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.
-- **Read ahead on an accelerator.** While a file embeds on the GPU or NPU with the app hidden, the next file's extraction
-  starts beside it (`IndexEngine.readAhead`, `readAheadWhen = !uiVisible`), so CPU decode and OCR overlap the
-  accelerator. Its attempt is counted when it starts and given back on any stop. Never on CPU inference or while the
-  app shows. `ReadAheadBenchTest` (blocking stand-ins at a tenth of the Pixel 8 Pro's costs): 137 to 88 ms per photo.
+- **Read ahead on an accelerator.** While a file embeds on the GPU or NPU with the app hidden, the next files' extraction
+  starts beside it (`IndexEngine.readAhead`), so CPU decode and OCR overlap the accelerator. `IndexEngine.readAheadDepth`:
+  two files on a charger (one under 6 GB of RAM), one on battery, fewer as the phone warms (`DeviceState.aheadRoom`), none while the app shows.
+  Each attempt is counted when its read starts and given back on any stop. Never on CPU inference. Read-ahead runs on
+  `CoreDispatchers.readAhead` (Android: two background-priority threads, `readAheadDispatcher`), the same priority as
+  inline extraction on `indexing`, whose one thread the embed holds. `ReadAheadBenchTest` (blocking stand-ins at a tenth
+  of the Pixel 8 Pro's costs, depth 1): 137 to 88 ms per photo.
 - **Attempts are counted before the work.** A file or a tail chunk is charged an attempt first and given it back on
   `CancellationException`, so a process death cannot crash-loop on one file and a stop never charges a file.
 - **Long files deepen.** The head of a long file is embedded first; later parts (tail chunks) read when nothing is pending
-  and the app is visible, or the phone is charging with the screen off. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
+  and the app is visible, or the phone is charging with the screen off. The head is 2 text chunks for a document or PDF
+  (`DOC_HEAD_CHUNKS`), 8 for a screenshot's OCR (`HEAD_TEXT_CHUNKS`); with the model there, a video's first pass embeds
+  one moment and a scanned PDF's OCRs its first 3 pages, the rest `LATER` placeholders (visual tails) that the deepen pass
+  reads through `Extractor.later` and replaces (`Store.replaceTailChunk`). One tail is embedded per 8 first-pass files
+  (`TAIL_EVERY`). Placeholders and image tails with tries left count as Processed in part and later passes, as text tails do.
+  `later` returning null is a failed try (three and the placeholder stays); empty drops the placeholder. If the model goes
+  (removed, or keyword-only), a batch still runs while placeholders remain: it OCRs left pages without vectors and drops
+  left moments (`laterChunks`), so no file waits for a deepen pass that can't come. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
 - **Idle batches do not open the model.** `runBatch` checks for no pending files, no tail work and a matching signature
   and returns DONE before `ModelHost.open`.
 - **ETA.** `Eta` and `SpeedBook` (Estimate.kt) record time per unit per kind, persisted in store meta, and `readEstimate`
@@ -78,7 +88,7 @@ the normal dispatcher for interactive search. See `model-lifecycle.md` for the n
 
 ## Tests
 
-`RetrieverTest`, `BatchPolicyTest`, `ThermalTest`, `EtaTest`, `EstimateTest`, `TokenRetryTest`, `ReviewFixesTest`,
+`RetrieverTest`, `BatchPolicyTest`, `ThermalTest`, `HeadroomPollTest`, `FirstPassTest`, `ReadAheadTest`, `EtaTest`, `EstimateTest`, `TokenRetryTest`, `ReviewFixesTest`,
 `IndexPipelineTest`, `TasteProgressTest`, `TrialReadTest`, `TasteScopeTest`, `LowEndTest`, `RetuneTest` (all under `core/src/androidHostTest` and `core/src/commonTest`).
 iOS: `AppModelTests`.
 
@@ -87,7 +97,11 @@ iOS: `AppModelTests`.
 - Extraction (OCR, PDF render, video decode) does not wait on the UI; only embeds do. A typing person shares CPU with it.
 - One file longer than the remaining budget overruns it or is cancelled; a video that alone needs more than the budget
   completes only in a longer (visible or iOS foreground) run.
-- Thermal policy reads the current status only. Later: `PowerManager.getThermalHeadroom` (API 30) to stop before throttling.
+- Heat: `PowerManager.getThermalHeadroom(10)` is polled at most every 10 s (`HeadroomPoll`; Android documents NaN when
+  asked more often, and NaN means no thermal hardware, so the status decides). Read-ahead narrows from 0.7 and stops at
+  0.85; reading pauses at 0.95 or SEVERE. A foreground run rests in place, polling, until read-ahead could run again
+  (`cooled`); WorkManager follow-ups and iOS recheck after `ThermalRest.RECHECK`. The thresholds are not calibrated on a
+  phone yet.
 - Wave 7 items that touch this note: A1 (ETA as time per unit, per kind, persisted), A2 (Tune's scan), A8 (skip the model
   open when idle), A9 and A10 (work that grows with the library). Device queue: calibrate the ETA and the hours estimate on
   a phone before enabling it.

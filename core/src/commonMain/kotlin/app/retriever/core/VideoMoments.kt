@@ -35,6 +35,12 @@ fun estimateTokens(visionTokens: Int, audioSec: Int): Int =
 
 data class Moment(val startMs: Long, val endMs: Long, val frameMs: Long, val audioFromMs: Long, val audioToMs: Long)
 
+/**
+ * The first pass embeds one moment of a video and leaves the rest [later]: the middle one, the likeliest to show what the
+ * video is about, then outwards past black frames. Indexes into [moments]' n.
+ */
+fun headOrder(n: Int): List<Int> = (0 until n).sortedBy { kotlin.math.abs(it - n / 2) }
+
 fun moments(durationMs: Long, everySec: Int, audioSec: Int): List<Moment> {
     if (durationMs <= 0 || everySec <= 0) return emptyList()
     val n = (durationMs / 1000 / everySec).coerceIn(1, MAX_VIDEO_MOMENTS.toLong())

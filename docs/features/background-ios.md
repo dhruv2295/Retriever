@@ -21,7 +21,7 @@ foreground loop (reading while the app is open) from fighting the background tas
 | Model download | Background `URLSession` (`app.retriever.model`), resume data per network rule, streamed SHA-256, `.sha256` marker. See `model-download.md`. | Apple's pattern for large downloads that outlive the process. |
 | Library changes | `PHPhotoLibraryChangeObserver`, registered once access is granted; it calls `notifyChanged()` and wakes the loop. Sync uses persistent change tokens. | Only the delta is read after a suspension. |
 | Screen awake | `isIdleTimerDisabled` is on only while a foreground batch runs with files waiting; off when hot, at 20% battery or less, or in Low Power Mode unless charging. | A locked phone backgrounds the app and stops GPU reading. |
-| Thermal and power | `IosDeviceMonitor` maps Nominal/Fair/Serious/Critical to NONE/LIGHT/SEVERE/CRITICAL; background Low Power Mode reports POWER_SAVE separately from thermal state. `ThermalRest.STOP_AT = MODERATE`. | Cut discretionary work at Serious (Apple thermal guidance). |
+| Thermal and power | `IosDeviceMonitor` maps Nominal/Fair/Serious/Critical to NONE/LIGHT/SEVERE/CRITICAL; background Low Power Mode reports POWER_SAVE separately from thermal state. iOS has no headroom, so `DeviceState.hot` reads the status: Serious and Critical pause, Fair narrows read-ahead (which a backgrounded iOS app never runs: it infers on CPU). | Cut discretionary work at Serious (Apple thermal guidance). |
 
 ## Owner files
 

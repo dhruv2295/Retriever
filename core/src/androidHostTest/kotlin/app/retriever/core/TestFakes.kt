@@ -73,7 +73,7 @@ internal class FakeExtractor(
     private val fail: Boolean = false,
     private val onExtract: (SourceFile) -> Unit = {},
 ) : Extractor {
-    val names = mutableListOf<String>()
+    val names: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
         names += file.name

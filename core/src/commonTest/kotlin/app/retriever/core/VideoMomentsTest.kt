@@ -62,4 +62,12 @@ class VideoMomentsTest {
         assertEquals("1:02:03", timeLocator(3723))
         assertEquals("0:05", timeLocator(5))
     }
+
+    @Test
+    fun theFirstPassTriesTheMiddleMomentThenOutwards() {
+        assertEquals(emptyList(), headOrder(0))
+        assertEquals(listOf(0), headOrder(1))
+        assertEquals(listOf(1, 0), headOrder(2))
+        assertEquals(listOf(4, 3, 5, 2, 6, 1, 7, 0), headOrder(MAX_VIDEO_MOMENTS))
+    }
 }

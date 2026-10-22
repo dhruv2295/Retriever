@@ -43,4 +43,20 @@ class PdfPiecesTest {
         assertTrue(pieces.none { it.locator == CUT_SHORT })
         assertEquals(Locator.page(1), pieces.first().locator)
     }
+
+    @Test
+    fun aScannedPdfOcrsItsFirstPagesAndLeavesTheRestForLater() {
+        var ocrs = 0
+        var pieces = emptyList<Piece>()
+        runTest {
+            pieces = pdfPieces(50, false, { "" }, { _, _ ->
+                ocrs++
+                listOf(scan)
+            }, 2000, ocrNow = PDF_HEAD_OCR_PAGES)
+        }
+        assertEquals(PDF_HEAD_OCR_PAGES, ocrs)
+        val later = pieces.filter { it.locator.startsWith(LATER) }
+        assertEquals((PDF_HEAD_OCR_PAGES + 1..PDF_OCR_PAGES).map { LATER + Locator.page(it) }, later.map { it.locator }, "still within the OCR cap")
+        assertEquals(CUT_SHORT, pieces.last().locator)
+    }
 }

@@ -182,7 +182,9 @@ class RetrievalEval(
                     for (i in corpus.indices) store.replaceChunks(ids[i], drafts[i].map { Store.NewChunk(it.ordinal, it.locator, it.text, null) })
                     groups[prefixes to vt] = Group(
                         chunks = drafts.flatMapIndexed { i, file ->
-                            file.mapNotNull { c -> c.vector?.let { Chunk(i, it, Modality.of(corpus[i].kind, c.text != null, c.ordinal.toLong()).ordinal) } }
+                            file.mapNotNull { c ->
+                                c.vector?.let { Chunk(i, it, Modality.of(corpus[i].kind, c.text != null && !c.visual, c.ordinal.toLong()).ordinal) }
+                            }
                         },
                         queries = queries.map { raw(listOf(Part.Text(if (prefixes) Prefix.query(it.q.trim()) else it.q.trim()))) },
                         keyword = queries.map { q ->

@@ -27,7 +27,7 @@ class MeaningUpgradeTest {
                 return if (file.kind == Kind.DOC) {
                     listOf(Piece("", listOf(Part.Text("lease deposit")), "lease deposit", "lease deposit"))
                 } else {
-                    imageWithText(if (file.kind == Kind.PDF) "p. 1" else "", byteArrayOf(1), "receipt 48213", 800, "beach")
+                    imageWithText(if (file.kind == Kind.PDF) "p. 1" else "", byteArrayOf(1), OCR, 800, "beach")
                 }
             }
 
@@ -73,7 +73,7 @@ class MeaningUpgradeTest {
             }
             engine(embedder).runBatch(1.minutes, false, deepen = true)
             assertEquals(chunkCount.toInt(), store.vectorCount())
-            assertTrue(embeddedText.any { "receipt 48213" in it })
+            assertTrue(embeddedText.any { OCR in it })
             assertTrue(embeddedText.none { "beach" in it }, "labels are keyword metadata, not document text")
             assertEquals(before, ids.associateWith { store.chunkTexts(it).map { chunk -> chunk.text } })
             assertEquals(4, extractions, "neither OCR nor document extraction runs on model changes")
@@ -200,5 +200,10 @@ class MeaningUpgradeTest {
         store.removeFiles(listOf(source.uri))
         assertTrue(store.keywordSearch("beach", 10).isEmpty())
         assertFalse(store.meaningStates(listOf(id)).containsKey(id))
+    }
+
+    private companion object {
+        // Long enough to be its own text chunk; a shorter scrap stays on the image's chunk, keyword-only.
+        const val OCR = "receipt 48213 for the electricity bill paid in September"
     }
 }

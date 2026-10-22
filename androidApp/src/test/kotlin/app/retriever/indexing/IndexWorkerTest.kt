@@ -75,7 +75,7 @@ class IndexWorkerTest {
         CallbackToFutureAdapter.getFuture { it.set(null) }
     }
 
-    private fun worker(retriever: Retriever, platformReady: Boolean = true, trial: Boolean = false): IndexWorker {
+    private fun worker(retriever: Retriever, platformReady: Boolean = true, trial: Boolean = false, charger: Boolean = false): IndexWorker {
         startKoin {
             androidContext(context)
             modules(
@@ -90,7 +90,7 @@ class IndexWorkerTest {
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
             .setForegroundUpdater(countingUpdater)
-            .setInputData(workDataOf("trial" to trial))
+            .setInputData(workDataOf(IndexService.TRIAL to trial, IndexService.CHARGER to charger))
             .build()
     }
 
@@ -167,6 +167,20 @@ class IndexWorkerTest {
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertFalse(model.closed)
         assertEquals(1, queued(CONTINUE).size)
+    }
+
+    /** Hidden on a charger, a run holding its foreground service starts the next batch itself instead of a follow-up. */
+    @Test fun aChargerRunHoldsItsForegroundServiceAcrossBatches() {
+        val model = Model()
+        lateinit var retriever: Retriever
+        retriever = withModel(model) {
+            retriever.notifyChanged() // the first batch ends SOON, as one past its budget does
+            emptyList()
+        }
+        assertEquals(ListenableWorker.Result.success(), runBlocking { worker(retriever, charger = true).doWork() })
+        assertEquals(1, foregrounds.get())
+        assertTrue("the second batch ran here and ended DONE: no follow-up to schedule", queued(CONTINUE).isEmpty())
+        assertTrue("done, the model goes", model.closed)
     }
 
     @Test fun aFailedBatchRestsThroughContinueSoIndexNowStillRuns() {

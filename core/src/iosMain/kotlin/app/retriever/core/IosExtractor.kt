@@ -13,17 +13,43 @@ import kotlinx.coroutines.ensureActive
  * skipped with a way to retry, rather than counted as read by its name alone.
  */
 class IosExtractor(private val native: NativeExtractor) : Extractor {
-    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
+    override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = read(file, profile, head = false)
+
+    override suspend fun extractHead(file: SourceFile, profile: DeviceProfile): List<Piece> = read(file, profile, head = true)
+
+    private suspend fun read(file: SourceFile, profile: DeviceProfile, head: Boolean): List<Piece> {
         currentCoroutineContext().ensureActive()
         val uri = file.uri
         val maxChars = chunkChars(profile.maxTokens)
         return when (file.kind) {
             Kind.PHOTO, Kind.SCREENSHOT -> imageWithText("", image(uri), ocr(uri, -1), maxChars, native.imageLabels(uri))
-            Kind.PDF -> pdf(uri, maxChars)
+            Kind.PDF -> pdf(uri, maxChars, if (head) PDF_HEAD_OCR_PAGES else PDF_OCR_PAGES)
             Kind.DOC -> doc(file, uri, maxChars)
-            Kind.VIDEO -> video(uri, profile)
+            Kind.VIDEO -> video(uri, profile, head)
             else -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
+    }
+
+    override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? {
+        currentCoroutineContext().ensureActive()
+        return when (file.kind) {
+            Kind.PDF -> {
+                val page = (Locator.pageOf(locator) ?: return emptyList()) - 1
+                // No render now is a failed try, as Android's unreadable page is.
+                scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens)).ifEmpty { null }
+            }
+
+            // No frame: the moment holds nothing and its placeholder goes, as on Android.
+            Kind.VIDEO -> super.later(file, locator, profile).orEmpty()
+
+            else -> super.later(file, locator, profile)
+        }
+    }
+
+    private fun scannedPage(uri: String, i: Int, layer: String, maxChars: Int): List<Piece> = autoreleasepool {
+        native.pdfPageJpeg(uri, i, 1024)?.let {
+            imageWithText(Locator.page(i + 1), it.toByteArray(), betterPageText(layer, ocr(uri, i)), maxChars)
+        }.orEmpty()
     }
 
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
@@ -44,18 +70,13 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
 
     // A locked PDF reports -1 and leaves the file to its name chunk. One pool per page: the whole file is one
     // coroutine task, so without it every page's renders and PDFKit objects live until the file is done.
-    private suspend fun pdf(uri: String, maxChars: Int): List<Piece> = pdfPieces(
+    private suspend fun pdf(uri: String, maxChars: Int, ocrNow: Int): List<Piece> = pdfPieces(
         native.pdfPageCount(uri),
         null,
         text = { i -> autoreleasepool { native.pdfPageText(uri, i).orEmpty() } },
-        scanned = { i, layer ->
-            autoreleasepool {
-                native.pdfPageJpeg(uri, i, 1024)?.let {
-                    imageWithText(Locator.page(i + 1), it.toByteArray(), betterPageText(layer, ocr(uri, i)), maxChars)
-                }.orEmpty()
-            }
-        },
+        scanned = { i, layer -> scannedPage(uri, i, layer, maxChars) },
         maxChars,
+        ocrNow,
     )
 
     private suspend fun doc(file: SourceFile, uri: String, maxChars: Int): List<Piece> {
@@ -109,14 +130,26 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         return parts.joinToString("\n")
     }
 
-    private suspend fun video(uri: String, profile: DeviceProfile): List<Piece> = if (profile.videoFrameEverySec <= 0) {
-        emptyList()
-    } else {
-        moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0).mapNotNull { m ->
+    private suspend fun video(uri: String, profile: DeviceProfile, head: Boolean): List<Piece> {
+        if (profile.videoFrameEverySec <= 0) return emptyList()
+        val all = moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0)
+        suspend fun frame(m: Moment): Piece? {
             currentCoroutineContext().ensureActive()
-            autoreleasepool {
+            return autoreleasepool {
                 native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m, false), momentParts(it.toByteArray(), m.frameMs, null), null) }
             }
         }
+        if (!head) return all.mapNotNull { frame(it) }
+        // One moment now (see headOrder), the others for the deepen pass; one with no frame is dropped, as above.
+        val missing = mutableSetOf<Int>()
+        for (i in headOrder(all.size)) {
+            val piece = frame(all[i])
+            if (piece == null) {
+                missing += i
+                continue
+            }
+            return all.withIndex().filter { it.index !in missing }.map { (j, m) -> if (j == i) piece else later(momentLocator(m, false)) }
+        }
+        return emptyList()
     }
 }

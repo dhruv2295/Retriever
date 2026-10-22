@@ -687,7 +687,9 @@ class Retriever(
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending.values.sum() == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
-                (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens))
+                (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
+                // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
+                (!keywordOnly || store.laterChunkCount() == 0L)
             if (idle) return end(StopReason.DONE)
             val e = if (keywordOnly) {
                 null
@@ -719,7 +721,7 @@ class Retriever(
                 IndexEngine(
                     store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
-                    readAheadWhen = { !uiVisible }, readAheadContext = dispatchers.default,
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) }, readAheadContext = dispatchers.readAhead,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
@@ -732,8 +734,8 @@ class Retriever(
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,
-                    readAheadWhen = { !uiVisible },
-                    readAheadContext = dispatchers.default,
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) },
+                    readAheadContext = dispatchers.readAhead,
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
@@ -963,6 +965,13 @@ class Retriever(
         !store.prefs().paused && sampleSession() &&
             store.tasteIds().let { store.pendingIn(it).isNotEmpty() || (!noModel() && store.tailCountsIn(it).first > 0) }
     }
+
+    /** Files to read or later parts to embed, so a batch would read something. */
+    @Throws(Throwable::class)
+    suspend fun hasWork(): Boolean = io { store.pendingByKind().values.sum() > 0 || (!noModel() && store.tailChunkCount() > 0) }
+
+    /** The phone's power and heat now, for a platform deciding whether to hold a foreground run. */
+    fun deviceState(): DeviceState = monitor.state()
 
     private val sharedTaste: Flow<TasteProgress> by lazy {
         watched(combine(store.countChanges(), sampleIds) { _, _ -> }, {}) {

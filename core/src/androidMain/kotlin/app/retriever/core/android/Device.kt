@@ -25,12 +25,14 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import app.retriever.core.DeviceMonitor
 import app.retriever.core.DeviceProbe
 import app.retriever.core.DeviceState
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Platform
 import app.retriever.core.Thermal
+import app.retriever.core.ThermalRest
 import app.retriever.core.nominalRamGb
 import java.io.File
 import java.util.Locale
@@ -43,10 +45,30 @@ private fun memoryBytes(context: Context): Long = memoryInfo(context).let {
     if (Build.VERSION.SDK_INT >= 34) it.advertisedMem else it.totalMem
 }
 
+/**
+ * [read] at most once per [ThermalRest.POLL] (Android documents NaN when asked more often, and a forecast moves slowly);
+ * NaN, a phone without thermal hardware, is no headroom.
+ */
+internal class HeadroomPoll(private val now: () -> Long, private val read: () -> Float) {
+    private var readAt: Long? = null
+    private var last: Float? = null
+
+    @Synchronized
+    fun get(): Float? {
+        val t = now()
+        if (readAt.let { it == null || t - it >= ThermalRest.POLL.inWholeMilliseconds }) {
+            readAt = t
+            last = read().takeUnless { it.isNaN() }
+        }
+        return last
+    }
+}
+
 class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
     private val ramGb by lazy { nominalRamGb(memoryBytes(context)) }
+    private val headroom = HeadroomPoll(SystemClock::elapsedRealtime) { powerManager.getThermalHeadroom(ThermalRest.POLL.inWholeSeconds.toInt()) }
 
     override fun state(): DeviceState = DeviceState(
         ramGb = ramGb,
@@ -57,6 +79,7 @@ class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
         powerSave = powerManager.isPowerSaveMode,
         // A null receiver reads the sticky broadcast without registering.
         pluggedIn = (context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,
+        headroom = headroom.get(),
     )
 
     private fun thermal(status: Int): Thermal = when (status) {

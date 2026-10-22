@@ -53,7 +53,7 @@ class IndexPipelineTest {
     }
 
     @Test
-    fun cheapKindsComeFirstThenPhotosAndVideosNewestFirstThenAudio() {
+    fun cheapKindsComeFirstThenPhotosThenVideosThenAudio() {
         val store = newStore()
         store.upsertFiles(listOf(testFile("new.jpg", Kind.PHOTO, modifiedAt = 5), testFile("old.png", Kind.SCREENSHOT, modifiedAt = 1)))
         assertEquals("old.png", store.pending(1).single().file.name)
@@ -66,7 +66,8 @@ class IndexPipelineTest {
                 testFile("clip.mp4", Kind.VIDEO, modifiedAt = 2),
             ),
         )
-        assertEquals(listOf("clip.mp4", "photo.jpg", "song.mp3"), mixed.pending(3).map { it.file.name })
+        // A video costs seconds of frames, so the older photo goes first.
+        assertEquals(listOf("photo.jpg", "clip.mp4", "song.mp3"), mixed.pending(3).map { it.file.name })
     }
 
     @Test
@@ -80,13 +81,13 @@ class IndexPipelineTest {
         engine(store, FakeExtractor(mapOf("big.txt" to pieces)), embedder).batch()
 
         assertEquals(20L, store.chunkCount())
-        assertEquals(12L, store.tailChunkCount())
-        assertEquals(IndexEngine.HEAD_TEXT_CHUNKS, embedder.received.size)
+        assertEquals(20L - IndexEngine.DOC_HEAD_CHUNKS, store.tailChunkCount())
+        assertEquals(IndexEngine.DOC_HEAD_CHUNKS, embedder.received.size)
         assertEquals(
             Store.Counts(
                 mapOf(FileState.INDEXED to 1L),
                 mapOf(Kind.DOC to 1L),
-                12L,
+                20L - IndexEngine.DOC_HEAD_CHUNKS,
                 1L,
                 mapOf((Kind.DOC to FileState.INDEXED) to 1L),
                 // No scan has run: the files were written directly.
