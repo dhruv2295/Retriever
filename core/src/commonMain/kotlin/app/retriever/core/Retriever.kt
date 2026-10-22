@@ -563,13 +563,15 @@ class Retriever(
 
     /**
      * [deepen] false reads pending files only, so a batch with none left ends DONE instead of embedding long files'
-     * later parts. [waitForLock]: wait for a running batch (being cancelled) instead of returning DONE at once.
+     * later parts. [waitForLock]: wait for a running batch (being cancelled) however long it takes. Otherwise a batch still
+     * unwinding gets [LOCK_WAIT]: a run that replaced a cancelled one found its lock held, ended DONE, and nothing came after
+     * (a Pixel 8 Pro read nothing until the 6-hour run). A batch still running after that keeps the work.
      */
     @Throws(Throwable::class)
     suspend fun indexBatch(budget: Duration, deepen: Boolean = true, waitForLock: Boolean = false, sessionOnly: Boolean = false): NextRun {
         if (waitForLock) {
             indexLock.lock()
-        } else if (!indexLock.tryLock()) {
+        } else if (withTimeoutOrNull(LOCK_WAIT) { indexLock.lock() } == null) {
             changedSinceSync = true
             return NextRun.DONE
         }
@@ -1592,6 +1594,9 @@ class Retriever(
         const val LOW_BATTERY = 20
 
         const val GPU_RETESTED = "gpu_retested"
+
+        /** Long enough for a cancelled batch to unwind, short enough that a waiting job never nears its 10 minute limit. */
+        val LOCK_WAIT = 30.seconds
         const val SPEED_KEY = "speed_by_kind_CPU_CPU"
         const val BG_SPEED_KEY = "bg_speed"
         const val SAVE_EVERY_MS = 30_000L
