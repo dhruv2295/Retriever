@@ -39,6 +39,9 @@ class Calibrator(private val context: Context, private val retriever: Retriever,
         }
     }
 
+    /** The core's one GPU retest after a Tune turned the GPU down; a run calls it before its batch, so no batch is cancelled. */
+    suspend fun retestGpuIfDue(): CalibrationResult? = retriever.retestGpuIfDue(::samples)
+
     /** The newest photos (as iOS fetches them), else the bundled illustrations; core adds the stand-in texts. */
     private suspend fun samples(): Samples = withContext(Dispatchers.IO) {
         val variant = retriever.requiredBuild.value.variant

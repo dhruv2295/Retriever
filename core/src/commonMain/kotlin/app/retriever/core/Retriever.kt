@@ -1471,6 +1471,24 @@ class Retriever(
 
     // --- Calibration ---
 
+    /**
+     * Tunes once more when a Tune turned the GPU down without a crash (a Pixel 8 Pro's first tune did, then passed it twice),
+     * so one bad measure doesn't keep a phone on CPU. Only hidden on a charger, and once per phone. Null when not due.
+     */
+    @Throws(Throwable::class)
+    suspend fun retestGpuIfDue(samples: suspend () -> Samples): CalibrationResult? {
+        val due = io {
+            val p = store.profile()
+            !textOnly && !uiVisible && monitor.state().pluggedIn && readingBlocker() == null &&
+                p != null && p.backend == Backend.CPU && p.gpuError != null &&
+                store.meta(GPU_RETESTED) != "1" && modelReady(requiredBuild.value)
+        }
+        if (!due) return null
+        io { store.setMeta(GPU_RETESTED, "1") }
+        log("Tune turned the GPU down before; measuring it once more", null)
+        return calibrate(samples(), tuneAgain = true)
+    }
+
     @Throws(Throwable::class)
     suspend fun calibrate(samples: Samples, tuneAgain: Boolean): CalibrationResult {
         check(!textOnly) { "This phone has too little memory for the model, so there is nothing to tune: Retriever searches file names and text." }
@@ -1564,6 +1582,7 @@ class Retriever(
         /** Battery percent at or below which a hidden app waits for the charger. */
         const val LOW_BATTERY = 20
 
+        const val GPU_RETESTED = "gpu_retested"
         const val SPEED_KEY = "speed_by_kind_CPU_CPU"
         const val BG_SPEED_KEY = "bg_speed"
         const val SAVE_EVERY_MS = 30_000L

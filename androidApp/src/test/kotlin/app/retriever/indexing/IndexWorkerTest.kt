@@ -27,6 +27,7 @@ import app.retriever.core.db.IndexDb
 import app.retriever.di.PlatformReady
 import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.NOW
+import app.retriever.model.Calibrator
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
@@ -83,7 +84,8 @@ class IndexWorkerTest {
                     single { retriever }
                     single(PlatformReady) { { platformReady } }
                     single { IndexService(context, retriever) }
-                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady)) }
+                    single { Calibrator(context, retriever, get()) }
+                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
                 },
             )
         }

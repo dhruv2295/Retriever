@@ -20,6 +20,10 @@ from real read times.
 - **Runs where the model runs.** `Retriever.calibrate` cancels the batch, then holds `indexLock` and `ModelHost.lock`, so
   searches answer from keywords and two copies of the model never load. The whole run is a `countedOpen`, and
   `ModelHost.measurable` leaves out a GPU that crashed twice. An NPU failure marks the build failed and rethrows.
+- **A turned-down GPU gets one more measure.** Tune logs each failed backend's error and stores the GPU's as
+  `DeviceProfile.gpuError`. When a phone sits on CPU with that error (a measure, not a crash), Android's next charging run
+  calls `Retriever.retestGpuIfDue` before its batch: hidden, plugged in and free to read, it tunes again once per phone
+  (meta `gpu_retested`). A Pixel 8 Pro's first tune turned its GPU down for an unrecorded reason, then passed it twice.
 - **Samples are real.** `CalibrationSamples` (Android) and the iOS equivalent harvest photos, text and queries from the
   library, with bundled fallbacks (`Samples.FALLBACK_TEXTS`) so a phone with no photos still tunes.
 - **Moves up, never down on its own.** `Retriever.retierFrom` keeps a window of five photo embed times; when their median

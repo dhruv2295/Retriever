@@ -216,7 +216,7 @@ val appModule = module {
     }
 
     single { IndexService(androidContext(), get()) }
-    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady)) }
+    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
     single { StorageService(androidContext(), get(), get(), get(ModelDir)) }
     single { MediaDeleter(androidContext()) }
     singleOf(::LaunchQuery)

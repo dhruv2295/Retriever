@@ -6,6 +6,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -128,5 +129,45 @@ class RetuneTest {
         assertEquals(photos.size.toLong(), f.state(Kind.PHOTO, FileState.INDEXED))
         assertEquals(0L, f.state(Kind.PHOTO, FileState.PENDING))
         assertTrue(f.extractor.names.count { it.startsWith("v") } >= videos.size)
+    }
+
+    /** A Tune that turned the GPU down without a crash gets one more measure, hidden on a charger, and only once. */
+    @Test
+    fun aGpuTurnedDownIsMeasuredOnceMoreHiddenOnACharger() = test {
+        val store = newStore().also { it.setProfile(PROFILE.copy(gpuError = "much slower than CPU")) }
+        var opened = Backend.CPU
+        val factory = FakeFactory().apply {
+            fail = { p, _ ->
+                opened = p.backend
+                null
+            }
+            beforeEmbed = { if (opened == Backend.CPU) delay(5) }
+        }
+        val monitor = FakeMonitor(DeviceState(8.0, charging = false, batteryPct = 80, thermal = Thermal.NONE, pluggedIn = true))
+        val r = testRetriever(store, emptyList(), FakeExtractor(), factory = factory, monitor = monitor)
+
+        r.uiVisible = true
+        assertNull(r.retestGpuIfDue { samples }, "not while the app is in front")
+        r.uiVisible = false
+        monitor.state = monitor.state.copy(pluggedIn = false)
+        assertNull(r.retestGpuIfDue { samples }, "not off the charger")
+        monitor.state = monitor.state.copy(pluggedIn = true)
+
+        assertEquals(Backend.GPU, r.retestGpuIfDue { samples }?.chosen)
+        assertEquals(Backend.GPU, store.profile()?.backend)
+        assertNull(store.profile()?.gpuError)
+
+        store.setProfile(PROFILE.copy(gpuError = "much slower than CPU"))
+        assertNull(r.retestGpuIfDue { samples }, "once per phone")
+    }
+
+    /** A phone whose GPU was never turned down by a measure (no gpuError) is not retuned. */
+    @Test
+    fun aCpuPhoneWithoutAGpuErrorIsLeftAlone() = test {
+        val store = newStore().also { it.setProfile(PROFILE) }
+        val monitor = FakeMonitor(DeviceState(8.0, charging = true, batteryPct = 80, thermal = Thermal.NONE))
+        val r = testRetriever(store, emptyList(), FakeExtractor(), monitor = monitor)
+        assertNull(r.retestGpuIfDue { samples })
+        assertEquals(PROFILE, store.profile())
     }
 }

@@ -36,6 +36,7 @@ import app.retriever.core.indexingDispatcher
 import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
+import app.retriever.model.Calibrator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.TimeSource
 
 // Stays in app.retriever: WorkManager persists this class name in pending work specs.
 // Built by Koin's WorkerFactory (workerOf in AppModule), so its dependencies are constructor parameters.
@@ -53,6 +55,7 @@ class IndexWorker(
     private val retriever: Retriever,
     private val index: IndexService,
     private val platformReady: () -> Boolean,
+    private val calibrator: Calibrator,
 ) : CoroutineWorker(context, params) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
     private val notificationId: Int = params.id.hashCode()
@@ -88,7 +91,18 @@ class IndexWorker(
                 val foreground = (trial || charger || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
-                var next = retriever.indexBatch(8.minutes, waitForLock = trial)
+                // Before the batch, so a GPU that passes serves this run; its minute comes out of the batch's budget.
+                val started = TimeSource.Monotonic.markNow()
+                if (!trial) {
+                    try {
+                        calibrator.retestGpuIfDue()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("Retriever", "GPU retest failed", e)
+                    }
+                }
+                var next = retriever.indexBatch((8.minutes - started.elapsedNow()).coerceAtLeast(1.minutes), waitForLock = trial)
 
                 // A foreground service has no 10 minute limit (WorkManager stops it at Android 15's FGS timeout): on a
                 // charger or in front, batches follow each other here, resting as restBefore says; heat polls until the phone cools.
