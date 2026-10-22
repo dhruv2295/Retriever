@@ -76,4 +76,7 @@ A screen-on phone with another app in front remains BUSY. Battery Saver stops be
 - Heat follows the thermal headroom (see `indexing-pipeline.md`); its thresholds are not calibrated on a phone yet.
 - A charger plugged in while the app is already hidden can't start a foreground service (no exemption); those runs stay
   8 minute WorkManager jobs until the app is next opened and left on the charger.
-- Screen-off broadcasts require a live process. After process death or quota exhaustion Android still controls when background work runs; foreground trials resume directly when no persisted trial worker owns them.
+- Screen-off broadcasts require a live, uncached process: Android defers a cached app's registered broadcasts (seen on a
+  Pixel 8 Pro: `DEFERRED` in `dumpsys activity broadcasts`), and the IDLE constraint can take an hour. So a batch that stops
+  because the phone is in use (`WHEN_IDLE`) on a charger is checked again every 5 minutes (`IndexService.BUSY_RECHECK`);
+  on battery it still waits for idle. After process death or quota exhaustion Android still controls when background work runs; foreground trials resume directly when no persisted trial worker owns them.

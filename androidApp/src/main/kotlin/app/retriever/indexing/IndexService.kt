@@ -79,6 +79,10 @@ class IndexService(private val context: Context, private val retriever: Retrieve
 
             NextRun.WHEN_IDLE -> if (retriever.hasPendingTaste() && !context.getSystemService(PowerManager::class.java).isInteractive) {
                 continueTrial()
+            } else if (retriever.deviceState().pluggedIn) {
+                // Android defers a cached app's screen-off broadcast and IDLE can take an hour, so a Pixel on its charger
+                // sat unread with the screen off. A check that finds the phone still in use stops within one file.
+                continueLater(BUSY_RECHECK)
             } else {
                 continueWhenIdle()
             }
@@ -251,6 +255,9 @@ class IndexService(private val context: Context, private val retriever: Retrieve
             lastStop == null -> 10.seconds
             else -> Duration.ZERO
         }
+
+        /** How often a phone in use on its charger is checked for being put down. */
+        val BUSY_RECHECK = 5.minutes
 
         const val CHARGER = "charger"
         const val TRIAL = "trial"

@@ -40,6 +40,7 @@ fun testRetriever(
     profile: DeviceProfile? = null,
     dispatchers: CoreDispatchers = CoreDispatchers(),
     wrapDriver: (SqlDriver) -> SqlDriver = { it },
+    pluggedIn: () -> Boolean = { true },
 ): Retriever {
     // DriverManager registers the SQLite driver once per JVM, from the first Robolectric sandbox's class loader; a test in
     // another sandbox (NATIVE graphics) can't see that one, so load the driver class in this sandbox too.
@@ -62,7 +63,7 @@ fun testRetriever(
             override fun open(profile: DeviceProfile, build: ModelBuild): Embedder = (embedder ?: error("no model in this test")).also { beforeOpen() }
         },
         monitor = object : DeviceMonitor {
-            override fun state() = DeviceState(ramGb, true, 80, Thermal.NONE)
+            override fun state() = DeviceState(ramGb, pluggedIn(), 80, Thermal.NONE)
         },
         hasher = object : ContentHasher {
             override suspend fun quickHash(uri: String, size: Long): String? = null

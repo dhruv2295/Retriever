@@ -144,6 +144,20 @@ class IndexServiceTest {
         for (next in listOf(NextRun.DONE, NextRun.WHEN_CHARGING, NextRun.WHEN_IDLE, NextRun.RETRY)) assertFalse(next.name, holds(next))
     }
 
+    /** Android defers a cached app's screen-off broadcast, so a busy stop on a charger can't wait for it or for IDLE. */
+    @Test fun aPhoneInUseOnItsChargerIsCheckedAgainSoonOnBatteryAtIdle() = runBlocking {
+        var plugged = true
+        val service = IndexService(context, testRetriever(pluggedIn = { plugged }))
+        service.schedule(NextRun.WHEN_IDLE)
+        val onCharger = infos(CONTINUE).single { !it.state.isFinished }
+        assertEquals(false, onCharger.constraints.requiresDeviceIdle())
+        assertEquals(IndexService.BUSY_RECHECK.inWholeMilliseconds, onCharger.initialDelayMillis)
+
+        plugged = false
+        service.schedule(NextRun.WHEN_IDLE)
+        assertEquals(true, infos(CONTINUE).single { !it.state.isFinished }.constraints.requiresDeviceIdle())
+    }
+
     @Test fun screenOffTrialReplacesIdleWithoutAnIdleConstraint() = runBlocking {
         val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
         retriever.planTaste()
