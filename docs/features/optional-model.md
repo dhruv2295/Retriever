@@ -14,7 +14,9 @@ Schema 6 preserves existing chunks, content provenance, FTS rows and vectors. A 
 vectors and their attempt counts. Meaning waits for the tune: a downloaded but untuned model adds no vectors, and the
 counts leave meaning work out until the tune finishes. Then the existing deepen queue embeds saved text and reloads images at saved locators,
 including PDF pages and video moments. No OCR, classification or document extraction repeats during this pass.
-Name-only files get a name-vector placeholder. The vector deletion counter invalidates a warm search's old vectors.
+Name-only files get a name-vector placeholder. Videos are not opened without the model (their frames are only model
+input, about 1.2 s each on a Pixel 8 Pro); they are found by name, and `resetForNewModel` queues every video without
+frames to be read, frames and vectors in one pass, when a model arrives. The vector deletion counter invalidates a warm search's old vectors.
 Each missing vector gets at most three attempts, and cancellation gives its attempt back. Files stay `INDEXED`, so
 keyword search and the searchable total remain available while meaning is added. Failed vectors remain visibly
 not/partly added in meaning coverage even when their retry queue is exhausted.

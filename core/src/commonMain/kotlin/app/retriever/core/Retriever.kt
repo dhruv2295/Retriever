@@ -709,6 +709,7 @@ class Retriever(
                 IndexEngine(
                     store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
+                    readAheadWhen = { !uiVisible }, readAheadContext = dispatchers.default,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
@@ -721,6 +722,8 @@ class Retriever(
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,
+                    readAheadWhen = { !uiVisible },
+                    readAheadContext = dispatchers.default,
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)

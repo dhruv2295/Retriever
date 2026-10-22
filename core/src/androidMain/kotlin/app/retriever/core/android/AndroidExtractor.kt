@@ -53,6 +53,8 @@ import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
 import app.retriever.core.textEntry
 import app.retriever.core.textPieces
+import app.retriever.core.traced
+import app.retriever.core.tracedAsync
 import app.retriever.core.xlsxOrder
 import app.retriever.core.xlsxText
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -163,11 +165,12 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
     }
 
     private suspend fun picture(uri: Uri, maxChars: Int, photo: Boolean): List<Piece> {
-        val jpeg = ImageBytes.jpeg(context, uri, 512) ?: return emptyList()
+        // Sections for a Perfetto capture: which of the four steps a photo's time goes to.
+        val jpeg = traced("pic.thumb") { ImageBytes.jpeg(context, uri, 512) } ?: return emptyList()
         // GC owns these pixels: native ML Kit tasks may still hold them after coroutine cancellation.
-        val bitmap = ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX)
-        val text = bitmap?.let { ocr(it) }.orEmpty()
-        val labels = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { labels(it) }
+        val bitmap = traced("pic.decode") { ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX) }
+        val text = bitmap?.let { tracedAsync("pic.ocr") { ocr(it) } }.orEmpty()
+        val labels = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { tracedAsync("pic.labels") { labels(it) } }
         return imageWithText("", jpeg, text, maxChars, labels)
     }
 

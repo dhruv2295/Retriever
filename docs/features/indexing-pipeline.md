@@ -26,6 +26,10 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
 - **Per-file loop.** `IndexEngine` pages pending files, extracts, then embeds per piece. Each embed first `awaitUi()`s:
   it suspends while a search runs or the UI is typing or scrolling, so a query waits behind at most one native call.
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.
+- **Read ahead on an accelerator.** While a file embeds on the GPU or NPU with the app hidden, the next file's extraction
+  starts beside it (`IndexEngine.readAhead`, `readAheadWhen = !uiVisible`), so CPU decode and OCR overlap the
+  accelerator. Its attempt is counted when it starts and given back on any stop. Never on CPU inference or while the
+  app shows. `ReadAheadBenchTest` (blocking stand-ins at a tenth of the Pixel 8 Pro's costs): 137 to 88 ms per photo.
 - **Attempts are counted before the work.** A file or a tail chunk is charged an attempt first and given it back on
   `CancellationException`, so a process death cannot crash-loop on one file and a stop never charges a file.
 - **Long files deepen.** The head of a long file is embedded first; later parts (tail chunks) read when nothing is pending

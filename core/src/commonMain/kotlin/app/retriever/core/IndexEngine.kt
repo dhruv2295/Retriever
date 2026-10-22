@@ -1,5 +1,11 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.TimeSource
@@ -50,6 +56,9 @@ class IndexEngine(
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
     private val policyStop: (() -> StopReason?)? = null,
+    /** Asked per file: may the next file be read while this one embeds (see readAhead)? */
+    private val readAheadWhen: () -> Boolean = { false },
+    private val readAheadContext: CoroutineContext = Dispatchers.Default,
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
     suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
@@ -59,38 +68,68 @@ class IndexEngine(
         // Pages, so the queue's sort runs once per PAGE files rather than once per file.
         val files = ArrayDeque<Store.StoredFile>()
         val tails = ArrayDeque<Store.TailChunk>()
-        while (true) {
-            fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
-            if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
+        var ahead: Ahead? = null
+        val scope = CoroutineScope(currentCoroutineContext())
+
+        // While a file embeds on the GPU or NPU the CPU is free, so the next file's decode and OCR run beside it. Never on CPU
+        // inference (the two would share cores) and never while the app shows (its frames come first). The tail
+        // interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS never
+        // gets here (a backgrounded iOS app infers on CPU).
+        fun readAhead() {
+            val e = embedder ?: return
+            if (ahead != null || e.backend == Backend.CPU || e.visionBackend == Backend.CPU || !readAheadWhen()) return
+            val next = files.firstOrNull()?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
             val now = settings()
-            val state = monitor.state()
-            (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state), pauseWhenHot))?.let { return stop(it) }
-            if (configurationChanged()) return stop(StopReason.BUDGET)
-            if (files.isEmpty()) files += pendingPage()
-            val next = files.removeFirstOrNull()
-            if (next != null) {
-                val metric = try {
-                    index(next, now, state)
-                } catch (s: ReadingStopped) {
-                    return stop(s.reason)
-                }
-                if (metric.ok) processed++ else failed++
-                onFile(metric)
-                if (deepen && embedder != null && (processed + failed) % HEAD_TEXT_CHUNKS == 0) {
-                    try {
-                        tailPage().firstOrNull()?.let { embedTail(it, embedder) }
+            val inside = readsInside(next.file, now)
+            store.recordAttempt(next.id, next.attempts + 1)
+            ahead = Ahead(
+                next,
+                inside,
+                scope.async(readAheadContext) { runCatching { extract(next.file, inside, now.profile) } },
+            )
+        }
+        try {
+            while (true) {
+                fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
+                if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
+                val now = settings()
+                val state = monitor.state()
+                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state), pauseWhenHot))?.let { return stop(it) }
+                if (configurationChanged()) return stop(StopReason.BUDGET)
+                if (files.isEmpty()) files += pendingPage()
+                val next = files.removeFirstOrNull()
+                if (next != null) {
+                    val mine = ahead?.takeIf { it.stored.id == next.id }
+                    if (mine != null) ahead = null
+                    val metric = try {
+                        index(next, now, state, mine, ::readAhead)
                     } catch (s: ReadingStopped) {
                         return stop(s.reason)
                     }
+                    if (metric.ok) processed++ else failed++
+                    onFile(metric)
+                    if (deepen && embedder != null && (processed + failed) % HEAD_TEXT_CHUNKS == 0) {
+                        try {
+                            tailPage().firstOrNull()?.let { embedTail(it, embedder) }
+                        } catch (s: ReadingStopped) {
+                            return stop(s.reason)
+                        }
+                    }
+                    continue
                 }
-                continue
+                if (!deepen || embedder == null) return stop(StopReason.DONE)
+                if (tails.isEmpty()) tails += tailPage()
+                try {
+                    embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
+                } catch (s: ReadingStopped) {
+                    return stop(s.reason)
+                }
             }
-            if (!deepen || embedder == null) return stop(StopReason.DONE)
-            if (tails.isEmpty()) tails += tailPage()
-            try {
-                embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
-            } catch (s: ReadingStopped) {
-                return stop(s.reason)
+        } finally {
+            // A stop never charges a file, including the one read ahead.
+            ahead?.let {
+                it.pieces.cancel()
+                store.markFailed(it.stored.id, it.stored.attempts)
             }
         }
     }
@@ -135,27 +174,40 @@ class IndexEngine(
         }
     }
 
-    private suspend fun index(stored: Store.StoredFile, settings: IndexSettings, state: DeviceState): FileMetric {
+    /** Video frames are only ever model input: without the model a video is found by its name, and read when the model comes. */
+    private fun readsInside(file: SourceFile, settings: IndexSettings) =
+        file.kind in settings.kinds && file.kind != Kind.AUDIO && (embedder != null || file.kind != Kind.VIDEO)
+
+    private suspend fun extract(file: SourceFile, inside: Boolean, profile: DeviceProfile): List<Piece> =
+        if (inside) tracedAsync("extract") { extractor.extract(file, profile) } else emptyList()
+
+    /** A file whose extraction started while the one before it was embedding; its attempt is already counted. */
+    private class Ahead(val stored: Store.StoredFile, val readInside: Boolean, val pieces: Deferred<Result<List<Piece>>>)
+
+    private suspend fun index(stored: Store.StoredFile, settings: IndexSettings, state: DeviceState, ahead: Ahead?, readAhead: () -> Unit): FileMetric {
         val file = stored.file
         var extractMs = 0.0
         var embedMs = 0.0
         // Before the attempt is counted: a search running now would otherwise wait behind this file's extraction.
-        checkpoint()
+        if (ahead == null) checkpoint()
         // Three attempts that never came back (OOM, native crash, LMK): skip it rather than crash again.
-        if (stored.attempts >= MAX_FILE_ATTEMPTS) {
+        if (ahead == null && stored.attempts >= MAX_FILE_ATTEMPTS) {
             store.markFailed(stored.id, stored.attempts)
             return FileMetric(file, 0, 0, 0.0, 0.0, false, "stopped the app $MAX_FILE_ATTEMPTS times", state)
         }
         onCurrent(file)
+        val readInside = ahead?.readInside ?: readsInside(file, settings)
         // Count the attempt up front so a file that kills the process still counts it; the file stays pending (Waiting) meanwhile.
-        store.recordAttempt(stored.id, stored.attempts + 1)
-        val readInside = file.kind in settings.kinds && file.kind != Kind.AUDIO
+        // A file read ahead counted its attempt when that read began.
+        if (ahead == null) store.recordAttempt(stored.id, stored.attempts + 1)
         try {
             val extracted = measureTimedValue {
-                if (readInside) extractor.extract(file, settings.profile) else emptyList()
+                ahead?.pieces?.await()?.getOrThrow() ?: extract(file, readInside, settings.profile)
             }
+            // For a file read ahead, only the wait: the pace books want this file's share of the wall clock.
             extractMs = extracted.duration.inWholeNanoseconds / 1e6
             val pieces = extracted.value
+            readAhead()
 
             val e = embedder
             val chunks = if (e == null) {
@@ -173,7 +225,7 @@ class IndexEngine(
                 chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) },
                 partial = pieces.any { it.locator == CUT_SHORT },
                 // A kind switched mid-read: what was read no longer matches what the setting asks for.
-                stillCurrent = { (file.kind in this.settings().kinds && file.kind != Kind.AUDIO) == readInside },
+                stillCurrent = { readsInside(file, this.settings()) == readInside },
             )
             return FileMetric(file, pieces.size, chunks.size, extractMs, embedMs, true, null, state)
         } catch (e: CancellationException) {

@@ -432,6 +432,9 @@ resetForNewModel {
   INSERT OR REPLACE INTO index_meta (key, value)
     SELECT 'vectors_deleted', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = 'vectors_deleted'), 0) + COUNT(vector) AS TEXT) FROM chunks;
   UPDATE chunks SET vector = NULL, scale = NULL, tail_attempts = 0;
+  -- Videos read before the model have no frames (IndexEngine reads none without it): read them again, frames and all.
+  UPDATE files SET state = 'PENDING', attempts = 0 WHERE kind = 'VIDEO' AND state = 'INDEXED'
+    AND id NOT IN (SELECT file_id FROM chunks WHERE ordinal > 0);
   INSERT INTO chunks (file_id, ordinal, locator)
     SELECT id, 0, '' FROM files WHERE state = 'INDEXED' AND id NOT IN (SELECT file_id FROM chunks);
 }
