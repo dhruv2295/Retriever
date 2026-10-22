@@ -122,6 +122,7 @@ class IndexServiceTest {
         assertEquals("a model open refused for memory", ThermalRest.RECHECK, IndexService.restBefore(NextRun.AFTER_COOLDOWN, null))
         assertEquals("a model closed mid-batch", 10.seconds, IndexService.restBefore(NextRun.SOON, null))
         assertEquals("out of time", Duration.ZERO, IndexService.restBefore(NextRun.SOON, StopReason.BUDGET))
+        assertEquals("a phone in use", IndexService.BUSY_POLL, IndexService.restBefore(NextRun.WHEN_IDLE, StopReason.BUSY))
     }
 
     @Test fun foregroundRunsStartOnlyOnAChargerWithReadingAllowedAndWorkLeft() {
@@ -141,7 +142,10 @@ class IndexServiceTest {
         assertTrue("in front on battery", holds(NextRun.SOON, visible = true, pluggedIn = false))
         assertFalse("hidden on battery: WorkManager's follow-ups", holds(NextRun.SOON, pluggedIn = false))
         assertFalse("Pause", holds(NextRun.SOON, paused = true))
-        for (next in listOf(NextRun.DONE, NextRun.WHEN_CHARGING, NextRun.WHEN_IDLE, NextRun.RETRY)) assertFalse(next.name, holds(next))
+        assertTrue("a phone in use on its charger: waits with its notification", holds(NextRun.WHEN_IDLE))
+        assertFalse("in use on battery", holds(NextRun.WHEN_IDLE, visible = true, pluggedIn = false))
+        assertFalse("in use, paused", holds(NextRun.WHEN_IDLE, paused = true))
+        for (next in listOf(NextRun.DONE, NextRun.WHEN_CHARGING, NextRun.RETRY)) assertFalse(next.name, holds(next))
     }
 
     /** Android defers a cached app's screen-off broadcast, so a busy stop on a charger can't wait for it or for IDLE. */

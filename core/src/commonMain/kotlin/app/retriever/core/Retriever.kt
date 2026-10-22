@@ -764,8 +764,9 @@ class Retriever(
             _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error) }
             // Why each batch ended, so a phone that reads nothing says which rule stopped it.
             val device = monitor.state()
+            val why = stop?.name ?: if (error != null) "error" else "cancelled"
             log(
-                "Batch ended: ${stop ?: "error"} after ${started.elapsedNow().inWholeSeconds} s, ${_state.value.processed - processedBefore} files; " +
+                "Batch ended: $why after ${started.elapsedNow().inWholeSeconds} s, ${_state.value.processed - processedBefore} files; " +
                     "thermal ${device.thermal}, headroom ${device.headroom}, screen ${if (device.screenOn) "on" else "off"}, plugged ${device.pluggedIn}",
                 null,
             )

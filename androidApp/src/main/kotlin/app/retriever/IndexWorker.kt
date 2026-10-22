@@ -111,6 +111,7 @@ class IndexWorker(
                     val lastStop = retriever.state.value.lastStop
                     delay(IndexService.restBefore(next, lastStop))
                     if (next == NextRun.AFTER_COOLDOWN && lastStop == StopReason.HOT && !retriever.deviceState().cooled) continue
+                    if (next == NextRun.WHEN_IDLE && retriever.readingBlocker() == StopReason.BUSY) continue
                     index.notifySampleIfReady()
                     next = retriever.indexBatch(8.minutes)
                 }
@@ -134,10 +135,13 @@ class IndexWorker(
 
     private suspend fun showProgress() {
         var last = 0L
+        var shownTitle: String? = null
         combine(retriever.state, retriever.counts(), retriever.readingStatus(), ::Triple).collect { (s, c, status) ->
             val now = SystemClock.elapsedRealtime()
-            if (s.running && now - last >= 1000) {
+            // While processing, at most once a second; between batches (a phone in use, heat) only when the words change.
+            if ((s.running && now - last >= 1000) || status.title != shownTitle) {
                 last = now
+                shownTitle = status.title
                 notificationManager.notify(notificationId, Notifications.progress(applicationContext, c.sampleProgress ?: c.progress, status, pauseIntent))
             }
         }

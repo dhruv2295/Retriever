@@ -240,24 +240,30 @@ class IndexService(private val context: Context, private val retriever: Retrieve
 
         /**
          * A run holding a foreground service starts its next batch at once (or rests from heat in place) while the app shows
-         * or the phone charges, unless paused; anything else ends it, and WorkManager schedules what follows.
+         * or the phone charges, unless paused. On a charger it also waits out the phone being in use, so it never hands back to
+         * WorkManager's throttled jobs; anything else ends it, and WorkManager schedules what follows.
          */
-        fun holdsForeground(next: NextRun, paused: Boolean, visible: Boolean, pluggedIn: Boolean) =
-            !paused && (visible || pluggedIn) && (next == NextRun.SOON || next == NextRun.AFTER_COOLDOWN)
+        fun holdsForeground(next: NextRun, paused: Boolean, visible: Boolean, pluggedIn: Boolean) = !paused && (visible || pluggedIn) &&
+            (next == NextRun.SOON || next == NextRun.AFTER_COOLDOWN || (next == NextRun.WHEN_IDLE && pluggedIn))
 
         /**
          * The wait before a held run's next batch. Heat polls (the run then checks [app.retriever.core.DeviceState.cooled]);
          * a model open refused for memory rests as a WorkManager follow-up would; a model closed mid-batch (SOON with no stop
-         * reason) keeps the old 10 s spacing; a batch that ran out of time goes on at once.
+         * reason) keeps the old 10 s spacing; a phone in use is checked every [BUSY_POLL]; a batch that ran out of time goes on
+         * at once.
          */
         fun restBefore(next: NextRun, lastStop: StopReason?): Duration = when {
             next == NextRun.AFTER_COOLDOWN -> if (lastStop == StopReason.HOT) ThermalRest.POLL else ThermalRest.RECHECK
+            next == NextRun.WHEN_IDLE -> BUSY_POLL
             lastStop == null -> 10.seconds
             else -> Duration.ZERO
         }
 
         /** How often a phone in use on its charger is checked for being put down. */
         val BUSY_RECHECK = 5.minutes
+
+        /** The same check inside a charger run that holds its foreground service: it carries on within seconds of the screen going off. */
+        val BUSY_POLL = 15.seconds
 
         const val CHARGER = "charger"
         const val TRIAL = "trial"
