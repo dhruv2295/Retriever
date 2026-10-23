@@ -94,7 +94,7 @@ class ModelLifecycleTest {
         val download = ModelDownload(context, context.cacheDir.resolve("lifecycle-models"))
         // Inert setup and upgrade (their scope is cancelled), so this test drives only the lifecycle's trial.
         val inert = CoroutineScope(Job().apply { cancel() })
-        val setup = SetupFlow(r, access, index, inert, { true })
+        val setup = SetupFlow(r, access, index, inert, { true }, {})
         val upgrade = UpgradeFlow(r, ModelRepository(context, download, r, inert), access, index, inert, { false }, { error("no calibration") })
         r.planTaste()
         r.refreshSetUp()

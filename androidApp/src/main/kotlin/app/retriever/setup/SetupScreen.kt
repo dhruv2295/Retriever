@@ -60,6 +60,7 @@ import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.model.UpgradeFlow
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
 import app.retriever.ui.components.FileRow
@@ -74,8 +75,8 @@ fun SetupScreen(
     onNavigate: (Route) -> Unit = {},
     flow: SetupFlow = koinInject(),
     access: AccessService = koinInject(),
+    upgrade: UpgradeFlow = koinInject(),
 ) {
-    val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val ui by flow.ui.collectAsStateWithLifecycle()
     // Set when the person leaves for a permission, so coming back without any can say what to do.
@@ -89,7 +90,7 @@ fun SetupScreen(
     if (!ui.setup.showSetup) {
         androidx.compose.runtime.LaunchedEffect(Unit) { onDone() }
     }
-    BackHandler(enabled = SetupPolicy.back(ui.stage, ui.setup.skipped) != null, onBack = flow::back)
+    BackHandler(enabled = SetupPolicy.back(ui.stage) != null, onBack = flow::back)
     val activity = LocalActivity.current
     val mediaLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -107,10 +108,7 @@ fun SetupScreen(
     }
     val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
     val actions = SetupActions(
-        skipDemo = {
-            flow.skipDemo()
-            if (!ui.access.ready) allowFiles()
-        },
+        getStarted = flow::getStarted,
         allowFiles = allowFiles,
         chooseInstead = { including = true },
         allowMedia = {
@@ -127,17 +125,17 @@ fun SetupScreen(
             flow.continueFromAccess()
         },
         seeAll = { seeAll = true },
-        continueToCommit = flow::continueToCommit,
-        commit = { charging -> requestReading { flow.commit(charging) } },
-        decideLater = flow::decideLater,
+        finish = flow::finish,
+        useMobileData = upgrade::useMobileData,
+        retryDownload = upgrade::download,
     )
-    // The demo is hosted by the real Search, whose field and full-screen results sit outside SetupContent's scroll.
+    // The first search is hosted by the real Search, whose field and full-screen results sit outside SetupContent's scroll.
     if (ui.stage == SetupStage.SAMPLE) {
         DemoScreen(ui, actions, onNavigate)
     } else {
         SetupContent(ui, modifier, actions = actions, allFilesOff = allFilesOff)
     }
-    if (including && ui.stage == SetupStage.WELCOME) {
+    if (including && ui.stage == SetupStage.ACCESS) {
         ModalBottomSheet(onDismissRequest = { including = false }) { IncludeSheet(ui, askedFiles, folderError, actions) }
     }
     // Every planned file, read or not, so the list answers what is done and what isn't; only read ones open, as on iOS.
@@ -152,7 +150,7 @@ fun SetupScreen(
     }
 }
 
-/** The welcome and the choice: a persistent mascot above the stage's body, which slides on to the next. */
+/** Hello and the access screen: a persistent mascot above the stage's body, which slides on to the next. */
 @Composable
 fun SetupContent(
     ui: SetupUi,
@@ -165,14 +163,18 @@ fun SetupContent(
     Scaffold(
         modifier.fillMaxSize(),
         bottomBar = {
-            if (stage == SetupStage.WELCOME) {
-                // The Scaffold paints its background edge to edge and insets only its content; a bottomBar must inset itself.
-                Box(
-                    Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(Modifier.widthIn(max = 552.dp)) { WelcomeActions(ui, allFilesOff, actions) }
+            // The Scaffold paints its background edge to edge and insets only its content; a bottomBar must inset itself.
+            Box(
+                Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.widthIn(max = 552.dp)) {
+                    when (stage) {
+                        SetupStage.WELCOME -> HelloActions(ui, actions)
+                        SetupStage.ACCESS -> AccessActions(ui, allFilesOff, actions)
+                        SetupStage.SAMPLE, SetupStage.DONE -> Unit
+                    }
                 }
             }
         },
@@ -185,9 +187,7 @@ fun SetupContent(
                     .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
-                if (stage == SetupStage.WELCOME) {
-                    Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).width(180.dp), settles = false)
-                }
+                Mascot(ui.mood(), Modifier.align(Alignment.CenterHorizontally).width(230.dp), settles = false)
                 val spatial = spring(SPATIAL_DAMPING, SPATIAL_STIFFNESS, IntOffset.VisibilityThreshold)
                 val effects = spring<Float>(1f, EFFECTS_STIFFNESS)
                 // Shared axis X, the first run moving forward; with animations off, the next stage simply replaces this one.
@@ -205,9 +205,9 @@ fun SetupContent(
                 ) { s ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         when (s) {
-                            SetupStage.WELCOME -> Welcome(ui, actions)
+                            SetupStage.WELCOME -> Hello(ui, reduceMotion)
 
-                            SetupStage.CHOOSE -> CommitStage(ui, actions)
+                            SetupStage.ACCESS -> AccessStage()
 
                             // SAMPLE is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
                             SetupStage.SAMPLE, SetupStage.DONE -> Unit
@@ -224,9 +224,10 @@ private const val SPATIAL_DAMPING = 0.9f
 private const val SPATIAL_STIFFNESS = 700f
 private const val EFFECTS_STIFFNESS = 1600f
 
-/** The motion is the state: it walks while the demo processes and rests once it is paused or done. */
+/** The motion is the state: hello, a sniff at what to search, then it walks while the first files process and rests once paused or done. */
 internal fun SetupUi.mood(): MascotMood = when {
     stage == SetupStage.WELCOME -> MascotMood.WELCOME
+    stage == SetupStage.ACCESS -> MascotMood.SEARCHING
     stage == SetupStage.SAMPLE && reading -> MascotMood.WALKING
     else -> MascotMood.RESTING
 }

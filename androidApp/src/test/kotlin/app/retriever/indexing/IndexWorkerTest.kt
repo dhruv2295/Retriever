@@ -28,9 +28,12 @@ import app.retriever.di.PlatformReady
 import app.retriever.indexing.IndexService.Companion.CONTINUE
 import app.retriever.indexing.IndexService.Companion.NOW
 import app.retriever.model.Calibrator
+import app.retriever.model.ModelDownload
+import app.retriever.model.ModelRepository
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -88,7 +91,11 @@ class IndexWorkerTest {
                     single(PlatformReady) { { platformReady } }
                     single { IndexService(context, retriever) }
                     single { Calibrator(context, retriever, get()) }
-                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
+                    single {
+                        val download = ModelDownload(context, context.cacheDir.resolve("worker-models"))
+                        ModelRepository(context, download, retriever, CoroutineScope(Dispatchers.IO), get())
+                    }
+                    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get(), get()) }
                 },
             )
         }
@@ -129,6 +136,41 @@ class IndexWorkerTest {
             AndroidSqliteDriver(IndexDb.Schema, context, null)
         },
     )
+
+    /** The model with no tune yet: as when its download finished with the app closed. */
+    private fun untuned(model: Embedder) = testRetriever(
+        files = listOf(testFile("report.pdf", Kind.DOC)),
+        embedder = model,
+        wrapDriver = {
+            it.close()
+            AndroidSqliteDriver(IndexDb.Schema, context, null)
+        },
+    )
+
+    /** The download finished with the app closed: a run tunes it, so search by description is ready without opening the app. */
+    @Test fun aRunTunesADownloadedModel() {
+        val retriever = untuned(Model())
+        runBlocking { retriever.refreshSetUp() }
+        assertEquals(false, retriever.setUp.value)
+        assertEquals(ListenableWorker.Result.success(), run(retriever))
+        assertEquals(true, retriever.setUp.value)
+    }
+
+    /** A tune that fails is logged and left for a later run: the run itself still succeeds and syncs the files. */
+    @Test fun aFailedTuneNeverFailsTheRun() {
+        val broken = object : Embedder {
+            override val signature = Signature("M740/test/vt70/d256/t512")
+            override val backend = Backend.CPU
+
+            override suspend fun embedRaw(parts: List<Part>): FloatArray = error("the model can't run here")
+
+            override fun close() = Unit
+        }
+        val retriever = untuned(broken)
+        assertEquals(ListenableWorker.Result.success(), run(retriever))
+        assertEquals(false, retriever.setUp.value)
+        assertEquals(1L, listed(retriever))
+    }
 
     @Test fun syncsTheFileListFromTheInjectedRetriever() {
         val retriever = testRetriever(files = listOf(testFile("report.pdf", Kind.DOC)))

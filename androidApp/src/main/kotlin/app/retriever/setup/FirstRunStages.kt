@@ -10,7 +10,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -30,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -37,6 +41,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
@@ -48,53 +53,107 @@ import app.retriever.core.Kind
 import app.retriever.core.SampleFile
 import app.retriever.core.SamplePile
 import app.retriever.core.Words
+import app.retriever.ui.Format
 import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.kindIcon
 
-/**
- * The welcome holds the one access decision: the whole phone, or, quietly, a choice of what to include. Its main button and
- * Skip the demo are pinned below it ([WelcomeActions]), as on iOS, so they show without scrolling.
- */
+/** Hello: what Retriever does, said once, and an example of it. Get started is pinned below ([HelloActions]). */
 @Composable
-internal fun ColumnScope.Welcome(ui: SetupUi, actions: SetupActions) {
-    Text(Words.WELCOME_TITLE, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-    Text(Words.WELCOME_BODY, style = MaterialTheme.typography.bodyLarge)
-    Text(Words.nothingSent(DeviceWords.ANDROID), style = MaterialTheme.typography.titleMedium)
-    WelcomeExamples(ui.textOnly)
-    if (ui.access.allFiles) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(Words.WHOLE_PHONE_READY, style = MaterialTheme.typography.bodyMedium)
-        }
-        NextParagraphs()
-    } else {
-        Muted(Words.wholeDeviceNote(DeviceWords.ANDROID))
-        NextParagraphs()
-        TextButton(onClick = actions.chooseInstead, modifier = Modifier.fillMaxWidth()) { Text(Words.CHOOSE_INSTEAD) }
+internal fun ColumnScope.Hello(ui: SetupUi, reduceMotion: Boolean) {
+    Heading(Words.helloTitle(ui.textOnly), Words.HELLO_BODY)
+    Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            Words.FOR_EXAMPLE,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+        HelloExamples(ui.textOnly, animate = !reduceMotion && helloMotion())
     }
-    if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID))
 }
 
-/** The welcome's pinned actions: Start the demo, or the whole phone's switch with what to do if it was left off; then Skip. */
+/** Get started, under the privacy line; the download note only when Get started downloads. */
 @Composable
-internal fun WelcomeActions(ui: SetupUi, allFilesOff: Boolean, actions: SetupActions) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+internal fun HelloActions(ui: SetupUi, actions: SetupActions) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OnDevice()
+        Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.GET_STARTED) }
+        if (ui.downloadsOnGetStarted) {
+            Text(
+                Words.downloadNote(Format.downloadSize(LocalContext.current, ui.downloadBytes)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** The access screen: what access is for, and three tiles that picture it (not buttons). Its actions are pinned below. */
+@Composable
+internal fun ColumnScope.AccessStage() {
+    Heading(Words.ACCESS_TITLE, Words.ANDROID_ACCESS_BODY)
+    Row(
+        Modifier.fillMaxWidth().padding(top = 16.dp).clearAndSetSemantics {},
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO))
+        AccessTile(R.drawable.ic_description, Words.DOCUMENTS)
+        // Core has no word for the folder; the mock's label until it does.
+        AccessTile(R.drawable.ic_download, "Downloads")
+    }
+}
+
+/** Allow access (Continue once the whole phone is allowed), what to do if it was left off, and the quieter choice. */
+@Composable
+internal fun AccessActions(ui: SetupUi, allFilesOff: Boolean, actions: SetupActions) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OnDevice()
         if (ui.access.allFiles) {
-            Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth()) { Text(Words.START_THE_DEMO) }
+            Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
         } else {
-            Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth()) { Text(Words.SEARCH_WHOLE_PHONE) }
             if (allFilesOff) Muted(Words.ALL_FILES_OFF)
+            Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.ALLOW_ACCESS) }
+            TextButton(onClick = actions.chooseInstead) { Text(Words.INCLUDE_TITLE) }
         }
-        TextButton(onClick = actions.skipDemo, modifier = Modifier.fillMaxWidth()) { Text(Words.SKIP_THE_DEMO) }
     }
 }
 
-/** What follows the access choice: the demo, what "process" means, then the choice of when to process the rest. */
 @Composable
-private fun ColumnScope.NextParagraphs() {
-    Text(Words.welcomeNext(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyLarge)
-    Text(Words.welcomeAfterDemo(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyLarge)
+private fun ColumnScope.Heading(title: String, body: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.headlineLarge,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().semantics { heading() },
+    )
+    Text(
+        body,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun RowScope.AccessTile(icon: Int, label: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.weight(1f).height(92.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
+            Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** The privacy line over Hello's and the access screen's button. */
+@Composable
+private fun OnDevice() {
+    Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+        Text(Words.onDevice(DeviceWords.ANDROID), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    }
 }
 
 /** Choose what to include, in a sheet: media and folders, each opening its own system screen; Continue once any is given. */

@@ -16,6 +16,8 @@ import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -93,7 +95,8 @@ class SettingsShotsTest {
         page("settings_light", ready)
         rule.onNodeWithText("Waits until you charge").assertExists()
         rule.onNodeWithText("of 3,300 files processed", substring = true).assertExists()
-        rule.onNodeWithText(Words.SEARCH_BY_MEANING).assertExists()
+        // The section's header; core words the card's title the same.
+        rule.onAllNodesWithText(Words.SEARCH_BY_MEANING).onFirst().assertExists()
         // Large files and duplicates live on Home now; no storage sentence is joined by a dot.
         val gone = listOf(Words.FREE_UP_SPACE, Words.FIND_DUPLICATES, Words.NEVER_DELETES, "stays on")
         (gone + listOf("session", "Name only", "Manage access", "Excluded", "Saved search data"))
@@ -168,7 +171,7 @@ class SettingsShotsTest {
 
     @Test fun textOnlyPhone() {
         page("settings_text_only_light", ready.copy(textOnly = true, ramGb = 3.0, readable = setOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)))
-        // It can't run search by meaning, so nothing offers it.
+        // It can't run search by description, so nothing offers it.
         rule.onAllNodesWithText(Words.SEARCH_BY_MEANING, substring = true).assertCountEquals(0)
     }
 
@@ -218,7 +221,7 @@ class SettingsShotsTest {
     @Test fun withNoDownloadSettingsOffersTheUpgradeAndNeverSaysDownloadAgain() {
         var downloads = 0
         show(offered, SettingsActions(upgrade = UpgradeActions(download = { downloads++ })))
-        rule.onNodeWithText(Words.UPGRADE_TITLE).performScrollTo().assertExists()
+        rule.onAllNodesWithText(Words.UPGRADE_TITLE).onLast().performScrollTo().assertExists()
         rule.onNodeWithText(Words.DOWNLOAD).performScrollTo().performClick()
         assertEquals(1, downloads)
         // Settings keeps the offer, so there is nothing to put off.
@@ -235,7 +238,7 @@ class SettingsShotsTest {
     private fun show(ui: SettingsUi = ready, actions: SettingsActions = SettingsActions()) =
         rule.setContent { ShotTheme(dark = false) { SettingsContent(ui, actions = actions) } }
 
-    private fun top(text: String) = rule.onNodeWithText(text).fetchSemanticsNode().positionInRoot.y
+    private fun top(text: String) = rule.onAllNodesWithText(text).onFirst().fetchSemanticsNode().positionInRoot.y
 
     @Test fun groupsComeInTheSpecifiedOrder() {
         show()
@@ -306,7 +309,7 @@ class SettingsShotsTest {
         rule.onNodeWithText(Words.RETRIEVERS_DATA).performScrollTo().assertExists()
         rule.onNodeWithText(Words.keptOn(Format.bytes(storage.indexBytes), DeviceWords.ANDROID)).assertExists()
         rule.onNodeWithText(Words.TEMPORARY_FILES).assertExists()
-        rule.onNodeWithText(Words.UPGRADE_TITLE).performScrollTo().assertExists()
+        rule.onAllNodesWithText(Words.UPGRADE_TITLE).onLast().performScrollTo().assertExists()
         rule.onNodeWithText(Words.downloaded(Format.downloadSize(context, build.sizeBytes))).assertExists()
     }
 
@@ -335,7 +338,7 @@ class SettingsShotsTest {
 
         assertEquals(1, freed)
         assertEquals(
-            "File names and text already processed still work. Search by meaning needs the download again.",
+            "File names and text already processed still work. Search by description needs the download again.",
             Words.removeDownloadMessage(null),
         )
     }

@@ -62,6 +62,15 @@
         <receiver
             android:name=".indexing.PauseReceiver"
             android:exported="false" />
+        <!-- Sent by the downloads provider, which holds this signature permission, to the app that queued the download. -->
+        <receiver
+            android:name=".model.DownloadDoneReceiver"
+            android:exported="true"
+            android:permission="android.permission.SEND_DOWNLOAD_COMPLETED_INTENTS">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
 
         <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0):
              WorkManager's foreground service needs its types declared on Android 14+. IndexWorker uses

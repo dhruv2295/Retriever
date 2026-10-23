@@ -35,13 +35,11 @@ data class SetupUi(
     val access: Access = Access.NONE,
     /** Too little memory for the model: names and words only. */
     val textOnly: Boolean = false,
-    val ramGb: Double = 0.0,
+    /** The model is downloaded and checked; Get started downloads it when not, on a phone that runs it. */
+    val modelPresent: Boolean = false,
+    val downloadBytes: Long = 0,
     /** The demo's progress, from core; null until first read. */
     val taste: TasteProgress? = null,
-    /** Files beyond the demo, core's [app.retriever.core.ReadingProgress.notScheduled]; null until counted. */
-    val moreFiles: Long? = null,
-    /** Files still to process, core's [app.retriever.core.ReadingProgress.rest]: null until the phone's files are all counted. */
-    val rest: Long? = null,
     /** Why reading stopped, core's [app.retriever.core.ReadingStatus.pause]; null unless a stop holds it. */
     val pauseReason: String? = null,
     /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
@@ -55,14 +53,14 @@ data class SetupUi(
      */
     val reading: Boolean get() = setup.step == SetupStep.PLAN || (pauseReason == null && (taste?.pending ?: 0) > 0)
 
-    /** Nothing waits beyond the demo, so its Continue processes everything, with no choice to make; unknown is not nothing. */
-    val nothingLeft get() = moreFiles == 0L
+    /** Get started downloads the model too, as Hello's note under it says. */
+    val downloadsOnGetStarted: Boolean get() = SetupPolicy.downloadOnGetStarted(textOnly, modelPresent)
 }
 
 /**
  * Core's setup machine plus this phone's side effects: the permission state, and reading the sample or scheduling the
- * rest once per process. The machine runs in the app's scope, so leaving the screen never stops it; the library's
- * counts and the sample's files are watched only while a screen collects [ui].
+ * rest once per process. The machine runs in the app's scope, so leaving the screen never stops it; the sample's progress
+ * and files are watched only while a screen collects [ui].
  */
 class SetupFlow(
     private val retriever: Retriever,
@@ -70,13 +68,16 @@ class SetupFlow(
     private val index: IndexService,
     private val scope: CoroutineScope,
     private val notificationsGranted: () -> Boolean,
+    /** The model's one-time download, with no question about mobile data. */
+    private val startDownload: () -> Unit,
 ) {
     private val _ui = MutableStateFlow(
         SetupUi(
             setup = (retriever.setup.value ?: SetupInputs()).withAccess(access.state.value.ready),
             access = access.state.value,
             textOnly = retriever.textOnly,
-            ramGb = retriever.probe.ramGb,
+            modelPresent = retriever.modelPresent.value,
+            downloadBytes = retriever.modelDownloadBytes,
         ),
     )
 
@@ -84,7 +85,6 @@ class SetupFlow(
     private val library = channelFlow<Nothing> {
         launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(pauseReason = s.pause) } } }
         launch { retriever.sampleFiles().collect { f -> _ui.update { it.copy(sample = f) } } }
-        launch { retriever.counts().collect { c -> _ui.update { it.copy(moreFiles = c.progress.notScheduled, rest = c.progress.rest) } } }
         launch { retriever.tasteProgress().collect { p -> _ui.update { it.copy(taste = p) } } }
     }
     val ui: StateFlow<SetupUi> = merge(_ui, library).stateIn(scope, SharingStarted.WhileSubscribed(5_000), _ui.value)
@@ -100,6 +100,9 @@ class SetupFlow(
             combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready) to a }.collect { (s, a) ->
                 _ui.update { it.copy(setup = s, access = a) }
             }
+        }
+        scope.launch {
+            retriever.modelPresent.collect { p -> _ui.update { it.copy(modelPresent = p, downloadBytes = retriever.modelDownloadBytes) } }
         }
         // "The demo is done" reaches a person who left during the demo; on screen, the demo says it. Claimed while visible
         // too, so a demo seen on screen is never announced later. Watched only until the demo is decided or done.
@@ -144,35 +147,21 @@ class SetupFlow(
         }
     }
 
-    /**
-     * Skip the demo: the choice of when to process, with access confirmed at once when it is in place; without it the
-     * welcome stays, and the screen asks for it as the primary button does.
-     */
-    fun skipDemo() = launch {
-        retriever.skipFirstRun()
-        if (access.state.value.ready) retriever.setSetupMark(SetupMark.ACCESS_CHOSEN)
+    /** Hello's Get started: the access screen next, with the model's download started where it runs and is missing. */
+    fun getStarted() = launch {
+        if (_ui.value.downloadsOnGetStarted) startDownload()
+        retriever.setSetupMark(SetupMark.GREETED)
     }
 
     fun continueFromAccess() = mark(SetupMark.ACCESS_CHOSEN)
 
-    /** Back from the choice: to the demo, or to the welcome after Skip the demo. */
+    /** Back from the access screen to Hello. */
     fun back() {
-        _ui.value.setup.let { SetupPolicy.back(it.stage, it.skipped) }?.let(::mark)
+        SetupPolicy.back(_ui.value.stage)?.let(::mark)
     }
 
-    /** The demo's Continue: the choice of when to process, or Home (process everything) when the demo already was everything. */
-    fun continueToCommit() = launch {
-        SetupPolicy.afterDemo(_ui.value.nothingLeft)?.let { retriever.setSetupMark(it) } ?: retriever.commitScope()
-    }
-
-    /** While charging or Read now: the rest is read, and the person is done choosing. */
-    fun commit(whileCharging: Boolean) = launch { retriever.commit(whileCharging) }
-
-    /** Not now: the scope stays on the demo and Home offers the choice again. */
-    fun decideLater() = launch {
-        retriever.decideLater()
-        index.cancel()
-    }
+    /** The first search's Continue: everything is processed on the one schedule, and Home says what happens next. */
+    fun finish() = launch { retriever.finishSetup() }
 
     private fun mark(m: SetupMark) = launch { retriever.setSetupMark(m) }
 
@@ -208,14 +197,15 @@ class SetupFlow(
 
 /** What setup's screens can ask for; every default does nothing, so a test passes only what it checks. */
 class SetupActions(
-    val skipDemo: () -> Unit = {},
+    val getStarted: () -> Unit = {},
     val allowFiles: () -> Unit = {},
     val chooseInstead: () -> Unit = {},
     val allowMedia: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val continueFromAccess: () -> Unit = {},
     val seeAll: () -> Unit = {},
-    val continueToCommit: () -> Unit = {},
-    val commit: (whileCharging: Boolean) -> Unit = {},
-    val decideLater: () -> Unit = {},
+    val finish: () -> Unit = {},
+    /** The first search's quiet line: Use mobile data while waiting for Wi-Fi, Try again after a failed download. */
+    val useMobileData: () -> Unit = {},
+    val retryDownload: () -> Unit = {},
 )
