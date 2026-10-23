@@ -127,6 +127,8 @@ final class ViewerTests: XCTestCase {
         XCTAssertEqual(ViewerCopy.match(ms: 65000), "Match at 1:05")
         XCTAssertEqual(ViewerCopy.match(ms: 3_725_000), "Match at 1:02:05")
         XCTAssertNil(ViewerCopy.match(ms: nil))
+        XCTAssertEqual(ViewerCopy.clock(seconds: 5), "0:05")
+        XCTAssertEqual(ViewerCopy.clock(seconds: 3_725, locale: Locale(identifier: "ar_EG")), "١:٠٢:٠٥", "in the person's digits")
     }
 
     func testReaderMatchesAreTheParagraphsWithTheWordsAndStepWrapRound() {

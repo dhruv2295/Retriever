@@ -29,9 +29,9 @@ enum ViewerCopy {
     static func page(_ page: Int, of total: Int) -> String? { total > 1 ? "Page \(page) of \(total)" : nil }
     static func match(ms: Int64?) -> String? { ms.map { "Match at \(clock(seconds: Int($0 / 1000)))" } }
 
-    static func clock(seconds: Int) -> String {
-        let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60)
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    /// "1:05" or "1:02:05", in the person's digits.
+    static func clock(seconds: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond).locale(locale))
     }
 }
 
