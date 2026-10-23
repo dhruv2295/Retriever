@@ -83,66 +83,135 @@ enum class Modality {
     }
 }
 
-/** Vectors held in flat arrays for the scan; grows with doubling capacity so appends stay cheap. */
-class VectorTable(
-    chunkIds: LongArray,
-    fileIds: LongArray,
-    bytes: ByteArray,
-    scales: FloatArray,
-    size: Int = chunkIds.size,
-    /** [Kind] ordinal per row, so a kind filter applies inside the scan instead of after the top-k cut. */
-    kinds: ByteArray = ByteArray(chunkIds.size),
-    /** [Modality] ordinal per row; its own array, since the scan indexes its kind filter by the raw kind byte. */
-    modalities: ByteArray = ByteArray(chunkIds.size),
-    /** Capture day per row: COALESCE(taken_at, modified_at) as whole UTC days since 1970. */
-    days: IntArray = IntArray(chunkIds.size),
-) {
-    var chunkIds = chunkIds
-        private set
-    var fileIds = fileIds
-        private set
-    var bytes = bytes
-        private set
-    var scales = scales
-        private set
-    var kinds = kinds
-        private set
-    var modalities = modalities
-        private set
-    var days = days
-        private set
+/**
+ * Vectors for the scan, in blocks of [BLOCK] rows, each holding its rows in primitive arrays. An append fills the last
+ * block, then adds a new one, so a full block is never copied: growth costs one block, not a second copy of the table
+ * while a published [view] holds the first. Only a table's first block starts small and doubles up to [BLOCK], so a
+ * small library holds little and a large one wastes at most its last block's free rows.
+ */
+class VectorTable private constructor(private var blocks: Array<Block>, size: Int) {
+    /** The first [size] rows of these flat arrays, copied in; [bytes] holds [DIMS] per row. For tests and benches. */
+    constructor(
+        chunkIds: LongArray,
+        fileIds: LongArray,
+        bytes: ByteArray,
+        scales: FloatArray,
+        size: Int = chunkIds.size,
+        /** [Kind] ordinal per row. */
+        kinds: ByteArray = ByteArray(chunkIds.size),
+        /** [Modality] ordinal per row. */
+        modalities: ByteArray = ByteArray(chunkIds.size),
+        /** Capture day per row: COALESCE(taken_at, modified_at) as whole UTC days since 1970. */
+        days: IntArray = IntArray(chunkIds.size),
+    ) : this(emptyArray(), 0) {
+        ensureCapacity(size)
+        for (row in 0 until size) {
+            add(chunkIds[row], fileIds[row], bytes, row * DIMS, scales[row], kinds[row], modalities[row], days[row])
+        }
+    }
+
+    /**
+     * Rows b * [BLOCK] until (b + 1) * [BLOCK] of the table, for block b. The kind byte is apart from the modality byte,
+     * since the scan indexes its kind filter by it; the day lets a date filter apply inside the scan, before the top-k cut.
+     */
+    internal class Block(capacity: Int) {
+        val bytes = ByteArray(capacity * DIMS)
+        val scales = FloatArray(capacity)
+        val chunkIds = LongArray(capacity)
+        val fileIds = LongArray(capacity)
+        val kinds = ByteArray(capacity)
+        val modalities = ByteArray(capacity)
+        val days = IntArray(capacity)
+
+        val capacity: Int get() = scales.size
+
+        fun grown(capacity: Int) = Block(capacity).also {
+            bytes.copyInto(it.bytes)
+            scales.copyInto(it.scales)
+            chunkIds.copyInto(it.chunkIds)
+            fileIds.copyInto(it.fileIds)
+            kinds.copyInto(it.kinds)
+            modalities.copyInto(it.modalities)
+            days.copyInto(it.days)
+        }
+    }
+
     var size = size
         private set
 
-    val lastId: Long get() = if (size == 0) 0L else chunkIds[size - 1]
+    val lastId: Long get() = if (size == 0) 0L else chunkId(size - 1)
 
+    /** Rows the blocks have room for. */
+    private val capacity: Int get() = blocks.lastOrNull()?.let { (blocks.size - 1) * BLOCK + it.capacity } ?: 0
+
+    /** The blocks that hold rows; capacity reserved past [size] may add more that do not count. */
+    internal val blockCount: Int get() = (size + BLOCK - 1) / BLOCK
+
+    internal fun block(b: Int): Block = blocks[b]
+
+    fun chunkId(row: Int): Long = blocks[row / BLOCK].chunkIds[row % BLOCK]
+
+    fun fileId(row: Int): Long = blocks[row / BLOCK].fileIds[row % BLOCK]
+
+    fun kind(row: Int): Kind = Kind.entries[blocks[row / BLOCK].kinds[row % BLOCK].toInt()]
+
+    fun modality(row: Int): Modality = Modality.entries[blocks[row / BLOCK].modalities[row % BLOCK].toInt()]
+
+    fun day(row: Int): Int = blocks[row / BLOCK].days[row % BLOCK]
+
+    /**
+     * The first [rows] rows, fixed: an append writes past them, and a new or grown block goes into a new [blocks] array,
+     * so a scan of the view never races with appends here.
+     */
+    fun view(rows: Int = size): VectorTable {
+        require(rows in 0..size)
+        return VectorTable(blocks, rows)
+    }
+
+    /** Makes room for [n] rows. [blocks] is replaced, never changed in place, since [view]s share it. */
     internal fun ensureCapacity(n: Int): VectorTable {
-        if (n <= chunkIds.size) return this
-        val cap = maxOf(n, chunkIds.size * 2, 1024)
-        chunkIds = chunkIds.copyOf(cap)
-        fileIds = fileIds.copyOf(cap)
-        bytes = bytes.copyOf(cap * DIMS)
-        scales = scales.copyOf(cap)
-        kinds = kinds.copyOf(cap)
-        modalities = modalities.copyOf(cap)
-        days = days.copyOf(cap)
+        while (capacity < n) {
+            val last = blocks.lastOrNull()
+            blocks = when {
+                last == null -> arrayOf(Block(minOf(BLOCK, maxOf(n, FIRST_BLOCK))))
+
+                // Only a lone first block is short of BLOCK.
+                last.capacity < BLOCK -> arrayOf(last.grown(minOf(BLOCK, maxOf(n, last.capacity * 2))))
+
+                else -> blocks + Block(BLOCK)
+            }
+        }
         return this
     }
 
     internal fun append(chunkId: Long, fileId: Long, vector: ByteArray, scale: Float, kind: Kind, modality: Modality, day: Int) {
-        chunkIds[size] = chunkId
-        fileIds[size] = fileId
-        vector.copyInto(bytes, size * DIMS)
-        scales[size] = scale
-        kinds[size] = kind.ordinal.toByte()
-        modalities[size] = modality.ordinal.toByte()
-        days[size] = day
+        ensureCapacity(size + 1)
+        add(chunkId, fileId, vector, 0, scale, kind.ordinal.toByte(), modality.ordinal.toByte(), day)
+    }
+
+    private fun add(chunkId: Long, fileId: Long, vector: ByteArray, at: Int, scale: Float, kind: Byte, modality: Byte, day: Int) {
+        val block = blocks[size / BLOCK]
+        val i = size % BLOCK
+        block.chunkIds[i] = chunkId
+        block.fileIds[i] = fileId
+        vector.copyInto(block.bytes, i * DIMS, at, at + DIMS)
+        block.scales[i] = scale
+        block.kinds[i] = kind
+        block.modalities[i] = modality
+        block.days[i] = day
         size++
     }
 
     companion object {
-        fun empty() = withCapacity(0)
+        /**
+         * Rows per block: 4 MB of vectors, 4.6 MB in all. One row short of 4 MiB, so the vector array and its header fit
+         * whole heap regions; at 16,384 rows the JVM's G1 rounds each up by a region (1 MB at a 512 MB heap).
+         */
+        internal const val BLOCK = 16_383
+        private const val FIRST_BLOCK = 1_024
 
-        fun withCapacity(n: Int) = VectorTable(LongArray(n), LongArray(n), ByteArray(n * DIMS), FloatArray(n), size = 0)
+        fun empty() = VectorTable(emptyArray(), 0)
+
+        fun withCapacity(n: Int) = empty().ensureCapacity(n)
     }
 }

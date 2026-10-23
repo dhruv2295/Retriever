@@ -10,7 +10,7 @@ import kotlin.time.Duration.Companion.minutes
 class FirstPassTest {
     private fun vectorLocators(store: Store): List<String> {
         val table = store.loadVectors()
-        val ids = (0 until table.size).map { table.chunkIds[it] }
+        val ids = (0 until table.size).map { table.chunkId(it) }
         return store.chunks(ids).values.sortedBy { it.locator }.map { it.locator }
     }
 
@@ -30,7 +30,7 @@ class FirstPassTest {
         assertEquals(1, store.vectorCount(), "the picture only")
         assertTrue(embedder.received.single().all { it is Part.Image }, "the scrap is not model input")
         assertEquals("door.jpg", SearchEngine(store, FakeEmbedder()).search("4471", SearchEngine.Mode.KEYWORD).hits.single().file.name)
-        assertEquals(Modality.IMAGE.ordinal.toByte(), store.loadVectors().modalities[0], "words on a picture leave it a picture")
+        assertEquals(Modality.IMAGE, store.loadVectors().modality(0), "words on a picture leave it a picture")
     }
 
     @Test
