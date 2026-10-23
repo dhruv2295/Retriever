@@ -100,7 +100,6 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Navigation tests:** with Navigation 3.
 - **Kotlin Swift export:** at Beta. It would remove the hand-written bridges, casts and boxed wrappers.
 - **detekt 2.0:** when stable, for its coroutine rules (25 `runCatching` sites in main sources).
-- **Compose stability config:** only if a device frame metric shows a problem.
 - **largeHeap:** decided by measurement on a large index.
 - **Predictive back for the Settings notices overlay:** optional polish.
 - **Intent hardening for LaunchQuery:** a length cap, and no recents until the user acts. No real hole today.
@@ -137,4 +136,6 @@ Release builds are signed with the debug key until the first store upload (see t
 - **LICENSE for Retriever itself.** The owner's call, before any publication.
 - **Already right, no change needed:** edge-to-edge and IME, splash, foreground service types, R8 full mode and keep rules,
   PendingIntent and exported-component security, `@Throws`, the static framework and linker flags, BGTask
-  registration, and source-set hygiene.
+  registration, and source-set hygiene. The Compose stability config is in place (`androidApp/stability.conf`: value
+  snapshots and read-only collections; `RecompositionTest` relies on it); add entries only if a device frame metric
+  shows a problem.
