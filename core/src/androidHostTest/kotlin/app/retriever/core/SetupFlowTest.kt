@@ -45,12 +45,16 @@ class SetupFlowTest {
         process().planOrCommit()
         assertEquals(plan, store.tasteIds(), "a plan already made is kept, never redrawn")
 
-        process().setSetupMark(SetupMark.CHOOSING)
-        assertEquals(SetupStage.CHOOSE, process().inputs().stage)
-        process().decideLater()
-        assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, process().inputs().let { it.stage to it.step })
+        process().finishSetup()
+        val done = process()
+        assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, done.inputs().let { it.stage to it.step })
+        assertNull(done.scopeIds.value, "everything is processed now, on the one automatic schedule")
+        assertTrue(done.prefs.value.homeIntroDue, "Home shows its one-time card")
+        assertEquals(ReadingSchedule.CHARGING, done.prefs.value.automaticReading, "no choice was asked")
+        done.dismissHomeIntro()
+        assertFalse(process().prefs.value.homeIntroDue)
         process().planOrCommit()
-        assertEquals(plan, store.tasteIds(), "a choice taken is never replanned")
+        assertEquals(plan, store.tasteIds(), "a finished setup is never replanned")
     }
 
     /** A mark this version dropped (STARTED, before the welcome held the access ask) reads as NONE, never as an old install. */
@@ -76,28 +80,19 @@ class SetupFlowTest {
     }
 
     @Test
-    fun skipTheDemoLeadsToTheChoiceAndBackToTheWelcome() = test {
+    fun getStartedLeadsToAccessAndBackLeadsToHello() = test {
         val r = testRetriever(newStore(), files, FakeExtractor(), modelReady = { false })
-        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
-        r.planOrCommit()
-        r.skipFirstRun()
-        val left = r.inputs()
-        assertTrue(left.skipped)
-        assertTrue(left.showSetup, "setup shows until a choice is made")
-        assertEquals(SetupStage.CHOOSE, left.stage)
-        assertFalse(r.hasPendingTaste(), "a skipped demo doesn't run in front")
-
-        r.setSetupMark(SetupPolicy.back(left.stage, left.skipped)!!)
-        val welcome = r.inputs()
-        assertEquals(SetupStage.WELCOME to false, welcome.stage to welcome.skipped)
-        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
-        assertEquals(SetupStage.SAMPLE, r.inputs().stage, "Start the demo after Back runs the demo")
+        r.setSetupMark(SetupMark.GREETED)
+        val access = r.inputs()
+        assertEquals(SetupStage.ACCESS to SetupStep.NONE, access.stage to access.step)
+        r.setSetupMark(SetupPolicy.back(access.stage)!!)
+        assertEquals(SetupStage.WELCOME, r.inputs().stage)
     }
 
     /**
      * A reload (the app's launch refresh) racing an answer must never publish the inputs it read before the answer was
      * written: that stale NONE sent the iOS AppModelTests' model back to the welcome, whose access step then marked
-     * ACCESS_CHOSEN over CHOOSING.
+     * a later answer over.
      */
     @Test
     fun aReloadRacingAnAnswerNeverPublishesWhatItReadBefore() = runBlocking {
@@ -105,9 +100,9 @@ class SetupFlowTest {
             val r = testRetriever(newStore(), files, FakeExtractor(), modelReady = { false })
             coroutineScope {
                 launch(Dispatchers.Default) { r.refreshSetUp() }
-                launch(Dispatchers.Default) { r.setSetupMark(SetupMark.CHOOSING) }
+                launch(Dispatchers.Default) { r.setSetupMark(SetupMark.ACCESS_CHOSEN) }
             }
-            assertEquals(SetupMark.CHOOSING, r.setup.value?.mark, "run $run")
+            assertEquals(SetupMark.ACCESS_CHOSEN, r.setup.value?.mark, "run $run")
         }
     }
 

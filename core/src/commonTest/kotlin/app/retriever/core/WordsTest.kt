@@ -37,16 +37,16 @@ class WordsTest {
         assertEquals("Processed in part · the rest is still to come", Words.coverage(stored(state = FileState.PENDING), inside))
         assertEquals("Processed in part · couldn’t finish", Words.coverage(stored(state = FileState.SKIPPED), inside))
         assertEquals("Processed in part · only its beginning", Words.coverage(stored(partial = true), inside))
-        assertEquals("Processed in part · search by meaning still to come", Words.coverage(stored(extent = ReadExtent.DEEPENING), inside))
+        assertEquals("Processed in part · search by description still to come", Words.coverage(stored(extent = ReadExtent.DEEPENING), inside))
         assertNull(Words.coverage(stored(), inside))
     }
 
     @Test fun extentSpeaksOnlyForPartialReads() {
         assertNull(Words.extent(null))
         assertNull(Words.extent(ReadExtent.WHOLE))
-        assertEquals("Processed in part · only its beginning, without search by meaning", Words.extent(ReadExtent.FIRST_PART_MEANING_LIMITED))
+        assertEquals("Processed in part · only its beginning, without search by description", Words.extent(ReadExtent.FIRST_PART_MEANING_LIMITED))
         assertEquals("Processed in part · only its beginning so far", Words.extent(ReadExtent.FIRST_PART_DEEPENING))
-        assertEquals("Processed in part · couldn’t finish search by meaning", Words.extent(ReadExtent.MEANING_LIMITED))
+        assertEquals("Processed in part · couldn’t finish search by description", Words.extent(ReadExtent.MEANING_LIMITED))
     }
 
     @Test fun pluralsCountsAndUnits() {
@@ -59,8 +59,8 @@ class WordsTest {
         assertEquals("1 of 3 files processed", Words.readOf(1, 3))
         assertEquals("1 of 1 file processed", Words.readOf(1, 1))
         assertEquals("${formatCount(1_204)} of ${formatCount(25_747)} files processed", Words.readOf(1_204, 25_747))
-        assertEquals("1 of 1 file has search by meaning", Words.meaningOf(1, 1))
-        assertEquals("${formatCount(1_938)} of ${formatCount(3_142)} files have search by meaning", Words.meaningOf(1_938, 3_142))
+        assertEquals("1 of 1 file has search by description", Words.meaningOf(1, 1))
+        assertEquals("${formatCount(1_938)} of ${formatCount(3_142)} files have search by description", Words.meaningOf(1_938, 3_142))
         assertEquals("200.5 kB", Words.keepTogether("200.5 kB"))
         assertEquals("1 file over 100${Words.NBSP}MB", Words.largeFiles(1))
         assertEquals("Modified" to "Taken", Words.MODIFIED to Words.TAKEN)
@@ -76,14 +76,15 @@ class WordsTest {
         assertNull(Words.spokenPosition(""))
         assertEquals("Still processing ${formatCount(1_200)} more", Words.stillReading(1_200))
         assertEquals(
-            "This iPhone has 3 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.",
+            "This iPhone has 3 GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them.",
             Words.textOnlyNote(3.4, iphone),
         )
         assertEquals("This phone has 4 GB", Words.textOnlyNote(3.6, android).substringBefore(" of"))
     }
 
     @Test fun theDeviceIsNamedWhereItIsMeant() {
-        assertEquals("Nothing leaves your iPhone. No account, nothing sent anywhere.", Words.nothingSent(iphone))
+        assertEquals("Everything happens on your iPhone", Words.onDevice(iphone))
+        assertEquals("When your phone is charging and you’re not using it. With lots of files, this can take a few nights.", Words.otherFilesBody(android))
         assertEquals("Uses some battery. Stops early if your phone gets warm. Then carries on while charging.", Words.readNowBody(android))
         assertEquals(
             "Uses some battery. Stops early if your iPad gets warm. Then carries on while charging. Keep Retriever open.",
@@ -97,9 +98,9 @@ class WordsTest {
     /** Section 4's retired words appear in no shared sentence. */
     @Test fun noSharedSentenceUsesARetiredWord() {
         val sentences = demoAndChoice + listOf(
-            Words.SEARCH_FIELD, Words.WELCOME_BODY, Words.WHOLE_PHONE_READY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
+            Words.SEARCH_FIELD, Words.HELLO_BODY, Words.WHOLE_PHONE_READY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
             Words.READING_STATUS, Words.MORE_ON_PHONE, Words.KIND_OFF, Words.NO_MATCHES, Words.NO_MATCHES_DETAIL, Words.MORE_WAITING,
-            Words.readCount(3, 1), Words.notReadYet(3), Words.readNowBody(iphone), Words.nothingSent(android),
+            Words.readCount(3, 1), Words.notReadYet(3), Words.readNowBody(iphone), Words.onDevice(android),
         ) + StopReason.entries.map { ReadingPolicy.stopCopy(it, android) } + ReadExtent.entries.mapNotNull(Words::extent) +
             listOf(true, false).map { readingLabel(Kind.OTHER, null, it) }
         val retired = listOf("library", "waiting to read", "Name only", "partly read", "session", "schedule", "Read now", "first pages", "Tidy up")
@@ -108,9 +109,15 @@ class WordsTest {
         }
     }
 
-    /** Every sentence of the demo and the choice, as the spec words them. */
-    private val demoAndChoice = listOf(
-        Words.START_THE_DEMO, Words.SKIP_THE_DEMO, Words.welcomeNext(android), Words.welcomeAfterDemo(android), Words.demoTitle(30),
+    /** Every sentence of setup, Home's one-time card and the choice, as the specs word them. */
+    private val demoAndChoice = DescriptionState.entries.flatMap {
+        listOfNotNull(Words.descriptionLine(it, 64), Words.recentFilesBody(it), Words.recentFilesAction(it, "388 MB"), Words.firstSearchHint(it))
+    } + Words.HELLO_EXAMPLES.flatMap { listOf(it.query, it.title, it.detail) } + listOf(
+        Words.helloTitle(false), Words.helloTitle(true), Words.HELLO_BODY, Words.FOR_EXAMPLE, Words.GET_STARTED, Words.downloadNote("388 MB"),
+        Words.ACCESS_TITLE, Words.ACCESS_BODY, Words.ANDROID_ACCESS_BODY, Words.SOME_PHOTOS, Words.PHOTOS_OFF, Words.PICK_FOLDERS,
+        Words.foldersAdded(2), Words.FIRST_LOOK, Words.DESCRIPTION_READY, Words.DESCRIPTION_READY_BODY, Words.HOME_INTRO_TITLE,
+        Words.HOME_INTRO_BODY, Words.NEW_FILES, Words.NEW_FILES_BODY, Words.NOTIFY_WHEN_SEARCHABLE, Words.recentFiles(30),
+        Words.otherFiles(25_763), Words.otherFiles(null), Words.otherFilesBody(android),
         Words.DEMO_PICKING, Words.DEMO_PICKING_NOTE, Words.demoNote(null), Words.demoDone(25_763, android), Words.demoDone(null, android),
         Words.SEARCH_DEMO, Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
         Words.demoEnded(30, 30, false)!!, Words.demoEnded(12, 30, false)!!, Words.chooseTitle(android), Words.chooseBody(25_763),
@@ -131,20 +138,22 @@ class WordsTest {
 
     @Test fun theDemoAndTheChoiceInTheSpecsWords() {
         val n = formatCount(25_763)
-        assertEquals(
-            "Next, a short demo. Retriever processes up to 30 of your recent files, so you can watch it work and search them. Processing " +
-                "means Retriever looks at the words and pictures inside a file, here on your phone. Nothing is changed, copied or sent. It " +
-                "takes a minute or two.",
-            Words.welcomeNext(android),
-        )
-        assertEquals(
-            "After the demo, you choose when Retriever processes the rest of your phone. That takes hours, so most people let it happen " +
-                "while the phone charges.",
-            Words.welcomeAfterDemo(android),
-        )
-        assertEquals("A short demo on 30 of your recent files", Words.demoTitle(30))
-        assertEquals("A short demo on 12 of your recent files", Words.demoTitle(12), "fewer recent files: the real number")
-        assertEquals("A short demo on your most recent file", Words.demoTitle(1))
+        assertEquals("Find anything by describing it", Words.helloTitle(textOnly = false))
+        assertEquals("Find files by what’s inside them", Words.helloTitle(textOnly = true), "no promise a small phone can't keep")
+        assertEquals("Includes a one-time 388 MB download, on Wi-Fi.", Words.downloadNote("388 MB"))
+        assertEquals("Downloading search by description · 64%", Words.descriptionLine(DescriptionState.DOWNLOADING, 64))
+        assertEquals("Downloading search by description", Words.descriptionLine(DescriptionState.DOWNLOADING, null))
+        assertNull(Words.descriptionLine(DescriptionState.READY, null), "the ready banner says it")
+        assertEquals("Search by name or words", Words.firstSearchHint(DescriptionState.DOWNLOADING), "no describing before it works")
+        assertEquals("Describe a photo or file", Words.firstSearchHint(DescriptionState.READY))
+        assertEquals("Use mobile data (388 MB)", Words.recentFilesAction(DescriptionState.WAITING_FOR_WIFI, "388 MB"))
+        assertEquals("Download 388 MB", Words.recentFilesAction(DescriptionState.NOT_STARTED, "388 MB"))
+        assertNull(Words.recentFilesAction(DescriptionState.PREPARING, "388 MB"))
+        assertEquals("The other $n files", Words.otherFiles(25_763))
+        assertEquals("2 folders added", Words.foldersAdded(2))
+        for (s in DescriptionState.entries.map(Words::recentFilesBody)) {
+            assertFalse(Regex("minute|tonight|overnight|tomorrow").containsMatchIn(s), "“$s” promises a time")
+        }
         assertEquals("The demo is done. Next: the other $n files on your phone.", Words.demoDone(25_763, android))
         assertEquals("The demo is done. Next: the other file on your iPhone.", Words.demoDone(1, iphone))
         assertEquals("The demo is done. Next: the rest of your files.", Words.demoDone(null, android), "before the files are all counted")

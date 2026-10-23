@@ -248,29 +248,27 @@ class Retriever(
         )
     }
 
-    /**
-     * The person's answer on a setup screen: Start the demo, its Continue, or Back. CHOOSING stops the demo where it is (its
-     * unfinished files join the rest); NONE, Back to the welcome, clears a skip.
-     */
+    /** The person's answer on a setup screen: Get started (GREETED), the access screen's Continue, or Back to Hello (NONE). */
     @Throws(Throwable::class)
-    suspend fun setSetupMark(mark: SetupMark): SetupInputs {
-        val setup = io {
-            store.inTransaction {
-                store.setMeta(SETUP_MARK_KEY, mark.name)
-                if (mark == SetupMark.NONE) store.deleteMeta(SETUP_SKIPPED_KEY)
-            }
-            loadSetup()
-        }
-        if (mark == SetupMark.CHOOSING) cancelBatch()
-        return setup
-    }
-
-    /** Skip the demo: setup goes to the choice, with no demo line. */
-    @Throws(Throwable::class)
-    suspend fun skipFirstRun() = io {
-        store.setFlag(SETUP_SKIPPED_KEY)
+    suspend fun setSetupMark(mark: SetupMark): SetupInputs = io {
+        store.setMeta(SETUP_MARK_KEY, mark.name)
         loadSetup()
     }
+
+    /**
+     * The first search's Continue: setup ends, everything is processed on the one automatic schedule (the demo's unfinished
+     * files join the rest), and Home shows its one-time card about what happens next.
+     */
+    @Throws(Throwable::class)
+    suspend fun finishSetup() {
+        updatePrefs { it.copy(homeIntroDue = true) }
+        commitScope()
+        io { loadSetup() }
+    }
+
+    /** Home's one-time card: Got it. */
+    @Throws(Throwable::class)
+    suspend fun dismissHomeIntro() = updatePrefs { it.copy(homeIntroDue = false) }
 
     /** Showing drops a pending model release; reading still honors the saved schedule. */
     @Volatile

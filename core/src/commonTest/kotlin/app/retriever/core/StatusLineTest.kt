@@ -57,8 +57,8 @@ class StatusLineTest {
                 listOf("READING", "Processing while you charge", count, "You can close Retriever; it carries on. Search works the whole time.", null),
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to listOf(
                 "MEANING",
-                "Adding search by meaning",
-                "1 of 4 files have search by meaning",
+                "Adding search by description",
+                "1 of 4 files have search by description",
                 "So you can search by what things mean, and by what’s in your photos. On this phone only.",
                 null,
             ),
@@ -235,8 +235,8 @@ class StatusLineTest {
         assertEquals(reading, line())
 
         val downloading = line(download = DownloadState(37, stopped = false, size = "388 MB"))!!
-        assertEquals(listOf("DOWNLOADING", "Downloading search by meaning · 37%", null, "You can keep using Retriever.", "Stop"), row(downloading))
-        assertEquals("Downloading search by meaning", line(download = DownloadState(null, false, "388 MB"))?.title)
+        assertEquals(listOf("DOWNLOADING", "Downloading search by description · 37%", null, "You can keep using Retriever.", "Stop"), row(downloading))
+        assertEquals("Downloading search by description", line(download = DownloadState(null, false, "388 MB"))?.title)
 
         val stopped = DownloadState(37, stopped = true, size = "388 MB")
         assertEquals(reading, line(download = stopped), "a stopped download gives way while reading runs")
