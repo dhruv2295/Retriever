@@ -57,6 +57,8 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val partial: Boolean = false,
         val extent: ReadExtent? = null,
         val contentRead: Boolean = false,
+        val quickHash: String? = null,
+        val fullHash: String? = null,
     )
     enum class Sort { NEWEST, LARGEST, NAME }
 
@@ -225,6 +227,10 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     /** Groups of two or more files with the same size, at least [minSize] bytes, largest size first. */
     fun sizeCollisions(minSize: Long): List<List<StoredFile>> = q.sizeCollisions(minSize, ::storedFile).executeAsList().groupBy { it.file.size }.values.toList()
+
+    fun setQuickHash(fileId: Long, hash: String) = q.setQuickHash(hash, fileId)
+
+    fun setFullHash(fileId: Long, hash: String) = q.setFullHash(hash, fileId)
 
     /** How many files [sizeCollisions] would return, without reading them. */
     fun sizeCollisionCount(minSize: Long): Long = q.sizeCollisionCount(minSize).executeAsOne()
@@ -905,6 +911,8 @@ private fun storedFile(
     partial: Long,
     takenAt: Long?,
     reach: Long,
+    quickHash: String?,
+    fullHash: String?,
 ): Store.StoredFile = Store.StoredFile(
     id,
     SourceFile(uri, name, folder, mime, Kind.valueOf(kind), size, modifiedAt, takenAt),
@@ -912,6 +920,8 @@ private fun storedFile(
     state,
     partial != 0L,
     contentRead = (reach and Store.Reach.CONTENT) != 0L,
+    quickHash = quickHash,
+    fullHash = fullHash,
 )
 
 private const val DAY_MS = 86_400_000L

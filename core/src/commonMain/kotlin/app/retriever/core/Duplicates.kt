@@ -26,14 +26,14 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
         for (group in collisions) {
             val byQuick = mutableMapOf<String, MutableList<Store.StoredFile>>()
             for (f in group) {
-                val h = safe { hasher.quickHash(f.file.uri, f.file.size) }
+                val h = f.quickHash ?: safe { hasher.quickHash(f.file.uri, f.file.size) }?.also { store.setQuickHash(f.id, it) }
                 if (h != null) byQuick.getOrPut(h) { mutableListOf() }.add(f)
                 onProgress(++done, total)
             }
             for (same in byQuick.values.filter { it.size > 1 }) {
                 val byFull = mutableMapOf<String, MutableList<SourceFile>>()
                 for (f in same) {
-                    val h = safe { hasher.fullHash(f.file.uri) } ?: continue
+                    val h = f.fullHash ?: safe { hasher.fullHash(f.file.uri) }?.also { store.setFullHash(f.id, it) } ?: continue
                     byFull.getOrPut(h) { mutableListOf() }.add(f.file)
                 }
                 for (files in byFull.values.filter { it.size > 1 }) {

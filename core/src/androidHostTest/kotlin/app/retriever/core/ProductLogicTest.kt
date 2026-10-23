@@ -325,6 +325,66 @@ class DuplicateFinderTest {
     }
 
     @Test
+    fun aSecondScanOfAnUnchangedLibraryReadsNoFile() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 1), sf("b", size = 100_000, modifiedAt = 2), sf("c", size = 100_000, modifiedAt = 3)))
+        val hasher = FakeHasher(
+            quick = mapOf(uriOf("a") to "q", uriOf("b") to "q", uriOf("c") to "other"),
+            full = mapOf(uriOf("a") to "f", uriOf("b") to "f"),
+        )
+        val first = DuplicateFinder(store, hasher).find()
+        assertEquals(3, hasher.quickCalls.size)
+        assertEquals(2, hasher.fullCalls.size)
+
+        val second = DuplicateFinder(store, hasher).find()
+
+        assertEquals(3, hasher.quickCalls.size, "no new quick hash")
+        assertEquals(2, hasher.fullCalls.size, "no new full hash")
+        assertEquals(first.map { g -> g.files.map { it.uri } }, second.map { g -> g.files.map { it.uri } })
+        assertEquals(1, second.size)
+    }
+
+    @Test
+    fun aFileThatChangedIsHashedAgainAndItsOldHashesGo() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 1), sf("b", size = 100_000, modifiedAt = 2)))
+        val hasher = FakeHasher(
+            quick = mapOf(uriOf("a") to "q", uriOf("b") to "q"),
+            full = mapOf(uriOf("a") to "f", uriOf("b") to "f"),
+        )
+        DuplicateFinder(store, hasher).find()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 9)))
+        assertNull(store.fileByUri(uriOf("a"))?.quickHash)
+        assertNull(store.fileByUri(uriOf("a"))?.fullHash)
+        assertEquals("q", store.fileByUri(uriOf("b"))?.quickHash, "an unchanged file keeps its hashes")
+
+        DuplicateFinder(store, hasher).find()
+
+        assertEquals(listOf(uriOf("a"), uriOf("b"), uriOf("a")), hasher.quickCalls)
+        assertEquals(listOf(uriOf("a"), uriOf("b"), uriOf("a")), hasher.fullCalls)
+    }
+
+    @Test
+    fun aFailedHashIsNotKept() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 1), sf("b", size = 100_000, modifiedAt = 2)))
+        val failing = FakeHasher(quick = mapOf(uriOf("a") to null, uriOf("b") to "q"))
+        DuplicateFinder(store, failing).find()
+        assertNull(store.fileByUri(uriOf("a"))?.quickHash)
+        assertEquals("q", store.fileByUri(uriOf("b"))?.quickHash)
+
+        val working = FakeHasher(
+            quick = mapOf(uriOf("a") to "q"),
+            full = mapOf(uriOf("a") to null, uriOf("b") to "f"),
+        )
+        DuplicateFinder(store, working).find()
+
+        assertEquals(listOf(uriOf("a")), working.quickCalls, "only the file whose hash failed is hashed again")
+        assertNull(store.fileByUri(uriOf("a"))?.fullHash)
+        assertEquals("f", store.fileByUri(uriOf("b"))?.fullHash)
+    }
+
+    @Test
     fun groupsAreSortedByWastedBytesNotByFileSize() = runTest {
         val store = newLibraryStore()
         store.upsertFiles(
