@@ -16,6 +16,7 @@ import android.os.ext.SdkExtensions
 import android.util.Size
 import androidx.annotation.RequiresExtension
 import androidx.core.graphics.createBitmap
+import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
@@ -85,23 +86,26 @@ import kotlin.coroutines.cancellation.CancellationException
 
 private const val PDF_PREV_EXTENSION = 13
 
-private class PdfPg(val width: Int, val height: Int, val text: String, val render: (Bitmap) -> Unit, page: AutoCloseable) : AutoCloseable by page
+/** The model's and the labeler's input for a photo or screenshot; iOS asks PhotoKit for the same. */
+private const val EMBED_PX = 512
+
+/** A scanned PDF page as the model sees it, on the first read and in visual(): 512 px on its short side, at most 1024 on its long. */
+private const val PAGE_SHORT_PX = 512
+private const val PAGE_LONG_PX = 1024
+
+private class PdfPg(page: AutoCloseable, val width: Int, val height: Int, text: () -> String, val render: (Bitmap) -> Unit) : AutoCloseable by page {
+    /** Read on first use only: a page pdfPieces sends to OCR is opened again, and its layer is passed in by then. */
+    val text by lazy(text)
+}
 
 private class PdfDoc(val pageCount: Int, val hasTextLayer: Boolean, doc: AutoCloseable, val page: (Int) -> PdfPg) : AutoCloseable by doc
-
-private fun pdfPage(page: AutoCloseable, width: Int, height: Int, text: () -> String, render: (Bitmap) -> Unit): PdfPg = try {
-    PdfPg(width, height, text(), render, page)
-} catch (e: Throwable) {
-    page.close()
-    throw e
-}
 
 /** Android 15 reads the text layer with PdfRenderer; 11-14 with PdfRendererPreV where the S extension 13 is present; else none. */
 private fun openPdf(fd: ParcelFileDescriptor): PdfDoc = when {
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> PdfRenderer(fd).let { r ->
         PdfDoc(r.pageCount, true, r) { i ->
             val p = r.openPage(i)
-            pdfPage(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
+            PdfPg(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
                 p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             }
         }
@@ -112,7 +116,7 @@ private fun openPdf(fd: ParcelFileDescriptor): PdfDoc = when {
     else -> PdfRenderer(fd).let { r ->
         PdfDoc(r.pageCount, false, r) { i ->
             val p = r.openPage(i)
-            pdfPage(p, p.width, p.height, { "" }) { p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+            PdfPg(p, p.width, p.height, { "" }) { p.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
         }
     }
 }
@@ -122,7 +126,7 @@ private fun openPdf(fd: ParcelFileDescriptor): PdfDoc = when {
 private fun openPdfPreV(fd: ParcelFileDescriptor): PdfDoc = PdfRendererPreV(fd).let { r ->
     PdfDoc(r.pageCount, true, r) { i ->
         val p = r.openPage(i)
-        pdfPage(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
+        PdfPg(p, p.width, p.height, { p.textContents.joinToString("\n") { it.text } }) {
             p.render(it, null, null, RenderParams.Builder(RenderParams.RENDER_MODE_FOR_DISPLAY).build())
         }
     }
@@ -197,10 +201,12 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
 
     private suspend fun picture(uri: Uri, maxChars: Int, photo: Boolean): List<Piece> {
         // Sections for a Perfetto capture: which of the four steps a photo's time goes to.
-        val thumb = traced("pic.thumb") { ImageBytes.thumbnail(context, uri, 512) } ?: return emptyList()
         // GC owns these pixels: native ML Kit tasks may still hold them after coroutine cancellation.
         val bitmap = traced("pic.decode") { ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX) }
-        val text = bitmap?.let { tracedAsync("pic.ocr") { ocr(it) } }.orEmpty()
+            ?: return emptyList()
+        // The model and the labeler see the OCR decode scaled down: no second decode, and no MediaProvider thumbnail.
+        val thumb = traced("pic.thumb") { ImageBytes.scaled(bitmap, EMBED_PX, EMBED_PX) }
+        val text = tracedAsync("pic.ocr") { ocr(bitmap) }
         // The same 512 px pixels label and embed; only after labeling, as compress recycles them.
         val labels = tracedAsync("pic.labels") { labels(thumb) }
         val jpeg = runCatching { ImageBytes.compress(thumb) }.getOrNull() ?: return emptyList()
@@ -214,7 +220,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         currentCoroutineContext().ensureActive()
         val uri = file.uri.toUri()
         val bytes = when (file.kind) {
-            Kind.PHOTO, Kind.SCREENSHOT -> ImageBytes.jpeg(context, uri, 512)
+            Kind.PHOTO, Kind.SCREENSHOT -> ImageBytes.jpeg(context, uri, EMBED_PX)
 
             Kind.PDF -> {
                 val page = Locator.pageOf(locator)?.minus(1) ?: return null
@@ -222,7 +228,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
                     PdfRenderer(fd).use { pdf ->
                         if (page >= pdf.pageCount) return null
                         pdf.openPage(page).use { pg ->
-                            val (w, h) = fitSize(pg.width, pg.height, 512, 1024)
+                            val (w, h) = fitSize(pg.width, pg.height, PAGE_SHORT_PX, PAGE_LONG_PX)
                             val bitmap = createBitmap(w, h)
                             bitmap.eraseColor(Color.WHITE)
                             pg.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -305,9 +311,8 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         val bitmap = createBitmap(width, height)
         bitmap.eraseColor(Color.WHITE)
         page.render(bitmap)
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        return imageWithText(locator, out.toByteArray(), betterPageText(layer, ocr(bitmap)), maxChars)
+        // The model gets the page at visual()'s size, as after a model change, not the 3 MP OCR render.
+        return imageWithText(locator, ImageBytes.pageJpeg(bitmap), betterPageText(layer, ocr(bitmap)), maxChars)
     }
 
     private suspend fun doc(file: SourceFile, uri: Uri, maxChars: Int): List<Piece> {
@@ -422,12 +427,20 @@ object ImageBytes {
         runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull()
     }
 
-    /** The embed image's pixels: MediaStore's cached thumbnail when it has one (no full decode), else a decode at [maxSide]. */
-    fun thumbnail(context: Context, uri: Uri, maxSide: Int): Bitmap? =
-        runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull() ?: bitmap(context, uri, maxSide)
+    /** [bitmap] scaled down to fit [maxShort] x [maxLong], always as a new bitmap: [compress] recycles what it is given. */
+    fun scaled(bitmap: Bitmap, maxShort: Int, maxLong: Int): Bitmap {
+        val (w, h) = fitSize(bitmap.width, bitmap.height, maxShort, maxLong)
+        return if (w == bitmap.width && h == bitmap.height) bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false) else bitmap.scale(w, h)
+    }
 
-    /** The embed image, as [thumbnail] reads it. */
-    fun jpeg(context: Context, uri: Uri, maxSide: Int): ByteArray? = thumbnail(context, uri, maxSide)?.let { runCatching { compress(it) }.getOrNull() }
+    /** A rendered PDF page as the model's image, at the size visual() renders it; [page] stays whole for OCR. */
+    fun pageJpeg(page: Bitmap): ByteArray = compress(scaled(page, PAGE_SHORT_PX, PAGE_LONG_PX))
+
+    /**
+     * The embed image, decoded here at [maxSide]. Not ContentResolver.loadThumbnail: that is MediaProvider's UI thumbnail,
+     * often a camera's small EXIF one, and on a cache miss it decodes the image again and writes a file to shared storage.
+     */
+    fun jpeg(context: Context, uri: Uri, maxSide: Int): ByteArray? = bitmap(context, uri, maxSide)?.let { runCatching { compress(it) }.getOrNull() }
 
     /** A bundled drawable as an embed image, decoded straight from the APK's resources. */
     fun jpeg(resources: Resources, id: Int, maxSide: Int): ByteArray? =
