@@ -25,6 +25,14 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - Copyright Google LLC
 - License: ML Kit SDK terms (https://developers.google.com/ml-kit/terms); binary client libraries, not open source
 
+## OkHttp and Okio (dependencies, not adapted code)
+
+- Source: https://github.com/square/okhttp and https://github.com/square/okio
+- Artifacts: com.squareup.okhttp3:okhttp and com.squareup.okio:okio, pulled in by ML Kit image labeling
+  (com.google.mlkit:vision-internal-vkp)
+- Copyright Square, Inc.
+- License: Apache License 2.0
+
 ## oguzhaneksi/TikTokCompose
 
 - Source: https://github.com/oguzhaneksi/TikTokCompose
