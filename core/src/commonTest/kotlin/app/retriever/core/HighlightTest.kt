@@ -41,6 +41,22 @@ class HighlightTest {
         assertEquals(listOf("bank"), highlightTerms("the bank at"))
     }
 
+    /** Only function words drop out of a longer query: "bill", "home" and "date" are what the person is looking for. */
+    @Test fun contentWordsAreHighlightedInLongerQueries() {
+        assertEquals(listOf("Electricity", "bill"), marked("Electricity bill.pdf", "electricity bill"))
+        assertEquals(listOf("Home", "loan"), marked("Home loan statement.pdf", "home loan"))
+        assertEquals(listOf("date", "birth"), marked("date of birth proof", "date of birth"))
+        assertEquals(
+            "Your \u0002phone\u0003 \u0002number\u0003 changed",
+            SearchEngine.contentSnippet("Your phone number changed", SearchEngine.folded("phone number")),
+        )
+    }
+
+    @Test fun aQueryWithoutAccentsMarksTheAccentedName() {
+        assertEquals(listOf("Café"), marked("Café menu", "cafe"))
+        assertEquals(listOf("Crème", "brûlée"), marked("Crème brûlée recipe", "creme brulee"))
+    }
+
     @Test fun emptyQuery() {
         assertEquals(emptyList(), marked("invoice", "  "))
     }

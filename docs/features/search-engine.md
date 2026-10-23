@@ -105,6 +105,9 @@ until that search ends; a check that the same snippet renders the same bold span
 - Wave 7 A4 (exact name first) is the behaviour in invariant 9; the relevance rule stays off and has no further
   research this wave.
 
-Snippets mark whole Unicode words or prefixes only. Match windows dominated by digits and separators yield to the
+Snippets mark whole Unicode words or prefixes only. In a query of several words, words of one or two letters and
+function words (`highlightStopwords`: the English stop set, Hindi postpositions and particles) are not marked; the
+longer suggestion stop list would also drop words such as "bill" and "home". Names and snippets fold case and Latin
+accents, as search does. Match windows dominated by digits and separators yield to the
 next readable match window. `SnippetTest` covers Hindi, interior fragments and spreadsheet number runs;
 `LikelyMatchesTest` uses synthetic score lists, and the eval shares the production grouping rule.

@@ -7,20 +7,23 @@ private val NAME_WORD = Regex("[\\p{L}\\p{M}\\p{N}]+")
  * last one when it has three letters or more. Call it for a file found by its name only.
  */
 fun nameMatchRanges(name: String, query: String): List<IntRange> {
-    val tokens = Store.ftsTokens(query)
+    val tokens = Store.ftsTokens(foldLatin(query))
     if (tokens.isEmpty()) return emptyList()
-    val words = highlightTerms(query).toSet()
+    val words = highlightable(tokens).toSet()
     val prefix = tokens.last().takeIf { it.length >= 3 && it in words }
     return NAME_WORD.findAll(name).filter { m ->
-        val w = m.value.lowercase()
+        val w = foldLatin(m.value)
         w in words || (prefix != null && w.startsWith(prefix))
     }.map { it.range }.toList()
 }
 
-/** Unicode letters and combining marks stay together; a query never marks an interior fragment. */
-fun highlightTerms(query: String): List<String> = highlightable(Store.ftsTokens(query))
+/**
+ * Unicode letters and combining marks stay together; a query never marks an interior fragment. Case and Latin accents
+ * fold, as the name index and FTS fold them.
+ */
+fun highlightTerms(query: String): List<String> = highlightable(Store.ftsTokens(foldLatin(query)))
 
-private fun highlightable(words: List<String>): List<String> = if (words.size == 1) words else words.filter { it.length > 2 && it !in suggestionStopwords }
+private fun highlightable(words: List<String>): List<String> = if (words.size == 1) words else words.filter { it.length > 2 && it !in highlightStopwords }
 
 internal fun wordMatchRanges(text: String, words: List<String>): List<IntRange> {
     val meaningful = highlightable(words)
