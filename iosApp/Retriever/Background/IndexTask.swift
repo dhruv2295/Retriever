@@ -79,9 +79,24 @@ enum IndexTask {
         let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
-        // No .gpu: it needs the continued-processing GPU entitlement, and backendNow picks the CPU once the app leaves.
+        // The GPU in the background where the device supports it (the Background GPU Access capability). Set before
+        // submitting: the task starts at once. Without it, backendNow picks the CPU once the app leaves.
+        if BGTaskScheduler.supportedResources.contains(.gpu) {
+            request.requiredResources = .gpu
+            continuedGpu.withLock { $0 = true }
+            do {
+                return try await submit(request)
+            } catch {
+                log.error("continued reading with the GPU refused: \(error, privacy: .private)")
+                request.requiredResources = []
+            }
+        }
+        continuedGpu.withLock { $0 = false }
         try await submit(request)
     }
+
+    /// The continued request asked for the GPU, for the task it starts (runContinued).
+    private static let continuedGpu = OSAllocatedUnfairLock(initialState: false)
 
     /// The expiration handler: Swift cancellation doesn't reach the Kotlin coroutine, so this stops the batch within
     /// one file and ends the native reads in flight, and runBatch then completes the task. A read that outlasts that
@@ -182,6 +197,7 @@ enum IndexTask {
         }
         task.progress.totalUnitCount = 1
         monitor.continued = true
+        monitor.backgroundGpu = continuedGpu.withLock { $0 }
         let pending = OSAllocatedUnfairLock(initialState: 1)
         // Pending at the first snapshot: progress counts this read, not the whole library.
         let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
@@ -206,6 +222,7 @@ enum IndexTask {
             }
             progress.close()
             monitor.continued = false
+            monitor.backgroundGpu = false
             // Stopped early (too hot, or out of time) with files still waiting: not a finished read.
             let ok = !expired.withLock { $0 } && pending.withLock { $0 } == 0
             if !monitor.active { try? await retriever.release() }

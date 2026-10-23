@@ -69,11 +69,11 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     private func enterBackground() {
-        // The model reopens on the CPU: iOS refuses GPU work in the background.
+        // The model reopens on the CPU: iOS refuses GPU work in the background, unless it granted a continued read the GPU.
         monitor.active = false
         // A batch begun in front must not carry on here, where iOS refuses its GPU work. A continued read's loop
-        // starts its next batch, which opens the model on the CPU.
-        retriever.cancelBatch()
+        // starts its next batch, which opens the model on the CPU; one granted the GPU carries on as it is.
+        if !(keepsReading() && monitor.backgroundGpu) { retriever.cancelBatch() }
         // The person asked for this read and watches it on the Lock Screen, so it goes on as if open, on battery too.
         guard !keepsReading() else { return }
         retriever.uiVisible = false

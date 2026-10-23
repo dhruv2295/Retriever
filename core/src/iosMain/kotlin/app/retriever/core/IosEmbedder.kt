@@ -35,15 +35,20 @@ class IosEmbedderFactory(
     private val modelDir: String,
     private val cacheDir: String,
     private val isSimulator: Boolean,
-    /** The app is in the foreground: iOS refuses GPU work from a backgrounded app. */
+    /** iOS granted the person's continued read the GPU in the background (iOS 26+, on devices that support it). */
+    private val backgroundGpu: () -> Boolean = { false },
+    /** The GPU refused background work after all: drop the grant, so the next batch opens on the CPU. */
+    private val backgroundGpuRefused: () -> Unit = {},
+    /** The app is in the foreground: iOS refuses GPU work from a backgrounded app without the grant. */
     private val isActive: () -> Boolean,
 ) : EmbedderFactory {
     // No NPU dispatch on iOS; the simulator has no Metal delegate for the model.
     override fun backends(build: ModelBuild): List<Backend> = if (isSimulator) listOf(Backend.CPU) else listOf(Backend.GPU, Backend.CPU)
 
-    // A background task gets CPU: iOS refuses GPU work from a backgrounded app. The key differs, so the
-    // foreground reopens on the GPU; the signature has no backend in it, so nothing is read again.
-    override fun backendNow(profile: DeviceProfile): Backend = if (profile.backend == Backend.GPU && !isActive()) Backend.CPU else profile.backend
+    // A background task gets CPU: iOS refuses GPU work from a backgrounded app without the grant. The key differs, so
+    // the foreground reopens on the GPU; the signature has no backend in it, so nothing is read again.
+    override fun backendNow(profile: DeviceProfile): Backend =
+        if (profile.backend == Backend.GPU && !isActive() && !backgroundGpu()) Backend.CPU else profile.backend
 
     @Throws(Throwable::class)
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
@@ -57,13 +62,16 @@ class IosEmbedderFactory(
         val native = opener.open("$modelDir/${build.fileName}", gpu, vision == Backend.GPU, profile.visionTokens, profile.maxTokens, cache)
         if (native == null) {
             val message = opener.lastMessage ?: "the model didn't open"
-            // Too little memory now, or a GPU open as the app went to the background: no reason to give up the GPU.
-            if ((opener as? RefusesForNow)?.refusedForNow == true || (gpu && !isActive())) {
+            // Too little memory now, or a GPU open in the background (which ends a background GPU grant): no reason to
+            // give up the GPU.
+            val forNow = (opener as? RefusesForNow)?.refusedForNow == true
+            if (forNow || (gpu && !isActive())) {
+                if (!forNow && gpu) backgroundGpuRefused()
                 throw EmbedderClosedException(message, broken = false)
             }
             throw IllegalStateException(message)
         }
-        return IosEmbedder(native, profile.backend, vision, Signature.of(build, profile.visionTokens, profile.maxTokens), isActive)
+        return IosEmbedder(native, profile.backend, vision, Signature.of(build, profile.visionTokens, profile.maxTokens), isActive, backgroundGpuRefused)
     }
 }
 
@@ -81,6 +89,7 @@ private class IosEmbedder(
     override val visionBackend: Backend,
     override val signature: Signature,
     private val isActive: () -> Boolean,
+    private val backgroundGpuRefused: () -> Unit,
 ) : Embedder {
     override val detail: String? get() = if (backend != visionBackend) "vision on CPU (rendering policy)" else null
 
@@ -108,6 +117,7 @@ private class IosEmbedder(
             if (native.lastError == INPUT_TOO_LONG) throw InputTooLongException(message ?: "input exceeds the model's token window")
             // In the background the probe would fail too, and the GPU would be demoted for good over a rule of iOS.
             if (backend == Backend.GPU && !isActive()) {
+                backgroundGpuRefused()
                 closed = true
                 native.close()
                 throw EmbedderClosedException("GPU unavailable in the background: $message", broken = false)

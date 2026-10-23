@@ -27,7 +27,9 @@ content leaves the phone; only the model download uses the network.
   returned (`checkUnfinishedOpens`, `gpu_unsafe`, and only when `lastExitCrashed` says the process died of a crash, not a
   swipe or the low-memory killer). Any other open failure (a missing or truncated file, low memory) is rethrown and the
   batch retries; it says nothing about the GPU. An open refused for now (`broken = false`, on any backend) rests the
-  batch (`AFTER_COOLDOWN`) instead of demoting or looping. On iOS `backendNow` runs the CPU in the background.
+  batch (`AFTER_COOLDOWN`) instead of demoting or looping. On iOS `backendNow` runs the CPU in the background, except
+  for a continued read iOS granted the background GPU (`IosDeviceMonitor.backgroundGpu`); a GPU refusal there drops the
+  grant without demoting the GPU.
 - **Variant.** New downloads select M440 on both platforms (387,710,976 bytes generic). A verified installed M740
   remains selected while its signature owns the index; losing/changing it selects M440. Every device can read words
   and image labels without a download; under 4 GB (`Tiers.MIN_MODEL_RAM_GB`) it stays keyword-only (`NoModel`). NPU builds are commit-pinned with size and
@@ -101,7 +103,8 @@ content leaves the phone; only the model download uses the network.
 - A GPU or NPU that never crashes but is slightly wrong is caught only by the 0.98 mean-cosine gate at Tune time; NPU
   builds have no CPU reference.
 - `gpu_unsafe` and CPU demotion are cleared only by Tune again (`clearGpuUnsafe`), not by an OS or driver update.
-- iOS reads the background on CPU; foreground GPU text can use CPU vision when Tune measures stalls. Agreement is gated at 0.98 mean.
+- iOS reads the background on CPU (a continued read on a device with background GPU support keeps the GPU); foreground GPU
+  text can use CPU vision when Tune measures stalls. Agreement is gated at 0.98 mean.
 - M440 saves 96.91 MB against generic M740. Vectors are rebuilt on a signature change; no cross-model compatibility
   is assumed. Audio files are name-only on both platforms. See `optional-model.md` for the UI API and cost measurements.
 - ML Kit has no Arabic, Cyrillic, Thai, Hebrew or Tamil; those screenshots read through the Latin pass. iOS Vision reads them.
@@ -116,8 +119,8 @@ cancellation. Hidden frames do not count. No extra model inference runs.
 
 For a GPU profile with stalls, foreground vision runs on CPU and text stays on GPU. Android screen-off reading uses
 GPU vision again. iOS already used GPU vision in front (`MediaPipeOpener` set both delegates to GPU), so it has the
-same measurement and split-delegate policy; background iOS remains entirely CPU because iOS forbids background GPU
-work. A visibility/configuration change ends the current batch after its current file; the next batch opens the new
+same measurement and split-delegate policy; background iOS stays on the CPU because iOS refuses background GPU work,
+except for a continued read granted the GPU (`BGContinuedProcessingTaskRequest.Resources.gpu`). A visibility/configuration change ends the current batch after its current file; the next batch opens the new
 configuration. Search warm-up also takes the index lock, so it cannot retire a batch's handle. Signatures stay the same.
 
 Debug Android only (persistent across process restarts, applies at the next file/batch boundary):
