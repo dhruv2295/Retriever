@@ -76,19 +76,66 @@ class SetupFlowTest {
         extract = { listOf(Piece("", listOf(Part.Text("read content")), "read content", "read content")) },
     ).apply { uiVisible = true }
 
-    private fun flow(r: Retriever, scope: CoroutineScope) = SetupFlow(r, AccessService(app), IndexService(app, r), scope, notificationsGranted = { false })
+    private fun flow(r: Retriever, scope: CoroutineScope, startDownload: () -> Unit = {}) =
+        SetupFlow(r, AccessService(app), IndexService(app, r), scope, notificationsGranted = { false }, startDownload = startDownload)
 
-    @Test fun aFreshInstallWelcomesEvenWithAccessGranted() = runTest {
+    private fun denyAccess() {
+        shadowOf(app).denyPermissions(*Access.mediaPermissions(35).toTypedArray())
+        shadowOf(app.getSystemService(AppOpsManager::class.java))
+            .setMode("android:manage_external_storage", Process.myUid(), app.packageName, AppOpsManager.MODE_ERRORED)
+    }
+
+    @Test fun aFreshInstallSaysHelloEvenWithAccessGranted() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val ui = flow(r, backgroundScope).ui.value
         assertTrue(ui.access.ready)
-        // Access is confirmed on the welcome, never assumed.
+        // Access is confirmed on its own screen, never assumed.
         assertEquals(SetupStage.WELCOME, ui.stage)
         assertTrue(ui.setup.showSetup)
     }
 
-    /** All-files access already on: Start the demo confirms it, survives the process, and the demo plans. */
+    /** Get started leads to the access screen and downloads the model once; Back returns to Hello. */
+    @Test fun getStartedDownloadsAndLeadsToAccess() = runTest {
+        val r = noModel()
+        r.refreshSetUp()
+        var downloads = 0
+        val f = flow(r, backgroundScope) { downloads++ }
+        assertTrue(f.ui.value.downloadsOnGetStarted)
+        f.getStarted()
+        f.ui.first { it.stage == SetupStage.ACCESS }
+        assertEquals(1, downloads)
+        f.back()
+        f.ui.first { it.stage == SetupStage.WELCOME }
+    }
+
+    @Test fun getStartedOnAPhoneTooSmallForTheModelDownloadsNothing() = runTest {
+        val r = testRetriever(docs, ramGb = 3.0, dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
+        r.refreshSetUp()
+        var downloads = 0
+        val f = flow(r, backgroundScope) { downloads++ }
+        assertFalse(f.ui.value.downloadsOnGetStarted)
+        f.getStarted()
+        f.ui.first { it.stage == SetupStage.ACCESS }
+        assertEquals(0, downloads)
+    }
+
+    /** Nothing granted keeps the person on the access screen: there is no way past it without access. */
+    @Test fun withoutAccessContinueStaysOnTheAccessScreen() = runTest {
+        denyAccess()
+        val r = noModel()
+        r.refreshSetUp()
+        val f = flow(r, backgroundScope)
+        assertFalse(f.ui.value.access.ready)
+        f.getStarted()
+        f.ui.first { it.stage == SetupStage.ACCESS }
+        f.continueFromAccess()
+        r.setup.first { it?.mark == SetupMark.ACCESS_CHOSEN }
+        assertEquals(SetupStage.ACCESS, f.ui.value.stage)
+        assertTrue(f.ui.value.setup.showSetup)
+    }
+
+    /** All-files access already on: the access screen's Continue confirms it, survives the process, and the first search plans. */
     @Test fun continueFromTheWelcomeWithAccessInPlaceSurvivesTheProcess() = runTest {
         val r = noModel()
         r.refreshSetUp()
@@ -113,47 +160,19 @@ class SetupFlowTest {
         assertEquals(files.indices.toList(), files.map { it.index })
     }
 
-    /** Continue goes to the choice, never past it; Back returns to the demo. */
-    @Test fun continueLeadsToTheChoiceAndBackToTheDemo() = runTest {
+    /** The first search's Continue ends setup for good and asks Home for its one-time card; Back no longer applies. */
+    @Test fun finishEndsSetupAndAsksHomeForItsCard() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         f.continueFromAccess()
-        f.ui.first { it.stage == SetupStage.SAMPLE && it.moreFiles != null }
-        f.continueToCommit()
-        val choosing = f.ui.first { it.stage == SetupStage.CHOOSE }
-        assertTrue("the choice is still setup", choosing.setup.showSetup)
-        f.back()
         f.ui.first { it.stage == SetupStage.SAMPLE }
-    }
-
-    /** Skip the demo with access in place confirms it at once and leads to the choice, not past it; Back returns to the welcome. */
-    @Test fun skipTheDemoWithAccessLeadsToTheChoice() = runTest {
-        val r = noModel()
-        r.refreshSetUp()
-        val f = flow(r, backgroundScope)
-        f.skipDemo()
-        val choosing = f.ui.first { it.stage == SetupStage.CHOOSE }
-        assertTrue(choosing.setup.skipped)
-        assertTrue("a choice is still to make", choosing.setup.showSetup)
+        f.finish()
+        f.ui.first { !it.setup.showSetup }
+        assertTrue(r.prefs.value.homeIntroDue)
         f.back()
-        f.ui.first { it.stage == SetupStage.WELCOME }
-    }
-
-    /** Without access, Skip the demo stays on the welcome: skipping never skips access. */
-    @Test fun skipTheDemoWithoutAccessStaysOnTheWelcome() = runTest {
-        shadowOf(app).denyPermissions(*Access.mediaPermissions(35).toTypedArray())
-        shadowOf(app.getSystemService(AppOpsManager::class.java))
-            .setMode("android:manage_external_storage", Process.myUid(), app.packageName, AppOpsManager.MODE_ERRORED)
-        val r = noModel()
         r.refreshSetUp()
-        val f = flow(r, backgroundScope)
-        assertFalse(f.ui.value.access.ready)
-        f.skipDemo()
-        val skipped = f.ui.first { it.setup.skipped }
-        assertEquals(SetupStage.WELCOME, skipped.stage)
-        assertEquals(SetupMark.NONE, skipped.setup.mark)
-        assertTrue("skipping never skips access", skipped.setup.showSetup)
+        assertEquals(SetupStage.DONE, flow(r, backgroundScope).ui.value.stage)
     }
 
     /** Setup shows a stop's reason only: "Up to date" or "Checking for new files…" is no pause. */
@@ -172,28 +191,14 @@ class SetupFlowTest {
         f.ui.first { it.pauseReason == null }
     }
 
-    /** Not now on the choice is the one way out without choosing, and it holds after the process. */
-    @Test fun notNowLeavesSetupForGood() = runTest {
-        val r = noModel()
-        r.refreshSetUp()
-        val f = flow(r, backgroundScope)
-        f.skipDemo()
-        f.ui.first { it.stage == SetupStage.CHOOSE }
-        f.decideLater()
-        f.ui.first { !it.setup.showSetup }
-        r.refreshSetUp()
-        assertFalse(flow(r, backgroundScope).ui.value.setup.showSetup)
-    }
-
-    /** The library's counts and the demo's files are core's shared flows: watched only while a screen collects. */
+    /** The first search's progress and files are core's shared flows: watched only while a screen collects. */
     @Test fun theLibraryIsWatchedOnlyWhileAScreenCollects() = runTest {
         val r = noModel()
         r.refreshSetUp()
         val f = flow(r, backgroundScope)
         advanceUntilIdle()
-        assertNull("counted with no screen", f.ui.value.moreFiles)
-        assertNull(f.ui.value.taste)
-        assertNotNull(f.ui.first { it.moreFiles != null && it.taste != null })
+        assertNull("watched with no screen", f.ui.value.taste)
+        assertNotNull(f.ui.first { it.taste != null })
     }
 
     @Test fun theUpgradeCountsOnlyWhileAScreenCollects() = runTest {

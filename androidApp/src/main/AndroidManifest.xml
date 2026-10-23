@@ -62,6 +62,14 @@
         <receiver
             android:name=".indexing.PauseReceiver"
             android:exported="false" />
+        <!-- Exported for the downloads provider. Any sender only triggers a run that reads the real download state, so nothing needs guarding. -->
+        <receiver
+            android:name=".model.DownloadDoneReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
 
         <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0):
              WorkManager's foreground service needs its types declared on Android 14+. IndexWorker uses

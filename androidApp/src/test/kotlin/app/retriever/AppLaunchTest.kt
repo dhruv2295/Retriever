@@ -51,14 +51,14 @@ class AppLaunchTest {
         StrictMode.setVmPolicy(StrictMode.VmPolicy.LAX)
     }
 
-    @Test fun realApplicationLaunchesTheWelcomeScreen() {
+    @Test fun realApplicationLaunchesHello() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         assertTrue(app is RetrieverApp)
         val koin = GlobalContext.get()
         assertNull(koin.get<DemoMode>().parts)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             rule.waitUntil(10_000) { koin.get<Retriever>().setUp.value != null }
-            rule.onNodeWithText(Words.WELCOME_TITLE).assertIsDisplayed()
+            rule.onNodeWithText(Words.helloTitle(koin.get<Retriever>().textOnly)).assertIsDisplayed()
             scenario.onActivity { assertEquals(Lifecycle.State.RESUMED, it.lifecycle.currentState) }
             app.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
             rule.waitForIdle()

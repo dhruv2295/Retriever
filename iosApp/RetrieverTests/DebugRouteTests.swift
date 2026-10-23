@@ -6,11 +6,10 @@
     @MainActor
     final class DebugRouteTests: XCTestCase {
         private static let fixtureRoutes: [(raw: String, fixture: String)] = [
-            ("setup.welcome", "firstRun"), ("setup.limited", "photosLimited"),
-            ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"), ("setup.samplePicking", "samplePicking"),
-            ("setup.sampleStart", "sampleStart"),
-            ("setup.reading", "sampleReading"), ("setup.readingPaused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
-            ("setup.choose", "choosing"), ("setup.chooseSkipped", "chooseSkipped"),
+            ("setup.welcome", "firstRun"), ("setup.access", "accessNone"), ("setup.limited", "photosLimited"),
+            ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"), ("setup.accessBoth", "accessBoth"),
+            ("setup.samplePicking", "samplePicking"), ("setup.sampleStart", "sampleStart"), ("setup.reading", "sampleReading"),
+            ("setup.waitingWifi", "sampleWaitingForWifi"), ("setup.ready", "sampleReady"), ("setup.paused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
             ("setup.textOnly", "textOnly(ramGb: 3.0)"),
             ("upgrade.offer", "noModel"), ("upgrade.download", "downloading(0.34)"), ("upgrade.waitingWifi", "waitingForWifi"),
             ("upgrade.failed", "downloadFailed"), ("upgrade.tuning", "tuning"), ("upgrade.meaning", "meaning(1204)"),
@@ -27,6 +26,7 @@
             ("home.charging", "readingWhileCharging"), ("home.firstDay", "firstDay"), ("home.unplugged", "unplugged"),
             ("home.chargingUp", "chargingUp"), ("home.readNow", "readNow"), ("home.downloading", "downloading(0.34)"),
             ("home.meaning", "meaningPass"), ("home.noAccess", "lostAccess"), ("home.notNow", "notNow"), ("home.counting", "counting"),
+            ("home.introReady", "homeIntro(ready: true)"), ("home.introOnItsWay", "homeIntro(ready: false)"),
             ("settings", "caughtUp"),
         ]
 
@@ -72,8 +72,11 @@
             XCTAssertNil(DebugRoute(rawValue: "setup.download"))
             // Browse was folded into Home; its old route names are gone.
             XCTAssertNil(DebugRoute(rawValue: "browse"))
-            // Access folded into the welcome.
+            // Access folded into the welcome, then got its own screen (setup.access).
             XCTAssertNil(DebugRoute(rawValue: "setup.photos"))
+            // The choice after the demo is gone: the first search's Continue ends setup.
+            XCTAssertNil(DebugRoute(rawValue: "setup.choose"))
+            XCTAssertNil(DebugRoute(rawValue: "setup.chooseSkipped"))
         }
     }
 #endif

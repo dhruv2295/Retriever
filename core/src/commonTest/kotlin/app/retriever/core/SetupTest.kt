@@ -13,74 +13,67 @@ class SetupTest {
     private fun at(mark: SetupMark, access: Boolean = true, skipped: Boolean = false, decided: Boolean = false, planned: Int = 0) =
         SetupInputs(mark, skipped, decided, planned).withAccess(access)
 
-    @Test fun welcomeAsksAccessThenPlanDemoChooseDone() {
-        assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE, access = false).let { it.stage to it.step })
-        // Access granted is not enough: the person confirms it on the welcome, and nothing runs before.
+    @Test fun helloThenAccessThenTheFirstSearchThenDone() {
+        // Access granted is not enough: Hello comes first, and nothing runs before the access screen's Continue.
         assertEquals(SetupStage.WELCOME to SetupStep.NONE, at(SetupMark.NONE).let { it.stage to it.step })
-        assertTrue(at(SetupMark.NONE).showSetup)
+        assertEquals(SetupStage.ACCESS to SetupStep.NONE, at(SetupMark.GREETED, access = false).let { it.stage to it.step })
+        assertEquals(SetupStage.ACCESS to SetupStep.NONE, at(SetupMark.GREETED).let { it.stage to it.step }, "Continue confirms it")
+        assertTrue(at(SetupMark.GREETED).showSetup)
         assertEquals(SetupStage.SAMPLE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN).let { it.stage to it.step })
         assertEquals(SetupStage.SAMPLE to SetupStep.READ_SAMPLE, at(SetupMark.ACCESS_CHOSEN, planned = 30).let { it.stage to it.step })
-        assertEquals(SetupStage.CHOOSE to SetupStep.READ_SAMPLE, at(SetupMark.CHOOSING, planned = 30).let { it.stage to it.step })
-        assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.CHOOSING, decided = true, planned = 30).let { it.stage to it.step })
         assertTrue(at(SetupMark.ACCESS_CHOSEN, planned = 30).showSetup)
-        assertTrue(at(SetupMark.CHOOSING, planned = 30).showSetup, "setup shows until a choice is made")
-        assertFalse(at(SetupMark.CHOOSING, decided = true).showSetup)
+        // The first search's Continue (finishSetup) decides: there is no choice screen.
+        assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.ACCESS_CHOSEN, decided = true, planned = 30).let { it.stage to it.step })
+        assertFalse(at(SetupMark.ACCESS_CHOSEN, decided = true).showSetup)
     }
 
-    @Test fun backFromTheChoiceReturnsToTheDemoOrAfterASkipToTheWelcome() {
-        assertEquals(SetupMark.ACCESS_CHOSEN, SetupPolicy.back(SetupStage.CHOOSE, skipped = false))
-        assertEquals(SetupStage.SAMPLE, at(SetupPolicy.back(SetupStage.CHOOSE, skipped = false)!!, planned = 30).stage)
-        assertEquals(SetupMark.NONE, SetupPolicy.back(SetupStage.CHOOSE, skipped = true))
-        assertEquals(SetupStage.WELCOME, at(SetupPolicy.back(SetupStage.CHOOSE, skipped = true)!!, planned = 30).stage)
+    @Test fun backFromAccessReturnsToHelloAndNowhereElse() {
+        assertEquals(SetupMark.NONE, SetupPolicy.back(SetupStage.ACCESS))
+        assertEquals(SetupStage.WELCOME, at(SetupPolicy.back(SetupStage.ACCESS)!!).stage)
         for (stage in listOf(SetupStage.WELCOME, SetupStage.SAMPLE, SetupStage.DONE)) {
-            assertNull(SetupPolicy.back(stage, skipped = false), "$stage has no setup screen behind it")
+            assertNull(SetupPolicy.back(stage), "$stage has no setup screen behind it")
         }
     }
 
-    /** The Try screen is gone: a mark saved on it resumes the demo, never the welcome (an unknown mark's NONE). */
-    @Test fun aSavedTryingResumesTheDemo() {
-        assertEquals(SetupMark.ACCESS_CHOSEN, SetupMark.saved("TRYING"))
-        assertEquals(SetupStage.SAMPLE, at(SetupMark.saved("TRYING")!!, planned = 30).stage)
-        assertEquals(SetupMark.CHOOSING, SetupMark.saved("CHOOSING"))
+    /** Screens that are gone resume where their work went: the Try screen and the old choice both reopen the first search. */
+    @Test fun savedMarksOfGoneScreensResumeTheFirstSearch() {
+        for (gone in listOf("TRYING", "CHOOSING")) {
+            assertEquals(SetupMark.ACCESS_CHOSEN, SetupMark.saved(gone))
+            assertEquals(SetupStage.SAMPLE, at(SetupMark.saved(gone)!!, planned = 30).stage)
+        }
         assertNull(SetupMark.saved("STARTED"))
         assertNull(SetupMark.saved(null))
     }
 
-    @Test fun afterTheDemoChoosesOnlyWhenFilesWaitBeyondIt() {
-        assertEquals(SetupMark.CHOOSING, SetupPolicy.afterDemo(nothingLeft = false))
-        assertNull(SetupPolicy.afterDemo(nothingLeft = true), "nothing to choose: process everything")
+    @Test fun getStartedDownloadsOnlyWhereTheModelRunsAndIsMissing() {
+        assertTrue(SetupPolicy.downloadOnGetStarted(textOnly = false, modelPresent = false))
+        assertFalse(SetupPolicy.downloadOnGetStarted(textOnly = false, modelPresent = true))
+        assertFalse(SetupPolicy.downloadOnGetStarted(textOnly = true, modelPresent = false), "a phone too small for it")
     }
 
-    @Test fun anEmptyLibraryNeedsNoChoice() {
+    @Test fun anEmptyLibraryEndsSetupAtOnce() {
         // planOrCommit found nothing to plan and read everything: decided with no plan.
         assertEquals(SetupStage.DONE to SetupStep.SCHEDULE, at(SetupMark.ACCESS_CHOSEN, decided = true).let { it.stage to it.step })
     }
 
-    @Test fun skipTheDemoLeadsToTheChoiceButNeverSkipsAccess() {
-        val skipped = at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30)
-        assertEquals(SetupStage.CHOOSE to SetupStep.READ_SAMPLE, skipped.stage to skipped.step)
-        assertTrue(skipped.showSetup, "a skip leads to the choice, not past it")
-        assertEquals(SetupStage.CHOOSE to SetupStep.PLAN, at(SetupMark.ACCESS_CHOSEN, skipped = true).let { it.stage to it.step })
-        assertEquals(SetupStage.DONE, at(SetupMark.ACCESS_CHOSEN, skipped = true, decided = true).stage)
-
-        // A skip before access: setup opens on the welcome until access is chosen, and nothing runs.
-        val noAccess = at(SetupMark.NONE, access = false, skipped = true)
-        assertEquals(SetupStage.WELCOME to SetupStep.NONE, noAccess.stage to noAccess.step)
-        assertTrue(noAccess.showSetup)
+    /** An older version's Skip the demo, saved mid-setup, still stops the demo but never skips access. */
+    @Test fun anOldSkipNeverSkipsAccess() {
+        val noAccess = at(SetupMark.GREETED, access = false, skipped = true)
+        assertEquals(SetupStage.ACCESS to SetupStep.NONE, noAccess.stage to noAccess.step)
         assertFalse(noAccess.libraryChosen)
+        assertEquals(SetupStage.SAMPLE, at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30).stage)
     }
 
     /** One rule for "the demo is still running": the reading bypass, the notification ask and its demo line all use it. */
-    @Test fun theDemoRunsUntilStoppedSkippedOrDecided() {
+    @Test fun theDemoRunsUntilSetupFinishes() {
         assertTrue(at(SetupMark.ACCESS_CHOSEN, planned = 30).demoRunning)
-        assertFalse(at(SetupMark.CHOOSING, planned = 30).demoRunning, "its Continue stops it")
         assertFalse(at(SetupMark.ACCESS_CHOSEN, skipped = true, planned = 30).demoRunning)
         assertFalse(at(SetupMark.ACCESS_CHOSEN, decided = true, planned = 30).demoRunning)
     }
 
-    @Test fun losingAccessReturnsToTheWelcomeAndStopsTheSteps() {
-        val revoked = at(SetupMark.CHOOSING, access = false, planned = 30)
-        assertEquals(SetupStage.WELCOME to SetupStep.NONE, revoked.stage to revoked.step)
+    @Test fun losingAccessReturnsToTheAccessScreenAndStopsTheSteps() {
+        val revoked = at(SetupMark.ACCESS_CHOSEN, access = false, planned = 30)
+        assertEquals(SetupStage.ACCESS to SetupStep.NONE, revoked.stage to revoked.step)
         val status = ReadingPolicy.line(ReadingStatus(ReadingPhase.CAUGHT_UP, ""), revoked.libraryChosen, hasAccess = true, 0, DeviceWords.ANDROID)
         assertEquals(ReadingPhase.SETTING_UP to StatusAction.CONTINUE, status?.phase to status?.action)
     }
@@ -97,14 +90,29 @@ class SetupTest {
         // Freed space or a new build: offered again, never fetched unasked.
         assertEquals(UpgradeStage.OFFER, stage(false, setUp = true))
 
-        val searched = Prefs(searchTried = true)
-        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.OFFER, Prefs()), "only after the person has searched")
-        assertTrue(UpgradePolicy.showOnHome(UpgradeStage.OFFER, searched))
-        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.OFFER, searched.copy(upgradeOfferDismissed = true)))
+        assertTrue(UpgradePolicy.showOnHome(UpgradeStage.OFFER, Prefs()), "an install without the model is offered it at once")
+        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.OFFER, Prefs(upgradeOfferDismissed = true)))
         assertTrue(UpgradePolicy.showOnHome(UpgradeStage.DOWNLOAD, Prefs()))
         assertTrue(UpgradePolicy.showOnHome(UpgradeStage.TUNE, Prefs()))
-        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.MEANING, searched), "the reading status says it")
-        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.UNAVAILABLE, searched))
+        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.MEANING, Prefs()), "the reading status says it")
+        assertFalse(UpgradePolicy.showOnHome(UpgradeStage.UNAVAILABLE, Prefs()))
+        val card = Prefs(homeIntroDue = true)
+        for (s in UpgradeStage.entries) assertFalse(UpgradePolicy.showOnHome(s, card), "$s: the one-time card says it")
+    }
+
+    @Test fun oneDescriptionStateForSetupAndHome() {
+        fun d(stage: UpgradeStage, phase: DownloadPhase = DownloadPhase.NONE) = UpgradePolicy.description(stage, phase)
+        assertEquals(DescriptionState.UNAVAILABLE, d(UpgradeStage.UNAVAILABLE))
+        assertEquals(DescriptionState.NOT_STARTED, d(UpgradeStage.OFFER))
+        assertEquals(DescriptionState.DOWNLOADING, d(UpgradeStage.DOWNLOAD))
+        assertEquals(DescriptionState.DOWNLOADING, d(UpgradeStage.DOWNLOAD, DownloadPhase.RUNNING))
+        assertEquals(DescriptionState.WAITING_FOR_WIFI, d(UpgradeStage.DOWNLOAD, DownloadPhase.WAITING_FOR_WIFI))
+        assertEquals(DescriptionState.PREPARING, d(UpgradeStage.DOWNLOAD, DownloadPhase.CHECKING))
+        assertEquals(DescriptionState.FAILED, d(UpgradeStage.DOWNLOAD, DownloadPhase.FAILED))
+        assertEquals(DescriptionState.NO_SPACE, d(UpgradeStage.OFFER, DownloadPhase.NO_SPACE), "refused before it queued")
+        assertEquals(DescriptionState.PREPARING, d(UpgradeStage.TUNE))
+        assertEquals(DescriptionState.READY, d(UpgradeStage.MEANING))
+        assertEquals(DescriptionState.READY, d(UpgradeStage.DONE))
     }
 
     @Test fun newSentences() {
@@ -114,7 +122,7 @@ class SetupTest {
         assertEquals("8 files · Size unavailable", Words.countAndSize(FileTotals(8, 0, 8), "Zero KB"))
         assertEquals("3 of 7 photos processed", Words.kindRead(3, 7, Kind.PHOTO))
         assertEquals("1 of 2 PDFs processed", Words.kindRead(1, 2, Kind.PDF))
-        assertEquals("Adding search by meaning · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
+        assertEquals("Adding search by description · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
         fun demo(pending: Int) = TasteProgress(emptyMap(), emptySet(), 3, null, pending, 30)
         val plain = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
         assertEquals("$plain We can also let you know when the demo is done.", Words.notificationsAsk(demoRunning = true, demo(pending = 10)))
@@ -122,11 +130,7 @@ class SetupTest {
         assertEquals(plain, Words.notificationsAsk(demoRunning = true, demo(pending = 0)))
         assertEquals("12 of 40 files processed", Words.readOf(12, 40))
         assertEquals("Retriever looks inside the files on this phone so you can find them by what’s in them.", Words.wholeDeviceNote(android))
-        assertEquals(
-            "iOS lets Retriever see your photos and the folders you pick in Files.",
-            Words.iosAccessNote(DeviceWords.ios("iPad")),
-        )
-        assertEquals("Download for meaning search", Words.upgradeHint(2, UpgradeStage.OFFER))
+        assertEquals("Download for search by description", Words.upgradeHint(2, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(3, UpgradeStage.OFFER))
         assertNull(Words.upgradeHint(0, UpgradeStage.UNAVAILABLE))
         assertEquals("Setting up processing for this iPhone", Words.tuneTitle(DeviceWords.ios("iPhone")))

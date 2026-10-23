@@ -441,7 +441,7 @@ class SearchShotsTest {
     /** With the model in place, no hint. */
     @Test fun noUpgradeHintWithTheModel() {
         rule.setContent { ShotTheme(false, 1f) { Pane(ready.copy(upgrade = UpgradeStage.DONE).answered("bill", mixedHits.take(1)), SearchActions()) } }
-        rule.onNodeWithText("Download for meaning search").assertDoesNotExist()
+        rule.onNodeWithText("Download for search by description").assertDoesNotExist()
     }
 
     @Test fun tappingTheSelectedKindChipClearsIt() {

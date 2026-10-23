@@ -64,11 +64,19 @@ object Notifications {
 
     /** Posted only when notifications are allowed; tapping it opens the app where the first run left off. */
     fun demoDone(context: Context, done: Int, planned: Int) {
+        if (planned > 0) notice(context, DEMO_DONE_ID, Words.DEMO_DONE_NOTICE_TITLE, Words.demoDoneNotice(done.toLong(), planned.toLong()))
+    }
+
+    /** The one notice Home's card asked for: everything is searchable. */
+    fun caughtUp(context: Context, files: Long, textOnly: Boolean) =
+        notice(context, CAUGHT_UP_ID, Words.CAUGHT_UP_NOTICE_TITLE, Words.caughtUpNotice(files, textOnly))
+
+    private fun notice(context: Context, id: Int, title: String, text: String) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (planned <= 0 || !manager.areNotificationsEnabled()) return
+        if (!manager.areNotificationsEnabled()) return
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle(Words.DEMO_DONE_NOTICE_TITLE)
-            .setContentText(Words.demoDoneNotice(done.toLong(), planned.toLong()))
+            .setContentTitle(title)
+            .setContentText(text)
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion(context))
@@ -76,10 +84,11 @@ object Notifications {
             .setContentIntent(openApp(context))
             .setAutoCancel(true)
             .build()
-        manager.notify(DEMO_DONE_ID, notification)
+        manager.notify(id, notification)
     }
 
     private const val DEMO_DONE_ID = 2
+    const val CAUGHT_UP_ID = 3
 
     /** Processing's one notification, shared by every run. */
     const val PROGRESS_ID = 1
