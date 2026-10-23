@@ -156,7 +156,18 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         stored.file.copy(uri = newUri, name = name, modifiedAt = modifiedAt)
     }
 
-    fun readContentVersions(): Map<Long, Long> = q.readContentVersions { id, revision -> id to (revision ?: 0L) }.executeAsList().toMap()
+    /**
+     * The newest [limit] read files by modified time, and the read ones among [ids], each with a revision that changes
+     * whenever its chunks are replaced: what suggestions read, bounded however large the library.
+     */
+    fun readContentVersions(limit: Int, ids: Collection<Long> = emptyList()): Map<Long, Long> {
+        val version = { id: Long, revision: Long? -> id to (revision ?: 0L) }
+        return q.readContentVersions(limit.toLong(), version).executeAsList().toMap() +
+            inChunks(ids) { q.contentVersionsIn(it, version).executeAsList() }
+    }
+
+    /** The first [limit] chunks of [fileId]'s extracted text, in reading order. */
+    fun contentHead(fileId: Long, limit: Int): List<String> = q.contentHead(fileId, limit.toLong()).executeAsList()
 
     fun contentTexts(ids: Collection<Long>): Map<Long, String?> = inChunks(ids) { q.contentByIds(it) { id, text -> id to text }.executeAsList() }.toMap()
 

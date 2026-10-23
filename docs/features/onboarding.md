@@ -55,9 +55,12 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
 ### What is switched off, and what turns it on
 
 - **Content-derived suggestions.** `Retriever.suggestions(fileIds)` returns exactly three TF-IDF terms or recurring two-word phrases from read files'
-  `content_text`, against the whole read set. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
+  `content_text`, against a bounded sample: the newest 300 read files by modified time plus the files asked about, each
+  by its first 4,000 characters (`ContentSuggestions.FILES`, `TEXT`). The whole read set cost 922 MB and 3.9 s per
+  recount at 17,500 files. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
   With fewer than three, it returns none and try-it shows preview tiles instead. The same shared method feeds the search bar's "Try:" suggestions when there is no history; no fixed phrases are used.
-  `ContentSuggestions` caches per-file frequencies by chunk revision. The ready grid opens the in-app viewer; document tiles show a real picture where the platform makes one (iOS Quick Look; an Android provider's thumbnail), else on Android a paper card badged with the file's extension (`DocCard`), never extracted text (`try-previews.md`).
+  `ContentSuggestions` caches per-file frequencies by chunk revision, inside one shared computation per file set: it
+  recounts at most once a second while indexing writes, and its maps go when no screen collects it. The ready grid opens the in-app viewer; document tiles show a real picture where the platform makes one (iOS Quick Look; an Android provider's thumbnail), else on Android a paper card badged with the file's extension (`DocCard`), never extracted text (`try-previews.md`).
 - **Layout.** Try's grid is the shared `FileTile` at one computed size: four cells per row on Android (two past font
   scale 1.3), cell size rounded down to whole pixels so rows never break early, and four flexible columns on iOS. Kind
   pills wrap, and the ready action stays in the bottom inset.

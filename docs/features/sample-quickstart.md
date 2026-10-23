@@ -160,7 +160,7 @@ Home's aggregates. Causes, each fixed at its root:
 - **The counts looked inside every chunk of every file.** `readingCounts` ran four correlated `EXISTS` (each reading
   `content_text` to `trim` it) per file. Now `files.reach` keeps what a file's chunks hold, refreshed by the Store write
   that changes them (`store.md` invariant 11), and the library's counts are one covering scan of `files_by_reach`; the
-  meaning counts come from the same rows. `readContentVersions` (suggestions) reads `chunks_by_file` only.
+  meaning counts come from the same rows. `readContentVersions` (suggestions) reads `chunks_by_file` only, for the newest 300 read files.
 - **The counts held the write lock.** They ran in a SQLDelight transaction, `BEGIN IMMEDIATE` on Android, so the
   reader's writes queued behind them. They now read without one (`store.md` invariant 12).
 - **Home re-read file facts on every read.** `home()` ran a whole `countsNow` for `nameOnly`, and the apps re-ran it with

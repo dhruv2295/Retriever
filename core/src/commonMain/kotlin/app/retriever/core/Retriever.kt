@@ -1395,24 +1395,34 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
-    private val suggestionLock = Mutex()
-    private val contentSuggestions = ContentSuggestions()
+    /** One [suggestions] flow per file set; racing first calls may each make one, and the last one made is kept. */
+    @Volatile
+    private var sharedSuggestions = mapOf<Set<Long>?, Flow<List<String>>>()
 
     /**
-     * Three things to search for from the content of [fileIds] (null: every file read), with document frequencies from
-     * the whole read set; empty when there are not three good ones. Again as files are read, a burst at a time, while
-     * collected. A failed read is logged and answers empty, then the flow ends, as [watched] does: it never reaches a
-     * collector, and a screen waiting on suggestions still draws.
+     * Three things to search for from the content of [fileIds] (null: the newest files read), with document frequencies
+     * from the newest [ContentSuggestions.FILES] files read plus [fileIds]; empty when there are not three good ones.
+     * Again as files are read, at most once a second, while collected. Collectors of one file set share one
+     * computation, and its term maps go when the last one leaves. A failed read is logged and answers empty, then the
+     * flow ends, as [watched] does: it never reaches a collector, and a screen waiting on suggestions still draws.
      */
-    fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = store.countChanges().conflate().map {
-        suggestionLock.withLock {
-            contentSuggestions.refresh(store.readContentVersions(), store::file) { id -> store.chunkTexts(id).mapNotNull { it.text } }
-            contentSuggestions.suggestions(fileIds)
+    fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = sharedSuggestions[fileIds] ?: flow {
+        val terms = ContentSuggestions()
+        store.countChanges().conflate().collect {
+            terms.refresh(store.readContentVersions(ContentSuggestions.FILES, fileIds.orEmpty()), store::file) { id ->
+                store.contentHead(id, ContentSuggestions.CHUNKS)
+            }
+            emit(terms.suggestions(fileIds))
+            // Indexing writes many times a second; the next recount waits, then takes the latest state.
+            delay(1.seconds)
         }
     }.catch {
         log("Suggestions failed", it)
         emit(emptyList())
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+    }.distinctUntilChanged()
+        .flowOn(dispatchers.default)
+        .shareIn(background, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
+        .also { sharedSuggestions = sharedSuggestions + (fileIds to it) }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds
