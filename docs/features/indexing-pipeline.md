@@ -21,9 +21,13 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   during the batch), PAUSED to DONE, DISK_FULL to RETRY. A thrown error is RETRY. Each platform turns `NextRun` into its own
   scheduling call.
   This is the shape of Apple's and Android's "do a slice, then ask to be run again" guidance for deferrable work.
-- **Phone policy in one place.** `IndexEngine.stopReason` is read before every file: Pause, budget, busy (screen on while
-  the app is hidden), heat (`DeviceState.hot`: Android's thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), and charging when the setting or a battery at 20% or less requires it
-  and the app is hidden. Battery Saver also pauses hidden reading before sync, so waiting never walks folders. A visible app reads on battery.
+- **Phone policy in one place.** `ReadingPolicy.blocker` (through the facade's `readingBlocker`, the engine's
+  `policyStop`) is asked before every file and every embed: Pause, Battery Saver, heat (`DeviceState.hot`: Android's
+  thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), a battery at 20% or less off the charger, busy
+  (screen on while the app is hidden), and the charger when the schedule requires it; a few new files and Process for 15
+  minutes carry on while the phone is in use. The engine's own `IndexEngine.stopReason` (Pause, Battery Saver, heat, the
+  charger for tests) is a subset of it. Battery Saver also pauses hidden reading before sync, so waiting never walks
+  folders. A visible app reads on battery.
 - **Per-file loop.** `IndexEngine` pages pending files, extracts, then embeds per piece. Each embed first `awaitUi()`s:
   it suspends while a search runs or the UI is typing or scrolling, so a query waits behind at most one native call.
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.

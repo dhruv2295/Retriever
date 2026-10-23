@@ -63,7 +63,6 @@ class IndexEngine(
     private val monitor: DeviceMonitor,
     private val settings: () -> IndexSettings,
     private val onFile: (FileMetric) -> Unit = {},
-    private val busy: () -> Boolean = { false },
     /** Suspends while the UI needs the model (a search in flight), so indexing never delays a query. */
     private val awaitUi: suspend () -> Unit = {},
     /** The next files to read, e.g. the first run's plan only; empty ends the reading. */
@@ -79,13 +78,14 @@ class IndexEngine(
     private val onCurrent: (SourceFile) -> Unit = {},
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
+    /** The platform's reading policy, asked before every file and every embed; the engine's own [stopReason] is a subset of it. */
     private val policyStop: (() -> StopReason?)? = null,
     /** Asked per file: how many of the next files may be read while this one embeds (see readAhead, [readAheadDepth])? */
     private val readAheadDepth: (DeviceState) -> Int = { 0 },
     private val readAheadContext: CoroutineContext = Dispatchers.Default,
 ) {
-    /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
-    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, deepen: Boolean = false): BatchResult {
+    /** Before every file, [policyStop] and then [stopReason], with the charger required when [requireCharging] (tests, the eval). */
+    suspend fun runBatch(budget: Duration, requireCharging: Boolean = false, deepen: Boolean = false): BatchResult {
         val start = TimeSource.Monotonic.markNow()
         owedGiveBacks.getAndUpdate { emptyList() }.forEach(::giveBack)
         var processed = 0
@@ -123,7 +123,7 @@ class IndexEngine(
                 if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
                 val now = settings()
                 val state = monitor.state()
-                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state)))?.let { return stop(it) }
+                (policyStop?.invoke() ?: stopReason(now, state, requireCharging))?.let { return stop(it) }
                 if (configurationChanged()) return stop(StopReason.BUDGET)
                 if (files.isEmpty()) files += pendingPage()
                 val next = files.removeFirstOrNull()
@@ -323,14 +323,10 @@ class IndexEngine(
         }
     }
 
-    /** A policy that never changes mid-batch (tests, the eval). */
-    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, deepen: Boolean = false) = runBatch(budget, { requireCharging }, deepen)
-
     companion object {
         /** Why a batch must not go on now, or null to carry on: checked before every file. */
-        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean): StopReason? = when {
+        fun stopReason(settings: IndexSettings, state: DeviceState, requireCharging: Boolean): StopReason? = when {
             settings.paused -> StopReason.PAUSED
-            busy -> StopReason.BUSY
             state.powerSave -> StopReason.POWER_SAVE
             state.hot -> StopReason.HOT
             requireCharging && !state.pluggedIn -> StopReason.UNPLUGGED

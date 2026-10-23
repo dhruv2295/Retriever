@@ -699,7 +699,7 @@ class Retriever(
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
             // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use. It covers
-            // being busy and the charger too, so the engine's own busy and charging rules stay off: they would only ask it again.
+            // being busy and the charger too, so the engine's own charger rule stays off: it would only ask it again.
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
             // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
@@ -785,7 +785,7 @@ class Retriever(
                     readAheadContext = dispatchers.readAhead,
                 )
             }
-            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging = false, deepen = deepen)
+            val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen)
             return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
