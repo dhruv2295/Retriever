@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
+import app.retriever.CountingDriver
 import app.retriever.core.Backend
 import app.retriever.core.CoreDispatchers
 import app.retriever.core.DeviceProfile
@@ -651,6 +652,25 @@ class SearchViewModelTest {
         // The same question, answered better: the grid keeps its place.
         assertEquals(before.question, after.question)
         assertEquals(before.answer, after.answer)
+    }
+
+    /** Core's counts query, which runs on every write while reading, is watched only while an empty answer waits for files. */
+    @Test fun theCountsAreWatchedOnlyWhileAnAnswerIsEmpty() = runTest {
+        val driver = object {
+            lateinit var d: CountingDriver
+        }
+        val r = testRetriever(pdfs + photos, dispatchers = core, wrapDriver = { CountingDriver(it).also { c -> driver.d = c } })
+        r.indexBatch(1.minutes)
+        driver.d.subscriptions = 0
+        val vm = vm(r)
+        vm.setQuery("bill")
+        vm.ui.first { it.done && !it.hits.isNullOrEmpty() }
+        advanceUntilIdle()
+        assertEquals("store subscriptions behind an answer", 0, driver.d.subscriptions)
+        vm.setQuery("zzzz")
+        vm.ui.first { it.empty }
+        runCurrent()
+        assertTrue(driver.d.subscriptions > 0)
     }
 
     // --- Races (F082, F083, F001) ---
