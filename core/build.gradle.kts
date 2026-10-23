@@ -50,7 +50,6 @@ kotlin {
             baseName = "RetrieverCore"
             isStatic = true
         }
-        t.binaries.all { linkerOpts("-lsqlite3") }
     }
 
     sourceSets {
