@@ -9,10 +9,13 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.koin.compose.koinInject
 
 // Android 12+ follows the wallpaper. Android 11 (minSdk 30) gets these, picked from the icon: golden amber
@@ -64,20 +67,29 @@ private val WarmDark = darkColorScheme(
     outlineVariant = Color(0xFF4C4639),
 )
 
-/** The Wallpaper colours switch in Settings. Shots pass `dynamic` themselves, since they run without Koin. */
+/**
+ * The Wallpaper colours switch in Settings, and nothing else of the prefs: the scheme is a static composition local, so a
+ * new one recomposes the whole app, and prefs change on every no-match answer. Shots pass `dynamic` themselves, since
+ * they run without Koin.
+ */
 @Composable
-private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean = retriever.prefs.collectAsStateWithLifecycle().value.dynamicColor
+private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean =
+    remember(retriever) { retriever.prefs.map { it.dynamicColor }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(retriever.prefs.value.dynamicColor).value
 
 @Composable
 fun RetrieverTheme(dark: Boolean = isSystemInDarkTheme(), dynamic: Boolean = wallpaperColorsOn(), content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val colors: ColorScheme = when {
-        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // A wallpaper change recreates the activity, so a remembered dynamic scheme is never stale.
+    val colors: ColorScheme = remember(dark, dynamic, context) {
+        when {
+            dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
 
-        dark -> WarmDark
+            dark -> WarmDark
 
-        else -> WarmLight
+            else -> WarmLight
+        }
     }
     MaterialTheme(colorScheme = colors, content = content)
 }
