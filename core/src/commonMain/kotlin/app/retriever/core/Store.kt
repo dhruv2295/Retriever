@@ -239,11 +239,15 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** How many files [sizeCollisions] would return, without reading them. */
     fun sizeCollisionCount(minSize: Long): Long = q.sizeCollisionCount(minSize).executeAsOne()
 
-    /** Every known file by URI, in one query. */
-    fun knownFiles(): Map<String, SourceFile> = q.allFiles(::storedFile).executeAsList().associate { it.file.uri to it.file }
+    /** Every known file by URI. */
+    fun knownFiles(): Map<String, SourceFile> = HashMap<String, SourceFile>().also { map -> eachFile { map[it.file.uri] = it.file } }
 
     /** Every known URI, without building a [SourceFile] per row. */
-    fun knownUris(): Set<String> = q.allUris().executeAsList().toHashSet()
+    fun knownUris(): Set<String> = HashSet<String>().also { set -> eachUri { set += it } }
+
+    private inline fun eachFile(each: (StoredFile) -> Unit) = paged({ after -> q.filesAfter(after, PAGE_ROWS, ::storedFile).executeAsList() }, { it.id }, each)
+
+    private inline fun eachUri(each: (String) -> Unit) = paged({ after -> q.urisAfter(after, PAGE_ROWS).executeAsList() }, { it.id }) { each(it.uri) }
 
     fun fileByUri(uri: String): StoredFile? = q.fileByUri(uri, ::storedFile).executeAsOneOrNull()
 
@@ -255,7 +259,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun fileIds(uris: Collection<String>): List<Long> = inChunks(uris) { q.fileIdsByUris(it).executeAsList() }
 
     /** Every file as the name index keeps it. */
-    fun nameEntries(): List<NameEntry> = q.nameEntries(::nameEntry).executeAsList()
+    fun nameEntries(): List<NameEntry> = buildList { paged({ after -> q.nameEntriesAfter(after, PAGE_ROWS, ::nameEntry).executeAsList() }, { it.id }, ::add) }
 
     fun nameEntries(uris: Collection<String>): List<NameEntry> = inChunks(uris) { q.nameEntriesByUris(it, ::nameEntry).executeAsList() }
 
@@ -455,7 +459,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun vectorCount(): Int = q.vectorCount().executeAsOne().toInt()
 
     /** Vector rows with an id above [afterId], appended onto [into] (or a new table). */
-    fun loadVectors(afterId: Long = 0, into: VectorTable? = null, pageSize: Int = 10_000): VectorTable {
+    fun loadVectors(afterId: Long = 0, into: VectorTable? = null, pageSize: Int = PAGE_ROWS.toInt()): VectorTable {
         var table = into ?: VectorTable.empty()
         var last = afterId
         while (true) {
@@ -863,6 +867,12 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         /** Keyword matches ranked per query; see eval/REPORT.md, "Search speed at scale (wave 4)". */
         internal const val FTS_CAP = 5_000L
 
+        /**
+         * Rows per page of a bulk read. Android refills a 2 MB cursor window by running the query again from its first
+         * row, so a result past one window costs quadratic steps; this many rows of files, names or vectors fit in one.
+         */
+        internal const val PAGE_ROWS = 4_000L
+
         /** Query tokens; the FTS tables fold case and accents themselves with the same unicode61 tokenizer. */
         fun ftsTokens(s: String): List<String> = s.lowercase().split(NON_WORD).filter { it.isNotEmpty() }
 
@@ -894,6 +904,17 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             }
             return score
         }
+    }
+}
+
+/** Every row once, [Store.PAGE_ROWS] at a time, each page read past the last one's id. */
+private inline fun <T> paged(page: (after: Long) -> List<T>, id: (T) -> Long, each: (T) -> Unit) {
+    var after = Long.MIN_VALUE
+    while (true) {
+        val rows = page(after)
+        rows.forEach(each)
+        if (rows.size < Store.PAGE_ROWS) return
+        after = id(rows.last())
     }
 }
 

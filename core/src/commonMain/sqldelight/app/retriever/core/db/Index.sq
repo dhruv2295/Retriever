@@ -127,18 +127,19 @@ SELECT * FROM files WHERE uri = ?;
 fileIdsByUris:
 SELECT id FROM files WHERE uri IN ?;
 
--- Only what the name index keeps, so building it never reads whole rows.
-nameEntries:
-SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files;
+-- Only what the name index keeps, so building it never reads whole rows. The bulk reads page by id: Android re-runs a
+-- query from its first row each time a result outgrows one 2 MB cursor window.
+nameEntriesAfter:
+SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
 nameEntriesByUris:
 SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files WHERE uri IN ?;
 
-allFiles:
-SELECT * FROM files;
+filesAfter:
+SELECT * FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
-allUris:
-SELECT uri FROM files;
+urisAfter:
+SELECT id, uri FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
 fileCount:
 SELECT COUNT(*) FROM files;

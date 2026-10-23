@@ -195,6 +195,19 @@ class StoreTest {
         assertEquals(0L, count(driver, "SELECT COUNT(*) FROM chunks WHERE content_text IS NOT NULL"))
     }
 
+    /** The bulk reads go by id in pages; a page boundary neither drops nor repeats a row. */
+    @Test
+    fun bulkReadsPageThroughEveryRowOnce() {
+        val store = newStore()
+        val files = List(10_001) { testFile("f$it.txt", modifiedAt = it.toLong(), folder = "Docs/${it % 7}") }
+        files.chunked(1_000).forEach(store::upsertFiles)
+        assertEquals(files.associateBy { it.uri }, store.knownFiles())
+        assertEquals(files.map { it.uri }.toSet(), store.knownUris())
+        val names = store.nameEntries()
+        assertEquals(files.size, names.size)
+        assertEquals(files.map { it.name }.toSet(), names.map { it.name }.toSet())
+    }
+
     @Test
     fun resetForModelKeepsContentAndDropsOnlyVectors() {
         val store = newStore(Signature("A"))
