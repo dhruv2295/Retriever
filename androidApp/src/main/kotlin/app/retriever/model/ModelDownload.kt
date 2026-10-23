@@ -13,13 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt (Apache-2.0). Modified for Retriever: DownloadManager request and polling pulled out of the UI into one class, with a free-space check, sha256 verification against the pinned build, pruning of other builds, and Wi-Fi only unless the user allows mobile data.
+// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/ui/common/DownloadAndTryButton.kt (Apache-2.0). Modified for Retriever: DownloadManager request and polling pulled out of the UI into one class, with a free-space check and allocation, sha256 verification against the pinned build, pruning of other builds, and Wi-Fi only unless the user allows mobile data.
 
 package app.retriever.model
 
 import android.app.DownloadManager
 import android.content.Context
 import android.os.StatFs
+import android.os.storage.StorageManager
 import androidx.core.net.toUri
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
@@ -30,10 +31,22 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 
 class ModelDownload(private val context: Context, private val modelDir: File) {
-    data class Progress(val bytes: Long, val total: Long, val done: Boolean, val failed: Boolean, val waitingForWifi: Boolean = false)
+    /** [noSpace]: DownloadManager failed it for space (ERROR_INSUFFICIENT_SPACE). */
+    data class Progress(
+        val bytes: Long,
+        val total: Long,
+        val done: Boolean,
+        val failed: Boolean,
+        val waitingForWifi: Boolean = false,
+        val noSpace: Boolean = false,
+    )
+
+    /** Too little room for the model even after Android cleared other apps' caches. */
+    class NoSpace(cause: Throwable) : IOException("Not enough free space for the model", cause)
 
     companion object {
         /** Covers the index DB's first growth. */
@@ -43,6 +56,7 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
     }
 
     private val downloads = context.getSystemService(DownloadManager::class.java)
+    private val storage = context.getSystemService(StorageManager::class.java)
 
     fun file(b: ModelBuild): File = File(modelDir, b.fileName)
 
@@ -51,24 +65,43 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
     /** Cheap on purpose: size plus the marker that [verify] wrote. No hashing here. */
     fun ready(b: ModelBuild): Boolean = file(b).length() == b.sizeBytes && marker(b).let { it.exists() && it.readText().trim() == b.sha256 }
 
+    /** Free space plus other apps' caches Android can clear for us (getAllocatableBytes); StatFs where the volume has no UUID. */
     fun freeBytes(): Long {
         modelDir.mkdirs()
-        return StatFs(modelDir.path).availableBytes
+        return try {
+            storage.getAllocatableBytes(storage.getUuidForPath(modelDir))
+        } catch (_: IOException) {
+            StatFs(modelDir.path).availableBytes
+        }
     }
 
     fun hasSpaceFor(b: ModelBuild): Boolean = freeBytes() >= neededBytes(b)
 
-    /** Without [Prefs.allowMobileData], DownloadManager holds the download until Wi-Fi (reported as [Progress.waitingForWifi]). */
+    /**
+     * Without [Prefs.allowMobileData], DownloadManager holds the download until Wi-Fi (reported as [Progress.waitingForWifi]).
+     * Throws [NoSpace] when the volume can't make room for it.
+     */
     fun start(b: ModelBuild, prefs: Prefs): Long {
-        check(hasSpaceFor(b)) { "Not enough free space for ${b.fileName}" }
         file(b).let { if (it.exists() && it.length() != b.sizeBytes) it.delete() }
         marker(b).delete()
+        reserve(neededBytes(b))
         val request = DownloadManager.Request(b.url.toUri())
             .setTitle("Retriever search model")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, "models", b.fileName)
             .setAllowedOverMetered(prefs.allowMobileData)
         return downloads.enqueue(request)
+    }
+
+    /** Has Android clear other apps' caches now if [bytes] need their room, so the download doesn't run out of it halfway. */
+    private fun reserve(bytes: Long) {
+        modelDir.mkdirs()
+        try {
+            storage.allocateBytes(storage.getUuidForPath(modelDir), bytes)
+        } catch (e: IOException) {
+            // No UUID for the volume, or not enough room even after clearing: StatFs has the last word.
+            if (StatFs(modelDir.path).availableBytes < bytes) throw NoSpace(e)
+        }
     }
 
     /** Stops download [id] and drops its partial file. */
@@ -107,6 +140,7 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
                         failed = status == DownloadManager.STATUS_FAILED,
                         waitingForWifi = status == DownloadManager.STATUS_PAUSED &&
                             reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI,
+                        noSpace = status == DownloadManager.STATUS_FAILED && reason == DownloadManager.ERROR_INSUFFICIENT_SPACE,
                     )
                 }
             }

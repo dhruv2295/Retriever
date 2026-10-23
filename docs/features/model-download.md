@@ -19,13 +19,19 @@ survive the app being suspended, killed or offline. The model is "ready" only wh
   completion `ModelDownload.verify` streams SHA-256 in 1 MB chunks, writes `<file>.sha256` on a match and deletes the file
   on a mismatch. `ready()` is cheap on purpose: size plus the marker, no hashing. A verified file prunes other model files
   (`prune`), refreshes setup and starts indexing.
-- **Space check first.** `hasSpaceFor` requires the file size plus a 300 MB margin before enqueueing.
+- **Space check first.** `hasSpaceFor` requires the file size plus a 300 MB margin before enqueueing, counted with
+  `StorageManager.getAllocatableBytes` (free space plus other apps' caches Android can clear; `StatFs` where the volume
+  has no UUID). `start` then calls `allocateBytes`, so those caches are cleared before DownloadManager needs the room
+  (developer.android.com/training/data-storage/app-specific#query-free-space). A shortfall, or DownloadManager's
+  `ERROR_INSUFFICIENT_SPACE` mid-download, is a space failure (`Failed.noSpace`): the card says how much room it needs
+  and offers Free up space (`StorageManager.ACTION_MANAGE_STORAGE`) next to Try again.
 - **iOS: a background `URLSession`** (`app.retriever.model`), because iOS suspends or kills the app while a large download
   runs. `handleEventsForBackgroundURLSession` stores the system completion handler; resume data is kept per network rule; the
   Wi-Fi-only rule is enforced by `allowsExpensiveNetworkAccess` on the request. A live task with the same
   `taskDescription` (file name, hash, cellular flag) is adopted instead of starting a second download. The same SHA-256 and
   `.sha256` marker scheme applies, and the file is excluded from backup.
-- **Copy.** Failures say what to do ("The download stopped. Check your connection and try again."), never a code.
+- **Copy.** Failures say what to do ("The download stopped. Check your connection and try again.", or the space needed),
+  never a code.
 
 ## Owner files
 

@@ -88,12 +88,15 @@ class ModelRepository(
     fun start(b: ModelBuild) = launchOnce {
         val running = withContext(Dispatchers.IO) { download.active(b) }
         if (running == null && !download.hasSpaceFor(b)) {
-            _state.value = ModelState.Failed(spaceMessage(b))
+            _state.value = noSpace(b)
             return@launchOnce
         }
         _state.value = ModelState.Downloading(0f, true)
         val id = try {
             running ?: download.start(b, retriever.prefs.value)
+        } catch (_: ModelDownload.NoSpace) {
+            _state.value = noSpace(b)
+            return@launchOnce
         } catch (e: Exception) {
             Log.e("Retriever", "download could not start", e)
             _state.value = ModelState.Failed(STOPPED)
@@ -153,9 +156,11 @@ class ModelRepository(
                 download.remove(id)
                 download.file(b).delete()
             }
-            _state.value = ModelState.Failed(STOPPED)
+            _state.value = if (last?.noSpace == true) noSpace(b) else ModelState.Failed(STOPPED)
         }
     }
+
+    private fun noSpace(b: ModelBuild) = ModelState.Failed(spaceMessage(b), noSpace = true)
 
     /** On a match every other model file goes and set-up is read again; files read by name alone get their meaning. */
     private suspend fun verify(b: ModelBuild, afterDownload: Boolean) {
@@ -181,7 +186,9 @@ sealed interface ModelState {
     data class Downloading(val progress: Float, val indeterminate: Boolean) : ModelState
     data object WaitingForWifi : ModelState
     data object Checking : ModelState
-    data class Failed(val reason: String) : ModelState
+
+    /** [noSpace]: the screen offers Android's storage manager next to Try again. */
+    data class Failed(val reason: String, val noSpace: Boolean = false) : ModelState
     data object Done : ModelState
 }
 

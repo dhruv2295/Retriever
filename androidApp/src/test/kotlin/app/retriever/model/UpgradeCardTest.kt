@@ -1,5 +1,6 @@
 package app.retriever.model
 
+import android.os.storage.StorageManager
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -16,6 +17,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -82,6 +85,17 @@ class UpgradeCardTest {
     @Test fun failedTriesAgain() {
         show("upgrade_failed_light", UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Failed(ModelRepository.STOPPED), sizeBytes = size))
         rule.onNodeWithText(Words.DOWNLOAD_FAILED).assertExists()
+        rule.onAllNodesWithText(Words.FREE_UP_SPACE).assertCountEquals(0)
+        rule.onNodeWithText(Words.TRY_AGAIN).performClick()
+        assertEquals(listOf("download"), calls)
+    }
+
+    @Test fun noSpaceOpensAndroidsStorageManager() {
+        val reason = "Needs 0.7 GB free. Free up some space, then try again."
+        show("upgrade_no_space_light", UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Failed(reason, noSpace = true), sizeBytes = size))
+        rule.onNodeWithText(reason).assertExists()
+        rule.onNodeWithText(Words.FREE_UP_SPACE).performClick()
+        assertEquals(StorageManager.ACTION_MANAGE_STORAGE, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity?.action)
         rule.onNodeWithText(Words.TRY_AGAIN).performClick()
         assertEquals(listOf("download"), calls)
     }

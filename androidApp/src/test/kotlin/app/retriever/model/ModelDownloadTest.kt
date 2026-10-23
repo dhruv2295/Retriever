@@ -2,6 +2,7 @@ package app.retriever.model
 
 import android.app.DownloadManager
 import android.content.Context
+import android.os.storage.StorageManager
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.ModelBuild
 import app.retriever.core.ModelVariant
@@ -11,16 +12,41 @@ import app.retriever.settings.StorageUsage
 import app.retriever.settings.storageUsage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowStorageManager
 import java.io.File
+import java.io.IOException
+import java.util.UUID
+
+/** One volume with [allocatable] bytes, free space plus caches Android may clear; Robolectric has no volumes of its own. */
+@Implements(StorageManager::class)
+class SpaceShadow : ShadowStorageManager() {
+    @Implementation fun getUuidForPath(@Suppress("UNUSED_PARAMETER") path: File): UUID = StorageManager.UUID_DEFAULT
+
+    @Implementation fun getAllocatableBytes(@Suppress("UNUSED_PARAMETER") uuid: UUID): Long = allocatable
+
+    @Implementation fun allocateBytes(@Suppress("UNUSED_PARAMETER") uuid: UUID, bytes: Long) {
+        if (bytes > allocatable) throw IOException("Failed to allocate $bytes")
+        allocated += bytes
+    }
+
+    companion object {
+        var allocatable = 4_000_000_000L
+        var allocated = 0L
+    }
+}
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = android.app.Application::class)
+@Config(sdk = [35], application = android.app.Application::class, shadows = [SpaceShadow::class])
 class ModelDownloadTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val dir = File(context.filesDir, "models")
@@ -30,6 +56,11 @@ class ModelDownloadTest {
     private fun touch(f: File, bytes: Int = 1) = f.apply {
         parentFile!!.mkdirs()
         writeBytes(ByteArray(bytes))
+    }
+
+    @Before fun setUp() {
+        SpaceShadow.allocatable = 4_000_000_000L
+        SpaceShadow.allocated = 0
     }
 
     @Test fun deleteModelRemovesItsFilesOnly() {
@@ -53,8 +84,6 @@ class ModelDownloadTest {
     }
 
     @Test fun startReadsTheMobileDataPref() {
-        dir.mkdirs()
-        org.robolectric.shadows.ShadowStatFs.registerStats(dir, 1_000_000, 900_000, 900_000)
         val dl = ModelDownload(context, dir)
         val b = build("emb_start.litertlm").copy(sizeBytes = 1)
         val manager = shadowOf(context.getSystemService(DownloadManager::class.java))
@@ -62,6 +91,23 @@ class ModelDownloadTest {
         assertTrue(shadowOf(manager.getRequest(id)).allowedOverMetered)
         val id2 = dl.start(b, Prefs())
         assertFalse(shadowOf(manager.getRequest(id2)).allowedOverMetered)
+    }
+
+    /** Other apps' caches count as room: Android clears them for the download (allocateBytes) before it is queued. */
+    @Test fun startClearsCachesForTheModelOrQueuesNothing() {
+        val dl = ModelDownload(context, dir)
+        val b = build("emb_space.litertlm").copy(sizeBytes = 1_000)
+        val manager = shadowOf(context.getSystemService(DownloadManager::class.java))
+        SpaceShadow.allocatable = ModelDownload.neededBytes(b)
+        assertEquals(ModelDownload.neededBytes(b), dl.freeBytes())
+        dl.start(b, Prefs())
+        assertEquals(ModelDownload.neededBytes(b), SpaceShadow.allocated)
+        assertEquals(1, manager.requestCount)
+
+        SpaceShadow.allocatable = ModelDownload.neededBytes(b) - 1
+        assertFalse(dl.hasSpaceFor(b))
+        assertThrows(ModelDownload.NoSpace::class.java) { dl.start(b, Prefs()) }
+        assertEquals(1, manager.requestCount)
     }
 
     @Test fun storageUsageSumsTheDbWithItsWal() {
