@@ -55,10 +55,10 @@ content leaves the phone; only the model download uses the network.
   `THREAD_PRIORITY_BACKGROUND` before its first task; iOS uses a serial dispatch queue at utility QoS. Extraction
   and embedding inherit the caller context. Search and the shared model's own caller keep normal priority. The runtime's native pools
   are started in `MediaPipeEmbedder`'s constructor and on its first inference (the host's warm-up), not on the
-  creating thread's priority, so `lowerNewThreads` (NativeThreads.kt) diffs `/proc/self/task` around both and sets
-  the runtime's new threads to `THREAD_PRIORITY_BACKGROUND`: those carrying a marker name the caller holds during the
-  call (Linux copies it to threads it starts), plus new native threads that named themselves (GPU driver). Threads the
-  JVM runs (coroutine workers, Binder) and HWUI's are shared and keep their priority. A query waits for at most
+  creating thread's priority, so `lowerNewThreads` (NativeThreads.kt) runs both under a marker thread name, diffs
+  `/proc/self/task` around them and sets each new thread that still carries the marker (a native thread starts with
+  its creator's name) to `THREAD_PRIORITY_BACKGROUND`. Threads other code starts meanwhile, such as coroutine workers
+  that later run search, keep their priority. A query waits for at most
   the one native call in flight.
 
 ## Owner files
@@ -101,7 +101,8 @@ content leaves the phone; only the model download uses the network.
 ## Known limits
 
 - No batching: extraction and embedding alternate per file.
-- Shared model pools are lowered once at creation and first inference; threads the runtime starts later stay at normal priority. Vendor-created OCR thread priorities and GPU
+- Shared model pools are lowered once at creation and first inference; threads the runtime starts later, and runtime or
+  driver threads that rename themselves, stay at normal priority. Vendor-created OCR thread priorities and GPU
   scheduling still require device measurement. Tune measures display stalls and moves foreground vision to CPU where needed.
 - Query latency has no on-device number; inputs may be padded to the signature length, so a short query may cost a full
   window. Device queue: measure query time on GPU and CPU before choosing a backend by query time instead of image time.

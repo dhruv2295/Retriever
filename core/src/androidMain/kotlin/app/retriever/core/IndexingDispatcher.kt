@@ -4,6 +4,8 @@ import android.os.Process
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 actual val indexingDispatcher: CoroutineDispatcher by lazy { newIndexingDispatcher() }
@@ -11,13 +13,19 @@ actual val indexingDispatcher: CoroutineDispatcher by lazy { newIndexingDispatch
 /** Extraction read ahead of the embedding file, at the same background priority: a thread per file it may read ahead. */
 val readAheadDispatcher: CoroutineDispatcher by lazy { newIndexingDispatcher(ThermalRest.MAX_READ_AHEAD, "Retriever-ahead") }
 
+/** ML Kit's OCR and labeling, at the same background priority; by default they run on ML Kit's own pool at normal priority. */
+internal val mlKitExecutor: Executor by lazy { backgroundPool(2, "Retriever-mlkit") }
+
 /** The app keeps one for its process; isolated hosts can close their executor when finished. */
-fun newIndexingDispatcher(threads: Int = 1, name: String = "Retriever-index"): ExecutorCoroutineDispatcher = Executors.newFixedThreadPool(threads) { work ->
+fun newIndexingDispatcher(threads: Int = 1, name: String = "Retriever-index"): ExecutorCoroutineDispatcher =
+    backgroundPool(threads, name).asCoroutineDispatcher()
+
+private fun backgroundPool(threads: Int, name: String): ExecutorService = Executors.newFixedThreadPool(threads) { work ->
     Thread({
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
         work.run()
     }, name).apply { isDaemon = true }
-}.asCoroutineDispatcher()
+}
 
 private val exclusiveLock = Any()
 

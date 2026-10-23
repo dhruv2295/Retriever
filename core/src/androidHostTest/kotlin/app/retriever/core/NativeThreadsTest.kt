@@ -2,62 +2,75 @@ package app.retriever.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class NativeThreadsTest {
     private val background = 10 // android.os.Process.THREAD_PRIORITY_BACKGROUND
 
-    private val names = mutableMapOf<Int, String>()
-    private val renames = mutableListOf<String>()
-    private var current = "caller"
-
-    private fun rename(name: String): String = current.also {
-        current = name
-        renames += name
-    }
-
     @Test
-    fun lowersOnlyTheRuntimesThreadsAndToleratesExits() {
+    fun lowersOnlyTheThreadsTheBlockStartedAndToleratesExits() {
         val snapshots = ArrayDeque(listOf(listOf(1, 2), listOf(1, 2, 3, 4, 5, 6, 7, 8)))
+        val names = mutableMapOf(
+            1 to "main",
+            2 to "Retriever-index",
+            5 to "mali-cmar-backe",
+            6 to "DefaultDispatch",
+            7 to "binder:1_3",
+            8 to "RenderThread",
+        )
         val lowered = mutableListOf<Pair<Int, Int>>()
+        val caller = Thread.currentThread().name
         val result = lowerNewThreads(
             tasks = { snapshots.removeFirst() },
-            nameOf = { tid -> names[tid] },
-            javaNames = { setOf("DefaultDispatch", "binder:1_3") },
-            rename = ::rename,
+            name = { names[it] },
             setPriority = { tid, p -> if (tid == 4) throw IllegalArgumentException("gone") else lowered += tid to p },
         ) {
-            val marker = current
-            names += mapOf(3 to marker, 4 to marker, 5 to "mali-cmar-backe", 6 to "DefaultDispatch", 7 to "binder:1_3", 8 to "RenderThread")
+            // Native threads take the name of the thread that starts them.
+            val marker = Thread.currentThread().name
+            assertNotEquals(caller, marker)
+            names[3] = marker
+            names[4] = marker
             "ok"
         }
         assertEquals("ok", result)
-        // 3: a pool started under the marker; 5: a native thread that named itself. 6-8 are shared and stay as they were.
-        assertEquals(listOf(3 to background, 5 to background), lowered)
-        assertEquals("caller", current, "the caller gets its name back")
+        assertEquals(caller, Thread.currentThread().name, "the caller gets its name back")
+        // 5 named itself (a GPU driver thread, maybe HWUI's); 6-8 are shared JVM, Binder and HWUI threads other code
+        // started meanwhile: none is the runtime's.
+        assertEquals(listOf(3 to background), lowered)
     }
 
     @Test
     fun aPoolStartedFromASharedWorkerIsStillOwned() {
-        current = "DefaultDispatch"
-        val snapshots = ArrayDeque(listOf(listOf(1), listOf(1, 9)))
-        val lowered = mutableListOf<Int>()
-        lowerNewThreads({ snapshots.removeFirst() }, { names[it] }, { setOf("DefaultDispatch") }, ::rename, { tid, _ -> lowered += tid }) {
-            names[9] = current
+        val thread = Thread.currentThread()
+        val own = thread.name
+        thread.name = "DefaultDispatch"
+        try {
+            val snapshots = ArrayDeque(listOf(listOf(1), listOf(1, 9)))
+            val names = mutableMapOf(1 to "DefaultDispatch")
+            val lowered = mutableListOf<Int>()
+            lowerNewThreads({ snapshots.removeFirst() }, { names[it] }, { tid, _ -> lowered += tid }) {
+                names[9] = Thread.currentThread().name
+            }
+            assertEquals(listOf(9), lowered)
+            assertEquals("DefaultDispatch", thread.name)
+        } finally {
+            thread.name = own
         }
-        assertEquals(listOf(9), lowered)
     }
 
     @Test
     fun lowersThreadsStartedBeforeABlockFailure() {
-        val snapshots = ArrayDeque(listOf(listOf(1), listOf(1, 9)))
+        val snapshots = ArrayDeque(listOf(listOf(1), listOf(1, 8, 9)))
+        var marker = ""
         val lowered = mutableListOf<Int>()
+        val caller = Thread.currentThread().name
         runCatching {
-            lowerNewThreads({ snapshots.removeFirst() }, { names[it] }, { emptySet() }, ::rename, { tid, _ -> lowered += tid }) {
-                names[9] = current
+            lowerNewThreads({ snapshots.removeFirst() }, { if (it == 9) marker else "binder:42_3" }, { tid, _ -> lowered += tid }) {
+                marker = Thread.currentThread().name
                 error("open failed")
             }
         }
         assertEquals(listOf(9), lowered)
-        assertEquals("caller", current)
+        assertEquals(caller, Thread.currentThread().name)
     }
 }

@@ -75,6 +75,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.core.ktx)
             implementation(libs.sqldelight.android.driver)
+            implementation(libs.kotlinx.coroutines.play.services)
             implementation(libs.mediapipe.tasks.retrieval)
             implementation(libs.litertlm.android)
             implementation(libs.mlkit.image.labeling)
