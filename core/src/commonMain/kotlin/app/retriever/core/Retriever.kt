@@ -989,7 +989,8 @@ class Retriever(
      */
     private suspend fun planLocked(budget: Duration): Pair<TastePlan, Job> {
         val planned = CompletableDeferred<TastePlan>()
-        val rest = background.launch {
+        // The scan and its writes block (a full listing, PhotoKit on iOS): on io, not one of default's few threads.
+        val rest = background.launch(dispatchers.io) {
             try {
                 synced(sync.sync(first = { scanned -> planned.complete(plan(scanned, budget)) }))
                 if (!planned.isCompleted) planned.complete(plan(store.knownFiles().values, budget))
