@@ -60,7 +60,10 @@ class IndexWorker(
     private val calibrator: Calibrator,
 ) : CoroutineWorker(context, params) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
-    private val notificationId: Int = params.id.hashCode()
+
+    // One id for every run: two runs that overlap (a session and a scheduled run, one waiting for the other's lock) showed two
+    // identical notifications when each used its own work id.
+    private val notificationId: Int = Notifications.PROGRESS_ID
     private val pauseIntent by lazy {
         PendingIntent.getBroadcast(
             applicationContext,
@@ -109,7 +112,13 @@ class IndexWorker(
 
                 // A foreground service has no 10 minute limit (WorkManager stops it at Android 15's FGS timeout): on a
                 // charger or in front, batches follow each other here, resting as restBefore says; heat polls until the phone cools.
-                fun holds() = IndexService.holdsForeground(next, retriever.prefs.value.paused, retriever.uiVisible, retriever.deviceState().pluggedIn)
+                // Process for 15 minutes holds the service on battery too, for the session it promised.
+                fun holds() = IndexService.holdsForeground(
+                    next,
+                    retriever.prefs.value.paused,
+                    retriever.uiVisible,
+                    retriever.deviceState().pluggedIn || retriever.prefs.value.readNowUntil > System.currentTimeMillis(),
+                )
                 while (foreground && holds()) {
                     val lastStop = retriever.state.value.lastStop
                     delay(IndexService.restBefore(next, lastStop))

@@ -81,6 +81,9 @@ object Notifications {
 
     private const val DEMO_DONE_ID = 2
 
+    /** Processing's one notification, shared by every run. */
+    const val PROGRESS_ID = 1
+
     fun cancelSample(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(DEMO_DONE_ID)
 
     const val OPEN_STATUS = "app.retriever.OPEN_READING_STATUS"

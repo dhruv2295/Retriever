@@ -70,9 +70,12 @@ class IndexWorkerTest {
 
     @After fun stop() = stopKoin()
 
-    /** Counts the run's foreground-service starts. */
-    private val countingUpdater = ForegroundUpdater { _, _, _ ->
+    private val notificationIds = java.util.Collections.synchronizedList(mutableListOf<Int>())
+
+    /** Counts the run's foreground-service starts and keeps each one's notification id. */
+    private val countingUpdater = ForegroundUpdater { _, _, info ->
         foregrounds.incrementAndGet()
+        notificationIds += info.notificationId
         CallbackToFutureAdapter.getFuture { it.set(null) }
     }
 
@@ -169,6 +172,16 @@ class IndexWorkerTest {
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertFalse(model.closed)
         assertEquals(1, queued(CONTINUE).size)
+    }
+
+    /** Two runs that overlap share one notification instead of showing two identical ones. */
+    @Test fun everyRunUsesTheOneProcessingNotification() {
+        repeat(2) {
+            val retriever = testRetriever(files = listOf(testFile("a$it.txt", Kind.DOC)), ramGb = 3.0)
+            runBlocking { worker(retriever, charger = true).doWork() }
+            stopKoin()
+        }
+        assertEquals(listOf(Notifications.PROGRESS_ID, Notifications.PROGRESS_ID), notificationIds.toList())
     }
 
     /** Hidden on a charger, a run holding its foreground service starts the next batch itself instead of a follow-up. */
