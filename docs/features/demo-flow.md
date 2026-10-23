@@ -5,6 +5,7 @@
 > The welcome's paragraphs are replaced by Hello. The model download is now part of setup (this doc's "Leave out" item
 > on it is reversed). The count rule, the pile and the demo's search below still hold. The demo's time left is gone
 > (`TasteProgress.secondsLeft`, `Words.demoNote` and the wall clock behind them): no screen of the redesign shows it.
+> Nor do `DEMO_PICKING_NOTE`, `demoDone`, `SEARCH_DEMO` and `demoEnded`, which are gone from `Words` too.
 
 **Pick.** Design 1's shape: the demo and its search on one screen, Continue pinned at the bottom, the grid gone, the
 number of files fixed when they are picked, one count rule from the demo to Home. **Grafted from Design 2:** a welcome

@@ -116,10 +116,6 @@ class SetupTest {
     }
 
     @Test fun newSentences() {
-        val nb = Words.NBSP
-        assertEquals("12 files · 640${nb}MB", Words.countAndSize(FileTotals(12, 640, 0), "640 MB"))
-        assertEquals("12 files · At least 1.8${nb}GB", Words.countAndSize(FileTotals(12, 1800, 3), "1.8 GB"))
-        assertEquals("8 files · Size unavailable", Words.countAndSize(FileTotals(8, 0, 8), "Zero KB"))
         assertEquals("3 of 7 photos processed", Words.kindRead(3, 7, Kind.PHOTO))
         assertEquals("1 of 2 PDFs processed", Words.kindRead(1, 2, Kind.PDF))
         assertEquals("Adding search by description · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
@@ -135,9 +131,6 @@ class SetupTest {
         assertNull(Words.upgradeHint(0, UpgradeStage.UNAVAILABLE))
         assertEquals("Setting up processing for this iPhone", Words.tuneTitle(DeviceWords.ios("iPhone")))
         assertEquals("Couldn’t finish setting up processing for this phone.", Words.tuneFailed(android))
-        assertEquals("Documents and PDFs", Words.documentsTitle(2, 3))
-        assertEquals("PDFs", Words.documentsTitle(2, 0), "PDFs alone are never titled Documents")
-        assertEquals("Documents", Words.documentsTitle(0, 3))
         assertTrue(Words.wordsOnly(textOnly = true, modelMissing = false, setUp = true), "a phone too small for the model")
         assertTrue(Words.wordsOnly(textOnly = false, modelMissing = true, setUp = false))
         assertTrue(Words.wordsOnly(textOnly = false, modelMissing = false, setUp = false), "downloaded, not tuned yet")

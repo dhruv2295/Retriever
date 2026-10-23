@@ -21,11 +21,6 @@ stop	MANUAL	iphone	Processing only when you start it
 stop	DISK_FULL	iphone	Paused, your iPhone is full
 stop	DONE	iphone	Taking a short break
 stop	BUDGET	iphone	Taking a short break
-kindProgress	PDF,DOC	DOC	DOC=3,PDF=5	3	3 to go
-kindProgress	PDF,DOC		PDF=5	5	Found by name
-kindProgress	PHOTO	PHOTO		0	
-kindProgress	PHOTO	PHOTO	PHOTO=50	0	
-kindProgress	SCREENSHOT	SCREENSHOT	SCREENSHOT=1200	1200	1,200 to go
 spoken	p. 12	page 12
 spoken	1:05	at 1 minute 5 seconds
 spoken	1:00:01	at 1 hour 1 second

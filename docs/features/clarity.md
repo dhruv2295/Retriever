@@ -93,8 +93,11 @@ Removed (nothing used them, or their surface is cut): `inLibrary`, `MORE_ON_PHON
 `READING_NOW`, `closestIn`, `searchHint`, `sizeUnavailableFor`, `waitingToRead`, `moreFiles`, `welcomeBody`.
 Also removed in the review pass: `WORDS_ONLY` (search shows no "Words only" label; the download hint under few results
 stays), `NAME_SEARCH_HINT`, `YOUR_FILES`, `Prefs.nameSearchHintDismissed`/`scheduleOfferDismissed` and their
-`Retriever.dismiss*` calls (old saved prefs still load: the JSON ignores unknown keys). Still used: `documentsTitle`,
-`addingMeaning` (the card's MEANING stage). `NBSP` is written `'\u00A0'` so an editor can't turn it into a space; the
+`Retriever.dismiss*` calls (old saved prefs still load: the JSON ignores unknown keys). Still used: `addingMeaning` (the
+card's MEANING stage). Removed after the setup redesign, which left them with no caller: `kindProgress` (and its fixture
+rows), `stillReading`, `documentsTitle`, `countAndSize`, the earlier access copy (`SEARCH_WHOLE_PHONE`,
+`WHOLE_PHONE_READY`, `CHOOSE_INSTEAD`, `SEARCH_ALL_PHOTOS`, `ADD_FOLDERS_FROM_FILES`, `CHOOSE_MORE_PHOTOS`,
+`ONLY_SELECTED_PHOTOS`) and the demo's `DEMO_PICKING_NOTE`, `demoNote`, `demoDone`, `SEARCH_DEMO` and `demoEnded`. `NBSP` is written `'\u00A0'` so an editor can't turn it into a space; the
 fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the files" while the plan can still shrink.
 `wholeDeviceNote` and `iosAccessNote` no longer end "Nothing leaves your phone" (the welcome's line above says it).
 `readingLabel` values start "Its name." where they said "Name only.".
