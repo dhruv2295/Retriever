@@ -33,6 +33,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.UUID
 
 class ModelDownload(private val context: Context, private val modelDir: File) {
     /** [noSpace]: DownloadManager failed it for space (ERROR_INSUFFICIENT_SPACE). */
@@ -65,15 +66,19 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
     /** Cheap on purpose: size plus the marker that [verify] wrote. No hashing here. */
     fun ready(b: ModelBuild): Boolean = file(b).length() == b.sizeBytes && marker(b).let { it.exists() && it.readText().trim() == b.sha256 }
 
-    /** Free space plus other apps' caches Android can clear for us (getAllocatableBytes); StatFs where the volume has no UUID. */
-    fun freeBytes(): Long {
-        modelDir.mkdirs()
-        return try {
-            storage.getAllocatableBytes(storage.getUuidForPath(modelDir))
-        } catch (_: IOException) {
-            StatFs(modelDir.path).availableBytes
-        }
+    /** The model folder's volume; null when it has no UUID, where StatFs stands in. */
+    private fun volume(): UUID? = try {
+        storage.getUuidForPath(modelDir.apply { mkdirs() })
+    } catch (_: IOException) {
+        null
     }
+
+    /** Free space plus other apps' caches Android can clear for us (getAllocatableBytes); StatFs where the volume has no UUID. */
+    fun freeBytes(): Long = try {
+        volume()?.let(storage::getAllocatableBytes)
+    } catch (_: IOException) {
+        null
+    } ?: StatFs(modelDir.path).availableBytes
 
     fun hasSpaceFor(b: ModelBuild): Boolean = freeBytes() >= neededBytes(b)
 
@@ -93,14 +98,21 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
         return downloads.enqueue(request)
     }
 
-    /** Has Android clear other apps' caches now if [bytes] need their room, so the download doesn't run out of it halfway. */
+    /**
+     * Has Android clear other apps' caches now if [bytes] need their room, so the download doesn't run out of it halfway.
+     * Its refusal stands: StatFs ignores the low-storage reserve, below which every index run waits.
+     */
     private fun reserve(bytes: Long) {
-        modelDir.mkdirs()
+        val id = volume()
+        if (id == null) {
+            val free = StatFs(modelDir.path).availableBytes
+            if (free < bytes) throw NoSpace(IOException("$free bytes free, $bytes needed"))
+            return
+        }
         try {
-            storage.allocateBytes(storage.getUuidForPath(modelDir), bytes)
+            storage.allocateBytes(id, bytes)
         } catch (e: IOException) {
-            // No UUID for the volume, or not enough room even after clearing: StatFs has the last word.
-            if (StatFs(modelDir.path).availableBytes < bytes) throw NoSpace(e)
+            throw NoSpace(e)
         }
     }
 

@@ -22,7 +22,8 @@ survive the app being suspended, killed or offline. The model is "ready" only wh
 - **Space check first.** `hasSpaceFor` requires the file size plus a 300 MB margin before enqueueing, counted with
   `StorageManager.getAllocatableBytes` (free space plus other apps' caches Android can clear; `StatFs` where the volume
   has no UUID). `start` then calls `allocateBytes`, so those caches are cleared before DownloadManager needs the room
-  (developer.android.com/training/data-storage/app-specific#query-free-space). A shortfall, or DownloadManager's
+  (developer.android.com/training/data-storage/app-specific#query-free-space); its refusal stands, as StatFs would ignore
+  the low-storage reserve every index run waits above. A shortfall, or DownloadManager's
   `ERROR_INSUFFICIENT_SPACE` mid-download, is a space failure (`Failed.noSpace`): the card says how much room it needs
   and offers Free up space (`StorageManager.ACTION_MANAGE_STORAGE`) next to Try again. Every Android surface of it does the
   same (`FreeUpSpaceButton`): setup's line under the first search, and Home's one-time card and status line, whose title
