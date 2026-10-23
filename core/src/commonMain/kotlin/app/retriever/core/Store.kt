@@ -302,10 +302,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             q.chunkIdsForFile(fileId).executeAsList().forEach { q.deleteFts(it) }
             q.deleteChunksForFile(fileId)
             for (c in chunks) {
-                q.insertChunk(
-                    fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
-                    c.contentText, c.labels, if (c.visual) 1L else 0L,
-                )
+                insertChunk(fileId, c.ordinal.toLong(), c)
                 val chunkId = q.lastId().executeAsOne()
                 if (c.text != null || c.labels != null) q.insertFts(chunkId, c.text, c.labels)
             }
@@ -375,8 +372,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun splitTailChunk(id: Long, parts: List<String>) {
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
+            // A part of the file's own words stays content; a chunk whose content differs from its text has none to split.
             for (text in parts) {
-                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text }, c.labels, 0L)
+                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, null, c.labels, 0L, c.content)
                 q.insertFts(q.lastId().executeAsOne(), text, c.labels)
             }
             q.deleteFts(id)
@@ -392,14 +390,22 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (n in chunks) {
-                val v = n.vector
-                q.insertChunk(c.file_id, c.ordinal, n.locator, n.text, v?.bytes, v?.scale?.toDouble(), n.contentText, n.labels, if (n.visual) 1L else 0L)
+                insertChunk(c.file_id, c.ordinal, n)
                 if (n.text != null || n.labels != null) q.insertFts(q.lastId().executeAsOne(), n.text, n.labels)
             }
             q.deleteFts(id)
             q.deleteChunk(id)
             q.refreshReach(listOf(c.file_id))
         }
+    }
+
+    /** Content that is the chunk's own text is stored as a flag, not as a second copy of it. */
+    private fun insertChunk(fileId: Long, ordinal: Long, c: NewChunk) {
+        val own = c.contentText != null && c.contentText == c.text
+        q.insertChunk(
+            fileId, ordinal, c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
+            c.contentText.takeUnless { own }, c.labels, if (c.visual) 1L else 0L, if (own) 1L else 0L,
+        )
     }
 
     internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
@@ -424,7 +430,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         check(vector.signature == signature()) { "vector signature ${vector.signature.value} does not match index" }
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
-            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual)
+            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual, c.content)
             val newId = q.lastId().executeAsOne()
             q.deleteFts(id)
             q.deleteChunk(id)
