@@ -101,6 +101,7 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 ## Runtime libraries
 
 Every group in the `:androidApp` `releaseRuntimeClasspath` (from `./gradlew :androidApp:dependencies --configuration releaseRuntimeClasspath`),
+every group linked into the iOS framework (`./gradlew :core:dependencies --configuration iosArm64CompileKlibraries`),
 and every pin in the iOS `Package.resolved`. Licences are read from each artifact's POM in the Gradle cache. Groups marked
 "upstream" had no POM cached, so the licence is the upstream project's. `scripts/verify.sh` fails when a group is missing from this list.
 
