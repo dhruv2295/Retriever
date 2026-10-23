@@ -129,14 +129,12 @@ enum IndexTask {
         }
         task.progress.totalUnitCount = 1
         monitor.continued = true
-        let pending = OSAllocatedUnfairLock(initialState: 1)
         // Pending at the first snapshot: progress counts this read, not the whole library.
         let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
         let progress = retriever.observeAll { @Sendable snapshot in
             let snap = AppModel.Snap(snapshot)
             // Later passes are left out: with the screen on in another app they do not run, so they would hold the bar short.
             let waiting = snap.pending + snap.rereads
-            pending.withLock { $0 = waiting }
             let total = max(
                 start.withLock {
                     $0 = $0 ?? waiting
@@ -148,16 +146,26 @@ enum IndexTask {
         }
         Task {
             var next = NextRun.soon
+            var failed = false
             while next == NextRun.soon, !expired.withLock({ $0 }) {
-                next = (try? await retriever.continuedBatchSeconds(seconds: 120)) ?? NextRun.afterCooldown
+                do {
+                    next = try await retriever.continuedBatchSeconds(seconds: 120)
+                } catch {
+                    log.error("continued batch failed: \(error, privacy: .private)")
+                    failed = true
+                    next = NextRun.afterCooldown
+                }
             }
             progress.close()
             monitor.continued = false
-            // Stopped early (too hot, or out of time) with files still waiting: not a finished read.
-            let ok = !expired.withLock { $0 } && pending.withLock { $0 } == 0
+            // Only an error or iOS cutting it off is a failure. Its 15 minutes ending, or a stop for heat or battery, ends the
+            // read as planned: iOS shows "Failed" for success false, and the files still waiting are read later.
+            let ok = !expired.withLock { $0 } && !failed
             if !monitor.active { try? await retriever.release() }
             task.setTaskCompleted(success: ok)
-            log.info("continued reading ended: \(next.name, privacy: .public), success \(ok, privacy: .public)")
+            log.info(
+                "continued reading ended: \(next.name, privacy: .public), stop \(retriever.stateNow.lastStop?.name ?? "none", privacy: .public), success \(ok, privacy: .public)"
+            )
             DispatchQueue.main.async { NotificationCenter.default.post(name: ended, object: continuedId) }
         }
     }
