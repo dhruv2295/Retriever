@@ -11,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class IosExtractorTest {
@@ -32,7 +33,10 @@ class IosExtractorTest {
             afterFrame()
             return scanned
         }
-        override fun imageJpeg(uri: String, maxSide: Int): NSData? = error("unexpected image")
+        override fun imageJpeg(uri: String, maxSide: Int): NSData? {
+            afterFrame()
+            return null
+        }
         override fun pdfPageCount(uri: String): Int = error("unexpected PDF")
         override fun pdfPageText(uri: String, page: Int): String? = ""
         override fun pdfPageJpeg(uri: String, page: Int, maxSide: Int): NSData? = error("unexpected PDF")
@@ -68,6 +72,19 @@ class IosExtractorTest {
         val job = Job()
         assertFailsWith<CancellationException> { withContext(job) { IosExtractor(Frames(afterFrame = { job.cancel() })).extract(photo, profile) } }
         Unit
+    }
+
+    /** The deepen pass's image read ended by an expiry is a stop too, not a chunk with no image. */
+    @Test fun aStoppedImageReadIsAStop() = runBlocking {
+        val job = Job()
+        var returned = false
+        assertFailsWith<CancellationException> {
+            withContext(job) {
+                IosExtractor(Frames(afterFrame = { job.cancel() })).visual(photo, "")
+                returned = true
+            }
+        }
+        assertFalse(returned)
     }
 
     /** A spreadsheet export saved on Windows: Latin-1 bytes, which UTF-8 would show as replacement characters. */

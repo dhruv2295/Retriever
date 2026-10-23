@@ -71,7 +71,8 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
             Kind.VIDEO -> native.videoFrameJpeg(file.uri, Locator.msOf(locator) ?: return null, EMBED_PX)
             else -> null
         }
-        return bytes?.let { Part.Image(it.toByteArray()) }
+        // A read stopped meanwhile gives nothing; that is a stop, which gives the try back, not a chunk with no image.
+        return bytes?.let { Part.Image(it.toByteArray()) }.also { currentCoroutineContext().ensureActive() }
     }
 
     // A locked PDF reports -1 and leaves the file to its name chunk. One pool per page: the whole file is one

@@ -98,9 +98,9 @@ final class CopyTests: XCTestCase {
     func testTuneSummary() {
         XCTAssertEqual(Copy.tuneSummary(Backend.gpu, imageMs: nil), "Using the graphics chip")
         XCTAssertEqual(Copy.tuneSummary(Backend.cpu, imageMs: nil), "Using the processor")
-        XCTAssertEqual(Copy.tuneSummary(Backend.cpu, imageMs: 410), "Using the processor · about 0.4 sec per photo")
-        XCTAssertEqual(Copy.tuneSummary(Backend.gpu, imageMs: 1_250), "Using the graphics chip · about 1.2 sec per photo")
-        XCTAssertEqual(Copy.tuneSummary(Backend.gpu, imageMs: 1_250, locale: Locale(identifier: "ar_EG")), "Using the graphics chip · about ١٫٢ ث per photo")
+        XCTAssertEqual(Copy.tuneSummary(Backend.cpu, imageMs: 410), "Using the processor · about 0.4 s per photo")
+        XCTAssertEqual(Copy.tuneSummary(Backend.gpu, imageMs: 1_250), "Using the graphics chip · about 1.2 s per photo")
+        XCTAssertTrue(Copy.tuneSummary(Backend.gpu, imageMs: 1_250, locale: Locale(identifier: "ar_EG")).contains("١٫٢"), "in the person's digits")
     }
 
     func testAddFolderResult() {

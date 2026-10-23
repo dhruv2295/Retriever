@@ -262,7 +262,7 @@ extension AppModel {
         }
     }
 
-    /// The newest ten photos at 512 px, never fetched from iCloud; the illustrations when there are none.
+    /// The newest ten photos at the model's size, never fetched from iCloud; the illustrations when there are none.
     nonisolated private static func calibrationImages(_ services: AppServices) -> [Data] {
         var images: [Data] = []
         if services.photos.isReady {
@@ -270,7 +270,7 @@ extension AppModel {
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
             options.fetchLimit = 10
             PHAsset.fetchAssets(with: .image, options: options).enumerateObjects { asset, _, _ in
-                if let jpeg = services.extractor.imageJpeg(uri: "ph://\(asset.localIdentifier)", maxSide: 512) { images.append(jpeg) }
+                if let jpeg = services.extractor.imageJpeg(uri: "ph://\(asset.localIdentifier)", maxSide: FileExtractor.embedSide) { images.append(jpeg) }
             }
         }
         if images.isEmpty {

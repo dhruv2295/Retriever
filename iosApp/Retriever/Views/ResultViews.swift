@@ -304,11 +304,17 @@ struct SharedAsset: Transferable {
         else { throw CocoaError(.fileNoSuchFile) }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(PhotosSource.filename(resource) ?? "Photo")
+        let url = dir.appendingPathComponent(PhotosSource.filename(resource) ?? Self.unnamed(resource))
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
         try await PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options)
         return url
+    }
+
+    /// iOS 27's resource may have no file name: one with its type's extension, so the receiver can open it.
+    private static func unnamed(_ resource: PHAssetResource) -> String {
+        guard #available(iOS 26.0, *), let ext = resource.contentType.preferredFilenameExtension else { return "Photo.jpg" }
+        return "Photo.\(ext)"
     }
 }
 

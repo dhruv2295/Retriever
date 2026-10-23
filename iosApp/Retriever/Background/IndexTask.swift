@@ -52,9 +52,6 @@ enum IndexTask {
 
     /// Off the main thread, as iOS 27's submit asks.
     @concurrent private static func reschedule() async {
-        // Submitting an identifier this process never registered raises an exception `try` can't catch: the unit-test
-        // host skips register(), and a Settings toggle there crashed it.
-        guard services != nil else { return }
         do {
             try await submit(processingRequest())
             log.info("background reading scheduled")
@@ -64,7 +61,11 @@ enum IndexTask {
     }
 
     /// iOS 27's submit reports every error, including a continued read iOS won't start now (ImmediateRunIneligible).
-    private static func submit(_ request: BGTaskRequest) async throws {
+    /// Nothing before register(): submitting an identifier this process never registered raises an exception `try`
+    /// can't catch (the unit-test host skips register(), and a Settings toggle there crashed it). A test swaps this to
+    /// see what is submitted, and when.
+    nonisolated(unsafe) static var submit: @Sendable (BGTaskRequest) async throws -> Void = { request in
+        guard IndexTask.services != nil else { return }
         if #available(iOS 27.0, *) {
             try await BGTaskScheduler.shared.submitTaskRequest(request)
         } else {
@@ -92,13 +93,14 @@ enum IndexTask {
     /// The expiration handler: Swift cancellation doesn't reach the Kotlin coroutine, so this stops the batch within
     /// one file and ends the native reads in flight, and runBatch then completes the task. A read that outlasts that
     /// (an iCloud fetch, a long OCR) can't hold the task past its time: `complete` reports failure after a short grace,
-    /// and the batch's own completion is then a no-op.
-    static func expire(_ complete: Completion? = nil) {
+    /// and the batch's own completion is then a no-op. The next run is submitted here first: a run uses up its
+    /// request, and the batch's own submit may come after the grace timer, too late.
+    static func expire(_ complete: Completion) {
         log.info("background time is up; stopping the batch")
         expired.withLock { $0 = true }
         services?.retriever.cancelBatch()
         services?.extractor.cancelInFlight()
-        guard let complete else { return }
+        schedule()
         DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(2)) {
             if complete(false) { log.notice("background task completed after the grace period") }
         }

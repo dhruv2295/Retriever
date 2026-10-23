@@ -101,11 +101,9 @@ enum Copy {
 
     static func tuneSummary(_ backend: Backend, imageMs: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         let chip = backend == Backend.gpu ? "the graphics chip" : "the processor"
-        let seconds = imageMs.map {
-            Measurement(value: $0 / 1000, unit: UnitDuration.seconds)
-                .formatted(.measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(1))).locale(locale))
-        }
-        return "Using \(chip)\(seconds.map { " · about \($0) per photo" } ?? "")"
+        // Android's words ("about 1.2 s"), in the person's digits as Android's format gives them.
+        let seconds = imageMs.map { ($0 / 1000).formatted(.number.precision(.fractionLength(1)).locale(locale)) }
+        return "Using \(chip)\(seconds.map { " · about \($0) s per photo" } ?? "")"
     }
 
     static let backgroundNote =
