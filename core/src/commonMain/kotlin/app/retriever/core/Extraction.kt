@@ -28,6 +28,7 @@ const val OCR_SHORT_PX = 1080
  * Windows-1252, which decodes every byte, as Latin-1 files and spreadsheets saved on Windows are. Zero bytes no UTF-16
  * explains are not text: empty, never garbage.
  * ponytail: other legacy encodings (Shift-JIS, GBK) without a mark read as Windows-1252; a charset detector if they show up.
+ * Android's ICU CharsetDetector is not in the SDK (android.jar has no android.icu.text.CharsetDetector), so that means a library.
  */
 fun decodeText(bytes: ByteArray): String {
     fun byte(i: Int) = bytes[i].toInt() and 0xFF
@@ -61,7 +62,7 @@ fun decodeText(bytes: ByteArray): String {
     return try {
         bytes.decodeToString(0, end, throwOnInvalidSequence = true)
     } catch (e: CharacterCodingException) {
-        CharArray(bytes.size) { i -> byte(i).let { if (it in 0x80..0x9F) WINDOWS_1252_C1[it - 0x80] else it.toChar() } }.concatToString()
+        CharArray(bytes.size) { cp1252(byte(it)) }.concatToString()
     }
 }
 
@@ -69,6 +70,9 @@ fun decodeText(bytes: ByteArray): String {
 private const val WINDOWS_1252_C1 =
     "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F" +
         "\u0090‘’“”•–—˜™š›œ\u009DžŸ"
+
+/** Byte [code] (0-255) as Windows-1252; above 0x9F the code page is Latin-1, which maps 1:1 to Unicode. */
+private fun cp1252(code: Int): Char = if (code in 0x80..0x9F) WINDOWS_1252_C1[code - 0x80] else code.toChar()
 
 /** [w] x [h] scaled down (never up) to fit [maxShort] on the shorter side and [maxLong] on the longer. */
 fun fitSize(w: Int, h: Int, maxShort: Int, maxLong: Int): Pair<Int, Int> {
@@ -181,9 +185,6 @@ fun xlsxText(raw: String): String {
 /** pptx slide number for ordering, null for every other entry. */
 fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
 
-// Windows-1252 0x80-0x9F; the rest of the code page is Latin-1, which maps 1:1 to Unicode.
-private const val CP1252_HIGH = "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ"
-
 private val RTF_SKIPPED = setOf(
     "fonttbl", "colortbl", "stylesheet", "info", "pict", "object",
     "header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf",
@@ -240,7 +241,7 @@ fun stripRtf(rtf: String): String {
                         '\'' -> {
                             val code = rtf.substring(i, minOf(i + 2, rtf.length)).toIntOrNull(16)
                             i += 2
-                            if (code != null) text((if (code in 0x80..0x9F) CP1252_HIGH[code - 0x80] else code.toChar()).toString())
+                            if (code != null) text(cp1252(code).toString())
                         }
 
                         '*' -> skip = true
