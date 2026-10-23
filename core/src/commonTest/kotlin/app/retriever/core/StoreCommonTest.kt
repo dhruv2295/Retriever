@@ -1,7 +1,12 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -69,6 +74,48 @@ class StoreCommonTest {
         }
         assertTrue(store.keywordSearch("資料", 10).isEmpty())
         assertTrue(store.rebuildFtsIfPending())
+        assertFalse(store.rebuildFtsIfPending(), "once")
+        assertEquals(listOf(chunk), store.keywordSearch("資料", 10).map { it.chunkId })
+        assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))
+    }
+
+    /**
+     * A later upgrade that recreates the keyword tables sets `fts_rebuild` on an index whose `fts_tokens` is current. The
+     * refill copies text whole and commits; if the CJK pass after it dies, the next check must still run that pass.
+     */
+    @Test
+    fun aRefillInterruptedBeforeItsCjkPassRunsThePassAgain() {
+        var interrupt = false
+        val raw = testDriver()
+        val driver = object : SqlDriver by raw {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> {
+                // The CJK pass's first page: the process dies here.
+                if (interrupt && sql.trimStart().startsWith("SELECT id, text, labels FROM chunks")) {
+                    interrupt = false
+                    error("killed")
+                }
+                return raw.executeQuery(identifier, sql, mapper, parameters, binders)
+            }
+        }
+        val store = Store(driver)
+        store.upsertFiles(listOf(SourceFile("folder://docs/会議資料.txt", "会議資料.txt", "docs", "text/plain", Kind.DOC, 10, 1)))
+        val id = store.pending(1).single().id
+        store.replaceChunks(id, listOf(Store.NewChunk(1, "", "会議の資料を送ります", null)))
+        val chunk = store.keywordSearch("資料", 10).single().chunkId
+        assertTrue(store.rebuildFtsIfPending(), "a new index records its tokenization")
+        for (sql in listOf("DELETE FROM chunk_fts", "DELETE FROM file_fts", "INSERT INTO index_meta (key, value) VALUES ('fts_rebuild', '1')")) {
+            driver.execute(null, sql, 0)
+        }
+
+        interrupt = true
+        assertFails { store.rebuildFtsIfPending() }
+        assertTrue(store.rebuildFtsIfPending(), "the pass runs again")
         assertFalse(store.rebuildFtsIfPending(), "once")
         assertEquals(listOf(chunk), store.keywordSearch("資料", 10).map { it.chunkId })
         assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))

@@ -57,7 +57,8 @@ how it migrates and how the migrations are verified.
   `replaceChunks` checks the signature and a caller-supplied `stillCurrent` inside its transaction.
 - **After a schema bump that recreates the FTS tables** (`2.sqm`), the tables start empty and a meta flag
   `fts_rebuild` makes `rebuildFtsIfPending` refill them once after the open, off the migration (150k chunks take seconds).
-  The refill copies text as it is, so the same call then rewrites the rows that hold CJK; it also does that once when
+  The refill copies text as it is and clears `fts_tokens` with `fts_rebuild`, so the same call then rewrites the rows
+  that hold CJK, and a pass cut short runs again on the next call; it also does that once when
   `index_meta['fts_tokens']` is not the code's `FTS_TOKENS` (an index written before CJK pieces). SQL skips plain-ASCII
   rows in one pass, so only non-ASCII text reaches Kotlin.
 - **Verifier.** SQLDelight's `verifyCommonMainIndexDbMigration` replays every later `N.sqm` on the snapshot

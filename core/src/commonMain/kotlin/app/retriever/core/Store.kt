@@ -903,9 +903,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     }
 
     /**
-     * Refills the keyword tables once after an upgrade recreated them empty, and writes the rows that hold CJK again once
-     * when the tables were written with another [FTS_TOKENS] (before CJK pieces, or by that refill, which copies text as
-     * it is); true if either ran. A page per transaction, so index writes are never held up for long.
+     * Refills the keyword tables once after an upgrade recreated them empty, and writes the rows that hold CJK again
+     * until done when the tables were written with another [FTS_TOKENS] (before CJK pieces, or by that refill, which
+     * copies text whole and clears the key); true if either ran. A page per transaction, so writes never wait long.
      */
     fun rebuildFtsIfPending(): Boolean {
         val refill = meta("fts_rebuild") != null
