@@ -156,6 +156,10 @@ SELECT folder, COUNT(*) AS files, CAST(COALESCE(SUM(CASE WHEN size > 0 THEN size
   CAST(COALESCE(SUM(size <= 0), 0) AS INTEGER) AS unknownSizes
 FROM files GROUP BY folder ORDER BY files DESC, folder;
 
+-- Pending files of these kinds, counting no further than the limit: cheap enough to ask before every chunk.
+pendingUpTo:
+SELECT COUNT(*) FROM (SELECT 1 FROM files WHERE state = 'PENDING' AND kind IN ? LIMIT ?);
+
 -- By capture time, so a restored phone still shows the newest captures first; PDF and DOC have no taken_at.
 filesNewestOfKinds:
 SELECT * FROM files WHERE kind IN ? ORDER BY COALESCE(taken_at, modified_at) DESC, id LIMIT ?;

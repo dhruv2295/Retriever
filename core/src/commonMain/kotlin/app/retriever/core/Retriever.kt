@@ -166,6 +166,8 @@ class Retriever(
     private val frames: FrameSource? = null,
     /** The device's own names in shared sentences; iOS passes its words. */
     private val words: DeviceWords = DeviceWords.ANDROID,
+    /** Up to this many files waiting are read at once, on battery and in use ([ReadingPolicy.FEW_WAITING]); tests of the charger rule pass 0. */
+    private val fewWaitingLimit: Int = ReadingPolicy.FEW_WAITING,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -313,7 +315,7 @@ class Retriever(
         },
         onClosed = { engine?.embedder = NoModel },
         lastExitCrashed = lastExitCrashed,
-        visible = { uiVisible },
+        visible = { onScreen },
     )
 
     /** For the model's open off a search's path: it outlives the search that started it. */
@@ -472,8 +474,20 @@ class Retriever(
             p = store.updatePrefs { if (it.readNowUntil == p.readNowUntil) endSession(it) else it }
             _prefs.value = p
         }
-        return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery)
+        return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery, fewWaiting())
     }
+
+    /**
+     * Something is on the screen: Retriever, or another app while a few new files are read. A GPU that stalls rendering
+     * ([DeviceProfile.gpuStallsRendering]) then gives way to the CPU, so the phone in use never stutters.
+     */
+    private val onScreen: Boolean get() = uiVisible || monitor.state().screenOn
+
+    /**
+     * Between 1 and [fewWaitingLimit] files left to read. With none, only later parts can be left, and they keep the charger
+     * rule. A bounded count, so it is cheap before every chunk and never stale after a sync adds files.
+     */
+    private fun fewWaiting(): Boolean = store.pendingUpTo(readInside(), fewWaitingLimit + 1L) in 1..fewWaitingLimit
 
     /** What the status line reads from the device and the clock once a second. */
     private data class Tick(val blocker: StopReason?, val readNowMinutes: Int, val pluggedIn: Boolean)
@@ -649,7 +663,8 @@ class Retriever(
                 val p = batchPrefs()
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
-            val busy = { monitor.state().screenOn && !uiVisible }
+            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use.
+            val busy = { readingBlocker() == StopReason.BUSY }
             val requireCharging = { _: DeviceState -> readingBlocker() == StopReason.UNPLUGGED }
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
@@ -669,7 +684,7 @@ class Retriever(
                 }
             }
             // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
-            selectPace(factory.profileNow(stored, uiVisible))
+            selectPace(factory.profileNow(stored, onScreen))
             val ids = loadScope()
             fun pendingNow(): Pair<Map<Kind, Long>, Long> {
                 val currentIds = sampleIds.value
@@ -681,20 +696,24 @@ class Retriever(
             }
             val pending = pendingNow().first
 
-            // An open app deepens once nothing is pending; in the background only with the screen off. The schedule gates both.
-            fun canDeepen(): Boolean {
-                val trialInFront = uiVisible && sampleSession()
-                val current = readingMonitor.state()
-                return (mayDeepen || trialInFront) && !keywordOnly && (!current.screenOn || uiVisible)
-            }
+            // An open app deepens once nothing is pending; in the background only on the charger with the screen off, even
+            // when a few new files are read on battery (ReadingPolicy.deepenBlocker).
+            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), readingMonitor.state(), uiVisible, sampleSession(), now())
+            fun canDeepen(): Boolean = (mayDeepen || (uiVisible && sampleSession())) && !keywordOnly && deepenBlocker() == null
             val deepen = canDeepen()
+            val tails = when {
+                deepen || keywordOnly -> 0L
+                ids == null -> store.tailChunkCount()
+                else -> store.tailCountsIn(ids).first
+            }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending.values.sum() == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
                 (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
                 // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
                 (!keywordOnly || store.laterChunkCount() == 0L)
-            if (idle) return end(StopReason.DONE)
+            // Later parts left that may not run now: stop for that reason, so the platform comes back on the charger or at screen-off.
+            if (idle) return end(if (tails > 0) deepenBlocker() ?: StopReason.DONE else StopReason.DONE)
             val e = if (keywordOnly) {
                 null
             } else {
@@ -708,14 +727,14 @@ class Retriever(
                 }
                 opened
             }
-            val openedProfile = factory.profileNow(stored, uiVisible).copy(
+            val openedProfile = factory.profileNow(stored, onScreen).copy(
                 backend = e?.backend ?: Backend.CPU,
                 visionBackend = e?.visionBackend ?: Backend.CPU,
             )
             selectPace(openedProfile)
             val configuration = model.currentConfiguration
             val changedConfiguration = {
-                val current = factory.profileNow(store.profile() ?: stored, uiVisible)
+                val current = factory.profileNow(store.profile() ?: stored, onScreen)
                 deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
             val (left, videoBytes) = pendingNow()

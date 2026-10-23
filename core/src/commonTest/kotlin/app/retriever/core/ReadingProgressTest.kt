@@ -33,8 +33,32 @@ class ReadingProgressTest {
         assertEquals(StopReason.POWER_SAVE, ReadingPolicy.blocker(prefs, device.copy(powerSave = true), true, true, 0))
         assertEquals(StopReason.HOT, ReadingPolicy.blocker(prefs, device.copy(thermal = Thermal.SEVERE), true, true, 0))
         assertEquals(StopReason.LOW_BATTERY, ReadingPolicy.blocker(prefs, device.copy(batteryPct = 20), true, true, 0))
-        assertEquals(StopReason.BUSY, ReadingPolicy.blocker(prefs, device.copy(screenOn = true), false, true, 0))
+        // Using the phone is not a safeguard against Process for 15 minutes, which the person asked for; a sample still waits.
+        assertNull(ReadingPolicy.blocker(prefs, device.copy(screenOn = true), false, true, 0))
+        assertEquals(StopReason.BUSY, ReadingPolicy.blocker(Prefs(), device.copy(screenOn = true, charging = true), false, true, 0))
         assertEquals(StopReason.PAUSED, ReadingPolicy.blocker(prefs.copy(paused = true), device.copy(powerSave = true), true, true, 0))
+    }
+
+    @Test fun aFewNewFilesAreReadOnBatteryAndWhileThePhoneIsInUse() {
+        val inUse = device.copy(screenOn = true)
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(Prefs(), device, false, false, 0))
+        assertNull(ReadingPolicy.blocker(Prefs(), device, false, false, 0, fewWaiting = true))
+        assertEquals(StopReason.BUSY, ReadingPolicy.blocker(Prefs(), inUse.copy(charging = true), false, false, 0))
+        assertNull(ReadingPolicy.blocker(Prefs(), inUse, false, false, 0, fewWaiting = true))
+        // Safeguards and the person's own choices still win.
+        assertEquals(StopReason.LOW_BATTERY, ReadingPolicy.blocker(Prefs(), device.copy(batteryPct = 15), false, false, 0, fewWaiting = true))
+        assertEquals(StopReason.HOT, ReadingPolicy.blocker(Prefs(), device.copy(thermal = Thermal.SEVERE), false, false, 0, fewWaiting = true))
+        assertEquals(StopReason.PAUSED, ReadingPolicy.blocker(Prefs(paused = true), device, false, false, 0, fewWaiting = true))
+        assertEquals(StopReason.MANUAL, ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.MANUAL), device, false, false, 0, fewWaiting = true))
+    }
+
+    @Test fun laterPartsStayOnTheChargerWithTheScreenOff() {
+        val plugged = device.copy(charging = true, pluggedIn = true)
+        assertNull(ReadingPolicy.deepenBlocker(Prefs(), plugged, false, false, 0))
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.deepenBlocker(Prefs(), device, false, false, 0))
+        assertEquals(StopReason.BUSY, ReadingPolicy.deepenBlocker(Prefs(), plugged.copy(screenOn = true), false, false, 0))
+        assertNull(ReadingPolicy.deepenBlocker(Prefs(readNowUntil = 100), device.copy(screenOn = true), false, false, 0))
+        assertNull(ReadingPolicy.deepenBlocker(Prefs(), device.copy(screenOn = true), true, true, 0))
     }
 
     @Test fun oneStatePrecedenceKeepsBlockersAheadOfActiveSampleAndTails() {

@@ -136,14 +136,42 @@ object ReadingPolicy {
     const val LOW_BATTERY = 20
     const val BATTERY_RECOVERED = 23
 
-    fun blocker(prefs: Prefs, device: DeviceState, visible: Boolean, sampleSession: Boolean, now: Long, lowBattery: Boolean = false): StopReason? = when {
+    /**
+     * New files after the first pass: up to this many are processed at once, on battery and while the phone is in use. At
+     * about 1.5 s a photo that is a couple of minutes; only the one-time catch-up waits for the charger.
+     */
+    const val FEW_WAITING = 100
+
+    /** Process for 15 minutes is the person asking now: it carries on while they use the phone (on the CPU, see `onScreen`). */
+    fun blocker(
+        prefs: Prefs,
+        device: DeviceState,
+        visible: Boolean,
+        sampleSession: Boolean,
+        now: Long,
+        lowBattery: Boolean = false,
+        fewWaiting: Boolean = false,
+    ): StopReason? = when {
         prefs.paused -> StopReason.PAUSED
         device.powerSave -> StopReason.POWER_SAVE
         device.hot -> StopReason.HOT
         !device.charging && (lowBattery || device.batteryPct in 0..LOW_BATTERY) -> if (device.pluggedIn) StopReason.CHARGING_UP else StopReason.LOW_BATTERY
-        device.screenOn && !visible -> StopReason.BUSY
-        sampleSession || prefs.readNowUntil > now -> null
+        prefs.readNowUntil > now -> null
+        device.screenOn && !visible && !fewWaiting -> StopReason.BUSY
+        sampleSession -> null
         prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
+        prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn && !fewWaiting -> StopReason.UNPLUGGED
+        else -> null
+    }
+
+    /**
+     * Embedding long files' later parts is the big, one-time work: it keeps the charger-and-screen-off rule even when few new
+     * files wait. Null when it may run now.
+     */
+    fun deepenBlocker(prefs: Prefs, device: DeviceState, visible: Boolean, sampleSession: Boolean, now: Long): StopReason? = when {
+        sampleSession && visible -> null
+        prefs.readNowUntil > now -> null
+        device.screenOn && !visible -> StopReason.BUSY
         prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn -> StopReason.UNPLUGGED
         else -> null
     }

@@ -44,7 +44,7 @@ class BatchPolicyTest {
         }
         val r = Retriever(
             store, source, extractor, factory, monitor, NoHasher, PIXEL.copy(ramGb = ramGb), { modelReady }, { true },
-            { _, _ -> }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher),
+            { _, _ -> }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), fewWaitingLimit = 0,
         )
 
         fun indexed() = store.countsByState()[FileState.INDEXED] ?: 0L

@@ -25,7 +25,16 @@ New installs default to While charging, including in the foreground. Legacy pref
 when the old default was omitted from JSON. Retuning never changes the schedule. Settings also offers Also on battery
 and When I start it. Resume lifts the persistent pause and reapplies that schedule.
 
-Process for 15 minutes (formerly Read now) persists a 15-minute deadline across workers and launches. Pause, power saving and heat end that session;
+The schedule governs the one-time catch-up only. New files after it don't wait: with 1 to `ReadingPolicy.FEW_WAITING`
+(100) files waiting, about two minutes of work, they are read at once, on battery and while the phone is in use
+(`fewWaiting`, a bounded `pendingUpTo` count, so a sync that just added them is seen). With the screen on, a GPU that
+stalls rendering gives way to the CPU (`onScreen`), so the app in use never stutters. Later parts (search by meaning for
+earlier files, video moments, scanned pages) stay on the charger with the screen off (`ReadingPolicy.deepenBlocker`); a
+batch that has only those left ends with that reason, so the platform comes back for them.
+
+Process for 15 minutes (formerly Read now) persists a 15-minute deadline across workers and launches. It is the person
+asking now, so it carries on while they use the phone and holds its foreground service on battery too (a Pixel 8 Pro
+stopped it after 7 s as "busy" when the app was closed). Pause, power saving and heat end that session;
 expiry returns to the saved schedule. Setup's Read now saves charging for subsequent automatic work; Settings' one-off
 keeps the existing schedule. Not now persists Pause at a safe boundary and retains read content. Go to Home is navigation.
 

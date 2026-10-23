@@ -51,6 +51,7 @@ class RetrieverTest {
         fun retriever() = Retriever(
             store, source, extractor, factory, monitor, NoHasher, probe, { ready }, { true },
             { m, _ -> logs += m }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), lastExitCrashed = { crashed },
+            fewWaitingLimit = 0,
         )
 
         val r = retriever()

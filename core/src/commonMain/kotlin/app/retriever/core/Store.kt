@@ -584,6 +584,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     fun countsByState(): Map<FileState, Long> = q.countByState { state, count -> state to count }.executeAsList().toMap()
 
+    /** Pending files of [kinds], counted no further than [limit]. */
+    fun pendingUpTo(kinds: Set<Kind>, limit: Long): Long = q.pendingUpTo(kinds.map { it.name }, limit).executeAsOne()
+
     /** Pending files per kind, read once on the caller's thread. */
     fun pendingByKind(): Map<Kind, Long> = q.countByKindState { kind, state, count -> Triple(Kind.valueOf(kind), state, count) }.executeAsList()
         .filter { it.second == FileState.PENDING }.associate { it.first to it.third }
