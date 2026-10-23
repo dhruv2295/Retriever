@@ -46,8 +46,6 @@ final class AppModel {
         var reading = ReadingPreview()
         var lastStop: StopReason?
         var lastError: String?
-        var filesPerMinute = 0.0
-        var etaMinutes: Int?
         var backend: Backend?
         var paused = false
         var excludedFolders: Set<String> = []
@@ -88,12 +86,10 @@ final class AppModel {
         /// screens that don't show it; read `AppModel.live` where it is shown.
         var progress: Progress {
             get {
-                Progress(processed: processed, current: current, filesPerMinute: filesPerMinute, etaMinutes: etaMinutes, lastError: lastError, reading: reading)
+                Progress(processed: processed, current: current, lastError: lastError, reading: reading)
             }
             set {
-                (processed, current, filesPerMinute, etaMinutes, lastError) = (
-                    newValue.processed, newValue.current, newValue.filesPerMinute, newValue.etaMinutes, newValue.lastError
-                )
+                (processed, current, lastError) = (newValue.processed, newValue.current, newValue.lastError)
                 reading = newValue.reading
             }
         }
@@ -109,8 +105,6 @@ final class AppModel {
     struct Progress: Equatable {
         var processed = 0
         var current: String?
-        var filesPerMinute = 0.0
-        var etaMinutes: Int?
         var lastError: String?
         var reading = ReadingPreview()
     }
@@ -450,8 +444,6 @@ extension AppModel.Snap {
         reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.reading.pause)
         lastStop = s.state.lastStop
         lastError = s.state.lastError
-        filesPerMinute = s.state.filesPerMinute
-        etaMinutes = s.state.etaMinutes?.intValue
         backend = s.state.backend
         paused = s.prefs.paused
         excludedFolders = s.prefs.excludedFolders

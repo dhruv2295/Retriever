@@ -344,7 +344,7 @@ final class HomeModelTests: XCTestCase {
         apply(snap, to: model)
         XCTAssertEqual(model.snapWrites, writes, "the same counts and prefs again")
         // Per-file progress moves on its own property and leaves snap alone.
-        snap.progress = AppModel.Progress(processed: 3, current: "a.pdf", filesPerMinute: 30, etaMinutes: 4, lastError: nil)
+        snap.progress = AppModel.Progress(processed: 3, current: "a.pdf", lastError: nil)
         apply(snap, to: model)
         XCTAssertEqual(model.snapWrites, writes, "a tick changes progress only")
         XCTAssertEqual(model.progress.processed, 3)
@@ -370,8 +370,6 @@ final class HomeModelTests: XCTestCase {
         for n in 1...20 {
             snapshot.processed = n
             snapshot.current = "file-\(n)"
-            snapshot.filesPerMinute = Double(n)
-            snapshot.etaMinutes = 21 - n
             apply(snapshot, to: model)
         }
         XCTAssertFalse(invalidated.withLock { $0 })

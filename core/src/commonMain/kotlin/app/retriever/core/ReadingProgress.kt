@@ -186,6 +186,7 @@ object ReadingPolicy {
         StopReason.BUSY -> "Waiting until you put your ${words.device} down"
         StopReason.UNPLUGGED -> "Waits until you charge"
         StopReason.MANUAL -> "Processing only when you start it"
+        StopReason.DISK_FULL -> "Paused, your ${words.device} is full"
         StopReason.DONE, StopReason.BUDGET -> "Taking a short break"
     }
 
@@ -344,7 +345,11 @@ object ReadingPolicy {
                 else -> "You can close Retriever; it carries on. Search works the whole time."
             }
 
-            ReadingPhase.WAITING -> "Your ${words.device} decides when Retriever carries on. Nothing is lost."
+            ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) {
+                "Free up some space and Retriever carries on."
+            } else {
+                "Your ${words.device} decides when Retriever carries on. Nothing is lost."
+            }
 
             ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
 

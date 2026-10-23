@@ -22,7 +22,7 @@ class ModelHostTest {
         var crashed = true
         val host: ModelHost by lazy {
             ModelHost(
-                store, factory, variant, textOnly = false, required, modelReady = { true }, log = { _, _ -> },
+                store, factory, textOnly = false, required, modelReady = { true }, log = { _, _ -> },
                 dispatchers = CoreDispatchers(),
                 reload = { required.value = ModelBuilds.buildFor(variant, probe, host.npuFailed()) },
                 onOpened = { _, _ -> },
@@ -174,7 +174,6 @@ class ModelHostTest {
         assertTrue(npu.fileName in f.store.meta("npu_failed")!!)
         assertEquals(ModelVariant.M440.generic, f.required.value)
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
-        assertTrue(f.host.fellBack())
         assertEquals(ModelVariant.M440.generic, f.host.open()!!.second)
     }
 

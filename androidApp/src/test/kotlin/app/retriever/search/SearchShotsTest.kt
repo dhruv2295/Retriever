@@ -117,7 +117,6 @@ class SearchShotsTest {
             "home" -> IndexState(
                 running = true,
                 pendingAtStart = 2_400,
-                etaMinutes = 95,
                 currentFile = SourceFile("demo:active", "active", "", "text/plain", Kind.DOC, 1, 1),
             ).let { Screen(ready, readyHome.live(it), it, none) }
 

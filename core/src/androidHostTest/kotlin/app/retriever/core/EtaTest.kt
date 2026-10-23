@@ -24,79 +24,34 @@ class EtaTest {
     // Soak A1: an average of rates let one 50 ms doc outweigh the slow photos queued behind it.
     @Test
     fun oneFastDocThenSlowPhotosNeverReadsBelowTheTimeLeft() {
-        val eta = Eta(SpeedBook()) { 0L }
-        eta.start(mapOf(Kind.DOC to 1L, Kind.PHOTO to 100L), 0)
-        eta.add(Kind.DOC, 50.0, 1.0)
+        var book = SpeedBook().add(Kind.DOC, 50.0, 1.0)
         for (read in 1..100) {
-            eta.add(Kind.PHOTO, 2_000.0, 1.0)
-            val left = (100 - read) * 2_000 / 60_000.0
-            eta.minutes?.let { assertTrue(it >= left, "after $read photos: $it minutes shown, $left left") }
+            book = book.add(Kind.PHOTO, 2_000.0, 1.0)
+            val left = (100 - read) * 2_000.0
+            assertTrue(book.ms(mapOf(Kind.PHOTO to 100L - read), 0) >= left, "after $read photos")
         }
-        assertEquals(0, eta.minutes)
-    }
-
-    @Test
-    fun nothingShowsBeforeThirtySecondsOfWork() {
-        val eta = Eta(SpeedBook()) { 0L }
-        eta.start(mapOf(Kind.PHOTO to 100L), 0)
-        repeat(14) { eta.add(Kind.PHOTO, 2_000.0, 1.0) }
-        assertNull(eta.minutes)
-        eta.add(Kind.PHOTO, 2_000.0, 1.0)
-        assertEquals(3, eta.minutes) // 85 × 2 s
     }
 
     @Test
     fun oneKindIsWithinTenPercentAfterTenFiles() {
-        val eta = Eta(SpeedBook()) { 0L }
-        eta.start(mapOf(Kind.PDF to 400L), 0)
-        repeat(10) { eta.add(Kind.PDF, if (it % 2 == 0) 3_000.0 else 5_000.0, 6.0) }
-        val left = 390 * 4_000 / 60_000.0
-        assertTrue(abs(eta.minutes!! - left) <= 0.1 * left, "${eta.minutes} vs $left")
+        var book = SpeedBook()
+        repeat(10) { book = book.add(Kind.PDF, if (it % 2 == 0) 3_000.0 else 5_000.0, 6.0) }
+        val left = 390 * 4_000.0
+        assertTrue(abs(book.ms(mapOf(Kind.PDF to 390L), 0) - left) <= 0.1 * left, "${book.ms(mapOf(Kind.PDF to 390L), 0)} vs $left")
     }
 
-    @Test
-    fun aNewBatchKeepsTheBookAndTheEta() {
-        val eta = photosAtThreeSeconds()
-        val before = assertNotNull(eta.minutes)
-        eta.start(mapOf(Kind.PHOTO to 200L), 0)
-        assertEquals(before, eta.minutes, "shown at once, not after another 30 s")
-    }
-
-    @Test
-    fun oneFastFileAtBatchStartDoesNotSwingIt() {
-        val eta = photosAtThreeSeconds()
-        eta.start(mapOf(Kind.PHOTO to 201L), 0)
-        val before = eta.minutes!!
-        eta.add(Kind.PHOTO, 50.0, 1.0)
-        assertFalse(Eta.moved(before, eta.minutes!!))
-        assertEquals(before, eta.minutes)
-    }
-
-    @Test
-    fun theShownValueMovesPastTenPercentAndTwoMinutes() {
-        assertTrue(Eta.moved(null, 5))
-        assertFalse(Eta.moved(10, 12))
-        assertTrue(Eta.moved(10, 13))
-        assertFalse(Eta.moved(100, 110))
-        assertTrue(Eta.moved(100, 111))
-    }
-
-    @Test fun changingConfigurationUsesItsOwnPaceWithoutOldSmoothing() {
-        val eta = photosAtThreeSeconds()
+    @Test fun changingConfigurationUsesItsOwnPaceAndStartsItsWallClockAfresh() {
+        var now = 0L
+        val eta = Eta(SpeedBook()) { now }
+        repeat(20) {
+            now += 6_000
+            eta.add(Kind.PHOTO, 3_000.0, 1.0)
+        }
+        assertNotNull(eta.shownRatio(90_000.0))
         val cpu = SpeedBook(photoSeedMs = 10000.0)
         eta.changeBook(cpu)
-        eta.start(mapOf(Kind.PHOTO to 100L), 0)
-        assertNull(eta.minutes)
-        assertEquals(0.0, eta.filesPerMinute)
-        repeat(3) { eta.add(Kind.PHOTO, 10000.0, 1.0) }
-        assertEquals(17, eta.minutes)
-        assertEquals(6.0, eta.filesPerMinute)
-    }
-
-    /** 20 photos at 3 s each with 200 left: 10 minutes, shown as the 11 set at the 30 s mark. */
-    private fun photosAtThreeSeconds() = Eta(SpeedBook()) { 0L }.apply {
-        start(mapOf(Kind.PHOTO to 220L), 0)
-        repeat(20) { add(Kind.PHOTO, 3_000.0, 1.0) }
+        assertEquals(cpu, eta.book)
+        assertNull(eta.shownRatio(90_000.0), "no ratio from the other configuration's session")
     }
 
     @Test

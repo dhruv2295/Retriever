@@ -1,10 +1,17 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -112,6 +119,75 @@ class RetrieverTest {
     }
 
     @Test
+    fun trimMemoryReleasesAHiddenSoonFollowUpAndTheVectorTable() = test {
+        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        IndexDb.Schema.create(db)
+        var fullLoads = 0
+        // Only a full load of the vector table reads its first page from id 0; a refresh reads past its last row.
+        val counting = object : SqlDriver by db {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> {
+                if (sql.startsWith("SELECT c.id, c.file_id, c.vector") && firstLong(binders) == 0L) fullLoads++
+                return db.executeQuery(identifier, sql, mapper, parameters, binders)
+            }
+        }
+        val f = fx(store = Store(counting).also { it.resetForModel(genericSig) })
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.SOON, batch.await())
+        f.r.releaseIfIdle()
+        f.r.warmSearch()
+        assertFalse(f.factory.last!!.closed, "an imminent follow-up keeps the model warm")
+        assertEquals(1, fullLoads)
+
+        f.r.trimMemory()
+
+        assertTrue(f.factory.last!!.closed, "under pressure the follow-up opens it again")
+        f.r.warmSearch()
+        assertEquals(2, fullLoads, "the vector table was dropped and loads again")
+    }
+
+    private fun firstLong(binders: (SqlPreparedStatement.() -> Unit)?): Long? {
+        var first: Long? = null
+        binders?.invoke(
+            object : SqlPreparedStatement {
+                override fun bindBytes(index: Int, bytes: ByteArray?) = Unit
+
+                override fun bindLong(index: Int, long: Long?) {
+                    if (index == 0) first = long
+                }
+
+                override fun bindDouble(index: Int, double: Double?) = Unit
+
+                override fun bindString(index: Int, string: String?) = Unit
+
+                override fun bindBoolean(index: Int, boolean: Boolean?) = Unit
+            },
+        )
+        return first
+    }
+
+    @Test
+    fun trimMemoryDuringABatchKeepsTheModelItIsUsing() = test {
+        val f = fx()
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        f.r.trimMemory()
+        assertFalse(f.factory.last!!.closed)
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.DONE, batch.await())
+    }
+
+    @Test
     fun pausingAHiddenSoonFollowUpReleasesTheModel() = test {
         val f = fx()
         f.r.setUiBusy(true)
@@ -189,6 +265,8 @@ class RetrieverTest {
             StopReason.BUSY to NextRun.WHEN_IDLE,
             StopReason.DONE to NextRun.DONE,
             StopReason.PAUSED to NextRun.DONE,
+            // Rests like a failed batch; Android's work also waits for storage that isn't low.
+            StopReason.DISK_FULL to NextRun.RETRY,
         )
         for ((reason, next) in expected) assertEquals(next, Retriever.nextRunFor(reason, false), "$reason")
         assertEquals(NextRun.SOON, Retriever.nextRunFor(StopReason.DONE, true))
@@ -555,5 +633,41 @@ class RetrieverTest {
         val parts = f.factory.last!!.received.last()
         assertEquals(1, parts.size)
         assertTrue(parts.single() is Part.Image)
+    }
+
+    @Test
+    fun aSharedReadThatFailsOnceIsReadAgainAndTheCountsGoOn() = test {
+        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        IndexDb.Schema.create(db)
+        var failCounts = 0
+        // The counts' one query fails when told to, as a disk error would.
+        val flaky = object : SqlDriver by db {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> {
+                if (failCounts > 0 && "GROUP BY kind, state, partial, reach" in sql) {
+                    failCounts--
+                    throw IllegalStateException("disk I/O error")
+                }
+                return db.executeQuery(identifier, sql, mapper, parameters, binders)
+            }
+        }
+        val store = Store(flaky).also { it.resetForModel(SIG) }
+        val f = fx(store = store)
+        val totals = mutableListOf<Long>()
+        val watching = launch { f.r.counts().collect { totals += it.progress.libraryTotal } }
+        advanceUntilIdle()
+        failCounts = 1
+        store.upsertFiles(listOf(testFile("a.txt")))
+        advanceUntilIdle()
+        store.upsertFiles(listOf(testFile("b.txt")))
+        advanceUntilIdle()
+        watching.cancel()
+        assertEquals(2L, totals.last(), "$totals")
+        assertTrue("A watched read failed" in f.logs)
     }
 }

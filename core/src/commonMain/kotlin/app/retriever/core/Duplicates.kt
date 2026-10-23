@@ -1,5 +1,9 @@
 package app.retriever.core
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlin.coroutines.cancellation.CancellationException
 
 interface ContentHasher {
@@ -16,32 +20,46 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
     companion object {
         /** Smaller files are never compared. */
         const val MIN_SIZE = 64L * 1024
+
+        /** Files read at once: flash storage serves a few parallel reads faster than one at a time. */
+        internal const val HASH_READS = 4
     }
 
-    suspend fun find(minSize: Long = MIN_SIZE, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): List<DuplicateGroup> {
+    /** Only files that share a size are read, and only those that also share a quick hash are read in full. */
+    suspend fun find(minSize: Long = MIN_SIZE): List<DuplicateGroup> {
         val collisions = store.sizeCollisions(minSize)
-        val total = collisions.sumOf { it.size }
-        var done = 0
-        val result = mutableListOf<DuplicateGroup>()
-        for (group in collisions) {
-            val byQuick = mutableMapOf<String, MutableList<Store.StoredFile>>()
-            for (f in group) {
-                val h = f.quickHash ?: safe { hasher.quickHash(f.file.uri, f.file.size) }?.also { store.setQuickHash(f, it) }
-                if (h != null) byQuick.getOrPut(h) { mutableListOf() }.add(f)
-                onProgress(++done, total)
-            }
-            for (same in byQuick.values.filter { it.size > 1 }) {
-                val byFull = mutableMapOf<String, MutableList<SourceFile>>()
-                for (f in same) {
-                    val h = f.fullHash ?: safe { hasher.fullHash(f.file.uri) }?.also { store.setFullHash(f, it) } ?: continue
-                    byFull.getOrPut(h) { mutableListOf() }.add(f.file)
-                }
-                for (files in byFull.values.filter { it.size > 1 }) {
-                    result += DuplicateGroup(files[0].size, files.sortedBy { it.modifiedAt })
-                }
-            }
+        val quick = hashes(collisions.flatten(), { it.quickHash }, store::setQuickHash) { hasher.quickHash(it.uri, it.size) }
+        val candidates = collisions.flatMap { it.sameBy(quick) }
+        val full = hashes(candidates.flatten(), { it.fullHash }, store::setFullHash) { hasher.fullHash(it.uri) }
+        return candidates.flatMap { it.sameBy(full) }
+            .map { same -> DuplicateGroup(same[0].file.size, same.map { it.file }.sortedBy { it.modifiedAt }) }
+            .sortedByDescending { it.wastedBytes }
+    }
+
+    /** The groups of two or more of these files that share a hash; a file without one is in none. */
+    private fun List<Store.StoredFile>.sameBy(hash: Map<Long, String>) = filter { it.id in hash }.groupBy { hash.getValue(it.id) }.values.filter { it.size > 1 }
+
+    /**
+     * Each file's hash by id: the one stored on its row, else read [HASH_READS] files at a time, and the new ones saved in
+     * one transaction, each only onto the row version that was read. A file whose read fails has none, and is read again
+     * next time.
+     */
+    private suspend fun hashes(
+        files: List<Store.StoredFile>,
+        stored: (Store.StoredFile) -> String?,
+        save: (Store.StoredFile, String) -> Unit,
+        read: suspend (SourceFile) -> String?,
+    ): Map<Long, String> {
+        val known = files.mapNotNull { f -> stored(f)?.let { f.id to it } }
+        val queue = Channel<Store.StoredFile>(Channel.UNLIMITED)
+        files.filter { stored(it) == null }.forEach { queue.trySend(it) }
+        queue.close()
+        // A few readers take the next file as each finishes, so one long full hash holds up only its own reader.
+        val fresh = coroutineScope {
+            List(HASH_READS) { async { buildList { for (f in queue) safe { read(f.file) }?.let { add(f to it) } } } }.awaitAll().flatten()
         }
-        return result.sortedByDescending { it.wastedBytes }
+        if (fresh.isNotEmpty()) store.inTransaction { for ((f, hash) in fresh) save(f, hash) }
+        return known.toMap() + fresh.associate { (f, hash) -> f.id to hash }
     }
 
     /**

@@ -113,16 +113,16 @@ under the 135 s trim line while wall time runs ~3× over. Seeds stay as they are
 - `Eta` keeps `wallStartMs` (set at the first `add` of a session as `now - ms`, reset in `changeBook`) and
   `wallRatio` = (now - wallStartMs) / `sessionMs`. Session-only; never written to `speed_by_kind_*` (background
   reads have no UI fan-out). Two gates: trim uses it once every pending kind has a pace (about 9 files in, since the
-  plan fronts 2 per kind); the shown time also waits for `SHOW_AFTER_MS`, so it never shows a warm-up number.
+  plan fronts 2 per kind); the shown time also waits for a quarter of the budget in wall time (`Eta.shownRatio`), so it never shows a warm-up number.
 - `trimTaste`: once trim's gate is met, compare pending inference × ratio against budget − wall elapsed, no 1.5× slack; before it,
   today's rule (FileRules.kt:124 fronts 2 per kind). Plan only shrinks; dropped
   files are pending and sit after every read one, so indices hold.
 
 ## Measured time line (VERIFIED cause: Words.kt:173-177 fixed copy; `secondsLeft` unused)
 
-`TasteProgress.of` takes `wallRatio`; `secondsLeft` = `book.ms(pending) × wallRatio / 1000`, null before `SHOW_AFTER_MS` of
-inference this session or while any pending kind lacks a pace (`readEstimate`'s `measured` rule). Words rounds to whole minutes, so no extra
-hysteresis; add `Eta.moved` only if a device run shows flicker.
+`TasteProgress.of` takes `wallRatio`; `secondsLeft` = `book.ms(pending) × wallRatio / 1000`, null before a quarter of
+the budget in wall time (`Eta.shownRatio`) or while any pending kind lacks a pace (`readEstimate`'s `measured` rule). Words rounds to whole minutes, so no extra
+hysteresis; add some only if a device run shows flicker.
 
 ## Tests (each would have caught its problem)
 
@@ -135,7 +135,7 @@ hysteresis; add `Eta.moved` only if a device run shows flicker.
 | start gap | core host `SampleFilesTest`/new `PlanFromScanTest`: fake source of 5,000 files; rows in store when `setTaste` runs == plan size; after the sync ends all rows, names, token present; a `runBatch` started the moment `indexLock` frees runs no second full scan and does not wait |
 | overhead | core host: one indexed file under SAMPLE → ≤ 1 `countsNow` per collector set and 0 unscoped `readingCounts` (counting driver) |
 | budget | `TasteScopeTest`: seeds only, injected ratio 3 → trim drops files; ratio 1 → none; read indices unchanged |
-| time line | `TasteProgressTest` (replace 25-29): null before `SHOW_AFTER_MS`, null with an unmeasured pending kind, = inference × ratio |
+| time line | `TasteProgressTest` (replace 25-29): null before `Eta.shownRatio` allows it, null with an unmeasured pending kind, = inference × ratio |
 
 Device checks before marking done: the brief's checks 1 (tap → plan split), 2 (per-file gap), 3 (dbinfo), 7 (iOS
 photo lookups); rerun the 26k-file Pixel flow and record tap → first card and per-file gap before and after.

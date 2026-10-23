@@ -181,9 +181,6 @@ fun xlsxText(raw: String): String {
 /** pptx slide number for ordering, null for every other entry. */
 fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
 
-// Windows-1252 0x80-0x9F; the rest of the code page is Latin-1, which maps 1:1 to Unicode.
-private const val CP1252_HIGH = "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ"
-
 private val RTF_SKIPPED = setOf(
     "fonttbl", "colortbl", "stylesheet", "info", "pict", "object",
     "header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf",
@@ -240,7 +237,7 @@ fun stripRtf(rtf: String): String {
                         '\'' -> {
                             val code = rtf.substring(i, minOf(i + 2, rtf.length)).toIntOrNull(16)
                             i += 2
-                            if (code != null) text((if (code in 0x80..0x9F) CP1252_HIGH[code - 0x80] else code.toChar()).toString())
+                            if (code != null) text((if (code in 0x80..0x9F) WINDOWS_1252_C1[code - 0x80] else code.toChar()).toString())
                         }
 
                         '*' -> skip = true

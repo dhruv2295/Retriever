@@ -44,6 +44,11 @@ content leaves the phone; only the model download uses the network.
   batch and the SOON gap; the model lock protects closing and rechecks visibility and active queries. A visible app
   and an imminent follow-up keep the model warm. Explicit `release()` still forces release for storage/debug actions.
   iOS also releases on entering the background (under `beginBackgroundTask`) and on a hidden memory warning.
+- **Memory pressure.** `Retriever.trimMemory()` gives back what is rebuilt on demand: the model, even one kept warm for an
+  imminent follow-up (not while a batch or search uses it, nor while the app shows), and the search engine's vector
+  table, which the next search or warm-up loads again. Android calls it from `RetrieverApp.onTrimMemory` at
+  `TRIM_MEMORY_BACKGROUND` and above, as the memory guide advises (the other levels are deprecated from API 34); iOS from
+  a hidden memory warning, beside the release above.
 - **Caches.** `cacheDir/embed/<model stem>-<delegate>-vt<n>-t<n>`; `keepOnly` drops caches of removed models (Android);
   `ModelDownload.deleteModel` removes a build's caches.
 - **Scheduling.** Strictly sequential, batch size 1. Android indexing uses an owned thread set to

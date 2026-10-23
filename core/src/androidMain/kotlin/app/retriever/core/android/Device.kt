@@ -82,6 +82,8 @@ class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
         headroom = headroom.get(),
     )
 
+    override fun lowMemory(): Boolean = memoryInfo(context).lowMemory
+
     private fun thermal(status: Int): Thermal = when (status) {
         PowerManager.THERMAL_STATUS_NONE -> Thermal.NONE
         PowerManager.THERMAL_STATUS_LIGHT -> Thermal.LIGHT

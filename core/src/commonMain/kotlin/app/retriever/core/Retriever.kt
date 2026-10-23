@@ -19,6 +19,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -77,9 +79,6 @@ data class IndexState(
     val recentFiles: List<SourceFile> = emptyList(),
     val lastStop: StopReason? = null,
     val lastError: String? = null,
-    /** Files per minute of reading this session. */
-    val filesPerMinute: Double = 0.0,
-    val etaMinutes: Int? = null,
     val build: ModelBuild? = null,
     val backend: Backend? = null,
     /** Part of the model running elsewhere than [backend], e.g. the vision encoder on CPU. */
@@ -201,7 +200,6 @@ class Retriever(
     /** Downloaded bytes are present; tuning/opening is a separate concern. Refreshed by refreshSetUp and each batch. */
     val modelPresent: StateFlow<Boolean> = _modelPresent.asStateFlow()
     val modelDownloadBytes: Long get() = requiredBuild.value.sizeBytes
-    val audioContentSupported: Boolean get() = false
 
     /** Set up, but the model file is gone (freed, or a fallback build not downloaded yet): names and words search only. */
     val modelMissing: StateFlow<Boolean> = _modelMissing.asStateFlow()
@@ -305,12 +303,12 @@ class Retriever(
     private val indexLock = Mutex()
     private var batchSoon = false // guarded by indexLock, including the gap before a SOON follow-up
 
-    /** Outlives any one embedder, so a reopen keeps the loaded vector table. Read and set under [model]'s lock. */
+    /** Outlives any one embedder, so a reopen keeps the loaded vector table; [trimMemory] drops it. Read and set under [model]'s lock. */
     private var engine: SearchEngine? = null
 
     /** The one embedder for indexing and search. Lock order: [indexLock] first, then its lock. */
     private val model = ModelHost(
-        store, factory, variant, textOnly, requiredBuild, modelReady, log, dispatchers,
+        store, factory, textOnly, requiredBuild, modelReady, log, dispatchers,
         reload = ::reload,
         onOpened = { e, build ->
             engine?.embedder = e
@@ -321,14 +319,17 @@ class Retriever(
         visible = { onScreen },
     )
 
-    /** For the model's open off a search's path: it outlives the search that started it. */
-    private val background = CoroutineScope(SupervisorJob() + dispatchers.default)
+    /**
+     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught (the
+     * batch's watchdog reads the device and the store) is logged: uncaught, it would end the process.
+     */
+    private val background = CoroutineScope(SupervisorJob() + dispatchers.default + CoroutineExceptionHandler { _, e -> log("Background work failed", e) })
 
     @Volatile
     private var opening: Job? = null
 
     @Throws(Throwable::class)
-    suspend fun refreshSetUp() = withContext(dispatchers.default) {
+    suspend fun refreshSetUp() = withContext(dispatchers.io) {
         reload()
         _starred.value = store.starredUris()
     }
@@ -395,7 +396,7 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
-        withContext(dispatchers.default) {
+        withContext(dispatchers.io) {
             // "Stop searching" acts here, paused or not: every platform's switch lands in this one place.
             var before = Prefs()
             val new = store.updatePrefs { old ->
@@ -423,16 +424,22 @@ class Retriever(
      * [read] of the latest [changes], once per burst of them (conflated) and once for all collectors (shared), only while
      * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
      * fresh [read] of [current], never a value from before its subscription. No failure reaches a collector (on iOS an
-     * uncaught one ends the process): one in the shared read is logged and ends the sharing; a failed first read is
-     * logged and skipped, and the collector waits for the next change.
+     * uncaught one ends the process): one in the shared read is logged and read again after a pause that doubles up to
+     * half a minute, so a passing disk error doesn't freeze every screen; a failed first read is logged and skipped, and
+     * the collector waits for the next change. Blocking reads, so on [CoreDispatchers.io].
      */
     private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
         val shared = changes.conflate().map { read(it) }
-            .catch { log("A watched read failed", it) }
+            .retryWhen { e, attempt ->
+                log("A watched read failed", e)
+                delay(1_000L shl attempt.coerceAtMost(5).toInt())
+                true
+            }
+            .flowOn(dispatchers.io)
             .shareIn(background, SharingStarted.WhileSubscribed())
         return shared.onSubscription {
             runCatching { read(current()) }.onSuccess { emit(it) }.onFailure { log("A watched read failed", it) }
-        }.distinctUntilChanged().flowOn(dispatchers.default)
+        }.distinctUntilChanged().flowOn(dispatchers.io)
     }
 
     /** Meaning work waits for the model and its tune, as reading does. */
@@ -510,7 +517,7 @@ class Retriever(
                 emit(tick())
                 delay(1_000)
             }
-        }.flowOn(dispatchers.default).distinctUntilChanged()
+        }.flowOn(dispatchers.io).distinctUntilChanged()
         watched(
             combine(sharedCounts, prefs, state, ticks, ::StatusKey),
             { StatusKey(countsOf(countsKeyNow()), prefs.value, state.value, tick()) },
@@ -631,13 +638,10 @@ class Retriever(
         val started = TimeSource.Monotonic.markNow()
         val changed = changedSinceSync
         changedSinceSync = false
-        // The ETA and pace carry over: a batch boundary is not new information.
         _state.update {
             IndexState(
                 running = true,
                 lastStop = it.lastStop,
-                filesPerMinute = it.filesPerMinute,
-                etaMinutes = it.etaMinutes,
                 build = it.build,
                 backend = it.backend,
                 detail = it.detail,
@@ -666,9 +670,8 @@ class Retriever(
                 val p = batchPrefs()
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
-            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use.
-            val busy = { readingBlocker() == StopReason.BUSY }
-            val requireCharging = { _: DeviceState -> readingBlocker() == StopReason.UNPLUGGED }
+            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use. It covers
+            // being busy and the charger too, so the engine's own busy and charging rules stay off: they would only ask it again.
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
             // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
@@ -686,22 +689,14 @@ class Retriever(
                     }
                 }
             }
-            // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
+            // Under the first run's SAMPLE scope only the plan is work: the idle check and the engine's pages.
             selectPace(factory.profileNow(stored, onScreen))
             val ids = loadScope()
-            fun pendingNow(): Pair<Map<Kind, Long>, Long> {
-                val currentIds = sampleIds.value
-                return if (currentIds == null) {
-                    store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
-                } else {
-                    store.pendingIn(currentIds).byKind().let { (k, bytes) -> k.mapValues { it.value.toLong() } to bytes }
-                }
-            }
-            val pending = pendingNow().first
+            val pending = if (ids == null) store.pendingByKind().values.sum() else store.pendingIn(ids).size.toLong()
 
             // An open app deepens once nothing is pending; in the background only on the charger with the screen off, even
             // when a few new files are read on battery (ReadingPolicy.deepenBlocker).
-            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), readingMonitor.state(), uiVisible, sampleSession(), now())
+            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), monitor.state(), uiVisible, sampleSession(), now())
             fun canDeepen(): Boolean = (mayDeepen || (uiVisible && sampleSession())) && !keywordOnly && deepenBlocker() == null
             val deepen = canDeepen()
             val tails = when {
@@ -710,7 +705,7 @@ class Retriever(
                 else -> store.tailCountsIn(ids).first
             }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
-            val idle = pending.values.sum() == 0L &&
+            val idle = pending == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
                 (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
                 // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
@@ -740,31 +735,30 @@ class Retriever(
                 val current = factory.profileNow(store.profile() ?: stored, onScreen)
                 deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
-            val (left, videoBytes) = pendingNow()
-            eta.start(left, videoBytes)
-            _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes, filesPerMinute = eta.filesPerMinute) }
+            eta.start()
+            _state.update { it.copy(pendingAtStart = pending) }
             val engine = if (ids == null) {
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) }, readAheadContext = dispatchers.readAhead,
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) }, readAheadContext = dispatchers.readAhead,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) },
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) },
                     readAheadContext = dispatchers.readAhead,
                 )
             }
-            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
+            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging = false, deepen = deepen)
             return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
@@ -779,6 +773,11 @@ class Retriever(
                 else -> NextRun.SOON
             }
         } catch (e: Exception) {
+            // Outside a file's read (the sync's writes, an attempt's commit): a reason to stop, not an error to report.
+            if (e.isDiskFull()) {
+                log("Indexing stopped: storage is full", e)
+                return end(StopReason.DISK_FULL)
+            }
             log("Indexing failed", e)
             error = "Something went wrong processing your files. Retriever will try again."
             return NextRun.RETRY
@@ -800,11 +799,6 @@ class Retriever(
     /** Reading words and labels never requires the optional model; audio is always name-only. */
     private fun batchPrefs(): Prefs = store.prefs().let { it.copy(kinds = it.kinds intersect readableKinds) }
 
-    @Throws(Throwable::class)
-    suspend fun meaningStates(fileIds: List<Long>): Map<Long, MeaningState> = io { store.meaningStates(fileIds) }
-
-    private val readingMonitor = monitor
-
     /** Bumped whenever files come, go or change, so [home] reads again; reading files leaves it alone. */
     private val library = MutableStateFlow(0L)
 
@@ -823,13 +817,7 @@ class Retriever(
 
     private fun onCurrent(file: SourceFile) {
         if (_prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
-        _state.update {
-            it.copy(
-                current = file.name,
-                currentFile = file,
-                etaMinutes = if (store.fileByUri(file.uri)?.state == FileState.INDEXED) null else it.etaMinutes,
-            )
-        }
+        _state.update { it.copy(current = file.name, currentFile = file) }
     }
 
     private fun onFile(m: FileMetric) {
@@ -850,8 +838,6 @@ class Retriever(
                 } else {
                     it.recentFiles
                 },
-                filesPerMinute = eta.filesPerMinute,
-                etaMinutes = eta.minutes,
             )
         }
     }
@@ -1087,9 +1073,6 @@ class Retriever(
 
     // --- Model ---
 
-    /** This phone's NPU build failed, so it runs the generic one. Reads the store; call off the main thread. */
-    fun fellBack(): Boolean = model.fellBack()
-
     /** Frees the model's memory; the next search or batch opens it again. */
     @Throws(Throwable::class)
     suspend fun release() {
@@ -1113,6 +1096,26 @@ class Retriever(
         if (uiVisible) return
         releaseWanted = true
         retryRelease()
+    }
+
+    /**
+     * The system is short of memory (Android's onTrimMemory from TRIM_MEMORY_BACKGROUND, an iOS memory warning): gives back
+     * what is rebuilt on demand. The model closes, even when an imminent follow-up would keep it warm, unless the app is in
+     * front or a batch or search is using it; the vector table goes too, and the next search or warm-up loads it again.
+     */
+    @Throws(Throwable::class)
+    suspend fun trimMemory() {
+        withContext(NonCancellable) {
+            if (uiVisible) return@withContext
+            if (indexLock.tryLock()) {
+                try {
+                    if (model.releaseIf { !uiVisible && searching.value == 0 }) releaseWanted = false
+                } finally {
+                    indexLock.unlock()
+                }
+            }
+            model.lock.withLock { engine = null }
+        }
     }
 
     /**
@@ -1439,9 +1442,14 @@ class Retriever(
     private val _fileRevision = MutableStateFlow(0L)
     val fileRevision: StateFlow<Long> = _fileRevision.asStateFlow()
 
-    /** Holds the scan lock across the platform rename and index update so a scan cannot replace the file id. */
+    /**
+     * Holds the index lock across the platform rename and index update so no batch or plan replaces the file id meanwhile.
+     * A running batch stops within one file instead of holding the person's rename until it ends (up to 8 minutes); its
+     * file's attempt is given back and the platform runs the next batch as usual ([NextRun.SOON]).
+     */
     @Throws(Throwable::class)
     suspend fun renameFile(uri: String, operation: (SourceFile) -> SourceFile?): SourceFile? = io {
+        cancelBatch()
         indexLock.withLock {
             val old = store.fileByUri(uri)?.file ?: return@withLock null
             val changed = operation(old) ?: return@withLock null
@@ -1458,8 +1466,10 @@ class Retriever(
         return file
     }
 
+    /** Stops a running batch first, as [renameFile] does. */
     @Throws(Throwable::class)
     suspend fun deletedFiles(uris: List<String>) = io {
+        cancelBatch()
         indexLock.withLock {
             sync.remove(uris)
             _fileRevision.update { it + 1 }
@@ -1525,7 +1535,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun requeue(kinds: Set<Kind>) = io { store.requeue(kinds) }
 
-    private suspend fun <T> io(block: suspend () -> T): T = withContext(dispatchers.default) { block() }
+    private suspend fun <T> io(block: suspend () -> T): T = withContext(dispatchers.io) { block() }
 
     // --- Calibration ---
 
@@ -1637,9 +1647,6 @@ class Retriever(
         const val RECENT_FILES = 24
         const val LARGE_FILE = 100L * 1024 * 1024
 
-        /** Battery percent at or below which a hidden app waits for the charger. */
-        const val LOW_BATTERY = 20
-
         const val GPU_RETESTED = "gpu_retested"
 
         /** Long enough for a cancelled batch to unwind, short enough that a waiting job never nears its 10 minute limit. */
@@ -1664,6 +1671,7 @@ class Retriever(
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE
             StopReason.PAUSED, StopReason.MANUAL -> NextRun.DONE
             StopReason.LOW_BATTERY, StopReason.CHARGING_UP -> NextRun.WHEN_CHARGING
+            StopReason.DISK_FULL -> NextRun.RETRY
         }
     }
 }

@@ -25,7 +25,7 @@ scheduling around it.
 | Change trigger | `IndexService.watchMedia` arms a `ContentUriTrigger` on `MediaStore.Files` with a 1 minute update delay and a 10 minute max delay. The media run re-arms with APPEND_OR_REPLACE on its first attempt only. | JobScheduler holds the trigger, so it works with the process gone (the old in-process observer died with it). |
 | Held stops | `ProcessLifecycleOwner.onStart` and setup call `IndexService.readTrial` directly, waiting for any cancelled batch; `onStop` and `ACTION_SCREEN_OFF` persist a trial continuation before cancelling a direct read. | A comeback reads directly unless a persisted trial worker already owns it. Screen-on use of other apps still pauses reading. |
 | Process death | Attempts are charged before each file, chunks are written per file, WorkManager re-runs the interrupted work. | A file that kills the process is skipped after N tries instead of crash-looping. |
-| Memory | `onStop` cancels the foreground warm-up and requests `releaseIfIdle`; batch completion retries a pending release. | Only one copy of the model is in memory, and none while nothing needs it. |
+| Memory | `onStop` cancels the foreground warm-up and requests `releaseIfIdle`; batch completion retries a pending release. `onTrimMemory` at `TRIM_MEMORY_BACKGROUND` or above calls `trimMemory`, which also frees a model kept for a follow-up and the vector table. | Only one copy of the model is in memory, and none while nothing needs it. |
 
 ## Owner files
 

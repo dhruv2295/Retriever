@@ -23,7 +23,7 @@ private fun engine(
     onFile: (FileMetric) -> Unit = {},
 ) = IndexEngine(store, extractor, embedder, monitor, settingsOf(), onFile)
 
-private suspend fun IndexEngine.batch(requireCharging: Boolean = false, pauseWhenHot: Boolean = true) = runBatch(9.minutes, requireCharging, pauseWhenHot)
+private suspend fun IndexEngine.batch(requireCharging: Boolean = false) = runBatch(9.minutes, requireCharging)
 
 class OverflowSplitTest {
     /** Rejects any text input longer than 300 chars, the way the runtime rejects inputs over its signature length. */
@@ -399,7 +399,7 @@ class IndexEngineTest {
         val store = newStore()
         store.upsertFiles(CORPUS.keys.map { testFile(it) })
         val monitor = FakeMonitor(DeviceState(8.0, true, 80, Thermal.SEVERE))
-        val result = engine(store, monitor = monitor).batch(pauseWhenHot = true)
+        val result = engine(store, monitor = monitor).batch()
         assertEquals(StopReason.HOT, result.stopReason)
         assertEquals(0, result.processed)
     }

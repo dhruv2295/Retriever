@@ -18,7 +18,8 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   JobScheduler limit, a BGProcessingTask's window).
 - **Stop reason to next run.** The engine ends with a `StopReason`; `Retriever.nextRunFor` maps it to `NextRun`:
   BUDGET to SOON, HOT to AFTER_COOLDOWN, POWER_SAVE to DONE (wait for a power-state change), UNPLUGGED to WHEN_CHARGING, BUSY to WHEN_IDLE, DONE to DONE (SOON when files changed
-  during the batch), PAUSED to DONE. A thrown error is RETRY. Each platform turns `NextRun` into its own scheduling call.
+  during the batch), PAUSED to DONE, DISK_FULL to RETRY. A thrown error is RETRY. Each platform turns `NextRun` into its own
+  scheduling call.
   This is the shape of Apple's and Android's "do a slice, then ask to be run again" guidance for deferrable work.
 - **Phone policy in one place.** `IndexEngine.stopReason` is read before every file: Pause, budget, busy (screen on while
   the app is hidden), heat (`DeviceState.hot`: Android's thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), and charging when the setting or a battery at 20% or less requires it
@@ -28,7 +29,8 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   Chunks are written per file (`Store.replaceChunks`), so a stop loses at most the file in flight.
 - **Read ahead on an accelerator.** While a file embeds on the GPU or NPU with the app hidden, the next files' extraction
   starts beside it (`IndexEngine.readAhead`), so CPU decode and OCR overlap the accelerator. `IndexEngine.readAheadDepth`:
-  two files on a charger (one under 6 GB of RAM), one on battery, fewer as the phone warms (`DeviceState.aheadRoom`), none while the app shows.
+  two files on a charger (one under 6 GB of RAM), one on battery, fewer as the phone warms (`DeviceState.aheadRoom`), none while the app shows
+  or the system says memory is low (`DeviceMonitor.lowMemory`, Android's `MemoryInfo.lowMemory`).
   Each attempt is counted when its read starts and given back on any stop. Never on CPU inference. Read-ahead runs on
   `CoreDispatchers.readAhead` (Android: two background-priority threads, `readAheadDispatcher`), the same priority as
   inline extraction on `indexing`, whose one thread the embed holds. `ReadAheadBenchTest` (blocking stand-ins at a tenth
@@ -46,9 +48,10 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   left moments (`laterChunks`), so no file waits for a deepen pass that can't come. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
 - **Idle batches do not open the model.** `runBatch` checks for no pending files, no tail work and a matching signature
   and returns DONE before `ModelHost.open`.
-- **ETA.** `Eta` and `SpeedBook` (Estimate.kt) record time per unit per kind, persisted in store meta, and `readEstimate`
-  turns pending counts into minutes. The hours estimate stays off in the UI until it is calibrated on a device
-  (`ESTIMATE_CALIBRATED`).
+- **Pace.** `SpeedBook` (Estimate.kt) records time per unit per kind, persisted in store meta; `Eta` keeps it with this
+  session's wall-clock ratio for the short read's time left. `readEstimate` turns pending counts into minutes; the hours
+  estimate stays off in the UI until it is calibrated on a device (`ESTIMATE_CALIBRATED`). There is no live ETA: no
+  surface showed one.
 - **First run.** `planTaste` picks a varied slice of the library that reads in about 90 seconds and scopes the first batch
   to it (SAMPLE scope); `Store.pendingIn` limits the engine to that plan. Pending counts, including per-kind counts,
   exclude the rest of the library (`Counts.waiting`). Videos use their own size, a 25-second seed floor and a
@@ -56,7 +59,7 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   estimate above 1.5 times the budget is trimmed back to the budget, dropping videos then costliest files, retaining
   completed work and at least one pending file until a planned file has been read. If no file fits the initial
   plan, it includes the single cheapest eligible file; only no eligible files produces an empty plan. SAMPLE reads one pending file per page so a trim takes effect before the next file.
-- **Reading state.** `IndexState.currentFile` is set before extraction or tail embedding and cleared on exit. The head-only ETA is cleared when deepening begins. `recentFiles` contains the
+- **Reading state.** `IndexState.currentFile` is set before extraction or tail embedding and cleared on exit. `recentFiles` contains the
   newest 24 successful INDEXED files, preserved across batches and filtered against surviving rows after removal
   or folder exclusion. A fresh process restores them from reversed plan
   order intersected with INDEXED. Both are carried by the existing StateFlow and iOS `observeAll` snapshot;
@@ -79,7 +82,9 @@ the normal dispatcher for interactive search. See `model-lifecycle.md` for the n
 
 1. At most one batch runs; a second call returns DONE and makes the running batch sync again at its end.
 2. Elapsed time for the sync, model open and file loop is charged to one budget.
-3. A stop, cancel or Pause gives back the attempt for the file in flight; a process death does not.
+3. A stop, cancel or Pause gives back the attempt for the file in flight; a process death does not. So does a full disk
+   (`SQLITE_FULL` or `ENOSPC`, `isDiskFull`): it stops the batch as DISK_FULL, which the status line names, and no file is
+   skipped for it.
 4. A cancelled batch returns SOON; a cancelled caller (`ensureActive`) propagates instead.
 5. Policy (heat, power, busy, Pause) is read per file, so a setting flipped mid-batch applies at once.
 6. A vector is written only under the current `Signature`; a changed signature wipes vectors and re-reads everything.

@@ -24,7 +24,18 @@ data class FileMetric(
     val cause: Throwable? = null,
 )
 
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL }
+/** [DISK_FULL]: storage ran out mid-batch; no file is charged an attempt for it, and the platform tries again later. */
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL, DISK_FULL }
+
+/**
+ * Storage is full: SQLite's SQLITE_FULL (Android's SQLiteFullException; SQLiter on iOS says "database or disk is full") or a
+ * write's ENOSPC, anywhere in the cause chain. Read by name and message, so common code needs no platform type.
+ */
+internal fun Throwable.isDiskFull(): Boolean = generateSequence(this) { it.cause }.take(8).any { e ->
+    e::class.simpleName == "SQLiteFullException" || DISK_FULL_SIGNS.any { it in e.message.orEmpty() }
+}
+
+private val DISK_FULL_SIGNS = listOf("SQLITE_FULL", "database or disk is full", "ENOSPC", "No space left on device")
 
 private class ReadingStopped(val reason: StopReason) : CancellationException()
 
@@ -63,7 +74,7 @@ class IndexEngine(
     private val readAheadContext: CoroutineContext = Dispatchers.Default,
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
-    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
+    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, deepen: Boolean = false): BatchResult {
         val start = TimeSource.Monotonic.markNow()
         var processed = 0
         var failed = 0
@@ -100,7 +111,7 @@ class IndexEngine(
                 if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
                 val now = settings()
                 val state = monitor.state()
-                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state), pauseWhenHot))?.let { return stop(it) }
+                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state)))?.let { return stop(it) }
                 if (configurationChanged()) return stop(StopReason.BUDGET)
                 if (files.isEmpty()) files += pendingPage()
                 val next = files.removeFirstOrNull()
@@ -205,7 +216,11 @@ class IndexEngine(
             store.setTailAttempts(tail.id, tail.attempts)
             throw e
         } catch (e: Exception) {
-            // Counted above; a later pass tries again.
+            // Counted above; a later pass tries again. A full disk is no fault of the chunk's.
+            if (e.isDiskFull()) {
+                store.setTailAttempts(tail.id, tail.attempts)
+                throw ReadingStopped(StopReason.DISK_FULL)
+            }
         }
     }
 
@@ -276,22 +291,26 @@ class IndexEngine(
             store.markFailed(stored.id, stored.attempts)
             throw e
         } catch (e: Throwable) {
+            // A full disk is not the file's fault either: give the attempt back and stop until there is room.
+            if (e.isDiskFull()) {
+                store.markFailed(stored.id, stored.attempts)
+                throw ReadingStopped(StopReason.DISK_FULL)
+            }
             store.markFailed(stored.id, stored.attempts + 1)
             return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
         }
     }
 
     /** A policy that never changes mid-batch (tests, the eval). */
-    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false) =
-        runBatch(budget, { requireCharging }, pauseWhenHot, deepen)
+    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, deepen: Boolean = false) = runBatch(budget, { requireCharging }, deepen)
 
     companion object {
-        /** Why a batch must not go on now, or null to carry on: checked before every file, and by Retriever before it opens the model. */
-        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean, pauseWhenHot: Boolean = true): StopReason? = when {
+        /** Why a batch must not go on now, or null to carry on: checked before every file. */
+        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean): StopReason? = when {
             settings.paused -> StopReason.PAUSED
             busy -> StopReason.BUSY
             state.powerSave -> StopReason.POWER_SAVE
-            state.hot && pauseWhenHot -> StopReason.HOT
+            state.hot -> StopReason.HOT
             requireCharging && !state.pluggedIn -> StopReason.UNPLUGGED
             else -> null
         }
@@ -309,9 +328,9 @@ class IndexEngine(
 
         /**
          * Files read while one embeds: two on a charger, one on battery or under [TWO_AHEAD_MIN_RAM_GB] (two files' decoded
-         * pages beside the model), fewer as the phone warms; none while the app shows.
+         * pages beside the model), fewer as the phone warms; none while the app shows or the system says memory is low.
          */
-        fun readAheadDepth(state: DeviceState, visible: Boolean): Int = if (visible) {
+        fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false): Int = if (visible || lowMemory) {
             0
         } else {
             minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)

@@ -70,7 +70,6 @@ A visible gap longer than three current display intervals marks GPU vision as st
 vision configuration; real per-kind reads replace those seeds. A mixed text-GPU/vision-CPU image initially uses the
 CPU benchmark as its estimate, then learns its own pace. No additional hybrid benchmark runs.
 
-Paces persist separately as `speed_by_kind_<text>_<vision>`. Changing configuration resets the live ETA smoothing and
-retier window and loads that configuration's book. The planner and trimming use the selected configuration's book;
-ETA counts are refreshed against the *current* trimmed plan. The old unlabelled `speed_by_kind` book is ignored,
+Paces persist separately as `speed_by_kind_<text>_<vision>`. Changing configuration resets the session's wall-clock ratio and
+the retier window and loads that configuration's book. The planner and trimming use the selected configuration's book. The old unlabelled `speed_by_kind` book is ignored,
 because it cannot say which delegate produced its measurements. Retiering preserves stall decisions and both medians.

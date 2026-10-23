@@ -33,6 +33,8 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         observe(UIApplication.didReceiveMemoryWarningNotification) { [weak self] in
             guard let self, !monitor.active, !keepsReading() else { return }
             release()
+            // The vector table too: the next search loads it again.
+            retriever.trimMemory { _ in }
         }
         observe(UIDevice.batteryStateDidChangeNotification) { [weak self] in self?.readBattery() }
         observe(UIDevice.batteryLevelDidChangeNotification) { [weak self] in self?.readBattery() }

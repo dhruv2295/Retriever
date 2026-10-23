@@ -1,13 +1,19 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+
+/** Android's, matched by its name: common code sees no Android type. */
+internal class SQLiteFullException(message: String) : RuntimeException(message)
 
 /** What [Retriever.indexBatch] decides before and around the model: budget, eligibility, the charging rule, failures. */
 class BatchPolicyTest {
@@ -35,6 +41,7 @@ class BatchPolicyTest {
         val factory = FakeFactory()
         var onSync: () -> Unit = {}
         var onExtract: (SourceFile) -> Unit = {}
+        var onLog: (String) -> Unit = {}
         val extractor = FakeExtractor(onExtract = { onExtract(it) })
         private val source = object : FileSource {
             override suspend fun changes(since: String?): Changes {
@@ -44,7 +51,7 @@ class BatchPolicyTest {
         }
         val r = Retriever(
             store, source, extractor, factory, monitor, NoHasher, PIXEL.copy(ramGb = ramGb), { modelReady }, { true },
-            { _, _ -> }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), fewWaitingLimit = 0,
+            { m, _ -> onLog(m) }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), fewWaitingLimit = 0,
         )
 
         fun indexed() = store.countsByState()[FileState.INDEXED] ?: 0L
@@ -185,6 +192,43 @@ class BatchPolicyTest {
         assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertTrue(f.r.state.value.lastError != null)
         assertTrue(f.factory.opened.isEmpty())
+    }
+
+    @Test
+    fun aFullDiskStopsTheBatchAsAReasonNotAnError() = test {
+        val f = Fx()
+        f.onSync = { throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)") }
+        assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
+        assertEquals(StopReason.DISK_FULL, f.r.state.value.lastStop)
+        assertEquals(null, f.r.state.value.lastError)
+    }
+
+    @Test
+    fun theReadingPolicyIsAskedOnceBeforeEachFileNotOncePerRule() = test {
+        val files = (1..30).map { testFile("f$it.txt", modifiedAt = it.toLong()) }
+        val f = Fx(files = files)
+        var reads = 0
+        // The batch's own reads of the device, not the watchdog's once a second.
+        f.monitor.failing = {
+            if (!Thread.currentThread().name.startsWith("DefaultDispatcher")) reads++
+            false
+        }
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(30L, f.indexed())
+        // Per file: the loop's state and policy, the configuration and deepen checks, the policy before the read and before the embed.
+        assertTrue(reads <= 6 * files.size + 15, "$reads device reads for ${files.size} files")
+    }
+
+    @Test
+    fun aFailedCheckOffTheBatchIsLoggedNotACrash() = test {
+        val f = Fx()
+        val logged = CompletableDeferred<Unit>()
+        f.onLog = { if (it == "Background work failed") logged.complete(Unit) }
+        // Only the batch's watchdog asks off the test thread: its check fails, the batch's own checks pass.
+        f.monitor.failing = { Thread.currentThread().name.startsWith("DefaultDispatcher") }
+        f.onExtract = { runBlocking { withTimeout(10.seconds) { logged.await() } } }
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(1L, f.indexed())
     }
 
     @Test
