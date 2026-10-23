@@ -56,7 +56,7 @@ source -> extract -> chunk -> embed -> store -> search. `Retriever` owns the ord
 
 ## Schema and migrations
 
-The database is `retriever.db` (`Store.DB_NAME`, `core/Store.kt:926`), defined in
+The database is `retriever.db` (`Store.DB_NAME`, `core/Store.kt:940`), defined in
 `core/src/commonMain/sqldelight/app/retriever/core/db/Index.sq`: `files`, `chunks`, `chunk_fts`, `file_fts`
 (FTS4, `unicode61` with generated `tokenchars`; CJK runs stored as overlapping two-character pieces, `core/Cjk.kt`), `index_meta`, `recent_queries`, `starred`, and the `vector_deleted`
 trigger. Schema version is 9: `1.sqm` to `8.sqm` are the migrations, and `docs/features/store.md` lists them all. The
@@ -142,7 +142,7 @@ One owner per question:
   day is filled in (`Store.kt:143,519`). `SearchEngine.refresh` reads both: it appends new rows by id, and rebuilds the table
   when backfills changed or more than 10% of loaded rows were deleted (`SearchEngine.kt:125`). Between rebuilds, a scan
   that picks a row whose chunk is gone marks it dead and rescans (`SearchEngine.kt:219`). Counts for the UI are
-  `Store.countsNow`, read again each time the `Store.countChanges` query flow emits (`Store.kt:661,692`).
+  `Store.countsNow`, read again each time the `Store.countChanges` query flow emits (`Store.kt:675,706`).
 
 ## User state and backup
 
@@ -153,7 +153,7 @@ Two stores, different lifetimes:
   the demo database and `models/`. iOS: the data directory is marked `NSURLIsExcludedFromBackupKey` (`IosStore.kt:28`).
 - User state is the settings (`Prefs`) and the stars: a JSON file (`UserState`, `core/UserState.kt`). `Store` writes
   it on every prefs or star change (`setMeta` for the `prefs` key, `setStarred`, `relinkStars`) and restores it once,
-  lazily, into a database that has no settings yet (`core/Store.kt:781,850,860`). `UserStateFile` is the platform
+  lazily, into a database that has no settings yet (`core/Store.kt:795,864,874`). `UserStateFile` is the platform
   seam: write a temp file, then rename. Android: `files/user-state.json` via `AtomicFile`, backed up
   (`AppModule.kt`, rules files above). iOS: `<dataDir>-user-state.json` beside the data directory, so it is backed up
   while the directory is not (`IosStore.kt:32`). Demo mode passes no file.
@@ -162,7 +162,7 @@ Two stores, different lifetimes:
 
 Core's `log: (String, Throwable?) -> Unit` receives messages that hold no file names, folder names, paths or queries:
 kind, MIME, size, exception class, counts (`Retriever`'s `log` parameter; `Store` logs the class only,
-`Store.kt:870`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
+`Store.kt:884`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
 Platform sinks: Android `LogSink` writes the message plus the exception class and top stack frame in release, never the
 exception message (`androidApp/.../diagnostics/LogSink.kt`); iOS logs through `os.Logger` with the message public because core
 guarantees it is clean (`AppServices.swift:59,74`). Crash and hang reports on iOS stay on the device in
