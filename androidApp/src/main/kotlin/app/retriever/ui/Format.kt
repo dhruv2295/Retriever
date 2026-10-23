@@ -26,20 +26,29 @@ import app.retriever.core.Locator
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.formatCount
-import java.text.DateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
-import kotlin.math.ln
-import kotlin.math.pow
+import kotlin.math.roundToLong
 
 object Format {
     fun downloadSize(context: Context, bytes: Long): String = Words.keepTogether(Formatter.formatShortFileSize(context, bytes))
 
+    /**
+     * One decimal, SI: the index's sizes keep the precision the platform's short format drops ("484.6 MB", not "485 MB").
+     * A figure that would round to 1000.0 moves up a unit, so 999,999 bytes is 1.0 MB.
+     */
     fun bytes(n: Long): String {
         if (n < 1000) return "$n${Words.NBSP}B"
-        val exp = (ln(n.toDouble()) / ln(1000.0)).toInt()
-        val pre = "kMGTPE"[exp - 1]
-        return String.format(Locale.getDefault(), "%.1f${Words.NBSP}%sB", n / 1000.0.pow(exp), pre)
+        var value = n / 1000.0
+        var unit = 0
+        while (unit < 5 && (value * 10).roundToLong() >= 10_000) {
+            value /= 1000
+            unit++
+        }
+        return String.format(Locale.getDefault(), "%.1f${Words.NBSP}%sB", value, "kMGTPE"[unit])
     }
 
     /** What a search kept when the chips narrow it, as a plural noun ("starred PDFs", "photos"); null when it kept everything. */
@@ -51,7 +60,16 @@ object Format {
         }
     }
 
-    fun date(ms: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(ms))
+    /** The last formatter, for its locale: immutable, so every row shares it, where DateFormat built one per call. */
+    @Volatile private var dates: Pair<Locale, DateTimeFormatter>? = null
+
+    /** The locale's medium date ("Oct 9, 2025"), in the phone's time zone. */
+    fun date(ms: Long): String {
+        val locale = Locale.getDefault(Locale.Category.FORMAT)
+        val formatter = dates?.takeIf { it.first == locale }?.second
+            ?: DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale).also { dates = locale to it }
+        return formatter.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+    }
 
     /** "p. 12" becomes "Page 12", a time stays as it is, anything else has no label. */
     fun locatorLabel(locator: String): String? = Locator.pageOf(locator)?.let { "Page $it" } ?: locator.takeIf { Locator.msOf(it) != null }
