@@ -1,6 +1,7 @@
 package app.retriever.nav
 
 import android.animation.ValueAnimator
+import androidx.activity.compose.ReportDrawn
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.spring
@@ -102,6 +103,8 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
         NavHost(navController, startDestination = start) {
             // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
             composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
+                // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
+                ReportDrawn()
                 // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
                 SetupScreen(onNavigate = go, onDone = {
                     navController.navigate(HomeRoute) {
