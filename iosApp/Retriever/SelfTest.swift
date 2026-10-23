@@ -127,6 +127,9 @@
 
             s.monitor.active = true
             s.retriever.uiVisible = true
+            // Later parts wait for the charger unless the person asks to process now (ReadingPolicy.deepenBlocker), and the
+            // simulator is never on one: Read now, so the whole index, deepen pass included, is built here.
+            try await s.retriever.readNow()
             let next = try await indexAll(s).next
             let snap = await snapshot(s.retriever)
             let byKind = snap.counts.byKind.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
@@ -160,11 +163,14 @@
             }
 
             // (g) Nothing here is about swimming. The relevance rule ships off until it is fitted on public data, so the
-            // nearest files still come back and every one counts as strong; with the rule on, the shipped split applies.
+            // nearest files still come back, none dropped: the largest score drop after each modality's first three files
+            // only folds the rest into the tail (likelyCount), so at least three stay strong. With the rule on, the shipped
+            // split applies.
             let none = try await s.retriever.search(q: "kids swimming in a pool", kinds: nil, limit: 20)
             check(
                 "(g) no match \"kids swimming in a pool\"",
-                none.vectorLane && !none.hits.isEmpty && (RankingKt.RELEVANCE_RULE_ENABLED || none.strongCount == none.hits.count),
+                none.vectorLane && !none.hits.isEmpty
+                    && (RankingKt.RELEVANCE_RULE_ENABLED || none.strongCount >= min(3, none.hits.count)),
                 "strong \(none.strongCount) of \(none.hits.count) hits; top \(top(none))")
 
             // (h) Largest first. Photos carry no byte size on iOS, so only the order is checked.
