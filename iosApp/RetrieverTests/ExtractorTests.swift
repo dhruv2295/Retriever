@@ -39,7 +39,8 @@ final class ExtractorTests: XCTestCase {
         let turned = UIImage(cgImage: try XCTUnwrap(stored.cgImage), scale: 1, orientation: .right)
         XCTAssertEqual(turned.size, size)
 
-        let scan = try XCTUnwrap(extractor().read(turned, labels: false, jpegSide: 512))
+        // With labels, as a photo is read: the text survives a classifier that can't run (the simulator's can't).
+        let scan = try XCTUnwrap(extractor().read(turned, labels: true, jpegSide: 512))
 
         XCTAssertTrue(scan.text.contains("48213"), scan.text)
         let source = try XCTUnwrap(CGImageSourceCreateWithData(scan.jpeg as CFData, nil))

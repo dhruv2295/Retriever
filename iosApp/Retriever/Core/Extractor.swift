@@ -66,8 +66,10 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             for request in requests { request.cancel() }
         }
         defer { untrack(id) }
-        // Each request keeps its own results, so one that fails doesn't take the other's with it.
-        try? VNImageRequestHandler(cgImage: cg, orientation: CGImagePropertyOrientation(image.imageOrientation)).perform(requests)
+        // One handler keeps the decoded image for both. One perform each: a request that fails (the simulator can't
+        // classify) stops the others in the same perform, and the text must not go with it.
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: CGImagePropertyOrientation(image.imageOrientation))
+        for request in requests { try? handler.perform([request]) }
         let found = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
         let tags = labels ? classify.results.map(Self.labels) : nil
         return NativeScan(jpeg: jpeg, text: found, labels: tags)
