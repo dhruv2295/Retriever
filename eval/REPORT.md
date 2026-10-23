@@ -478,6 +478,68 @@ a file is not a target for the floor: those files are often related (the receipt
 
 ---
 
+# Scan in blocks, parallel slices and the iOS kernel (audit S-3, S-4, S-9)
+
+Measured 2026-10-23 on the M4 Max (16 cores), JVM 21 via Gradle, shared with other agents' builds (load average 30-480
+during the runs, so single p95s move by up to 2x; the bench asserts the same-run comparison with the wave-4 scan).
+
+**Memory (S-4).** `VectorTable` kept one contiguous array per column, sized exactly by a `vectorCount()` scan before
+each full load. The first append after a load (indexing, the deepen pass) doubled every array while the published view
+still held the old ones. Now vectors live in blocks of 16,383 rows (4 MB of vectors, 4.6 MB in all): an append fills the
+last block's free rows, then adds a block, and a full block is never copied. Only a lone first block grows, by doubling
+from 1,024 rows, so a small library holds little. The `vectorCount()` scan is gone (39 ms warm at 150k on the M4, per
+the audit). Heap used after a GC (`Runtime`), loading in pages of 10,000 rows as `refresh` does, then one append while
+the old view is still referenced:
+
+| Rows | Before: loaded | Before: first append, peak | Before: after it | After: loaded | After: first append, peak and after |
+|---|---|---|---|---|---|
+| 150,000 | 45.5 MB | 134.2 MB | 88.8 MB | 46.3 MB | 46.3 MB |
+| 300,000 | 88.8 MB | 261.8 MB | 173.1 MB | 88.2 MB | 88.2 MB |
+
+The block is one row short of 4 MiB on purpose: at 16,384 rows the vector array plus its header took one more 1 MB G1
+heap region per block on the JVM (56.9 MB at 150k). ART and Kotlin/Native round large arrays to a page, so either size
+is fine on a phone.
+
+**Scan speed (`SearchBenchTest`, 150,000 rows, top 100, p50 / p95 ms).** The wave-4 scan now runs over a flat copy of
+the table, so `vector` against it measures what blocks cost.
+
+| Scan | Before | After, run 1 | After, run 2 |
+|---|---|---|---|
+| wave-4 scan over a flat table (the same-run baseline) | 8.59 / 8.66 | 8.45 / 8.51 | 8.48 / 8.66 |
+| `vector`: one thread, blocks | 8.59 / 8.66 (+0.0%) | 8.37 / 8.44 (-0.8%) | 8.34 / 8.46 (-2.2%) |
+| `vector-sliced`: what search runs, here 2 slices | - | 4.77 / 4.82 (-43%) | 5.76 / 6.53 (-25%) |
+| `vector+rule` (histograms filled; the rule ships off) | 10.93 / 10.97 (+26.7%) | 10.75 / 10.87 (+27.8%) | 10.49 / 11.08 (+27.9%) |
+
+Percentages are p95 against the same run's wave-4 scan. Three earlier runs during the work, under heavier load, put
+`vector` at +0.3%, +3.9% and -4.2%. Some runs failed the names (5 ms) or keyword (150 ms) p95 limits at load averages of
+100-480; neither lane changed here (before: names p95 4.05 ms, keyword 119.5 ms).
+
+`vector-sliced` is what search now runs: from 131,072 rows the scan splits into `min(cores, rows / 65,536)` slices of
+whole blocks (S-9), here 2, each with its own heap and histogram, run with `async` on the caller's dispatcher
+(`Dispatchers.Default` in the app) and merged by cosine, then row. The heap now breaks ties by row, so a sliced scan
+returns exactly what one scan returns (`VectorScanTest.parallelSlicesFindWhatOneScanFinds`). At 500k rows the audit
+measured 27.9 ms on one thread and 7.3 ms in 4 slices on the JVM. Below 131,072 rows nothing changed.
+
+**iOS kernel (S-3).** Kotlin/Native compiles `dotInt8` to scalar code with a safepoint poll and two bounds checks per
+byte. On iOS the scan now scores a block at a time with a cinterop C kernel
+(`core/src/nativeInterop/cinterop/vecscan.def`, `Vector.ios.kt`); Android and the JVM keep the per-row Kotlin loop,
+which ART vectorises (the oatdump under "Emulator runs" below). The kernel is bit-identical to `dotInt8`
+(`VectorScanTest.theNativeKernelScoresBitForBitAsDotInt8`, run by `iosSimulatorArm64Test`). Same blocks, score plus a
+max per row, `konanc -opt` for macos_arm64 (the iOS backend) on the M4:
+
+| Rows | Kotlin `dotInt8` | C kernel |
+|---|---|---|
+| 100,000 | 12.2 ms | 0.42 ms |
+| 150,000 | 20.2 ms | 0.66 ms |
+| 500,000 | 61.4 ms | 2.12 ms |
+
+On macOS clang emits `sdot`. The iosArm64 release framework (`linkReleaseFrameworkIosArm64`) inlines the kernel into
+`dotRows$1.score` as NEON `smull`/`smull2` and `saddw`/`saddw2` (16, 16, 24, 24; no `sdot`, since the iosArm64 baseline
+CPU lacks dotprod), so expect a smaller gain on an iPhone than on the M4 (the audit estimated 5-10x). Not yet measured on
+a device. This answers the open item below for Kotlin/Native: it does not vectorise `dotInt8`; the kernel does.
+
+---
+
 # Search speed at scale (wave 4)
 
 ## Setup

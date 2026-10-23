@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -89,18 +90,19 @@ class SearchEngine(
     )
 
     /**
-     * [backing] grows in place under [loadLock]; searches scan [view], whose arrays and size were fixed when it
-     * was published, so later appends (beyond its size) never race with a scan.
+     * [backing] grows under [loadLock]; searches scan [view], whose blocks and size were fixed when it was published, so
+     * later appends (beyond its size, or into blocks it does not hold) never race with a scan.
      */
     private class Loaded(val backing: VectorTable, val deletedAtLoad: Long, val backfillsAtLoad: Long, prev: Loaded? = null) {
-        val view = VectorTable(backing.chunkIds, backing.fileIds, backing.bytes, backing.scales, backing.size, backing.kinds, backing.modalities, backing.days)
+        val view = backing.view()
 
         /**
-         * Rows whose chunk a lookup found deleted; [scan] skips them. Carried across appends. Set from concurrent searches
-         * without a lock: every write stores true, so a lost one only costs a later search another pass.
+         * Rows whose chunk a lookup found deleted; [scan] skips them. Carried across appends, and grown a block at a time.
+         * Set from concurrent searches without a lock: every write stores true, so a lost one only costs a later search
+         * another pass.
          */
-        val dead: BooleanArray = prev?.dead?.takeIf { it.size >= backing.chunkIds.size }
-            ?: BooleanArray(backing.chunkIds.size).also { prev?.dead?.copyInto(it) }
+        val dead: BooleanArray = prev?.dead?.takeIf { it.size >= view.size }
+            ?: BooleanArray(view.blockCount * VectorTable.BLOCK).also { prev?.dead?.copyInto(it) }
 
         @Volatile
         var anyDead: Boolean = prev?.anyDead ?: false
@@ -130,9 +132,9 @@ class SearchEngine(
                     (deleted - current.deletedAtLoad) * 10 > current.backing.size
                 ) {
                     fullLoads++
-                    // Drop the old table first and size the new one exactly, so a rebuild never holds three copies.
+                    // Drop the old table first, so a rebuild never holds three copies.
                     loaded = null
-                    Loaded(store.loadVectors(into = VectorTable.withCapacity(store.vectorCount())), deleted, backfills)
+                    Loaded(store.loadVectors(), deleted, backfills)
                 } else {
                     Loaded(store.loadVectors(afterId = current.backing.lastId, into = current.backing), current.deletedAtLoad, backfills, current)
                 }
@@ -208,12 +210,12 @@ class SearchEngine(
             val l = loaded ?: return Lane(emptyList(), Source.MEANING)
             val histogram = rule?.histogram()
             val dead = l.dead.takeIf { l.anyDead }
-            val top = traced("vec.scan") { scan(q, CANDIDATES, l.view, f.allowed, f.days, f.contentIds, histogram, dead) }
-            val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkIds[it] }) }
+            val top = scanSliced(q, CANDIDATES, l.view, f.allowed, f.days, f.contentIds, histogram, dead)
+            val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkId(it) }) }
             // A picked row whose chunk is gone was deleted after the load: mark it and scan again, so it frees its slot.
             var missed = false
             for (row in top.rows) {
-                if (l.view.chunkIds[row] !in rows) {
+                if (l.view.chunkId(row) !in rows) {
                     l.dead[row] = true
                     missed = true
                 }
@@ -226,8 +228,8 @@ class SearchEngine(
             }
             val hits = top.rows.indices.mapNotNull { i ->
                 val row = top.rows[i]
-                rows[l.view.chunkIds[row]]?.let {
-                    Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modalities[row].toInt())
+                rows[l.view.chunkId(row)]?.let {
+                    Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modality(row).ordinal)
                 }
             }
             return Lane(hits, Source.MEANING, if (rule != null && histogram != null) rule.minStrong(histogram) else null)
@@ -273,10 +275,11 @@ class SearchEngine(
     internal class Scan(val rows: IntArray, val cos: FloatArray)
 
     /**
-     * The [n] best rows by cosine, best first, among rows whose kind [allowed] marks, whose day is in [days] and whose
-     * file is in [fileIds] (sorted; null: no such filter); a min-heap over primitive arrays, so no boxing or full sort.
-     * [histogram], when given, counts every admitted row's cosine by modality for [RelevanceRule]. Rows [dead] marks
-     * are skipped before either.
+     * The [n] best rows by cosine, best first (an equal cosine goes to the earlier row), among rows whose kind [allowed]
+     * marks, whose day is in [days] and whose file is in [fileIds] (sorted; null: no such filter); a min-heap over
+     * primitive arrays, so no boxing or full sort. [histogram], when given, counts every admitted row's cosine by
+     * modality for [RelevanceRule]. Rows [dead] marks are skipped before either. Only blocks [fromBlock] until [toBlock]
+     * are read.
      */
     internal fun scan(
         q: Vector,
@@ -287,42 +290,106 @@ class SearchEngine(
         fileIds: LongArray? = null,
         histogram: IntArray? = null,
         dead: BooleanArray? = null,
+        fromBlock: Int = 0,
+        toBlock: Int = table.blockCount,
     ): Scan {
         val size = table.size
-        val bytes = table.bytes
-        val scales = table.scales
-        val kinds = table.kinds
-        val rowDays = table.days
-        val rowFiles = table.fileIds
-        val modalities = table.modalities
         val firstDay = days?.first ?: 0
         val lastDay = days?.last ?: 0
-        val k = minOf(n, size)
+        val k = minOf(n, minOf(size, toBlock * VectorTable.BLOCK) - fromBlock * VectorTable.BLOCK)
         if (k <= 0) return Scan(IntArray(0), FloatArray(0))
         val heapScore = FloatArray(k)
         val heapRow = IntArray(k)
         var filled = 0
-        if (allowed == null && days == null && fileIds == null && histogram == null && dead == null) {
-            // The usual search gets a loop with no per-row checks: they cost 2-5% of the scan on the JVM bench.
-            for (row in 0 until size) {
-                filled = offer(heapScore, heapRow, filled, row, dotInt8(bytes, row * DIMS, q.bytes, q.scale, scales[row]))
+        val kernel = dotRows
+        val scores = FloatArray(if (kernel != null) VectorTable.BLOCK else 0)
+        val unfiltered = allowed == null && days == null && fileIds == null && histogram == null && dead == null
+        for (b in fromBlock until toBlock) {
+            val block = table.block(b)
+            val base = b * VectorTable.BLOCK
+            val count = minOf(VectorTable.BLOCK, size - base)
+            val bytes = block.bytes
+            val scales = block.scales
+            // A native kernel scores the whole block at once; that beats Kotlin/Native's per-row loop even for rows a
+            // filter then skips.
+            kernel?.score(bytes, scales, count, q.bytes, q.scale, scores)
+            if (unfiltered) {
+                // The usual search gets a loop with no per-row checks: they cost 2-5% of the scan on the JVM bench.
+                if (kernel != null) {
+                    for (i in 0 until count) filled = offer(heapScore, heapRow, filled, base + i, scores[i])
+                } else {
+                    for (i in 0 until count) filled = offer(heapScore, heapRow, filled, base + i, dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i]))
+                }
+                continue
             }
-        } else {
-            for (row in 0 until size) {
-                if (dead != null && dead[row]) continue
-                if (allowed != null && !allowed[kinds[row].toInt()]) continue
-                if (days != null && (rowDays[row] < firstDay || rowDays[row] > lastDay)) continue
-                if (fileIds != null && !sortedHas(fileIds, rowFiles[row])) continue
-                val s = dotInt8(bytes, row * DIMS, q.bytes, q.scale, scales[row])
-                if (histogram != null) histogram[modalities[row] * RelevanceRule.BINS + RelevanceRule.bin(s)]++
-                filled = offer(heapScore, heapRow, filled, row, s)
+            val kinds = block.kinds
+            val rowDays = block.days
+            val rowFiles = block.fileIds
+            val modalities = block.modalities
+            for (i in 0 until count) {
+                if (dead != null && dead[base + i]) continue
+                if (allowed != null && !allowed[kinds[i].toInt()]) continue
+                if (days != null && (rowDays[i] < firstDay || rowDays[i] > lastDay)) continue
+                if (fileIds != null && !sortedHas(fileIds, rowFiles[i])) continue
+                val s = if (kernel != null) scores[i] else dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i])
+                if (histogram != null) histogram[modalities[i] * RelevanceRule.BINS + RelevanceRule.bin(s)]++
+                filled = offer(heapScore, heapRow, filled, base + i, s)
             }
         }
-        val order = (0 until filled).sortedByDescending { heapScore[it] }
-        return Scan(IntArray(filled) { heapRow[order[it]] }, FloatArray(filled) { heapScore[order[it]] })
+        return best(heapScore, heapRow, filled, k)
     }
 
-    /** Offers [row] scored [s] to the min-heap of the best [heapScore].size rows, [filled] of them used; returns the new fill. */
+    /**
+     * [scan] across cores once the table holds [PARALLEL_ROWS]: min([threads], size / [SLICE_ROWS]) slices of whole
+     * blocks, each with its own heap and histogram, run on the caller's dispatcher and merged by cosine, then row, so the
+     * result is [scan]'s. A smaller table is scanned as before.
+     */
+    internal suspend fun scanSliced(
+        q: Vector,
+        n: Int,
+        table: VectorTable,
+        allowed: BooleanArray? = null,
+        days: IntRange? = null,
+        fileIds: LongArray? = null,
+        histogram: IntArray? = null,
+        dead: BooleanArray? = null,
+        threads: Int = cpuCores,
+    ): Scan {
+        val slices = minOf(threads, table.size / SLICE_ROWS)
+        if (table.size < PARALLEL_ROWS || slices < 2) return traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, histogram, dead) }
+        val blocks = table.blockCount
+        val parts = coroutineScope {
+            List(slices) { s ->
+                async {
+                    val counts = histogram?.let { IntArray(it.size) }
+                    val top = traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, counts, dead, blocks * s / slices, blocks * (s + 1) / slices) }
+                    top to counts
+                }
+            }.awaitAll()
+        }
+        if (histogram != null) for ((_, counts) in parts) for (i in histogram.indices) histogram[i] += counts!![i]
+        val rows = IntArray(parts.sumOf { it.first.rows.size })
+        val cos = FloatArray(rows.size)
+        var at = 0
+        for ((top, _) in parts) {
+            top.rows.copyInto(rows, at)
+            top.cos.copyInto(cos, at)
+            at += top.rows.size
+        }
+        return best(cos, rows, rows.size, n)
+    }
+
+    /** The first [n] of the [count] rows in [rows], by cosine in [cos] and then by row. */
+    private fun best(cos: FloatArray, rows: IntArray, count: Int, n: Int): Scan {
+        val order = (0 until count).sortedWith(compareByDescending<Int> { cos[it] }.thenBy { rows[it] })
+        val m = minOf(n, count)
+        return Scan(IntArray(m) { rows[order[it]] }, FloatArray(m) { cos[order[it]] })
+    }
+
+    /**
+     * Offers [row] scored [s] to the min-heap of the best [heapScore].size rows, [filled] of them used; returns the new
+     * fill. Rows rank by score, then the earlier row first, so equal scores keep the same rows in any scan order.
+     */
     @Suppress("NOTHING_TO_INLINE") // Inlined into both scan loops, so the heap code is written once and costs no call.
     private inline fun offer(heapScore: FloatArray, heapRow: IntArray, filled: Int, row: Int, s: Float): Int {
         val k = heapScore.size
@@ -330,7 +397,7 @@ class SearchEngine(
             var i = filled
             while (i > 0) {
                 val parent = (i - 1) / 2
-                if (heapScore[parent] <= s) break
+                if (!below(s, row, heapScore[parent], heapRow[parent])) break
                 heapScore[i] = heapScore[parent]
                 heapRow[i] = heapRow[parent]
                 i = parent
@@ -339,13 +406,13 @@ class SearchEngine(
             heapRow[i] = row
             return filled + 1
         }
-        if (s > heapScore[0]) {
+        if (below(heapScore[0], heapRow[0], s, row)) {
             var i = 0
             while (true) {
                 val l = 2 * i + 1
                 if (l >= k) break
-                val c = if (l + 1 < k && heapScore[l + 1] < heapScore[l]) l + 1 else l
-                if (heapScore[c] >= s) break
+                val c = if (l + 1 < k && below(heapScore[l + 1], heapRow[l + 1], heapScore[l], heapRow[l])) l + 1 else l
+                if (!below(heapScore[c], heapRow[c], s, row)) break
                 heapScore[i] = heapScore[c]
                 heapRow[i] = heapRow[c]
                 i = c
@@ -356,9 +423,13 @@ class SearchEngine(
         return filled
     }
 
+    /** Whether row [r] scored [s] ranks below row [r2] scored [s2]. */
+    @Suppress("NOTHING_TO_INLINE") // Checked per row by [offer], so it costs no call either.
+    private inline fun below(s: Float, r: Int, s2: Float, r2: Int) = s < s2 || (s == s2 && r > r2)
+
     /** [scan] as (chunk id, cosine) pairs, for benches. */
     fun scanTop(q: Vector, n: Int, table: VectorTable, allowed: BooleanArray? = null): List<Pair<Long, Float>> =
-        scan(q, n, table, allowed).let { s -> List(s.rows.size) { table.chunkIds[s.rows[it]] to s.cos[it] } }
+        scan(q, n, table, allowed).let { s -> List(s.rows.size) { table.chunkId(s.rows[it]) to s.cos[it] } }
 
     private enum class Source { MEANING, WORDS, NAME_EXACT, NAME, NAME_LOOSE }
 
@@ -524,6 +595,10 @@ class SearchEngine(
 
         /** Scans that may each find dead rows before [meaningLane] reloads in full instead. */
         private const val MAX_PASSES = 3
+
+        /** Rows from which [scanSliced] splits the scan, and the fewest rows a slice gets (eval/REPORT.md, "Scan in blocks"). */
+        const val PARALLEL_ROWS = 131_072
+        const val SLICE_ROWS = 65_536
         const val SNIPPET = 160
         private const val DAY_MS = 86_400_000L
 

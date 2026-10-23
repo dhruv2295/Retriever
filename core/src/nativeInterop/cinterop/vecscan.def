@@ -1,0 +1,17 @@
+package = app.retriever.core.vecscan
+---
+#include <stdint.h>
+
+/*
+ * Kotlin's dotInt8 for each of count rows of dims bytes: an exact int sum, then (float) sum * row scale * query scale in
+ * that order, so each score is bit-identical to Kotlin's. Kotlin/Native compiles the Kotlin loop to scalar code with a
+ * safepoint poll per byte; clang vectorises this one (NEON smull and saddw).
+ */
+static void retriever_dot_rows(const int8_t *rows, const float *scales, int32_t count, int32_t dims, const int8_t *q, float q_scale, float *out) {
+    for (int32_t r = 0; r < count; r++) {
+        const int8_t *a = rows + (int64_t) r * dims;
+        int32_t acc = 0;
+        for (int32_t i = 0; i < dims; i++) acc += a[i] * q[i];
+        out[r] = (float) acc * scales[r] * q_scale;
+    }
+}

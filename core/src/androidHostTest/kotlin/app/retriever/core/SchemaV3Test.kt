@@ -235,7 +235,7 @@ class SchemaV3Test {
         // The vector table carries the capture day, falling back to the modified day.
         val docId = index(testFile("a.txt", modifiedAt = 41 * day + 5), Store.NewChunk(1, "", "words", vector(3)))
         val table = store.loadVectors()
-        val days = (0 until table.size).associate { table.fileIds[it] to table.days[it] }
+        val days = (0 until table.size).associate { table.fileId(it) to table.day(it) }
         assertEquals(mapOf(id to 20, store.fileByUri(old.uri)!!.id to 30, docId to 41), days)
     }
 
@@ -266,9 +266,9 @@ class SchemaV3Test {
         val table = store.loadVectors()
         assertEquals(
             listOf(Modality.IMAGE, Modality.IMAGE, Modality.TEXT, Modality.AUDIO, Modality.IMAGE_TEXT, Modality.TEXT),
-            (0 until table.size).map { Modality.entries[table.modalities[it].toInt()] },
+            (0 until table.size).map { table.modality(it) },
         )
-        assertEquals(Kind.SCREENSHOT.ordinal.toByte(), table.kinds[2], "the kind byte is untouched")
+        assertEquals(Kind.SCREENSHOT, table.kind(2), "the kind is untouched")
     }
 
     @Test

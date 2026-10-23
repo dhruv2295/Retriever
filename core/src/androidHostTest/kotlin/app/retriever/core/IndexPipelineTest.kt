@@ -266,12 +266,8 @@ class IndexPipelineTest {
     fun scanOf200kRowsBenchmark() {
         val n = 200_000
         val rnd = Random(7)
-        val table = VectorTable(
-            LongArray(n) { it + 1L },
-            LongArray(n) { it / 4L },
-            ByteArray(n * DIMS).also { rnd.nextBytes(it) },
-            FloatArray(n) { 1f / 127 },
-        )
+        val bytes = ByteArray(n * DIMS).also { rnd.nextBytes(it) }
+        val table = VectorTable(LongArray(n) { it + 1L }, LongArray(n) { it / 4L }, bytes, FloatArray(n) { 1f / 127 })
         val q = Vector.of(FloatArray(DIMS) { rnd.nextFloat() - 0.5f }, SIG)
         val search = SearchEngine(newStore(), FakeEmbedder())
         repeat(3) { search.scanTop(q, 100, table) }
@@ -281,7 +277,7 @@ class IndexPipelineTest {
 
         assertEquals(100, top.size)
         assertEquals(top.sortedByDescending { it.second }, top)
-        val best = (0 until n).maxOf { dotInt8(table.bytes, it * DIMS, q.bytes, q.scale, table.scales[it]) }
+        val best = (0 until n).maxOf { dotInt8(bytes, it * DIMS, q.bytes, q.scale, 1f / 127) }
         assertEquals(best, top.first().second)
     }
 }

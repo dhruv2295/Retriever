@@ -193,7 +193,7 @@ class EvalRunner : KoinComponent {
         )
         val out = StringBuilder("Vector scan, ${Build.MODEL}, 1 thread, top 100, $RUNS runs after $WARMUP warm-ups\n")
         for (n in ROWS) {
-            val table = VectorTable(full.chunkIds, full.fileIds, full.bytes, full.scales, n, full.kinds, full.modalities, full.days)
+            val table = full.view(n)
             repeat(WARMUP) { engine.scanTop(q, 100, table) }
             val ms = List(RUNS) {
                 val mark = TimeSource.Monotonic.markNow()

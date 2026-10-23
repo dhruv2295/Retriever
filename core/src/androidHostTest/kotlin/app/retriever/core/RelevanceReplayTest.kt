@@ -78,9 +78,9 @@ class RelevanceReplayTest {
             val wrong = arrayOfNulls<Int>(Modality.entries.size)
             val wrongRank = arrayOfNulls<Int>(Modality.entries.size)
             for (i in s.rows.indices) {
-                val file = table.fileIds[s.rows[i]]
+                val file = table.fileId(s.rows[i])
                 seen += file
-                val g = table.modalities[s.rows[i]].toInt()
+                val g = table.modality(s.rows[i]).ordinal
                 if (file in relevant) {
                     if (right == null) right = Triple(i, seen.size, i + 1)
                 } else if (wrong[g] == null) {
@@ -91,12 +91,12 @@ class RelevanceReplayTest {
             Modality.entries.mapNotNull { g ->
                 val n = (0 until RelevanceRule.BINS).sumOf { h[g.ordinal * RelevanceRule.BINS + it] }
                 if (n == 0) return@mapNotNull null
-                val r = right?.takeIf { table.modalities[s.rows[it.first]].toInt() == g.ordinal }
+                val r = right?.takeIf { table.modality(s.rows[it.first]) == g }
                 val w = wrong[g.ordinal]
                 Row(
                     q, g, n, noise[g.ordinal],
-                    r?.let { names[table.fileIds[s.rows[it.first]].toInt() - 1] }, r?.let { s.cos[it.first] } ?: Float.NaN, r?.second, r?.third,
-                    w?.let { names[table.fileIds[s.rows[it]].toInt() - 1] }, w?.let { s.cos[it] } ?: Float.NaN, wrongRank[g.ordinal],
+                    r?.let { names[table.fileId(s.rows[it.first]).toInt() - 1] }, r?.let { s.cos[it.first] } ?: Float.NaN, r?.second, r?.third,
+                    w?.let { names[table.fileId(s.rows[it]).toInt() - 1] }, w?.let { s.cos[it] } ?: Float.NaN, wrongRank[g.ordinal],
                 )
             }
         }.toList().flatten()
