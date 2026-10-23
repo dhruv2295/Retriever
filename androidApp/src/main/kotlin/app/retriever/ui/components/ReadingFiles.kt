@@ -102,9 +102,9 @@ private fun ReadingFile(file: SourceFile?, size: Dp, sweep: State<Float>?, reduc
 @Composable
 private fun ReadingThumb(file: SourceFile, size: Dp, reduceMotion: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val px = with(LocalDensity.current) { size.roundToPx() }
+    val px = Thumbnails.bucket(with(LocalDensity.current) { size.roundToPx() })
     // produceState's value outlives its keys: the old pair stays until the new file's load returns.
-    val loaded by produceState(file to Thumbnails.cached(file, px), file.uri, file.modifiedAt, file.size, px) {
+    val loaded by produceState(file to Thumbnails.cached(context, file, px), file.uri, file.modifiedAt, file.size, px) {
         value = file to Thumbnails.load(context, file, px)
     }
     Crossfade(loaded, modifier, animationSpec = if (reduceMotion) snap() else tween(150), label = "Reading picture") { (f, bitmap) ->

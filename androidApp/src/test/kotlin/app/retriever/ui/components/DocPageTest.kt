@@ -285,7 +285,8 @@ class DocPageTest {
                 }
             }
         }
-        if (type != "fallback") rule.waitUntil(10_000) { Thumbnails.cached(file, 256) != null && Thumbnails.cached(file, 512) != null }
+        val app = RuntimeEnvironment.getApplication()
+        if (type != "fallback") rule.waitUntil(10_000) { Thumbnails.cached(app, file, 256) != null && Thumbnails.cached(app, file, 512) != null }
         rule.waitForIdle()
         rule.shot("docpage_$type")
     }

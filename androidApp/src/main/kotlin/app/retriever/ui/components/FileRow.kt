@@ -19,12 +19,10 @@ package app.retriever.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,16 +42,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -177,50 +170,50 @@ fun FileRow(
     }
 }
 
+/** A list row's picture: [size] square, rounded, the same cache and request sizes as every other picture. */
 @Composable
 fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: String = "") {
-    val context = LocalContext.current
-    val px = with(LocalDensity.current) { size.roundToPx() }
-    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, file.uri, file.modifiedAt, file.size, px, locator) {
-        value = Thumbnails.load(context, file, px, locator)
-    }
-    Box(
-        modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        val shown = bitmap
-        if (shown != null) {
-            Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
-        } else {
-            KindFace(file)
-        }
-    }
+    val colors = MaterialTheme.colorScheme
+    ThumbnailImage(
+        file,
+        size,
+        modifier.size(size).clip(RoundedCornerShape(8.dp)),
+        container = colors.surfaceContainer,
+        locator = locator,
+        tint = colors.onSurfaceVariant,
+    )
 }
 
-/** A square grid cell: the picture (at the matched page or moment) with a small badge saying where. */
+/**
+ * A square grid cell: the picture (at the matched page or moment) with a small badge saying where. [requestSize] is the
+ * cell's width, worked out once by the grid ([adaptiveCell]), so no cell measures itself.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThumbCell(
     file: SourceFile,
     onClick: () -> Unit,
+    requestSize: Dp,
     modifier: Modifier = Modifier,
     locator: String = "",
     readNote: String? = null,
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null,
 ) {
-    val description = buildString {
-        append("${Words.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
-        Words.spokenPosition(locator)?.let { append(", $it") }
-        readNote?.let { append(", $it") }
-    }
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }
-    BoxWithConstraints(
+    Box(
         modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .semantics(mergeDescendants = true) { contentDescription = description }
+            // Built when a screen reader or a test asks, not for every cell drawn.
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append("${Words.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
+                    Words.spokenPosition(locator)?.let { append(", $it") }
+                    readNote?.let { append(", $it") }
+                }
+            }
             .combinedClickable(
                 onClickLabel = clickLabel(locator),
                 onLongClickLabel = onLongClickLabel,
@@ -229,7 +222,8 @@ fun ThumbCell(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Thumb(file, maxWidth, Modifier.fillMaxSize(), locator)
+        val colors = MaterialTheme.colorScheme
+        ThumbnailImage(file, requestSize, Modifier.fillMaxSize(), container = colors.surfaceContainer, locator = locator, tint = colors.onSurfaceVariant)
         if (badge != null) {
             Row(
                 Modifier
@@ -281,6 +275,16 @@ fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, side: Dp
                 maxOf(scaffold.calculateBottomPadding(), with(density) { maxOf(nav.getBottom(density), ime.getBottom(density)).toDp() }) + extraBottom
         }
     }
+}
+
+/**
+ * The width of one column of a `GridCells.Adaptive(min)` grid with [spacing] between columns, across this box less
+ * [padding] (both sides together): the grid's own rule, worked out once above it for every cell.
+ */
+fun BoxWithConstraintsScope.adaptiveCell(min: Dp, spacing: Dp, padding: Dp = 0.dp): Dp {
+    val width = maxWidth - padding
+    val columns = ((width + spacing) / (min + spacing)).toInt().coerceAtLeast(1)
+    return (width - spacing * (columns - 1)) / columns
 }
 
 /**

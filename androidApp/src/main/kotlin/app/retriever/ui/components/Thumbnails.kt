@@ -18,11 +18,16 @@
 
 package app.retriever.ui.components
 
+import android.app.ActivityManager
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
+import android.os.CancellationSignal
 import android.util.LruCache
 import android.util.Size
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,8 +43,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,30 +71,80 @@ import app.retriever.core.Kind
 import app.retriever.core.Locator
 import app.retriever.core.SourceFile
 import app.retriever.core.android.ImageBytes
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 object Thumbnails {
-    private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+    /**
+     * The pictures, and the files with none (encrypted PDF, audio) so they are not retried on every scroll. Sized from the
+     * normal heap's memory class, not largeHeap's: bitmaps live outside the Java heap, and the model and the indexer share
+     * this process. Emptied once the UI is hidden, when the indexer may go on reading in the background.
+     */
+    private class Memory(val app: Context) : ComponentCallbacks2 {
+        val bitmaps: LruCache<String, Bitmap>
+        val misses = LruCache<String, Boolean>(2000)
+
+        init {
+            val am = app.getSystemService(ActivityManager::class.java)
+            val kb = am.memoryClass * 1024 / 8
+            bitmaps = object : LruCache<String, Bitmap>(if (am.isLowRamDevice) kb / 2 else kb) {
+                override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+            }
+            app.registerComponentCallbacks(this)
+        }
+
+        override fun onTrimMemory(level: Int) {
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) clear()
+        }
+
+        @Deprecated("Superseded by onTrimMemory; still called before API 34.")
+        override fun onLowMemory() = clear()
+
+        override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+        private fun clear() {
+            bitmaps.evictAll()
+            misses.evictAll()
+        }
     }
 
-    /** Files with no thumbnail (encrypted PDF, audio) so they are not retried on every scroll. */
-    private val misses = LruCache<String, Boolean>(2000)
+    @Volatile private var memory: Memory? = null
 
-    // A fling would otherwise start dozens of PdfRenderer and video decodes at once. Only the slow renders queue here:
-    // photos and posters come from the MediaStore thumbnail cache and must not wait behind four PDF pages.
+    /** One cache per application: the process's in use, a fresh one for each test's. */
+    private fun memory(context: Context): Memory {
+        val app = context.applicationContext
+        return memory?.takeIf { it.app === app } ?: synchronized(this) {
+            memory?.takeIf { it.app === app } ?: Memory(app).also { memory = it }
+        }
+    }
+
+    /**
+     * Photos, posters and provider pages come from the system's thumbnail cache. A fling asks for dozens at once: a few
+     * workers keep a request from a cell that scrolled away queued, so it is dropped before it starts.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal val thumbnailDispatcher = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors().coerceIn(4, 6))
+
+    /** Video frames and drawn document heads, which must not wait behind PDF pages. */
     @OptIn(ExperimentalCoroutinesApi::class)
     internal val renderDispatcher = Dispatchers.IO.limitedParallelism(4)
 
-    internal fun dispatcherFor(kind: Kind): CoroutineDispatcher = if (kind == Kind.PDF) renderDispatcher else Dispatchers.IO
+    /** Before Android 15 every PdfRenderer call in the process takes one lock, so a second PDF worker would only wait on it. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal val pdfDispatcher = Dispatchers.IO.limitedParallelism(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) 4 else 1)
 
-    private val buckets = intArrayOf(256, 384, 512, 768)
+    internal fun dispatcherFor(kind: Kind): CoroutineDispatcher = if (kind == Kind.PDF) pdfDispatcher else thumbnailDispatcher
+
+    private val buckets = intArrayOf(160, 256, 384, 512, 768)
 
     /** Request sizes come from a few buckets, so a picture loaded on Home is a cache hit in Browse. */
     fun bucket(px: Int): Int = buckets.firstOrNull { it >= px } ?: buckets.last()
@@ -96,31 +153,64 @@ object Thumbnails {
     internal fun key(file: SourceFile, sizePx: Int, locator: String = "") = "${file.uri}@${file.modifiedAt}:${file.size}@$sizePx#$locator"
 
     /** The bitmap when it is already in memory, so a cell can start with it and not fade in again. */
-    fun cached(file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? = cache.get(key(file, sizePx, locator))?.asImageBitmap()
+    fun cached(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? =
+        memory(context).bitmaps.get(key(file, sizePx, locator))?.asImageBitmap()
+
+    /** The sharpest picture of [file] in memory at any size, for a viewer to show while it loads the file itself. */
+    fun largestCached(context: Context, file: SourceFile): ImageBitmap? = buckets.reversed().firstNotNullOfOrNull { cached(context, file, it) }
 
     /** [locator] picks the PDF page or video moment that matched; "" shows the first page or the poster frame. */
-    suspend fun load(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? {
+    suspend fun load(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? =
+        load(context, file, sizePx, locator, dispatcherFor(file.kind)) { signal -> render(context, file, sizePx, locator, signal) }
+
+    /** [render] runs on [dispatcher]; [Thumbnails.load] passes the real one. */
+    internal suspend fun load(
+        context: Context,
+        file: SourceFile,
+        sizePx: Int,
+        locator: String,
+        dispatcher: CoroutineDispatcher,
+        render: suspend (CancellationSignal) -> Bitmap?,
+    ): ImageBitmap? {
+        val memory = memory(context)
         val key = key(file, sizePx, locator)
-        cached(file, sizePx, locator)?.let { return it }
-        if (misses.get(key) != null) return null
-        val bitmap = withContext(dispatcherFor(file.kind)) { runCatching { render(context, file, sizePx, locator) }.getOrNull() }
-        // A load cancelled by scrolling away is not a miss.
-        currentCoroutineContext().ensureActive()
-        if (bitmap == null) misses.put(key, true)
-        return bitmap?.also { cache.put(key, it) }?.asImageBitmap()
+        memory.bitmaps.get(key)?.let { return it.asImageBitmap() }
+        if (memory.misses.get(key) != null) return null
+        return coroutineScope {
+            val signal = CancellationSignal()
+            val work = async(dispatcher) {
+                val bitmap = runCatching { render(signal) }.getOrNull()
+                // Kept even when the cell has scrolled away, for when it comes back. A load cut short is not a miss.
+                if (bitmap != null) {
+                    memory.bitmaps.put(key, bitmap)
+                } else if (isActive) {
+                    memory.misses.put(key, true)
+                }
+                bitmap
+            }
+            try {
+                work.await()
+            } catch (e: CancellationException) {
+                // await gives up at once, but the decode blocks its worker: only the signal reaches the provider.
+                signal.cancel()
+                throw e
+            }
+        }?.asImageBitmap()
     }
 
-    private suspend fun render(context: Context, file: SourceFile, n: Int, locator: String): Bitmap? {
+    private suspend fun render(context: Context, file: SourceFile, n: Int, locator: String, signal: CancellationSignal): Bitmap? {
         val uri = file.uri.toUri()
+
+        // The system's thumbnail, or null; never a fallback's work for a cell that has gone.
+        suspend fun system(): Bitmap? = runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), signal) }.getOrNull()
+            .also { currentCoroutineContext().ensureActive() }
         return when (file.kind) {
-            Kind.PHOTO, Kind.SCREENSHOT ->
-                runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
-                    ?: ImageBytes.bitmap(context, uri, n)
+            Kind.PHOTO, Kind.SCREENSHOT -> system() ?: ImageBytes.bitmap(context, uri, n)
 
             Kind.VIDEO -> {
                 val ms = Locator.msOf(locator)
                 // loadThumbnail ignores the time, so a moment is always cut from the video itself.
-                (if (ms == null) runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull() else null)
+                (if (ms == null) system() else null)
                     ?: withContext(renderDispatcher) {
                         MediaMetadataRetriever().use {
                             it.setDataSource(context, uri)
@@ -133,8 +223,7 @@ object Thumbnails {
 
             // A provider that draws documents (Drive, say) gives a real page; local storage has none, so the file's head is
             // drawn as one. A file with neither keeps its type card, and the miss is cached.
-            Kind.DOC, Kind.OTHER -> runCatching { context.contentResolver.loadThumbnail(uri, Size(n, n), null) }.getOrNull()
-                ?: withContext(renderDispatcher) { DocPage.render(context, file, n) }
+            Kind.DOC, Kind.OTHER -> system() ?: withContext(renderDispatcher) { DocPage.render(context, file, n) }
 
             else -> null
         }
@@ -157,9 +246,10 @@ object Thumbnails {
 }
 
 /**
- * A picture cell for Home's strips and mosaic: the placeholder at its final size, the picture fading in over 150 ms
- * (instantly when the system's animations are off, which Compose's motion scale already applies), and a picture that
- * is in memory already drawn at once. [longEdge] picks the request bucket; [load] false keeps the icon (no access).
+ * A file's picture in a cell: the placeholder at its final size, the picture fading in over 150 ms (instantly when the
+ * system's animations are off, which Compose's motion scale already applies), and a picture that is in memory already
+ * drawn at once. [longEdge] picks the request bucket, so every screen asks for the same few sizes; [locator] the PDF page
+ * or video moment; [load] false keeps the icon (no access). [tint] colours the placeholder's icon.
  */
 @Composable
 fun ThumbnailImage(
@@ -169,19 +259,23 @@ fun ThumbnailImage(
     load: Boolean = true,
     iconSize: Dp = 24.dp,
     container: Color = Color.Unspecified,
+    locator: String = "",
+    tint: Color = Color.Unspecified,
 ) {
     val context = LocalContext.current
     val px = Thumbnails.bucket(with(LocalDensity.current) { longEdge.roundToPx() })
-    val bitmap by produceState(if (load) Thumbnails.cached(file, px) else null, file.uri, file.modifiedAt, file.size, px, load) {
-        if (load) value = Thumbnails.load(context, file, px)
+    val bitmap by produceState(if (load) Thumbnails.cached(context, file, px, locator) else null, file.uri, file.modifiedAt, file.size, px, locator, load) {
+        if (load) value = Thumbnails.load(context, file, px, locator)
     }
     val shown = bitmap
-    val fade by animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
+    // Read in the layer, not here: the cell recomposes when the fade ends, not on each of its frames.
+    val fade = animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
+    val covered by remember { derivedStateOf { fade.value >= 1f } }
     Box(modifier.background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
         // A document's page leaves the cell's colour around it, so the type card underneath goes once the page is in.
-        if (shown == null || fade < 1f) KindFace(file, iconSize, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        if (shown == null || !covered) KindFace(file, iconSize, tint.takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) })
         if (shown != null) {
-            Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade })
+            Image(shown, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade.value })
         }
     }
 }

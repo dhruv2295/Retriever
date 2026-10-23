@@ -127,6 +127,7 @@ import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
+import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.launch
@@ -444,7 +445,8 @@ internal fun SearchPane(
                 if (ui.query.isBlank() && ui.similar == null) {
                     Suggestions(ui.recent, home.suggestions.orEmpty(), actions, useText, side)
                 } else {
-                    Column { Results(ui, home, actions, star, grid, useText, side) }
+                    val cell = adaptiveCell(RESULT_CELL_MIN, RESULT_CELL_GAP, padding = (16.dp + side) * 2)
+                    Column { Results(ui, home, actions, star, grid, useText, side, cell) }
                 }
             }
         }

@@ -145,6 +145,7 @@ class ResultPiecesTest {
                 ThumbCell(
                     video,
                     onClick = { opened = true },
+                    requestSize = 120.dp,
                     modifier = Modifier.width(120.dp),
                     locator = "3:41",
                     onLongClick = { similar = true },
@@ -164,14 +165,16 @@ class ResultPiecesTest {
     }
 
     @Test fun thumbCellPlainFileSaysOpen() {
-        rule.setContent { ShotTheme(dark = false) { ThumbCell(doc, onClick = {}, modifier = Modifier.width(120.dp)) } }
+        rule.setContent { ShotTheme(dark = false) { ThumbCell(doc, onClick = {}, requestSize = 120.dp, modifier = Modifier.width(120.dp)) } }
         val node = rule.onNodeWithContentDescription("Document, Notes.docx, ${Format.date(doc.modifiedAt)}")
         assertEquals("Open", node.fetchSemanticsNode().config[SemanticsActions.OnClick].label)
     }
 
     @Test fun thumbCellSaysWhenOnlyPartWasRead() {
         rule.setContent {
-            ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART)) }
+            ShotTheme(dark = false) {
+                ThumbCell(pdf, onClick = {}, requestSize = 120.dp, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART))
+            }
         }
         rule.onNodeWithContentDescription(
             "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Processed in part · only its beginning",
@@ -231,9 +234,9 @@ class ResultPiecesTest {
         rule.setContent {
             ShotTheme(dark, fontScale) {
                 Row(Modifier.padding(8.dp)) {
-                    ThumbCell(pdf, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp), locator = "p. 12")
-                    ThumbCell(video, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp), locator = "3:41")
-                    ThumbCell(doc, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp))
+                    ThumbCell(pdf, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp), locator = "p. 12")
+                    ThumbCell(video, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp), locator = "3:41")
+                    ThumbCell(doc, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp))
                 }
             }
         }

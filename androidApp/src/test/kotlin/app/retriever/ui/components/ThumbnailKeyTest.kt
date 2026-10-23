@@ -18,14 +18,15 @@ class ThumbnailKeyTest {
         assertEquals(old, Thumbnails.key(file(1), 192))
     }
 
-    @Test fun onlyPdfPagesQueueOnTheRenderDispatcher() {
-        assertSame(Thumbnails.renderDispatcher, Thumbnails.dispatcherFor(Kind.PDF))
+    @Test fun onlyPdfPagesQueueOnThePdfDispatcher() {
+        assertSame(Thumbnails.pdfDispatcher, Thumbnails.dispatcherFor(Kind.PDF))
         for (kind in listOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO, Kind.DOC, Kind.AUDIO)) {
+            assertNotSame(kind.name, Thumbnails.pdfDispatcher, Thumbnails.dispatcherFor(kind))
             assertNotSame(kind.name, Thumbnails.renderDispatcher, Thumbnails.dispatcherFor(kind))
         }
     }
 
     @Test fun requestSizesRoundUpToABucket() {
-        assertEquals(listOf(256, 256, 384, 512, 768, 768, 768), listOf(100, 256, 257, 449, 661, 768, 2_000).map(Thumbnails::bucket))
+        assertEquals(listOf(160, 160, 256, 384, 512, 768, 768, 768), listOf(100, 160, 161, 257, 449, 661, 768, 2_000).map(Thumbnails::bucket))
     }
 }

@@ -39,6 +39,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,6 +61,7 @@ import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbCell
+import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
@@ -224,28 +226,34 @@ fun BrowseContent(
                 val state = rememberLazyGridState()
                 ScrollingEffect({ state.isScrollInProgress }, onScrolling)
                 LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(110.dp),
-                    state = state,
-                    contentPadding = listPadding,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
-                ) {
-                    items(files, key = { it.id }, contentType = { "file" }) { stored ->
-                        val on = stored.file.uri in starred
-                        StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
-                            ThumbCell(
-                                file = stored.file,
-                                onClick = { onOpen(stored.file) },
-                                readNote = Words.coverage(stored, ui.inside),
-                                onLongClick = menu,
-                                onLongClickLabel = "More options",
-                                modifier = actions,
-                            )
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val direction = LocalLayoutDirection.current
+                    val sides = listPadding.calculateLeftPadding(direction) + listPadding.calculateRightPadding(direction)
+                    val cell = adaptiveCell(110.dp, 4.dp, padding = 8.dp + sides)
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(110.dp),
+                        state = state,
+                        contentPadding = listPadding,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                    ) {
+                        items(files, key = { it.id }, contentType = { "file" }) { stored ->
+                            val on = stored.file.uri in starred
+                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
+                                ThumbCell(
+                                    file = stored.file,
+                                    onClick = { onOpen(stored.file) },
+                                    requestSize = cell,
+                                    readNote = Words.coverage(stored, ui.inside),
+                                    onLongClick = menu,
+                                    onLongClickLabel = "More options",
+                                    modifier = actions,
+                                )
+                            }
                         }
+                        if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
                     }
-                    if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
                 }
             } else {
                 val state = rememberLazyListState()
