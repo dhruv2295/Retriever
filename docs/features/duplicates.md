@@ -12,9 +12,11 @@ tool, not a search feature, and it only ever deletes what the person selected.
   size above a 64 KB floor can match), then a `quickHash`, then a `fullHash` only for files whose quick hash agrees. Most
   files fall out on size and never get read. The `ContentHasher` interface is the platform seam: it lets the finder run
   in commonMain and be tested with a fake. A hasher failure on one file drops that file, not the scan; cancellation
-  still propagates. Groups are sorted by wasted bytes, and each group's files by modified time.
-- **Hashes persist per file.** Both hashes are stored on the file's row (`quick_hash`, `full_hash`) as the finder
-  computes them, so a later visit reads only files it has not hashed yet. `upsertFile` clears them when the file's size,
+  still propagates. Groups are sorted by wasted bytes, and each group's files by modified time. Files are read
+  `HASH_READS` (4) at a time across all size groups, each reader taking the next file as it finishes, because flash
+  storage serves a few parallel reads faster than one at a time; each pass's new hashes are saved in one transaction.
+- **Hashes persist per file.** Both hashes are stored on the file's row (`quick_hash`, `full_hash`) once the finder
+  has computed them, so a later visit reads only files it has not hashed yet. `upsertFile` clears them when the file's size,
   modified time, name, folder, kind or type changes. A failed hash is not stored, so that file is tried again.
 - **One entry per file.** `oneEntryPerFile` (Android) removes a picked-folder row that duplicates a MediaStore row (same
   name and whole-second modified time, or the same folder and name), because deleting either of two views of one file

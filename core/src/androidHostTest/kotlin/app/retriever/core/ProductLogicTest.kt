@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -8,6 +9,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 private const val HOUR_MS = 3_600_000L
 
@@ -382,6 +384,31 @@ class DuplicateFinderTest {
         assertEquals(listOf(uriOf("a")), working.quickCalls, "only the file whose hash failed is hashed again")
         assertNull(store.fileByUri(uriOf("a"))?.fullHash)
         assertEquals("f", store.fileByUri(uriOf("b"))?.fullHash)
+    }
+
+    @Test
+    fun aFewFilesAreReadAtOnce() = runTest(timeout = 10.seconds) {
+        val store = newLibraryStore()
+        store.upsertFiles((1..10).map { sf("f$it", size = 100_000, modifiedAt = it.toLong()) })
+        val allIn = CompletableDeferred<Unit>()
+        var reading = 0
+        var most = 0
+        // Each read waits until the bound's worth are in flight: one at a time would wait forever.
+        val hasher = object : ContentHasher {
+            override suspend fun quickHash(uri: String, size: Long): String {
+                most = maxOf(most, ++reading)
+                if (reading == DuplicateFinder.HASH_READS) allIn.complete(Unit)
+                allIn.await()
+                reading--
+                return "q"
+            }
+
+            override suspend fun fullHash(uri: String): String = "f"
+        }
+
+        assertEquals(10, DuplicateFinder(store, hasher).find().single().files.size)
+        assertEquals(DuplicateFinder.HASH_READS, most)
+        assertTrue((1..10).all { store.fileByUri(uriOf("f$it"))?.quickHash == "q" }, "every new hash is kept")
     }
 
     @Test
