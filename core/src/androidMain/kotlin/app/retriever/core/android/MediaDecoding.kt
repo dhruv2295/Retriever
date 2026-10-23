@@ -9,7 +9,6 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import androidx.core.graphics.scale
 import app.retriever.core.AUDIO_SAMPLE_RATE
 import app.retriever.core.EMBED_PX
 import app.retriever.core.Moment
@@ -243,13 +242,7 @@ object MediaDecoding {
     private fun frameAt(retriever: MediaMetadataRetriever, timeUs: Long, maxSide: Int): Bitmap? =
         retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, maxSide, maxSide)
             ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { full ->
-                val longer = maxOf(full.width, full.height)
-                if (longer <= maxSide) return@let full
-                val scale = maxSide.toFloat() / longer
-                full.scale(
-                    (full.width * scale).toInt().coerceAtLeast(1),
-                    (full.height * scale).toInt().coerceAtLeast(1),
-                ).also { if (it !== full) full.recycle() }
+                if (maxOf(full.width, full.height) <= maxSide) full else ImageBytes.scaled(full, Int.MAX_VALUE, maxSide).also { full.recycle() }
             }
 
     // Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/VideoDecoderSupport.kt checkVideoDecoderSupport/readVideoTrackFormat (Apache-2.0). Modified for Retriever: one Boolean; anything that can't be inspected counts as supported.
