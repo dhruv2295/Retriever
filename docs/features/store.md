@@ -160,6 +160,12 @@ how it migrates and how the migrations are verified.
   `resetForNewModel` and `rebuildFts` into one `'rebuild'` statement, but only after invariant 1's deletes are limited
   to indexed rows; measure `SUM(LENGTH(text))` on a real library first. `file_fts` must stay a normal table because
   `upsertFile` updates `files` before the FTS row.
+- The v9 upgrade (`8.sqm`) rewrites every text chunk inside the open's upgrade transaction. A synthetic v8 index of
+  150k chunks (50k files, 282 MB) took 1.2 to 1.5 s on the JVM (M4 Max, xerial SQLite, WAL), 0.9 to 1.2 s of it the
+  `content` UPDATE, plus a 0.25 s checkpoint; the `-wal` file grew to 274 MB, so the upgrade needs about the index's size
+  free. The file stays 282 MB (the freed bytes stay in their pages; a `VACUUM` makes it 156 MB). Readers treat an
+  unconverted row (`content = 0`, `content_text = text`) the same, so the UPDATE could run after the open in pages if a
+  phone measures it slow. Not measured on a device.
 - `resetForNewModel` rewrites every chunk row in one transaction. Rare (model change), but star and prefs writes queue
   behind it.
 - A library-wide removal commits 1,000 files a transaction, so other writes wait for one part (about 0.1 s of 4.7 s at
