@@ -229,7 +229,7 @@ class SearchEngine(
             val hits = top.rows.indices.mapNotNull { i ->
                 val row = top.rows[i]
                 rows[l.view.chunkId(row)]?.let {
-                    Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modality(row).ordinal)
+                    Candidate(it.fileId, it.id, it.locator, cos = top.cos[i], modality = l.view.modality(row).ordinal)
                 }
             }
             return Lane(hits, Source.MEANING, if (rule != null && histogram != null) rule.minStrong(histogram) else null)
@@ -244,15 +244,17 @@ class SearchEngine(
             traced("kw.fts") {
                 val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f.scope)
                 val rows = store.chunks(hits.map { it.chunkId })
-                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
             }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
     }
 
     /**
-     * Exact and prefix matches are evidence like a keyword's; substring and typo matches are a lane of their own. A file
-     * whose own name holds every query word gets a lane too, which fusion puts first.
+     * Exact and prefix matches are evidence like a keyword's; substring and typo matches follow them in the same lane,
+     * in NameIndex's order, marked [Candidate.loose]. A lane of their own would tie each with a prefix match of the same
+     * rank and cut prefix matches for them. A file whose own name holds every query word gets a lane too, which fusion
+     * puts first.
      */
     private fun nameLanes(q: String, f: Filter): List<Lane> = traced("kw.names") {
         val index = nameIndex()
@@ -262,11 +264,9 @@ class SearchEngine(
             val dates = f.dates
             val hits = index.search(q, f.kinds, CANDIDATES) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
             val (exact, rest) = hits.partition { it.exactName }
-            val (close, loose) = rest.partition { it.match <= MatchClass.PREFIX }
             listOf(
                 Lane(exact.map { Candidate(it.id) }, Source.NAME_EXACT),
-                Lane(close.map { Candidate(it.id) }, Source.NAME),
-                Lane(loose.map { Candidate(it.id) }, Source.NAME_LOOSE),
+                Lane(rest.map { Candidate(it.id, loose = it.match > MatchClass.PREFIX) }, Source.NAME),
             )
         }
     }
@@ -431,20 +431,19 @@ class SearchEngine(
     fun scanTop(q: Vector, n: Int, table: VectorTable, allowed: BooleanArray? = null): List<Pair<Long, Float>> =
         scan(q, n, table, allowed).let { s -> List(s.rows.size) { table.chunkId(s.rows[it]) to s.cos[it] } }
 
-    private enum class Source { MEANING, WORDS, NAME_EXACT, NAME, NAME_LOOSE }
+    private enum class Source { MEANING, WORDS, NAME_EXACT, NAME }
 
     /** Optional per-modality absolute lines; null splits the lane at its relative score gaps. */
     private class Lane(val hits: List<Candidate>, val source: Source, val minStrong: FloatArray? = null)
 
-    /** [text] is a vector candidate's chunk text, [snippet] a keyword candidate's; [cos] is NaN outside the vector lane. */
+    /** [cos] is NaN outside the vector lane. [loose]: a substring or typo name match, weak evidence. */
     private class Candidate(
         val fileId: Long,
         val chunkId: Long = 0L,
         val locator: String = "",
-        val snippet: String? = null,
-        val text: String? = null,
         val cos: Float = Float.NaN,
         val modality: Int = 0,
+        val loose: Boolean = false,
     )
 
     /**
@@ -513,11 +512,9 @@ class SearchEngine(
                     }
 
                     Source.NAME -> {
-                        strong += c.fileId
+                        if (!c.loose) strong += c.fileId
                         byName += c.fileId
                     }
-
-                    Source.NAME_LOOSE -> byName += c.fileId
                 }
                 if (!seen.add(c.fileId)) continue
                 val rank = seen.size - 1
@@ -634,8 +631,8 @@ class SearchEngine(
             }
         }
 
-        /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped. */
-        fun folded(q: String): List<String> = Store.ftsTokens(foldLatin(q)).distinct()
+        /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped ([foldWord]). */
+        fun folded(q: String): List<String> = Store.ftsTokens(q).map(::foldWord).distinct()
 
         /**
          * The sentence of [text] that holds the most of [words] (a word of 3+ letters also matches as a prefix, as the
@@ -653,7 +650,7 @@ class SearchEngine(
             }.distinct()
             val readable = candidates.filterNot(::numericSnippet)
             return (readable.ifEmpty { candidates }).maxByOrNull { window ->
-                val tokens = Store.ftsTokens(foldLatin(window))
+                val tokens = Store.ftsTokens(window).map(::foldWord)
                 words.count { w -> tokens.any { matches(it, w) } }
             } ?: text.take(SNIPPET)
         }
@@ -668,7 +665,7 @@ class SearchEngine(
                 visible.length / 2
         }
 
-        private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word))
+        private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word)) || (hasCjk(word) && word in token)
 
         private fun sentences(text: String): List<String> {
             val out = ArrayList<String>()

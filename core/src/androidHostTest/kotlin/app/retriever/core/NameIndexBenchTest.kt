@@ -80,5 +80,21 @@ class NameIndexBenchTest {
         assertTrue(coldMs <= 300, "build $coldMs ms")
         assertTrue(p95 <= 2.0, "p95 $p95 ms")
         assertTrue(mb <= 8.0, "arrays $mb MB")
+
+        // A content word in no name: every keystroke from 3 letters on runs the typo pass over every token.
+        val miss = listOf("ele", "elec", "elect", "electr", "electri", "electric", "electrici", "electricit", "electricity")
+        repeat(5) { miss.forEach { index.search(it) } }
+        val typoMs = miss.associateWith { q -> List(9) { timed { index.search(q) } }.sorted()[4] }
+        println(
+            "NameIndexBench: typing 'electricity' (no name holds it), median per keystroke: " +
+                typoMs.entries.joinToString { "'%s' %.3f".format(it.key, it.value) },
+        )
+        assertTrue(typoMs.values.max() <= 2.0, "typo pass ${typoMs.values.max()} ms")
+    }
+
+    private inline fun timed(block: () -> Unit): Double {
+        val s = System.nanoTime()
+        block()
+        return (System.nanoTime() - s) / 1e6
     }
 }

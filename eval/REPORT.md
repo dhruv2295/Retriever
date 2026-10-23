@@ -610,6 +610,17 @@ numbers below decide it there.
 under a floor so a loaded CI machine does not flap. keyword 150 ms (3 x 45.9 = 138), vector 50 ms (3 x 9.8 = 29, the
 floor), fused 200 ms (3 x 61.2 = 184). The old keyword path (p95 296-338 ms) and fused (287-393 ms) fail them.
 
+## Dead snippet query removed (2026-10-23)
+
+`keywordSearch` cut FTS `snippet()`s for its winners, but nothing had read them since search began taking snippets from
+`content_text`, and the query's `content_text IS NOT NULL` subquery read every chunk row. Same bench, one run each on the
+shared M4 Max (the bench had stopped running at 5.sqm: it replayed 2.sqm's keyword tables, which have no `labels`; it now
+recreates them from `Index.sq`):
+
+| Lane | Before p50 | Before p95 | After p50 | After p95 |
+|---|---|---|---|---|
+| keyword | 93.5 | 157.2 (over its 150 limit) | 7.1 | 36.3 |
+
 ## Device checks still to do
 
 These are JVM numbers on a desktop chip. On a phone, measure: the query embedding (the M440 on CPU/GPU, absent here

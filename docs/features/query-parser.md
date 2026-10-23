@@ -22,8 +22,10 @@ words as typed. When the filters find nothing the facade searches again without 
   only when it is plural or ends its phrase ("wifi screenshot", "pdf from march"); "photo id" or "video call notes"
   keep the word in the text, because the singular there describes the next word. A name with a year ("report 2023")
   stays a name unless the year sits beside a connector or kind word.
-- **Range as local midnights.** `from` (inclusive) and `to` (exclusive) are epoch milliseconds, shifted by the zone
-  offset the facade passes (`zoneOffsetMs`), so a day means the person's day.
+- **Range as local midnights.** `from` (inclusive) and `to` (exclusive) are epoch milliseconds at local midnights.
+  The facade passes `zoneOffsetMs`, the zone's UTC offset at an instant from the platform's own zone rules
+  (`TimeZone.getOffset` on Android, `NSTimeZone.secondsFromGMTForDate` on iOS), and each end uses the offset in force at
+  its own midnight, so "March" asked in April ends at April's midnight, not March's. No date library is needed.
 - **Relax.** `Retriever.parsedSearch` merges the parsed kinds with the screen's kind chip, searches, and if the filters
   found nothing, searches again with the chip's kinds only and no dates, marking the result `relaxed`.
   `ParsedQuery.relaxedNote(scope)` and `missing()` build the sentence, for example "No PDFs from last week, so here are
@@ -42,7 +44,7 @@ words as typed. When the filters find nothing the facade searches again without 
 
 ## Invariants
 
-1. **Pure.** Same text, same `now` and same offset give the same `ParsedQuery`; nothing reads a clock or a store.
+1. **Pure.** Same text, same `now` and same offset function give the same `ParsedQuery`; nothing reads a clock or a store.
 2. **A word is removed from the text only when it was understood.** The leftover is the user's words, in order.
 3. **One date phrase per query;** a second one stays in the text.
 4. **A singular kind word before another word stays a word.**
@@ -57,14 +59,13 @@ words as typed. When the filters find nothing the facade searches again without 
 `QueryParserTest` (commonTest): `screenshotsFromLastWeek`, `pdfMarch`, `photosWithYear`, `yearNextToInOrKindOnly`,
 `nameWithYearStaysAName`, `yesterdayAndToday`, `hindiDateWords`, `relativeAndExplicitDates`,
 `namedDateWithoutYearIsTheMostRecentPastDay`, `nothingToParse`, `aMonthOrKindInsideAPhraseStaysAWord`,
-`relaxedNoteSaysWhatWasDroppedAndWhatWasKept`, `localMidnightsUseTheZoneOffset`.
+`relaxedNoteSaysWhatWasDroppedAndWhatWasKept`, `localMidnightsUseTheZoneOffset`,
+`aRangeAcrossADaylightSavingChangeEndsAtLocalMidnights`.
 Facade level: `FacadeW5Test.parsedFiltersApplyAndFallBackWhenTheyLeaveNothing` in `core/src/androidHostTest`. UI level: `SearchViewModelTest`
 `whatWasUnderstoodCanBeSearchedAsTyped` and `hitsSayWhichWordsTheyAnswerAndClearingTheWordsDropsTheFilter`.
 
 ## Known limits
 
-- The offset is one fixed number taken at the time of the query (`ponytail:` in the file), so a range that crosses a
-  daylight-saving change is an hour off. A real zone type would fix it if one is ever added to the shared code.
 - One date phrase per query. "invoices from march and april" keeps "and april" in the text.
 - Languages: English and Hindi date words and English kind words. Other languages search as plain words.
 - Kind words are a fixed table; a new kind needs one line in `KINDS`.

@@ -41,6 +41,30 @@ class HighlightTest {
         assertEquals(listOf("bank"), highlightTerms("the bank at"))
     }
 
+    /** Only function words drop out of a longer query: "bill", "home" and "date" are what the person is looking for. */
+    @Test fun contentWordsAreHighlightedInLongerQueries() {
+        assertEquals(listOf("Electricity", "bill"), marked("Electricity bill.pdf", "electricity bill"))
+        assertEquals(listOf("Home", "loan"), marked("Home loan statement.pdf", "home loan"))
+        assertEquals(listOf("date", "birth"), marked("date of birth proof", "date of birth"))
+        assertEquals(
+            "Your \u0002phone\u0003 \u0002number\u0003 changed",
+            SearchEngine.contentSnippet("Your phone number changed", SearchEngine.folded("phone number")),
+        )
+    }
+
+    @Test fun aQueryWithoutAccentsMarksTheAccentedName() {
+        assertEquals(listOf("Café"), marked("Café menu", "cafe"))
+        assertEquals(listOf("Crème", "brûlée"), marked("Crème brûlée recipe", "creme brulee"))
+    }
+
+    /** A CJK word has no spaces around it, so it is marked where it occurs inside a run. */
+    @Test fun aCjkWordIsMarkedInsideItsRun() {
+        assertEquals(listOf("資料"), marked("会議資料.pdf", "資料"))
+        assertEquals(listOf("会議", "資料"), marked("会議資料.pdf", "会議 資料"))
+        assertEquals("会議の\u0002資料\u0003を送ります。", SearchEngine.contentSnippet("会議の資料を送ります。", SearchEngine.folded("資料")))
+        assertEquals("\u0002会議\u0003の\u0002資料\u0003", SearchEngine.contentSnippet("会議の資料", SearchEngine.folded("会議 資料")))
+    }
+
     @Test fun emptyQuery() {
         assertEquals(emptyList(), marked("invoice", "  "))
     }

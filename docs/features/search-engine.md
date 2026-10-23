@@ -15,8 +15,8 @@ index (`name-index.md`) is one of its lanes. The screens that show the result ar
 | Parse | `QueryParser.parse` turns kind words and date phrases into filters; the rest stays as text | Small, pure, testable. A model-based parser would cost an embed for little gain |
 | Names phase | `SearchEngine.names`: name lanes only, no model | Answers within a frame while the person types |
 | Meaning lane | Brute-force int8 dot product over a `VectorTable` of primitive arrays in blocks of 16,383 rows, with a size-k min-heap (ties go to the earlier row). From 131,072 rows the scan splits into `min(cores, rows / 65,536)` slices of whole blocks, merged by cosine then row. On iOS a cinterop C kernel (`core/src/nativeInterop/cinterop/vecscan.def`) scores a block at a time; Android keeps the Kotlin loop, which ART vectorises | Exact kNN. At 150k chunks the scan p95 is under 10 ms on the JVM (`SearchBenchTest`), so an ANN index (HNSW) would add memory and code for no visible gain. Blocks mean an append never copies the table (eval/REPORT.md, "Scan in blocks") |
-| Keyword lane | `Store.keywordSearch`: FTS4 MATCH on AND-ed tokens, prefix on the last token of 3+ letters. The newest `FTS_CAP` matches are scored by BM25 in Kotlin (matchinfo), and `snippet()` runs only for the winners | FTS is the standard SQLite full-text tool. The recency cap is a known ceiling, marked `ponytail:` in `Store.kt` |
-| Name lanes | `NameIndex.search` split into three lanes: `NAME_EXACT`, `NAME` (exact or prefix) and `NAME_LOOSE` (substring, typo). Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. See `name-index.md` |
+| Keyword lane | `Store.keywordSearch`: FTS4 MATCH on AND-ed tokens, prefix on the last token of 3+ letters. The newest `FTS_CAP` matches are scored by BM25 in Kotlin (matchinfo). It returns chunk ids only: the snippet comes from `content_text` (Snippet row). CJK has no spaces, so the tables hold each run as its overlapping two-character pieces and a query word with CJK is the phrase of its pieces; one CJK character matches as a prefix (`Cjk.kt`, as Lucene's `CJKBigramFilter`) | FTS is the standard SQLite full-text tool. The recency cap is a known ceiling, marked `ponytail:` in `Store.kt` |
+| Name lanes | `NameIndex.search` split into two lanes: `NAME_EXACT` (the file's own name) and `NAME`, the rest in NameIndex's order: exact or prefix, then substring and typo matches marked `loose`, which are never strong. Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. A separate loose lane tied each loose match with a prefix match of the same rank, so a page cut prefix matches for weaker ones (`RelevanceRuleTest.substringNamesNeverPushPrefixNamesPastTheCut`; a 0.5 lane weight still failed at 70 prefix matches). See `name-index.md` |
 | Fusion | `rrfMerge`: reciprocal rank fusion, `rrfK` and weight from `SearchTuning`. A file shows its best-ranked chunk, a words chunk wins a rank tie. A file whose own name is an exact match for the query goes first, before the `limit` cut | RRF is the accepted rank-only fusion; it needs no score calibration between cosine and BM25 |
 | Strong and weak | Words and exact/prefix names stay visible. For meaning-only hits, the largest score drop after the first three files in each modality separates the tail | The tail is collapsed, never discarded. Absolute no-match confidence remains parked (`RELEVANCE_RULE_ENABLED = false`) |
 | Snippet | Only `chunks.content_text`, explicitly supplied by content extractors, can be displayed. `bestSentence` selects content, with the existing query markers; an image can borrow OCR at the same locator. Metadata stays searchable but cannot become a snippet | Both UIs render the markers; migration preserves known legacy document/OCR content and leaves unproven media text hidden |
@@ -78,7 +78,8 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `keywordLaneScopesStarredBeforeTheCap`, `coldNameLaneScopesStarredBeforeItsFtsCap`, `keywordLaneScopesContentBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
   `takenAtBackfillMovesALoadedVectorToItsCaptureDay`), `RecentAndLimitTest.searchHonoursLimit`.
 - `RelevanceRuleTest` (`theFitFailedItsGateSoTheRuleShipsOff`, `theShippedSettingCallsEveryHitStrong`,
-  `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `datesKindsAndFileIdsFilterEveryLane`).
+  `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `substringNamesNeverPushPrefixNamesPastTheCut`,
+  `datesKindsAndFileIdsFilterEveryLane`).
 - `SnippetTest`: `aMatchDeepInAnUnpunctuatedRunShows`, `anEarlyMatchOrNoneKeepsTheStart`;
   `RelevanceRuleTest.theSnippetIsTheSentenceSharingTheMostQueryWords` pins `bestSentence`.
 - `SearchBenchTest.searchStaysFastAtFiftyThousandFiles`, `keywordLanesRunBesideTheEmbed`: lane limits at scale.
@@ -92,12 +93,16 @@ until that search ends; a check that the same snippet renders the same bold span
 ## Known limits
 
 - The keyword lane scores only the newest `FTS_CAP` matches. A common word's best chunk in an old file can be missed.
+- Thai, Lao, Khmer and Burmese are also written without spaces, and a run stays one token: a word inside it is found by
+  meaning, or by name as a substring. They have no bigram convention, and a dictionary segmenter (ICU) is not available
+  in the platform SQLite. A single CJK character at the end of a run is not found by keyword (its pieces start with the
+  character before it).
 - FTS ANDs all tokens with no stop list. When that finds nothing, `retryingMatch` drops the token in the most chunks
   (fts4aux counts, so no language-specific list) and tries again, down to one token. A prefix token counts by its exact
   term only.
 - The day filter in the scan uses UTC days widened by up to one day, so at most 100 candidates can be crowded by rows
   outside the local day.
-- A query takes one date phrase; the parser's range uses a fixed zone offset (see `query-parser.md`).
+- A query takes one date phrase (see `query-parser.md`).
 - Folder words are name tokens, so "camera" exact-matches every file in that folder. This is deliberate.
 - `Hit.score` has no common scale (RRF sum on a merged search, `1/(i+1)` on a single lane, 0 for `browse`). Only debug
   and self-test code reads it.
@@ -108,6 +113,9 @@ until that search ends; a check that the same snippet renders the same bold span
 - Wave 7 A4 (exact name first) is the behaviour in invariant 9; the relevance rule stays off and has no further
   research this wave.
 
-Snippets mark whole Unicode words or prefixes only. Match windows dominated by digits and separators yield to the
+Snippets mark whole Unicode words or prefixes only. In a query of several words, words of one or two letters and
+function words (`highlightStopwords`: the English stop set, Hindi postpositions and particles) are not marked; the
+longer suggestion stop list would also drop words such as "bill" and "home". Names and snippets fold case and Latin
+accents, as search does. Match windows dominated by digits and separators yield to the
 next readable match window. `SnippetTest` covers Hindi, interior fragments and spreadsheet number runs;
 `LikelyMatchesTest` uses synthetic score lists, and the eval shares the production grouping rule.

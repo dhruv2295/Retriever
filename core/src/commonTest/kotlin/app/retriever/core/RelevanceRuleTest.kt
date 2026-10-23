@@ -169,6 +169,20 @@ class RelevanceRuleTest {
         assertTrue(SearchEngine(store, AxisEmbedder(sig)) { names }.search("anything", vector).hits.none { it.byName })
     }
 
+    /** NameIndex lists close matches before loose ones; fusion must keep that order, so a loose name never cuts a prefix one. */
+    @Test
+    fun substringNamesNeverPushPrefixNamesPastTheCut() = runTest {
+        for ((close, loose, limit) in listOf(Triple(40, 40, 60), Triple(70, 30, 70))) {
+            val files = List(close) { F("leases $it.pdf", 0.1f) } + List(loose) { F("release $it.pdf", 0.1f) }
+            val (store, ids) = store(files)
+            val names = NameIndex.build(files.map { NameEntry(ids.getValue(it.name), it.name, "Docs", it.kind) })
+            val r = SearchEngine(store, AxisEmbedder(sig)) { names }.names(SearchRequest("lease", limit = limit))
+            val case = "$close prefix and $loose substring names, limit $limit"
+            assertEquals(files.take(close).map { it.name }.toSet(), r.hits.take(close).map { it.file.name }.toSet(), case)
+            assertEquals(close, r.strongCount, case)
+        }
+    }
+
     @Test
     fun datesKindsAndFileIdsFilterEveryLane() = runTest {
         val day = 86_400_000L

@@ -57,14 +57,16 @@ source -> extract -> chunk -> embed -> store -> search. `Retriever` owns the ord
 
 The database is `retriever.db` (`Store.DB_NAME`, `core/Store.kt:470`), defined in
 `core/src/commonMain/sqldelight/app/retriever/core/db/Index.sq`: `files`, `chunks`, `chunk_fts`, `file_fts`
-(FTS4, `unicode61` with generated `tokenchars`), `index_meta`, `recent_queries`, `starred`, and the `vector_deleted`
+(FTS4, `unicode61` with generated `tokenchars`; CJK runs stored as overlapping two-character pieces, `core/Cjk.kt`), `index_meta`, `recent_queries`, `starred`, and the `vector_deleted`
 trigger. Schema version is 3: `1.sqm` and `2.sqm` are the migrations.
 
 - `1.sqm` (v1 to v2): adds `files.partial`, re-queues PDFs and large DOCs the old caps could have cut short, adds
   `files_by_kind_state`.
 - `2.sqm` (v2 to v3): adds `starred` and `files.taken_at`, clears `source_token` so one full sync backfills `taken_at`,
   recreates both FTS tables and sets `fts_rebuild`. The tables are refilled after the open by `rebuildFtsIfPending`,
-  called last in `Retriever.warmSearch` (`core/Store.kt:463`, `core/Retriever.kt:613`), not inside the migration.
+  called last in `Retriever.warmSearch` (`core/Store.kt:463`, `core/Retriever.kt:613`), not inside the migration. The
+  same call rewrites the rows holding CJK once whenever `index_meta['fts_tokens']` differs from the tokenization the code
+  writes (an index from before CJK pieces), so that change needs no migration.
 
 Android runs migrations through `AndroidSqliteDriver.Callback(IndexDb.Schema)` and logs the upgrade time
 (`androidApp/.../di/AppModule.kt`, `onUpgrade`); iOS uses `NativeSqliteDriver(IndexDb.Schema, ...)` in WAL mode

@@ -404,7 +404,7 @@ INSERT INTO chunk_fts (rowid, text, labels) VALUES (?, ?, ?);
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
 
--- The newest matches, for ranking without snippet(); snippets are cut only for the winners (ftsSnippets).
+-- The newest matches, for ranking; search cuts its snippets from content_text, never from these rows.
 searchFts:
 SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
 FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY rowid DESC LIMIT ?;
@@ -430,11 +430,6 @@ WHERE chunk_fts MATCH :match AND +rowid IN (SELECT id FROM chunks WHERE file_id 
     AND (:starredOnly = 0 OR uri IN (SELECT uri FROM starred))
 ))
 ORDER BY rowid DESC LIMIT :limit;
-
-ftsSnippets:
-SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', 0, 12) AS snippet
-FROM chunk_fts WHERE chunk_fts MATCH ? AND rowid IN ?
-AND rowid IN (SELECT id FROM chunks WHERE content_text IS NOT NULL);
 
 insertFileFts:
 INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);
@@ -474,6 +469,18 @@ rebuildFts {
     WHERE id NOT IN (SELECT rowid FROM file_fts);
   DELETE FROM index_meta WHERE key = 'fts_rebuild';
 }
+
+-- The keyword text of chunks and of files that is not plain ASCII (more bytes than characters), a page at a time by id,
+-- for Store.rebuildFtsIfPending to write again if it holds CJK. ASCII rows are skipped inside SQLite, in one pass.
+ftsChunkPage:
+SELECT id, text, labels FROM chunks
+WHERE id > ? AND (length(CAST(text AS BLOB)) > length(text) OR length(CAST(labels AS BLOB)) > length(labels))
+ORDER BY id LIMIT ?;
+
+ftsFilePage:
+SELECT id, name, folder FROM files
+WHERE id > ? AND (length(CAST(name AS BLOB)) > length(name) OR length(CAST(folder AS BLOB)) > length(folder))
+ORDER BY id LIMIT ?;
 
 resetForNewModel {
   INSERT OR REPLACE INTO index_meta (key, value)
@@ -553,9 +560,19 @@ UPDATE starred SET uri = ?, name = ?, modified_at = ? WHERE uri = ?;
 
 -- Chunk ids change when content is replaced (and when a chunk gains its vector). Files with content only, and each
 -- revision from chunks_by_file alone, so no chunk row is read. Cache term counts, never filenames or embedding metadata.
+-- The newest first along files_by_modified, so the LIMIT stops the walk and the revision is read for those rows only.
 readContentVersions:
 SELECT f.id, (SELECT MAX(c.id) FROM chunks c WHERE c.file_id = f.id) AS revision FROM files f
-WHERE f.state = 'INDEXED' AND f.reach & 1;
+WHERE f.state = 'INDEXED' AND f.reach & 1
+ORDER BY f.modified_at DESC, f.id LIMIT ?;
+
+contentVersionsIn:
+SELECT f.id, (SELECT MAX(c.id) FROM chunks c WHERE c.file_id = f.id) AS revision FROM files f
+WHERE f.id IN ? AND f.state = 'INDEXED' AND f.reach & 1;
+
+-- A file's first chunks of extracted text, for suggestions.
+contentHead:
+SELECT content_text FROM chunks WHERE file_id = ? AND content_text IS NOT NULL ORDER BY ordinal, id LIMIT ?;
 
 -- The bits of reach (Store.Reach), each set when some chunk of the file is so. Ordinal 0 is a name vector, metadata
 -- text is not extracted content, and labels are content even without a model.

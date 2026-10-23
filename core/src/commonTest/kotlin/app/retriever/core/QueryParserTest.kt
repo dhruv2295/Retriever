@@ -124,8 +124,24 @@ class QueryParserTest {
 
     @Test fun localMidnightsUseTheZoneOffset() {
         val ist = 19_800_000L
-        val p = QueryParser.parse("today", oct17 - 4 * 3_600_000L, ist) // 20:00 UTC on the 16th is 01:30 on the 17th in IST
+        val p = QueryParser.parse("today", oct17 - 4 * 3_600_000L) { ist } // 20:00 UTC on the 16th is 01:30 on the 17th in IST
         assertEquals(oct17 - ist, p.from)
         assertEquals(oct17 - ist + day, p.to)
+    }
+
+    /** Each end takes the offset in force at its own midnight: Berlin is +2 from 29 March to 25 October 2026, else +1. */
+    @Test fun aRangeAcrossADaylightSavingChangeEndsAtLocalMidnights() {
+        val hour = 3_600_000L
+        val mar1 = 1772323200000L
+        val apr1 = 1775001600000L
+        val oct1 = 1790812800000L
+        val nov1 = 1793491200000L
+        val berlin = { at: Long -> if (at in 1774746000000L until 1792890000000L) 2 * hour else hour }
+        val march = QueryParser.parse("photos from march", apr1 + 9 * day, berlin)
+        assertEquals(mar1 - hour, march.from)
+        assertEquals(apr1 - 2 * hour, march.to)
+        val october = QueryParser.parse("photos from last month", nov1 + 9 * day, berlin)
+        assertEquals(oct1 - 2 * hour, october.from)
+        assertEquals(nov1 - hour, october.to)
     }
 }

@@ -2,7 +2,11 @@ package app.retriever.core
 
 import kotlin.math.ln
 
-/** TF-IDF is per file, so a PDF with many chunks does not masquerade as many documents. */
+/**
+ * TF-IDF is per file, so a PDF with many chunks does not masquerade as many documents. The caller passes a sample of
+ * at most [FILES] files (the newest, plus those asked about) and each counts by its first [TEXT] characters, so the
+ * maps and each recount stay small however large the library.
+ */
 internal class ContentSuggestions {
     private val versions = mutableMapOf<Long, Long>()
     private val cached = mutableMapOf<Set<Long>?, List<String>>()
@@ -17,7 +21,7 @@ internal class ContentSuggestions {
         for ((id, version) in current) {
             if (versions[id] == version) continue
             val f = file(id)
-            terms[id] = frequencies(text(id), f?.mime.orEmpty())
+            terms[id] = frequencies(opening(text(id)), f?.mime.orEmpty())
             f?.let { kinds[id] = it.kind }
         }
         versions.clear()
@@ -25,6 +29,29 @@ internal class ContentSuggestions {
     }
 
     fun suggestions(ids: Set<Long>?): List<String> = cached.getOrPut(ids) { distinctiveTerms(terms, ids, kinds) }
+
+    companion object {
+        /** Read files sampled, newest first: plenty for three chips. */
+        const val FILES = 300
+
+        /** Characters counted per file. */
+        const val TEXT = 4_000
+
+        /** Chunks read per file, enough to fill [TEXT]. */
+        const val CHUNKS = 8
+
+        /** The first [TEXT] characters of [texts]: whole chunks, then the last one cut at a space. */
+        private fun opening(texts: List<String>): List<String> {
+            var left = TEXT
+            val out = ArrayList<String>()
+            for (t in texts) {
+                if (left <= 0) break
+                out += if (t.length <= left) t else t.substring(0, left).substringBeforeLast(' ')
+                left -= t.length
+            }
+            return out
+        }
+    }
 }
 
 private val suggestionWord = Regex("[\\p{L}\\p{M}\\p{N}_]+")

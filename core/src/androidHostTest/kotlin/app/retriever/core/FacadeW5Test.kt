@@ -1,7 +1,18 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -213,6 +224,62 @@ class FacadeW5Test {
         assertTrue(f.r.suggestions(setOf(ids[0])).first().isEmpty(), "terms must recur in two selected files")
         assertEquals(3, f.r.suggestions().first().size)
         assertTrue(f.r.suggestions(emptySet()).first().isEmpty())
+    }
+
+    @Test
+    fun suggestionsComeFromTheNewestFilesOfALargeLibrary() = test {
+        val f = Fx(emptyList())
+        val files = List(5_000) { testFile("note$it.txt", modifiedAt = it.toLong()) }
+        f.store.upsertFiles(files)
+        val newest = files.size - ContentSuggestions.FILES
+        f.store.inTransaction {
+            files.forEachIndexed { i, file ->
+                // Read over the whole library, the oldest files' longer words would win.
+                val text = when {
+                    i < ContentSuggestions.FILES -> "electricity reconciliation quarterly statement"
+                    i < newest -> "4539,4000;1234"
+                    else -> "harbour lantern meadow pebble"
+                }
+                f.store.replaceChunks(f.store.fileByUri(file.uri)!!.id, listOf(Store.NewChunk(1, "", text, null)))
+            }
+        }
+        val terms = f.r.suggestions().first()
+        assertEquals(3, terms.size, terms.toString())
+        assertTrue(terms.all { t -> t.split(' ').all { it in setOf("harbour", "lantern", "meadow", "pebble") } }, terms.toString())
+    }
+
+    @Test
+    fun collectorsOfTheSameSuggestionsShareOneReadAndReleaseIt() = test {
+        var reads = 0
+        val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        val spy = object : SqlDriver by raw {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also { if ("MAX(c.id)" in sql) reads++ }
+        }
+        val store = Store(spy).also { it.resetForModel(SIG) }
+        val r =
+            Retriever(store, FakeSource(), FakeExtractor(), FakeFactory(), FakeMonitor(), NoHasher, PIXEL, {
+                true
+            }, { true }, { _, _ -> }, System::currentTimeMillis, { 0L })
+        val first = CompletableDeferred<Unit>()
+        val second = CompletableDeferred<Unit>()
+        val a = launch(Dispatchers.Default) { r.suggestions().collect { first.complete(Unit) } }
+        first.await()
+        val b = launch(Dispatchers.Default) { r.suggestions().collect { second.complete(Unit) } }
+        second.await()
+        assertEquals(1, reads, "the second collector shares the first one's read")
+        a.cancelAndJoin()
+        b.cancelAndJoin()
+        // The sharing stops just after its last collector leaves; from then on a new collector reads afresh.
+        while (reads == 1) {
+            r.suggestions().first()
+            delay(10)
+        }
     }
 
     @Test

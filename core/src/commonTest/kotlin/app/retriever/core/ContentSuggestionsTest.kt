@@ -82,6 +82,28 @@ class ContentSuggestionsTest {
         assertTrue(cache.suggestions(null).isEmpty())
     }
 
+    /** A long file counts by its opening, so one file's text cannot grow the maps without bound. */
+    @Test fun onlyTheOpeningOfEachFileCounts() {
+        val table = "4539,4000;".repeat(ContentSuggestions.TEXT / 10 + 1)
+        val opening = ContentSuggestions().apply { refresh(mapOf(1L to 1L, 2L to 1L)) { listOf(prose, table) } }
+        assertEquals(3, opening.suggestions(null).size)
+        val buried = ContentSuggestions().apply { refresh(mapOf(1L to 1L, 2L to 1L)) { listOf(table, prose) } }
+        assertTrue(buried.suggestions(null).isEmpty(), "the prose comes after the first ${ContentSuggestions.TEXT} characters")
+    }
+
+    /** However many files are read, suggestions sample the newest few, plus the ones a screen asks about. */
+    @Test fun theStoreSamplesTheNewestReadFiles() {
+        val store = Store(testDriver())
+        val files = List(1_000) { SourceFile("file:///f$it", "f$it.txt", "", "text/plain", Kind.DOC, 1, modifiedAt = it.toLong()) }
+        store.upsertFiles(files)
+        val ids = store.inTransaction {
+            files.map { f -> store.fileByUri(f.uri)!!.id.also { store.replaceChunks(it, listOf(Store.NewChunk(1, "", prose, null))) } }
+        }
+        val sample = store.readContentVersions(ContentSuggestions.FILES)
+        assertEquals(ids.takeLast(ContentSuggestions.FILES).toSet(), sample.keys)
+        assertEquals(sample.keys + ids[0], store.readContentVersions(ContentSuggestions.FILES, listOf(ids[0])).keys)
+    }
+
     @Test fun storeExposesOnlyIndexedExtractedContent() {
         val store = Store(testDriver())
         val file = SourceFile("file:///one", "secret filename", "metadata folder", "text/plain", Kind.DOC, 1, 1)
@@ -90,6 +112,6 @@ class ContentSuggestionsTest {
         store.replaceChunks(id, listOf(Store.NewChunk(0, "", "synthetic metadata", null, prose)))
         assertEquals(listOf(prose), store.chunkTexts(id).mapNotNull { it.text })
         store.removeFiles(listOf(file.uri))
-        assertTrue(store.readContentVersions().isEmpty())
+        assertTrue(store.readContentVersions(ContentSuggestions.FILES).isEmpty())
     }
 }

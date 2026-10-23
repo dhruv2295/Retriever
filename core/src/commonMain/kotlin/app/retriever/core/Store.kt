@@ -29,6 +29,11 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     private fun <R> transactionWithResult(body: TransactionWithReturn<R>.() -> R): R = driver.counted { q.transactionWithResult(false, body) }
 
+    // Every keyword-table write goes through these two, so CJK runs are always stored as their pieces (Cjk.kt).
+    private fun insertFts(chunkId: Long, text: String?, labels: String?) = q.insertFts(chunkId, text?.let(::cjkBigrams), labels?.let(::cjkBigrams))
+
+    private fun insertFileFts(fileId: Long, name: String, folder: String) = q.insertFileFts(fileId, cjkBigrams(name), cjkBigrams(folder))
+
     /** Retries run by [retryingMatch]; a test spy. */
     internal var retries = 0
 
@@ -84,7 +89,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val visual: Boolean = false,
     )
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
-    data class KeywordHit(val chunkId: Long, val snippet: String?)
+    data class KeywordHit(val chunkId: Long)
 
     /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byKind] includes the whole library. */
     data class Counts(
@@ -126,7 +131,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                 q.chunkIdsForFile(id).executeAsList().forEach { q.deleteFts(it) }
                 q.deleteChunksForFile(id)
                 q.deleteFileFts(id)
-                q.insertFileFts(id, f.name, f.folder)
+                insertFileFts(id, f.name, f.folder)
             }
             // Loaded vectors keep their capture day; the bump tells a warm SearchEngine to load them again.
             if (backfilled) q.bumpMeta(TAKEN_AT_KEY)
@@ -151,12 +156,23 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         q.renameFile(newUri, name, modifiedAt, stored.id)
         q.renameStar(newUri, name, modifiedAt, uri)
         q.deleteFileFts(stored.id)
-        q.insertFileFts(stored.id, name, stored.file.folder)
+        insertFileFts(stored.id, name, stored.file.folder)
         saveUserState()
         stored.file.copy(uri = newUri, name = name, modifiedAt = modifiedAt)
     }
 
-    fun readContentVersions(): Map<Long, Long> = q.readContentVersions { id, revision -> id to (revision ?: 0L) }.executeAsList().toMap()
+    /**
+     * The newest [limit] read files by modified time, and the read ones among [ids], each with a revision that changes
+     * whenever its chunks are replaced: what suggestions read, bounded however large the library.
+     */
+    fun readContentVersions(limit: Int, ids: Collection<Long> = emptyList()): Map<Long, Long> {
+        val version = { id: Long, revision: Long? -> id to (revision ?: 0L) }
+        return q.readContentVersions(limit.toLong(), version).executeAsList().toMap() +
+            inChunks(ids) { q.contentVersionsIn(it, version).executeAsList() }
+    }
+
+    /** The first [limit] chunks of [fileId]'s extracted text, in reading order. */
+    fun contentHead(fileId: Long, limit: Int): List<String> = q.contentHead(fileId, limit.toLong()).executeAsList()
 
     fun contentTexts(ids: Collection<Long>): Map<Long, String?> = inChunks(ids) { q.contentByIds(it) { id, text -> id to text }.executeAsList() }.toMap()
 
@@ -310,7 +326,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                     c.contentText, c.labels, if (c.visual) 1L else 0L,
                 )
                 val chunkId = q.lastId().executeAsOne()
-                if (c.text != null || c.labels != null) q.insertFts(chunkId, c.text, c.labels)
+                if (c.text != null || c.labels != null) insertFts(chunkId, c.text, c.labels)
             }
             q.setIndexed(stored.attempts.toLong(), if (partial) 1L else 0L, fileId)
             q.refreshReach(listOf(fileId))
@@ -380,7 +396,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (text in parts) {
                 q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text }, c.labels, 0L)
-                q.insertFts(q.lastId().executeAsOne(), text, c.labels)
+                insertFts(q.lastId().executeAsOne(), text, c.labels)
             }
             q.deleteFts(id)
             q.deleteChunk(id)
@@ -397,7 +413,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             for (n in chunks) {
                 val v = n.vector
                 q.insertChunk(c.file_id, c.ordinal, n.locator, n.text, v?.bytes, v?.scale?.toDouble(), n.contentText, n.labels, if (n.visual) 1L else 0L)
-                if (n.text != null || n.labels != null) q.insertFts(q.lastId().executeAsOne(), n.text, n.labels)
+                if (n.text != null || n.labels != null) insertFts(q.lastId().executeAsOne(), n.text, n.labels)
             }
             q.deleteFts(id)
             q.deleteChunk(id)
@@ -431,7 +447,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             val newId = q.lastId().executeAsOne()
             q.deleteFts(id)
             q.deleteChunk(id)
-            if (c.text != null || c.labels != null) q.insertFts(newId, c.text, c.labels)
+            if (c.text != null || c.labels != null) insertFts(newId, c.text, c.labels)
             q.refreshReach(listOf(c.file_id))
         }
     }
@@ -479,7 +495,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     /**
      * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
-     * modified; null: any time), with snippets cut for those only. [fileIds] (null: any file) keeps those files only.
+     * modified; null: any time). [fileIds] (null: any file) keeps those files only.
      */
     fun keywordSearch(
         query: String,
@@ -503,9 +519,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             } else {
                 q.searchFtsOfKinds(match, kindNames, range.first, range.last, starred, FTS_CAP, scored)
             }
-            val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
-            val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
-            top.map { KeywordHit(it, snippets[it]) }
+            rows.executeAsList().sortedByDescending { it.second }.take(limit).map { KeywordHit(it.first) }
         }
     }
 
@@ -535,11 +549,12 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     /**
      * Runs [run] on the AND match of [query]; while that finds nothing and 2+ tokens remain, drops the token found in the
-     * most chunks (fts4aux's document count, so no language-specific stop list) and runs again.
+     * most chunks (fts4aux's document count, so no language-specific stop list) and runs again. A token holding CJK is
+     * the phrase of its pieces, as the tables store it ([cjkBigrams]), and counts by its rarest piece.
      * ponytail: a prefix token counts by its exact term only.
      */
     private inline fun <T> retryingMatch(query: String, run: (String) -> List<T>): List<T> {
-        val tokens = ftsTokens(query)
+        val tokens = ftsTokens(query).map { if (hasCjk(it)) ftsTokens(cjkBigrams(it)) else listOf(it) }
         if (tokens.isEmpty()) return emptyList()
         val terms = matchTerms(tokens).toMutableList()
         var out = run(terms.joinToString(" "))
@@ -555,13 +570,13 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         return out
     }
 
-    private fun docFreq(tokens: List<String>): List<Long> {
-        val folded = tokens.map(::foldLatin)
+    private fun docFreq(tokens: List<List<String>>): List<Long> {
+        val folded = tokens.flatten().map(::foldWord).distinct()
         val sql = "SELECT term, documents FROM $chunkTerms WHERE col = '*' AND term IN (${folded.joinToString { "?" }})"
         val df = driver.executeQuery(null, sql, { c ->
             QueryResult.Value(buildMap { while (c.next().value) put(c.getString(0)!!, c.getLong(1)!!) })
         }, folded.size) { folded.forEachIndexed { i, t -> bindString(i, t) } }.value
-        return folded.map { df[it] ?: 0L }
+        return tokens.map { pieces -> pieces.minOf { df[foldWord(it)] ?: 0L } }
     }
 
     private inline fun <T> ftsQuery(run: () -> List<T>): List<T> = try {
@@ -852,11 +867,38 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         }
     }
 
-    /** Refills the keyword tables once after schema 3's upgrade recreated them empty; true if it ran. */
+    /**
+     * Refills the keyword tables once after an upgrade recreated them empty, and writes the rows that hold CJK again once
+     * when the tables were written with another [FTS_TOKENS] (before CJK pieces, or by that refill, which copies text as
+     * it is); true if either ran. A page per transaction, so index writes are never held up for long.
+     */
     fun rebuildFtsIfPending(): Boolean {
-        if (meta("fts_rebuild") == null) return false
-        q.rebuildFts()
+        val refill = meta("fts_rebuild") != null
+        if (!refill && meta(FTS_TOKENS_KEY) == FTS_TOKENS) return false
+        if (refill) q.rebuildFts()
+        eachPage({ q.ftsChunkPage(it, FTS_PAGE).executeAsList() }, { it.id }) { c ->
+            if (hasCjk(c.text) || hasCjk(c.labels)) {
+                q.deleteFts(c.id)
+                insertFts(c.id, c.text, c.labels)
+            }
+        }
+        eachPage({ q.ftsFilePage(it, FTS_PAGE).executeAsList() }, { it.id }) { f ->
+            if (hasCjk(f.name) || hasCjk(f.folder)) {
+                q.deleteFileFts(f.id)
+                insertFileFts(f.id, f.name, f.folder)
+            }
+        }
+        setMeta(FTS_TOKENS_KEY, FTS_TOKENS)
         return true
+    }
+
+    /** [each] row of [page] (the rows after an id), in id order, one page per transaction. */
+    private fun <T> eachPage(page: (Long) -> List<T>, id: (T) -> Long, each: (T) -> Unit) {
+        var after = 0L
+        while (true) {
+            val rows = transactionWithResult { page(after).onEach(each) }
+            after = id(rows.lastOrNull() ?: return)
+        }
     }
 
     companion object {
@@ -865,6 +907,11 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         private const val SIGNATURE_KEY = "model_signature"
         private const val PROFILE_KEY = "profile"
         private const val TAKEN_AT_KEY = "taken_at_backfills"
+
+        /** How the keyword tables' text was written; a new value rewrites it once ([rebuildFtsIfPending]). */
+        private const val FTS_TOKENS_KEY = "fts_tokens"
+        private const val FTS_TOKENS = "cjk-bigrams"
+        private const val FTS_PAGE = 500L
 
         /** The key Prefs.kt keeps settings under. */
         private const val PREFS_KEY = "prefs"
@@ -880,8 +927,17 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         /** Query tokens; the FTS tables fold case and accents themselves with the same unicode61 tokenizer. */
         fun ftsTokens(s: String): List<String> = s.lowercase().split(NON_WORD).filter { it.isNotEmpty() }
 
-        /** The last token matches as a prefix; a one- or two-letter prefix ("a*") matches almost every row, so short ones match exactly. */
-        private fun matchTerms(tokens: List<String>) = tokens.mapIndexed { i, t -> if (i == tokens.lastIndex && t.length >= 3) "$t*" else "\"$t\"" }
+        /**
+         * One MATCH term per token, each a list of its pieces: one, or a CJK run's ([cjkBigrams]), searched as a phrase.
+         * The last piece of the last token matches as a prefix; a one- or two-letter prefix ("a*") matches almost every
+         * row, so short ones match exactly, except one CJK character, whose pieces start with it.
+         */
+        private fun matchTerms(tokens: List<List<String>>) = tokens.mapIndexed { i, pieces ->
+            val last = pieces.last()
+            val prefix = i == tokens.lastIndex && if (hasCjk(last)) singleCjk(last) else last.length >= 3
+            val phrase = (pieces.dropLast(1) + if (prefix) "$last*" else last).joinToString(" ")
+            if (prefix && pieces.size == 1) phrase else "\"$phrase\""
+        }
 
         /** BM25 (k1 = 1.2, b = 0.75) from FTS4 matchinfo 'pcnalx': little-endian uint32s. */
         fun bm25(info: ByteArray): Double {

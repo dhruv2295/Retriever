@@ -66,8 +66,11 @@ object QueryParser {
 
     private class Hit(val used: Int, val label: String, val startDay: Long, val endDay: Long)
 
-    // ponytail: a fixed UTC offset taken at `now`, so ranges that cross a DST change are off by one hour; use a real zone type if one is added.
-    fun parse(text: String, now: Long, zoneOffsetMs: Long = 0L): ParsedQuery {
+    /**
+     * [zoneOffsetMs]: the local zone's offset from UTC at an instant, from the platform's zone rules, so each end of a
+     * range is a real local midnight even when a daylight-saving change lies between them.
+     */
+    fun parse(text: String, now: Long, zoneOffsetMs: (Long) -> Long = { 0L }): ParsedQuery {
         val raw = text.trim().split(WS).filter { it.isNotEmpty() }
         if (raw.isEmpty()) return ParsedQuery("")
         val w = raw.map {
@@ -77,7 +80,10 @@ object QueryParser {
             }
         }
         val used = BooleanArray(raw.size)
-        val today = (now + zoneOffsetMs).floorDiv(DAY)
+        val today = (now + zoneOffsetMs(now)).floorDiv(DAY)
+
+        // The offset at the wall-clock midnight, looked up at an instant within an hour or so of it.
+        fun midnight(day: Long): Long = (day * DAY).let { wall -> wall - zoneOffsetMs(wall - zoneOffsetMs(wall)) }
         var from: Long? = null
         var to: Long? = null
         var dateLabel: String? = null
@@ -90,8 +96,8 @@ object QueryParser {
             }
             for (k in i until i + hit.used) used[k] = true
             if (i > 0 && w[i - 1] in CONNECTORS) used[i - 1] = true
-            from = hit.startDay * DAY - zoneOffsetMs
-            to = hit.endDay * DAY - zoneOffsetMs
+            from = midnight(hit.startDay)
+            to = midnight(hit.endDay)
             dateLabel = hit.label
             i += hit.used
         }

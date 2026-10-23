@@ -80,3 +80,15 @@ internal val suggestionStopwords = """
     ऱ्वासा लिए लिये लेकिन व वगेरह वरग वर्ग वह वहाँ वहां वहिं वहीं वाले वुह वे वग़ैरह संग सकता सकते सबसे सभि सभी साथ
     साबुत साभ सारा से सो हि ही हुअ हुआ हुइ हुई हुए हे हें है हैं हो होता होति होती होते होना होने
 """.trimIndent().split(Regex("\\s+")).toSet()
+
+/**
+ * Words a query of several words does not highlight: the classic English stop set (as in Lucene's EnglishAnalyzer) and,
+ * from the list above, Hindi postpositions, particles and auxiliaries. Small on purpose: the suggestion list also drops
+ * the words people look for, such as "bill", "home" and "date".
+ */
+internal val highlightStopwords = """
+    a an and are as at be but by for if in into is it no not of on or such that the their then there these they this
+    to was will with
+    का की के को में मे से पर ने तक लिए लिये द्वारा साथ और या तो भी ही कि जो न ना नहीं यह वह ये वे इस उस है हैं हो था थी
+    थे रहा रहे होता होती होते होना होने हुआ हुई हुए
+""".trimIndent().split(Regex("\\s+")).toSet()

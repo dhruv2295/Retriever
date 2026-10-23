@@ -94,7 +94,7 @@ class StoreTest {
     }
 
     @Test
-    fun keywordSearchMatchesWordAndPrefixAndMarksTheMatch() {
+    fun keywordSearchMatchesWordAndPrefix() {
         val store = newStore()
         store.upsertFiles(listOf(testFile("bill.txt")))
         val fileId = store.pending(10).single().id
@@ -103,7 +103,6 @@ class StoreTest {
         val whole = store.keywordSearch("invoice", 10)
         assertEquals(1, whole.size)
         assertEquals(fileId, store.chunk(whole.single().chunkId)?.fileId)
-        assertEquals("electricity bill \u0002invoice\u0003 48213", whole.single().snippet)
         assertEquals(1, store.keywordSearch("invo", 10).size)
         assertEquals(1, store.keywordSearch("bill invo", 10).size)
         assertTrue(store.keywordSearch("pizza", 10).isEmpty())

@@ -155,8 +155,11 @@ class Retriever(
     private val platformReady: () -> Boolean,
     private val log: (String, Throwable?) -> Unit,
     private val now: () -> Long,
-    /** The local zone's offset from UTC now, so "yesterday" means the person's yesterday. No default: a platform must pass it. */
-    private val zoneOffsetMs: () -> Long,
+    /**
+     * The local zone's offset from UTC at an instant (epoch ms), so "yesterday" means the person's yesterday and "March"
+     * ends at its own midnight across a daylight-saving change. No default: a platform must pass it.
+     */
+    private val zoneOffsetMs: (Long) -> Long,
     private val dispatchers: CoreDispatchers = CoreDispatchers(),
     /**
      * The process before this one died of a native crash or a signal. Only then does a model open it left unfinished
@@ -1176,7 +1179,7 @@ class Retriever(
         scope: List<Long>?,
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
-        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs())
+        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs)
         val ids = starredIds(onlyStarred)
         // Nothing to search, so nothing by meaning is missing.
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
@@ -1392,24 +1395,34 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
-    private val suggestionLock = Mutex()
-    private val contentSuggestions = ContentSuggestions()
+    /** One [suggestions] flow per file set; racing first calls may each make one, and the last one made is kept. */
+    @Volatile
+    private var sharedSuggestions = mapOf<Set<Long>?, Flow<List<String>>>()
 
     /**
-     * Three things to search for from the content of [fileIds] (null: every file read), with document frequencies from
-     * the whole read set; empty when there are not three good ones. Again as files are read, a burst at a time, while
-     * collected. A failed read is logged and answers empty, then the flow ends, as [watched] does: it never reaches a
-     * collector, and a screen waiting on suggestions still draws.
+     * Three things to search for from the content of [fileIds] (null: the newest files read), with document frequencies
+     * from the newest [ContentSuggestions.FILES] files read plus [fileIds]; empty when there are not three good ones.
+     * Again as files are read, at most once a second, while collected. Collectors of one file set share one
+     * computation, and its term maps go when the last one leaves. A failed read is logged and answers empty, then the
+     * flow ends, as [watched] does: it never reaches a collector, and a screen waiting on suggestions still draws.
      */
-    fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = store.countChanges().conflate().map {
-        suggestionLock.withLock {
-            contentSuggestions.refresh(store.readContentVersions(), store::file) { id -> store.chunkTexts(id).mapNotNull { it.text } }
-            contentSuggestions.suggestions(fileIds)
+    fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = sharedSuggestions[fileIds] ?: flow {
+        val terms = ContentSuggestions()
+        store.countChanges().conflate().collect {
+            terms.refresh(store.readContentVersions(ContentSuggestions.FILES, fileIds.orEmpty()), store::file) { id ->
+                store.contentHead(id, ContentSuggestions.CHUNKS)
+            }
+            emit(terms.suggestions(fileIds))
+            // Indexing writes many times a second; the next recount waits, then takes the latest state.
+            delay(1.seconds)
         }
     }.catch {
         log("Suggestions failed", it)
         emit(emptyList())
-    }.distinctUntilChanged().flowOn(dispatchers.default)
+    }.distinctUntilChanged()
+        .flowOn(dispatchers.default)
+        .shareIn(background, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
+        .also { sharedSuggestions = sharedSuggestions + (fileIds to it) }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds

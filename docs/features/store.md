@@ -22,7 +22,9 @@ how it migrates and how the migrations are verified.
   (`IosStore.kt`). WAL lets the UI read while the indexer holds a write transaction.
 - **FTS4, not FTS5.** Android's framework SQLite builds FTS3 and FTS4 and the app bundles no SQLite. Tokenizer: unicode61
   with `remove_diacritics=2` and a generated `tokenchars` list of combining marks, so Indic and Southeast Asian words stay
-  whole. Ranking is BM25 in Kotlin from `matchinfo`; `ORDER BY rowid DESC LIMIT` is answered by the FTS module itself.
+  whole. CJK runs, which have no spaces, are written as their overlapping two-character pieces (`Cjk.kt`; every FTS write
+  goes through `Store.insertFts` and `insertFileFts`, so keep it so). Ranking is BM25 in Kotlin from `matchinfo`;
+  `ORDER BY rowid DESC LIMIT` is answered by the FTS module itself.
 - **Vectors as blobs in `chunks`, scanned in memory.** `SearchEngine.refresh` owns the in-memory `VectorTable` and loads
   only rows above the last id it saw. That relies on `AUTOINCREMENT` (ids never go back), on `setChunkVector` giving a
   deepened chunk a new id, and on the deleted-vector counter and the `taken_at_backfills` meta key (more than 10%
@@ -36,6 +38,9 @@ how it migrates and how the migrations are verified.
   `Signature`. `replaceChunks` checks the signature and a caller-supplied `stillCurrent` inside its transaction.
 - **After a schema bump that recreates the FTS tables** (`2.sqm`), the tables start empty and a meta flag
   `fts_rebuild` makes `rebuildFtsIfPending` refill them once after the open, off the migration (150k chunks take seconds).
+  The refill copies text as it is, so the same call then rewrites the rows that hold CJK; it also does that once when
+  `index_meta['fts_tokens']` is not the code's `FTS_TOKENS` (an index written before CJK pieces). SQL skips plain-ASCII
+  rows in one pass, so only non-ASCII text reaches Kotlin.
 - **Verifier.** SQLDelight's `verifyCommonMainIndexDbMigration` replays every later `N.sqm` on the snapshot
   `core/src/commonMain/sqldelight/databases/N.db` and diffs the result against `Index.sq`. `generateCommonMainIndexDbSchema`
   writes the next snapshot. `verifyMigrations` stays off: it compiles the `.sqm` files from an empty schema, and `1.sqm`
@@ -99,8 +104,8 @@ how it migrates and how the migrations are verified.
 - `StoreSearchIndexTest.kt` (class `StoreTest`): `replaceChunksMarksFileIndexed`, `identicalUpsertKeepsIndexed`, `newerUpsertMarksPending`,
   `replaceChunksRejectsOtherSignature`, the keyword-search cases, `removeFilesDropsChunksAndKeywordHits`,
   `resetForModelResetsIndex`, `markFailedKeepsPendingUntilThirdAttempt`, `retrySkippedGivesSkippedFilesFreshAttempts`,
-  `recentQueriesKeepTheNewestTenWithoutDuplicates`. `StoreCommonTest` (commonTest) adds the accent, Devanagari and
-  file-name keyword cases.
+  `recentQueriesKeepTheNewestTenWithoutDuplicates`. `StoreCommonTest` (commonTest) adds the accent, Devanagari,
+  file-name and CJK keyword cases (`aCjkWordInsideARunIsFound`, `cjkRowsWrittenWholeAreRewrittenOnce`).
 - `UserStateTest`: `aDeletedIndexKeepsStarsAndSettings`, `aStarFindsItsFileUnderANewUriButNotAFileOfAnotherSize`,
   `aStarAddedBeforeTheFirstReadDoesNotOverwriteTheSnapshot`, `aCorruptSnapshotIsIgnoredAndLogsNoName`.
 - `DeadVectorsTest`: dead rows hidden, backfill reload, `aThrowingFtsRefillStillLeavesNamesLoaded`.
