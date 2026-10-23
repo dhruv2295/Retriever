@@ -265,7 +265,7 @@ private fun dayText(context: Context, date: LocalDate, zone: ZoneId, year: Boole
 
 /** The most recently starred files as 112 dp tiles; the header opens the whole Starred list. */
 @Composable
-internal fun StarredSection(ui: HomeUi, home: HomeFacts, actions: SearchActions) {
+internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) {
     val tile = tileSize()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Starred") { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }
@@ -274,7 +274,7 @@ internal fun StarredSection(ui: HomeUi, home: HomeFacts, actions: SearchActions)
             items(home.starred, key = { it.uri }, contentType = { "starred" }) { f ->
                 val shape = RoundedCornerShape(12.dp)
                 // Documents and audio have no picture; without access none can load.
-                val picture = ui.hasAccess && f.kind != Kind.DOC && f.kind != Kind.AUDIO
+                val picture = hasAccess && f.kind != Kind.DOC && f.kind != Kind.AUDIO
                 FilePressMenu(f) { menu, menuActions ->
                     Box(
                         Modifier

@@ -1,5 +1,7 @@
 package app.retriever.search
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composer
 import androidx.compose.runtime.CompositionTracer
 import androidx.compose.runtime.InternalComposeTracingApi
@@ -9,10 +11,13 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import app.retriever.ShotTheme
+import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
+import app.retriever.home.HomeBody
 import app.retriever.home.HomeUi
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -40,7 +45,7 @@ class RecompositionTest {
     private val tracer = object : CompositionTracer {
         override fun traceEventStart(key: Int, dirty1: Int, dirty2: Int, info: String) {
             val name = info.substringBefore(" (").substringAfterLast('.')
-            if (name in setOf("ThumbCell", "FileRow", "HitMenu", "KindChip")) runs.merge(name, 1, Int::plus)
+            if (name in setOf("ThumbCell", "FileRow", "HitMenu", "KindChip", "StarredSection")) runs.merge(name, 1, Int::plus)
         }
 
         override fun traceEventEnd() = Unit
@@ -105,6 +110,32 @@ class RecompositionTest {
         u.value = u.value.copy(query = "bills", searching = true)
         rule.waitForIdle()
         assertEquals("chips recomposed on a keystroke: $runs", null, runs["KindChip"])
+    }
+
+    /** Home's counts move with every file read; its starred tiles show none of them. */
+    @Test fun countsLeaveHomesStarredTilesAlone() {
+        Composer.setTracer(tracer)
+        val facts = HomeFacts(
+            newMedia = emptyList(),
+            newShots = emptyList(),
+            newDocs = emptyList(),
+            starred = hits.map { it.file },
+            starredCount = hits.size.toLong(),
+            folders = 0,
+            largeCount = 0,
+            largeBytes = 0,
+        )
+        val h = mutableStateOf(home.copy(home = facts, showOnThisDay = false))
+        val actions = SearchActions()
+        rule.setContent {
+            ShotTheme(false, 1f) { HomeBody(h.value, false, actions, rememberLazyStaggeredGridState(), PaddingValues(), 0.dp) }
+        }
+        rule.waitForIdle()
+        assertEquals("starred never composed: $runs", 1, runs["StarredSection"])
+        runs.clear()
+        h.value = h.value.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), contentRead = 6, waiting = 9)
+        rule.waitForIdle()
+        assertEquals("starred recomposed on a count change: $runs", null, runs["StarredSection"])
     }
 
     @Test fun starringOneFileRecomposesOnlyThatFile() {
