@@ -192,6 +192,22 @@ class BatchPolicyTest {
     }
 
     @Test
+    fun theReadingPolicyIsAskedOnceBeforeEachFileNotOncePerRule() = test {
+        val files = (1..30).map { testFile("f$it.txt", modifiedAt = it.toLong()) }
+        val f = Fx(files = files)
+        var reads = 0
+        // The batch's own reads of the device, not the watchdog's once a second.
+        f.monitor.failing = {
+            if (!Thread.currentThread().name.startsWith("DefaultDispatcher")) reads++
+            false
+        }
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(30L, f.indexed())
+        // Per file: the loop's state and policy, the configuration and deepen checks, the policy before the read and before the embed.
+        assertTrue(reads <= 6 * files.size + 15, "$reads device reads for ${files.size} files")
+    }
+
+    @Test
     fun aFailedCheckOffTheBatchIsLoggedNotACrash() = test {
         val f = Fx()
         val logged = CompletableDeferred<Unit>()

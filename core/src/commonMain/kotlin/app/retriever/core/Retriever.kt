@@ -674,9 +674,8 @@ class Retriever(
                 val p = batchPrefs()
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
-            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use.
-            val busy = { readingBlocker() == StopReason.BUSY }
-            val requireCharging = { _: DeviceState -> readingBlocker() == StopReason.UNPLUGGED }
+            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use. It covers
+            // being busy and the charger too, so the engine's own busy and charging rules stay off: they would only ask it again.
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
             // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
@@ -753,7 +752,7 @@ class Retriever(
             _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes, filesPerMinute = eta.filesPerMinute) }
             val engine = if (ids == null) {
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    store, extractor, e, readingMonitor, settings, ::onFile, awaitUi = ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
                     readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) }, readAheadContext = dispatchers.readAhead,
                 )
@@ -761,7 +760,7 @@ class Retriever(
                 val rank = ids.withIndex().associate { it.value to it.index }
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, busy, ::awaitUi,
+                    store, extractor, e, readingMonitor, settings, ::onFile, awaitUi = ::awaitUi,
                     // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
@@ -772,7 +771,7 @@ class Retriever(
                     readAheadContext = dispatchers.readAhead,
                 )
             }
-            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging, deepen = deepen)
+            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging = false, deepen = deepen)
             return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
