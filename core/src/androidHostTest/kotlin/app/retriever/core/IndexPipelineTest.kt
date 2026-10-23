@@ -1,10 +1,16 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -172,6 +178,34 @@ class IndexPipelineTest {
         engine(store, extractor, FakeEmbedder()).batch()
 
         assertEquals(listOf(1), seen)
+    }
+
+    @Test
+    fun aFullDiskStopsTheBatchAndChargesNoFile() = runTest {
+        val sqliteFull = SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)")
+        // A commit that finds the disk full, and an extraction whose temp file finds it full.
+        for (full in listOf(sqliteFull, IOException("write failed: ENOSPC (No space left on device)"))) {
+            val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+            IndexDb.Schema.create(db)
+            var armed = false
+            val failing = object : SqlDriver by db {
+                override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
+                    if (armed && full === sqliteFull && "INSERT INTO chunks" in sql) throw full
+                    return db.execute(identifier, sql, parameters, binders)
+                }
+            }
+            val store = Store(failing).also { it.resetForModel(SIG) }
+            val files = listOf(testFile("a.txt", modifiedAt = 2), testFile("b.txt", modifiedAt = 1))
+            store.upsertFiles(files)
+            armed = true
+            val extractor = FakeExtractor(files.associate { it.name to listOf(textPiece("words")) }, onExtract = { if (full is IOException) throw full })
+
+            assertEquals(BatchResult(0, 0, StopReason.DISK_FULL), engine(store, extractor, FakeEmbedder()).batch(), "$full")
+            for (f in files) {
+                val stored = store.fileByUri(f.uri)!!
+                assertEquals(FileState.PENDING to 0, stored.state to stored.attempts, "${f.name} after $full")
+            }
+        }
     }
 
     /**

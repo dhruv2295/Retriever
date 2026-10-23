@@ -196,6 +196,8 @@ class RetrieverTest {
             StopReason.BUSY to NextRun.WHEN_IDLE,
             StopReason.DONE to NextRun.DONE,
             StopReason.PAUSED to NextRun.DONE,
+            // Rests like a failed batch; Android's work also waits for storage that isn't low.
+            StopReason.DISK_FULL to NextRun.RETRY,
         )
         for ((reason, next) in expected) assertEquals(next, Retriever.nextRunFor(reason, false), "$reason")
         assertEquals(NextRun.SOON, Retriever.nextRunFor(StopReason.DONE, true))

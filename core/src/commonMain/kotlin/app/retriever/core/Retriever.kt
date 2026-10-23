@@ -786,6 +786,11 @@ class Retriever(
                 else -> NextRun.SOON
             }
         } catch (e: Exception) {
+            // Outside a file's read (the sync's writes, an attempt's commit): a reason to stop, not an error to report.
+            if (e.isDiskFull()) {
+                log("Indexing stopped: storage is full", e)
+                return end(StopReason.DISK_FULL)
+            }
             log("Indexing failed", e)
             error = "Something went wrong processing your files. Retriever will try again."
             return NextRun.RETRY
@@ -1653,6 +1658,7 @@ class Retriever(
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE
             StopReason.PAUSED, StopReason.MANUAL -> NextRun.DONE
             StopReason.LOW_BATTERY, StopReason.CHARGING_UP -> NextRun.WHEN_CHARGING
+            StopReason.DISK_FULL -> NextRun.RETRY
         }
     }
 }

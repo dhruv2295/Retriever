@@ -18,7 +18,8 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   JobScheduler limit, a BGProcessingTask's window).
 - **Stop reason to next run.** The engine ends with a `StopReason`; `Retriever.nextRunFor` maps it to `NextRun`:
   BUDGET to SOON, HOT to AFTER_COOLDOWN, POWER_SAVE to DONE (wait for a power-state change), UNPLUGGED to WHEN_CHARGING, BUSY to WHEN_IDLE, DONE to DONE (SOON when files changed
-  during the batch), PAUSED to DONE. A thrown error is RETRY. Each platform turns `NextRun` into its own scheduling call.
+  during the batch), PAUSED to DONE, DISK_FULL to RETRY. A thrown error is RETRY. Each platform turns `NextRun` into its own
+  scheduling call.
   This is the shape of Apple's and Android's "do a slice, then ask to be run again" guidance for deferrable work.
 - **Phone policy in one place.** `IndexEngine.stopReason` is read before every file: Pause, budget, busy (screen on while
   the app is hidden), heat (`DeviceState.hot`: Android's thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), and charging when the setting or a battery at 20% or less requires it
@@ -79,7 +80,9 @@ the normal dispatcher for interactive search. See `model-lifecycle.md` for the n
 
 1. At most one batch runs; a second call returns DONE and makes the running batch sync again at its end.
 2. Elapsed time for the sync, model open and file loop is charged to one budget.
-3. A stop, cancel or Pause gives back the attempt for the file in flight; a process death does not.
+3. A stop, cancel or Pause gives back the attempt for the file in flight; a process death does not. So does a full disk
+   (`SQLITE_FULL` or `ENOSPC`, `isDiskFull`): it stops the batch as DISK_FULL, which the status line names, and no file is
+   skipped for it.
 4. A cancelled batch returns SOON; a cancelled caller (`ensureActive`) propagates instead.
 5. Policy (heat, power, busy, Pause) is read per file, so a setting flipped mid-batch applies at once.
 6. A vector is written only under the current `Signature`; a changed signature wipes vectors and re-reads everything.

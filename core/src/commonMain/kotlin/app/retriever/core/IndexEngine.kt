@@ -24,7 +24,18 @@ data class FileMetric(
     val cause: Throwable? = null,
 )
 
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL }
+/** [DISK_FULL]: storage ran out mid-batch; no file is charged an attempt for it, and the platform tries again later. */
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL, DISK_FULL }
+
+/**
+ * Storage is full: SQLite's SQLITE_FULL (Android's SQLiteFullException; SQLiter on iOS says "database or disk is full") or a
+ * write's ENOSPC, anywhere in the cause chain. Read by name and message, so common code needs no platform type.
+ */
+internal fun Throwable.isDiskFull(): Boolean = generateSequence(this) { it.cause }.take(8).any { e ->
+    e::class.simpleName == "SQLiteFullException" || DISK_FULL_SIGNS.any { it in e.message.orEmpty() }
+}
+
+private val DISK_FULL_SIGNS = listOf("SQLITE_FULL", "database or disk is full", "ENOSPC", "No space left on device")
 
 private class ReadingStopped(val reason: StopReason) : CancellationException()
 
@@ -205,7 +216,11 @@ class IndexEngine(
             store.setTailAttempts(tail.id, tail.attempts)
             throw e
         } catch (e: Exception) {
-            // Counted above; a later pass tries again.
+            // Counted above; a later pass tries again. A full disk is no fault of the chunk's.
+            if (e.isDiskFull()) {
+                store.setTailAttempts(tail.id, tail.attempts)
+                throw ReadingStopped(StopReason.DISK_FULL)
+            }
         }
     }
 
@@ -276,6 +291,11 @@ class IndexEngine(
             store.markFailed(stored.id, stored.attempts)
             throw e
         } catch (e: Throwable) {
+            // A full disk is not the file's fault either: give the attempt back and stop until there is room.
+            if (e.isDiskFull()) {
+                store.markFailed(stored.id, stored.attempts)
+                throw ReadingStopped(StopReason.DISK_FULL)
+            }
             store.markFailed(stored.id, stored.attempts + 1)
             return FileMetric(file, 0, 0, extractMs, embedMs, false, e.message ?: e::class.simpleName, state, cause = e)
         }

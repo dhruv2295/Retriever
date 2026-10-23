@@ -12,6 +12,9 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+/** Android's, matched by its name: common code sees no Android type. */
+internal class SQLiteFullException(message: String) : RuntimeException(message)
+
 /** What [Retriever.indexBatch] decides before and around the model: budget, eligibility, the charging rule, failures. */
 class BatchPolicyTest {
     private val dispatcher = StandardTestDispatcher()
@@ -189,6 +192,15 @@ class BatchPolicyTest {
         assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertTrue(f.r.state.value.lastError != null)
         assertTrue(f.factory.opened.isEmpty())
+    }
+
+    @Test
+    fun aFullDiskStopsTheBatchAsAReasonNotAnError() = test {
+        val f = Fx()
+        f.onSync = { throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)") }
+        assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
+        assertEquals(StopReason.DISK_FULL, f.r.state.value.lastStop)
+        assertEquals(null, f.r.state.value.lastError)
     }
 
     @Test
