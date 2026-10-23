@@ -82,6 +82,11 @@ class IndexServiceTest {
 
     private fun infos(name: String): List<WorkInfo> = work.getWorkInfosForUniqueWork(name).get()
 
+    private val driver get() = WorkManagerTestInitHelper.getTestDriver(context)!!
+
+    /** Every run waits for storage that is not low; the test driver says when it is. */
+    private fun storageFree(name: String) = infos(name).filter { !it.state.isFinished }.forEach { driver.setAllConstraintsMet(it.id) }
+
     @Test fun aTimedContinueReplacesOneWaitingForTheCharger() {
         val service = IndexService(context, testRetriever())
         service.continueWhenCharging()
@@ -90,8 +95,34 @@ class IndexServiceTest {
         // Appended, it would sit BLOCKED behind the charger's request; replaced, the delay alone holds it.
         val live = infos(CONTINUE).filter { !it.state.isFinished }
         assertEquals(1, live.size)
-        WorkManagerTestInitHelper.getTestDriver(context)!!.setInitialDelayMet(live.single().id)
+        storageFree(CONTINUE)
+        driver.setInitialDelayMet(live.single().id)
         assertEquals(WorkInfo.State.RUNNING, work.getWorkInfoById(live.single().id).get()!!.state)
+    }
+
+    /** On a nearly full disk every file's write fails and burns its attempts, so no run starts until storage is not low. */
+    @Test fun everyRunWaitsWhileStorageIsLow() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        val service = IndexService(context, retriever)
+        val followUps = listOf<suspend () -> Unit>(
+            { service.continueLater(10.seconds) },
+            { service.continueWhenCharging() },
+            { service.continueWhenIdle() },
+            { service.continueTrial() },
+            { service.continueOnCharger() },
+        )
+        for ((i, enqueue) in followUps.withIndex()) {
+            enqueue()
+            assertTrue("follow-up $i", infos(CONTINUE).single { !it.state.isFinished }.constraints.requiresStorageNotLow())
+        }
+        service.indexNow()
+        service.watchMedia()
+        service.schedulePeriodic(onlyWhileCharging = false)
+        for (name in listOf(NOW, MEDIA, PERIODIC)) {
+            val run = infos(name).single()
+            assertTrue(name, run.constraints.requiresStorageNotLow())
+            assertEquals(name, WorkInfo.State.ENQUEUED, run.state)
+        }
     }
 
     @Test fun leavingOnAChargerWithFilesToReadStartsAForegroundRunUnlessPaused() = runBlocking {
@@ -284,6 +315,7 @@ class IndexServiceTest {
         service.schedulePeriodic(onlyWhileCharging = false)
         service.indexNow()
         service.continueLater(10.seconds)
+        storageFree(NOW)
         assertEquals(WorkInfo.State.RUNNING, infos(NOW).single().state)
 
         runBlocking { service.pause() }
@@ -305,7 +337,7 @@ class IndexServiceTest {
         assertEquals(60_000L, armed.constraints.contentTriggerUpdateDelayMillis)
         assertEquals(600_000L, armed.constraints.contentTriggerMaxDelayMillis)
 
-        WorkManagerTestInitHelper.getTestDriver(context)!!.setAllConstraintsMet(armed.id)
+        driver.setAllConstraintsMet(armed.id)
         assertEquals(WorkInfo.State.RUNNING, work.getWorkInfoById(armed.id).get()!!.state)
         service.watchMedia(rearm = true)
 
@@ -324,6 +356,7 @@ class IndexServiceTest {
         })
         service = IndexService(context, retriever)
         service.indexNow()
+        storageFree(NOW)
 
         // KEEP drops the second request, and the running batch comes back soon for the change instead.
         assertEquals(NextRun.SOON, runBlocking { retriever.indexBatch(1.minutes) })

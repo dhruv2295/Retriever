@@ -131,7 +131,8 @@ class IndexService(private val context: Context, private val retriever: Retrieve
 
     private suspend fun continueInForeground(tag: String) {
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
-            // Expedited work rejects battery/charging/idle constraints; core checks battery, heat and Battery Saver per file.
+            // Expedited work takes only network and storage constraints; core checks battery, heat and Battery Saver per file.
+            .setConstraints(storageNotLow().build())
             .setInputData(workDataOf(tag to true))
             .addTag(tag)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
@@ -139,24 +140,30 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
     }
 
+    /**
+     * Every run waits while storage is low: a batch then fails each file's write (SQLite full), and three such batches
+     * leave the files skipped until the person retries them.
+     */
+    private fun storageNotLow() = Constraints.Builder().setRequiresStorageNotLow(true)
+
     /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */
     fun indexNow() {
         retriever.notifyChanged()
-        work.enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().build())
+        work.enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().setConstraints(storageNotLow().build()).build())
     }
 
     // Every follow-up REPLACEs: the last decision wins, so a timed run never waits behind a charger- or idle-gated one.
     // Called from a running follow-up, it cancels that worker too, once its batch is over.
     fun continueLater(delay: Duration) {
-        val request = OneTimeWorkRequestBuilder<IndexWorker>().setInitialDelay(delay.toJavaDuration()).build()
+        val request = OneTimeWorkRequestBuilder<IndexWorker>().setInitialDelay(delay.toJavaDuration()).setConstraints(storageNotLow().build()).build()
         work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request)
     }
 
     /** After a batch stopped for being unplugged: Android starts this as soon as the charger is back. */
-    fun continueWhenCharging() = continueWhen(Constraints.Builder().setRequiresCharging(true).build())
+    fun continueWhenCharging() = continueWhen(storageNotLow().setRequiresCharging(true).build())
 
     /** After a batch stopped because the phone was in use; the screen-off receiver usually comes first. */
-    fun continueWhenIdle() = continueWhen(Constraints.Builder().setRequiresDeviceIdle(true).build())
+    fun continueWhenIdle() = continueWhen(storageNotLow().setRequiresDeviceIdle(true).build())
 
     private fun continueWhen(constraints: Constraints) {
         val request = OneTimeWorkRequestBuilder<IndexWorker>().setConstraints(constraints).build()
@@ -170,7 +177,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
      * trigger behind itself, where KEEP would drop it and REPLACE would cancel the run.
      */
     fun watchMedia(rearm: Boolean = false) {
-        val constraints = Constraints.Builder()
+        val constraints = storageNotLow()
             .addContentUriTrigger(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL), true)
             .setTriggerContentUpdateDelay(1.minutes.toJavaDuration())
             .setTriggerContentMaxDelay(10.minutes.toJavaDuration())
@@ -180,7 +187,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     fun schedulePeriodic(onlyWhileCharging: Boolean) {
-        val constraints = Constraints.Builder()
+        val constraints = storageNotLow()
             .setRequiresBatteryNotLow(true)
             .setRequiresCharging(onlyWhileCharging)
             .build()
