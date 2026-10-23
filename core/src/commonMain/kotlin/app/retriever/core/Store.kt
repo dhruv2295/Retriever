@@ -882,6 +882,20 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
          */
         internal const val PAGE_ROWS = 4_000L
 
+        /**
+         * Drops every table, index and trigger and creates the current schema: for an index written by a newer app
+         * (a downgrade), which the files can rebuild. Settings and stars come back from the user-state file, as after a
+         * deleted index. Virtual tables go first, taking their shadow tables with them.
+         */
+        fun resetSchema(driver: SqlDriver) {
+            val objects = driver.executeQuery(null, "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite%'", { c ->
+                QueryResult.Value(buildList { while (c.next().value) add(Triple(c.getString(0)!!, c.getString(1)!!, c.getString(2).orEmpty())) })
+            }, 0).value
+            val (virtual, plain) = objects.partition { it.third.startsWith("CREATE VIRTUAL TABLE", ignoreCase = true) }
+            for ((type, name) in virtual + plain) driver.execute(null, "DROP ${type.uppercase()} IF EXISTS \"${name.replace("\"", "\"\"")}\"", 0)
+            IndexDb.Schema.create(driver).value
+        }
+
         /** Query tokens; the FTS tables fold case and accents themselves with the same unicode61 tokenizer. */
         fun ftsTokens(s: String): List<String> = s.lowercase().split(NON_WORD).filter { it.isNotEmpty() }
 
