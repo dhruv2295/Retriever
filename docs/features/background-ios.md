@@ -13,7 +13,7 @@ foreground loop (reading while the app is open) from fighting the background tas
 
 | Need | Mechanism | Why it is the accepted one |
 |---|---|---|
-| Overnight reading | `BGProcessingTask` `app.retriever.index`; `requiresExternalPower` follows the "only while charging" setting; one `indexBatchSeconds(1500)` per run. | Apple's API for minutes-long deferrable work. Registered before launch ends (`RetrieverApp.init`), resubmitted before `setTaskCompleted`, as the BGTask header says. |
+| Overnight reading | `BGProcessingTask` `app.retriever.index`; `requiresExternalPower = true` on every schedule (`IndexTask.processingRequest`); one `indexBatchSeconds(1500)` per run. | Apple's API for minutes-long deferrable work. Registered before launch ends (`RetrieverApp.init`), resubmitted before `setTaskCompleted`, as the BGTask header says. `requiresExternalPower` is the only way to turn off the CPU Monitor (the header, WWDC19 707), which kills a background app that runs the model on the CPU for minutes; "Also on battery" applies to reading while open and to the continued read. |
 | A read the person starts | `BGContinuedProcessingTask` (iOS 26), `strategy = .fail`, progress on `task.progress`, title and subtitle updated. Fixed identifier `$(PRODUCT_BUNDLE_IDENTIFIER).continued`, listed in Info.plist. | The only API for user-initiated work that continues with system UI. It must report progress. No `.gpu` (needs an entitlement); `backendNow` picks the CPU once the app leaves. |
 | Expiration | `expirationHandler = IndexTask.expire` sets a flag and calls `retriever.cancelBatch()`; the batch stops at the next suspension point, then the model is released and `setTaskCompleted` called. | Swift task cancellation does not reach the Kotlin coroutine, so the cancel goes through the facade. `IosEmbedder.close()` waits for the embed mutex. |
 | Reading while open | `AppModel+Loop`: 120 s `foregroundBatchSeconds` batches, `NextRun.soon` continues, other results sleep until `wake()` (AFTER_COOLDOWN and RETRY rest for `ThermalRest.RECHECK_SECONDS`). | Waits for the cancelled background batch to release the index, avoiding a false DONE and sleep on comeback. |
@@ -53,8 +53,8 @@ foreground loop (reading while the app is open) from fighting the background tas
 
 ## Tests
 
-`AppModelTests`, `CopyTests` (iosApp/RetrieverTests); core `RetrieverTest`, `BackendNowTest`, `BridgesTest`,
-`IosEmbedderTest`, `ThermalTest`. Launch drills: `-bgdrill`, `-keepreading`.
+`AppModelTests`, `IndexTaskTests`, `CopyTests` (iosApp/RetrieverTests); core `RetrieverTest`, `BackendNowTest`,
+`BridgesTest`, `IosEmbedderTest`, `ThermalTest`. Launch drills: `-bgdrill`, `-keepreading`.
 
 ## Known limits
 
@@ -64,8 +64,8 @@ foreground loop (reading while the app is open) from fighting the background tas
 - Hidden Low Power Mode returns DONE before library sync. There is no hidden polling loop: foreground return resumes
   reading, and scheduled processing tasks remain the safety net.
 
-- iOS decides when the processing task runs (mostly overnight on the charger). With `requiresExternalPower = false`
-  the engine's own charging and Low Power Mode rules gate it.
+- iOS decides when the processing task runs (overnight on the charger). On "Also on battery", files that arrive while
+  the phone is unplugged and the app is closed wait for the charger or the next open.
 - The continued read ends (`success: false`) on the first HOT or error stop; a task with no progress is expired.
 - With the app open during a continued read, reading stays on the CPU until the next batch reopens on the GPU.
 - Device queue: expiration-to-completion latency under `-bgdrill`; whether the continued task's progress stalls on a

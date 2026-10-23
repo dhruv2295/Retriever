@@ -3,7 +3,7 @@ import Foundation
 @preconcurrency import RetrieverCore
 import os
 
-/// Reads files while the app is in the background: iOS runs it when it sees fit, mostly overnight on the charger.
+/// Reads files while the app is in the background: iOS runs it when it sees fit, overnight on the charger.
 /// The model runs on the CPU there (IosEmbedderFactory.backendNow), since iOS refuses GPU work in the background.
 enum IndexTask {
     static let id = "app.retriever.index"
@@ -33,17 +33,24 @@ enum IndexTask {
         }
     }
 
-    /// Fails on the simulator, which has no BGTaskScheduler. Waits for the charger when Settings says so; submitting
-    /// again replaces the waiting request, so a changed setting takes effect.
+    /// The overnight request. Always on the charger, whatever the schedule: `requiresExternalPower` is the only way to
+    /// turn off iOS's CPU Monitor, which kills a background app that runs the model on the CPU for minutes, so on
+    /// battery each run would end mid-file and count a try against it. "Also on battery" governs reading while the app
+    /// is open and the read a person starts, where intensive work is allowed.
+    static func processingRequest() -> BGProcessingTaskRequest {
+        let request = BGProcessingTaskRequest(identifier: id)
+        request.requiresExternalPower = true
+        request.requiresNetworkConnectivity = false
+        return request
+    }
+
+    /// Submitting again replaces the waiting request. Fails on the simulator, which has no BGTaskScheduler.
     static func schedule() {
         // Submitting an identifier this process never registered raises an exception `try` can't catch: the unit-test
         // host skips register(), and a Settings toggle there crashed it.
-        guard let services else { return }
-        let request = BGProcessingTaskRequest(identifier: id)
-        request.requiresExternalPower = services.retriever.prefsNow.onlyWhileCharging
-        request.requiresNetworkConnectivity = false
+        guard services != nil else { return }
         do {
-            try BGTaskScheduler.shared.submit(request)
+            try BGTaskScheduler.shared.submit(processingRequest())
             log.info("background reading scheduled")
         } catch {
             log.error("couldn't schedule background reading: \(error, privacy: .private)")
