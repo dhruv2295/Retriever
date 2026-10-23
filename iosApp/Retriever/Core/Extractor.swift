@@ -16,7 +16,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private let folders: FolderSource
     private static let ocrSide = CGFloat(ExtractionKt.OCR_WIDTH)
     /// The model's picture, as core's IosExtractor asks for it, and a search photo's, which keeps more detail.
-    static let embedSide: Int32 = 512
+    static let embedSide: Int32 = ExtractionKt.EMBED_PX
     static let queryPhotoSide: Int32 = 1024
     private static let log = Logger(subsystem: "app.retriever", category: "extractor")
     private let pathMonitor = NWPathMonitor()
