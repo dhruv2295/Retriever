@@ -3,7 +3,7 @@
 ## Purpose
 
 Find files by their name or folder while the person types, in memory and without the model. It answers the names phase
-of every search, feeds the three name lanes of the full search, and decides which file is "named exactly" by the query.
+of every search, feeds the two name lanes of the full search, and decides which file is "named exactly" by the query.
 It also covers the first moments after launch: until it is built, the lane falls back to the `file_fts` table.
 
 ## Mechanism and why
@@ -17,8 +17,8 @@ It also covers the first moments after launch: until it is built, the lane falls
     query's trigrams, then a `contains` check on the survivors.
 - **Four match classes, best first:** `EXACT`, `PREFIX`, `SUBSTRING`, `TYPO` (`MatchClass`). Each query word gets a
   class per slot; a file's class is its worst word's class. `NameHit.exactName` marks an EXACT match whose words are all
-  tokens of the file name itself, not just of its folder. Search turns these into the lanes `NAME_EXACT`, `NAME`
-  (exact or prefix) and `NAME_LOOSE` (substring, typo); see `search-engine.md`.
+  tokens of the file name itself, not just of its folder. Search turns these into the lanes `NAME_EXACT` and `NAME`
+  (the rest, in this order; substring and typo hits are marked loose, never strong); see `search-engine.md`.
 - **Typos run only when nothing closer matched.** The edit budget is 0 below 3 letters, 1 for 3 to 5, 2 from 6.
   Candidates share enough trigrams with the word (an edit spoils at most 3 trigrams, an adjacent swap 4, so the need
   is `length - 2 - 4 * edits`); a word too short to keep any trigram is compared by length instead. The check is OSA

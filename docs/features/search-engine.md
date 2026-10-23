@@ -16,7 +16,7 @@ index (`name-index.md`) is one of its lanes. The screens that show the result ar
 | Names phase | `SearchEngine.names`: name lanes only, no model | Answers within a frame while the person types |
 | Meaning lane | Brute-force int8 dot product over a `VectorTable` of primitive arrays, with a size-k min-heap | Exact kNN. At 150k chunks the scan p95 is under 10 ms on the JVM (`SearchBenchTest`), so an ANN index (HNSW) would add memory and code for no visible gain |
 | Keyword lane | `Store.keywordSearch`: FTS4 MATCH on AND-ed tokens, prefix on the last token of 3+ letters. The newest `FTS_CAP` matches are scored by BM25 in Kotlin (matchinfo). It returns chunk ids only: the snippet comes from `content_text` (Snippet row) | FTS is the standard SQLite full-text tool. The recency cap is a known ceiling, marked `ponytail:` in `Store.kt` |
-| Name lanes | `NameIndex.search` split into three lanes: `NAME_EXACT`, `NAME` (exact or prefix) and `NAME_LOOSE` (substring, typo). Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. See `name-index.md` |
+| Name lanes | `NameIndex.search` split into two lanes: `NAME_EXACT` (the file's own name) and `NAME`, the rest in NameIndex's order: exact or prefix, then substring and typo matches marked `loose`, which are never strong. Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. A separate loose lane tied each loose match with a prefix match of the same rank, so a page cut prefix matches for weaker ones (`RelevanceRuleTest.substringNamesNeverPushPrefixNamesPastTheCut`; a 0.5 lane weight still failed at 70 prefix matches). See `name-index.md` |
 | Fusion | `rrfMerge`: reciprocal rank fusion, `rrfK` and weight from `SearchTuning`. A file shows its best-ranked chunk, a words chunk wins a rank tie. A file whose own name is an exact match for the query goes first, before the `limit` cut | RRF is the accepted rank-only fusion; it needs no score calibration between cosine and BM25 |
 | Strong and weak | Words and exact/prefix names stay visible. For meaning-only hits, the largest score drop after the first three files in each modality separates the tail | The tail is collapsed, never discarded. Absolute no-match confidence remains parked (`RELEVANCE_RULE_ENABLED = false`) |
 | Snippet | Only `chunks.content_text`, explicitly supplied by content extractors, can be displayed. `bestSentence` selects content, with the existing query markers; an image can borrow OCR at the same locator. Metadata stays searchable but cannot become a snippet | Both UIs render the markers; migration preserves known legacy document/OCR content and leaves unproven media text hidden |
@@ -76,7 +76,8 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `keywordLaneScopesStarredBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
   `takenAtBackfillMovesALoadedVectorToItsCaptureDay`), `RecentAndLimitTest.searchHonoursLimit`.
 - `RelevanceRuleTest` (`theFitFailedItsGateSoTheRuleShipsOff`, `theShippedSettingCallsEveryHitStrong`,
-  `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `datesKindsAndFileIdsFilterEveryLane`).
+  `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `substringNamesNeverPushPrefixNamesPastTheCut`,
+  `datesKindsAndFileIdsFilterEveryLane`).
 - `SnippetTest`: `aMatchDeepInAnUnpunctuatedRunShows`, `anEarlyMatchOrNoneKeepsTheStart`;
   `RelevanceRuleTest.theSnippetIsTheSentenceSharingTheMostQueryWords` pins `bestSentence`.
 - `SearchBenchTest.searchStaysFastAtFiftyThousandFiles`, `keywordLanesRunBesideTheEmbed`: lane limits at scale.

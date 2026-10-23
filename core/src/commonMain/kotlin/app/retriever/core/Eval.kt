@@ -137,11 +137,11 @@ class RetrievalEval(
             }
         }
         log("read ${corpus.size} files: ${pieces.sumOf { it.size }} pieces")
-        // The name lanes as search runs them with its in-memory index: close matches, then loose ones.
+        // The name lane as search runs it with its in-memory index: every match in NameIndex's order, and the close ones.
         val nameIndex = NameIndex.build(corpus.mapIndexed { i, f -> NameEntry(ids[i], f.name, f.folder, f.kind) })
         val names = queries.map { q ->
-            nameIndex.search(q.q.trim(), limit = SearchEngine.CANDIDATES).partition { it.match <= MatchClass.PREFIX }.toList()
-                .map { lane -> lane.map { indexOf.getValue(it.id) } }
+            val hits = nameIndex.search(q.q.trim(), limit = SearchEngine.CANDIDATES)
+            listOf(hits, hits.filter { it.match <= MatchClass.PREFIX }).map { lane -> lane.map { indexOf.getValue(it.id) } }
         }
 
         val groups = HashMap<Pair<Boolean, Int>, Group>()
@@ -208,11 +208,11 @@ class RetrievalEval(
                 return@mapNotNull null
             }
             val lanes = vectorLanes.getOrPut(listOf(s.prefixes, s.visionTokens, s.dims, s.int8)) { vectorLanes(group, s) }
-            val keyword = queries.indices.map { qi -> (group.keyword[qi] + names[qi][0]).toSet() }
+            val keyword = queries.indices.map { qi -> (group.keyword[qi] + names[qi][1]).toSet() }
             val ordered = queries.indices.map { qi ->
-                val fused = listOf(lanes[qi].cos.keys.toList(), group.keyword[qi], names[qi][0], names[qi][1]).map { lane -> lane.map { it.toLong() } }
+                val fused = listOf(lanes[qi].cos.keys.toList(), group.keyword[qi], names[qi][0]).map { lane -> lane.map { it.toLong() } }
                 val w = s.tuning.keywordWeight
-                val top = rrfMerge(fused, s.tuning.rrfK, listOf(1.0, w, w, w)).take(LIMIT).map { it.first.toInt() }
+                val top = rrfMerge(fused, s.tuning.rrfK, listOf(1.0, w, w)).take(LIMIT).map { it.first.toInt() }
                 // SearchEngine.toHits' split: words and close names are strong, meaning by the rule, a loose name alone never.
                 val (strong, weak) = top.partition { it in keyword[qi] || it in lanes[qi].strong }
                 (strong + weak) to strong.size
