@@ -389,12 +389,12 @@ final class SearchModel {
         guard let extractor = services?.extractor else { return }
         let uri = file.uri
         Task {
-            let jpeg = await FileExtractor.blocking { extractor.imageJpeg(uri: uri, maxSide: 1024) }
+            let jpeg = await FileExtractor.blocking { extractor.imageJpeg(uri: uri, maxSide: FileExtractor.queryPhotoSide) }
             if let jpeg { show(jpeg) }
         }
     }
 
-    /// A photo from the picker, at most 1024 px on its longest side.
+    /// A photo from the picker, at most `FileExtractor.queryPhotoSide` px on its longest side.
     func pick(_ item: PhotosPickerItem) async {
         guard let data = try? await item.loadTransferable(type: Data.self) else { return }
         let jpeg = await Task.detached { () -> Data? in
@@ -404,7 +404,7 @@ final class SearchModel {
                     [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 1024,
+                        kCGImageSourceThumbnailMaxPixelSize: FileExtractor.queryPhotoSide,
                     ] as CFDictionary)
             else { return nil }
             return UIImage(cgImage: image).jpegData(compressionQuality: 0.85)

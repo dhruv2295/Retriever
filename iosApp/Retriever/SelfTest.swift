@@ -64,7 +64,7 @@
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let ocrFile = docs.appendingPathComponent("selftest-ocr.png")
             try textImage("Invoice 48213 total 1250").pngData()?.write(to: ocrFile)
-            let ocr = s.extractor.scan(uri: "folder://documents/selftest-ocr.png", page: -1, jpegSide: 512)?.text ?? ""
+            let ocr = s.extractor.scan(uri: "folder://documents/selftest-ocr.png", page: -1, jpegSide: FileExtractor.embedSide)?.text ?? ""
             try? FileManager.default.removeItem(at: ocrFile)
             check("(b) OCR", ocr.contains("48213"), "\"\(ocr.replacingOccurrences(of: "\n", with: " | "))\"")
 
@@ -105,7 +105,7 @@
                 "\(photos.upserted.count - synthetic.count) of \(photos.upserted.count) photos have an original name; \(resources) resource lookups")
 
             // (e) Calibrate, index, search through the facade.
-            let images = photos.upserted.prefix(2).compactMap { s.extractor.imageJpeg(uri: $0.uri, maxSide: 512) } + [dogJpeg]
+            let images = photos.upserted.prefix(2).compactMap { s.extractor.imageJpeg(uri: $0.uri, maxSide: FileExtractor.embedSide) } + [dogJpeg]
             let texts = ["Invoice for garden supplies", "Notes from the lighthouse meeting", "A recipe for lemon rice"]
             let calibration = try await s.retriever.calibrate(samples: RetrieverIosKt.samples(images: images, texts: texts), tuneAgain: false)
             let p = calibration.profile
