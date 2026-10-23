@@ -10,7 +10,8 @@ content leaves the phone; only the model download uses the network.
 
 ## Mechanism and why
 
-- **Runtime.** MediaPipe Tasks `UniversalEmbedder` on LiteRT-LM (Android) and the MediaPipe Tasks pod (iOS), the official
+- **Runtime.** MediaPipe Tasks `UniversalEmbedder` on LiteRT-LM (Android) and the MediaPipe Tasks Swift package (iOS,
+  pinned by revision to the `v1.1.1` commit), the official
   on-device path for EmbeddingGemma 2 and what the mediapipe-samples `universal_embedder` and Google AI Edge Gallery use.
   The API has no batch call (`embedContent` fuses its parts into one vector), so embedding is one call per piece.
 - **One embedder, owned by `ModelHost`.** Indexing and search share it (two copies would double a 390 to 900 MB memory

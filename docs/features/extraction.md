@@ -60,6 +60,5 @@ extraction is covered by `SelfTest.swift`; the cross-platform `MeaningUpgradeTes
   UTF-8 only.
 - Audio files are name-only on both platforms; video moments have no audio.
 - iOS `usesLanguageCorrection` can alter codes and passwords in screenshots.
-- Later: a one-entry archive cache for iOS `zipEntryText` (it reopens the archive per entry), and DOCX/ODF streaming still
-  inflates entries after the one it needs.
+- Later: DOCX/ODF streaming still inflates entries after the one it needs.
 - Device queue: OCR quality at the current scan size on real scanned PDFs and receipts; fixture-PDF instrumented tests.

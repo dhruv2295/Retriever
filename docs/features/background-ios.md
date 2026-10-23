@@ -78,5 +78,3 @@ foreground loop (reading while the app is open) from fighting the background tas
   next runs.
 - Later: replace the hand-rolled waiter in `AppModel+Loop` (`sleepUntilWoken`, `wake`) with an `AsyncStream` that keeps
   the newest value; `Lifecycle` and `AppModel.setPhase` both cancel the batch on background and should have one owner.
-- Add a unit test that Info.plist's `BGTaskSchedulerPermittedIdentifiers` matches `IndexTask.id` and `continuedId`
-  (a mismatch makes `submit` raise an uncatchable exception).

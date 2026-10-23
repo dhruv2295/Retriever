@@ -61,7 +61,7 @@ interface NativeExtractor {
 
     fun zipEntryText(uri: String, name: String, maxBytes: Int): String?
 
-    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable. ph:// URIs read their exported current version. */
+    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable. folder:// only: photos are never hashed. */
     fun readBytes(uri: String, offset: Long, length: Int): NSData?
 }
 
