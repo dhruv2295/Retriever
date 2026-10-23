@@ -1,13 +1,19 @@
 package app.retriever.indexing
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
+import app.retriever.core.Kind
 import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
+import app.retriever.core.Words
+import app.retriever.testFile
+import app.retriever.testRetriever
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -16,6 +22,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import kotlin.time.Duration.Companion.minutes
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
@@ -50,5 +57,40 @@ class NotificationsTest {
         assertNotNull(n.publicVersion)
         assertEquals(Notifications.OPEN_STATUS, shadowOf(n.contentIntent).savedIntent.action)
         assertEquals(0, n.extras.getInt(Notification.EXTRA_PROGRESS_MAX))
+    }
+
+    /** A words-only phone with every file processed after setup; [asked]: Home card's Notify me. */
+    private fun caughtUp(asked: Boolean): IndexService {
+        val r = testRetriever(listOf(testFile("notes.txt", Kind.DOC), testFile("lease.txt", Kind.DOC)), ramGb = 3.0, extract = { emptyList() })
+        runBlocking {
+            r.refreshSetUp()
+            r.finishSetup()
+            r.indexBatch(1.minutes)
+            if (asked) r.requestCaughtUpNotice()
+        }
+        return IndexService(context, r)
+    }
+
+    private val context get() = ApplicationProvider.getApplicationContext<Context>()
+
+    private fun posted() = shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications
+        .filter { it.extras.getString(Notification.EXTRA_TITLE) == Words.CAUGHT_UP_NOTICE_TITLE }
+
+    @Test fun theCaughtUpNoticeComesOnceWhenAsked() {
+        Notifications.createChannel(context)
+        val index = caughtUp(asked = true)
+        runBlocking {
+            index.notifyCaughtUpIfReady()
+            index.notifyCaughtUpIfReady()
+        }
+        val n = posted().single()
+        assertEquals(Words.caughtUpNotice(2, textOnly = true), n.extras.getString(Notification.EXTRA_TEXT))
+        assertNotNull(n.contentIntent)
+    }
+
+    @Test fun noCaughtUpNoticeWhenNotAsked() {
+        Notifications.createChannel(context)
+        runBlocking { caughtUp(asked = false).notifyCaughtUpIfReady() }
+        assertEquals(0, posted().size)
     }
 }

@@ -10,7 +10,6 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Kind
-import app.retriever.core.SetupMark
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.flow.first
@@ -66,12 +65,12 @@ class ReadingPermissionTest {
         rule.onNodeWithText("$PLAIN $SAMPLE_LINE").assertExists()
     }
 
-    /** The ask on the choice, after Continue stopped the demo part-way: no demo message will come, so none is promised. */
+    /** The ask after the first search's Continue ended setup part-way: no demo message will come, so none is promised. */
     @Test fun theDemoSentenceGoesOnceTheDemoIsStopped() {
         val retriever = testRetriever((1..30).map { testFile("doc$it.txt", Kind.DOC) })
         val sample = runBlocking {
             retriever.planTaste()
-            retriever.setSetupMark(SetupMark.CHOOSING)
+            retriever.finishSetup()
             retriever.tasteProgress().first()
         }
         assertTrue("files pending: $sample", sample.pending > 0)

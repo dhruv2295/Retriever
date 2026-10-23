@@ -148,7 +148,7 @@ class ModelRepositoryTest {
     @Test fun noSpaceSaysSo() {
         ShadowStatFs.registerStats(dir, 1, 0, 0)
         repo.start(build)
-        assertEquals(ModelState.Failed(spaceMessage(build)), awaitState { it is ModelState.Failed })
+        assertEquals(ModelState.Failed(spaceMessage(build), noSpace = true), awaitState { it is ModelState.Failed })
         assertEquals(0, manager.requestCount)
     }
 }

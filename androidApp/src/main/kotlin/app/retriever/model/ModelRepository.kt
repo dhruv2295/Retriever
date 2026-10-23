@@ -88,7 +88,7 @@ class ModelRepository(
     fun start(b: ModelBuild) = launchOnce {
         val running = withContext(Dispatchers.IO) { download.active(b) }
         if (running == null && !download.hasSpaceFor(b)) {
-            _state.value = ModelState.Failed(spaceMessage(b))
+            _state.value = ModelState.Failed(spaceMessage(b), noSpace = true)
             return@launchOnce
         }
         _state.value = ModelState.Downloading(0f, true)
@@ -181,7 +181,7 @@ sealed interface ModelState {
     data class Downloading(val progress: Float, val indeterminate: Boolean) : ModelState
     data object WaitingForWifi : ModelState
     data object Checking : ModelState
-    data class Failed(val reason: String) : ModelState
+    data class Failed(val reason: String, val noSpace: Boolean = false) : ModelState
     data object Done : ModelState
 }
 

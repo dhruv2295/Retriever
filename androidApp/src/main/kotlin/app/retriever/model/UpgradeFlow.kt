@@ -20,6 +20,8 @@ package app.retriever.model
 import android.util.Log
 import app.retriever.access.AccessService
 import app.retriever.core.CalibrationResult
+import app.retriever.core.DescriptionState
+import app.retriever.core.DownloadPhase
 import app.retriever.core.DownloadState
 import app.retriever.core.ReadingProgress
 import app.retriever.core.Retriever
@@ -51,10 +53,26 @@ data class UpgradeUi(
     val progress: ReadingProgress? = null,
 )
 
+/** The download's percent, when known. */
+val UpgradeUi.percent: Int? get() =
+    (model as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.let { (it.progress.coerceIn(0f, 1f) * 100).toInt() }
+
+/** Search by description as setup's first search and Home's one-time card say it. */
+val UpgradeUi.description: DescriptionState get() = UpgradePolicy.description(
+    stage,
+    when (val m = model) {
+        ModelState.Missing, ModelState.Done -> DownloadPhase.NONE
+        is ModelState.Downloading -> DownloadPhase.RUNNING
+        ModelState.WaitingForWifi -> DownloadPhase.WAITING_FOR_WIFI
+        ModelState.Checking -> DownloadPhase.CHECKING
+        is ModelState.Failed -> if (m.noSpace) DownloadPhase.NO_SPACE else DownloadPhase.FAILED
+    },
+)
+
 /** The download or its tune for the status line ([size]: the platform's format of [UpgradeUi.sizeBytes]); null at any other stage. */
 fun UpgradeUi.downloadState(size: String): DownloadState? = when (stage) {
     UpgradeStage.DOWNLOAD -> DownloadState(
-        (model as? ModelState.Downloading)?.takeUnless { it.indeterminate }?.let { (it.progress.coerceIn(0f, 1f) * 100).toInt() },
+        percent,
         model == ModelState.WaitingForWifi || model is ModelState.Failed,
         size,
     )
@@ -65,9 +83,10 @@ fun UpgradeUi.downloadState(size: String): DownloadState? = when (stage) {
 }
 
 /**
- * "Search by meaning and what's in your photos": Download, then the tune by itself once the model is in place and files
- * are allowed, then the meaning pass that reading runs. Runs in the app's scope, so leaving a screen never drops it; the
- * library's counts, which only the meaning pass's line needs, are watched only while a screen collects [ui].
+ * Search by description: Download, then the tune by itself once the model is in place and files are allowed, then the
+ * meaning pass that reading runs. Runs in the app's scope, so leaving a screen never drops it; the library's counts, which
+ * only the meaning pass's line needs, are watched only while a screen collects [ui]. [calibrate] is null when a background
+ * run tuned first.
  */
 class UpgradeFlow(
     private val retriever: Retriever,
@@ -76,7 +95,7 @@ class UpgradeFlow(
     private val index: IndexService,
     private val scope: CoroutineScope,
     private val onMeteredNetwork: () -> Boolean,
-    private val calibrate: suspend () -> CalibrationResult,
+    private val calibrate: suspend () -> CalibrationResult?,
 ) {
     private val local = MutableStateFlow(UpgradeUi(sizeBytes = retriever.modelDownloadBytes))
 
@@ -155,7 +174,7 @@ class UpgradeFlow(
         scope.launch {
             val next = try {
                 val r = calibrate()
-                TuneState.Done(tuneSummary(r.chosen, r.backends.firstOrNull { it.backend == r.chosen }?.imageMs))
+                TuneState.Done(r?.let { tuneSummary(it.chosen, it.backends.firstOrNull { b -> b.backend == it.chosen }?.imageMs) } ?: "")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

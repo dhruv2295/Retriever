@@ -1,5 +1,6 @@
 package app.retriever.home
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,7 +23,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.test.core.app.ApplicationProvider
 import app.retriever.ShotTheme
+import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.FileTotals
 import app.retriever.core.HomeFacts
@@ -35,9 +38,11 @@ import app.retriever.core.StopReason
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.core.YearMemory
+import app.retriever.model.ModelRepository
 import app.retriever.model.ModelState
 import app.retriever.model.UpgradeActions
 import app.retriever.model.UpgradeUi
+import app.retriever.model.description
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.DuplicatesRoute
 import app.retriever.nav.FoldersRoute
@@ -277,7 +282,7 @@ class HomeShotsTest {
 
     @Test fun downloadingLight() {
         shot("downloading", false)
-        rule.onNodeWithText("Downloading search by meaning · 40%").assertExists()
+        rule.onNodeWithText("Downloading search by description · 40%").assertExists()
         // The line is the download: no card for it as well.
         rule.onNodeWithText(Words.UPGRADE_TITLE).assertDoesNotExist()
     }
@@ -286,7 +291,7 @@ class HomeShotsTest {
 
     @Test fun meaningLight() {
         shot("meaning", false)
-        rule.onNodeWithText("Adding search by meaning").assertExists()
+        rule.onNodeWithText("Adding search by description").assertExists()
         rule.onNodeWithText(Words.meaningOf(2_200, 3_300)).assertExists()
     }
 
@@ -563,5 +568,128 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.SEARCH_FIELD).assertExists()
         rule.onNodeWithContentDescription("Settings").performClick()
         assertEquals(listOf<Route>(SettingsRoute), went)
+    }
+
+    // --- The one-time card after setup ---
+
+    /** Setup just finished: the first search's 30 files done, the rest scheduled. */
+    private val intro = base.copy(introDue = true, planned = 30, contentRead = 28, nameOnly = 2, waiting = 25_763, rest = 0)
+
+    private val size = 387_710_976L
+    private val upgrades = mapOf(
+        DescriptionState.READY to UpgradeUi(UpgradeStage.DONE, ModelState.Done, sizeBytes = size),
+        DescriptionState.DOWNLOADING to UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Downloading(0.4f, false), sizeBytes = size),
+        DescriptionState.PREPARING to UpgradeUi(UpgradeStage.TUNE, ModelState.Done, sizeBytes = size),
+        DescriptionState.WAITING_FOR_WIFI to UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.WaitingForWifi, sizeBytes = size),
+        DescriptionState.FAILED to UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Failed(ModelRepository.STOPPED), sizeBytes = size),
+        DescriptionState.NO_SPACE to UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Failed("Needs 0.7 GB free.", noSpace = true), sizeBytes = size),
+        DescriptionState.NOT_STARTED to UpgradeUi(UpgradeStage.OFFER, ModelState.Missing, sizeBytes = size),
+        DescriptionState.UNAVAILABLE to UpgradeUi(),
+    )
+
+    private val sizeText get() = Format.downloadSize(ApplicationProvider.getApplicationContext<Context>(), size)
+
+    private fun introShot(
+        name: String,
+        state: DescriptionState,
+        dark: Boolean = false,
+        home: HomeActions = HomeActions(),
+        upgrade: UpgradeActions = UpgradeActions(),
+    ) {
+        // The phone's own height, so the shot shows what a person sees first.
+        RuntimeEnvironment.setQualifiers("+h891dp")
+        rule.setContent { ShotTheme(dark) { Screen(intro, homeActions = home, upgrade = upgrades.getValue(state), upgradeActions = upgrade) } }
+        rule.waitForIdle()
+        rule.shot(name)
+    }
+
+    @Test fun introReady() {
+        for ((state, up) in upgrades) assertEquals(state, up.description)
+        introShot("home_intro_ready_light", DescriptionState.READY)
+        rule.onNodeWithText(Words.HOME_INTRO_TITLE).assertIsDisplayed()
+        rule.onNodeWithText(Words.recentFiles(30)).assertIsDisplayed()
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.READY)).assertIsDisplayed()
+        rule.onNodeWithText(Words.otherFiles(25_763)).assertIsDisplayed()
+        rule.onNodeWithText(Words.NEW_FILES).assertIsDisplayed()
+        // The card stands in for the status line until Got it, and nothing on it needs doing.
+        rule.onAllNodesWithText("Processing while you charge").assertCountEquals(0)
+        rule.onAllNodesWithText(Words.TRY_AGAIN).assertCountEquals(0)
+    }
+
+    @Test fun introReadyDark() = introShot("home_intro_ready_dark", DescriptionState.READY, dark = true)
+
+    @Test fun introOnItsWay() {
+        introShot("home_intro_on_its_way_light", DescriptionState.DOWNLOADING)
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.DOWNLOADING)).assertIsDisplayed()
+        // The download's own row waits for Got it.
+        rule.onAllNodesWithText(Words.UPGRADE_TITLE).assertCountEquals(0)
+    }
+
+    @Test fun introOnItsWayDark() = introShot("home_intro_on_its_way_dark", DescriptionState.DOWNLOADING, dark = true)
+
+    @Test fun introWaitingForWifiOffersMobileData() {
+        var mobile = false
+        introShot("home_intro_wifi_light", DescriptionState.WAITING_FOR_WIFI, upgrade = UpgradeActions(useMobileData = { mobile = true }))
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.WAITING_FOR_WIFI)).assertIsDisplayed()
+        rule.onNodeWithText(Words.recentFilesAction(DescriptionState.WAITING_FOR_WIFI, sizeText)!!).performClick()
+        assertTrue(mobile)
+    }
+
+    @Test fun introFailedTriesAgain() {
+        var downloads = 0
+        introShot("home_intro_failed_light", DescriptionState.FAILED, upgrade = UpgradeActions(download = { downloads++ }))
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.FAILED)).assertIsDisplayed()
+        rule.onNodeWithText(Words.TRY_AGAIN).performClick()
+        assertEquals(1, downloads)
+    }
+
+    @Test fun introNotStartedDownloads() {
+        var downloads = 0
+        introShot("home_intro_not_started_light", DescriptionState.NOT_STARTED, upgrade = UpgradeActions(download = { downloads++ }))
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.NOT_STARTED)).assertIsDisplayed()
+        rule.onNodeWithText(Words.recentFilesAction(DescriptionState.NOT_STARTED, sizeText)!!).performClick()
+        assertEquals(1, downloads)
+        // Not the offer's own card as well.
+        rule.onAllNodesWithText(Words.UPGRADE_TITLE).assertCountEquals(0)
+    }
+
+    @Test fun introWithNothingToDoHasNoAction() {
+        var state by mutableStateOf(DescriptionState.NO_SPACE)
+        rule.setContent { ShotTheme(false) { Screen(intro, upgrade = upgrades.getValue(state)) } }
+        for (s in listOf(DescriptionState.NO_SPACE, DescriptionState.UNAVAILABLE, DescriptionState.PREPARING)) {
+            state = s
+            rule.waitForIdle()
+            rule.onNodeWithText(Words.recentFilesBody(s)).assertExists()
+            rule.onAllNodesWithText(Words.TRY_AGAIN).assertCountEquals(0)
+            rule.onAllNodesWithText(Words.USE_MOBILE_DATA, substring = true).assertCountEquals(0)
+        }
+    }
+
+    @Test fun notifyAsksForTheNotice() {
+        var asked = false
+        introShot("home_intro_notify_light", DescriptionState.DOWNLOADING, home = HomeActions(notify = { asked = true }))
+        rule.onNodeWithText(Words.NOTIFY_WHEN_SEARCHABLE).performClick()
+        assertTrue(asked)
+    }
+
+    /** Once the notice was asked for, the card has nothing more to promise. */
+    @Test fun notifyHiddenOnceAsked() {
+        rule.setContent { ShotTheme(false) { Screen(intro, upgrade = upgrades.getValue(DescriptionState.READY)) } }
+        rule.onAllNodesWithText(Words.NOTIFY_WHEN_SEARCHABLE).assertCountEquals(0)
+        rule.onNodeWithText(Words.GOT_IT).assertExists()
+    }
+
+    @Test fun gotItDismissesTheCard() {
+        var dismissed = false
+        rule.setContent { ShotTheme(false) { Screen(intro, homeActions = HomeActions(dismissIntro = { dismissed = true })) } }
+        rule.onNodeWithText(Words.GOT_IT).performClick()
+        assertTrue(dismissed)
+    }
+
+    /** After Got it the status line carries the state again. */
+    @Test fun withoutTheCardTheStatusLineReturns() {
+        rule.setContent { ShotTheme(false) { Screen(intro.copy(introDue = false)) } }
+        rule.onAllNodesWithText(Words.HOME_INTRO_TITLE).assertCountEquals(0)
+        rule.onNodeWithText("Processing while you charge").assertExists()
     }
 }

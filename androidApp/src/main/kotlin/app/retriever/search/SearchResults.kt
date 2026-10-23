@@ -199,7 +199,7 @@ internal fun Results(
         // Words only is said by no label: the download hint under few results says what more there is.
         ui.wordsOnly -> null
 
-        !ui.vectorLane -> "Matching exact words for now. Results by meaning will be back shortly."
+        !ui.vectorLane -> "Matching exact words for now. Results by description will be back shortly."
 
         else -> null
     }

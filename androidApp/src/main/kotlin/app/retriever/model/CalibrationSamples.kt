@@ -20,6 +20,8 @@ import app.retriever.core.audioWindowSec
 import app.retriever.core.audioWindows
 import app.retriever.indexing.IndexService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 object CalibrationSamples {
@@ -37,6 +39,18 @@ class Calibrator(private val context: Context, private val retriever: Retriever,
             // calibrate() cancelled the running batch; start again, even when the tune failed.
             if (tuneAgain) index.indexNow()
         }
+    }
+
+    private val firstTune = Mutex()
+
+    /**
+     * The tune after the download, from Setup in front or a background run, whichever comes first; the other then finds
+     * it done and gets null. Also null on a phone without the model to tune.
+     */
+    suspend fun tuneOnce(): CalibrationResult? = firstTune.withLock {
+        retriever.refreshSetUp()
+        if (retriever.textOnly || !retriever.modelPresent.value || retriever.setUp.value == true) return@withLock null
+        calibrate(tuneAgain = false).also { retriever.refreshSetUp() }
     }
 
     /** The core's one GPU retest after a Tune turned the GPU down; a run calls it before its batch, so no batch is cancelled. */

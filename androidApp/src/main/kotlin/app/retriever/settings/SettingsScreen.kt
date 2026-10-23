@@ -470,7 +470,7 @@ private fun HowItWorks() {
         Muted(
             "${Words.wholeDeviceNote(
                 DeviceWords.ANDROID,
-            )} ${Words.nothingSent(DeviceWords.ANDROID)} The only time it uses the internet is the optional download for search by meaning.",
+            )} ${Words.onDevice(DeviceWords.ANDROID)}. The only time it uses the internet is the one-time download for search by description.",
             Modifier.padding(16.dp),
         )
         Muted(

@@ -69,6 +69,10 @@ data class HomeUi(
     val memoriesDay: LocalDate? = null,
     /** The person can hide On this day, here or in Status. */
     val showOnThisDay: Boolean = true,
+    /** Setup just finished: the one-time card about what happens next, core's [app.retriever.core.Prefs.homeIntroDue]. */
+    val introDue: Boolean = false,
+    /** Setup's first search's files, core's [app.retriever.core.SetupInputs.planned]. */
+    val planned: Long = 0,
 ) {
     val progress: ReadingProgress get() = ReadingProgress(
         (contentRead - partlyRead).coerceAtLeast(0),
@@ -148,6 +152,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 hasAccess = access.state.value.ready,
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
+                introDue = retriever.prefs.value.homeIntroDue,
                 suggestions = null,
             ),
         )
@@ -177,8 +182,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     init {
         viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
         viewModelScope.launch {
-            combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready).libraryChosen }.collect { c ->
-                _ui.update { it.copy(libraryChosen = c) }
+            combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready) }.collect { s ->
+                _ui.update { it.copy(libraryChosen = s.libraryChosen, planned = s.planned.toLong()) }
             }
         }
         viewModelScope.launch {
@@ -188,6 +193,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         paused = p.paused,
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
+                        introDue = p.homeIntroDue,
                     )
                 }
             }
@@ -227,6 +233,12 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     }
 
     fun dismissCaughtUp() = launchCatching { retriever.dismissCaughtUp() }
+
+    /** The one-time card's Notify me: one notice once everything is searchable. */
+    fun requestCaughtUpNotice() = launchCatching { retriever.requestCaughtUpNotice() }
+
+    /** The one-time card's Got it. */
+    fun dismissIntro() = launchCatching { retriever.dismissHomeIntro() }
 
     val celebration = celebrationOf(retriever)
 

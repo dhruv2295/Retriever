@@ -24,16 +24,16 @@ import app.retriever.core.DeviceWords
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Words
 
-/** Selection is local; only the confirmation authorizes processing. Shared by setup and the Home sheet. */
+/**
+ * Home's sheet for an install that chose Not now before this version: when to process the rest. Selection is local; only
+ * the confirmation authorizes processing. [rest]: files still to process, null until counted.
+ */
 @Composable
-fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifier) {
+fun CommitStage(rest: Long?, commit: (whileCharging: Boolean) -> Unit, decideLater: () -> Unit, modifier: Modifier = Modifier) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ui.taste?.let { Words.demoEnded(it.done.toLong(), it.planned.toLong(), ui.setup.skipped) }?.let {
-            Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
         Text(Words.chooseTitle(DeviceWords.ANDROID), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
-        Text(Words.chooseBody(ui.rest), style = MaterialTheme.typography.bodyLarge)
+        Text(Words.chooseBody(rest), style = MaterialTheme.typography.bodyLarge)
         Text(Words.choosePace(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
         val labels = listOf(ReadingSchedule.CHARGING.title, Words.READ_15_NOW, Words.NOT_NOW)
         val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.chargingAndNowBody(DeviceWords.ANDROID), Words.NOT_NOW_BODY)
@@ -55,9 +55,9 @@ fun CommitStage(ui: SetupUi, actions: SetupActions, modifier: Modifier = Modifie
         }
         Button(onClick = {
             when (selected) {
-                0 -> actions.commit(true)
-                1 -> actions.commit(false)
-                else -> actions.decideLater()
+                0 -> commit(true)
+                1 -> commit(false)
+                else -> decideLater()
             }
         }, modifier = Modifier.fillMaxWidth()) {
             Text(if (selected == 2) Words.GO_TO_HOME else Words.START_PROCESSING)
