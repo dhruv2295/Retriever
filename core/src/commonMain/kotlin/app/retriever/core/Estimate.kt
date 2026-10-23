@@ -2,7 +2,6 @@ package app.retriever.core
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlin.concurrent.Volatile
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -89,64 +88,6 @@ fun readEstimate(book: SpeedBook, pending: Map<Kind, Long>, videoBytes: Long, io
 
 /** Every kind still to read has a measured pace, so [SpeedBook.ms] runs on no seed. */
 internal fun SpeedBook.measures(pending: Map<Kind, Number>): Boolean = pending.filterValues { it.toLong() > 0 }.keys.all { it in paces }
-
-/**
- * This session's pace: [book] outlives batches and launches, and the wall clock against inference time ([wallRatio])
- * scales the short read's time left ([TasteProgress]).
- */
-internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
-    private var sessionMs = 0.0
-    private var sessionFiles = 0
-    private var lastAt: Long? = null
-
-    /**
-     * This session's reading in wall time: each file from the end of the one before it in the same batch, the batch's
-     * first by its own time. So the model's open and the time between batches (a pause, the app away) never count.
-     */
-    @Volatile
-    var wallMs = 0.0
-        private set
-
-    /** Wall time per ms of inference this session: the screen, the database and the rest of the phone included. */
-    @Volatile
-    var wallRatio: Double? = null
-        private set
-
-    /**
-     * [wallRatio] once [SHOW_AFTER_BUDGET_SHARE] of [budgetMs] in wall time and a gap between two files stand behind it
-     * (a batch's first file alone is exactly 1), so no warm-up number is shown. Scaled to the budget, not a fixed span of
-     * inference: a slow phone trims its sample to fewer inference seconds, and a fixed span would never be reached.
-     */
-    fun shownRatio(budgetMs: Double): Double? = wallRatio?.takeIf { sessionFiles > 1 && wallMs >= budgetMs * SHOW_AFTER_BUDGET_SHARE }
-
-    fun changeBook(book: SpeedBook) {
-        this.book = book
-        sessionMs = 0.0
-        sessionFiles = 0
-        wallMs = 0.0
-        wallRatio = null
-    }
-
-    /** A batch starts: the wall clock waits for its first file. */
-    fun start() {
-        lastAt = null
-    }
-
-    fun add(kind: Kind, ms: Double, units: Double) {
-        val at = now()
-        wallMs += lastAt?.let { (at - it).toDouble() } ?: ms
-        lastAt = at
-        book = book.add(kind, ms, units)
-        sessionMs += ms
-        sessionFiles++
-        wallRatio = if (sessionMs > 0) wallMs / sessionMs else null
-    }
-
-    companion object {
-        /** The share of the sample's budget, in wall time, read before its time left shows: the rest of it shows a time. */
-        const val SHOW_AFTER_BUDGET_SHARE = 0.25
-    }
-}
 
 /** Placeholders until one full read on a device is timed against its own short read (build plan WP-P1). */
 const val ESTIMATE_LOW = 0.9

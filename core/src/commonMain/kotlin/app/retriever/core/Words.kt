@@ -325,20 +325,6 @@ object Words {
     const val DEMO_PICKING = "Picking your recent files…"
     const val DEMO_PICKING_NOTE = "You can search them while you wait."
 
-    /**
-     * The muted line while the demo processes: the time left once measured ([TasteProgress.secondsLeft]), else "About a
-     * minute.". Paused, the app shows the pause's reason ([ReadingStatus.pause]); done, [demoDone].
-     */
-    fun demoNote(secondsLeft: Int?): String {
-        val s = secondsLeft ?: return "About a minute."
-        val minutes = (s / 60.0).roundToInt()
-        return when {
-            s < 60 -> "Less than a minute left."
-            minutes == 1 -> "About a minute left."
-            else -> "About $minutes minutes left."
-        }
-    }
-
     /** The muted line once the demo is done. [rest]: [ReadingProgress.rest], null until the phone's files are all counted. */
     fun demoDone(rest: Long?, words: DeviceWords): String = "The demo is done." + when (rest) {
         null -> " Next: the rest of your files."

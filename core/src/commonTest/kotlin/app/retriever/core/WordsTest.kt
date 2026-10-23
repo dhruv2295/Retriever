@@ -118,12 +118,12 @@ class WordsTest {
         Words.foldersAdded(2), Words.FIRST_LOOK, Words.DESCRIPTION_READY, Words.DESCRIPTION_READY_BODY, Words.HOME_INTRO_TITLE,
         Words.HOME_INTRO_BODY, Words.NEW_FILES, Words.NEW_FILES_BODY, Words.NOTIFY_WHEN_SEARCHABLE, Words.recentFiles(30),
         Words.otherFiles(25_763), Words.otherFiles(null), Words.otherFilesBody(android),
-        Words.DEMO_PICKING, Words.DEMO_PICKING_NOTE, Words.demoNote(null), Words.demoDone(25_763, android), Words.demoDone(null, android),
+        Words.DEMO_PICKING, Words.DEMO_PICKING_NOTE, Words.demoDone(25_763, android), Words.demoDone(null, android),
         Words.SEARCH_DEMO, Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
         Words.demoEnded(30, 30, false)!!, Words.demoEnded(12, 30, false)!!, Words.chooseTitle(android), Words.chooseBody(25_763),
         Words.chooseBody(null), Words.choosePace(android), Words.RECOMMENDED, Words.READ_15_NOW, Words.chargingAndNowBody(android),
         Words.NOT_NOW_BODY, Words.START_PROCESSING, Words.GO_TO_HOME, Words.whileChargingBody(android),
-        Words.notificationsAsk(true, TasteProgress(emptyMap(), emptySet(), 0, null, 3, 30)), Words.PROGRESS_CHANNEL,
+        Words.notificationsAsk(true, TasteProgress(emptyMap(), emptySet(), 0, 3, 30)), Words.PROGRESS_CHANNEL,
         Words.PROGRESS_CHANNEL_BODY, Words.DEMO_DONE_NOTICE_TITLE, Words.demoDoneNotice(30, 30),
     )
 

@@ -1,7 +1,6 @@
 package app.retriever.core
 
 import kotlinx.serialization.json.Json
-import kotlin.math.ceil
 
 /**
  * What the index reads: the first run's planned files only ([SAMPLE]) or everything ([ALL]). Kept in Store meta, not
@@ -13,42 +12,19 @@ enum class Scope { SAMPLE, ALL }
  * The demo's progress, by the one count rule: [done] of [planned] files processed, and the bar is exactly done / planned.
  * [planned] is fixed when the files are picked; a file found by name only, one Retriever couldn't open, and one deleted
  * since all count as done. [byKind]: (read, planned) per kind, for a screen reader; [readyKinds]: kinds with nothing
- * left; [read]: files whose insides are searchable; [pending]: files still waiting; [secondsLeft]: the pending files at
- * this phone's measured pace in wall time, null until that is measured ([Words.demoNote]).
+ * left; [read]: files whose insides are searchable; [pending]: files still waiting.
  */
-data class TasteProgress(
-    val byKind: Map<Kind, Pair<Int, Int>>,
-    val readyKinds: Set<Kind>,
-    val read: Int,
-    val secondsLeft: Int?,
-    val pending: Int,
-    val planned: Int,
-) {
+data class TasteProgress(val byKind: Map<Kind, Pair<Int, Int>>, val readyKinds: Set<Kind>, val read: Int, val pending: Int, val planned: Int) {
     val done: Int get() = planned - pending
 
     internal companion object {
-        /**
-         * [total]: the plan's size; [planned] and [pending]: files per kind; [pendingVideoBytes] reads videos by size, as the
-         * ETA does. [wallRatio]: [Eta.shownRatio], null before a share of the budget is read; the time also waits for every
-         * pending kind's pace.
-         */
-        fun of(
-            total: Int,
-            planned: Map<Kind, Int>,
-            pending: Map<Kind, Int>,
-            pendingVideoBytes: Long,
-            book: SpeedBook,
-            searchable: Map<Kind, Int>,
-            wallRatio: Double?,
-        ): TasteProgress {
+        /** [total]: the plan's size; [planned], [pending] and [searchable]: files per kind. */
+        fun of(total: Int, planned: Map<Kind, Int>, pending: Map<Kind, Int>, searchable: Map<Kind, Int>): TasteProgress {
             val byKind = planned.mapValues { (k, n) -> (searchable[k] ?: 0) to n }
-            val pendingFiles = pending.mapValues { it.value.toLong() }
             return TasteProgress(
                 byKind = byKind,
                 readyKinds = planned.keys - pending.filterValues { it > 0 }.keys,
                 read = byKind.values.sumOf { it.first },
-                secondsLeft = wallRatio?.takeIf { planned.isNotEmpty() && book.measures(pendingFiles) }
-                    ?.let { ceil(book.ms(pendingFiles, pendingVideoBytes) * it / 1000).toInt() },
                 pending = pending.values.sum(),
                 planned = total,
             )
@@ -87,7 +63,6 @@ object SamplePile {
 const val DEMO_FILES = 30
 
 internal const val TASTE_SCOPE_KEY = "taste_scope"
-internal const val TASTE_BUDGET_KEY = "taste_budget_ms"
 internal const val TASTE_IDS_KEY = "taste_ids"
 internal const val TASTE_DECIDED_KEY = "taste_decided"
 internal const val CELEBRATED_KEY = "celebrated"
@@ -112,7 +87,3 @@ internal fun Store.setTaste(ids: List<Long>) = inTransaction {
 internal fun Store.flag(key: String): Boolean = meta(key) != null
 
 internal fun Store.setFlag(key: String) = setMeta(key, "1")
-
-/** Files per kind, and the bytes of the videos among them. */
-internal fun List<Store.StoredFile>.byKind(): Pair<Map<Kind, Int>, Long> =
-    groupingBy { it.file.kind }.eachCount() to sumOf { if (it.file.kind == Kind.VIDEO) it.file.size else 0L }

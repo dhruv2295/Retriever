@@ -293,8 +293,11 @@ class Retriever(
     @Volatile
     private var batchJob: Job? = null
 
-    /** Read from the store on first use, so the constructor stays off the database. */
-    private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY)), now).also { savedBook = it.book } }
+    /**
+     * The pace of the configuration in use ([speedKey]), outliving batches and launches. Read from the store on first use,
+     * so the constructor stays off the database.
+     */
+    private val speedBook by lazy { MutableStateFlow(SpeedBook.decode(store.meta(SPEED_KEY))).also { savedBook = it.value } }
     private var savedBook: SpeedBook? = null
     private var speedKey = SPEED_KEY
     private var bookSavedAt = 0L
@@ -408,7 +411,7 @@ class Retriever(
             }
             _prefs.value = new
             // Files of a switched-off kind pass by unread in milliseconds: that pace would under-read them once back on.
-            (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> eta.book = eta.book.copy(paces = eta.book.paces - k) }
+            (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> speedBook.update { it.copy(paces = it.paces - k) } }
             // Stars of dropped files stay, hidden until the folder is put back.
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
@@ -760,7 +763,6 @@ class Retriever(
                 val current = factory.profileNow(store.profile() ?: stored, onScreen)
                 deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
-            eta.start()
             _state.update { it.copy(pendingAtStart = pending) }
             val engine = if (ids == null) {
                 IndexEngine(
@@ -852,7 +854,7 @@ class Retriever(
         } else {
             log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
         }
-        eta.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m))
+        speedBook.update { it.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m)) }
         if (now() - bookSavedAt >= SAVE_EVERY_MS) saveBook()
         _state.update {
             it.copy(
@@ -868,7 +870,7 @@ class Retriever(
     }
 
     private fun saveBook() {
-        val book = eta.book
+        val book = speedBook.value
         bookSavedAt = now()
         if (book == savedBook) return
         store.setMeta(speedKey, book.encode())
@@ -883,7 +885,7 @@ class Retriever(
 
     private fun bookFor(profile: DeviceProfile): SpeedBook {
         val key = paceKey(profile)
-        val book = if (key == speedKey) eta.book else SpeedBook.decode(store.meta(key))
+        val book = if (key == speedKey) speedBook.value else SpeedBook.decode(store.meta(key))
         val seed = if ((profile.visionBackend ?: profile.backend) == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs
         return book.copy(photoSeedMs = seed ?: book.photoSeedMs)
     }
@@ -892,12 +894,12 @@ class Retriever(
         val key = paceKey(profile)
         val book = bookFor(profile)
         if (key == speedKey) {
-            eta.book = book
+            speedBook.value = book
             return
         }
         saveBook()
         speedKey = key
-        eta.changeBook(book)
+        speedBook.value = book
         savedBook = null
         photoMs.clear()
     }
@@ -909,7 +911,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun estimateAll(): ReadEstimate? = io {
         val ios = probe.platform == Platform.IOS
-        val book = if (_state.value.running) eta.book else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: eta.book
+        val book = if (_state.value.running) speedBook.value else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: speedBook.value
         readEstimate(book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
     }
 
@@ -991,8 +993,7 @@ class Retriever(
         val kinds = store.prefs().kinds intersect readableKinds
         val files = scanned.filter { it.kind in kinds }
         store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
-        val plan = FileRules.planTaste(files, eta.book::costMs, budget)
-        store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
+        val plan = FileRules.planTaste(files, speedBook.value::costMs, budget)
         val picked = plan.ids.toHashSet()
         store.upsertFiles(files.filter { it.uri in picked })
         val byUri = store.filesByUris(plan.ids)
@@ -1023,13 +1024,11 @@ class Retriever(
         watched(combine(store.countChanges(), sampleIds) { _, _ -> }, {}) {
             val ids = store.tasteIds()
             val planned = store.storedIn(ids).groupingBy { it.file.kind }.eachCount()
-            val (pending, videoBytes) = store.pendingIn(ids).byKind()
+            val pending = store.pendingIn(ids).groupingBy { it.file.kind }.eachCount()
             val searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount()
-            TasteProgress.of(ids.size, planned, pending, videoBytes, eta.book, searchable, eta.shownRatio(tasteBudgetMs()))
+            TasteProgress.of(ids.size, planned, pending, searchable)
         }
     }
-
-    private fun tasteBudgetMs() = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
 
     /** How far the short read is; re-emits as files are read. One shared flow; see [watched]. */
     fun tasteProgress(): Flow<TasteProgress> = sharedTaste
@@ -1629,7 +1628,7 @@ class Retriever(
         applyProfile(stored, profile)
         selectPace(factory.profileNow(profile, uiVisible))
         val vision = factory.profileNow(profile, uiVisible).visionBackend
-        eta.book = eta.book.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs)
+        speedBook.update { it.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs) }
         saveBook()
         return result.copy(profile = profile)
     }

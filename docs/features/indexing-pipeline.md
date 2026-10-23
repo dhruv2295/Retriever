@@ -48,10 +48,10 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
   left moments (`laterChunks`), so no file waits for a deepen pass that can't come. An undecided foreground trial always includes its tails, even for a heads-only caller. `hasPendingTaste` includes tails so batch boundaries and foreground returns resume them.
 - **Idle batches do not open the model.** `runBatch` checks for no pending files, no tail work and a matching signature
   and returns DONE before `ModelHost.open`.
-- **Pace.** `SpeedBook` (Estimate.kt) records time per unit per kind, persisted in store meta; `Eta` keeps it with this
-  session's wall-clock ratio for the short read's time left. `readEstimate` turns pending counts into minutes; the hours
-  estimate stays off in the UI until it is calibrated on a device (`ESTIMATE_CALIBRATED`). There is no live ETA: no
-  surface showed one.
+- **Pace.** `SpeedBook` (Estimate.kt) records time per unit per kind, one book per backend configuration, persisted in
+  store meta; the first run's plan prices files with it. `readEstimate` turns pending counts into minutes; the hours
+  estimate stays off in the UI until it is calibrated on a device (`ESTIMATE_CALIBRATED`). There is no live ETA and no
+  time left for the demo: no surface showed either.
 - **First run.** `planTaste` picks a varied slice of the library that reads in about 90 seconds and scopes the first batch
   to it (SAMPLE scope); `Store.pendingIn` limits the engine to that plan. Pending counts, including per-kind counts,
   exclude the rest of the library (`Counts.waiting`). Videos use their own size, a 25-second seed floor and a
@@ -73,7 +73,7 @@ the normal dispatcher for interactive search. See `model-lifecycle.md` for the n
 
 - `core/src/commonMain/kotlin/app/retriever/core/Retriever.kt` (`indexBatch`, `runBatch`, `nextRunFor`, `cancelBatch`, `awaitUi`, `planTaste`, `estimateAll`)
 - `core/src/commonMain/kotlin/app/retriever/core/IndexEngine.kt` (`IndexEngine.runBatch`, `stopReason`, tail embedding)
-- `core/src/commonMain/kotlin/app/retriever/core/Estimate.kt` (`SpeedBook`, `Eta`, `readEstimate`)
+- `core/src/commonMain/kotlin/app/retriever/core/Estimate.kt` (`SpeedBook`, `readEstimate`)
 - `core/src/commonMain/kotlin/app/retriever/core/Taste.kt` (first-run plan)
 - `core/src/commonMain/kotlin/app/retriever/core/Store.kt` (`pendingFiles`, `replaceChunks`, `tailChunks`, attempt counters)
 - `core/src/commonMain/kotlin/app/retriever/core/Model.kt` (`ThermalRest`, `StopReason`, `NextRun`, `IndexState`)

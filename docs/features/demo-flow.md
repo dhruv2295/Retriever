@@ -3,7 +3,8 @@
 > **Superseded in part (2026-10-23), see [Onboarding](onboarding.md).** The choice screen (§3) and "Skip the demo" are
 > gone: processing runs on one automatic strategy, and the first search's Continue ends setup with a one-time Home card.
 > The welcome's paragraphs are replaced by Hello. The model download is now part of setup (this doc's "Leave out" item
-> on it is reversed). The count rule, the pile and the demo's search below still hold.
+> on it is reversed). The count rule, the pile and the demo's search below still hold. The demo's time left is gone
+> (`TasteProgress.secondsLeft`, `Words.demoNote` and the wall clock behind them): no screen of the redesign shows it.
 
 **Pick.** Design 1's shape: the demo and its search on one screen, Continue pinned at the bottom, the grid gone, the
 number of files fixed when they are picked, one count rule from the demo to Home. **Grafted from Design 2:** a welcome
@@ -84,7 +85,6 @@ one to two minutes. Device check: time 30 files on the Pixel.
             [dog, 96]   [pile of 3 small cards]
           12 of 30 files processed
   [████████░░░░░░░░░░░░░░░░░░░░]                ← exactly 12/30, quiet track, no dot
-  About a minute left.
   Try: (word) (word) (word)                     ← or the hint below; height kept
   See the 30 files ›
   ───────────────────────── pinned footer ──
@@ -95,7 +95,7 @@ one to two minutes. Device check: time 30 files on the Pixel.
 | State | Count line | Muted line (two lines' height kept) | Dog |
 |---|---|---|---|
 | Picking (under a second) | "Picking your recent files…" | "You can search them while you wait." | walking |
-| Processing | "12 of 30 files processed" | measured time left, else "About a minute." | walking |
+| Processing | "12 of 30 files processed" | none (the time line is gone) | walking |
 | Paused | same | the pause reason (today's `status.pause`) | resting |
 | Done | "30 of 30 files processed" | "The demo is done. Next: the other 25,763 files on your phone." | resting |
 
@@ -234,8 +234,8 @@ sites to change are listed last.
 
 | API | What it is |
 |---|---|
-| `DEMO_FILES = 30` | `FileRules.planTaste` cuts its existing order (two of each kind first) at 30; `byKind`, `seconds`, `everything` describe the cut plan. The 90 s budget still picks the files and gates the time line. |
-| `TasteProgress(byKind, readyKinds, read, secondsLeft, pending, planned)` + `done` | `planned` is fixed at picking (`tasteIds().size`); `done = planned − pending`: name-only, couldn't-open and deleted files count. `read` stays (files searchable inside). `readyToTry` is gone. Count line `Words.readOf(done, planned)`; bar exactly `done / planned`. |
+| `DEMO_FILES = 30` | `FileRules.planTaste` cuts its existing order (two of each kind first) at 30; `byKind`, `seconds`, `everything` describe the cut plan. The 90 s budget still picks the files. |
+| `TasteProgress(byKind, readyKinds, read, pending, planned)` + `done` | `planned` is fixed at picking (`tasteIds().size`); `done = planned − pending`: name-only, couldn't-open and deleted files count. `read` stays (files searchable inside). `readyToTry` is gone. Count line `Words.readOf(done, planned)`; bar exactly `done / planned`. |
 | `SamplePile` | 3 cards, `CARD_DP` 96, `FOOTPRINT_DP` 128. |
 
 Deleted: `trimTaste`, `tasteDrops`, `TRY_AFTER_FILES`, `readyToTry`. Nothing removes a file from the plan after picking.
@@ -266,7 +266,6 @@ Home and Processing both draw `readingStatus()` as is, so they cannot disagree.
 | `demoTitle(planned)` | "A short demo on 30 of your recent files" (real number; "your most recent file"; "your recent files" before picking) |
 | `DEMO_PICKING`, `DEMO_PICKING_NOTE` | "Picking your recent files…", "You can search them while you wait." |
 | `readOf(done, total)` | every count line, always "of N": "12 of 30 files processed" |
-| `demoNote(secondsLeft)` | "About 3 minutes left." / "Less than a minute left." / "About a minute." (paused: `ReadingStatus.pause`) |
 | `demoDone(rest, words)` | "The demo is done. Next: the other 25,763 files on your phone." ("the rest of your files" before counted) |
 | `SEARCH_DEMO`, `DEMO_HINT` | "Search the demo files"; the chips' slot until three suggestions |
 | `demoSearchScope(done, finished, words)` | "Finds any file on your phone by its name. Looks inside the 12 demo files processed so far." / "…, and looks inside the 30 demo files."; at 0 only "Finds any file on your phone by its name." |
