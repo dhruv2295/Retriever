@@ -64,31 +64,6 @@ enum Thumbnails {
         [256, 384, 512, 768].first { px <= $0 } ?? 768
     }
 
-    /// What PhotoKit is warming, so the next call can stop it: assets and the square size asked for them.
-    private static var warmed: [(assets: [PHAsset], px: CGFloat)] = []
-
-    /// Starts PhotoKit caching for Home's mosaic (the first is the big cell) and stops it for the set it replaces.
-    /// The request matches `photo(_:pixels:)`, or the caching manager would not serve it.
-    static func warm(_ files: [SourceFile], big: CGFloat, small: CGFloat) {
-        stopWarming()
-        let ids = files.map { $0.uri.hasPrefix("ph://") ? String($0.uri.dropFirst(5)) : "" }
-        guard ids.contains(where: { !$0.isEmpty }) else { return }
-        var byId: [String: PHAsset] = [:]
-        PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).enumerateObjects { a, _, _ in byId[a.localIdentifier] = a }
-        let assets = ids.map { byId[$0] }
-        warmed = [(assets.prefix(1).compactMap { $0 }, big), (assets.dropFirst().compactMap { $0 }, small)]
-        for (assets, px) in warmed {
-            photos.startCachingImages(for: assets, targetSize: CGSize(width: px, height: px), contentMode: .aspectFill, options: requestOptions)
-        }
-    }
-
-    static func stopWarming() {
-        for (assets, px) in warmed {
-            photos.stopCachingImages(for: assets, targetSize: CGSize(width: px, height: px), contentMode: .aspectFill, options: requestOptions)
-        }
-        warmed = []
-    }
-
     /// Never changed after it is made, so the cells' requests can read it off the main actor.
     nonisolated(unsafe) private static let requestOptions: PHImageRequestOptions = {
         let o = PHImageRequestOptions()

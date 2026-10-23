@@ -62,7 +62,6 @@ import app.retriever.core.stripHtml
 import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
 import app.retriever.core.textEntry
-import app.retriever.core.textPieces
 import app.retriever.core.traced
 import app.retriever.core.tracedAsync
 import app.retriever.core.xlsxOrder

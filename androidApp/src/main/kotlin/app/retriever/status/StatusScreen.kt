@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,7 +33,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,7 +69,6 @@ import app.retriever.core.Prefs
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
-import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.StatusAction
 import app.retriever.core.StopReason
@@ -161,7 +158,6 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
             openSettings = onOpenSettings,
         ),
         access = ui.access,
-        textOnly = ui.textOnly,
         folderError = ui.folderError,
         error = ui.error,
         celebration = vm.celebration,
@@ -181,7 +177,6 @@ fun StatusContent(
     modifier: Modifier = Modifier,
     actions: StatusActions = StatusActions(),
     access: Access = Access.ALL,
-    textOnly: Boolean = false,
     folderError: String? = null,
     error: String? = null,
     celebration: Celebration = Celebration(),

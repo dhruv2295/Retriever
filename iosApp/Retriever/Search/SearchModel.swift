@@ -5,7 +5,6 @@
 // engine, results mix a photo grid with document rows, and every state has an illustration.
 
 import ImageIO
-import Photos
 import PhotosUI
 @preconcurrency import RetrieverCore
 import SwiftUI
@@ -183,9 +182,6 @@ final class SearchModel {
     var active: Bool { !query.isEmpty || photo != nil }
     var key: Key { Key(query: photo == nil ? query : "", scope: scope, photo: photo?.id, literal: literal, ids: fileIds, retry: retries) }
     var question: Question { key.question }
-
-    /// No results for the question asked now yet: whatever is on screen answers older words, another scope or photo.
-    var stale: Bool { SearchPhaseKt.answerFor(phase, current: question) == nil }
 
     var screen: Screen {
         guard active else { return .idle }

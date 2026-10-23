@@ -1,22 +1,19 @@
-import Observation
 import Photos
 import PhotosUI
 @preconcurrency import RetrieverCore
-import SwiftUI
 import UIKit
-import os
 
 extension AppModel {
     /// Changes the settings given and leaves the rest as they are.
     func edit(
-        kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, charging: Bool? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
+        kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
         excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil
     ) async throws {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(
-                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: charging ?? p.onlyWhileCharging,
-                schedule: charging.map { $0 ? .charging : .battery } ?? p.schedule, readNowUntil: p.readNowUntil,
+                kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: p.onlyWhileCharging,
+                schedule: p.schedule, readNowUntil: p.readNowUntil,
                 excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
@@ -74,15 +71,6 @@ extension AppModel {
             do {
                 try await services?.retriever.decideLater()
             } catch { readingMessage = "Couldn’t save this change. Try again." }
-        }
-    }
-
-    func setOnlyWhileCharging(_ on: Bool) {
-        snap?.onlyWhileCharging = on
-        Task {
-            try? await edit(charging: on)
-            // The request waiting with iOS keeps the old rule until it is submitted again.
-            if services != nil, let snap, snap.accessChosen, !snap.paused { IndexTask.schedule() }
         }
     }
 

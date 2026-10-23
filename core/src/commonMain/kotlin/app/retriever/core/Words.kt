@@ -213,8 +213,6 @@ object Words {
     const val SHARED_FILES_AND_FOLDERS = "Files and folders on this phone"
     const val PHOTOS_AND_VIDEOS = "Photos and videos"
     const val ADD_FOLDER = "Add a folder"
-    const val SELECTED_PHOTOS = "Selected photos"
-    const val ALL_PHOTOS = "All photos"
     const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
 
     fun wholeDeviceNote(words: DeviceWords): String = "Retriever looks inside the files on this ${words.device} so you can find them by what’s in them."

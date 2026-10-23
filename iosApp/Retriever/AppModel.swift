@@ -1,8 +1,6 @@
 import Observation
 import Photos
-import PhotosUI
 @preconcurrency import RetrieverCore
-import SwiftUI
 import UIKit
 import os
 
@@ -49,7 +47,6 @@ final class AppModel {
         var paused = false
         var excludedFolders: Set<String> = []
         var allowMobileData = false
-        var onlyWhileCharging = false
         var rememberSearches = true
         var showOnThisDay = true
         /// What Retriever reads inside; the rest is found by name. Settings offers `Snap.inside`.
@@ -76,7 +73,6 @@ final class AppModel {
                 meaningWaiting: Int64(meaningWaiting), counted: counted, notNow: notNow)
         }
         var total: Int { Int(readProgress.libraryTotal) }
-        var libraryTotal: Int { byKind.values.reduce(0, +) }
 
         /// Everything asked for is read and the reader is idle: the moment CAUGHT_UP is for, once ever.
         var isCaughtUp: Bool { accessChosen && indexed > 0 && !readProgress.unfinished && waiting == 0 && !running && !paused }
@@ -380,18 +376,6 @@ final class AppModel {
         Task { await markCelebrated() }
     }
 
-    /// Nothing left to choose (the short read was everything): read it all, keeping the saved schedule.
-    func commitScope() {
-        guard let retriever = services?.retriever else { return }
-        Task {
-            do {
-                try await retriever.commitScope()
-                IndexTask.schedule()
-                wake()
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
-        }
-    }
-
     /// Read while charging / Read now, from Home's commit card: the rest is read from now on. The same steps as setup's
     /// commit choice; on iOS 26 Read now hands the reading to a task that goes on after the person leaves.
     func commit(whileCharging: Bool) {
@@ -421,7 +405,6 @@ extension AppModel.Snap {
         readByKind = s.counts.readByKind.mapValues { $0.intValue }
         caughtUpDismissed = s.prefs.caughtUpDismissed
         allowMobileData = s.prefs.allowMobileData
-        onlyWhileCharging = s.prefs.onlyWhileCharging
         rememberSearches = s.prefs.rememberSearches
         showOnThisDay = s.prefs.showOnThisDay
         kinds = s.prefs.kinds

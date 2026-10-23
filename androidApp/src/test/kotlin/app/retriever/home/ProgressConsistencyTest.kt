@@ -6,7 +6,6 @@ import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.StopReason
-import app.retriever.core.Store
 import app.retriever.core.Words
 import org.junit.Assert.assertEquals
 import org.junit.Test

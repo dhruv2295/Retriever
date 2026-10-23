@@ -47,7 +47,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import app.retriever.R
-import app.retriever.core.Retriever
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route

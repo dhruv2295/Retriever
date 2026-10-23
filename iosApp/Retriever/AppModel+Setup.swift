@@ -1,8 +1,6 @@
 import Observation
 import Photos
-import PhotosUI
 @preconcurrency import RetrieverCore
-import SwiftUI
 import UIKit
 import os
 
@@ -291,7 +289,6 @@ struct TasteSnap: Equatable, Sendable {
     /// Planned files still waiting. A name-only or unopenable file is done without ever counting as read.
     var pending = 0
 
-    var read: Int { counts.values.reduce(0) { $0 + $1.read } }
     var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
     /// The one count rule: every planned file no longer waiting (core's `TasteProgress.done`).
     var done: Int { planned - pending }

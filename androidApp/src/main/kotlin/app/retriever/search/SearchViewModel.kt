@@ -13,7 +13,6 @@ import app.retriever.core.Kind
 import app.retriever.core.Question
 import app.retriever.core.ReadExtent
 import app.retriever.core.Retriever
-import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile

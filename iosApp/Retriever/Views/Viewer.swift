@@ -16,7 +16,6 @@ struct Place: Hashable {
     var index: Int
 
     var file: SourceFile { files[index] }
-    var label: String? { Self.label(index: index, count: files.count) }
 
     /// "2 of 5"; nothing for a lone file, so a restored route never shows a swipe cue it cannot honor.
     static func label(index: Int, count: Int) -> String? { count > 1 ? "\(index + 1) of \(count)" : nil }
