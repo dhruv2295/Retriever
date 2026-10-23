@@ -86,9 +86,9 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
+import app.retriever.ui.components.Thumbnails
 import app.retriever.ui.components.contentPaddingFor
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -103,9 +103,10 @@ import org.koin.compose.koinInject
 import java.io.FileNotFoundException
 import android.graphics.Color as AndroidColor
 
-// PdfRenderer is not thread-safe: every open, render and close goes through this one thread.
+// PdfRenderer is not thread-safe: this screen's one renderer, one call at a time (every open, render and close), within the
+// process's PDF budget, which the grids' PDF thumbnails share.
 @OptIn(ExperimentalCoroutinesApi::class)
-private val pdfDispatcher = Dispatchers.IO.limitedParallelism(1)
+private val pdfDispatcher = Thumbnails.pdfDispatcher.limitedParallelism(1)
 
 private const val MAX_PAGE_PX = 4096
 

@@ -146,7 +146,10 @@ object Thumbnails {
     @OptIn(ExperimentalCoroutinesApi::class)
     internal val renderDispatcher = Dispatchers.IO.limitedParallelism(4)
 
-    /** Before Android 15 every PdfRenderer call in the process takes one lock, so a second PDF worker would only wait on it. */
+    /**
+     * Every PDF render in the app, the reader's pages too (PdfPageScreen). Before Android 15 every PdfRenderer call in the
+     * process takes one lock, so a second PDF worker would only wait on it.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     internal val pdfDispatcher = Dispatchers.IO.limitedParallelism(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) 4 else 1)
 
