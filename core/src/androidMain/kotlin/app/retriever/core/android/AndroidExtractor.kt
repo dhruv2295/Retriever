@@ -24,6 +24,7 @@ import androidx.core.net.toUri
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
 import app.retriever.core.DocFormat
+import app.retriever.core.EMBED_PX
 import app.retriever.core.Extractor
 import app.retriever.core.Kind
 import app.retriever.core.Locator
@@ -90,9 +91,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 
 private const val PDF_PREV_EXTENSION = 13
-
-/** The model's and the labeler's input for a photo or screenshot; iOS asks PhotoKit for the same. */
-private const val EMBED_PX = 512
 
 /** A scanned PDF page as the model sees it, on the first read and in visual(): 512 px on its short side, at most 1024 on its long. */
 private const val PAGE_SHORT_PX = 512

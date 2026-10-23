@@ -11,6 +11,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.core.graphics.scale
 import app.retriever.core.AUDIO_SAMPLE_RATE
+import app.retriever.core.EMBED_PX
 import app.retriever.core.Moment
 import app.retriever.core.headOrder
 import app.retriever.core.moments
@@ -174,7 +175,7 @@ object MediaDecoding {
         everySec: Int,
         ctx: CoroutineContext,
         log: MediaLog,
-        maxSide: Int = 512,
+        maxSide: Int = EMBED_PX,
         head: Boolean = false,
     ): List<Pair<Moment, ByteArray?>> {
         if (everySec <= 0 || definitelyUnsupported(context, uri, log)) return emptyList()
@@ -219,7 +220,7 @@ object MediaDecoding {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
-            listOf(ms, ms + 1000, ms - 1000).filter { it >= 0 }.firstNotNullOfOrNull { brightJpeg(retriever, it, 512) }
+            listOf(ms, ms + 1000, ms - 1000).filter { it >= 0 }.firstNotNullOfOrNull { brightJpeg(retriever, it, EMBED_PX) }
         } finally {
             retriever.release()
         }

@@ -56,7 +56,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     // One pool per photo: the indexing queue may run many in one task, and each leaves a decoded image and its JPEG.
     private suspend fun photo(uri: String, maxChars: Int): List<Piece> {
         val pieces = autoreleasepool {
-            native.scan(uri, -1, 512)?.let { imageWithText("", it.jpeg.toByteArray(), it.text.trim(), maxChars, it.labels) }
+            native.scan(uri, -1, EMBED_PX)?.let { imageWithText("", it.jpeg.toByteArray(), it.text.trim(), maxChars, it.labels) }
         }
         // A read stopped meanwhile (background time up) is a stop, not an unreadable photo.
         currentCoroutineContext().ensureActive()
@@ -66,9 +66,9 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
         currentCoroutineContext().ensureActive()
         val bytes = when (file.kind) {
-            Kind.PHOTO, Kind.SCREENSHOT -> native.imageJpeg(file.uri, 512)
+            Kind.PHOTO, Kind.SCREENSHOT -> native.imageJpeg(file.uri, EMBED_PX)
             Kind.PDF -> native.pdfPageJpeg(file.uri, (Locator.pageOf(locator) ?: return null) - 1, 1024)
-            Kind.VIDEO -> native.videoFrameJpeg(file.uri, Locator.msOf(locator) ?: return null, 512)
+            Kind.VIDEO -> native.videoFrameJpeg(file.uri, Locator.msOf(locator) ?: return null, EMBED_PX)
             else -> null
         }
         return bytes?.let { Part.Image(it.toByteArray()) }
@@ -142,7 +142,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         suspend fun frame(m: Moment): Piece? {
             currentCoroutineContext().ensureActive()
             return autoreleasepool {
-                native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m), listOf(Part.Image(it.toByteArray())), null) }
+                native.videoFrameJpeg(uri, m.frameMs, EMBED_PX)?.let { Piece(momentLocator(m), listOf(Part.Image(it.toByteArray())), null) }
             }
         }
         if (!head) return all.mapNotNull { frame(it) }

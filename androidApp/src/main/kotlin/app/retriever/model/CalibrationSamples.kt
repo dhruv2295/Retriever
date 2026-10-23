@@ -10,6 +10,7 @@ import app.retriever.R
 import app.retriever.core.Backend
 import app.retriever.core.CalibrationResult
 import app.retriever.core.DeviceProfile
+import app.retriever.core.EMBED_PX
 import app.retriever.core.ModelVariant
 import app.retriever.core.Retriever
 import app.retriever.core.Samples
@@ -59,10 +60,10 @@ class Calibrator(private val context: Context, private val retriever: Retriever,
     /** The newest photos (as iOS fetches them), else the bundled illustrations; core adds the stand-in texts. */
     private suspend fun samples(): Samples = withContext(Dispatchers.IO) {
         val variant = retriever.requiredBuild.value.variant
-        val images = newest(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, 10).mapNotNull { ImageBytes.jpeg(context, it, 512) }
+        val images = newest(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, 10).mapNotNull { ImageBytes.jpeg(context, it, EMBED_PX) }
             .ifEmpty {
                 listOf(R.drawable.illus_welcome, R.drawable.illus_reading, R.drawable.illus_empty).mapNotNull {
-                    ImageBytes.jpeg(context.resources, it, 512)
+                    ImageBytes.jpeg(context.resources, it, EMBED_PX)
                 }
             }
         val window = audioWindowSec(CalibrationSamples.readingProfile(variant).maxTokens)

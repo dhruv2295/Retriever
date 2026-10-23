@@ -22,6 +22,9 @@ const val MAX_PAGE_PX = 4096
 const val OCR_WIDTH = 1600
 const val OCR_SHORT_PX = 1080
 
+/** The long side of a photo, screenshot or video frame as the model embeds it; Android's labeler reads the same pixels. */
+const val EMBED_PX = 512
+
 /**
  * A text file's bytes as its text, the same on both platforms: a byte-order mark's UTF-8 or UTF-16; UTF-16 without one
  * by where its zero bytes fall; UTF-8 when every sequence is whole (one cut by a byte cap at the end is dropped); else
