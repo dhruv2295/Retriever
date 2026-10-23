@@ -951,7 +951,8 @@ class Retriever(
             try {
                 synced(sync.sync(first = { scanned -> planned.complete(plan(scanned, budget)) }))
                 if (!planned.isCompleted) planned.complete(plan(store.knownFiles().values, budget))
-            } catch (e: CancellationException) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // kotlinx's type, which cancel() takes: common metadata sees it apart from kotlin's (one class on each platform).
                 planned.cancel(e)
                 throw e
             } catch (e: Exception) {
