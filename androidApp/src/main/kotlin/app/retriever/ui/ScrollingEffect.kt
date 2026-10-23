@@ -7,7 +7,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.LifecycleStartEffect
 
-/** Home, search and Browse all yield reading during a gesture and release it when their screen leaves. */
+/** Home, search, Browse and the PDF reader all yield reading during a gesture and release it when their screen leaves. */
 @Composable
 fun ScrollingEffect(scrolling: () -> Boolean, onScrolling: (Boolean) -> Unit) {
     val read by rememberUpdatedState(scrolling)
