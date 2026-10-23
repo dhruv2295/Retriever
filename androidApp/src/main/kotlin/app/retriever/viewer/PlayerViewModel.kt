@@ -21,7 +21,8 @@ sealed interface PlayerUi {
 }
 
 /**
- * Owns the one [ExoPlayer] of a player route, so a rotation keeps it playing and the screen only attaches a view.
+ * Owns the one [ExoPlayer] of a player route, so a rotation keeps its item and place (it stops with the activity and
+ * prepares again, paused) and the screen only attaches a view.
  * Media3 handles audio focus and the headphones-unplugged pause itself (its docs say not to write that by hand).
  */
 class PlayerViewModel(context: Context, private val handle: SavedStateHandle) : ViewModel() {

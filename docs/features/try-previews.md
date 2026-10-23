@@ -38,8 +38,8 @@ routines, calibration, and still only the text). Not proposal 2's two content li
   over it (150 ms; no fade with animations off), and `ThumbnailImage` drops the card once the fade ends, because the
   page leaves the tile's colour around it. iOS keeps its 0.2 s fade, none under Reduce Motion.
 
-**DocPage (Android, DocPage.kt).** It reads the file's head, never the index, and draws on `Thumbnails.load`'s IO
-dispatcher.
+**DocPage (Android, DocPage.kt).** It reads the file's head, never the index, and draws on
+`Thumbnails.renderDispatcher`.
 - **Embedded thumbnail first.** A file starting `PK\3\4` gets one `ZipInputStream` pass. It recognises entries by name,
   not by extension, so docm, xlsm and dotx are read too. `docProps/thumbnail.{jpeg,jpg,png}` (OOXML) or
   `Thumbnails/thumbnail.png` (ODF), whole and up to 1 MB, ends the pass and is decoded with `BitmapFactory` sampled to
