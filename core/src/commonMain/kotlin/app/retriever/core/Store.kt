@@ -113,15 +113,19 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         transaction {
             var backfilled = false
             for (f in files) {
-                q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
-                val changed = q.changes().executeAsOne() != 0L
-                // Fills rows synced before taken_at existed, and leaves state alone so nothing is read again.
-                f.takenAt?.let {
-                    q.setTakenAt(it, f.uri)
-                    if (q.changes().executeAsOne() != 0L) backfilled = true
+                val id = q.fileIdByUri(f.uri).executeAsOneOrNull()
+                // The driver returns the changed-row count: no SELECT changes() round trip.
+                val changed = q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt).value != 0L
+                // A new row was written whole, taken_at too, and has no chunks or name row yet.
+                if (id == null) {
+                    if (changed) q.insertFileFtsForLastRow(f.name, f.folder)
+                    continue
                 }
-                if (!changed) continue
-                val id = q.fileIdByUri(f.uri).executeAsOne()
+                if (!changed) {
+                    // Fills rows synced before taken_at existed, and leaves state alone so nothing is read again.
+                    if (f.takenAt != null && q.setTakenAt(f.takenAt, f.uri).value != 0L) backfilled = true
+                    continue
+                }
                 // The old text must not outlive the change, even if the re-read fails; the file is found by name till then.
                 q.chunkIdsForFile(id).executeAsList().forEach { q.deleteFts(it) }
                 q.deleteChunksForFile(id)
@@ -732,11 +736,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** Moves stars of files that are gone to the same file under a new uri; see Index.sq. */
     internal fun relinkStars() {
         // Counts every orphaned star, moved or not: a spare save at worst.
-        val orphans = transactionWithResult {
-            q.relinkStars()
-            q.changes().executeAsOne()
-        }
-        if (orphans > 0) saveUserState()
+        if (q.relinkStars().value > 0) saveUserState()
     }
 
     /** Every starred URI of a file still in the index, as a HashSet so a row's star is one lookup. */

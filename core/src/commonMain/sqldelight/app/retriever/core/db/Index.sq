@@ -118,9 +118,6 @@ WHERE files.modified_at != excluded.modified_at OR files.size != excluded.size O
 setTakenAt:
 UPDATE files SET taken_at = ? WHERE uri = ? AND taken_at IS NULL;
 
-changes:
-SELECT changes();
-
 fileIdByUri:
 SELECT id FROM files WHERE uri = ?;
 
@@ -432,6 +429,10 @@ AND rowid IN (SELECT id FROM chunks WHERE content = 1 OR content_text IS NOT NUL
 
 insertFileFts:
 INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);
+
+-- The name row of the file upsertFile just inserted, without a query for its id.
+insertFileFtsForLastRow:
+INSERT INTO file_fts (rowid, name, folder) VALUES (last_insert_rowid(), ?, ?);
 
 deleteFileFts:
 DELETE FROM file_fts WHERE rowid = ?;

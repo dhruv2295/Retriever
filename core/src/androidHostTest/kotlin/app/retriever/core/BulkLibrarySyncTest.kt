@@ -14,6 +14,7 @@ import kotlin.test.assertTrue
 /** The sync writes only what changed and reads the store in bulk. */
 class BulkLibrarySyncTest {
     private val sql = mutableListOf<String>()
+    private var statements = 0
     private val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
     private val spy = object : SqlDriver by raw {
         override fun <R> executeQuery(
@@ -22,7 +23,13 @@ class BulkLibrarySyncTest {
             mapper: (SqlCursor) -> QueryResult<R>,
             parameters: Int,
             binders: (SqlPreparedStatement.() -> Unit)?,
-        ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also { this@BulkLibrarySyncTest.sql += sql }
+        ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also {
+            this@BulkLibrarySyncTest.sql += sql
+            statements++
+        }
+
+        override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> =
+            raw.execute(identifier, sql, parameters, binders).also { statements++ }
     }
     private val store = Store(spy).also { it.resetForModel(SIG) }
     private val source = FakeSource()
@@ -64,6 +71,16 @@ class BulkLibrarySyncTest {
         val before = totalChanges()
         assertEquals(SyncResult(0, 0, 0, true), full(files))
         assertEquals(before, totalChanges())
+    }
+
+    @Test
+    fun aNewFileCostsALookupItsRowAndItsNameRow() {
+        val files = (1..200).map { testFile("f$it.txt", takenAt = it.toLong()) }
+        statements = 0
+        full(files)
+        // Settings, the token and meta are read and written once per sync, not per file.
+        assertTrue(statements <= 3 * files.size + 20, "$statements statements for ${files.size} new files")
+        for (f in files) assertEquals(f.name, store.fileKeywordSearch(f.name, 1).map { store.file(it)?.name }.single())
     }
 
     @Test
