@@ -81,7 +81,9 @@ PY
 check_16k() {
   local za tmp apk; za="$(zipalign_bin)"
   [ -n "$za" ] || { fail "zipalign not found under the Android SDK build-tools"; return 1; }
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  # The trap clears itself: a RETURN trap outlives this function and fired again when main returned, where tmp is
+  # unset, so set -u failed the gate after "verify: OK".
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"; trap - RETURN' RETURN
   for abi in arm64-v8a x86_64; do
     apk="$APK_DIR/androidApp-$abi-release.apk"
     [ -f "$apk" ] || { fail "no release APK at $apk"; return 1; }
