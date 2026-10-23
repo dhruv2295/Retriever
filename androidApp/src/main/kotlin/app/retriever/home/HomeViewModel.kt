@@ -234,6 +234,9 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
 
     fun dismissCaughtUp() = launchCatching { retriever.dismissCaughtUp() }
 
+    /** The one-time card's Notify me: one notice once everything is searchable. */
+    fun requestCaughtUpNotice() = launchCatching { retriever.requestCaughtUpNotice() }
+
     /** The one-time card's Got it. */
     fun dismissIntro() = launchCatching { retriever.dismissHomeIntro() }
 

@@ -2,6 +2,7 @@ package app.retriever.setup
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -392,6 +393,14 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.firstSearchHint(DescriptionState.UNAVAILABLE)).assertIsDisplayed()
     }
 
+    /** A stop says why in the quiet line, before anything about the download, and offers nothing to tap there. */
+    @Test fun demoPausedSaysWhy() {
+        demo("first_search_paused_light", paused, state = DescriptionState.WAITING_FOR_WIFI)
+        rule.onNodeWithText("Waits until you charge").assertIsDisplayed()
+        rule.onAllNodesWithText(Words.descriptionLine(DescriptionState.WAITING_FOR_WIFI, null)!!).assertCountEquals(0)
+        rule.onAllNodesWithText(Words.USE_MOBILE_DATA).assertCountEquals(0)
+    }
+
     /** Fewer than three suggestions: the hint holds the slot. */
     @Test fun demoHintUntilThreeSuggestions() {
         demo("demo_hint_light", processing, suggestions = terms.take(2))
@@ -493,12 +502,17 @@ class SetupStatusShotsTest {
     /** A pile narrower than its full size keeps its shape: each card's offset shrinks with the cards, as on iOS. */
     @Test fun pileSlotsShrinkWithThePile() {
         val cards = planFiles(3).take(3)
-        rule.setContent { ShotTheme(false) { Box(Modifier.width(96.dp)) { SamplePile(cards, emptyList(), true, "pile", "see", null) } } }
+        // Away from the window's edge: at core's full size a turned card reaches past the narrow pile, and the edge would cut its bounds.
+        rule.setContent {
+            ShotTheme(false) {
+                Box(Modifier.padding(48.dp).width(96.dp)) { SamplePile(cards, emptyList(), true, "pile", "see", null) }
+            }
+        }
         fun centre(i: Int) = rule.onNodeWithTag("card:$i", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.center
         val scale = 96f / SamplePile.FOOTPRINT_DP
         val dp = rule.density.density
-        assertEquals(SamplePile.dx(2) * scale, (centre(2).x - centre(0).x) / dp, 0.5f)
-        assertEquals(SamplePile.dy(2) * scale, (centre(2).y - centre(0).y) / dp, 0.5f)
+        assertEquals((SamplePile.dx(2) - SamplePile.dx(0)) * scale, (centre(2).x - centre(0).x) / dp, 0.5f)
+        assertEquals((SamplePile.dy(2) - SamplePile.dy(0)) * scale, (centre(2).y - centre(0).y) / dp, 0.5f)
     }
 
     private fun file(name: String, kind: Kind) = SourceFile("demo:$name", name, "Pictures", "image/png", kind, 120_000, 1_760_000_000_000)

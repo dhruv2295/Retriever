@@ -189,17 +189,21 @@ internal fun DemoBody(
         )
         Text(count, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         CountBar(done, planned, Modifier.width(240.dp).clearAndSetSemantics {})
-        Words.descriptionLine(description, percent)?.let { line ->
+        // A stop holds the processing itself, so it says why before anything about the download.
+        val paused = ui.pauseReason
+        (paused ?: Words.descriptionLine(description, percent))?.let { line ->
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                 itemVerticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             ) {
                 Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                when (description) {
-                    DescriptionState.WAITING_FOR_WIFI -> TextButton(onClick = actions.useMobileData) { Text(Words.USE_MOBILE_DATA) }
-                    DescriptionState.FAILED -> TextButton(onClick = actions.retryDownload) { Text(Words.TRY_AGAIN) }
-                    else -> Unit
+                if (paused == null) {
+                    when (description) {
+                        DescriptionState.WAITING_FOR_WIFI -> TextButton(onClick = actions.useMobileData) { Text(Words.USE_MOBILE_DATA) }
+                        DescriptionState.FAILED -> TextButton(onClick = actions.retryDownload) { Text(Words.TRY_AGAIN) }
+                        else -> Unit
+                    }
                 }
             }
         }

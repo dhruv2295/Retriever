@@ -137,6 +137,7 @@ class IndexWorker(
                 next
             }
             index.notifySampleIfReady()
+            index.notifyCaughtUpIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")

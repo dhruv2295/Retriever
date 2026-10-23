@@ -34,7 +34,7 @@ import app.retriever.motion.Mascot
 /**
  * Home's one-time card after setup: what happens next to the recent files, the rest, and new ones. Until Got it it stands
  * in for the status line, which then carries the state and its action. [size]: the download's, in the platform's format.
- * [onNotify]: null when there is nothing to ask (granted already, or below Android 13).
+ * [onNotify]: null once the notice was asked for.
  */
 @Composable
 internal fun HomeIntroCard(

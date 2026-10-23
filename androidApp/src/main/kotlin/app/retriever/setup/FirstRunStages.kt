@@ -100,8 +100,7 @@ internal fun ColumnScope.AccessStage() {
     ) {
         AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO))
         AccessTile(R.drawable.ic_description, Words.DOCUMENTS)
-        // Core has no word for the folder; the mock's label until it does.
-        AccessTile(R.drawable.ic_download, "Downloads")
+        AccessTile(R.drawable.ic_download, Words.DOWNLOADS)
     }
 }
 

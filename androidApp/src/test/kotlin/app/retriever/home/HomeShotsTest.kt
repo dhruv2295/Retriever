@@ -665,14 +665,15 @@ class HomeShotsTest {
         }
     }
 
-    @Test fun notifyAsksWhenThereIsSomethingToAsk() {
+    @Test fun notifyAsksForTheNotice() {
         var asked = false
         introShot("home_intro_notify_light", DescriptionState.DOWNLOADING, home = HomeActions(notify = { asked = true }))
         rule.onNodeWithText(Words.NOTIFY_WHEN_SEARCHABLE).performClick()
         assertTrue(asked)
     }
 
-    @Test fun notifyHiddenWhenThereIsNothingToAsk() {
+    /** Once the notice was asked for, the card has nothing more to promise. */
+    @Test fun notifyHiddenOnceAsked() {
         rule.setContent { ShotTheme(false) { Screen(intro, upgrade = upgrades.getValue(DescriptionState.READY)) } }
         rule.onAllNodesWithText(Words.NOTIFY_WHEN_SEARCHABLE).assertCountEquals(0)
         rule.onNodeWithText(Words.GOT_IT).assertExists()

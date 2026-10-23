@@ -53,8 +53,7 @@ import kotlin.time.TimeSource
  */
 @Composable
 internal fun HelloExamples(textOnly: Boolean, animate: Boolean) {
-    // A phone without search by description can't find the dog by what's in the photo.
-    val examples = if (textOnly) Words.HELLO_EXAMPLES.filter { it != Words.HELLO_EXAMPLES[1] } else Words.HELLO_EXAMPLES
+    val examples = Words.helloExamples(textOnly)
     var index by remember { mutableIntStateOf(0) }
     var typed by remember { mutableIntStateOf(if (animate) 0 else examples[0].query.length) }
     val card = remember { Animatable(if (animate) 0f else 1f) }

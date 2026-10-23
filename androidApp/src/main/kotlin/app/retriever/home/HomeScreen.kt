@@ -125,11 +125,13 @@ fun HomeScreen(
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val onResume = remember(vm) { vm::onResume }
-    // Asked once, from the card's button; hidden once answered, granted or not (a second ask would show nothing).
-    var notifyAsked by rememberSaveable { mutableStateOf(false) }
-    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { notifyAsked = true }
-    val canAsk = remember(notifyAsked) {
-        Build.VERSION.SDK_INT >= 33 && !notifyAsked && !context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+    // The card's Notify me asks core for the one notice, and Android for notifications where they are off.
+    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val notify = {
+        vm.requestCaughtUpNotice()
+        if (Build.VERSION.SDK_INT >= 33 && !context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
+            notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
     // All-files access is switched in Settings, so the "can't see your files" line clears on return without a restart.
     LifecycleResumeEffect(Unit) {
@@ -148,7 +150,8 @@ fun HomeScreen(
             decideLater = vm::decideLater,
             hideOnThisDay = vm::hideOnThisDay,
             dismissIntro = vm::dismissIntro,
-            notify = if (canAsk) ({ if (Build.VERSION.SDK_INT >= 33) notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) else null,
+            // Hidden once asked: the card has nothing more to promise.
+            notify = notify.takeUnless { prefs.notifyWhenCaughtUp },
         ),
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
