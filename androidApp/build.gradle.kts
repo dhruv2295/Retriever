@@ -73,7 +73,9 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
-        disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+        // -Poutdated turns the checks on to list newer versions (docs/quality.md, Dependency versions).
+        val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+        if (providers.gradleProperty("outdated").isPresent) enable += versionChecks else disable += versionChecks
         // No baseline: it is empty, so a new lint issue fails the build.
     }
 
