@@ -14,7 +14,7 @@ index (`name-index.md`) is one of its lanes. The screens that show the result ar
 |---|---|---|
 | Parse | `QueryParser.parse` turns kind words and date phrases into filters; the rest stays as text | Small, pure, testable. A model-based parser would cost an embed for little gain |
 | Names phase | `SearchEngine.names`: name lanes only, no model | Answers within a frame while the person types |
-| Meaning lane | Brute-force int8 dot product over a `VectorTable` of primitive arrays, with a size-k min-heap | Exact kNN. At 150k chunks the scan p95 is under 10 ms on the JVM (`SearchBenchTest`), so an ANN index (HNSW) would add memory and code for no visible gain |
+| Meaning lane | Brute-force int8 dot product over a `VectorTable` of primitive arrays in blocks of 16,383 rows, with a size-k min-heap (ties go to the earlier row). From 131,072 rows the scan splits into `min(cores, rows / 65,536)` slices of whole blocks, merged by cosine then row. On iOS a cinterop C kernel (`core/src/nativeInterop/cinterop/vecscan.def`) scores a block at a time; Android keeps the Kotlin loop, which ART vectorises | Exact kNN. At 150k chunks the scan p95 is under 10 ms on the JVM (`SearchBenchTest`), so an ANN index (HNSW) would add memory and code for no visible gain. Blocks mean an append never copies the table (eval/REPORT.md, "Scan in blocks") |
 | Keyword lane | `Store.keywordSearch`: FTS4 MATCH on AND-ed tokens, prefix on the last token of 3+ letters. The newest `FTS_CAP` matches are scored by BM25 in Kotlin (matchinfo), and `snippet()` runs only for the winners | FTS is the standard SQLite full-text tool. The recency cap is a known ceiling, marked `ponytail:` in `Store.kt` |
 | Name lanes | `NameIndex.search` split into three lanes: `NAME_EXACT`, `NAME` (exact or prefix) and `NAME_LOOSE` (substring, typo). Before the index is warm the lane falls back to `file_fts` | Keeps "this is the file's name" separate from weaker evidence. See `name-index.md` |
 | Fusion | `rrfMerge`: reciprocal rank fusion, `rrfK` and weight from `SearchTuning`. A file shows its best-ranked chunk, a words chunk wins a rank tie. A file whose own name is an exact match for the query goes first, before the `limit` cut | RRF is the accepted rank-only fusion; it needs no score calibration between cosine and BM25 |
@@ -29,6 +29,7 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
 ## Owner files
 
 - `core/src/commonMain/kotlin/app/retriever/core/SearchEngine.kt`: lanes, scan, `Filter`, fusion, snippets, query-vector cache
+- `core/src/commonMain/kotlin/app/retriever/core/Vector.kt`: `VectorTable`, `dotInt8`; the iOS kernel in `Vector.ios.kt` and `vecscan.def`
 - `core/src/commonMain/kotlin/app/retriever/core/NameIndex.kt`: name index
 - `core/src/commonMain/kotlin/app/retriever/core/QueryParser.kt`: parser and `ParsedQuery`
 - `core/src/commonMain/kotlin/app/retriever/core/Ranking.kt`: `SearchTuning`, `rrfMerge`, `RelevanceRule`
@@ -49,8 +50,9 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
    index alone, when nothing matches every word, drops the most common word one at a time (as the store's token retry does).
 4. **Name snapshots are immutable.** `NameIndex.update` returns a new index; `LibrarySync.names` is swapped under
    `namesLock`, so a search keeps the snapshot it started with.
-5. **The vector view is fixed when it is published.** A scan reads `Loaded.view` and appends go past its size. Dead rows
-   are marked as lookups find them; a full reload happens after 10% of rows are deleted or a capture-day backfill.
+5. **The vector view is fixed when it is published.** A scan reads `Loaded.view` and appends go past its size; a new or
+   grown block goes into a new block array, never the view's. Dead rows are marked as lookups find them; a full reload
+   happens after 10% of rows are deleted or a capture-day backfill.
 6. **`byName` is true only when the hit came from a name lane.** A name-only hit has `chunkId = 0` and `locator = ""`
    and opens the file at its start.
 7. **`vectorLane` contract.** `vectorLane = false` means the meaning lane did not answer: the model is opening and
@@ -80,6 +82,8 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
 - `SnippetTest`: `aMatchDeepInAnUnpunctuatedRunShows`, `anEarlyMatchOrNoneKeepsTheStart`;
   `RelevanceRuleTest.theSnippetIsTheSentenceSharingTheMostQueryWords` pins `bestSentence`.
 - `SearchBenchTest.searchStaysFastAtFiftyThousandFiles`, `keywordLanesRunBesideTheEmbed`: lane limits at scale.
+- `VectorScanTest` (commonTest, so also on the iOS simulator): `theNativeKernelScoresBitForBitAsDotInt8`,
+  `appendsLeaveEarlierBlocksAndViewsAsTheyWere`, `parallelSlicesFindWhatOneScanFinds`.
 - `EvalTest` and the corpus eval: see `eval.md`.
 
 Missing, as far as this note knows: a facade test that a sync swapping `names` mid-search leaves the old snapshot valid
