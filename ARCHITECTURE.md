@@ -88,7 +88,8 @@ and re-queues every file when the stored signature differs (`core/Store.kt:175`,
 
 - **Android: Koin.** `appModule` in `androidApp/.../di/AppModule.kt` builds the whole graph: store, retriever, sources,
   services, ViewModels (`viewModelOf`). Every `single` is lazy, so the first `get` happens off the main thread in
-  `RetrieverApp.start` (`androidApp/.../RetrieverApp.kt`). `IndexWorker` is a `KoinComponent` (`IndexWorker.kt:49`).
+  `RetrieverApp.start` (`androidApp/.../RetrieverApp.kt`). `IndexWorker` takes its dependencies in its constructor:
+  `worker { IndexWorker(…) }` in `AppModule.kt`, built by the `KoinWorkerFactory` that `RetrieverApp` gives WorkManager.
   Debug builds swap parts via `DemoMode` (`AppModule.kt`).
 - **iOS: `createRetriever`.** Swift's `AppServices` builds the native pieces and calls it once
   (`iosApp/Retriever/Core/AppServices.swift:61`, `RetrieverIos.kt:30`).

@@ -11,11 +11,13 @@ scripts/verify.sh --full   # default plus benchmarks, coverage, inspections, ios
 
 Default layers:
 
-1. `./gradlew --rerun-tasks :core:testAndroidHostTest :core:iosSimulatorArm64Test :androidApp:testDebugUnitTest :androidApp:lintDebug :androidApp:lintRelease`
+1. One Gradle run: `./gradlew :core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease ktlintCheck`
+   (ktlint is Gradle-managed; the format task is `ktlintFormat`, see the root `build.gradle.kts`).
 2. `scripts/ios-unit-tests.sh` (unit and UI tests over 3+ simulators; pass `-only-testing`-style names to narrow it)
-3. Formatter checks in check mode: `swift format lint` and the Gradle-managed ktlint (`./gradlew ktlintCheck`; the format task is `ktlintFormat`, see the root `build.gradle.kts`).
-4. Notices check: fails when a group in `:androidApp` `releaseRuntimeClasspath`, or a pin in the iOS
-   `Package.resolved`, is missing from `THIRD_PARTY_NOTICES.md`.
+3. Swift formatter check in check mode: `swift format lint`.
+4. Notices check: fails when a group in `:androidApp` `releaseRuntimeClasspath`, a Kotlin library linked into the iOS
+   framework (`:core` `iosArm64CompileKlibraries`), or a pin in the iOS `Package.resolved` is missing from
+   `THIRD_PARTY_NOTICES.md`.
 5. Version check: the Android `versionName` equals the iOS `MARKETING_VERSION`.
 6. 16 KB page-size check on release builds (`zipalign -c -P 16` and `check_elf.py`).
 
@@ -31,8 +33,24 @@ lint issue fails the build. Release builds ship per-ABI APKs (`androidApp-arm64-
 `androidApp-x86_64-release.apk`, no universal APK) via AGP `splits { abi }`, which satisfies `ChromeOsAbiSupport`;
 the 16 KB check covers both.
 
-Use `--rerun-tasks` only for the final gate. During development, run the tests you touched and compile the
-modules you changed.
+The gate forces only the test tasks (`--rerun`). Compile, lint and R8 outputs are reused, up to date or from the build
+cache, when their inputs are unchanged; the warnings-as-errors settings are inputs, so a reused result passed the same
+gate. Don't use `--rerun-tasks`: it recompiles everything, Kotlin/Native included. During development, run the tests you
+touched and compile the modules you changed. Robolectric tests run in up to 4 forks (`maxParallelForks`).
+
+### Dependency versions
+
+The catalog (`gradle/libs.versions.toml`) holds every version. Lint's version checks are off in the gate; to list newer
+versions, run `./gradlew :androidApp:lintDebug -Poutdated`. It turns the checks on (androidApp and, through
+`checkDependencies`, `:core`) and fails with one error per outdated library. Expected entries: `litertlm` (pinned, see
+its catalog comment) and OkHttp 5 (the constraint stays on 4.x, the line built to keep OkHttp 3's binary API that
+ML Kit calls). Gradle itself: `./gradlew wrapper --gradle-version <v> --gradle-distribution-sha256-sum <sum>`, twice,
+with the sum from https://services.gradle.org/versions/current.
+
+`androidApp` constrains two transitive libraries with known CVEs to patched versions: OkHttp (ML Kit
+`vision-internal-vkp` asks for 3.0.0) and protobuf-javalite (MediaPipe `tasks-core` asks for 4.26.1). Every class and
+member those libraries reference resolves in the constrained versions. Drop a constraint once ML Kit or MediaPipe
+depends on a patched version itself.
 
 ### Inspections
 
@@ -84,6 +102,7 @@ Grep-checked on 2026-10-18 over `androidApp/src/main` and `core/src` main source
 
 `scripts/release.sh`:
 
+- builds `:androidApp:assembleRelease` (up to date right after `verify.sh`), so the mapping matches the tagged commit;
 - copies `mapping.txt` to `~/Retriever-releases/<versionName>-<versionCode>/`;
 - tags the commit;
 - fails if `versionCode` and `CURRENT_PROJECT_VERSION` were not bumped together.
@@ -100,8 +119,10 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Navigation tests:** with Navigation 3.
 - **Kotlin Swift export:** at Beta. It would remove the hand-written bridges, casts and boxed wrappers.
 - **detekt 2.0:** when stable, for its coroutine rules (25 `runCatching` sites in main sources).
-- **Compose stability config:** only if a device frame metric shows a problem.
 - **largeHeap:** decided by measurement on a large index.
+- **Fail on Gradle deprecations** (`org.gradle.warning.mode=fail`): once neither plugin emits one. Today AGP 9.4.1 calls
+  `Configuration.setVisible` (fixed in AGP 9.5.0, still a release candidate) and KGP 2.4.21 registers the plain enum
+  `KotlinNativeBundleArtifactsTypes` as an attribute. Retriever's own scripts emit none (`--warning-mode=all`).
 - **Predictive back for the Settings notices overlay:** optional polish.
 - **Intent hardening for LaunchQuery:** a length cap, and no recents until the user acts. No real hole today.
 - **Privacy manifest `nm -u` re-check:** at release preparation and on every dependency bump.
@@ -136,5 +157,7 @@ Release builds are signed with the debug key until the first store upload (see t
 - **AppSearch.** A 3.78 MB duplicate index.
 - **LICENSE for Retriever itself.** The owner's call, before any publication.
 - **Already right, no change needed:** edge-to-edge and IME, splash, foreground service types, R8 full mode and keep rules,
-  PendingIntent and exported-component security, `@Throws`, the static framework and linker flags, BGTask
-  registration, and source-set hygiene.
+  PendingIntent and exported-component security, `@Throws`, the static framework and linker flags (SQLDelight's plugin
+  links `-lsqlite3` into the Kotlin/Native test binaries; Xcode's `OTHER_LDFLAGS` does it for the app), BGTask
+  registration, source-set hygiene, and the Compose stability config (`androidApp/stability.conf`, value snapshots
+  only).
