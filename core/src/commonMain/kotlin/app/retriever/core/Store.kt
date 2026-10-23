@@ -575,8 +575,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /**
      * Runs [run] on the AND match of [query]; while that finds nothing and 2+ tokens remain, drops the token found in the
      * most chunks (fts4aux's document count, so no language-specific stop list) and runs again. A token holding CJK is
-     * the phrase of its pieces, as the tables store it ([cjkBigrams]), and counts by its rarest piece.
-     * ponytail: a prefix token counts by its exact term only.
+     * the phrase of its pieces, as the tables store it ([cjkBigrams]), and counts by its rarest piece. The prefix piece
+     * counts every word it starts (summed, an upper bound), so a fragment of a common word ("sea" of "seater") is dropped
+     * before a rarer word instead of being what is left.
      */
     private inline fun <T> retryingMatch(query: String, run: (String) -> List<T>): List<T> {
         val tokens = ftsTokens(query).map { if (hasCjk(it)) ftsTokens(cjkBigrams(it)) else listOf(it) }
@@ -601,7 +602,20 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val df = driver.executeQuery(null, sql, { c ->
             QueryResult.Value(buildMap { while (c.next().value) put(c.getString(0)!!, c.getLong(1)!!) })
         }, folded.size) { folded.forEachIndexed { i, t -> bindString(i, t) } }.value
-        return tokens.map { pieces -> pieces.minOf { df[foldWord(it)] ?: 0L } }
+        val prefix = if (endsInPrefix(tokens)) foldWord(tokens.last().last()) else null
+        // A range on term, which fts4aux seeks to instead of reading every term: the prefix, then anything after it up to
+        // U+10FFFF, the last code point (binary order is code point order in UTF-8).
+        val started = prefix?.let { p ->
+            driver.executeQuery(null, "SELECT SUM(documents) FROM $chunkTerms WHERE col = '*' AND term >= ? AND term < ?", { c ->
+                QueryResult.Value(if (c.next().value) c.getLong(0) ?: 0L else 0L)
+            }, 2) {
+                bindString(0, p)
+                bindString(1, p + "\uDBFF\uDFFF")
+            }.value
+        }
+        return tokens.mapIndexed { i, pieces ->
+            pieces.indices.minOf { j -> if (started != null && i == tokens.lastIndex && j == pieces.lastIndex) started else df[foldWord(pieces[j])] ?: 0L }
+        }
     }
 
     private inline fun <T> ftsQuery(run: () -> List<T>): List<T> = try {
@@ -975,10 +989,13 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
          */
         private fun matchTerms(tokens: List<List<String>>) = tokens.mapIndexed { i, pieces ->
             val last = pieces.last()
-            val prefix = i == tokens.lastIndex && if (hasCjk(last)) singleCjk(last) else last.length >= 3
+            val prefix = i == tokens.lastIndex && endsInPrefix(tokens)
             val phrase = (pieces.dropLast(1) + if (prefix) "$last*" else last).joinToString(" ")
             if (prefix && pieces.size == 1) phrase else "\"$phrase\""
         }
+
+        /** Whether the last piece of the last token matches as a prefix ([matchTerms]). */
+        private fun endsInPrefix(tokens: List<List<String>>): Boolean = tokens.last().last().let { if (hasCjk(it)) singleCjk(it) else it.length >= 3 }
 
         /** BM25 (k1 = 1.2, b = 0.75) from FTS4 matchinfo 'pcnalx': little-endian uint32s. */
         fun bm25(info: ByteArray): Double {

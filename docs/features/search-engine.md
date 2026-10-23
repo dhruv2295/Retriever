@@ -98,8 +98,10 @@ until that search ends; a check that the same snippet renders the same bold span
   in the platform SQLite. A single CJK character at the end of a run is not found by keyword (its pieces start with the
   character before it).
 - FTS ANDs all tokens with no stop list. When that finds nothing, `retryingMatch` drops the token in the most chunks
-  (fts4aux counts, so no language-specific list) and tries again, down to one token. A prefix token counts by its exact
-  term only.
+  (fts4aux counts, so no language-specific list) and tries again, down to one token. The prefix (the last token) counts
+  every word it starts, summed over an fts4aux term range, so a fragment such as "sea" of "seater" goes before a rarer
+  word instead of being the one left (`TokenRetryTest.aPrefixCountsTheWordsItStartsSoAFragmentIsNotKeptOverARarerWord`).
+  The sum overcounts a chunk holding two such words; it only orders the drops.
 - The day filter in the scan uses UTC days widened by up to one day, so at most 100 candidates can be crowded by rows
   outside the local day.
 - A query takes one date phrase (see `query-parser.md`).

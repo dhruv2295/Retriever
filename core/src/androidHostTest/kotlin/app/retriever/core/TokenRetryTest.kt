@@ -67,6 +67,18 @@ class TokenRetryTest {
         assertEquals(2, store.retries)
     }
 
+    /** "sea" is no word here, but "sea*" matches "seater": the fragment counts the words it starts, so it is not what is kept. */
+    @Test
+    fun aPrefixCountsTheWordsItStartsSoAFragmentIsNotKeptOverARarerWord() {
+        val store = textOnlyStore()
+        val invoice = testFile("invoice.txt")
+        store.upsertFiles(listOf(invoice))
+        store.replaceChunks(store.fileByUri(invoice.uri)!!.id, listOf(Store.NewChunk(0, "", "teak dining table, 6 seater, paid by bank transfer", null)))
+        assertTrue(store.fileNames("sunset by the sea").isEmpty())
+        // As the rarest word left, a prefix still finds what it starts.
+        assertEquals(listOf("lease.txt"), store.fileNames("my depos"))
+    }
+
     @Test
     fun nameLaneDropsTheMostFrequentWord() {
         val entries = listOf(
