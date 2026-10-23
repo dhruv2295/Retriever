@@ -74,8 +74,10 @@ A screen-on phone with another app in front remains BUSY. Battery Saver stops be
   `STOP_REASON_QUOTA` in lower standby buckets (WorkManager re-enqueues). Device queue: measure on an Android 16 phone.
 - In the rare or restricted bucket, background indexing runs about once a day. The app never asks to be exempt from
   battery optimization (Play policy).
-- While storage is low (Android's own threshold), no run starts, not even the name sync: on a full disk every file's write
-  failed, which used up its three attempts and left it skipped. The status line does not say why yet (a core stop reason).
+- While storage is low (Android's own threshold), no run starts, not even the name sync. A batch that fills the disk
+  mid-run stops as `DISK_FULL` without charging any file an attempt (`indexing-pipeline.md`), and Reading status says
+  "Paused, your phone is full"; its RETRY follow-up waits for storage too. Home's line reads `readingBlocker()`, which
+  knows neither, so it doesn't say why.
 - SAF folders have no change trigger; they are picked up by the periodic run, app open, or a MediaStore change elsewhere.
 - Tune runs in `AppScope` with no process protection; leaving the app mid-Tune can get the cached process killed, unless
   a charger run starts (it asks for its foreground service first, then waits for the tune).

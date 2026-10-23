@@ -151,10 +151,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
     }
 
-    /**
-     * Every run waits while storage is low: a batch then fails each file's write (SQLite full), and three such batches
-     * leave the files skipped until the person retries them.
-     */
+    /** Every run waits while storage is low, so a batch doesn't start only to stop at once on a full disk (core's DISK_FULL). */
     private fun storageNotLow() = Constraints.Builder().setRequiresStorageNotLow(true)
 
     /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */
