@@ -18,6 +18,7 @@ import app.retriever.core.FileRules
 import app.retriever.core.SourceFile
 import app.retriever.core.android.readCapped
 import app.retriever.core.decodeText
+import app.retriever.core.sampleFor
 import app.retriever.core.stripHtml
 import app.retriever.core.stripRtf
 import app.retriever.core.stripXml
@@ -286,7 +287,7 @@ internal object DocPage {
      * shows around it. The page stays within the middle 74% of the width: Home's 3:4 card crops a square's sides.
      */
     fun draw(head: Head, n: Int): Bitmap? {
-        val picture = (head as? Head.Picture)?.let { picture(it.bytes, n) ?: return null }
+        val picture = (head as? Head.Picture)?.let { decodeSampled(it.bytes, n, ::maxOf) ?: return null }
         val look = (head as? Head.Page)?.look
         val aspect = when {
             picture != null -> (picture.width.toFloat() / picture.height).coerceIn(0.5f, 2f)
@@ -319,10 +320,10 @@ internal object DocPage {
         .also { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, it) }
         .takeIf { it.outWidth > 0 && it.outHeight > 0 }
 
-    private fun picture(bytes: ByteArray, n: Int): Bitmap? {
+    /** [bytes] decoded at the coarsest power-of-two subsample that keeps [side] (of width, height) at least [n] px. */
+    internal fun decodeSampled(bytes: ByteArray, n: Int, side: (Int, Int) -> Int): Bitmap? {
         val bounds = bounds(bytes) ?: return null
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= n) sample *= 2
+        val sample = sampleFor(side(bounds.outWidth, bounds.outHeight), n)
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
     }
 

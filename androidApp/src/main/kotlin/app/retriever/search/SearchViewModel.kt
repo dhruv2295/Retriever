@@ -1,7 +1,6 @@
 package app.retriever.search
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
@@ -24,6 +23,7 @@ import app.retriever.core.android.ImageBytes
 import app.retriever.core.onFull
 import app.retriever.core.onNames
 import app.retriever.core.showsEmpty
+import app.retriever.ui.components.DocPage
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -404,13 +404,7 @@ fun photoReader(context: Context) = PhotoReader { uri, label ->
 }
 
 /** The avatar is 24 dp: decoded subsampled to at least [AVATAR_PX] on its short side, not the whole 1024 px (about 3 MB). */
-internal fun avatar(jpeg: ByteArray): ImageBitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
-    var sample = 1
-    while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_PX) sample *= 2
-    return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
-}
+internal fun avatar(jpeg: ByteArray): ImageBitmap? = DocPage.decodeSampled(jpeg, AVATAR_PX, ::minOf)?.asImageBitmap()
 
 /** 24 dp on the densest screens, with room to spare. */
 private const val AVATAR_PX = 128
