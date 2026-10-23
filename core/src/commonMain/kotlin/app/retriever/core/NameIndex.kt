@@ -15,20 +15,21 @@ data class NameHit(val id: Long, val match: MatchClass, val exactName: Boolean =
  *
  * Structures, all over the distinct tokens of "name folder" (Store.ftsTokens, then [foldLatin]):
  *  - [tokens]: sorted, so exact is a binary search and prefix is the range that follows it;
- *  - [postings]: slots (positions in [entries]) per token;
+ *  - [postings]: slots (positions in [entries]) per token; [namePostings]: those whose name itself holds the token;
  *  - [grams]: character trigram -> sorted token numbers, for substring and typo candidates.
  */
 class NameIndex private constructor(
     private val entries: List<NameEntry>,
     private val tokens: Array<String>,
     private val postings: Array<IntArray>,
+    private val namePostings: Array<IntArray>,
     private val grams: HashMap<Int, IntArray>,
 ) {
     val size get() = entries.size
 
     /** Bytes held in the int and reference arrays (not the strings), for the memory budget. */
     val arrayBytes: Long
-        get() = postings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L
+        get() = postings.sumOf { it.size * 4L } + namePostings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L
 
     /** Drops [removed] and adds or replaces [upserts], in one build. */
     // ponytail: a batch rebuilds everything (about 0.1 s for 50k names); patch the posting arrays if batches get frequent.
@@ -49,22 +50,32 @@ class NameIndex private constructor(
         val per = words.map(::classify)
         val live = words.indices.toMutableList()
         while (true) {
-            val out = hits(live.map { words[it] }, live.map { per[it] }, kinds, limit, admit, relaxed = live.size < words.size)
+            val relaxed = live.size < words.size
+            val inName = if (relaxed) null else inName(words)
+            val out = hits(live.map { per[it] }, kinds, limit, admit, inName)
             if (out.isNotEmpty() || live.size < 2) return out
             // Nothing matched every word: drop the word that matches the most files, as Store's token retry does.
             live.remove(live.maxBy { w -> per[w].count { it != NONE } })
         }
     }
 
-    /** [relaxed]: a word was dropped, so no hit holds every query word and none is an exact name. */
-    private fun hits(
-        words: List<String>,
-        classes: List<ByteArray>,
-        kinds: Set<Kind>?,
-        limit: Int,
-        admit: ((NameEntry) -> Boolean)?,
-        relaxed: Boolean,
-    ): List<NameHit> {
+    /** Per slot, whether the file's own name holds every one of [words] as a whole token. */
+    private fun inName(words: List<String>): BooleanArray {
+        val all = BooleanArray(entries.size) { true }
+        for (w in words) {
+            val one = BooleanArray(entries.size)
+            val t = lowerBound(w)
+            if (t < tokens.size && tokens[t] == w) for (s in namePostings[t]) one[s] = true
+            for (s in all.indices) all[s] = all[s] && one[s]
+        }
+        return all
+    }
+
+    /**
+     * [inName]: null when a word was dropped, so no hit holds every query word and none is an exact name. Exact names
+     * fill the page before EXACT matches on the folder alone, so a folder full of newer files can't crowd them out.
+     */
+    private fun hits(classes: List<ByteArray>, kinds: Set<Kind>?, limit: Int, admit: ((NameEntry) -> Boolean)?, inName: BooleanArray?): List<NameHit> {
         val rank = classes[0].copyOf()
         for (k in 1 until classes.size) {
             for (s in rank.indices) {
@@ -73,14 +84,19 @@ class NameIndex private constructor(
             }
         }
         val out = ArrayList<NameHit>()
-        for (c in MatchClass.entries) {
+        val exact = (MatchClass.EXACT.ordinal + 1).toByte()
+        // EXACT runs twice when names are known: the file's own name, then the folder only.
+        val passes = listOfNotNull(MatchClass.EXACT.takeIf { inName != null }) + MatchClass.entries
+        for ((pass, c) in passes.withIndex()) {
+            val v = (c.ordinal + 1).toByte()
             for (s in rank.indices) {
-                if (rank[s] != (c.ordinal + 1).toByte()) continue
+                if (rank[s] != v) continue
+                val named = v == exact && inName != null && inName[s]
+                if (v == exact && inName != null && named != (pass == 0)) continue
                 val e = entries[s]
                 if (kinds != null && e.kind !in kinds) continue
                 if (admit != null && !admit(e)) continue
-                val inName = !relaxed && c == MatchClass.EXACT && ArrayList<String>().also { tokenize(e.name) { t -> it += t } }.containsAll(words)
-                out += NameHit(e.id, c, inName)
+                out += NameHit(e.id, c, named)
                 if (out.size >= limit) return out
             }
         }
@@ -189,16 +205,21 @@ class NameIndex private constructor(
             // Stable, and near-linear on an update's already sorted entries.
             val entries = unsorted.sortedByDescending { it.at }
             val byToken = HashMap<String, Ints>()
+            val byNameToken = HashMap<String, Ints>()
             entries.forEachIndexed { slot, e ->
-                val add = { t: String ->
-                    val list = byToken.getOrPut(t) { Ints() }
+                fun add(map: HashMap<String, Ints>, t: String) {
+                    val list = map.getOrPut(t) { Ints() }
                     if (list.last() != slot) list.add(slot) // a token twice in one name counts once
                 }
-                tokenize(e.name, add)
-                tokenize(e.folder, add)
+                tokenize(e.name) { t ->
+                    add(byToken, t)
+                    add(byNameToken, t)
+                }
+                tokenize(e.folder) { t -> add(byToken, t) }
             }
             val tokens = byToken.keys.sorted().toTypedArray()
             val postings = Array(tokens.size) { byToken.getValue(tokens[it]).toArray() }
+            val namePostings = Array(tokens.size) { byNameToken[tokens[it]]?.toArray() ?: IntArray(0) }
             val gramLists = HashMap<Int, Ints>()
             tokens.forEachIndexed { n, t ->
                 for (g in 0..t.length - 3) {
@@ -208,7 +229,7 @@ class NameIndex private constructor(
             }
             val grams = HashMap<Int, IntArray>(gramLists.size * 2)
             for ((k, v) in gramLists) grams[k] = v.toArray()
-            return NameIndex(entries, tokens, postings, grams)
+            return NameIndex(entries, tokens, postings, namePostings, grams)
         }
 
         private fun isWordChar(c: Char) = c.isLetter() || when (c.category) {

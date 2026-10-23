@@ -89,18 +89,21 @@ class DuplicatesViewModel(
     fun selectedBytes(s: DuplicatesState): Long = s.groups.sumOf { g -> g.size * g.files.count { it.uri in s.selected } }
 
     fun deleteSelected() {
-        val uris = _state.value.selected.toList()
-        if (uris.isEmpty() || _state.value.deleting) return
+        val now = _state.value
+        val uris = now.selected.toList()
+        if (uris.isEmpty() || now.deleting) return
         _state.update { it.copy(deleting = true, failed = 0) }
         launchCatching(onError = {
             LogSink.write(BuildConfig.DEBUG, "delete failed", it)
             _state.update { s -> s.copy(deleting = false, error = null, failed = uris.size) }
         }) {
+            // Only copies that still match the kept file go; the rest count as not deleted.
+            val copies = retriever.verifiedCopies(now.groups, now.selected)
             // Without all-files access, Android itself asks the person before others' photos and videos go.
             accessService.refresh()
-            val media = uris.filterNot { it.startsWith(SafSource.PREFIX) }
+            val media = copies.filterNot { it.startsWith(SafSource.PREFIX) }
             val ask = if (accessService.state.value.allFiles) emptyList() else media
-            val tried = uris - ask.toSet()
+            val tried = copies - ask.toSet()
             val deleted = deleter.delete(tried)
             val request = if (ask.isEmpty()) null else deleter.request(ask)
             if (request == null) finishDelete(uris, deleted) else confirmations.send(request)

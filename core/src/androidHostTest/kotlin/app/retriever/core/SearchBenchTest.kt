@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.Dispatchers
@@ -37,10 +38,18 @@ class SearchBenchTest {
         lateinit var entries: List<NameEntry>
         val buildMs = timed { entries = build(store, rnd, vocab, Zipf(vocab.size)) }
         check(store.fileCount() == FILES.toLong() && store.chunkCount() == CHUNKS.toLong())
-        // Schema 3's upgrade only recreates the keyword tables, so the database open stays quick at phone scale; the
-        // refill runs once, later, from warmSearch.
-        val upgrade = File(SchemaV3Test.SQL_DIR, "2.sqm").readText().substringAfter("DROP TABLE chunk_fts").let { "DROP TABLE chunk_fts$it" }
-        val upgradeMs = timed { upgrade.split(';').filter { it.isNotBlank() }.forEach { driver.execute(null, it, 0) } }
+        // An upgrade that changes the keyword tables only recreates them, so the database open stays quick at phone
+        // scale; the refill runs once, later, from warmSearch. Timed on the current schema's tables (MigrationTest runs
+        // the real migrations).
+        val ddl = listOf("chunk_fts", "file_fts").map { table ->
+            driver.executeQuery(null, "SELECT sql FROM sqlite_master WHERE name = '$table'", { c ->
+                c.next()
+                QueryResult.Value(c.getString(0)!!)
+            }, 0).value
+        }
+        val upgrade = listOf("DROP TABLE chunk_fts", "DROP TABLE file_fts") + ddl +
+            "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('fts_rebuild', '1')"
+        val upgradeMs = timed { upgrade.forEach { driver.execute(null, it, 0) } }
         val rebuildMs = timed { check(store.rebuildFtsIfPending()) }
         println("SearchBench: keyword tables recreated in ${upgradeMs.toInt()} ms, refilled in ${rebuildMs.toInt()} ms")
         assertTrue(upgradeMs < 500, "the upgrade's keyword-table step took $upgradeMs ms")

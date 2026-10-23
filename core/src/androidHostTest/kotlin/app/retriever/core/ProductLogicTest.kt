@@ -63,6 +63,26 @@ class LibrarySyncTest {
     }
 
     @Test
+    fun aChangedCaptureDateIsKeptWithoutReadingTheFileAgain() = runTest {
+        val store = newLibraryStore()
+        val a = sf("a").copy(takenAt = 5)
+        val source = FakeSource().apply { next = Changes(listOf(a), emptyList(), "tok1", isFullScan = true) }
+        var clock = 0L
+        val sync = LibrarySync(store, source, now = { clock })
+        sync.sync()
+        store.replaceChunks(store.fileByUri(a.uri)!!.id, listOf(Store.NewChunk(1, "", "text", null)))
+
+        clock = HOUR_MS
+        source.next = Changes(listOf(a.copy(takenAt = 7)), emptyList(), "tok2", isFullScan = false)
+        assertEquals(1, sync.sync().changed)
+        assertEquals(7L, store.fileByUri(a.uri)?.file?.takenAt)
+        assertEquals(FileState.INDEXED, store.fileByUri(a.uri)?.state)
+
+        source.next = Changes(listOf(a.copy(takenAt = 7)), emptyList(), "tok3", isFullScan = false)
+        assertEquals(0, sync.sync().changed, "once kept, the date is no change")
+    }
+
+    @Test
     fun secondSyncWithinADayIsIncrementalAndCountsChangedFiles() = runTest {
         val store = newLibraryStore()
         val source = FakeSource().apply {
@@ -362,6 +382,48 @@ class DuplicateFinderTest {
 
         assertEquals(listOf(uriOf("a"), uriOf("b"), uriOf("a")), hasher.quickCalls)
         assertEquals(listOf(uriOf("a"), uriOf("b"), uriOf("a")), hasher.fullCalls)
+    }
+
+    @Test
+    fun aCopyThatNoLongerMatchesIsNotDeletedAndIsHashedAgain() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 1), sf("b", size = 100_000, modifiedAt = 2)))
+        val full = mutableMapOf(uriOf("a") to "f", uriOf("b") to "f")
+        val hasher = object : ContentHasher {
+            override suspend fun quickHash(uri: String, size: Long) = "q"
+            override suspend fun fullHash(uri: String) = full[uri]
+        }
+        val retriever = testRetriever(store, emptyList(), countingExtractor(), hasher = hasher)
+        val groups = retriever.duplicates(DuplicateFinder.MIN_SIZE)
+        assertEquals(listOf(uriOf("b")), retriever.verifiedCopies(groups, setOf(uriOf("b"))))
+
+        // b's content changes with its size and time kept, so no sync clears its cached hashes.
+        full[uriOf("b")] = "changed"
+        assertEquals(1, retriever.duplicates(DuplicateFinder.MIN_SIZE).size, "the cached hashes still pair them")
+        assertEquals(emptyList(), retriever.verifiedCopies(groups, setOf(uriOf("b"))))
+        assertTrue(retriever.duplicates(DuplicateFinder.MIN_SIZE).isEmpty(), "the next scan reads both again")
+        // Unreadable kept file: nothing can be shown to match it.
+        full[uriOf("b")] = "f"
+        full.remove(uriOf("a"))
+        assertEquals(emptyList(), retriever.verifiedCopies(groups, setOf(uriOf("b"))))
+    }
+
+    @Test
+    fun aHashOfAFileThatChangedWhileItWasReadIsNotKept() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 1), sf("b", size = 100_000, modifiedAt = 2)))
+        val hasher = object : ContentHasher {
+            override suspend fun quickHash(uri: String, size: Long) = "q"
+            override suspend fun fullHash(uri: String): String {
+                // A sync lands mid-read: a is edited after its old bytes were hashed.
+                if (uri == uriOf("a")) store.upsertFiles(listOf(sf("a", size = 100_000, modifiedAt = 9)))
+                return "f"
+            }
+        }
+        DuplicateFinder(store, hasher).find()
+        assertNull(store.fileByUri(uriOf("a"))?.quickHash)
+        assertNull(store.fileByUri(uriOf("a"))?.fullHash)
+        assertEquals("f", store.fileByUri(uriOf("b"))?.fullHash)
     }
 
     @Test

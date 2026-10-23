@@ -118,7 +118,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
                 }
                 done.signal()
             }
-            guard done.wait(timeout: .now() + 20) == .success else {
+            guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
                 PHImageManager.default().cancelImageRequest(id)
                 return nil
             }
@@ -214,11 +214,14 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             options.deliveryMode = .highQualityFormat
             let done = DispatchSemaphore(value: 0)
             let box = Box<AVAsset>()
-            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
+            let id = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
                 box.value = av
                 done.signal()
             }
-            done.wait()
+            guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
+                PHImageManager.default().cancelImageRequest(id)
+                return nil
+            }
             return box.value
         }
         return folders.resolve(uri).map { AVURLAsset(url: $0) }
@@ -281,15 +284,22 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         return PHAsset.fetchAssets(withLocalIdentifiers: [String(uri.dropFirst("ph://".count))], options: nil).firstObject
     }
 
-    /// Runs async AVFoundation loading from the synchronous bridge; callers are on Kotlin's worker threads.
+    /// How long a media read may hold a reading slot before it is cancelled and the file goes without it.
+    private static let mediaWait: DispatchTimeInterval = .seconds(20)
+
+    /// Runs async AVFoundation loading from the synchronous bridge; callers are on Kotlin's worker threads. A load that
+    /// outlasts mediaWait is cancelled and gives nil.
     private func wait<T>(_ op: @escaping @Sendable () async throws -> T) -> T? {
         let done = DispatchSemaphore(value: 0)
         let box = Box<T>()
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             box.value = try? await op()
             done.signal()
         }
-        done.wait()
+        guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
+            task.cancel()
+            return nil
+        }
         return box.value
     }
 }

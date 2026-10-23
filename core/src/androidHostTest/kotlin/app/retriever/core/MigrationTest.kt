@@ -223,8 +223,8 @@ class MigrationTest {
             val store = Store(driver)
             assertNull(store.storedById(1)?.quickHash)
             assertNull(store.storedById(1)?.fullHash)
-            store.setQuickHash(1, "q")
-            store.setFullHash(1, "f")
+            store.setQuickHash(store.storedById(1)!!, "q")
+            store.setFullHash(store.storedById(1)!!, "f")
             assertEquals("q", store.storedById(1)?.quickHash)
             assertEquals("f", store.storedById(1)?.fullHash)
         }

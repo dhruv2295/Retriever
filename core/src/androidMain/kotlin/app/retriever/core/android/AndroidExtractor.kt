@@ -79,6 +79,7 @@ import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -125,6 +126,16 @@ private fun openPdfPreV(fd: ParcelFileDescriptor): PdfDoc = PdfRendererPreV(fd).
             p.render(it, null, null, RenderParams.Builder(RenderParams.RENDER_MODE_FOR_DISPLAY).build())
         }
     }
+}
+
+/** Labels only add to a picture: when labeling fails, the picture and its text are kept without any. */
+internal suspend fun optionalLabels(log: MediaLog, label: suspend () -> String): String = try {
+    label()
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    log("image labeling failed; keeping the picture without labels", e)
+    ""
 }
 
 class AndroidExtractor(private val context: Context, private val log: MediaLog) :
@@ -199,7 +210,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         val bitmap = traced("pic.decode") { ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX) }
         val text = bitmap?.let { tracedAsync("pic.ocr") { ocr(it) } }.orEmpty()
         // The same 512 px pixels label and embed; only after labeling, as compress recycles them.
-        val labels = tracedAsync("pic.labels") { labels(thumb) }
+        val labels = optionalLabels(log) { tracedAsync("pic.labels") { labels(thumb) } }
         val jpeg = runCatching { ImageBytes.compress(thumb) }.getOrNull() ?: return emptyList()
         return imageWithText("", jpeg, text, maxChars, labels)
     }

@@ -1488,6 +1488,21 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }
 
+    /**
+     * Of [selected], the copies that still match the file kept in their group (its first unselected one), read again
+     * now; only these may be deleted. A group with no kept file gives none. A group that no longer matches loses its
+     * cached hashes, so the next scan reads it afresh.
+     */
+    @Throws(Throwable::class)
+    suspend fun verifiedCopies(groups: List<DuplicateGroup>, selected: Set<String>): List<String> = io {
+        val finder = DuplicateFinder(store, hasher)
+        groups.flatMap { g ->
+            val copies = g.files.map { it.uri }.filter { it in selected }
+            val keep = g.files.firstOrNull { it.uri !in selected } ?: return@flatMap emptyList()
+            finder.stillCopies(keep.uri, copies).also { if (it.size < copies.size) store.clearHashes(g.files.map { f -> f.uri }) }
+        }
+    }
+
     @Throws(Throwable::class)
     suspend fun skipped(limit: Int): List<Store.StoredFile> = io { store.skipped(limit, store.prefs().kinds intersect readableKinds) }
 

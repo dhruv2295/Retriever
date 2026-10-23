@@ -49,6 +49,14 @@ class ExactNameTest {
         assertEquals(ids["lease.jpg"], hits.first().fileId)
     }
 
+    @Test fun aFolderFullOfNewerFilesCannotCrowdOutTheExactName() {
+        val inFolder = List(SearchEngine.CANDIDATES) { NameEntry(it + 1L, "scan-$it.pdf", "invoice", Kind.PDF, at = 2_000L) }
+        val named = NameEntry(999L, "invoice.pdf", "Download", Kind.PDF, at = 1_000L)
+        val hits = NameIndex.build(inFolder + named).search("invoice", limit = SearchEngine.CANDIDATES)
+        assertEquals(NameHit(999L, MatchClass.EXACT, exactName = true), hits.first())
+        assertEquals(SearchEngine.CANDIDATES, hits.size)
+    }
+
     @Test fun aFileNameQueryFindsThatFileFirst() = runTest {
         val (engine, ids) = engine(newStore(), listOf(testFile("IMG_1007.jpg", Kind.PHOTO)), listOf(testFile("scifact_1.txt") to "IMG_1007 was cited"))
         assertEquals(ids["IMG_1007.jpg"], engine.search("IMG_1007").hits.first().fileId)

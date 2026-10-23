@@ -115,7 +115,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             for (f in files) {
                 q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
                 val changed = q.changes().executeAsOne() != 0L
-                // Fills rows synced before taken_at existed, and leaves state alone so nothing is read again.
+                // Fills rows synced before taken_at existed or takes a changed date, and leaves state alone so nothing is read again.
                 f.takenAt?.let {
                     q.setTakenAt(it, f.uri)
                     if (q.changes().executeAsOne() != 0L) backfilled = true
@@ -228,9 +228,12 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** Groups of two or more files with the same size, at least [minSize] bytes, largest size first. */
     fun sizeCollisions(minSize: Long): List<List<StoredFile>> = q.sizeCollisions(minSize, ::storedFile).executeAsList().groupBy { it.file.size }.values.toList()
 
-    fun setQuickHash(fileId: Long, hash: String) = q.setQuickHash(hash, fileId)
+    /** Kept only while the row still has [hashed]'s size and time. */
+    fun setQuickHash(hashed: StoredFile, hash: String) = q.setQuickHash(hash, hashed.id, hashed.file.size, hashed.file.modifiedAt)
 
-    fun setFullHash(fileId: Long, hash: String) = q.setFullHash(hash, fileId)
+    fun setFullHash(hashed: StoredFile, hash: String) = q.setFullHash(hash, hashed.id, hashed.file.size, hashed.file.modifiedAt)
+
+    fun clearHashes(uris: Collection<String>) = uris.chunked(500).forEach { q.clearHashes(it) }
 
     /** How many files [sizeCollisions] would return, without reading them. */
     fun sizeCollisionCount(minSize: Long): Long = q.sizeCollisionCount(minSize).executeAsOne()
@@ -476,42 +479,59 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     /**
      * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
-     * modified; null: any time), with snippets cut for those only.
+     * modified; null: any time), with snippets cut for those only. [fileIds] (null: any file) keeps those files only.
      */
-    fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, starredOnly: Boolean = false): List<KeywordHit> =
-        ftsQuery {
-            retryingMatch(query) { match ->
-                // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
-                // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
-                val scored: (Long, ByteArray?) -> Pair<Long, Double> = { id, info -> id to (info?.let(::bm25) ?: 0.0) }
-                val rows = if (kinds == null && dates == null && !starredOnly) {
-                    q.searchFts(match, FTS_CAP, scored)
-                } else {
-                    val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
-                    q.searchFtsOfKinds(match, (kinds ?: Kind.entries).map { it.name }, range.first, range.last, if (starredOnly) 1L else 0L, FTS_CAP, scored)
-                }
-                val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
-                val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
-                top.map { KeywordHit(it, snippets[it]) }
+    fun keywordSearch(
+        query: String,
+        limit: Int,
+        kinds: Set<Kind>? = null,
+        dates: LongRange? = null,
+        starredOnly: Boolean = false,
+        fileIds: Collection<Long>? = null,
+    ): List<KeywordHit> = ftsQuery {
+        retryingMatch(query) { match ->
+            // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
+            // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
+            val scored: (Long, ByteArray?) -> Pair<Long, Double> = { id, info -> id to (info?.let(::bm25) ?: 0.0) }
+            val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
+            val kindNames = (kinds ?: Kind.entries).map { it.name }
+            val starred = if (starredOnly) 1L else 0L
+            val rows = if (fileIds != null) {
+                q.searchFtsOfFiles(match, fileIds, kindNames, range.first, range.last, starred, FTS_CAP, scored)
+            } else if (kinds == null && dates == null && !starredOnly) {
+                q.searchFts(match, FTS_CAP, scored)
+            } else {
+                q.searchFtsOfKinds(match, kindNames, range.first, range.last, starred, FTS_CAP, scored)
             }
+            val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
+            val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
+            top.map { KeywordHit(it, snippets[it]) }
         }
+    }
 
     /**
-     * File ids of [kinds] (null: any kind) captured within [dates] (as [keywordSearch]) that [keep] lets through, whose
-     * name or folder matches, best first.
+     * File ids of [kinds] (null: any kind) captured within [dates] (as [keywordSearch]), starred if [starredOnly], that
+     * [keep] lets through, whose name or folder matches, best first.
      */
-    fun fileKeywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, keep: (Long) -> Boolean = { true }): List<Long> =
-        ftsQuery {
-            retryingMatch(query) { match ->
-                val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
-                // ponytail: ranks only the FTS_CAP newest name matches in scope, as keywordSearch does.
-                q.searchFileFts(match, (kinds ?: Kind.entries).map { it.name }, range.first, range.last, FTS_CAP).executeAsList()
-                    .filter { keep(it.fileId) }
-                    .sortedByDescending { it.info?.let(::bm25) ?: 0.0 }
-                    .take(limit)
-                    .map { it.fileId }
-            }
+    fun fileKeywordSearch(
+        query: String,
+        limit: Int,
+        kinds: Set<Kind>? = null,
+        dates: LongRange? = null,
+        starredOnly: Boolean = false,
+        keep: (Long) -> Boolean = { true },
+    ): List<Long> = ftsQuery {
+        retryingMatch(query) { match ->
+            val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
+            // ponytail: ranks only the FTS_CAP newest name matches in scope, as keywordSearch does.
+            q.searchFileFts(match, (kinds ?: Kind.entries).map { it.name }, range.first, range.last, if (starredOnly) 1L else 0L, FTS_CAP)
+                .executeAsList()
+                .filter { keep(it.fileId) }
+                .sortedByDescending { it.info?.let(::bm25) ?: 0.0 }
+                .take(limit)
+                .map { it.fileId }
         }
+    }
 
     /**
      * Runs [run] on the AND match of [query]; while that finds nothing and 2+ tokens remain, drops the token found in the

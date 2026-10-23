@@ -213,11 +213,12 @@ class SchemaV3Test {
         val id = index(photo, Store.NewChunk(1, "", null, vector(1)))
         assertEquals(10 * day, store.fileByUri(photo.uri)!!.file.takenAt)
 
-        // A source that doesn't say, or says something else, changes nothing.
+        // A source that doesn't say changes nothing; a new capture date is kept, and the file is not read again.
         store.upsertFiles(listOf(photo.copy(takenAt = null)))
+        assertEquals(10 * day, store.fileByUri(photo.uri)!!.file.takenAt)
         store.upsertFiles(listOf(photo.copy(takenAt = 20 * day)))
         store.fileByUri(photo.uri)!!.let {
-            assertEquals(10 * day, it.file.takenAt)
+            assertEquals(20 * day, it.file.takenAt)
             assertEquals(FileState.INDEXED, it.state)
         }
 
@@ -235,7 +236,7 @@ class SchemaV3Test {
         val docId = index(testFile("a.txt", modifiedAt = 41 * day + 5), Store.NewChunk(1, "", "words", vector(3)))
         val table = store.loadVectors()
         val days = (0 until table.size).associate { table.fileIds[it] to table.days[it] }
-        assertEquals(mapOf(id to 10, store.fileByUri(old.uri)!!.id to 30, docId to 41), days)
+        assertEquals(mapOf(id to 20, store.fileByUri(old.uri)!!.id to 30, docId to 41), days)
     }
 
     @Test

@@ -121,7 +121,8 @@ val appModule = module {
     singleOf(::ViewerQueue)
     single { app.retriever.files.FileActions() }
     single { DemoMode(Demo.parts(androidContext())) }
-    single(ModelDir) { androidContext().getExternalFilesDir("models")!! }
+    // Null while shared storage is unavailable; the app's own storage then holds the model.
+    single(ModelDir) { androidContext().let { it.getExternalFilesDir("models") ?: File(it.filesDir, "models").apply { mkdirs() } } }
     single { ModelDownload(androidContext(), get(ModelDir)) }
     single { AndroidDeviceProbe(androidContext()).probe() }
     single {

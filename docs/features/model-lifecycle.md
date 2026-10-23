@@ -51,7 +51,9 @@ content leaves the phone; only the model download uses the network.
   and embedding inherit the caller context. Search and the shared model's own caller keep normal priority. The runtime's native pools
   are started in `MediaPipeEmbedder`'s constructor and on its first inference (the host's warm-up), not on the
   creating thread's priority, so `lowerNewThreads` (NativeThreads.kt) diffs `/proc/self/task` around both and sets
-  every new thread to `THREAD_PRIORITY_BACKGROUND`. A query waits for at most
+  the runtime's new threads to `THREAD_PRIORITY_BACKGROUND`: those carrying a marker name the caller holds during the
+  call (Linux copies it to threads it starts), plus new native threads that named themselves (GPU driver). Threads the
+  JVM runs (coroutine workers, Binder) and HWUI's are shared and keep their priority. A query waits for at most
   the one native call in flight.
 
 ## Owner files

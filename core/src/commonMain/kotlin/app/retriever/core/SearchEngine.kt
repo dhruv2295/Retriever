@@ -240,7 +240,7 @@ class SearchEngine(
             emptyList()
         } else {
             traced("kw.fts") {
-                val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
+                val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f.scope)
                 val rows = store.chunks(hits.map { it.chunkId })
                 hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
             }
@@ -255,7 +255,7 @@ class SearchEngine(
     private fun nameLanes(q: String, f: Filter): List<Lane> = traced("kw.names") {
         val index = nameIndex()
         if (index == null) {
-            listOf(Lane(store.fileKeywordSearch(q, CANDIDATES, f.kinds, f.dates, f::admits).map { Candidate(it) }, Source.NAME))
+            listOf(Lane(store.fileKeywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f::admits).map { Candidate(it) }, Source.NAME))
         } else {
             val dates = f.dates
             val hits = index.search(q, f.kinds, CANDIDATES) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
@@ -395,6 +395,9 @@ class SearchEngine(
         val contentIds = req.contentIds?.filter { admits(it) }?.toLongArray()?.apply { sort() } ?: ids
         val onlyStarred = req.onlyStarred
 
+        /** The content scope for the keyword lane's SQL, so it applies before the cap; null when unscoped or too big to bind. */
+        val scope = if (req.contentIds == null) null else contentIds?.takeIf { it.size <= MAX_BOUND_IDS }?.asList()
+
         fun admits(fileId: Long) = ids == null || sortedHas(ids, fileId)
 
         fun admitsContent(fileId: Long) = contentIds == null || sortedHas(contentIds, fileId)
@@ -515,6 +518,9 @@ class SearchEngine(
     internal companion object {
         /** Rows each lane hands to fusion; RetrievalEval cuts its lanes the same way. */
         const val CANDIDATES = 100
+
+        /** Under SQLite's 999-variable limit on older Android, with room for the query's other arguments. */
+        private const val MAX_BOUND_IDS = 500
 
         /** Scans that may each find dead rows before [meaningLane] reloads in full instead. */
         private const val MAX_PASSES = 3

@@ -26,14 +26,14 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
         for (group in collisions) {
             val byQuick = mutableMapOf<String, MutableList<Store.StoredFile>>()
             for (f in group) {
-                val h = f.quickHash ?: safe { hasher.quickHash(f.file.uri, f.file.size) }?.also { store.setQuickHash(f.id, it) }
+                val h = f.quickHash ?: safe { hasher.quickHash(f.file.uri, f.file.size) }?.also { store.setQuickHash(f, it) }
                 if (h != null) byQuick.getOrPut(h) { mutableListOf() }.add(f)
                 onProgress(++done, total)
             }
             for (same in byQuick.values.filter { it.size > 1 }) {
                 val byFull = mutableMapOf<String, MutableList<SourceFile>>()
                 for (f in same) {
-                    val h = f.fullHash ?: safe { hasher.fullHash(f.file.uri) }?.also { store.setFullHash(f.id, it) } ?: continue
+                    val h = f.fullHash ?: safe { hasher.fullHash(f.file.uri) }?.also { store.setFullHash(f, it) } ?: continue
                     byFull.getOrPut(h) { mutableListOf() }.add(f.file)
                 }
                 for (files in byFull.values.filter { it.size > 1 }) {
@@ -42,6 +42,16 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
             }
         }
         return result.sortedByDescending { it.wastedBytes }
+    }
+
+    /**
+     * The [copies] that still hold what [keep] holds, each hashed again now. A scan's hashes are cached, and a file can
+     * change with its size and time unchanged, or between the scan and a delete; nothing when [keep] can't be read.
+     */
+    suspend fun stillCopies(keep: String, copies: List<String>): List<String> {
+        if (copies.isEmpty()) return emptyList()
+        val want = safe { hasher.fullHash(keep) } ?: return emptyList()
+        return copies.filter { it != keep && safe { hasher.fullHash(it) } == want }
     }
 
     // A hasher bug on one file must not abort the scan; cancellation still propagates.

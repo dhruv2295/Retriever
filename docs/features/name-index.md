@@ -24,7 +24,8 @@ It also covers the first moments after launch: until it is built, the lane falls
   is `length - 2 - 4 * edits`); a word too short to keep any trigram is compared by length instead. The check is OSA
   distance (Levenshtein where an adjacent swap is one edit), `withinEdits`.
 - **Filters before the cap.** `kinds` and the `admit` callback (starred ids, dates) run before `limit`, so a filter
-  never empties a full page.
+  never empties a full page. Within `EXACT`, files whose own name holds every word (`namePostings`) fill the page
+  before folder-only matches, so a folder full of newer files can't push the named file out.
 - **Copy on write.** `update(removed, upserts)` returns a new index and leaves the old one valid for searches already
   running. Every update is a full rebuild, marked `ponytail:` in the file; patching postings is the upgrade if batches
   get frequent.

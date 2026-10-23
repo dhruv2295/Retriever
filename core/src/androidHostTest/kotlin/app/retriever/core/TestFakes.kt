@@ -122,19 +122,19 @@ internal fun testRetriever(
     monitor: FakeMonitor = FakeMonitor(),
     modelReady: (ModelBuild) -> Boolean = { true },
     fewWaitingLimit: Int = 0,
-): Retriever {
-    val source = FakeSource().apply { next = Changes(files, emptyList(), "tok", isFullScan = true) }
-    val noHashes = object : ContentHasher {
+    hasher: ContentHasher = object : ContentHasher {
         override suspend fun quickHash(uri: String, size: Long): String? = null
         override suspend fun fullHash(uri: String): String? = null
-    }
+    },
+): Retriever {
+    val source = FakeSource().apply { next = Changes(files, emptyList(), "tok", isFullScan = true) }
     return Retriever(
         store = store,
         source = source,
         extractor = extractor,
         factory = factory,
         monitor = monitor,
-        hasher = noHashes,
+        hasher = hasher,
         probe = probe,
         modelReady = modelReady,
         platformReady = { true },

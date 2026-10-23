@@ -73,7 +73,7 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `kindFilterExcludesOtherKinds`, `anotherModelsIndexDegradesToKeywordOnly`, `aClosedEmbedderPropagatesSoTheCallerCanRetireIt`,
   `eachFileAppearsAtMostOnce`, `refreshPicksUpNewFilesAndDropsDeletedOnes`.
 - `FusionTest.aLiteralMatchAtEqualRankShowsTheWordsSnippet`, `ScopeBeforeCapTest` (`nameLanesScopeBeforeTheCap`,
-  `keywordLaneScopesStarredBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
+  `keywordLaneScopesStarredBeforeTheCap`, `coldNameLaneScopesStarredBeforeItsFtsCap`, `keywordLaneScopesContentBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
   `takenAtBackfillMovesALoadedVectorToItsCaptureDay`), `RecentAndLimitTest.searchHonoursLimit`.
 - `RelevanceRuleTest` (`theFitFailedItsGateSoTheRuleShipsOff`, `theShippedSettingCallsEveryHitStrong`,
   `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `datesKindsAndFileIdsFilterEveryLane`).

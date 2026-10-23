@@ -15,7 +15,11 @@ tool, not a search feature, and it only ever deletes what the person selected.
   still propagates. Groups are sorted by wasted bytes, and each group's files by modified time.
 - **Hashes persist per file.** Both hashes are stored on the file's row (`quick_hash`, `full_hash`) as the finder
   computes them, so a later visit reads only files it has not hashed yet. `upsertFile` clears them when the file's size,
-  modified time, name, folder, kind or type changes. A failed hash is not stored, so that file is tried again.
+  modified time, name, folder, kind or type changes. A failed hash is not stored, so that file is tried again, and a
+  hash is stored only while the row still has the size and time that were hashed (a sync may land mid-read).
+- **Deletion re-checks.** Cached hashes find candidates; they are not proof. Before deleting, `Retriever.verifiedCopies`
+  hashes the kept file and each selected copy again and passes on only copies that still match. The rest are not
+  deleted (Android counts them as failed), and their group's cached hashes are cleared so the next scan reads it afresh.
 - **One entry per file.** `oneEntryPerFile` (Android) removes a picked-folder row that duplicates a MediaStore row (same
   name and whole-second modified time, or the same folder and name), because deleting either of two views of one file
   would lose the only copy.
@@ -59,6 +63,7 @@ byte comparison above.
 4. **A failed delete keeps the files and counts them as failed;** a scan failure is a state, not a crash.
 5. **After the system prompt the list is rebuilt from the index,** not from state held across the prompt.
 6. **A hash failure on one file never aborts the scan.**
+7. **Only copies that still match the kept file are deleted,** read again at delete time.
 
 ## Tests
 

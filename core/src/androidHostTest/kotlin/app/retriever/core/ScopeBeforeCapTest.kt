@@ -35,4 +35,31 @@ class ScopeBeforeCapTest {
             .search(SearchRequest("invoice", fileIds = setOf(oldId), onlyStarred = true, mode = SearchEngine.Mode.KEYWORD)).hits
         assertEquals(oldId, hits.single().fileId)
     }
+
+    @Test fun coldNameLaneScopesStarredBeforeItsFtsCap() {
+        val store = newStore()
+        val recent = List(Store.FTS_CAP.toInt() + 1) { testFile("invoice-$it.txt", modifiedAt = 2_000_000) }
+        val old = testFile("invoice-old.txt", modifiedAt = 1_000_000)
+        // Indexed first, so it is the oldest row the keyword table holds.
+        store.upsertFiles(listOf(old) + recent)
+        store.setStarred(old.uri, true, at = 1)
+        val oldId = store.fileByUri(old.uri)!!.id
+        val hits = SearchEngine(store, FakeEmbedder()).names(SearchRequest("invoice", fileIds = setOf(oldId), onlyStarred = true)).hits
+        assertEquals(oldId, hits.single().fileId)
+    }
+
+    @Test fun keywordLaneScopesContentBeforeTheCap() = runTest {
+        val store = newStore()
+        val target = testFile("notes.txt", modifiedAt = 1_000_000)
+        val outside = List(150) { testFile("doc-$it.txt", modifiedAt = 2_000_000) }
+        store.upsertFiles(outside + target)
+        // The short chunks outside the scope rank above the target's long one.
+        for (f in outside) store.replaceChunks(store.fileByUri(f.uri)!!.id, listOf(Store.NewChunk(1, "", "invoice", null)))
+        val targetId = store.fileByUri(target.uri)!!.id
+        val long = "invoice " + List(60) { "filler$it" }.joinToString(" ")
+        store.replaceChunks(targetId, listOf(Store.NewChunk(1, "", long, null)))
+        val hits = SearchEngine(store, FakeEmbedder())
+            .search(SearchRequest("invoice", contentIds = setOf(targetId), mode = SearchEngine.Mode.KEYWORD)).hits
+        assertEquals(listOf(targetId), hits.map { it.fileId })
+    }
 }
