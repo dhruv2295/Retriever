@@ -137,7 +137,7 @@ class RetrieverApp :
         // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
         retriever.setUiBusy(false)
         scope.launch {
-            if (!retriever.uiVisible) index.screenOff()
+            if (!retriever.uiVisible) index.screenOff(leaving = true)
             retriever.releaseIfIdle()
         }
     }

@@ -2,6 +2,7 @@ package app.retriever.indexing
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import android.os.PowerManager
 import android.provider.MediaStore
 import androidx.work.Constraints
@@ -92,21 +93,22 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         }
     }
 
-    suspend fun screenOff() {
+    /** [leaving]: the app just left view (onStop), rather than the screen-off broadcast, which Android may deliver much later. */
+    suspend fun screenOff(leaving: Boolean = false) {
         ownership.withLock {
             if (directTrial?.isActive == true && (!retriever.uiVisible || !context.getSystemService(PowerManager::class.java).isInteractive)) {
-                continueTrial()
+                continueTrial(leaving)
                 directTrial?.cancel()
                 return
             }
         }
         if (retriever.state.value.running) return
         if (retriever.hasPendingTaste()) {
-            continueTrial()
+            continueTrial(leaving)
         } else if (startsOnCharger(retriever.deviceState().pluggedIn, retriever.readingBlocker(), retriever.hasWork())) {
             // A charger run resting between batches (heat, a refused model open) holds the foreground service: replacing it
             // would end the service, which could not be started again from here.
-            if (!chargerRunAlive()) continueOnCharger()
+            if (!chargerRunAlive()) continueOnCharger(leaving)
         } else if (retriever.state.value.lastStop == StopReason.BUSY) {
             continueLater(10.seconds)
         }
@@ -118,22 +120,30 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     /** Short user-started work uses expedited WorkManager, avoiding device-idle maintenance windows. */
-    internal suspend fun continueTrial() = continueInForeground(TRIAL)
+    internal suspend fun continueTrial(leaving: Boolean = false) = continueInForeground(TRIAL, leaving)
 
     /**
      * The app just left with the phone on a charger and files to read: a run that asks for a foreground service while
      * Android still allows it (just after leaving a visible state) and holds it for as long as the charger does, batch
      * after batch. Refused, it is an ordinary run with follow-ups, as before.
      */
-    internal suspend fun continueOnCharger() = continueInForeground(CHARGER)
+    internal suspend fun continueOnCharger(leaving: Boolean = false) = continueInForeground(CHARGER, leaving)
 
     private suspend fun chargerRunAlive() = work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { CHARGER in it.tags && !it.state.isFinished }
 
-    private suspend fun continueInForeground(tag: String) {
+    /**
+     * The run asks for its foreground service ([FOREGROUND]) only where an exemption lets Android start one from the
+     * background: the app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit.
+     * Without one the start throws, and WorkManager, which counts the work as foreground before it tries, then ignores
+     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start).
+     */
+    private suspend fun continueInForeground(tag: String, leaving: Boolean) {
+        val ask = leaving || retriever.uiVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
             // Expedited work takes only network and storage constraints; core checks battery, heat and Battery Saver per file.
             .setConstraints(storageNotLow().build())
-            .setInputData(workDataOf(tag to true))
+            .setInputData(workDataOf(tag to true, FOREGROUND to ask))
             .addTag(tag)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
@@ -278,6 +288,9 @@ class IndexService(private val context: Context, private val retriever: Retrieve
 
         const val CHARGER = "charger"
         const val TRIAL = "trial"
+
+        /** Input data: the run may ask for a foreground service (see continueInForeground). */
+        const val FOREGROUND = "foreground"
         const val NOW = "index-now"
         const val CONTINUE = "index-continue"
         const val PERIODIC = "index-periodic"

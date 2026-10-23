@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -43,6 +44,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -62,12 +65,17 @@ class IndexServiceTest {
 
     private companion object {
         val PARKED = CompletableDeferred<ListenableWorker.Result>()
+
+        /** Each started run's input data, by work id. */
+        val INPUTS = ConcurrentHashMap<UUID, Data>()
     }
 
     @Before fun setUp() {
         val parked = object : WorkerFactory() {
-            override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker =
-                Parked(appContext, workerParameters)
+            override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker {
+                INPUTS[workerParameters.id] = workerParameters.inputData
+                return Parked(appContext, workerParameters)
+            }
         }
         WorkManagerTestInitHelper.initializeTestWorkManager(
             context,
@@ -86,6 +94,13 @@ class IndexServiceTest {
 
     /** Every run waits for storage that is not low; the test driver says when it is. */
     private fun storageFree(name: String) = infos(name).filter { !it.state.isFinished }.forEach { driver.setAllConstraintsMet(it.id) }
+
+    /** The input data the one live run of [name] starts with. */
+    private fun startedInput(name: String): Data {
+        val live = infos(name).single { !it.state.isFinished }
+        driver.setAllConstraintsMet(live.id)
+        return INPUTS.getValue(live.id)
+    }
 
     @Test fun aTimedContinueReplacesOneWaitingForTheCharger() {
         val service = IndexService(context, testRetriever())
@@ -123,6 +138,28 @@ class IndexServiceTest {
             assertTrue(name, run.constraints.requiresStorageNotLow())
             assertEquals(name, WorkInfo.State.ENQUEUED, run.state)
         }
+    }
+
+    /**
+     * Android starts a foreground service from the background only through an exemption: just leaving a visible state, or
+     * visible. A trial queued without one (a deferred screen-off broadcast, Battery Saver ending) runs as a plain job.
+     */
+    @Test fun aTrialAsksForItsForegroundServiceOnlyWhenAnExemptionApplies() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        val service = IndexService(context, retriever)
+
+        service.screenOff()
+        assertFalse("the screen-off broadcast, the app already hidden", startedInput(CONTINUE).getBoolean(IndexService.FOREGROUND, true))
+
+        service.screenOff(leaving = true)
+        assertTrue("the app leaving", startedInput(CONTINUE).getBoolean(IndexService.FOREGROUND, false))
+
+        service.powerSaveChanged()
+        assertFalse("Battery Saver off, hidden", startedInput(CONTINUE).getBoolean(IndexService.FOREGROUND, true))
+        retriever.uiVisible = true
+        service.powerSaveChanged()
+        assertTrue("Battery Saver off, in front", startedInput(CONTINUE).getBoolean(IndexService.FOREGROUND, false))
     }
 
     @Test fun leavingOnAChargerWithFilesToReadStartsAForegroundRunUnlessPaused() = runBlocking {
