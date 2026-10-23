@@ -997,7 +997,8 @@ class Retriever(
                 // kotlinx's type, which cancel() takes: common metadata sees it apart from kotlin's (one class on each platform).
                 planned.cancel(e)
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // An Error too (memory, at 100k files): the waiting caller holds indexLock and rethrows it.
                 if (!planned.completeExceptionally(e)) log("The library sync after the sample's plan failed", e)
             }
         }

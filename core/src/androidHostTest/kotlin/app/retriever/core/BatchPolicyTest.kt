@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -190,6 +191,18 @@ class BatchPolicyTest {
         assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertTrue(f.r.state.value.lastError != null)
         assertTrue(f.factory.opened.isEmpty())
+    }
+
+    private class ScanError : Error("the scan ran out of memory")
+
+    /** An Error in the plan's sync (memory, at 100k files) reaches the caller instead of leaving it waiting with the lock held. */
+    @Test
+    fun anErrorInThePlansSyncReachesTheCaller() = test {
+        val f = Fx()
+        f.onSync = { throw ScanError() }
+        assertFailsWith<ScanError> { f.r.planTaste() }
+        f.onSync = {}
+        assertEquals(1, f.r.planTaste().ids.size, "the lock was given back")
     }
 
     @Test
