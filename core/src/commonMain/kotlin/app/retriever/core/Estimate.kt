@@ -3,7 +3,6 @@ package app.retriever.core
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.concurrent.Volatile
-import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -92,12 +91,10 @@ fun readEstimate(book: SpeedBook, pending: Map<Kind, Long>, videoBytes: Long, io
 internal fun SpeedBook.measures(pending: Map<Kind, Number>): Boolean = pending.filterValues { it.toLong() > 0 }.keys.all { it in paces }
 
 /**
- * The live ETA. [book] outlives batches; what is left is read at each batch's start and counted down per file. The
- * minutes stay null until [SHOW_AFTER_MS] of work this session, and the shown value moves only past [moved].
+ * This session's pace: [book] outlives batches and launches, and the wall clock against inference time ([wallRatio])
+ * scales the short read's time left ([TasteProgress]).
  */
 internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
-    private var left = mutableMapOf<Kind, Long>()
-    private var videoBytes = 0L
     private var sessionMs = 0.0
     private var sessionFiles = 0
     private var lastAt: Long? = null
@@ -122,32 +119,17 @@ internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
      */
     fun shownRatio(budgetMs: Double): Double? = wallRatio?.takeIf { sessionFiles > 1 && wallMs >= budgetMs * SHOW_AFTER_BUDGET_SHARE }
 
-    var minutes: Int? = null
-        private set
-
-    /** Files a minute of work this session. */
-    val filesPerMinute: Double get() = if (sessionMs > 0) sessionFiles * 60_000 / sessionMs else 0.0
-
     fun changeBook(book: SpeedBook) {
         this.book = book
         sessionMs = 0.0
         sessionFiles = 0
         wallMs = 0.0
         wallRatio = null
-        minutes = null
     }
 
-    /** A batch starts: what is left, and the wall clock waits for its first file. */
-    fun start(pending: Map<Kind, Long>, videoBytes: Long) {
+    /** A batch starts: the wall clock waits for its first file. */
+    fun start() {
         lastAt = null
-        replan(pending, videoBytes)
-    }
-
-    /** What is left changed mid-batch (the sample trimmed). */
-    fun replan(pending: Map<Kind, Long>, videoBytes: Long) {
-        left = pending.toMutableMap()
-        this.videoBytes = videoBytes
-        update()
     }
 
     fun add(kind: Kind, ms: Double, units: Double) {
@@ -158,25 +140,11 @@ internal class Eta(@Volatile var book: SpeedBook, private val now: () -> Long) {
         sessionMs += ms
         sessionFiles++
         wallRatio = if (sessionMs > 0) wallMs / sessionMs else null
-        left[kind] = ((left[kind] ?: 0L) - 1).coerceAtLeast(0)
-        if (kind == Kind.VIDEO) videoBytes = (videoBytes - units.toLong()).coerceAtLeast(0)
-        update()
-    }
-
-    private fun update() {
-        if (sessionMs < SHOW_AFTER_MS) return
-        val now = ceil(book.ms(left, videoBytes) / 60_000).toInt()
-        if (moved(minutes, now)) minutes = now
     }
 
     companion object {
-        const val SHOW_AFTER_MS = 30_000.0
-
         /** The share of the sample's budget, in wall time, read before its time left shows: the rest of it shows a time. */
         const val SHOW_AFTER_BUDGET_SHARE = 0.25
-
-        /** More than 10%, and at least 2 minutes: a tolerance relative to the value with an absolute floor. */
-        fun moved(shown: Int?, now: Int): Boolean = shown == null || abs(now - shown) > max(0.1 * shown, 2.0)
     }
 }
 

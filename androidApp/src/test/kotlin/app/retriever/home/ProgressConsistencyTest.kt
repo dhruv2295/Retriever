@@ -15,7 +15,7 @@ class ProgressConsistencyTest {
     @Test fun homeAndStatusRenderTheSameCoreCountsAndPhaseWhileTrialTailsRemain() {
         val counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 58L), mapOf(Kind.DOC to 26_230L), 100, 24, waiting = 26_172, trial = true)
         val home = HomeUi(libraryChosen = true).withCounts(counts)
-        val index = IndexState(lastStop = StopReason.DONE, etaMinutes = 2)
+        val index = IndexState(lastStop = StopReason.DONE)
         val status = counts.progress
         assertEquals(58L, home.contentRead)
         assertEquals(home.contentRead, status.contentRead)

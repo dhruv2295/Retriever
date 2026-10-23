@@ -15,7 +15,6 @@ import kotlin.coroutines.cancellation.CancellationException
 internal class ModelHost(
     private val store: Store,
     private val factory: EmbedderFactory,
-    private val variant: ModelVariant,
     private val textOnly: Boolean,
     private val requiredBuild: StateFlow<ModelBuild>,
     private val modelReady: (ModelBuild) -> Boolean,
@@ -174,9 +173,6 @@ internal class ModelHost(
         store.setProfile(p.copy(backend = Backend.CPU))
         return true
     }
-
-    /** This phone's NPU build failed, so it runs the generic one. Reads the store; call off the main thread. */
-    fun fellBack(): Boolean = npuFailed().any { name -> ModelBuilds.npu.any { it.fileName == name && it.variant == variant } }
 
     fun npuFailed(): Set<String> = store.meta(NPU_FAILED)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
 

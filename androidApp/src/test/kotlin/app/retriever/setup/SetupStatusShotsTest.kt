@@ -564,7 +564,6 @@ class SetupStatusShotsTest {
         current = "IMG_20250914_183022.jpg",
         currentFile = previewFiles.first(),
         recentFiles = previewFiles,
-        etaMinutes = 95,
         backend = Backend.GPU,
         detail = "the vision encoder runs on the processor",
     )

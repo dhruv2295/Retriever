@@ -110,6 +110,9 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Real upload signing:** at the first Play or TestFlight upload.
 - **Jetpack PDF:** at 1.0 stable.
 - **Adaptive list-detail:** with Navigation 3 scenes and a tablet or foldable in the device matrix.
+- **Read estimate (WP-P1):** `readEstimate`, `Retriever.estimateAll` and iOS's measured background runs (`BgSpeed`)
+  are kept, though no screen shows them yet, until a full read is timed on a device against its own short read and
+  `ESTIMATE_CALIBRATED` flips. The live ETA they once fed is gone: no surface showed it.
 
 ### No (each with its reason)
 

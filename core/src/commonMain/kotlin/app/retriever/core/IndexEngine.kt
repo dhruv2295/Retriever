@@ -74,7 +74,7 @@ class IndexEngine(
     private val readAheadContext: CoroutineContext = Dispatchers.Default,
 ) {
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
-    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false): BatchResult {
+    suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, deepen: Boolean = false): BatchResult {
         val start = TimeSource.Monotonic.markNow()
         var processed = 0
         var failed = 0
@@ -111,7 +111,7 @@ class IndexEngine(
                 if (start.elapsedNow() >= budget) return stop(StopReason.BUDGET)
                 val now = settings()
                 val state = monitor.state()
-                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state), pauseWhenHot))?.let { return stop(it) }
+                (policyStop?.invoke() ?: stopReason(now, state, busy(), requireCharging(state)))?.let { return stop(it) }
                 if (configurationChanged()) return stop(StopReason.BUDGET)
                 if (files.isEmpty()) files += pendingPage()
                 val next = files.removeFirstOrNull()
@@ -302,16 +302,15 @@ class IndexEngine(
     }
 
     /** A policy that never changes mid-batch (tests, the eval). */
-    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, pauseWhenHot: Boolean = true, deepen: Boolean = false) =
-        runBatch(budget, { requireCharging }, pauseWhenHot, deepen)
+    internal suspend fun runBatch(budget: Duration, requireCharging: Boolean, deepen: Boolean = false) = runBatch(budget, { requireCharging }, deepen)
 
     companion object {
-        /** Why a batch must not go on now, or null to carry on: checked before every file, and by Retriever before it opens the model. */
-        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean, pauseWhenHot: Boolean = true): StopReason? = when {
+        /** Why a batch must not go on now, or null to carry on: checked before every file. */
+        fun stopReason(settings: IndexSettings, state: DeviceState, busy: Boolean, requireCharging: Boolean): StopReason? = when {
             settings.paused -> StopReason.PAUSED
             busy -> StopReason.BUSY
             state.powerSave -> StopReason.POWER_SAVE
-            state.hot && pauseWhenHot -> StopReason.HOT
+            state.hot -> StopReason.HOT
             requireCharging && !state.pluggedIn -> StopReason.UNPLUGGED
             else -> null
         }

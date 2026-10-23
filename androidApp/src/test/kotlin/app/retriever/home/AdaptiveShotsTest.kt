@@ -77,7 +77,6 @@ abstract class AdaptiveShotsTest(private val size: String) {
         processed = 120,
         pendingAtStart = 8_238,
         current = "IMG_20250914_183022.jpg",
-        etaMinutes = 95,
         backend = Backend.GPU,
         detail = "the vision encoder runs on the processor",
     )

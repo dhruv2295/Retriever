@@ -79,9 +79,6 @@ data class IndexState(
     val recentFiles: List<SourceFile> = emptyList(),
     val lastStop: StopReason? = null,
     val lastError: String? = null,
-    /** Files per minute of reading this session. */
-    val filesPerMinute: Double = 0.0,
-    val etaMinutes: Int? = null,
     val build: ModelBuild? = null,
     val backend: Backend? = null,
     /** Part of the model running elsewhere than [backend], e.g. the vision encoder on CPU. */
@@ -200,7 +197,6 @@ class Retriever(
     /** Downloaded bytes are present; tuning/opening is a separate concern. Refreshed by refreshSetUp and each batch. */
     val modelPresent: StateFlow<Boolean> = _modelPresent.asStateFlow()
     val modelDownloadBytes: Long get() = requiredBuild.value.sizeBytes
-    val audioContentSupported: Boolean get() = false
 
     /** Set up, but the model file is gone (freed, or a fallback build not downloaded yet): names and words search only. */
     val modelMissing: StateFlow<Boolean> = _modelMissing.asStateFlow()
@@ -309,7 +305,7 @@ class Retriever(
 
     /** The one embedder for indexing and search. Lock order: [indexLock] first, then its lock. */
     private val model = ModelHost(
-        store, factory, variant, textOnly, requiredBuild, modelReady, log, dispatchers,
+        store, factory, textOnly, requiredBuild, modelReady, log, dispatchers,
         reload = ::reload,
         onOpened = { e, build ->
             engine?.embedder = e
@@ -639,13 +635,10 @@ class Retriever(
         val started = TimeSource.Monotonic.markNow()
         val changed = changedSinceSync
         changedSinceSync = false
-        // The ETA and pace carry over: a batch boundary is not new information.
         _state.update {
             IndexState(
                 running = true,
                 lastStop = it.lastStop,
-                filesPerMinute = it.filesPerMinute,
-                etaMinutes = it.etaMinutes,
                 build = it.build,
                 backend = it.backend,
                 detail = it.detail,
@@ -693,22 +686,14 @@ class Retriever(
                     }
                 }
             }
-            // Under the first run's SAMPLE scope only the plan is work: the idle check, the ETA and the engine's pages.
+            // Under the first run's SAMPLE scope only the plan is work: the idle check and the engine's pages.
             selectPace(factory.profileNow(stored, onScreen))
             val ids = loadScope()
-            fun pendingNow(): Pair<Map<Kind, Long>, Long> {
-                val currentIds = sampleIds.value
-                return if (currentIds == null) {
-                    store.pendingByKind() to store.pendingBytes(Kind.VIDEO)
-                } else {
-                    store.pendingIn(currentIds).byKind().let { (k, bytes) -> k.mapValues { it.value.toLong() } to bytes }
-                }
-            }
-            val pending = pendingNow().first
+            val pending = if (ids == null) store.pendingByKind().values.sum() else store.pendingIn(ids).size.toLong()
 
             // An open app deepens once nothing is pending; in the background only on the charger with the screen off, even
             // when a few new files are read on battery (ReadingPolicy.deepenBlocker).
-            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), readingMonitor.state(), uiVisible, sampleSession(), now())
+            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), monitor.state(), uiVisible, sampleSession(), now())
             fun canDeepen(): Boolean = (mayDeepen || (uiVisible && sampleSession())) && !keywordOnly && deepenBlocker() == null
             val deepen = canDeepen()
             val tails = when {
@@ -717,7 +702,7 @@ class Retriever(
                 else -> store.tailCountsIn(ids).first
             }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
-            val idle = pending.values.sum() == 0L &&
+            val idle = pending == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
                 (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
                 // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
@@ -747,12 +732,11 @@ class Retriever(
                 val current = factory.profileNow(store.profile() ?: stored, onScreen)
                 deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
-            val (left, videoBytes) = pendingNow()
-            eta.start(left, videoBytes)
-            _state.update { it.copy(pendingAtStart = left.values.sum(), etaMinutes = eta.minutes, filesPerMinute = eta.filesPerMinute) }
+            eta.start()
+            _state.update { it.copy(pendingAtStart = pending) }
             val engine = if (ids == null) {
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, awaitUi = ::awaitUi,
+                    store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
                     readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) }, readAheadContext = dispatchers.readAhead,
                 )
@@ -760,7 +744,7 @@ class Retriever(
                 val rank = ids.withIndex().associate { it.value to it.index }
                 // Tails of planned files deepen after their heads; an empty plan stops DONE and nothing else is read.
                 IndexEngine(
-                    store, extractor, e, readingMonitor, settings, ::onFile, awaitUi = ::awaitUi,
+                    store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
@@ -812,11 +796,6 @@ class Retriever(
     /** Reading words and labels never requires the optional model; audio is always name-only. */
     private fun batchPrefs(): Prefs = store.prefs().let { it.copy(kinds = it.kinds intersect readableKinds) }
 
-    @Throws(Throwable::class)
-    suspend fun meaningStates(fileIds: List<Long>): Map<Long, MeaningState> = io { store.meaningStates(fileIds) }
-
-    private val readingMonitor = monitor
-
     /** Bumped whenever files come, go or change, so [home] reads again; reading files leaves it alone. */
     private val library = MutableStateFlow(0L)
 
@@ -835,13 +814,7 @@ class Retriever(
 
     private fun onCurrent(file: SourceFile) {
         if (_prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
-        _state.update {
-            it.copy(
-                current = file.name,
-                currentFile = file,
-                etaMinutes = if (store.fileByUri(file.uri)?.state == FileState.INDEXED) null else it.etaMinutes,
-            )
-        }
+        _state.update { it.copy(current = file.name, currentFile = file) }
     }
 
     private fun onFile(m: FileMetric) {
@@ -862,8 +835,6 @@ class Retriever(
                 } else {
                     it.recentFiles
                 },
-                filesPerMinute = eta.filesPerMinute,
-                etaMinutes = eta.minutes,
             )
         }
     }
@@ -1098,9 +1069,6 @@ class Retriever(
     suspend fun markCelebrated() = io { store.setFlag(CELEBRATED_KEY) }
 
     // --- Model ---
-
-    /** This phone's NPU build failed, so it runs the generic one. Reads the store; call off the main thread. */
-    fun fellBack(): Boolean = model.fellBack()
 
     /** Frees the model's memory; the next search or batch opens it again. */
     @Throws(Throwable::class)
@@ -1650,9 +1618,6 @@ class Retriever(
     internal companion object {
         const val RECENT_FILES = 24
         const val LARGE_FILE = 100L * 1024 * 1024
-
-        /** Battery percent at or below which a hidden app waits for the charger. */
-        const val LOW_BATTERY = 20
 
         const val GPU_RETESTED = "gpu_retested"
 

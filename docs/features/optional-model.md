@@ -26,8 +26,6 @@ not/partly added in meaning coverage even when their retry queue is exhausted.
 - `Retriever.modelPresent`: a flow of verified selected-build presence, refreshed by `refreshSetUp()` and batches.
 - `Retriever.requiredBuild`: the selected build, including `sizeBytes`; `modelDownloadBytes` exposes that size directly.
   Use the actual build size in copy: NPU downloads exceed 388 MB.
-- `Retriever.audioContentSupported`: false.
-- `Retriever.meaningStates(fileIds)`: `UNREAD`, `NOT_ADDED`, `PARTLY_ADDED` or `ADDED` for each existing file.
 - `Retriever.counts().meaning`: aggregate `notAdded`, `partlyAdded` and `added` counts of indexed files.
 - Existing `tailFiles`/`ReadExtent.DEEPENING` describe queued meaning work. These are a subset of indexed files,
   compatible with C = F + P. The facade hides the queue while the model is absent or the device is keyword-only.

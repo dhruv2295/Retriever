@@ -77,7 +77,7 @@ class TasteProgressTest {
     fun theWallRatioSkipsTheTimeBetweenBatches() {
         var now = 0L
         val eta = Eta(SpeedBook()) { now }
-        eta.start(mapOf(Kind.DOC to 5L), 0)
+        eta.start()
         now = 10_000
         eta.add(Kind.DOC, 4_000.0, 1.0) // the batch's first file: its own 4 s
         now = 22_000
@@ -85,7 +85,7 @@ class TasteProgressTest {
         assertEquals(16_000.0, eta.wallMs)
         assertEquals(2.0, eta.wallRatio)
         now = 600_000 // ten minutes away, then a new batch
-        eta.start(mapOf(Kind.DOC to 3L), 0)
+        eta.start()
         now = 604_000
         eta.add(Kind.DOC, 4_000.0, 1.0)
         assertEquals(20_000.0, eta.wallMs)
@@ -101,12 +101,12 @@ class TasteProgressTest {
     fun theTimeShowsOnASlowPhoneOnceAShareOfTheBudgetHasPassed() {
         var now = 0L
         val eta = Eta(SpeedBook()) { now }
-        eta.start(mapOf(Kind.PHOTO to 30L), 0)
+        eta.start()
         now = 30_000
         eta.add(Kind.PHOTO, 30_000.0, 1.0) // one long first file: a ratio of exactly 1, not a measurement
         assertEquals(null, eta.shownRatio(90_000.0))
         val eta5 = Eta(SpeedBook()) { now }
-        eta5.start(mapOf(Kind.PHOTO to 30L), 0)
+        eta5.start()
         now = 0
         repeat(6) {
             now += 5_000
