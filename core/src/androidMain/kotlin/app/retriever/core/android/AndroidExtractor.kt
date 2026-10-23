@@ -470,7 +470,7 @@ object ImageBytes {
 
     /**
      * [read] over [plan]'s bands of [uri], decoded one at a time by a region decoder so no bitmap is larger than one
-     * strip; null when the file can't be region-decoded, or is not the size [plan] is for.
+     * strip; null when the file can't be region-decoded, a band fails, or the file is not the size [plan] is for.
      */
     suspend fun <T> strips(context: Context, uri: Uri, plan: OcrStrips, read: suspend (Bitmap) -> T): List<T>? {
         val fd = try {
@@ -488,8 +488,8 @@ object ImageBytes {
                 // The plan's size came from ImageDecoder, which applies a JPEG's EXIF rotation; the region decoder does not.
                 if (decoder.width != plan.width || decoder.height != plan.height) return null
                 val options = BitmapFactory.Options().apply { inSampleSize = plan.sample }
-                plan.bands.mapNotNull { rows ->
-                    val bitmap = decoder.decodeRegion(Rect(0, rows.first, plan.width, rows.last + 1), options) ?: return@mapNotNull null
+                plan.bands.map { rows ->
+                    val bitmap = decoder.decodeRegion(Rect(0, rows.first, plan.width, rows.last + 1), options) ?: return null
                     // Recycled only once read returns: native ML Kit tasks may still hold the pixels after a cancellation.
                     read(bitmap).also { bitmap.recycle() }
                 }
