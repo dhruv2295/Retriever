@@ -1437,12 +1437,12 @@ class Retriever(
      * flow ends, as [watched] does: it never reaches a collector, and a screen waiting on suggestions still draws.
      */
     fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = sharedSuggestions[fileIds] ?: flow {
-        val terms = ContentSuggestions()
+        val terms = ContentSuggestions(fileIds)
         store.countChanges().conflate().collect {
             terms.refresh(store.readContentVersions(ContentSuggestions.FILES, fileIds.orEmpty()), store::file) { id ->
                 store.contentHead(id, ContentSuggestions.CHUNKS)
             }
-            emit(terms.suggestions(fileIds))
+            emit(terms.suggestions())
             // Indexing writes many times a second; the next recount waits, then takes the latest state.
             delay(1.seconds)
         }
