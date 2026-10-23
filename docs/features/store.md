@@ -142,10 +142,11 @@ how it migrates and how the migrations are verified.
 - `SyncBenchTest` (`-Pbench`): a 100k-file sync's statements per file, allocation, diff snapshot and longest removal
   transaction.
 - `DeadVectorsTest`: dead rows hidden, backfill reload, `aThrowingFtsRefillStillLeavesNamesLoaded`.
-- Not covered yet: `verifyCommonMainIndexDbMigration` is a Gradle task that nothing in `scripts/verify.sh` or CI runs, so
-  run it by hand when `Index.sq` or a `.sqm` changes; `tokenchars` equality between `Index.sq` and `2.sqm` (each is only
-  checked against the generator); restore versus a concurrent transaction; a plan-regression test for the other browse
-  queries (only the Home list and relink plans are pinned).
+- `scripts/verify.sh` runs `verifyCommonMainIndexDbMigration` (up to date unless `Index.sq`, a `.sqm` or a snapshot
+  changed).
+- Not covered yet: `tokenchars` equality between `Index.sq` and `2.sqm` (each is only checked against the generator);
+  restore versus a concurrent transaction; a plan-regression test for the other browse queries (only the Home list and
+  relink plans are pinned).
 
 ## Known limits
 

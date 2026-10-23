@@ -50,7 +50,8 @@ class IosEmbedderFactory(
     override fun backendNow(profile: DeviceProfile): Backend =
         if (profile.backend == Backend.GPU && !isActive() && !backgroundGpu()) Backend.CPU else profile.backend
 
-    @Throws(Throwable::class)
+    // EmbedderFactory.open's @Throws carries over (the header still has `error:`); repeating it here fails the shared
+    // iosMain metadata compile, which reads the two annotations as different filters (Kotlin 2.4.21).
     override fun open(profile: DeviceProfile, build: ModelBuild): Embedder {
         require(build.variant == profile.model) { "build ${build.variant} for profile ${profile.model}" }
         // Own cache dir per configuration, or different token configs collide on the compiled program cache.
