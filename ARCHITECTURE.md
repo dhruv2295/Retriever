@@ -42,7 +42,7 @@ source -> extract -> chunk -> embed -> store -> search. `Retriever` owns the ord
    later ones wait as keyword-only "tail" chunks, an over-long piece is halved, and a name vector is made only if nothing
    else embedded (`core/IndexEngine.kt:144,162`). The deepen pass (`embedTail`) fills tail vectors later.
 5. **Store.** `Store.replaceChunks` writes chunks, their FTS rows and `INDEXED` state in one transaction
-   (`core/Store.kt:183`). `IndexEngine` counts an attempt before each file and gives it back on cancel, so a file that
+   (`core/Store.kt:310`). `IndexEngine` counts an attempt before each file and gives it back on cancel, so a file that
    crashes the process ends `SKIPPED` after 3 tries (`core/IndexEngine.kt:104,131`; `Store.markFailed`).
 6. **Search.** `SearchEngine` fuses a vector lane (in-memory `VectorTable` scan), keyword lanes (`chunk_fts`,
    `file_fts`) and a name lane (`NameIndex`) with reciprocal rank fusion (`core/SearchEngine.kt:140,384`). Phase one,
@@ -55,27 +55,31 @@ source -> extract -> chunk -> embed -> store -> search. `Retriever` owns the ord
 
 ## Schema and migrations
 
-The database is `retriever.db` (`Store.DB_NAME`, `core/Store.kt:470`), defined in
+The database is `retriever.db` (`Store.DB_NAME`, `core/Store.kt:862`), defined in
 `core/src/commonMain/sqldelight/app/retriever/core/db/Index.sq`: `files`, `chunks`, `chunk_fts`, `file_fts`
 (FTS4, `unicode61` with generated `tokenchars`), `index_meta`, `recent_queries`, `starred`, and the `vector_deleted`
-trigger. Schema version is 3: `1.sqm` and `2.sqm` are the migrations.
+trigger. Schema version is 9: `1.sqm` to `8.sqm` are the migrations, and `docs/features/store.md` lists them all. The
+first two:
 
 - `1.sqm` (v1 to v2): adds `files.partial`, re-queues PDFs and large DOCs the old caps could have cut short, adds
   `files_by_kind_state`.
 - `2.sqm` (v2 to v3): adds `starred` and `files.taken_at`, clears `source_token` so one full sync backfills `taken_at`,
   recreates both FTS tables and sets `fts_rebuild`. The tables are refilled after the open by `rebuildFtsIfPending`,
-  called last in `Retriever.warmSearch` (`core/Store.kt:463`, `core/Retriever.kt:613`), not inside the migration.
+  called last in `Retriever.warmSearch` (`core/Store.kt:855`, `core/Retriever.kt:613`), not inside the migration.
 
 Android runs migrations through `AndroidSqliteDriver.Callback(IndexDb.Schema)` and logs the upgrade time
-(`androidApp/.../di/AppModule.kt`, `onUpgrade`); iOS uses `NativeSqliteDriver(IndexDb.Schema, ...)` in WAL mode
-(`core/src/iosMain/.../IosStore.kt:29`). A changed embedding model is not a migration: `resetForModel` drops every chunk
-and re-queues every file when the stored signature differs (`core/Store.kt:175`, `core/Retriever.kt:273`).
+(`androidApp/.../di/AppModule.kt`, `indexDriver`); iOS uses `NativeSqliteDriver(IndexDb.Schema, ...)` in WAL mode
+(`core/src/iosMain/.../IosStore.kt`, `iosIndexDriver`). An index written by a newer build (a downgrade) is made again by
+`Store.resetSchema`, Android from `onDowngrade` and iOS before sqliter's version check; settings and stars come back from
+the user-state file. A changed embedding model is not a migration: `resetForModel` keeps every chunk's text and labels,
+clears the vectors and queues only what needs one again when the stored signature differs (`core/Store.kt:297`,
+`core/Retriever.kt:273`).
 
 ## Dispatchers and scopes
 
 - `CoreDispatchers(default)` is the one injectable dispatcher in core (`core/CoreDispatchers.kt`). `Retriever` runs its
-  work on `dispatchers.default` through `io {}` and `withContext` (`core/Retriever.kt:158,723`); `Store.counts()` maps
-  its SQLDelight flows on it (`core/Store.kt:356`). Tests pass a test dispatcher.
+  work on `dispatchers.default` through `io {}` and `withContext` (`core/Retriever.kt:158,723`); the counts read
+  `Store.countsNow` there each time `Store.countChanges` emits (`core/Store.kt:624,655`). Tests pass a test dispatcher.
 - Platform adapters that block (file reads, hashing, decoding) use `Dispatchers.IO` or `Default` directly, e.g.
   `core/src/androidMain/.../MediaStoreSource.kt:49`, `core/src/iosMain/.../IosExtractor.kt:16`. `CoreDispatchers` does not
   reach them.
@@ -109,20 +113,21 @@ One owner per question:
 - **Index level.** Source-side skips (`FileRules.shouldSkip`) run in the source (`MediaStoreSource.kt:152`). `sync`
   drops excluded folders, removes vanished files, and forces a full scan when excludes or the source's `rulesVersion`
   changed or a day passed (`LibrarySync.kt:26`). `dropExcluded` applies a new exclusion at once, with no scan
-  (`LibrarySync.kt:88`). `removeLocked` is the one way files leave, under `namesLock`, and patches the in-memory
-  `NameIndex` (`LibrarySync.kt:103`). `Store.upsertFiles` clears a changed file's old chunks and FTS rows at once, so old
-  text never outlives the change (`core/Store.kt:54`).
+  (`LibrarySync.kt:125`). `removeLocked` is the one way files leave, under `namesLock`, 1,000 files a transaction, and
+  patches the in-memory `NameIndex` (`LibrarySync.kt:142`). `Store.upsertFiles` clears a changed file's old chunks and FTS
+  rows at once, so old text never outlives the change (`core/Store.kt:112`).
 - **Query level.** `Filter` is the single per-query rule; the file's own comment says no lane adds a filter of its own
   (`SearchEngine.kt:355`). `Retriever.parsedSearch` builds the request and relaxes parsed filters once if they leave
   nothing (`core/Retriever.kt:523`).
 - **Invalidation.** Every path that deletes a vector row ends in `DELETE FROM chunks`: `removeFiles`,
-  `replaceChunks`, `setChunkVector`, `splitTailChunk`, `deleteChunksOfKinds`, `resetForNewModel` (`Store.kt:78,183,237,219,106`,
-  `Index.sq` `resetForNewModel`). The `vector_deleted` trigger bumps `index_meta.vectors_deleted` on each
-  (`Index.sq`, trigger). `Store.takenAtBackfills` is the second counter, bumped by `upsertFiles` when a capture day is
-  filled in (`Store.kt:74,275`). `SearchEngine.refresh` reads both: it appends new rows by id, and rebuilds the table
+  `replaceChunks`, `setChunkVector`, `splitTailChunk`, `deleteChunksOfKinds` (`Store.kt:140,310,446,389,193`). The
+  `vector_deleted` trigger bumps `index_meta.vectors_deleted` on each (`Index.sq`, trigger). `resetForNewModel` clears
+  vectors with an `UPDATE`, which the trigger does not see, so it adds its own count of them in the same statement set
+  (`Index.sq` `resetForNewModel`). `Store.takenAtBackfills` is the second counter, bumped by `upsertFiles` when a capture
+  day is filled in (`Store.kt:136,498`). `SearchEngine.refresh` reads both: it appends new rows by id, and rebuilds the table
   when backfills changed or more than 10% of loaded rows were deleted (`SearchEngine.kt:112`). Between rebuilds, a scan
-  that picks a row whose chunk is gone marks it dead and rescans (`SearchEngine.kt:196`). Counts for the UI come from
-  SQLDelight query flows (`Store.counts`, `Store.kt:355`).
+  that picks a row whose chunk is gone marks it dead and rescans (`SearchEngine.kt:196`). Counts for the UI are
+  `Store.countsNow`, read again each time the `Store.countChanges` query flow emits (`Store.kt:624,655`).
 
 ## User state and backup
 
@@ -133,7 +138,7 @@ Two stores, different lifetimes:
   the demo database and `models/`. iOS: the data directory is marked `NSURLIsExcludedFromBackupKey` (`IosStore.kt:28`).
 - User state is the settings (`Prefs`) and the stars: a JSON file (`UserState`, `core/UserState.kt`). `Store` writes
   it on every prefs or star change (`setMeta` for the `prefs` key, `setStarred`, `relinkStars`) and restores it once,
-  lazily, into a database that has no settings yet (`core/Store.kt:430,434,450`). `UserStateFile` is the platform
+  lazily, into a database that has no settings yet (`core/Store.kt:744,813,823`). `UserStateFile` is the platform
   seam: write a temp file, then rename. Android: `files/user-state.json` via `AtomicFile`, backed up
   (`AppModule.kt`, rules files above). iOS: `<dataDir>-user-state.json` beside the data directory, so it is backed up
   while the directory is not (`IosStore.kt:32`). Demo mode passes no file.
@@ -142,7 +147,7 @@ Two stores, different lifetimes:
 
 Core's `log: (String, Throwable?) -> Unit` receives messages that hold no file names, folder names, paths or queries:
 kind, MIME, size, exception class, counts (`core/Retriever.kt:327`; `Store` logs the class only,
-`Store.kt:441`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
+`Store.kt:833`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
 Platform sinks: Android `LogSink` writes the message plus the exception class and top stack frame in release, never the
 exception message (`androidApp/.../diagnostics/LogSink.kt`); iOS logs through `os.Logger` with the message public because core
 guarantees it is clean (`AppServices.swift:59,74`). Crash and hang reports on iOS stay on the device in

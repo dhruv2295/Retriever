@@ -15,7 +15,7 @@ file's content is `extraction.md`; this note stops at the row.
 | PhotoKit (iOS) | `PHPhotoLibrary.fetchPersistentChanges(since:)` for inserts, updates and deletes; a full `PHAsset.fetchAssets` on token expiry. Identity is the creation date, or the modification date once the asset has adjustments. | Apple's persistent change history (iOS 16+) is the supported incremental API and reports deletions. |
 | Folders (iOS) | Security-scoped bookmarks and `FileManager.enumerator`, full walk each sync. iCloud placeholders are reported present and never downloaded. | The standard for user-picked folders; there is no change feed. |
 | `CompositeSource` | One token per child (a JSON map); presence and scope are reported only for children that listed everything. | An incremental Photos sync can never delete folder files, and an unmounted volume keeps its rows. |
-| `LibrarySync` | Token plus a daily full scan as a safety net; a full scan is forced on an excludes change or a rules-version change; removals are limited to the scan's `scope`; writes happen under `namesLock`. `SourceFile` mirrors the stored columns, so `known[uri] != it` is the change test (kind, mime and taken-at count). An incremental sync looks up only what changed in one bulk read (`Store.filesByUris`). One sync at a time (`syncLock`, scan to last write); `syncUnlessRunning` returns null while one runs, so a batch reads instead of waiting. A full scan hands its files to `first` before writing (the sample plan writes its rows and sets the plan), then writes the rest 1,000 rows a transaction. | Row upserts also have a SQL `WHERE` guard, so unchanged rows are not rewritten. Writing the plan first takes the whole upsert (976-987 ms of a 1.05-1.13 s plan at 26,248 files, JVM bench) out of the first run's tap-to-reading gap. |
+| `LibrarySync` | Token plus a daily full scan as a safety net; a full scan is forced on an excludes change or a rules-version change; removals are limited to the scan's `scope`; writes happen under `namesLock`. `SourceFile` mirrors the stored columns, so equality is the change test (kind, mime and taken-at count). A full scan compares against `Store.knownFingerprints`, a 64-bit FNV-1a hash of each stored row's columns by URI (15.8 MB instead of 37.9 MB of rows at 100k files, JVM bench); each kept file leaves the map and what remains is removed. An incremental sync looks up only what changed in one bulk read (`Store.filesByUris`), and diffs presence by paging the stored URIs, holding only the vanished ones. Removals commit 1,000 files a transaction, like upserts; an exclusion is applied with an exact `files_by_folder` range query. One sync at a time (`syncLock`, scan to last write); `syncUnlessRunning` returns null while one runs, so a batch reads instead of waiting. A full scan hands its files to `first` before writing (the sample plan writes its rows and sets the plan), then writes the rest 1,000 rows a transaction. | Row upserts also have a SQL `WHERE` guard, so unchanged rows are not rewritten. Writing the plan first takes the whole upsert (976-987 ms of a 1.05-1.13 s plan at 26,248 files, JVM bench) out of the first run's tap-to-reading gap. |
 | Triggers | Android: the WorkManager content-URI trigger `index-media` (`background-android.md`). iOS: the `PHPhotoLibraryChangeObserver` wakes the loop (`background-ios.md`). | Both survive better than an in-process observer. |
 
 ## Owner files
@@ -25,7 +25,7 @@ file's content is `extraction.md`; this note stops at the row.
 - `core/src/commonMain/kotlin/app/retriever/core/Adapters.kt` (`FileSource`, `Changes`, `SourceFile`)
 - `core/src/commonMain/kotlin/app/retriever/core/FileRules.kt` (kinds, rules version, exclusions)
 - `core/src/commonMain/kotlin/app/retriever/core/NameIndex.kt`
-- `core/src/commonMain/kotlin/app/retriever/core/Store.kt` (`upsertFiles`, `removeFiles`, `knownFiles`, `filesByUris`)
+- `core/src/commonMain/kotlin/app/retriever/core/Store.kt` (`upsertFiles`, `removeFiles`, `knownFingerprints`, `knownUris`, `urisInFolder`, `filesByUris`)
 - `core/src/commonMain/sqldelight/app/retriever/core/db/Index.sq`
 - `core/src/androidMain/kotlin/app/retriever/core/android/MediaStoreSource.kt`
 - `core/src/androidMain/kotlin/app/retriever/core/android/SafSource.kt`
@@ -44,17 +44,19 @@ file's content is `extraction.md`; this note stops at the row.
 5. A folder excluded during a scan is not brought back (the scan restarts instead).
 6. Every source URI starts with its child's prefix.
 7. Nothing is downloaded from iCloud during a scan.
-8. All file removals go through `removeLocked` and `Store.removeFiles`; stars stay with their file.
+8. All file removals go through `removeLocked` and `Store.removeFiles`, 1,000 a transaction; stars stay with their file.
+9. The fingerprint covers exactly the columns `SourceFile.equals` compares besides the URI.
 
 ## Tests
 
-`LibrarySyncTest`, `ProductStoreTest`, `IndexPipelineTest`, `CompositeSourceTest`, `ExclusionTest`, `SampleModeTest`,
+`LibrarySyncTest`, `BulkLibrarySyncTest`, `ProductStoreTest`, `IndexPipelineTest`, `CompositeSourceTest`, `ExclusionTest`, `SampleModeTest`,
 `FileRulesTest`, `NameIndexTest` (core); `AccessTest`, `ReadingRulesTest` (androidApp). iOS sources have no XCTest; the
 on-device `SelfTest.swift` is the only check.
 
 ## Known limits
 
 - MediaStore has no deletion feed: each incremental sync lists every `_ID`, at most once a minute by the trigger delay.
+  Rate-limiting that presence diff (deleted files stay findable meanwhile) is the owner's call.
 - SAF folders and iOS folders are walked in full every sync.
 - The daily full scan re-enumerates all assets on iOS.
 - PhotoKit has no public byte size, so iOS photo and video sizes are 0. That keeps them out of size-based Duplicates; decide
