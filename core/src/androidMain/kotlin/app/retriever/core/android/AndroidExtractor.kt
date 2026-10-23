@@ -43,6 +43,7 @@ import app.retriever.core.docFormat
 import app.retriever.core.fitSize
 import app.retriever.core.imageWithText
 import app.retriever.core.later
+import app.retriever.core.mlKitExecutor
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
@@ -61,6 +62,7 @@ import app.retriever.core.xlsxOrder
 import app.retriever.core.xlsxText
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
+import com.google.android.gms.tasks.Task
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
@@ -73,14 +75,13 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.cancellation.CancellationException
 
 private const val PDF_PREV_EXTENSION = 13
 
@@ -130,17 +131,19 @@ private fun openPdfPreV(fd: ParcelFileDescriptor): PdfDoc = PdfRendererPreV(fd).
 class AndroidExtractor(private val context: Context, private val log: MediaLog) :
     Extractor,
     AutoCloseable {
-    private val labeler = lazy { ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.7f).build()) }
+    private val labeler = lazy {
+        ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.7f).setExecutor(mlKitExecutor).build())
+    }
     private val recognizers = ConcurrentHashMap<OcrScript, TextRecognizer>()
 
     private fun recognizer(script: OcrScript): TextRecognizer = recognizers.computeIfAbsent(script) {
         TextRecognition.getClient(
             when (it) {
-                OcrScript.LATIN -> TextRecognizerOptions.DEFAULT_OPTIONS
-                OcrScript.DEVANAGARI -> DevanagariTextRecognizerOptions.Builder().build()
-                OcrScript.CHINESE -> ChineseTextRecognizerOptions.Builder().build()
-                OcrScript.JAPANESE -> JapaneseTextRecognizerOptions.Builder().build()
-                OcrScript.KOREAN -> KoreanTextRecognizerOptions.Builder().build()
+                OcrScript.LATIN -> TextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
+                OcrScript.DEVANAGARI -> DevanagariTextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
+                OcrScript.CHINESE -> ChineseTextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
+                OcrScript.JAPANESE -> JapaneseTextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
+                OcrScript.KOREAN -> KoreanTextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
             },
         )
     }
@@ -204,11 +207,8 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         return imageWithText("", jpeg, text, maxChars, labels)
     }
 
-    private suspend fun labels(bitmap: Bitmap): String = suspendCancellableCoroutine { cont ->
-        labeler.value.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { labels -> cont.resume(labels.joinToString("\n") { it.text.lowercase() }) }
-            .addOnFailureListener { cont.resumeWithException(it) }
-    }
+    private suspend fun labels(bitmap: Bitmap): String =
+        labeler.value.process(InputImage.fromBitmap(bitmap, 0)).awaitResult().joinToString("\n") { it.text.lowercase() }
 
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
         currentCoroutineContext().ensureActive()
@@ -261,21 +261,18 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         return readScripts(ocrOrder(languageTags)) { recognize(recognizer(it), image) }
     }
 
-    /** The text and the recognizer's own confidence in it, averaged over its lines by length. */
-    private suspend fun recognize(client: TextRecognizer, image: InputImage): OcrReading = try {
-        suspendCancellableCoroutine { cont ->
-            client.process(image)
-                .addOnSuccessListener { text ->
-                    val lines = text.textBlocks.flatMap { it.lines }
-                    val chars = lines.sumOf { it.text.length }
-                    val confidence = if (chars == 0) 0f else lines.sumOf { it.confidence.toDouble() * it.text.length }.toFloat() / chars
-                    cont.resume(OcrReading(text.text.trim(), confidence))
-                }
-                .addOnFailureListener { cont.resume(OcrReading.NONE) }
+    /** The text and the recognizer's own confidence in it, averaged over its lines by length; nothing when it fails. */
+    private suspend fun recognize(client: TextRecognizer, image: InputImage): OcrReading {
+        val text = try {
+            client.process(image).awaitResult()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return OcrReading.NONE
         }
-    } catch (e: Exception) {
-        if (e is kotlin.coroutines.cancellation.CancellationException) throw e
-        OcrReading.NONE
+        val lines = text.textBlocks.flatMap { it.lines }
+        val chars = lines.sumOf { it.text.length }
+        val confidence = if (chars == 0) 0f else lines.sumOf { it.confidence.toDouble() * it.text.length }.toFloat() / chars
+        return OcrReading(text.text.trim(), confidence)
     }
 
     private suspend fun pdf(uri: Uri, maxChars: Int, ocrNow: Int): List<Piece> {
@@ -356,6 +353,17 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
             Piece(momentLocator(m, audio != null), momentParts(jpeg, m.frameMs, audio), null)
         }
     }
+}
+
+/**
+ * An ML Kit task's result, waited for without a main-thread callback. A task cancelled while the caller is still active
+ * (its client was closed) fails like any other task rather than looking like a stop.
+ */
+internal suspend fun <T> Task<T>.awaitResult(): T = try {
+    await()
+} catch (e: CancellationException) {
+    currentCoroutineContext().ensureActive()
+    throw IllegalStateException("ML Kit task cancelled", e)
 }
 
 /**
