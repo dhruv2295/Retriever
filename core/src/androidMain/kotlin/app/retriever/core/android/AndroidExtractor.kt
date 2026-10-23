@@ -369,14 +369,10 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         xlsx: Boolean = false,
     ): String = context.contentResolver.openInputStream(uri)?.use { zipText(it, order, onCut, strip, single, xlsx) }.orEmpty()
 
-    private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> {
-        val audioSec = 0
-        return MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, audioSec, ctx, log, head = head).map { (m, jpeg) ->
-            if (jpeg == null) return@map later(momentLocator(m, false))
-            val audio = if (audioSec > 1) MediaDecoding.audioAt(context, uri, m.audioFromMs, m.audioToMs, ctx, log) else null
-            Piece(momentLocator(m, audio != null), momentParts(jpeg, m.frameMs, audio), null)
+    private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> =
+        MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, ctx, log, head = head).map { (m, jpeg) ->
+            if (jpeg == null) later(momentLocator(m, false)) else Piece(momentLocator(m, false), momentParts(jpeg, m.frameMs, null), null)
         }
-    }
 }
 
 /**

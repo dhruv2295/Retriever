@@ -33,20 +33,6 @@ object MediaDecoding {
     fun decodeAudio16kMono(context: Context, uri: Uri, maxSeconds: Int): ShortArray =
         audioAt(context, uri, 0, maxSeconds * 1000L, EmptyCoroutineContext, NO_LOG)
 
-    /** The container's duration; 0 when it can't be read. */
-    fun durationMs(context: Context, uri: Uri, log: MediaLog): Long {
-        val retriever = MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(context, uri)
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        } catch (e: Exception) {
-            log("couldn't read the duration", e)
-            0L
-        } finally {
-            runCatching { retriever.release() }
-        }
-    }
-
     /** Mono 16 kHz PCM for [fromMs, toMs); empty when the file has no decodable audio. Stops within one codec step of [ctx] being cancelled. */
     fun audioAt(context: Context, uri: Uri, fromMs: Long, toMs: Long, ctx: CoroutineContext, log: MediaLog): ShortArray {
         val extractor = MediaExtractor()
@@ -186,7 +172,6 @@ object MediaDecoding {
         context: Context,
         uri: Uri,
         everySec: Int,
-        audioSec: Int,
         ctx: CoroutineContext,
         log: MediaLog,
         maxSide: Int = 512,
@@ -198,7 +183,8 @@ object MediaDecoding {
             retriever.setDataSource(context, uri)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            val all = moments(durationMs, everySec, audioSec)
+            // Frames only: no model reads a video's sound.
+            val all = moments(durationMs, everySec, audioSec = 0)
             fun frame(m: Moment): ByteArray? {
                 ctx.ensureActive()
                 return listOf(m.frameMs, m.frameMs - 1000, m.frameMs + 1000)
