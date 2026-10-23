@@ -121,8 +121,9 @@ fun HomeScreen(
         onResume()
         onPauseOrDispose {}
     }
-    // Remembered: a fresh HomeActions per recomposition would defeat HomeBody's skipping.
-    val homeActions = remember(vm, context, requestReading) {
+    // Built once: a fresh HomeActions per recomposition would defeat HomeBody's skipping.
+    // Not keyed on vm: it lives as long as this screen's back-stack entry.
+    val homeActions = remember(context, requestReading) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },

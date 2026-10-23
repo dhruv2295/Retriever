@@ -81,6 +81,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
 
 object Thumbnails {
@@ -89,7 +90,9 @@ object Thumbnails {
      * normal heap's memory class, not largeHeap's: bitmaps live outside the Java heap, and the model and the indexer share
      * this process. Emptied once the UI is hidden, when the indexer may go on reading in the background.
      */
-    private class Memory(val app: Context) : ComponentCallbacks2 {
+    private class Memory(app: Context) : ComponentCallbacks2 {
+        /** The application this cache belongs to, held weakly: a static must not hold a context. */
+        val owner = WeakReference(app)
         val bitmaps: LruCache<String, Bitmap>
         val misses = LruCache<String, Boolean>(2000)
 
@@ -122,8 +125,8 @@ object Thumbnails {
     /** One cache per application: the process's in use, a fresh one for each test's. */
     private fun memory(context: Context): Memory {
         val app = context.applicationContext
-        return memory?.takeIf { it.app === app } ?: synchronized(this) {
-            memory?.takeIf { it.app === app } ?: Memory(app).also { memory = it }
+        return memory?.takeIf { it.owner.get() === app } ?: synchronized(this) {
+            memory?.takeIf { it.owner.get() === app } ?: Memory(app).also { memory = it }
         }
     }
 

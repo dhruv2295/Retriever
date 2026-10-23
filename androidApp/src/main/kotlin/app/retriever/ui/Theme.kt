@@ -9,13 +9,13 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.core.Retriever
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import org.koin.compose.koinInject
 
 // Android 12+ follows the wallpaper. Android 11 (minSdk 30) gets these, picked from the icon: golden amber
@@ -73,9 +73,12 @@ private val WarmDark = darkColorScheme(
  * they run without Koin.
  */
 @Composable
-private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean =
-    remember(retriever) { retriever.prefs.map { it.dynamicColor }.distinctUntilChanged() }
-        .collectAsStateWithLifecycle(retriever.prefs.value.dynamicColor).value
+private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean {
+    val prefs = retriever.prefs.collectAsStateWithLifecycle()
+    // Derived, so the theme is told of a change to this one field only.
+    val on by remember(prefs) { derivedStateOf { prefs.value.dynamicColor } }
+    return on
+}
 
 @Composable
 fun RetrieverTheme(dark: Boolean = isSystemInDarkTheme(), dynamic: Boolean = wallpaperColorsOn(), content: @Composable () -> Unit) {
