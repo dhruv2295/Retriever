@@ -11,11 +11,14 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import androidx.core.graphics.applyCanvas
 import androidx.core.graphics.createBitmap
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.OCR_SHORT_PX
 import app.retriever.core.OCR_WIDTH
 import app.retriever.core.android.ImageBytes
+import app.retriever.core.ocrStrips
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -62,7 +65,7 @@ class FixtureProvider : ContentProvider() {
 /** The pixels the extractor hands the model, the labeler and OCR. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE) // real JPEG coding and ImageDecoder
+@GraphicsMode(GraphicsMode.Mode.NATIVE) // real JPEG and PNG coding, ImageDecoder and BitmapRegionDecoder
 class ImageBytesTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val provider = Robolectric.setupContentProvider(FixtureProvider::class.java, AUTHORITY)
@@ -99,6 +102,26 @@ class ImageBytesTest {
         val page = createBitmap(1600, 2071).apply { eraseColor(Color.WHITE) } // US Letter at OCR_WIDTH
         assertEquals(512 to 663, size(ImageBytes.pageJpeg(page)))
         assertFalse("OCR reads the full render after", page.isRecycled)
+    }
+
+    @Test
+    fun aTallScreenshotIsDecodedOneOverlappingStripAtATime() {
+        val screenshot = createBitmap(540, 9000).applyCanvas {
+            drawColor(Color.RED)
+            clipRect(0, 4500, 540, 9000)
+            drawColor(Color.BLUE)
+        }
+        val uri = serve("long.png", screenshot, Bitmap.CompressFormat.PNG)
+        val strips = ocrStrips(540, 9000)!!
+
+        val read = runBlocking {
+            ImageBytes.strips(app, uri, strips) { Triple(it.width to it.height, it.getPixel(0, 467), it.getPixel(0, 468)) }!!
+        }
+
+        assertEquals(listOf(540 to 4096, 540 to 4096, 540 to 936), read.map { it.first })
+        // The second strip starts 64 rows above where the first ends (4032), so the colour change at 4500 is its row 468.
+        assertEquals(Color.RED to Color.BLUE, read[1].second to read[1].third)
+        assertEquals(Color.BLUE to Color.BLUE, read[2].second to read[2].third)
     }
 
     private companion object {

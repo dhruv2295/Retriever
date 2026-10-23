@@ -3,8 +3,11 @@ package app.retriever.core.android
 import android.content.Context
 import android.content.res.Resources
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Color
 import android.graphics.ImageDecoder
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.graphics.pdf.PdfRendererPreV
 import android.graphics.pdf.RenderParams
@@ -29,6 +32,7 @@ import app.retriever.core.OCR_SHORT_PX
 import app.retriever.core.OCR_WIDTH
 import app.retriever.core.OcrReading
 import app.retriever.core.OcrScript
+import app.retriever.core.OcrStrips
 import app.retriever.core.PDF_HEAD_OCR_PAGES
 import app.retriever.core.PDF_OCR_PAGES
 import app.retriever.core.Part
@@ -43,12 +47,14 @@ import app.retriever.core.decodeText
 import app.retriever.core.docFormat
 import app.retriever.core.fitSize
 import app.retriever.core.imageWithText
+import app.retriever.core.joinStrips
 import app.retriever.core.later
 import app.retriever.core.mlKitExecutor
 import app.retriever.core.momentLocator
 import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
 import app.retriever.core.ocrScripts
+import app.retriever.core.ocrStrips
 import app.retriever.core.pdfPieces
 import app.retriever.core.readScripts
 import app.retriever.core.slideOrder
@@ -200,18 +206,31 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
     }
 
     private suspend fun picture(uri: Uri, maxChars: Int, photo: Boolean): List<Piece> {
+        val maxSide = if (photo) OCR_WIDTH else MAX_PAGE_PX
+        var tall: OcrStrips? = null
         // Sections for a Perfetto capture: which of the four steps a photo's time goes to.
         // GC owns these pixels: native ML Kit tasks may still hold them after coroutine cancellation.
-        val bitmap = traced("pic.decode") { ImageBytes.bitmap(context, uri, if (photo) OCR_WIDTH else MAX_PAGE_PX, maxShort = OCR_SHORT_PX) }
-            ?: return emptyList()
+        val bitmap = traced("pic.decode") {
+            ImageBytes.bitmap(context, uri, maxSide) { w, h ->
+                tall = if (photo) null else ocrStrips(w, h)
+                // A screenshot too tall to OCR whole is read in strips below, so this decode only feeds the model and labels.
+                if (tall != null) fitSize(w, h, EMBED_PX, EMBED_PX) else fitSize(w, h, OCR_SHORT_PX, maxSide)
+            }
+        } ?: return emptyList()
+        val strips = tall
         // The model and the labeler see the OCR decode scaled down: no second decode, and no MediaProvider thumbnail.
         val thumb = traced("pic.thumb") { ImageBytes.scaled(bitmap, EMBED_PX, EMBED_PX) }
-        val text = tracedAsync("pic.ocr") { ocr(bitmap) }
+        val text = tracedAsync("pic.ocr") { if (strips == null) ocr(bitmap) else tallText(uri, strips) }
         // The same 512 px pixels label and embed; only after labeling, as compress recycles them.
         val labels = tracedAsync("pic.labels") { labels(thumb) }
         val jpeg = runCatching { ImageBytes.compress(thumb) }.getOrNull() ?: return emptyList()
-        return imageWithText("", jpeg, text, maxChars, labels)
+        val pieces = imageWithText("", jpeg, text, maxChars, labels)
+        return if (strips?.cut == true) pieces + cutShort() else pieces
     }
+
+    /** A screenshot's text strip by strip; read whole at the long-side cap, as before strips, when it can't be. */
+    private suspend fun tallText(uri: Uri, strips: OcrStrips): String = ImageBytes.strips(context, uri, strips) { ocr(it) }?.let(::joinStrips)
+        ?: ImageBytes.bitmap(context, uri, MAX_PAGE_PX, maxShort = OCR_SHORT_PX)?.let { ocr(it) }.orEmpty()
 
     private suspend fun labels(bitmap: Bitmap): String =
         labeler.value.process(InputImage.fromBitmap(bitmap, 0)).awaitResult().joinToString("\n") { it.text.lowercase() }
@@ -420,11 +439,18 @@ fun InputStream.readCapped(cap: Int, onCut: () -> Unit): String {
 
 object ImageBytes {
     /** Decoded to fit [maxSide] on the longer side and [maxShort] on the shorter. */
-    fun bitmap(context: Context, uri: Uri, maxSide: Int, maxShort: Int = Int.MAX_VALUE): Bitmap? = try {
-        decode(ImageDecoder.createSource(context.contentResolver, uri), maxSide, maxShort)
+    fun bitmap(context: Context, uri: Uri, maxSide: Int, maxShort: Int = Int.MAX_VALUE): Bitmap? =
+        bitmap(context, uri, maxSide) { w, h -> fitSize(w, h, maxShort, maxSide) }
+
+    /**
+     * Decoded at the size [fit] picks from the image's own (scaled down only); MediaStore's thumbnail within
+     * [fallbackSide] when the platform can't decode the file.
+     */
+    fun bitmap(context: Context, uri: Uri, fallbackSide: Int, fit: (width: Int, height: Int) -> Pair<Int, Int>): Bitmap? = try {
+        decode(ImageDecoder.createSource(context.contentResolver, uri), fit)
     } catch (e: Exception) {
         // ImageBytes.bitmap's loadThumbnail fallback adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt (Apache-2.0).
-        runCatching { context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null) }.getOrNull()
+        runCatching { context.contentResolver.loadThumbnail(uri, Size(fallbackSide, fallbackSide), null) }.getOrNull()
     }
 
     /** [bitmap] scaled down to fit [maxShort] x [maxLong], always as a new bitmap: [compress] recycles what it is given. */
@@ -437,6 +463,45 @@ object ImageBytes {
     fun pageJpeg(page: Bitmap): ByteArray = compress(scaled(page, PAGE_SHORT_PX, PAGE_LONG_PX))
 
     /**
+     * [read] over [plan]'s bands of [uri], decoded one at a time by a region decoder so no bitmap is larger than one
+     * strip; null when the file can't be region-decoded, or is not the size [plan] is for.
+     */
+    suspend fun <T> strips(context: Context, uri: Uri, plan: OcrStrips, read: suspend (Bitmap) -> T): List<T>? {
+        val fd = try {
+            context.contentResolver.openFileDescriptor(uri, "r")
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return fd.use {
+            val decoder = try {
+                regionDecoder(fd)
+            } catch (_: Exception) {
+                return null
+            }
+            try {
+                // The plan's size came from ImageDecoder, which applies a JPEG's EXIF rotation; the region decoder does not.
+                if (decoder.width != plan.width || decoder.height != plan.height) return null
+                val options = BitmapFactory.Options().apply { inSampleSize = plan.sample }
+                plan.bands.mapNotNull { rows ->
+                    val bitmap = decoder.decodeRegion(Rect(0, rows.first, plan.width, rows.last + 1), options) ?: return@mapNotNull null
+                    // Recycled only once read returns: native ML Kit tasks may still hold the pixels after a cancellation.
+                    read(bitmap).also { bitmap.recycle() }
+                }
+            } finally {
+                decoder.recycle()
+            }
+        }
+    }
+
+    private fun regionDecoder(fd: ParcelFileDescriptor): BitmapRegionDecoder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        BitmapRegionDecoder.newInstance(fd)
+    } else {
+        // Android 11 has only this file-descriptor variant.
+        @Suppress("DEPRECATION")
+        BitmapRegionDecoder.newInstance(fd.fileDescriptor, false)
+    }
+
+    /**
      * The embed image, decoded here at [maxSide]. Not ContentResolver.loadThumbnail: that is MediaProvider's UI thumbnail,
      * often a camera's small EXIF one, and on a cache miss it decodes the image again and writes a file to shared storage.
      */
@@ -444,11 +509,11 @@ object ImageBytes {
 
     /** A bundled drawable as an embed image, decoded straight from the APK's resources. */
     fun jpeg(resources: Resources, id: Int, maxSide: Int): ByteArray? =
-        runCatching { compress(decode(ImageDecoder.createSource(resources, id), maxSide, Int.MAX_VALUE)) }.getOrNull()
+        runCatching { compress(decode(ImageDecoder.createSource(resources, id)) { w, h -> fitSize(w, h, Int.MAX_VALUE, maxSide) }) }.getOrNull()
 
-    private fun decode(source: ImageDecoder.Source, maxSide: Int, maxShort: Int): Bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+    private fun decode(source: ImageDecoder.Source, fit: (Int, Int) -> Pair<Int, Int>): Bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        val (w, h) = fitSize(info.size.width, info.size.height, maxShort, maxSide)
+        val (w, h) = fit(info.size.width, info.size.height)
         if (w != info.size.width || h != info.size.height) decoder.setTargetSize(w, h)
     }
 

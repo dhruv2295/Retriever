@@ -82,9 +82,50 @@ fun fitSize(w: Int, h: Int, maxShort: Int, maxLong: Int): Pair<Int, Int> {
 
 /**
  * The size to OCR an image at: ML Kit wants about 16 px per character, which a 1080 px short side gives for screen
- * text, and the long side stays under [MAX_PAGE_PX] so a very tall screenshot does not decode to a huge bitmap.
+ * text, and the long side stays under [MAX_PAGE_PX] so a very tall screenshot does not decode to a huge bitmap
+ * (Android reads one that this would shrink in [ocrStrips]).
  */
 fun ocrTargetSize(w: Int, h: Int): Pair<Int, Int> = fitSize(w, h, OCR_SHORT_PX, MAX_PAGE_PX)
+
+/** Rows two OCR strips share, so a line that one strip's edge cuts is whole in the next. */
+const val OCR_STRIP_OVERLAP_PX = 64
+
+/** The most strips one image is read in; rows past them are left out, and the file counts as read in part. */
+const val MAX_OCR_STRIPS = 6
+
+/** Full-width row [bands] of a [width] x [height] image, each decoded at 1/[sample] scale for OCR. */
+class OcrStrips(val width: Int, val height: Int, val sample: Int, val bands: List<IntRange>) {
+    /** The bands stop short of the bottom ([MAX_OCR_STRIPS]). */
+    val cut: Boolean get() = bands.last().last < height - 1
+}
+
+/**
+ * Strips for an image so tall that [ocrTargetSize]'s long-side cap would shrink its text (a scrolled chat or article
+ * screenshot), else null. Each decodes at least [OCR_SHORT_PX] wide (full width when narrower), with at most
+ * [MAX_PAGE_PX] rows and [OCR_SHORT_PX] x [MAX_PAGE_PX] pixels: a strip costs what one capped image did.
+ */
+fun ocrStrips(width: Int, height: Int): OcrStrips? {
+    if (width <= 0 || height.toLong() * minOf(width, OCR_SHORT_PX) <= MAX_PAGE_PX.toLong() * width) return null
+    var sample = 1
+    while (width / (sample * 2) >= OCR_SHORT_PX) sample *= 2
+    val rows = minOf(MAX_PAGE_PX, OCR_SHORT_PX * MAX_PAGE_PX / (width / sample)) * sample
+    val overlap = OCR_STRIP_OVERLAP_PX * sample
+    val bands = mutableListOf<IntRange>()
+    var top = 0
+    while (bands.size < MAX_OCR_STRIPS) {
+        val bottom = minOf(height, top + rows)
+        bands += top until bottom
+        if (bottom == height) break
+        top = bottom - overlap
+    }
+    return OcrStrips(width, height, sample, bands)
+}
+
+/** The OCR texts of consecutive strips as one text; a line read on both sides of an overlap is kept once. */
+fun joinStrips(texts: List<String>): String = texts.map { it.trim() }.filter { it.isNotEmpty() }.reduceOrNull { joined, next ->
+    val last = joined.substringAfterLast('\n')
+    if (next.substringBefore('\n') == last) joined + next.removePrefix(last) else "$joined\n$next"
+}.orEmpty()
 
 /**
  * One running byte budget (4 x [TEXT_BYTES]) for all the entries of a zip (epub chapters, pptx slides), so a zip
