@@ -28,10 +28,8 @@ enum ViewerCopy {
     static func page(_ page: Int, of total: Int) -> String? { total > 1 ? "Page \(page) of \(total)" : nil }
     static func match(ms: Int64?) -> String? { ms.map { "Match at \(clock(seconds: Int($0 / 1000)))" } }
 
-    /// "1:05" or "1:02:05", in the person's digits.
-    static func clock(seconds: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond).locale(locale))
-    }
+    /// "1:05" or "1:02:05", as the result's badge and Android write it.
+    static func clock(seconds: Int) -> String { Locator.shared.time(sec: Int32(clamping: seconds)) }
 }
 
 /// A file shown in the app at the place it matched.
