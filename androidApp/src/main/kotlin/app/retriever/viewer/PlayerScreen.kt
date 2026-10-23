@@ -48,6 +48,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
     StarFailureEffect(stars, snackbar)
     val vm = koinViewModel<PlayerViewModel>()
     val ui by vm.ui.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onStart() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onStop() }
     // The start time is said once, then gets out of the title's way.
     var showFrom by rememberSaveable { mutableStateOf(route.startMs > 0) }
