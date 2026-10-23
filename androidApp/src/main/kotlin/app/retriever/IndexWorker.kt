@@ -87,10 +87,10 @@ class IndexWorker(
         retriever.refreshSetUp()
         val started = TimeSource.Monotonic.markNow()
         val trial = inputData.getBoolean(IndexService.TRIAL, false)
-        // Before access, which the person may not have given yet; a trial runs in front, where the upgrade does this.
-        if (!trial) prepareModel()
         // Before setup finishes a batch only syncs the file list, so names are findable before reading starts.
         if (!platformReady()) {
+            // Before access too, which the person may not have given yet; a trial runs in front, where the upgrade does this.
+            if (!trial) prepareModel()
             retriever.clearUnavailableLibrary()
             return@withContext Result.success()
         }
@@ -103,6 +103,9 @@ class IndexWorker(
                 val foreground = (ask || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
+                // After the service starts: Android allows a start for a few seconds after leaving, and a hash or tune can
+                // take a minute. Before the guard, which can stop only a batch.
+                if (!trial) prepareModel()
                 val guard = launch { stopBeforeFreeze() }
                 // Before the batch, so a GPU that passes serves this run; its minute comes out of the batch's budget.
                 if (!trial) {

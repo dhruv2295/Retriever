@@ -135,7 +135,8 @@ class IndexService(private val context: Context, private val retriever: Retrieve
      * The run asks for its foreground service ([FOREGROUND]) only where an exemption lets Android start one from the
      * background: the app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit.
      * Without one the start throws, and WorkManager, which counts the work as foreground before it tries, then ignores
-     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start).
+     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start). Leaving's exemption lasts only seconds,
+     * so the worker asks before anything else, the model's check and tune included.
      */
     private suspend fun continueInForeground(tag: String, leaving: Boolean) {
         val ask = leaving || retriever.uiVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
