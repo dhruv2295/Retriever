@@ -1,5 +1,6 @@
 package app.retriever.home
 
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -117,6 +118,8 @@ fun HomeScreen(
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val onResume = remember(vm) { vm::onResume }
+    // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
+    ReportDrawnWhen { ui.counts != null }
     // All-files access is switched in Settings, so the "can't see your files" line clears on return without a restart.
     LifecycleResumeEffect(Unit) {
         onResume()

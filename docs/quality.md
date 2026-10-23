@@ -113,6 +113,10 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Real upload signing:** at the first Play or TestFlight upload.
 - **Jetpack PDF:** at 1.0 stable.
 - **Adaptive list-detail:** with Navigation 3 scenes and a tablet or foldable in the device matrix.
+- **Generated Baseline Profile:** at the first store upload, the `androidx.baselineprofile` plugin with a
+  `:baselineprofile` module (cold start to Home, a search, opening a result) and a Macrobenchmark startup test. Until
+  then `androidApp/src/main/baseline-prof.txt` holds app-wide wildcard rules (every `app/retriever/**` class and method,
+  `:core` included), and Home reports fully drawn once its counts load (`ReportDrawnWhen`).
 
 ### No (each with its reason)
 
