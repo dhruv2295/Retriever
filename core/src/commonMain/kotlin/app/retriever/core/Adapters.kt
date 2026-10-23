@@ -95,4 +95,7 @@ suspend fun Embedder.embed(parts: List<Part>): Vector = Vector.of(embedRaw(parts
 
 interface DeviceMonitor {
     fun state(): DeviceState
+
+    /** The system says memory is low now (Android's `MemoryInfo.lowMemory`): no file is read ahead beside the model. */
+    fun lowMemory(): Boolean = false
 }

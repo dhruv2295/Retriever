@@ -119,6 +119,55 @@ class RetrieverTest {
     }
 
     @Test
+    fun trimMemoryReleasesAHiddenSoonFollowUpAndTheVectorTable() = test {
+        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        IndexDb.Schema.create(db)
+        var fullLoads = 0
+        // Only a full load of the vector table sizes it first.
+        val counting = object : SqlDriver by db {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> {
+                if (sql == "SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL") fullLoads++
+                return db.executeQuery(identifier, sql, mapper, parameters, binders)
+            }
+        }
+        val f = fx(store = Store(counting).also { it.resetForModel(genericSig) })
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.SOON, batch.await())
+        f.r.releaseIfIdle()
+        f.r.warmSearch()
+        assertFalse(f.factory.last!!.closed, "an imminent follow-up keeps the model warm")
+        assertEquals(1, fullLoads)
+
+        f.r.trimMemory()
+
+        assertTrue(f.factory.last!!.closed, "under pressure the follow-up opens it again")
+        f.r.warmSearch()
+        assertEquals(2, fullLoads, "the vector table was dropped and loads again")
+    }
+
+    @Test
+    fun trimMemoryDuringABatchKeepsTheModelItIsUsing() = test {
+        val f = fx()
+        f.r.setUiBusy(true)
+        val batch = async { f.r.indexBatch(1.minutes) }
+        advanceUntilIdle()
+        f.r.trimMemory()
+        assertFalse(f.factory.last!!.closed)
+        f.r.setUiBusy(false)
+        assertEquals(NextRun.DONE, batch.await())
+    }
+
+    @Test
     fun pausingAHiddenSoonFollowUpReleasesTheModel() = test {
         val f = fx()
         f.r.setUiBusy(true)

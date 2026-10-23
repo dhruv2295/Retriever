@@ -304,7 +304,7 @@ class Retriever(
     private val indexLock = Mutex()
     private var batchSoon = false // guarded by indexLock, including the gap before a SOON follow-up
 
-    /** Outlives any one embedder, so a reopen keeps the loaded vector table. Read and set under [model]'s lock. */
+    /** Outlives any one embedder, so a reopen keeps the loaded vector table; [trimMemory] drops it. Read and set under [model]'s lock. */
     private var engine: SearchEngine? = null
 
     /** The one embedder for indexing and search. Lock order: [indexLock] first, then its lock. */
@@ -754,7 +754,7 @@ class Retriever(
                 IndexEngine(
                     store, extractor, e, readingMonitor, settings, ::onFile, awaitUi = ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) }, readAheadContext = dispatchers.readAhead,
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) }, readAheadContext = dispatchers.readAhead,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
@@ -767,7 +767,7 @@ class Retriever(
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible) },
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) },
                     readAheadContext = dispatchers.readAhead,
                 )
             }
@@ -1125,6 +1125,26 @@ class Retriever(
         if (uiVisible) return
         releaseWanted = true
         retryRelease()
+    }
+
+    /**
+     * The system is short of memory (Android's onTrimMemory from TRIM_MEMORY_BACKGROUND, an iOS memory warning): gives back
+     * what is rebuilt on demand. The model closes, even when an imminent follow-up would keep it warm, unless the app is in
+     * front or a batch or search is using it; the vector table goes too, and the next search or warm-up loads it again.
+     */
+    @Throws(Throwable::class)
+    suspend fun trimMemory() {
+        withContext(NonCancellable) {
+            if (uiVisible) return@withContext
+            if (indexLock.tryLock()) {
+                try {
+                    if (model.releaseIf { !uiVisible && searching.value == 0 }) releaseWanted = false
+                } finally {
+                    indexLock.unlock()
+                }
+            }
+            model.lock.withLock { engine = null }
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package app.retriever
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.BatteryManager
@@ -35,5 +36,13 @@ class AndroidDeviceMonitorTest {
     @Test fun offTheChargerIsNotPluggedIn() {
         battery(0)
         assertFalse(AndroidDeviceMonitor(context).state().pluggedIn)
+    }
+
+    @Test fun lowMemoryIsWhatTheSystemSays() {
+        val activities = shadowOf(context.getSystemService(ActivityManager::class.java))
+        activities.setMemoryInfo(ActivityManager.MemoryInfo().apply { lowMemory = true })
+        assertTrue(AndroidDeviceMonitor(context).lowMemory())
+        activities.setMemoryInfo(ActivityManager.MemoryInfo().apply { lowMemory = false })
+        assertFalse(AndroidDeviceMonitor(context).lowMemory())
     }
 }

@@ -2,6 +2,7 @@ package app.retriever
 
 import android.app.Application
 import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -140,6 +141,16 @@ class RetrieverApp :
             if (!retriever.uiVisible) index.screenOff()
             retriever.releaseIfIdle()
         }
+    }
+
+    /**
+     * Cached in the background, the process is next in line to be killed: give back what search and reading rebuild on
+     * demand (the model, the vector table), as the memory guide asks at TRIM_MEMORY_BACKGROUND and above. UI_HIDDEN needs
+     * nothing here: [onStop] already releases an idle model.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) scope.launch { retriever.trimMemory() }
     }
 
     /** Once per process, on IO: opens the database and settles [Retriever.setUp]. */

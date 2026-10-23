@@ -329,9 +329,9 @@ class IndexEngine(
 
         /**
          * Files read while one embeds: two on a charger, one on battery or under [TWO_AHEAD_MIN_RAM_GB] (two files' decoded
-         * pages beside the model), fewer as the phone warms; none while the app shows.
+         * pages beside the model), fewer as the phone warms; none while the app shows or the system says memory is low.
          */
-        fun readAheadDepth(state: DeviceState, visible: Boolean): Int = if (visible) {
+        fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false): Int = if (visible || lowMemory) {
             0
         } else {
             minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)
