@@ -1,7 +1,7 @@
 import RetrieverCore
 import SwiftUI
 
-/// The one upgrade, "Search by meaning and what's in your photos", wherever it shows: under Try's suggestions, Home's compact row
+/// The one upgrade, "Search by description", wherever it shows: under Try's suggestions, Home's compact row
 /// and Settings. Offer, then the download, then the tune, then the meaning pass, by core's `UpgradePolicy`.
 struct UpgradeCard: View {
     let model: AppModel
@@ -10,7 +10,7 @@ struct UpgradeCard: View {
     @State private var askingMobileData = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var size: String { Copy.downloadSize(model.snap?.downloadBytes ?? 0) }
+    private var size: String { model.downloadSize }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -23,10 +23,7 @@ struct UpgradeCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .alert(Words.shared.mobileDataAsk(size: size), isPresented: $askingMobileData) {
-            Button(Words.shared.DOWNLOAD) { model.setUseMobileData(true) }
-            Button(Words.shared.WAIT_FOR_WIFI, role: .cancel) {}
-        }
+        .mobileDataAsk(model, isPresented: $askingMobileData)
     }
 
     @ViewBuilder private var offer: some View {
@@ -73,7 +70,7 @@ struct UpgradeCard: View {
                 Button(Words.shared.USE_MOBILE_DATA) { askingMobileData = true }.buttonStyle(.bordered)
                 Button(Words.shared.CANCEL, action: model.cancelDownload)
             }
-        case .failed(let reason):
+        case .failed(let reason), .noSpace(let reason):
             Failure(reason)
             Button(Words.shared.TRY_AGAIN, action: model.downloadModel).buttonStyle(.bordered)
         default:
@@ -101,6 +98,16 @@ struct UpgradeCard: View {
             let read = Double(max(progress.contentRead, 1))
             Text(Words.shared.addingMeaning(progress: progress)).font(.subheadline).monospacedDigit()
             ProgressView(value: Double(progress.contentRead - progress.meaningWaiting) / read).accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    /// Use mobile data, asked first: the download is large. Yes starts it again under the new rule.
+    func mobileDataAsk(_ model: AppModel, isPresented: Binding<Bool>) -> some View {
+        alert(Words.shared.mobileDataAsk(size: model.downloadSize), isPresented: isPresented) {
+            Button(Words.shared.DOWNLOAD) { model.setUseMobileData(true) }
+            Button(Words.shared.WAIT_FOR_WIFI, role: .cancel) {}
         }
     }
 }

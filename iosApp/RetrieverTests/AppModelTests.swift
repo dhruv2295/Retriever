@@ -86,7 +86,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(AppModel(fixture: .reading(done: 10, total: 100)).continuing)
         guard #available(iOS 26.0, *) else { return XCTAssertFalse(offered(.reading(done: 10, total: 100))) }
         XCTAssertTrue(offered(.reading(done: 10, total: 100)))
-        XCTAssertTrue(offered(.sampleReading), "the sample reads with no download")
+        XCTAssertTrue(offered(.sampleReading), "the first search reads while the download runs")
         XCTAssertFalse(offered(.caughtUp), "nothing waits")
         XCTAssertFalse(offered(.paused), "the person paused it")
         XCTAssertFalse(offered(.firstRun), "no access chosen yet")
@@ -125,9 +125,8 @@ final class AppModelTests: XCTestCase {
     }
 
     /// The demo's flows ran for the app's whole life, so core recounted the demo on every file read long after setup
-    /// ended. They are open only on the stages that show them (the choice says how the demo ended), and its chips only
-    /// on the demo once its files are picked.
-    func testTheDemoFlowsAreOpenOnlyWhileTheDemoOrTheChoiceShows() async {
+    /// ended. They are open only while the first search shows, and its chips only once its files are picked.
+    func testTheFirstSearchFlowsAreOpenOnlyWhileItShows() async {
         let model = AppModel(services: temporaryServices())
         model.watchSetup(stage: .welcome)
         XCTAssertTrue(model.sampleObservations.isEmpty)
@@ -136,16 +135,13 @@ final class AppModelTests: XCTestCase {
         model.watchSetup(stage: .sample)
         XCTAssertEqual(model.sampleObservations.count, 2, "opened once, not again on every change")
         XCTAssertNil(model.trySuggestionsObservation, "no chips before the files are picked")
-        model.watchSetup(stage: .choose)
-        XCTAssertEqual(model.sampleObservations.count, 2)
-        XCTAssertNil(model.trySuggestionsObservation)
         model.watchSetup(stage: .done)
         XCTAssertTrue(model.sampleObservations.isEmpty)
         XCTAssertNil(model.trySuggestionsObservation)
     }
 
-    /// The demo's chips are the model's, so the demo's first frame already has them; before any file, the hint.
-    func testTheDemoReadsItsChipsFromTheModel() {
+    /// The first search's chips are the model's, so its first frame already has them; before any file, the hint.
+    func testTheFirstSearchReadsItsChipsFromTheModel() {
         XCTAssertEqual(AppModel(fixture: .sampleReading).trySuggestions.count, 3)
         XCTAssertTrue(AppModel(fixture: .sampleStart).trySuggestions.isEmpty)
     }
@@ -155,9 +151,10 @@ final class AppModelTests: XCTestCase {
     /// Each fixture's stored answers land on the stage core gives them, with Photos and folders added here.
     func testSetupStagesComeFromCoreWithAccessAdded() {
         let table: [(AppFixture, SetupStage, Bool)] = [
-            (.firstRun, .welcome, true), (.photosLimited, .welcome, true), (.photosDenied, .welcome, true),
-            (.folderAdded, .welcome, true), (.sampleStart, .sample, true), (.sampleReading, .sample, true), (.sampleDone, .sample, true),
-            (.choosing, .choose, true), (.chooseSkipped, .choose, true), (.caughtUp, .done, false),
+            (.firstRun, .welcome, true), (.textOnly(ramGb: 3), .welcome, true), (.accessNone, .access, true), (.photosLimited, .access, true),
+            (.photosDenied, .access, true), (.folderAdded, .access, true), (.accessBoth, .access, true), (.sampleStart, .sample, true),
+            (.sampleReading, .sample, true), (.sampleReady, .sample, true), (.sampleDone, .sample, true), (.caughtUp, .done, false),
+            (.homeIntro(ready: true), .done, false),
         ]
         for (fixture, stage, shown) in table {
             let setup = AppModel(fixture: fixture).setup
@@ -166,67 +163,86 @@ final class AppModelTests: XCTestCase {
         }
     }
 
-    /// Continue waits for Photos (all or some) or a folder; a denied Photos alone gives nothing to read.
-    func testAccessCountsPhotosOrAFolder() {
-        XCTAssertFalse(AppModel(fixture: .firstRun).accessGiven)
+    /// Continue waits for Photos (all or some) or a folder; a refused Photos alone gives nothing to read.
+    func testContinueWaitsForPhotosOrAFolder() {
+        XCTAssertFalse(AppModel(fixture: .accessNone).accessGiven)
         XCTAssertTrue(AppModel(fixture: .photosLimited).accessGiven)
         XCTAssertFalse(AppModel(fixture: .photosDenied).accessGiven)
         XCTAssertTrue(AppModel(fixture: .folderAdded).accessGiven)
-        // Access taken away later brings back the welcome's ask, even after the choice was made.
+        XCTAssertTrue(AppModel(fixture: .accessBoth).accessGiven)
+        // Access taken away later brings back the access screen, even after setup ended.
         let model = AppModel(fixture: .caughtUp)
         model.setupInputs = SetupInputs(mark: .accessChosen, skipped: false, decided: true, planned: 30, accessGiven: false)
         XCTAssertFalse(model.setup?.showSetup ?? true)
         (model.photos, model.folders) = (.denied, [])
-        XCTAssertEqual(model.setup?.stage, .welcome)
+        XCTAssertEqual(model.setup?.stage, .access)
         XCTAssertTrue(model.setup?.showSetup ?? false)
     }
 
-    /// On the welcome, all photos or a folder added chooses access at once; selected photos wait for Continue.
-    func testAllPhotosOrAFolderChoosesAccessOnTheWelcome() async {
-        for (photos, folders, chosen) in [(PHAuthorizationStatus.authorized, [String](), true), (.notDetermined, ["Work"], true), (.limited, [], false)] {
-            let services = temporaryServices()
-            let model = AppModel(services: services)
-            let loaded = await eventually { model.setup?.stage == .welcome }
-            XCTAssertTrue(loaded)
-            (model.photos, model.folders) = (photos, folders)
-            model.accessChanged()
-            let marked = await eventually(timeout: 3) { model.setupInputs?.mark == .accessChosen }
-            XCTAssertEqual(marked, chosen, "\(photos.rawValue) \(folders)")
-            if !chosen {
-                // Continue is the answer for selected photos.
-                model.setSetupMark(.accessChosen)
-                let continued = await eventually { model.setup?.stage == .sample }
-                XCTAssertTrue(continued)
-            }
+    /// Access given on the access screen never moves on by itself: the person confirms with Continue, so both rows can be
+    /// filled first. Back returns to Hello.
+    func testAccessWaitsForContinueAndBackReturnsToHello() async {
+        let services = temporaryServices()
+        let model = AppModel(services: services)
+        model.startDownload = {}
+        model.getStarted()
+        let greeted = await eventually { model.setup?.stage == .access }
+        XCTAssertTrue(greeted)
+        (model.photos, model.folders) = (.authorized, ["Work"])
+        model.accessChanged()
+        let moved = await eventually(timeout: 2) { model.setup?.stage != .access }
+        XCTAssertFalse(moved, "Photos and a folder given, still on the access screen")
+        model.setupBack()
+        let back = await eventually { model.setup?.stage == .welcome }
+        XCTAssertTrue(back)
+        model.getStarted()
+        _ = await eventually { model.setup?.stage == .access }
+        model.setSetupMark(.accessChosen)
+        let continued = await eventually { model.setup?.stage == .sample }
+        XCTAssertTrue(continued)
+    }
+
+    /// Hello's title and download note are right on its first frame, before any snapshot.
+    func testHelloKnowsTheModelBeforeTheFirstSnapshot() {
+        let services = temporaryServices()
+        let model = AppModel(services: services)
+        XCTAssertNil(model.snap, "no snapshot yet")
+        XCTAssertEqual(model.textOnly, services.retriever.textOnly)
+        XCTAssertEqual(model.downloadOnGetStarted, !services.retriever.textOnly, "a fresh install has no model")
+    }
+
+    /// Get started downloads search by description only on an iPhone that runs it and lacks it.
+    func testGetStartedDownloadsOnlyWhenTheModelRunsAndIsMissing() {
+        for (fixture, downloads) in [(AppFixture.firstRun, true), (.textOnly(ramGb: 3), false), (.caughtUp, false)] {
+            let model = AppModel(fixture: fixture)
+            var started = 0
+            model.startDownload = { started += 1 }
+            XCTAssertEqual(model.downloadOnGetStarted, downloads, String(describing: fixture))
+            model.getStarted()
+            XCTAssertEqual(started, downloads ? 1 : 0, String(describing: fixture))
         }
     }
 
-    /// A later stage keeps its mark when Photos is answered from Home or Search.
-    func testAccessAnsweredAfterSetupLeavesTheMarkAlone() async throws {
+    /// The first search's Continue ends setup and asks Home for its card; Got it puts the card away.
+    func testContinueFinishesSetupAndGotItDismissesTheCard() async {
         let services = temporaryServices()
         let model = AppModel(services: services)
-        try await services.retriever.setSetupMark(mark: .choosing)
-        let choosing = await eventually { model.setupInputs?.mark == .choosing }
-        XCTAssertTrue(choosing)
-        model.photos = .authorized
-        model.accessChanged()
-        let regressed = await eventually(timeout: 2) { model.setupInputs?.mark == .accessChosen }
-        XCTAssertFalse(regressed)
+        model.folders = ["Work"]
+        _ = try? await services.retriever.setSetupMark(mark: .accessChosen)
+        let sampling = await eventually { model.setup?.stage == .sample }
+        XCTAssertTrue(sampling)
+        model.finishSetup()
+        let finished = await eventually { model.setup?.stage == .done && model.snap?.prefs?.homeIntroDue == true }
+        XCTAssertTrue(finished)
+        model.dismissHomeIntro()
+        let dismissed = await eventually { model.snap?.prefs?.homeIntroDue == false }
+        XCTAssertTrue(dismissed)
     }
 
-    /// Skip the demo leads to the choice, never past it; setup shows until a choice is made.
-    func testSkipTheDemoLeadsToTheChoice() {
-        let skipped = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 30, accessGiven: true)
-        XCTAssertEqual(skipped.stage, .choose)
-        XCTAssertTrue(skipped.showSetup)
-        XCTAssertEqual(skipped.step, .readSample)
-    }
-
-    func testTheDemoSearchesItsOwnFilesAndKnowsWhatIsLeft() {
+    func testTheFirstSearchSearchesItsOwnFiles() {
         let model = AppModel(fixture: .sampleDone)
-        XCTAssertEqual(model.sampleIds.count, 30, "the demo searches inside its own files")
+        XCTAssertEqual(model.sampleIds.count, 30, "the first search looks inside its own files")
         XCTAssertEqual(model.snap?.waiting, 25_763)
-        XCTAssertFalse(model.nothingLeft, "Continue leads to the choice")
     }
 
     // MARK: The meaning upgrade
@@ -243,26 +259,50 @@ final class AppModelTests: XCTestCase {
         }
     }
 
-    func testTheOfferWaitsForAFirstSearchAndStaysDismissed() throws {
+    func testTheOfferShowsAtOnceAndStaysDismissed() throws {
         let model = AppModel(fixture: .noModel)
         let prefs = try XCTUnwrap(model.snap?.prefs)
-        func with(tried: Bool, dismissed: Bool) -> Prefs {
+        func with(tried: Bool, dismissed: Bool, intro: Bool = false) -> Prefs {
             prefs.doCopy(
                 kinds: prefs.kinds, onlyWhileCharging: prefs.onlyWhileCharging, schedule: prefs.schedule, readNowUntil: prefs.readNowUntil,
                 excludedFolders: prefs.excludedFolders, paused: prefs.paused, sampleSize: prefs.sampleSize, allowMobileData: prefs.allowMobileData,
                 rememberSearches: prefs.rememberSearches, dynamicColor: prefs.dynamicColor, setupStarted: prefs.setupStarted,
                 notificationsDismissed: prefs.notificationsDismissed, noMatchSeen: prefs.noMatchSeen, showOnThisDay: prefs.showOnThisDay,
                 readingCycle: prefs.readingCycle, dismissedReadingCycle: prefs.dismissedReadingCycle, searchTried: tried,
-                upgradeOfferDismissed: dismissed)
+                upgradeOfferDismissed: dismissed, homeIntroDue: intro, notifyWhenCaughtUp: prefs.notifyWhenCaughtUp)
         }
         model.snap?.prefs = with(tried: false, dismissed: false)
-        XCTAssertFalse(model.upgradeOnHome, "not before a first search")
+        XCTAssertTrue(model.upgradeOnHome, "offered at once, before any search")
+        model.snap?.prefs = with(tried: true, dismissed: false, intro: true)
+        XCTAssertFalse(model.upgradeOnHome, "not while Home's one-time card says the same")
         model.snap?.prefs = with(tried: true, dismissed: true)
         XCTAssertFalse(model.upgradeOnHome, "Not now holds")
         // The search hint shows only under few results, and only while the upgrade is on offer.
         XCTAssertNotNil(Words.shared.upgradeHint(results: 1, upgrade: model.upgrade))
         XCTAssertNil(Words.shared.upgradeHint(results: 3, upgrade: model.upgrade))
         XCTAssertNil(Words.shared.upgradeHint(results: 0, upgrade: AppModel(fixture: .caughtUp).upgrade))
+    }
+
+    /// The first search and Home's card say where search by description stands in core's words, from the download's state.
+    func testDescriptionStateFollowsTheDownload() {
+        let table: [(AppFixture, DescriptionState)] = [
+            (.sampleReading, .downloading), (.sampleWaitingForWifi, .waitingForWifi), (.sampleReady, .ready), (.downloadFailed, .failed),
+            (.noModel, .notStarted), (.tuning, .preparing), (.homeIntro(ready: true), .ready), (.homeIntro(ready: false), .downloading),
+            (.textOnly(ramGb: 3), .unavailable),
+        ]
+        for (fixture, state) in table { XCTAssertEqual(AppModel(fixture: fixture).descriptionState, state, String(describing: fixture)) }
+        // Not enough space: the download never starts, and both screens say why.
+        XCTAssertEqual(AppModel.phase(.noSpace("Free up 120 MB")), .noSpace)
+        XCTAssertEqual(UpgradePolicy.shared.description(stage: .download, download: AppModel.phase(.noSpace(""))), .noSpace)
+        // A finished download is checked until core finds the model, never "downloading" again.
+        XCTAssertEqual(AppModel.phase(.ready), .checking)
+        // The card's button: one where it helps, none where there is nothing to do.
+        for state in [DescriptionState.waitingForWifi, .failed, .notStarted] {
+            XCTAssertNotNil(Words.shared.recentFilesAction(state: state, size: "388 MB"), "\(state)")
+        }
+        for state in [DescriptionState.ready, .downloading, .preparing, .noSpace, .unavailable] {
+            XCTAssertNil(Words.shared.recentFilesAction(state: state, size: "388 MB"), "\(state)")
+        }
     }
 
     func testSetUseMobileDataFlipsTheFlagAndLeavesTheOldKeyAlone() {

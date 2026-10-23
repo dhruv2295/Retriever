@@ -342,7 +342,8 @@ final class SearchModel {
                     dynamicColor: p.dynamicColor, setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                     noMatchSeen: p.noMatchSeen + 1, showOnThisDay: p.showOnThisDay, readingCycle: p.readingCycle,
                     dismissedReadingCycle: p.dismissedReadingCycle,
-                    searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed)
+                    searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed, homeIntroDue: p.homeIntroDue,
+                    notifyWhenCaughtUp: p.notifyWhenCaughtUp)
             }
         }
     }
