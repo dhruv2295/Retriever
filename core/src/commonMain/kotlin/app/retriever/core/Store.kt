@@ -389,7 +389,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun replaceTailChunk(id: Long, chunks: List<NewChunk>) {
         val index = signature()
         check(chunks.all { it.vector == null || it.vector.signature == index }) { "vector signature does not match index ${index?.value}" }
-        q.transaction {
+        transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (n in chunks) {
                 val v = n.vector
