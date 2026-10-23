@@ -50,7 +50,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 // Stays in app.retriever: WorkManager persists this class name in pending work specs.
-// Built by Koin's WorkerFactory (workerOf in AppModule), so its dependencies are constructor parameters.
+// Built by Koin's WorkerFactory (worker { } in AppModule), so its dependencies are constructor parameters.
 class IndexWorker(
     context: Context,
     params: WorkerParameters,
@@ -89,11 +89,12 @@ class IndexWorker(
         }
         try {
             val next = coroutineScope {
-                // A trial handoff owns its foreground service before waiting for the direct batch to stop. A run that can't read
+                // A trial handoff owns its foreground service before waiting for the direct batch to stop. A trial or charger run
+                // asks only when IndexService saw an exemption that lets Android start it (FOREGROUND). A run that can't read
                 // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
                 val trial = inputData.getBoolean(IndexService.TRIAL, false)
-                val charger = inputData.getBoolean(IndexService.CHARGER, false)
-                val foreground = (trial || charger || (!retriever.state.value.running && retriever.uiVisible)) &&
+                val ask = inputData.getBoolean(IndexService.FOREGROUND, false)
+                val foreground = (ask || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
                 val guard = launch { stopBeforeFreeze() }
@@ -144,9 +145,13 @@ class IndexWorker(
     }
 
     /**
-     * WorkManager can run this worker in-process with no job behind it (GreedyScheduler). Once the app is hidden and holds no
-     * foreground service, Android ranks it cached and freezes it 10 s later, mid-batch or mid model open, and nothing restarts
-     * it: a Pixel 8 Pro read nothing for hours that way. Stopping the batch first lets the normal follow-up run as a real job.
+     * This worker can run with no job keeping the process alive: WorkManager may run it in-process with no job behind it
+     * (GreedyScheduler), and a refused setForeground leaves WorkManager counting it as foreground (Processor.startForeground
+     * records it before the start throws), so it ignores the job's stop. IndexService asks for the service only where an
+     * exemption applies, which avoids most of the second, but not a start refused after Android 15's 6 h limit. Once the app
+     * is hidden and holds no foreground service, Android ranks it cached and freezes it 10 s later, mid-batch or mid model
+     * open, and nothing restarts it: a Pixel 8 Pro read nothing for hours that way. Stopping the batch first lets the normal
+     * follow-up run as a real job.
      */
     private suspend fun stopBeforeFreeze() {
         while (true) {
@@ -187,10 +192,11 @@ class IndexWorker(
         false
     }
 
-    // mediaProcessing has its own budget on API 35+.
+    // dataSync on every level: Play's foreground service declaration lists local file processing under it, while
+    // mediaProcessing's only declared use is media transcoding. Android 15+ gives either type the same 6 h a day.
     private suspend fun foregroundInfo() = ForegroundInfo(
         notificationId,
         Notifications.progress(applicationContext, retriever.counts().first().let { it.sampleProgress ?: it.progress }, null, pauseIntent),
-        if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
 }

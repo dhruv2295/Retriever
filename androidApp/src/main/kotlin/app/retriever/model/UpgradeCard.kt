@@ -1,5 +1,9 @@
 package app.retriever.model
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.os.storage.StorageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -183,10 +187,24 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
 
         is ModelState.Failed -> {
             Text(if (m.reason == ModelRepository.STOPPED) Words.DOWNLOAD_FAILED else m.reason, live, color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = actions.download) { Text(Words.TRY_AGAIN) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions.download) { Text(Words.TRY_AGAIN) }
+                if (m.noSpace) {
+                    val context = LocalContext.current
+                    TextButton(onClick = { openStorageManager(context) }) { Text(Words.FREE_UP_SPACE) }
+                }
+            }
         }
 
         ModelState.Missing, ModelState.Done -> Unit
+    }
+}
+
+/** Android's own screen for freeing space (developer.android.com/training/data-storage/app-specific#query-free-space). */
+private fun openStorageManager(context: Context) {
+    try {
+        context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))
+    } catch (_: ActivityNotFoundException) {
     }
 }
 

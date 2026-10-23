@@ -90,7 +90,8 @@ clears the vectors and queues only what needs one again when the stored signatur
   `core/src/androidMain/.../MediaStoreSource.kt:49`, `core/src/iosMain/.../IosExtractor.kt:16`. `CoreDispatchers` does not
   reach them.
 - Android scopes: `AppScope` (`SupervisorJob() + Dispatchers.IO`) for work that outlives a screen
-  (`androidApp/.../di/AppModule.kt`); `viewModelScope` in ViewModels; `IndexWorker.doWork` on `Dispatchers.IO`.
+  (`androidApp/.../di/AppModule.kt`); `viewModelScope` in ViewModels; `IndexWorker.doWork` on `indexingDispatcher`, a
+  dedicated background-priority thread (`core/src/androidMain/.../IndexingDispatcher.kt`).
 - Locks, each with one owner:
   - `Retriever.indexLock`: one batch at a time, and the plan, Tune and the model's open ahead of a search. A run that
     replaces a cancelled batch waits up to `LOCK_WAIT`; releases only `tryLock`. Rename, delete, Tune and losing access

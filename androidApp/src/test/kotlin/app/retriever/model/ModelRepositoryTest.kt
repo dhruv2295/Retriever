@@ -3,6 +3,7 @@ package app.retriever.model
 import android.app.DownloadManager
 import android.content.Context
 import android.database.Cursor
+import android.database.MatrixCursor
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.retriever.core.ModelBuild
@@ -32,12 +33,11 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowDownloadManager
-import org.robolectric.shadows.ShadowStatFs
 import java.io.File
 import java.security.MessageDigest
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = android.app.Application::class)
+@Config(sdk = [35], application = android.app.Application::class, shadows = [SpaceShadow::class])
 class ModelRepositoryTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val dir = File(context.filesDir, "models").apply { mkdirs() }
@@ -65,13 +65,13 @@ class ModelRepositoryTest {
     @Before fun setUp() {
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         ShadowDownloadManager.reset()
-        ShadowStatFs.registerStats(dir, 1_000_000, 900_000, 900_000)
+        SpaceShadow.allocatable = 4_000_000_000L
     }
 
     @After fun tearDown() = scope.cancel()
 
-    private fun progress(bytes: Long = 0, done: Boolean = false, failed: Boolean = false, wifi: Boolean = false) =
-        polls.trySend(ModelDownload.Progress(bytes, 100, done, failed, wifi))
+    private fun progress(bytes: Long = 0, done: Boolean = false, failed: Boolean = false, wifi: Boolean = false, noSpace: Boolean = false) =
+        polls.trySend(ModelDownload.Progress(bytes, 100, done, failed, wifi, noSpace))
 
     private fun awaitState(want: (ModelState) -> Boolean) = runBlocking { withTimeout(5_000) { repo.state.first(want) } }
 
@@ -145,10 +145,40 @@ class ModelRepositoryTest {
         assertTrue(last.failed)
     }
 
+    /** A download DownloadManager failed for space, as its cursor reports it. */
+    @Implements(DownloadManager::class)
+    class OutOfSpace : ShadowDownloadManager() {
+        @Implementation override fun query(query: DownloadManager.Query): Cursor = MatrixCursor(
+            arrayOf(
+                DownloadManager.COLUMN_STATUS,
+                DownloadManager.COLUMN_REASON,
+                DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR,
+                DownloadManager.COLUMN_TOTAL_SIZE_BYTES,
+            ),
+        ).apply { addRow(arrayOf<Any>(DownloadManager.STATUS_FAILED, DownloadManager.ERROR_INSUFFICIENT_SPACE, 30L, 100L)) }
+    }
+
+    @Config(shadows = [OutOfSpace::class])
+    @Test
+    fun downloadManagersSpaceErrorReadsAsNoSpace() {
+        val last = runBlocking { download.progress(1).first() }
+        assertTrue(last.failed)
+        assertTrue(last.noSpace)
+    }
+
     @Test fun noSpaceSaysSo() {
-        ShadowStatFs.registerStats(dir, 1, 0, 0)
+        SpaceShadow.allocatable = 0
         repo.start(build)
-        assertEquals(ModelState.Failed(spaceMessage(build)), awaitState { it is ModelState.Failed })
+        assertEquals(ModelState.Failed(spaceMessage(build), noSpace = true), awaitState { it is ModelState.Failed })
         assertEquals(0, manager.requestCount)
+    }
+
+    /** DownloadManager's ERROR_INSUFFICIENT_SPACE (another app filled the disk mid-download) is a space failure, not a connection one. */
+    @Test fun aDownloadThatRanOutOfSpaceSaysSo() {
+        repo.start(build)
+        progress(bytes = 30)
+        awaitState { it is ModelState.Downloading && !it.indeterminate }
+        progress(failed = true, noSpace = true)
+        assertEquals(ModelState.Failed(spaceMessage(build), noSpace = true), awaitState { it is ModelState.Failed })
     }
 }

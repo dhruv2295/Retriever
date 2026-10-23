@@ -21,8 +21,9 @@ Default layers:
 5. Version check: the Android `versionName` equals the iOS `MARKETING_VERSION`.
 6. 16 KB page-size check on release builds (`zipalign -c -P 16` and `check_elf.py`).
 
-`--full` adds `-Pbench`, `-Pcoverage` (a Kover report, no threshold), the headless inspections, `scripts/ios-selftest.sh`
-and the iOS UI tests.
+`--full` adds `-Pbench`, `-Pcoverage` (a Kover report, no threshold), the bundle ABI check (`bundleRelease` in its own
+Gradle run, about 75 s; fails on any 32-bit `lib/` folder), the headless inspections, `scripts/ios-selftest.sh` and the
+iOS UI tests.
 
 Warnings are defects. The build fails on them: lint `warningsAsErrors`, and Kotlin `allWarningsAsErrors`
 on every compilation of `:androidApp` and `:core` (Android and iOS, tests included). A dependency-forced deprecation
@@ -31,7 +32,9 @@ is a targeted `@Suppress("DEPRECATION")` at its call, with the reason. Swift bui
 The lint baseline is empty: `androidApp/lint-baseline.xml` is deleted and no baseline is configured, so any new
 lint issue fails the build. Release builds ship per-ABI APKs (`androidApp-arm64-v8a-release.apk` and
 `androidApp-x86_64-release.apk`, no universal APK) via AGP `splits { abi }`, which satisfies `ChromeOsAbiSupport`;
-the 16 KB check covers both.
+the 16 KB check covers both. A bundle build turns the splits off (AGP can't build an App Bundle with them), and
+`packaging.jniLibs` drops the 32-bit libraries ML Kit and androidx ship, so neither output offers the app to 32-bit
+phones, which can't load the model.
 
 The gate forces only the test tasks (`--rerun`). Compile, lint and R8 outputs are reused, up to date or from the build
 cache, when their inputs are unchanged; the warnings-as-errors settings are inputs, so a reused result passed the same
@@ -134,6 +137,10 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Read estimate (WP-P1):** `readEstimate`, `Retriever.estimateAll` and iOS's measured background runs (`BgSpeed`)
   are kept, though no screen shows them yet, until a full read is timed on a device against its own short read and
   `ESTIMATE_CALIBRATED` flips. The live ETA they once fed is gone: no surface showed it.
+- **Generated Baseline Profile:** at the first store upload, the `androidx.baselineprofile` plugin with a
+  `:baselineprofile` module (cold start to Home, a search, opening a result) and a Macrobenchmark startup test. Until
+  then `androidApp/src/main/baseline-prof.txt` holds app-wide wildcard rules (every `app/retriever/**` class and method,
+  `:core` included), and Home reports fully drawn once its counts load (`ReportDrawnWhen`).
 
 ### No (each with its reason)
 
@@ -159,8 +166,10 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Coil.** It does not fix the thumbnail problem and costs 150-400 KB.
 - **AppSearch.** A 3.78 MB duplicate index.
 - **LICENSE for Retriever itself.** The owner's call, before any publication.
-- **Already right, no change needed:** edge-to-edge and IME, splash, foreground service types, R8 full mode and keep rules,
-  PendingIntent and exported-component security, `@Throws`, the static framework and linker flags (SQLDelight's plugin
-  links `-lsqlite3` into the Kotlin/Native test binaries; Xcode's `OTHER_LDFLAGS` does it for the app), BGTask
-  registration, source-set hygiene, and the Compose stability config (`androidApp/stability.conf`, value snapshots
-  only).
+- **Already right, no change needed:** edge-to-edge and IME, splash, the foreground service type (`dataSync` on every API
+  level since 2026-10; `mediaProcessing` on 35+ was dropped because Play's FGS declaration lists it only for media
+  transcoding and lists local processing under `dataSync`,
+  support.google.com/googleplay/android-developer/answer/13392821), R8 full mode and keep rules, PendingIntent and
+  exported-component security, `@Throws`, the static framework and linker flags (SQLDelight's plugin links `-lsqlite3`
+  into the Kotlin/Native test binaries; Xcode's `OTHER_LDFLAGS` does it for the app), BGTask registration, source-set
+  hygiene, and the Compose stability config (`androidApp/stability.conf`, value snapshots only).

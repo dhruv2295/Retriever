@@ -39,11 +39,13 @@ android {
     }
 
     // Every variant builds one APK per ABI, no universal APK: arm64-v8a for phones, x86_64 for ChromeOS and emulators
-    // (installDebug picks the device's). The include list is what keeps 32-bit devices out; splits and ndk abiFilters
-    // conflict in any build type, so there are no filters.
+    // (installDebug picks the device's). AGP can't build an App Bundle with splits on (issuetracker 402800800), and Play
+    // splits a bundle by ABI itself, so a bundle build turns them off: run bundle tasks apart from assemble ones. The
+    // 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict in any build
+    // type, so there are no filters.
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = false
@@ -63,6 +65,9 @@ android {
             // SqliteVectorStore and DefaultTextChunker, and AppSearch. UniversalEmbedder runs on liblitertlm_jni.
             // Using any of those APIs means deleting this line.
             excludes += listOf("**/libmediapipe_tasks_jni.so", "**/libsqlite_vector_store_jni.so", "**/libicing.so")
+            // ML Kit and androidx ship 32-bit libraries, litertlm doesn't: Play derives an App Bundle's ABIs from its lib/
+            // folders, so leaving these in would offer the app to 32-bit phones that can't load the model.
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
         }
     }
 

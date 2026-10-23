@@ -24,8 +24,8 @@ content leaves the phone; only the model download uses the network.
   tokens; vision placement follows Tune's measured rendering stalls, with no GPU-name rule; audio always runs on CPU.
 - **Fallback ladder.** NPU build to generic build (`markNpuFailed`, `npu_failed` meta, permanent for that file); GPU to
   CPU after a warm-up embed that broke (`demoteGpu`), after a mid-batch break (`broke`), or after two opens that never
-  returned (`checkUnfinishedOpens`, `gpu_unsafe`, and only when `lastExitCrashed` says the process died of a crash, not a
-  swipe or the low-memory killer). Any other open failure (a missing or truncated file, low memory) is rethrown and the
+  returned (`checkUnfinishedOpens`, `gpu_unsafe`, and only when `lastExitCrashed` says the process died of a native crash, a
+  signal or Android 17's per-app memory limit (`REASON_OTHER` with "MemoryLimiter"), not a swipe or the low-memory killer). Any other open failure (a missing or truncated file, low memory) is rethrown and the
   batch retries; it says nothing about the GPU. An open refused for now (`broken = false`, on any backend) rests the
   batch (`AFTER_COOLDOWN`) instead of demoting or looping. On iOS `backendNow` runs the CPU in the background.
 - **Variant.** New downloads select M440 on both platforms (387,710,976 bytes generic). A verified installed M740

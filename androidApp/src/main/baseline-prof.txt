@@ -1,0 +1,5 @@
+# Every class and method of the app and :core, compiled ahead of time at install rather than interpreted and JIT-compiled
+# on each launch. Libraries ship their own rules. A generated profile (androidx.baselineprofile) replaces these at the
+# first store upload.
+HSPLapp/retriever/**->**(**)**
+Lapp/retriever/**;

@@ -4,7 +4,7 @@ import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.Context
 
-/** One crash, ANR or native crash the system recorded for this app. Nothing is stored by us: the OS keeps the history. */
+/** One crash, ANR, native crash or memory-limit kill the system recorded for this app. Nothing is stored by us: the OS keeps the history. */
 data class ExitProblem(val atMillis: Long, val kind: String, val description: String)
 
 object ExitReasons {
@@ -20,17 +20,31 @@ object ExitReasons {
         return problems(am.getHistoricalProcessExitReasons(null, 0, 0).map { Raw(it.reason, it.timestamp, it.description) })
     }
 
-    /** The previous process died of a native crash or a signal: what a model open killing the process looks like. */
-    fun lastExitCrashed(context: Context): Boolean =
-        crashed(context.getSystemService(ActivityManager::class.java)?.getHistoricalProcessExitReasons(null, 0, 1)?.firstOrNull()?.reason)
+    /** The previous process died of a native crash, a signal or the memory limit: what a model open killing the process looks like. */
+    fun lastExitCrashed(context: Context): Boolean {
+        val last = context.getSystemService(ActivityManager::class.java)?.getHistoricalProcessExitReasons(null, 0, 1)?.firstOrNull()
+        return crashed(last?.reason, last?.description)
+    }
 
-    /** A Java crash, the low-memory killer and the person's own swipe are not the model's doing. */
-    internal fun crashed(reason: Int?): Boolean = reason == ApplicationExitInfo.REASON_CRASH_NATIVE || reason == ApplicationExitInfo.REASON_SIGNALED
+    /**
+     * A Java crash, the low-memory killer and the person's own swipe are not the model's doing. Android 17's per-app memory
+     * limit is: it reports REASON_OTHER with "MemoryLimiter" in the description, and it repeats on every open.
+     */
+    internal fun crashed(reason: Int?, description: String?): Boolean = reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+        reason == ApplicationExitInfo.REASON_SIGNALED ||
+        memoryLimited(reason, description)
+
+    private fun memoryLimited(reason: Int?, description: String?) = reason == ApplicationExitInfo.REASON_OTHER && description?.contains(MEMORY_LIMITER) == true
+
+    private const val MEMORY_LIMITER = "MemoryLimiter"
 
     internal class Raw(val reason: Int, val timestamp: Long, val description: String?)
 
     internal fun problems(raw: List<Raw>): List<ExitProblem> = raw
-        .mapNotNull { r -> labels[r.reason]?.let { ExitProblem(r.timestamp, it, r.description?.takeIf(String::isNotBlank) ?: "No details") } }
+        .mapNotNull { r ->
+            val kind = if (memoryLimited(r.reason, r.description)) "Memory limit" else labels[r.reason]
+            kind?.let { ExitProblem(r.timestamp, it, r.description?.takeIf(String::isNotBlank) ?: "No details") }
+        }
         .sortedByDescending { it.atMillis }
 
     /** What the share sheet carries: plain text the person can read before sending. */

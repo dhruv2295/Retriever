@@ -1,6 +1,7 @@
 package app.retriever.indexing
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ForegroundUpdater
@@ -71,15 +72,24 @@ class IndexWorkerTest {
     @After fun stop() = stopKoin()
 
     private val notificationIds = java.util.Collections.synchronizedList(mutableListOf<Int>())
+    private val serviceTypes = java.util.Collections.synchronizedList(mutableListOf<Int>())
 
-    /** Counts the run's foreground-service starts and keeps each one's notification id. */
+    /** Counts the run's foreground-service starts and keeps each one's notification id and service type. */
     private val countingUpdater = ForegroundUpdater { _, _, info ->
         foregrounds.incrementAndGet()
         notificationIds += info.notificationId
+        serviceTypes += info.foregroundServiceType
         CallbackToFutureAdapter.getFuture { it.set(null) }
     }
 
-    private fun worker(retriever: Retriever, platformReady: Boolean = true, trial: Boolean = false, charger: Boolean = false): IndexWorker {
+    /** [askForeground]: what IndexService sets when Android can still allow the service (leaving, visible). */
+    private fun worker(
+        retriever: Retriever,
+        platformReady: Boolean = true,
+        trial: Boolean = false,
+        charger: Boolean = false,
+        askForeground: Boolean = trial || charger,
+    ): IndexWorker {
         startKoin {
             androidContext(context)
             modules(
@@ -95,7 +105,7 @@ class IndexWorkerTest {
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
             .setForegroundUpdater(countingUpdater)
-            .setInputData(workDataOf(IndexService.TRIAL to trial, IndexService.CHARGER to charger))
+            .setInputData(workDataOf(IndexService.TRIAL to trial, IndexService.CHARGER to charger, IndexService.FOREGROUND to askForeground))
             .build()
     }
 
@@ -213,6 +223,26 @@ class IndexWorkerTest {
         retriever.uiVisible = true
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertEquals(1, foregrounds.get())
+        // Play's declaration lists local file processing under dataSync; mediaProcessing is for media transcoding only.
+        assertEquals(listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC), serviceTypes.toList())
+    }
+
+    /**
+     * Hidden, with no exemption left (a deferred screen-off broadcast, a follow-up), Android refuses the service, and
+     * WorkManager would still count the run as foreground and ignore its job's stop. So the worker doesn't ask, and reads
+     * as a plain job.
+     */
+    @Test fun aHiddenTrialOrChargerRunAsksForNoServiceWithoutAnExemption() {
+        for ((trial, charger) in listOf(true to false, false to true)) {
+            val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+            runBlocking {
+                retriever.planTaste()
+                assertEquals(ListenableWorker.Result.success(), worker(retriever, trial = trial, charger = charger, askForeground = false).doWork())
+                assertFalse("still read", retriever.hasPendingTaste())
+            }
+            stopKoin()
+        }
+        assertEquals(0, foregrounds.get())
     }
 
     /** Q1 2: a run that can't read content (here paused) only syncs names, so it posts no reading notification. */
