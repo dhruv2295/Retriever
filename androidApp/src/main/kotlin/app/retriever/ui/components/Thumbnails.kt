@@ -137,8 +137,10 @@ object Thumbnails {
      * Photos, posters and provider pages come from the system's thumbnail cache. A fling asks for dozens at once: a few
      * workers keep a request from a cell that scrolled away queued, so it is dropped before it starts.
      */
+    internal val THUMBNAIL_WORKERS = Runtime.getRuntime().availableProcessors().coerceIn(4, 6)
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    internal val thumbnailDispatcher = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors().coerceIn(4, 6))
+    internal val thumbnailDispatcher = Dispatchers.IO.limitedParallelism(THUMBNAIL_WORKERS)
 
     /** Video frames and drawn document heads, which must not wait behind PDF pages. */
     @OptIn(ExperimentalCoroutinesApi::class)
