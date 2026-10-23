@@ -388,7 +388,7 @@ final class SearchModel {
         guard let extractor = services?.extractor else { return }
         let uri = file.uri
         Task {
-            let jpeg = await Task.detached { extractor.imageJpeg(uri: uri, maxSide: 1024) }.value
+            let jpeg = await FileExtractor.blocking { extractor.imageJpeg(uri: uri, maxSide: 1024) }
             if let jpeg { show(jpeg) }
         }
     }

@@ -39,11 +39,11 @@ interface NativeEmbedderOpener {
 interface NativeExtractor {
     fun imageJpeg(uri: String, maxSide: Int): NSData?
 
-    /** [page] -1 OCRs the image itself; otherwise a PDF page index, rendered about 1600 px. */
-    fun ocr(uri: String, page: Int): String?
-
-    /** Classifier labels only, never OCR/content text. */
-    fun imageLabels(uri: String): String?
+    /**
+     * One decode of an image ([page] -1, at core's OCR size) or one render of a PDF page (about 1600 px) serves the
+     * OCR, the classifier labels (images only) and the model's JPEG of at most [jpegSide]. Null when there is nothing to read.
+     */
+    fun scan(uri: String, page: Int, jpegSide: Int): NativeScan?
 
     /** -1 when locked or unreadable. */
     fun pdfPageCount(uri: String): Int
@@ -61,9 +61,12 @@ interface NativeExtractor {
 
     fun zipEntryText(uri: String, name: String, maxBytes: Int): String?
 
-    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable. ph:// URIs read their exported current version. */
+    /** Up to [length] bytes at [offset]; empty at the end of the file, null when unreadable. folder:// only: photos are never hashed. */
     fun readBytes(uri: String, offset: Long, length: Int): NSData?
 }
+
+/** What [NativeExtractor.scan] read: [labels] are classifier labels only, never OCR text; null for a PDF page. */
+class NativeScan(val jpeg: NSData, val text: String, val labels: String?)
 
 /** What the index already holds for a URI, so a source can skip lookups for files that haven't changed. */
 fun interface KnownFiles {

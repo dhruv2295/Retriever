@@ -1,7 +1,7 @@
 // Adapted from mazzzystar/Queryable Queryable/Queryable/PhotoHelper/CachedImageManager.swift
 // (Apple Sample Code License; Queryable took it from Apple sample code).
-// Modified for Retriever: one async load per cell through an NSCache, the PHCachingImageManager setup (no network,
-// cache off for high quality), the matched PDF page or video moment instead of the first frame, and
+// Modified for Retriever: one async load per cell through an NSCache, off the main actor and cancelled with the cell,
+// the PHCachingImageManager setup (no network), the matched PDF page or video moment instead of the first frame, and
 // QLThumbnailGenerator for files in folders.
 
 import PDFKit
@@ -20,11 +20,7 @@ enum Thumbnails {
         c.totalCostLimit = 32 << 20
         return c
     }()
-    private static let photos: PHCachingImageManager = {
-        let m = PHCachingImageManager()
-        m.allowsCachingHighQualityImages = false
-        return m
-    }()
+    nonisolated private static let photos = PHCachingImageManager()
 
     static func load(_ file: SourceFile, locator: String, pixels: CGFloat, services: AppServices?) async -> UIImage? {
         let key = Thumb.requestID(file, locator: locator, pixels: pixels) as NSString
@@ -36,7 +32,7 @@ enum Thumbnails {
         if file.kind == .video, Locator.shared.msOf(l: locator) != nil || !uri.hasPrefix("ph://") {
             // A folder video has no poster frame, so it shows the first second.
             let ms = Locator.shared.msOf(l: locator)?.int64Value ?? 1000
-            image = await Task.detached { services.extractor.videoFrameJpeg(uri: uri, ms: ms, maxSide: Int32(pixels)).flatMap(UIImage.init(data:)) }.value
+            image = await services.extractor.videoFrame(uri: uri, ms: ms, maxSide: pixels)
         } else if uri.hasPrefix("ph://") {
             image = await photo(String(uri.dropFirst(5)), pixels: pixels)
         } else if let url = services.folders.resolve(uri) {
@@ -87,7 +83,8 @@ enum Thumbnails {
         warmed = []
     }
 
-    private static let requestOptions: PHImageRequestOptions = {
+    /// Never changed after it is made, so the cells' requests can read it off the main actor.
+    nonisolated(unsafe) private static let requestOptions: PHImageRequestOptions = {
         let o = PHImageRequestOptions()
         o.isNetworkAccessAllowed = false
         o.deliveryMode = .highQualityFormat  // one callback
@@ -95,13 +92,16 @@ enum Thumbnails {
         return o
     }()
 
-    private static func photo(_ id: String, pixels: CGFloat) async -> UIImage? {
+    /// Off the main actor: the asset fetch reads the library's database. A cell scrolled away cancels its request.
+    @concurrent private static func photo(_ id: String, pixels: CGFloat) async -> UIImage? {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject else { return nil }
-        return await withCheckedContinuation { done in
-            photos.requestImage(for: asset, targetSize: CGSize(width: pixels, height: pixels), contentMode: .aspectFill, options: requestOptions) { image, _ in
-                done.resume(returning: image)
-            }
-        }
+        return await awaitPhotoRequest(
+            cancel: { photos.cancelImageRequest($0) },
+            start: { done in
+                photos.requestImage(for: asset, targetSize: CGSize(width: pixels, height: pixels), contentMode: .aspectFill, options: requestOptions) {
+                    @Sendable image, _ in done(image)
+                }
+            })
     }
 
     nonisolated private static func pdfPage(_ url: URL, index: Int, pixels: CGFloat) -> UIImage? {

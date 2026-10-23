@@ -108,6 +108,29 @@ class IosEmbedderTest {
         assertEquals(1, native.calls.size) // no probe
     }
 
+    /** The person's continued read, granted the GPU in the background, keeps it until the GPU refuses after all. */
+    @Test
+    fun aBackgroundGpuGrantKeepsTheGpuUntilItIsRefused() {
+        var granted = true
+        val natives = mutableListOf<NativeEmbedder?>(ScriptedNative(listOf(failed)), null)
+        val opener = object : NativeEmbedderOpener {
+            override val lastMessage: String? = null
+            override fun open(modelPath: String, gpu: Boolean, visionGpu: Boolean, visionTokens: Int, maxTokens: Int, cacheDir: String) = natives.removeFirst()
+        }
+        val factory = IosEmbedderFactory(opener, "/nowhere", cacheDir, false, { granted }, { granted = false }) { false }
+        val gpu = DeviceProfile(Tier.FULL, ModelVariant.M440, Backend.GPU, 70, 0, false, false)
+        assertEquals(Backend.GPU, factory.backendNow(gpu))
+
+        val refused = assertFailsWith<EmbedderClosedException> { embed(factory.open(gpu, ModelVariant.M440.generic)) }
+        assertFalse(refused.broken)
+        assertFalse(granted)
+        assertEquals(Backend.CPU, factory.backendNow(gpu))
+
+        granted = true
+        assertFalse(assertFailsWith<EmbedderClosedException> { factory.open(gpu, ModelVariant.M440.generic) }.broken)
+        assertFalse(granted, "an open refused in the background drops the grant too")
+    }
+
     @Test
     fun aPassingProbeFailsOnlyTheInput() {
         val native = ScriptedNative(listOf(failed, ok))

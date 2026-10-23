@@ -9,9 +9,9 @@ import Vision
 import ZIPFoundation
 import os
 
-/// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from background threads, so the
-/// blocking waits here are fine. Every failure is nil (or -1 / empty), never a throw. Unchecked Sendable: each
-/// mutable field sits behind its own lock.
+/// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from its own threads, so the blocking
+/// waits here are fine there; Swift code calls them through `blocking`, or uses the async `videoFrame`. Every failure
+/// is nil (or -1 / empty), never a throw. Unchecked Sendable: each mutable field sits behind its own lock.
 final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private let folders: FolderSource
     private static let ocrSide: CGFloat = 1600
@@ -35,30 +35,63 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     // keep each page's renders and PDFKit objects alive until the whole file is done.
 
     func imageJpeg(uri: String, maxSide: Int32) -> Data? {
-        autoreleasepool { image(uri, size: CGSize(width: Int(maxSide), height: Int(maxSide)))?.jpegData(compressionQuality: 0.85) }
-    }
-
-    func ocr(uri: String, page: Int32) -> String? {
         autoreleasepool {
-            let source = page >= 0 ? pdfPage(uri, Int(page)).flatMap { render($0, maxSide: Self.ocrSide) } : image(uri, size: ocrSize(uri))
-            guard let cg = source?.cgImage else { return nil }
-            _ = Self.logLanguages
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
-            guard (try? VNImageRequestHandler(cgImage: cg).perform([request])) != nil else { return nil }
-            return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+            let side = CGFloat(maxSide)
+            return image(uri, asset: asset(uri), size: CGSize(width: side, height: side)).flatMap { Self.jpeg($0, maxSide: side) }
         }
     }
 
-    func imageLabels(uri: String) -> String? {
+    /// One decode (or one page render) serves the OCR, the labels and the model's JPEG.
+    func scan(uri: String, page: Int32, jpegSide: Int32) -> NativeScan? {
         autoreleasepool {
-            guard let cg = image(uri, size: CGSize(width: 512, height: 512))?.cgImage else { return nil }
-            let request = VNClassifyImageRequest()
-            guard (try? VNImageRequestHandler(cgImage: cg).perform([request])) != nil else { return nil }
-            return (request.results ?? []).filter { $0.confidence >= 0.7 }
-                .map { $0.identifier.lowercased().replacingOccurrences(of: "_", with: " ") }.joined(separator: "\n")
+            if page >= 0 {
+                return pdfPage(uri, Int(page)).flatMap { render($0, maxSide: Self.ocrSide) }.flatMap { read($0, labels: false, jpegSide: CGFloat(jpegSide)) }
+            }
+            let asset = asset(uri)
+            return image(uri, asset: asset, size: ocrSize(uri, asset)).flatMap { read($0, labels: true, jpegSide: CGFloat(jpegSide)) }
+        }
+    }
+
+    /// Text and (for a photo) labels in one Vision pass over the picture as shown, and its JPEG.
+    func read(_ image: UIImage, labels: Bool, jpegSide: CGFloat) -> NativeScan? {
+        guard let cg = image.cgImage, let jpeg = Self.jpeg(image, maxSide: jpegSide) else { return nil }
+        _ = Self.logLanguages
+        let text = VNRecognizeTextRequest()
+        text.recognitionLevel = .accurate
+        text.usesLanguageCorrection = true
+        text.automaticallyDetectsLanguage = true
+        let classify = VNClassifyImageRequest()
+        let requests = labels ? [text, classify] : [text]
+        let id = track {
+            for request in requests { request.cancel() }
+        }
+        defer { untrack(id) }
+        // One handler keeps the decoded image for both. One perform each: a request that fails (the simulator can't
+        // classify) stops the others in the same perform, and the text must not go with it.
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: CGImagePropertyOrientation(image.imageOrientation))
+        for request in requests { try? handler.perform([request]) }
+        let found = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        let tags = labels ? classify.results.map(Self.labels) : nil
+        return NativeScan(jpeg: jpeg, text: found, labels: tags)
+    }
+
+    private static func labels(_ results: [VNClassificationObservation]) -> String {
+        results.filter { $0.confidence >= 0.7 }.map { $0.identifier.lowercased().replacingOccurrences(of: "_", with: " ") }.joined(separator: "\n")
+    }
+
+    /// The picture as shown, at most `maxSide` px: redrawn upright when it is larger or turned, so the model never
+    /// depends on a JPEG's orientation tag.
+    static func jpeg(_ image: UIImage, maxSide: CGFloat) -> Data? {
+        let (w, h) = (image.size.width * image.scale, image.size.height * image.scale)
+        let fit = min(1, maxSide / max(w, h, 1))
+        guard fit < 1 || image.imageOrientation != .up else { return image.jpegData(compressionQuality: 0.85) }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let size = CGSize(width: max(1, (w * fit).rounded()), height: max(1, (h * fit).rounded()))
+        return UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.85) { ctx in
+            ctx.cgContext.interpolationQuality = .high
+            image.draw(in: CGRect(origin: .zero, size: size))
         }
     }
 
@@ -74,10 +107,10 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     }()
 
     /// Core's OCR size for the image's own pixel size; a square 1600 when the size is unknown.
-    private func ocrSize(_ uri: String) -> CGSize {
+    private func ocrSize(_ uri: String, _ asset: PHAsset?) -> CGSize {
         var w = 0
         var h = 0
-        if let asset = asset(uri) {
+        if let asset {
             (w, h) = (asset.pixelWidth, asset.pixelHeight)
         } else if let url = folders.resolve(uri), let src = CGImageSourceCreateWithURL(url as CFURL, nil),
             let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
@@ -85,7 +118,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             (w, h) = (p[kCGImagePropertyPixelWidth] as? Int ?? 0, p[kCGImagePropertyPixelHeight] as? Int ?? 0)
         }
         guard w > 0, h > 0 else { return CGSize(width: Self.ocrSide, height: Self.ocrSide) }
-        let screenshot = asset(uri)?.mediaSubtypes.contains(.photoScreenshot) == true
+        let screenshot = asset?.mediaSubtypes.contains(.photoScreenshot) == true
         let fit =
             screenshot
             ? ExtractionKt.ocrTargetSize(w: Int32(w), h: Int32(h))
@@ -96,8 +129,8 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     /// An iCloud-only photo fetches its small derivative on Wi-Fi, or on any network when the person allows mobile
     /// data; otherwise it keeps only its name. Async so a stalled download can be cancelled; the handler may come
     /// back on the main queue, so this must never wait there.
-    private func image(_ uri: String, size: CGSize) -> UIImage? {
-        if let asset = asset(uri) {
+    private func image(_ uri: String, asset: PHAsset?, size: CGSize) -> UIImage? {
+        if let asset {
             assert(!Thread.isMainThread)
             let path = pathMonitor.currentPath
             let wifi = path.status == .satisfied && !path.isExpensive && !path.isConstrained
@@ -118,6 +151,11 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
                 }
                 done.signal()
             }
+            let tracked = track {
+                PHImageManager.default().cancelImageRequest(id)
+                done.signal()
+            }
+            defer { untrack(tracked) }
             guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
                 PHImageManager.default().cancelImageRequest(id)
                 return nil
@@ -186,25 +224,58 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
     // MARK: Video
 
+    /// The first call for each video: it loads the asset afresh, and the moments after it reuse it (as lastPdf does).
     func videoDurationMs(uri: String) -> Int64 {
-        guard let asset = avAsset(uri), let duration = wait({ try await asset.load(.duration) }), duration.isNumeric else { return 0 }
+        let asset = avAsset(uri)
+        videoLock.withLock { lastVideo = asset.map { (uri, $0) } }
+        guard let asset, let duration = wait({ try await asset.load(.duration) }), duration.isNumeric else { return 0 }
         return Int64(duration.seconds * 1000)
     }
 
     func videoFrameJpeg(uri: String, ms: Int64, maxSide: Int32) -> Data? {
-        autoreleasepool { videoFrame(uri, ms: ms, maxSide: maxSide) }
+        autoreleasepool {
+            guard let asset = videoLock.withLock({ lastVideo.flatMap { $0.uri == uri ? $0.asset : nil } }) ?? avAsset(uri) else { return nil }
+            return wait({ try await Self.frame(asset, ms: ms, maxSide: CGFloat(maxSide)) }).flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.85) }
+        }
     }
 
-    private func videoFrame(_ uri: String, ms: Int64, maxSide: Int32) -> Data? {
-        guard let asset = avAsset(uri) else { return nil }
+    /// For Swift's own callers (thumbnails): async all the way, so a grid of video cells never blocks Swift's threads.
+    @concurrent func videoFrame(uri: String, ms: Int64, maxSide: CGFloat) async -> UIImage? {
+        let video: AVAsset?
+        if let asset = asset(uri) {
+            let manager = PHImageManager.default()
+            let found: Box<AVAsset>? = await awaitPhotoRequest(
+                cancel: { manager.cancelImageRequest($0) },
+                start: { done in
+                    let options = PHVideoRequestOptions()
+                    options.isNetworkAccessAllowed = false
+                    options.deliveryMode = .highQualityFormat
+                    return manager.requestAVAsset(forVideo: asset, options: options) { @Sendable av, _, _ in
+                        let box = Box<AVAsset>()
+                        box.value = av
+                        done(box)
+                    }
+                })
+            video = found?.value
+        } else {
+            video = folders.resolve(uri).map { AVURLAsset(url: $0) }
+        }
+        guard let video, let frame = try? await Self.frame(video, ms: ms, maxSide: maxSide) else { return nil }
+        return UIImage(cgImage: frame)
+    }
+
+    /// The last video read, so its moments load the asset once rather than once each.
+    private let videoLock = NSLock()
+    private var lastVideo: (uri: String, asset: AVAsset)?
+
+    private static func frame(_ asset: AVAsset, ms: Int64, maxSide: CGFloat) async throws -> CGImage {
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: Int(maxSide), height: Int(maxSide))
+        generator.maximumSize = CGSize(width: maxSide, height: maxSide)
         let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
         generator.requestedTimeToleranceBefore = tolerance
         generator.requestedTimeToleranceAfter = tolerance
-        let time = CMTime(value: ms, timescale: 1000)
-        return wait({ try await generator.image(at: time).image }).flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.85) }
+        return try await generator.image(at: CMTime(value: ms, timescale: 1000)).image
     }
 
     private func avAsset(_ uri: String) -> AVAsset? {
@@ -279,6 +350,38 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
     // MARK: Helpers
 
+    /// Runs one of the blocking calls above for Swift code, on a GCD thread: a wait on one of Swift's cooperative
+    /// threads (one per core) would hold up every other task in the app.
+    static func blocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { done in DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) } }
+    }
+
+    /// Background time is up: the PhotoKit waits and Vision passes running now end at once, with nothing, so the
+    /// cancelled batch gets to its end without them.
+    func cancelInFlight() {
+        let cancels = inFlightLock.withLock {
+            defer { inFlight = [:] }
+            return Array(inFlight.values)
+        }
+        for cancel in cancels { cancel() }
+    }
+
+    private let inFlightLock = NSLock()
+    private var inFlight: [Int: () -> Void] = [:]
+    private var nextInFlight = 0
+
+    private func track(_ cancel: @escaping () -> Void) -> Int {
+        inFlightLock.withLock {
+            nextInFlight += 1
+            inFlight[nextInFlight] = cancel
+            return nextInFlight
+        }
+    }
+
+    private func untrack(_ id: Int) {
+        _ = inFlightLock.withLock { inFlight.removeValue(forKey: id) }
+    }
+
     private func asset(_ uri: String) -> PHAsset? {
         guard uri.hasPrefix("ph://") else { return nil }
         return PHAsset.fetchAssets(withLocalIdentifiers: [String(uri.dropFirst("ph://".count))], options: nil).firstObject
@@ -306,4 +409,22 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
 private final class Box<T>: @unchecked Sendable {
     var value: T?
+}
+
+extension CGImagePropertyOrientation {
+    /// Vision takes Core Graphics' (EXIF) numbering, which differs from UIKit's (Apple's sample "Classifying Images
+    /// with Vision and Core ML").
+    init(_ orientation: UIImage.Orientation) {
+        switch orientation {
+        case .up: self = .up
+        case .upMirrored: self = .upMirrored
+        case .down: self = .down
+        case .downMirrored: self = .downMirrored
+        case .left: self = .left
+        case .leftMirrored: self = .leftMirrored
+        case .right: self = .right
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
+        }
+    }
 }

@@ -128,20 +128,18 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
 
     /// nil when the folder can't be walked (a dead file provider): it then stays out of scope.
     private func scan(folderId: String, label: String, base: URL) -> ([SourceFile], [String])? {
-        // Symlinks resolved on both sides: on a device /var is /private/var, and the walker may report either.
-        let basePath = base.resolvingSymlinksInPath().path
+        // Paths relative to the folder, from the walker itself: no per-file symlink resolving (on a device /var is
+        // /private/var, and the walker may report either). A symlinked file is left out: isRegularFile is the link's.
         guard
             let walker = FileManager.default.enumerator(
-                at: base, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles, .skipsPackageDescendants])
+                at: base, includingPropertiesForKeys: Self.keys, options: [.skipsHiddenFiles, .skipsPackageDescendants, .producesRelativePathURLs])
         else { return nil }
         var out: [SourceFile] = []
         var evicted: [String] = []
         for case let url as URL in walker {
             autoreleasepool {
                 guard let v = try? url.resourceValues(forKeys: Set(Self.keys)), v.isRegularFile == true else { return }
-                let full = url.resolvingSymlinksInPath().path
-                guard full.hasPrefix(basePath + "/") else { return }
-                let relative = String(full.dropFirst(basePath.count + 1))
+                let relative = url.relativePath
                 let uri = "folder://\(folderId)/\(relative)"
                 // iCloud placeholders: reading one would start a download, but an indexed one stays searchable.
                 if let status = v.ubiquitousItemDownloadingStatus, status != .current { return evicted.append(uri) }

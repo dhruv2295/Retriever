@@ -22,6 +22,10 @@ class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
     @Volatile
     var continued: Boolean = false
 
+    /** iOS granted that continued read the GPU in the background; IosEmbedderFactory drops it when the GPU refuses. */
+    @Volatile
+    var backgroundGpu: Boolean = false
+
     override fun state(): DeviceState {
         val info = NSProcessInfo.processInfo
         val thermal = when (info.thermalState) {

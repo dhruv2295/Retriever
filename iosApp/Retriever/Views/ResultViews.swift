@@ -304,7 +304,7 @@ struct SharedAsset: Transferable {
         else { throw CocoaError(.fileNoSuchFile) }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(resource.originalFilename)
+        let url = dir.appendingPathComponent(PhotosSource.filename(resource) ?? "Photo")
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
         try await PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options)

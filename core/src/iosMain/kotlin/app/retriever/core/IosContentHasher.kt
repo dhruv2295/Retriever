@@ -25,8 +25,8 @@ import platform.Foundation.NSData
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * SHA-256 over [NativeExtractor.readBytes], hashing what AndroidContentHasher hashes. ph:// assets are exported
- * to a temp file by the extractor, so photos and videos group by content like any other file.
+ * SHA-256 over [NativeExtractor.readBytes], hashing what AndroidContentHasher hashes. Only folder files: PhotoKit has
+ * no public byte size, so photos carry size 0 and are never compared (duplicates.md).
  */
 class IosContentHasher(private val native: NativeExtractor) : ContentHasher {
     override suspend fun quickHash(uri: String, size: Long): String? = io {

@@ -64,7 +64,7 @@
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let ocrFile = docs.appendingPathComponent("selftest-ocr.png")
             try textImage("Invoice 48213 total 1250").pngData()?.write(to: ocrFile)
-            let ocr = s.extractor.ocr(uri: "folder://documents/selftest-ocr.png", page: -1) ?? ""
+            let ocr = s.extractor.scan(uri: "folder://documents/selftest-ocr.png", page: -1, jpegSide: 512)?.text ?? ""
             try? FileManager.default.removeItem(at: ocrFile)
             check("(b) OCR", ocr.contains("48213"), "\"\(ocr.replacingOccurrences(of: "\n", with: " | "))\"")
 
@@ -93,12 +93,16 @@
                 "(d) Photos scan", photos.upserted.count >= wanted,
                 "status \(s.photos.status.rawValue), \(photos.upserted.count) assets (expected >= \(wanted)), token \(photos.nextToken.isEmpty ? "none" : "\(photos.nextToken.count) chars")"
             )
-            say("first scan: looked up \(s.photos.lastLookups) of \(s.photos.lastAssets) assets")
+            let resources = s.photos.lastResourceLookups
+            say("first scan: looked up \(s.photos.lastLookups) of \(s.photos.lastAssets) assets, \(resources) through their resources")
             for f in photos.upserted { say("  photo \(f.name) \(f.size) B \(f.mime) [\(f.kind.name)]") }
             let synthetic = photos.upserted.filter { $0.name.range(of: #"^(Photo|Screenshot|Video) \d{4}-"#, options: .regularExpression) != nil }
+            // iOS 27 prefetches each name with its asset: no asset's resources are listed.
+            var prefetched = true
+            if #available(iOS 27.0, *) { prefetched = resources == 0 }
             check(
-                "(d) real names", synthetic.isEmpty && s.photos.lastLookups == s.photos.lastAssets,
-                "\(photos.upserted.count - synthetic.count) of \(photos.upserted.count) photos have an original name")
+                "(d) real names", synthetic.isEmpty && s.photos.lastLookups == s.photos.lastAssets && prefetched,
+                "\(photos.upserted.count - synthetic.count) of \(photos.upserted.count) photos have an original name; \(resources) resource lookups")
 
             // (e) Calibrate, index, search through the facade.
             let images = photos.upserted.prefix(2).compactMap { s.extractor.imageJpeg(uri: $0.uri, maxSide: 512) } + [dogJpeg]

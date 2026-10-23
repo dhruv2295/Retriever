@@ -17,10 +17,12 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
         await PHPhotoLibrary.requestAuthorization(for: .readWrite)
     }
 
-    /// Assets seen and resource lookups made by the last [changes] call, for the log line and the self-test.
+    /// Assets seen, names and types looked up, and the lookups that had to list the asset's resources (none on iOS 27,
+    /// which prefetches the name), by the last [changes] call, for the log line and the self-test.
     var lastAssets: Int { counts.withLock { $0.assets } }
     var lastLookups: Int { counts.withLock { $0.lookups } }
-    private let counts = OSAllocatedUnfairLock(initialState: (assets: 0, lookups: 0))
+    var lastResourceLookups: Int { counts.withLock { $0.resources } }
+    private let counts = OSAllocatedUnfairLock(initialState: (assets: 0, lookups: 0, resources: 0))
 
     func changes(since: String?, known: KnownFiles) -> Changes {
         switch status {
@@ -35,14 +37,14 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
             break
         }
         let started = Date()
-        counts.withLock { $0 = (0, 0) }
+        counts.withLock { $0 = (0, 0, 0) }
         // Taken before reading, so changes made during the scan show up next time.
         let next = Self.encode(PHPhotoLibrary.shared().currentChangeToken)
         let result: Changes
         if let since, let token = Self.decode(since), let changes = try? incremental(since: token, next: next, known: known) {
             result = changes
         } else {
-            let all = PHAsset.fetchAssets(with: nil)
+            let all = PHAsset.fetchAssets(with: Self.fetchOptions())
             var files: [SourceFile] = []
             files.reserveCapacity(all.count)
             all.enumerateObjects { asset, _, _ in
@@ -53,7 +55,8 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
             result = Changes(upserted: files, removed: [], nextToken: next, isFullScan: true, present: nil, scope: nil)
         }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
-        Logger(subsystem: "app.retriever", category: "photos").info("photo identity: looked up \(self.lastLookups) of \(self.lastAssets) assets in \(ms) ms")
+        Logger(subsystem: "app.retriever", category: "photos").info(
+            "photo identity: looked up \(self.lastLookups) of \(self.lastAssets) assets (\(self.lastResourceLookups) through their resources) in \(ms) ms")
         return result
     }
 
@@ -71,7 +74,7 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
         }
         var files: [SourceFile] = []
         if !upsert.isEmpty {
-            let found = PHAsset.fetchAssets(withLocalIdentifiers: Array(upsert), options: nil)
+            let found = PHAsset.fetchAssets(withLocalIdentifiers: Array(upsert), options: Self.fetchOptions())
             var seen = Set<String>()
             found.enumerateObjects { asset, _, _ in
                 autoreleasepool {
@@ -106,18 +109,46 @@ final class PhotosSource: NSObject, NativeFileSource, Sendable {
         let date = asset.hasAdjustments ? asset.modificationDate ?? asset.creationDate : asset.creationDate
         let stamp = Int64((date ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970 * 1000)
         let uri = "ph://\(asset.localIdentifier)"
-        let name: String
-        let mime: String
+        var name: String?
+        var mime: String?
         if !recheck, let old = known.file(uri: uri), old.modifiedAt == stamp {
             (name, mime) = (old.name, old.mime)
         } else {
             counts.withLock { $0.lookups += 1 }
-            let (original, current) = Self.renditions(asset)
-            name = original?.originalFilename ?? String(asset.localIdentifier.prefix(36))
-            mime = current.flatMap { UTType($0.uniformTypeIdentifier)?.preferredMIMEType } ?? (kind == .video ? "video/quicktime" : "image/jpeg")
+            // The asset's own metadata where iOS has it (the name prefetched with the asset), else its resources.
+            if #available(iOS 27.0, *) { name = asset.extendedMetadata.originalFilename }
+            if #available(iOS 26.0, *) { mime = asset.contentType.preferredMIMEType }
+            if name == nil || mime == nil {
+                counts.withLock { $0.resources += 1 }
+                let (original, current) = Self.renditions(asset)
+                name = name ?? original.flatMap(Self.filename)
+                mime = mime ?? current.flatMap(Self.mimeType)
+            }
         }
         let taken = asset.creationDate.map { KotlinLong(value: Int64($0.timeIntervalSince1970 * 1000)) }
-        return SourceFile(uri: uri, name: name, folder: folder, mime: mime, kind: kind, size: 0, modifiedAt: stamp, takenAt: taken)
+        return SourceFile(
+            uri: uri, name: name ?? String(asset.localIdentifier.prefix(36)), folder: folder,
+            mime: mime ?? (kind == .video ? "video/quicktime" : "image/jpeg"), kind: kind, size: 0, modifiedAt: stamp, takenAt: taken)
+    }
+
+    /// One read of the library: Lifecycle's observer follows changes, so this fetch needs no change details. On iOS 27
+    /// each asset's name comes with it, rather than costing a fetch per asset.
+    private static func fetchOptions() -> PHFetchOptions {
+        let options = PHFetchOptions()
+        options.wantsIncrementalChangeDetails = false
+        if #available(iOS 27.0, *) { options.prefetchAssetExtendedMetadata = true }
+        return options
+    }
+
+    /// The resource's file name (`originalFilename` became `filename` in iOS 27).
+    static func filename(_ resource: PHAssetResource) -> String? {
+        if #available(iOS 27.0, *) { return resource.filename }
+        return resource.originalFilename
+    }
+
+    private static func mimeType(_ resource: PHAssetResource) -> String? {
+        if #available(iOS 26.0, *) { return resource.contentType.preferredMIMEType }
+        return UTType(resource.uniformTypeIdentifier)?.preferredMIMEType
     }
 
     /// The camera's file, and what the person sees now: the edited rendition when there is one.

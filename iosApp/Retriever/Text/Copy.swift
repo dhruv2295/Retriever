@@ -99,10 +99,13 @@ enum Copy {
         }
     }
 
-    static func tuneSummary(_ backend: Backend, imageMs: Double?) -> String {
+    static func tuneSummary(_ backend: Backend, imageMs: Double?, locale: Locale = .autoupdatingCurrent) -> String {
         let chip = backend == Backend.gpu ? "the graphics chip" : "the processor"
-        let speed = imageMs.map { String(format: " · about %.1f s per photo", $0 / 1000) } ?? ""
-        return "Using \(chip)\(speed)"
+        let seconds = imageMs.map {
+            Measurement(value: $0 / 1000, unit: UnitDuration.seconds)
+                .formatted(.measurement(width: .abbreviated, numberFormatStyle: .number.precision(.fractionLength(1))).locale(locale))
+        }
+        return "Using \(chip)\(seconds.map { " · about \($0) per photo" } ?? "")"
     }
 
     static let backgroundNote =

@@ -87,8 +87,9 @@ each, one transaction) before planning; JVM bench at 26,248 files: 976-987 ms of
 - `runBatch`'s sync (Retriever.kt:545) uses `syncLock.tryLock`: a sync already running covers this batch, so the sample
   never waits on the tail. No timeout, no cache.
 - Names: invariant 6 holds as today (names build after the last row in both orders).
-- iOS (INFERRED, check `photo identity: looked up X of Y assets in N ms` first): `PhotosSource` runs
-  `assetResources(for:)` per unknown asset inside the scan, before `first` can run. If that number dominates, defer
+- iOS (INFERRED, check `photo identity: looked up X of Y assets (Z through their resources) in N ms` first):
+  below iOS 27 `PhotosSource` runs `assetResources(for:)` per unknown asset inside the scan, before `first` can run
+  (iOS 27 prefetches the names with the fetch). If that number dominates, defer
   lookups for non-plan assets to the tail (keep the `localIdentifier` fallback name until then).
 - Second sync per batch (INFERRED, device check 1 first): under SAMPLE scope skip `runBatch`'s sync unless
   `changedSinceSync`; a deleted planned file already ends as Couldn't read.
