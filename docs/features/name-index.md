@@ -14,7 +14,8 @@ It also covers the first moments after launch: until it is built, the lane falls
   - `postings`: per token, the slots (positions in the entry list) that hold it. Slots are newest first, so recency
     is free inside a match class.
   - `grams`: character trigram to sorted token numbers. Substring candidates are the intersection of the lists of the
-    query's trigrams, then a `contains` check on the survivors.
+    query's trigrams, then a `contains` check on the survivors. A two-character CJK word, too short for a trigram, is
+  checked with `contains` against the tokens that hold CJK (`cjk`), since a CJK name is one unspaced token.
 - **Four match classes, best first:** `EXACT`, `PREFIX`, `SUBSTRING`, `TYPO` (`MatchClass`). Each query word gets a
   class per slot; a file's class is its worst word's class. `NameHit.exactName` marks an EXACT match whose words are all
   tokens of the file name itself, not just of its folder. Search turns these into the lanes `NAME_EXACT` and `NAME`
@@ -48,7 +49,7 @@ It also covers the first moments after launch: until it is built, the lane falls
    a time.
 3. **Admit and kinds run before the limit.**
 4. **Tokenizer parity with the store.** A name that FTS splits one way is split the same way here.
-5. **No typos on very short words.** Below 3 letters only exact and prefix count.
+5. **No typos on very short words.** Below 3 letters only exact and prefix count, and substring for a two-character CJK word.
 6. **Folder words count as name tokens,** but `exactName` looks at the file name only, so a folder word pins no file first.
 7. **Newest first within a class,** by capture time (taken, else modified), also after an update.
 
@@ -59,7 +60,7 @@ It also covers the first moments after launch: until it is built, the lane falls
   `accentsFold`, `folderWordsMatchToo`, `everyWordMustMatchAndTheWorstClassWins`, `kindFilterAndOrder`,
   `noTyposForVeryShortWords`, `copyOnWriteSnapshots`, `tokenizerMatchesTheStoreSplit`, `editDistanceBounds`,
   `newestFirstWithinAClassEvenAfterAnUpdate`, `admitRunsBeforeTheCap`, `emptyIndexAndBlankQuery`,
-  `typoHitsEqualABruteForceScan` (the prefilters drop nothing a full scan finds).
+  `typoHitsEqualABruteForceScan` (the prefilters drop nothing a full scan finds), `aTwoCharacterCjkWordInsideAName`.
 - `NameIndexBenchTest.fiftyThousandNames` (androidHostTest): 50k names, build at most 300 ms, p95 at most 2 ms, arrays at
   most 8 MB, and each keystroke of a word no name holds (the full typo pass) at most 2 ms. On the M4 that pass went from
   0.66-1.62 ms to 0.16-0.19 ms per keystroke with the letter-set mask.

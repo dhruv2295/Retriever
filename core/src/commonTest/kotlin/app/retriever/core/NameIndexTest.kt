@@ -63,6 +63,14 @@ class NameIndexTest {
 
     @Test fun prefixWhileTyping() = assertEquals(MatchClass.PREFIX, classOf("scr", 2))
 
+    /** A CJK name is one token, and its words are two characters: one inside it is a substring match. */
+    @Test fun aTwoCharacterCjkWordInsideAName() {
+        val names = NameIndex.build(listOf(NameEntry(1, "会議資料.pdf", "書類", Kind.PDF), NameEntry(2, "資料.pdf", "", Kind.PDF)))
+        assertEquals(listOf(2L to MatchClass.EXACT, 1L to MatchClass.SUBSTRING), names.search("資料").map { it.id to it.match })
+        assertEquals(listOf(1L to MatchClass.PREFIX), names.search("会議").map { it.id to it.match })
+        assertEquals(emptyList(), names.search("ab"), "two Latin letters are still too few for a substring")
+    }
+
     @Test fun exactTokenInAnyScript() {
         assertEquals(MatchClass.EXACT, classOf("बिजली", 3))
         assertEquals(MatchClass.EXACT, classOf("pdf", 1))

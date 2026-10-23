@@ -454,6 +454,18 @@ rebuildFts {
   DELETE FROM index_meta WHERE key = 'fts_rebuild';
 }
 
+-- The keyword text of chunks and of files that is not plain ASCII (more bytes than characters), a page at a time by id,
+-- for Store.rebuildFtsIfPending to write again if it holds CJK. ASCII rows are skipped inside SQLite, in one pass.
+ftsChunkPage:
+SELECT id, text, labels FROM chunks
+WHERE id > ? AND (length(CAST(text AS BLOB)) > length(text) OR length(CAST(labels AS BLOB)) > length(labels))
+ORDER BY id LIMIT ?;
+
+ftsFilePage:
+SELECT id, name, folder FROM files
+WHERE id > ? AND (length(CAST(name AS BLOB)) > length(name) OR length(CAST(folder AS BLOB)) > length(folder))
+ORDER BY id LIMIT ?;
+
 resetForNewModel {
   INSERT OR REPLACE INTO index_meta (key, value)
     SELECT 'vectors_deleted', CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = 'vectors_deleted'), 0) + COUNT(vector) AS TEXT) FROM chunks;

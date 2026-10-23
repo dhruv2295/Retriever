@@ -17,7 +17,8 @@ data class NameHit(val id: Long, val match: MatchClass, val exactName: Boolean =
  *  - [tokens]: sorted, so exact is a binary search and prefix is the range that follows it;
  *  - [postings]: slots (positions in [entries]) per token;
  *  - [grams]: character trigram -> sorted token numbers, for substring and typo candidates;
- *  - [masks]: per token, the set of its characters hashed to 64 bits ([letterMask]), a cheap typo prefilter.
+ *  - [masks]: per token, the set of its characters hashed to 64 bits ([letterMask]), a cheap typo prefilter;
+ *  - [cjk]: the token numbers holding CJK, whose words are two characters, too short for a trigram.
  */
 class NameIndex private constructor(
     private val entries: List<NameEntry>,
@@ -25,12 +26,13 @@ class NameIndex private constructor(
     private val postings: Array<IntArray>,
     private val grams: HashMap<Int, IntArray>,
     private val masks: LongArray,
+    private val cjk: IntArray,
 ) {
     val size get() = entries.size
 
     /** Bytes held in the int and reference arrays (not the strings), for the memory budget. */
     val arrayBytes: Long
-        get() = postings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L + masks.size * 8L
+        get() = postings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L + masks.size * 8L + cjk.size * 4L
 
     /** Drops [removed] and adds or replaces [upserts], in one build. */
     // ponytail: a batch rebuilds everything (about 0.1 s for 50k names); patch the posting arrays if batches get frequent.
@@ -106,6 +108,8 @@ class NameIndex private constructor(
         }
         if (q.length >= 3) {
             for (t in withAllGrams(q)) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, MatchClass.SUBSTRING)
+        } else if (q.length == 2 && hasCjk(q)) {
+            for (t in cjk) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, MatchClass.SUBSTRING)
         }
         val edits = if (q.length >= 6) {
             2
@@ -207,7 +211,8 @@ class NameIndex private constructor(
             }
             val grams = HashMap<Int, IntArray>(gramLists.size * 2)
             for ((k, v) in gramLists) grams[k] = v.toArray()
-            return NameIndex(entries, tokens, postings, grams, LongArray(tokens.size) { letterMask(tokens[it]) })
+            val masks = LongArray(tokens.size) { letterMask(tokens[it]) }
+            return NameIndex(entries, tokens, postings, grams, masks, tokens.indices.filter { hasCjk(tokens[it]) }.toIntArray())
         }
 
         /** Bit (code mod 64) of each character of [s]: equal words have equal masks, and one edit flips at most two bits. */

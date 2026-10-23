@@ -550,8 +550,8 @@ class SearchEngine(
             }
         }
 
-        /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped. */
-        fun folded(q: String): List<String> = Store.ftsTokens(foldLatin(q)).distinct()
+        /** Query words as the snippet compares them: tokens, lowercased, Latin accents dropped ([foldWord]). */
+        fun folded(q: String): List<String> = Store.ftsTokens(q).map(::foldWord).distinct()
 
         /**
          * The sentence of [text] that holds the most of [words] (a word of 3+ letters also matches as a prefix, as the
@@ -569,7 +569,7 @@ class SearchEngine(
             }.distinct()
             val readable = candidates.filterNot(::numericSnippet)
             return (readable.ifEmpty { candidates }).maxByOrNull { window ->
-                val tokens = Store.ftsTokens(foldLatin(window))
+                val tokens = Store.ftsTokens(window).map(::foldWord)
                 words.count { w -> tokens.any { matches(it, w) } }
             } ?: text.take(SNIPPET)
         }
@@ -584,7 +584,7 @@ class SearchEngine(
                 visible.length / 2
         }
 
-        private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word))
+        private fun matches(token: String, word: String) = token == word || (word.length >= 3 && token.startsWith(word)) || (hasCjk(word) && word in token)
 
         private fun sentences(text: String): List<String> {
             val out = ArrayList<String>()

@@ -2,6 +2,7 @@ package app.retriever.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** One chunk by id, through the batched [Store.chunks] production uses. */
@@ -29,6 +30,48 @@ class StoreCommonTest {
         val (store, _) = storeWith("bill.txt", "Documents", "बिजली का बिल")
         assertEquals(1, store.keywordSearch("बिजली", 10).size)
         assertTrue(store.keywordSearch("जल", 10).isEmpty())
+    }
+
+    /** CJK is written without spaces, so a word inside a run is found by its overlapping two-character pieces. */
+    @Test
+    fun aCjkWordInsideARunIsFound() {
+        val (store, id) = storeWith("会議資料.txt", "書類", "会議の資料を送ります")
+        assertEquals(id, store.chunk(store.keywordSearch("資料", 10).single().chunkId)?.fileId)
+        assertEquals(1, store.keywordSearch("送ります", 10).size)
+        assertEquals(1, store.keywordSearch("会議 資料", 10).size)
+        assertEquals(1, store.keywordSearch("資", 10).size, "one character matches as a prefix")
+        assertTrue(store.keywordSearch("資会", 10).isEmpty(), "the pieces must be adjacent")
+        assertEquals(1, storeWith("notes.txt", "docs", "会議の資料report").first.keywordSearch("資料rep", 10).size, "a Latin tail is a prefix")
+        assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))
+        assertEquals(listOf(id), store.fileKeywordSearch("書", 10))
+        // A Korean particle joins the word before it.
+        assertEquals(1, storeWith("bill.txt", "docs", "전기 고지서입니다").first.keywordSearch("고지서", 10).size)
+    }
+
+    /** An index written before CJK pieces is rewritten once, at the next refill check. */
+    @Test
+    fun cjkRowsWrittenWholeAreRewrittenOnce() {
+        val driver = testDriver()
+        val store = Store(driver)
+        store.upsertFiles(listOf(SourceFile("folder://docs/会議資料.txt", "会議資料.txt", "docs", "text/plain", Kind.DOC, 10, 1)))
+        val id = store.pending(1).single().id
+        store.replaceChunks(id, listOf(Store.NewChunk(1, "", "会議の資料を送ります", null)))
+        val chunk = store.keywordSearch("資料", 10).single().chunkId
+        assertTrue(store.rebuildFtsIfPending(), "a new index records its tokenization")
+        for (sql in listOf(
+            "DELETE FROM chunk_fts",
+            "INSERT INTO chunk_fts (rowid, text) VALUES ($chunk, '会議の資料を送ります')",
+            "DELETE FROM file_fts",
+            "INSERT INTO file_fts (rowid, name, folder) VALUES ($id, '会議資料.txt', 'docs')",
+            "DELETE FROM index_meta WHERE key = 'fts_tokens'",
+        )) {
+            driver.execute(null, sql, 0)
+        }
+        assertTrue(store.keywordSearch("資料", 10).isEmpty())
+        assertTrue(store.rebuildFtsIfPending())
+        assertFalse(store.rebuildFtsIfPending(), "once")
+        assertEquals(listOf(chunk), store.keywordSearch("資料", 10).map { it.chunkId })
+        assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))
     }
 
     @Test

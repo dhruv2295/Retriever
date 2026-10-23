@@ -57,6 +57,14 @@ class HighlightTest {
         assertEquals(listOf("Crème", "brûlée"), marked("Crème brûlée recipe", "creme brulee"))
     }
 
+    /** A CJK word has no spaces around it, so it is marked where it occurs inside a run. */
+    @Test fun aCjkWordIsMarkedInsideItsRun() {
+        assertEquals(listOf("資料"), marked("会議資料.pdf", "資料"))
+        assertEquals(listOf("会議", "資料"), marked("会議資料.pdf", "会議 資料"))
+        assertEquals("会議の\u0002資料\u0003を送ります。", SearchEngine.contentSnippet("会議の資料を送ります。", SearchEngine.folded("資料")))
+        assertEquals("\u0002会議\u0003の\u0002資料\u0003", SearchEngine.contentSnippet("会議の資料", SearchEngine.folded("会議 資料")))
+    }
+
     @Test fun emptyQuery() {
         assertEquals(emptyList(), marked("invoice", "  "))
     }
