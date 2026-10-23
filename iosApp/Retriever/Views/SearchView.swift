@@ -13,7 +13,7 @@ import os
 
 // MARK: Screen
 
-/// First run's demo: this same screen, words inside the demo's files and names everywhere.
+/// First run's first search: this same screen, words inside the recent files and names everywhere.
 struct Trial: Equatable {
     var ids: [Int64]
     /// The field's photo button: search by photo needs the meaning upgrade.
@@ -68,7 +68,7 @@ struct SearchView: View {
         .navigationBarTitleDisplayMode(trial == nil ? .automatic : .inline)
         .searchable(
             text: Binding(get: { search.text }, set: search.setText), isPresented: $presented, placement: Self.placement,
-            prompt: trial == nil ? Words.shared.SEARCH_FIELD : Words.shared.SEARCH_DEMO
+            prompt: trial == nil ? Words.shared.SEARCH_FIELD : Words.shared.firstSearchHint(state: model.descriptionState)
         )
         .searchScopes($search.scope, activation: .onSearchPresentation) {
             // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
@@ -393,7 +393,7 @@ private struct ResultsView: View {
         } else if !answer.vectorLane {
             HStack(spacing: 10) {
                 Image("IllusReading").resizable().scaledToFit().frame(width: 36).accessibilityHidden(true)
-                Text("Matching exact words for now. Results by meaning will be back shortly.").font(.footnote).foregroundStyle(.secondary)
+                Text("Matching exact words for now. Results by description will be back shortly.").font(.footnote).foregroundStyle(.secondary)
             }
         }
         if answer.key.scope == .all && (photos == .denied || photos == .restricted) {

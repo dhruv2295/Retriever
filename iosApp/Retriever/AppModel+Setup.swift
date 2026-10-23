@@ -56,46 +56,50 @@ extension AppModel {
 
     // MARK: Setup answers
 
-    /// The person's answer on a setup screen: Start the demo, the demo's Continue, Back.
+    /// The person's answer on a setup screen: Get started, the access screen's Continue, Back.
     func setSetupMark(_ mark: SetupMark) {
         guard let retriever = services?.retriever else { return }
         Task { try? await retriever.setSetupMark(mark: mark) }
     }
 
-    /// Skip the demo: straight to the choice, never past access. With access in place it is chosen at once; otherwise
-    /// the welcome's own ask follows (Photos, when iOS has not asked yet).
-    func skipDemo() {
+    /// Get started starts the one-time download too, on an iPhone that can run search by description and lacks it.
+    var downloadOnGetStarted: Bool { SetupPolicy.shared.downloadOnGetStarted(textOnly: textOnly, modelPresent: !modelMissing) }
+
+    /// Hello's Get started: the access screen next, and the download under way while the person answers it.
+    func getStarted() {
+        setSetupMark(.greeted)
+        if downloadOnGetStarted { (startDownload ?? downloadModel)() }
+    }
+
+    /// The first search's Continue: setup ends, everything is processed on the one automatic schedule, and Home shows its
+    /// one-time card.
+    func finishSetup() {
         guard let retriever = services?.retriever else { return }
         Task {
-            _ = try? await retriever.skipFirstRun()
-            if accessGiven {
-                _ = try? await retriever.setSetupMark(mark: .accessChosen)
-            } else if photos == .notDetermined {
-                requestPhotos()
-            }
+            do {
+                try await retriever.finishSetup()
+                IndexTask.schedule()
+                wake()
+            } catch { readingMessage = "Couldn’t save this change. Try again." }
         }
     }
 
-    /// Nothing waits beyond the demo (core's `counts.waiting`), so Continue processes everything; unknown is not nothing.
-    var nothingLeft: Bool { snap?.waiting == 0 }
-
-    /// The demo's Continue, enabled throughout: the choice of when to process the rest (core stops the demo where it
-    /// is), or, with nothing beyond the demo, processing everything.
-    func continueFromDemo() {
-        if let mark = SetupPolicy.shared.afterDemo(nothingLeft: nothingLeft) { setSetupMark(mark) } else { commitScope() }
+    /// Home's one-time card: Got it. The status line and the upgrade row carry on from here.
+    func dismissHomeIntro() {
+        Task { try? await services?.retriever.dismissHomeIntro() }
     }
 
-    /// Back from the choice: to the demo, or to the welcome after Skip the demo.
+    /// Back from the access screen to Hello, by core's rule.
     func setupBack() {
-        guard let setup, let mark = SetupPolicy.shared.back(stage: setup.stage, skipped: setup.skipped) else { return }
+        guard let setup, let mark = SetupPolicy.shared.back(stage: setup.stage) else { return }
         setSetupMark(mark)
     }
 
-    /// The demo's progress, files and chips while it shows, so they are on its first frame; its progress on the choice
-    /// too, which says how the demo ended. Closed on every other stage: core then does none of this work.
+    /// The first search's progress, files and chips while it shows, so they are on its first frame. Closed on every other
+    /// stage: core then does none of this work.
     func watchSetup(stage: SetupStage?) {
         guard let services else { return }
-        let sampling = stage == .sample || stage == .choose
+        let sampling = stage == .sample
         if sampling, sampleObservations.isEmpty {
             sampleObservations = [
                 services.retriever.observeTasteProgress { @Sendable [weak self] p in
@@ -133,31 +137,49 @@ extension AppModel {
         return (services.retriever.scopeIds.value as? [KotlinLong])?.map(\.int64Value) ?? []
     }
 
-    /// Search by meaning, and by photo, works: the model is here and tuned.
+    /// Search by description, and by photo, works: the model is here and tuned.
     var meaningSearch: Bool { !Words.shared.wordsOnly(textOnly: textOnly, modelMissing: modelMissing, setUp: setUp) }
 
     // MARK: The meaning upgrade
 
-    /// Where "Search by meaning and what's in your photos" stands, by core's rule.
+    /// The download's size as the screens say it; before the first snapshot, the build core asks for.
+    var downloadSize: String { Copy.downloadSize(snap?.downloadBytes ?? services?.retriever.requiredBuildNow.sizeBytes ?? 0) }
+
+    /// The platform's download in core's words. A finished download is still being checked until core finds the model.
+    static func phase(_ state: ModelDownload.State) -> DownloadPhase {
+        switch state {
+        case .idle: .none
+        case .downloading: .running
+        case .waitingForWifi: .waitingForWifi
+        case .verifying, .ready: .checking
+        case .failed: .failed
+        case .noSpace: .noSpace
+        }
+    }
+
+    /// Search by description as the first search and Home's one-time card say it.
+    var descriptionState: DescriptionState { UpgradePolicy.shared.description(stage: upgrade, download: Self.phase(download)) }
+
+    /// Where search by description stands, by core's rule.
     var upgrade: UpgradeStage {
         UpgradePolicy.shared.stage(
             textOnly: textOnly, modelPresent: !textOnly && !modelMissing, downloading: download != .idle, setUp: setUp,
             meaningWaiting: Int64(snap?.meaningWaiting ?? 0))
     }
 
-    /// Home's compact row: the offer after a first search until dismissed, then the download and the tune.
+    /// Home's compact row: the offer until dismissed, then the download and the tune; not while the one-time card shows.
     var upgradeOnHome: Bool {
         snap?.prefs.map { UpgradePolicy.shared.showOnHome(stage: upgrade, prefs: $0) } ?? false
     }
 
     /// The download or its tune as the status line says it (core's `line`); nil when neither is under way.
     var downloadState: DownloadState? {
-        let size = Copy.downloadSize(snap?.downloadBytes ?? 0)
+        let size = downloadSize
         switch upgrade {
         case .download:
             let percent = download == .downloading ? KotlinInt(int: Int32((min(max(downloadProgress, 0), 1) * 100).rounded())) : nil
-            let failed = if case .failed = download { true } else { false }
-            return DownloadState(percent: percent, stopped: failed || download == .waitingForWifi, size: size, settingUp: false)
+            let stopped = [.failed, .noSpace, .waitingForWifi].contains(Self.phase(download))
+            return DownloadState(percent: percent, stopped: stopped, size: size, settingUp: false)
         case .tune: return DownloadState(percent: nil, stopped: tune == .failed, size: size, settingUp: true)
         default: return nil
         }

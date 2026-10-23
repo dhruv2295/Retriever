@@ -22,7 +22,8 @@ extension AppModel {
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
-                dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed)
+                dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
+                homeIntroDue: p.homeIntroDue)
         }
     }
 
@@ -200,10 +201,9 @@ extension AppModel {
         return results
     }
 
-    /// Photos answered or a folder added: setup's stage and step follow from access. On the welcome, all photos or a
-    /// folder is the answer; only selected photos wait for Continue. Later stages keep their mark.
+    /// Photos answered or a folder added: setup's step follows from access. The access screen waits for its Continue, so
+    /// both rows can be filled first.
     func accessChanged() {
-        if setup?.stage == .welcome, photos == .authorized || !folders.isEmpty { setSetupMark(.accessChosen) }
         advance()
         wake()
     }

@@ -28,10 +28,13 @@
     /// `-route <name>` opens one screen, so screenshots need no taps. Fixture routes pin a state and need no index;
     /// live routes run the real engine on the seeded library (`-q <words>`, `-scope pdf`).
     enum DebugRoute: String {
+        /// Hello, then the access screen in each state.
         case setupWelcome = "setup.welcome"
+        case setupAccess = "setup.access"
         case setupLimited = "setup.limited"
         case setupDenied = "setup.denied"
         case setupFolders = "setup.folders"
+        case setupAccessBoth = "setup.accessBoth"
         case statusReading = "status.reading"
         /// Reading status as files come and go: the current file turns over, with a gap between two files.
         case statusReadingTurnover = "status.readingTurnover"
@@ -41,11 +44,11 @@
         case statusSkipped = "status.skipped"
         case setupSamplePicking = "setup.samplePicking"
         case setupSampleStart = "setup.sampleStart"
+        /// The first search while its download runs, waits for Wi-Fi, or once search by description is ready.
         case setupReading = "setup.reading"
-        case setupReadingPaused = "setup.readingPaused"
+        case setupWaitingWifi = "setup.waitingWifi"
+        case setupReady = "setup.ready"
         case setupSampleDone = "setup.sampleDone"
-        case setupChoose = "setup.choose"
-        case setupChooseSkipped = "setup.chooseSkipped"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
@@ -76,6 +79,9 @@
         case homeNoAccess = "home.noAccess"
         case homeNotNow = "home.notNow"
         case homeCounting = "home.counting"
+        /// Home's one-time card after setup.
+        case homeIntroReady = "home.introReady"
+        case homeIntroOnItsWay = "home.introOnItsWay"
         case settings
         /// Home with its photo mosaic.
         case homePhotos = "home.photos"
@@ -141,16 +147,19 @@
         var fixture: AppFixture {
             switch self {
             case .setupWelcome: .firstRun
+            case .setupAccess: .accessNone
             case .setupLimited: .photosLimited
             case .setupDenied: .photosDenied
             case .setupFolders: .folderAdded
+            case .setupAccessBoth: .accessBoth
             case .setupSamplePicking: .samplePicking
             case .setupSampleStart: .sampleStart
             case .setupReading: .sampleReading
-            case .setupReadingPaused: .samplePaused
+            case .setupWaitingWifi: .sampleWaitingForWifi
+            case .setupReady: .sampleReady
             case .setupSampleDone: .sampleDone
-            case .setupChoose: .choosing
-            case .setupChooseSkipped: .chooseSkipped
+            case .homeIntroReady: .homeIntro(ready: true)
+            case .homeIntroOnItsWay: .homeIntro(ready: false)
             case .upgradeOffer, .homeUpgrade, .searchNoModel: .noModel
             case .upgradeDownload, .homeDownloading: .downloading(0.34)
             case .homeCharging: .readingWhileCharging
@@ -178,11 +187,11 @@
 
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
-            case .setupWelcome, .setupLimited, .setupDenied, .setupFolders, .setupSamplePicking, .setupSampleStart, .setupReading,
-                .setupReadingPaused, .setupSampleDone, .setupChoose, .setupChooseSkipped, .setupTextOnly:
+            case .setupWelcome, .setupAccess, .setupLimited, .setupDenied, .setupFolders, .setupAccessBoth, .setupSamplePicking, .setupSampleStart,
+                .setupReading, .setupWaitingWifi, .setupReady, .setupSampleDone, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
-                // Settings' Search by meaning entry, alone: the same card as Home's.
+                // Settings' Search by description entry, alone: the same card as Home's.
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
@@ -222,7 +231,7 @@
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
             case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeNoAccess,
-                .homeNotNow, .homeCounting:
+                .homeNotNow, .homeCounting, .homeIntroReady, .homeIntroOnItsWay:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {

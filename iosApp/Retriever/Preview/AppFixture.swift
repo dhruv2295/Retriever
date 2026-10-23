@@ -6,12 +6,13 @@ import SwiftUI
 
 /// Pinned for screenshots and previews: each case is a whole-app state, no index needed.
 enum AppFixture {
-    /// Setup's welcome and its access choice: not asked yet, limited or denied Photos, or a folder added.
-    case firstRun, photosLimited, photosDenied, folderAdded
-    /// Setup's demo with no download: picking (no plan yet), starting, processing, paused, or done; then the choice of
-    /// when to process the rest, after the demo or after Skip the demo.
-    case samplePicking, sampleStart, sampleReading, samplePaused, sampleDone
-    case choosing, chooseSkipped
+    /// Hello, then the access screen: nothing given yet, some photos, Photos refused, a folder added, or both given.
+    case firstRun, accessNone, photosLimited, photosDenied, folderAdded, accessBoth
+    /// The first search, its download running: picking (no plan yet), starting, processing, or done; processing while the
+    /// download waits for Wi-Fi; and processing with search by description ready.
+    case samplePicking, sampleStart, sampleReading, sampleDone, sampleWaitingForWifi, sampleReady
+    /// Home's one-time card after setup, search by description ready or still downloading.
+    case homeIntro(ready: Bool)
     /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
     case noModel
     case downloading(Double)
@@ -46,19 +47,19 @@ extension AppModel {
         var sample: [SampleFile]? = []
         var suggestions = ["wifi password", "boarding pass", "electricity bill"]
         let files = Self.readingFiles
-        /// Before access is chosen: the welcome, nothing read, no download.
-        func inSetup(_ access: PHAuthorizationStatus, folders picked: [String] = []) {
+        /// Before access is chosen: Hello (`.none`) or the access screen (`.greeted`), nothing read, no download yet.
+        func inSetup(_ access: PHAuthorizationStatus, folders picked: [String] = [], mark: SetupMark = .greeted) {
             (snap.setUp, snap.indexed, snap.pending, snap.lastStop, snap.accessChosen) = (false, 0, 0, nil, false)
             (photos, download, tune, modelMissing, folders) = (access, (.idle, 0), .idle, true, picked)
-            setup = SetupInputs(mark: .none, skipped: false, decided: false, planned: 0, accessGiven: false)
+            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 0, accessGiven: false)
         }
-        /// The demo, processed with no download: `read` of its 30 files, processing while any wait. No chips before the
-        /// first file: the hint holds their place.
-        func inSample(_ mark: SetupMark, read: Int = 12) {
+        /// The first search, its download at 64% (Get started began it): `read` of its 30 files, processing while any
+        /// wait. No chips before the first file: the hint holds their place.
+        func inSample(read: Int = 12, download state: (ModelDownload.State, Double) = (.downloading, 0.64)) {
             let done = read == 30
             (snap.setUp, snap.indexed, snap.pending, snap.waiting, snap.trial) = (false, read, 30 - read, 25_763, true)
-            (snap.running, download, tune, modelMissing) = (!done, (.idle, 0), .idle, true)
-            setup = SetupInputs(mark: mark, skipped: false, decided: false, planned: 30, accessGiven: false)
+            (snap.running, download, tune, modelMissing) = (!done, state, .idle, true)
+            setup = SetupInputs(mark: .accessChosen, skipped: false, decided: false, planned: 30, accessGiven: false)
             let screenshots = min(read, 6)
             let pdfs = min(max(read - 6, 0), 8)
             taste = TasteSnap(
@@ -115,27 +116,28 @@ extension AppModel {
             snap.counted = false
         case .lostAccess:
             (photos, folders, snap.byKind, snap.indexed) = (.denied, [], [.pdf: 12, .doc: 9], 21)
-        case .firstRun: inSetup(.notDetermined)
+        case .firstRun: inSetup(.notDetermined, mark: .none)
+        case .accessNone: inSetup(.notDetermined)
         case .photosLimited: inSetup(.limited)
         case .photosDenied: inSetup(.denied)
         case .folderAdded: inSetup(.notDetermined, folders: ["Work"])
+        case .accessBoth: inSetup(.authorized, folders: ["Downloads", "Work"])
         case .samplePicking:
-            inSample(.accessChosen, read: 0)
+            inSample(read: 0)
             setup = SetupInputs(mark: .accessChosen, skipped: false, decided: false, planned: 0, accessGiven: false)
             (taste, sample, snap.reading.current) = (TasteSnap(), nil, nil)
-        case .sampleStart: inSample(.accessChosen, read: 0)
-        case .sampleReading: inSample(.accessChosen)
-        case .samplePaused:
-            inSample(.accessChosen)
-            snap.running = false
-            snap.reading.current = nil
-            snap.reading.pauseReason = "Paused while you use other apps. It carries on when you come back."
-        case .sampleDone: inSample(.accessChosen, read: 30)
-        case .choosing: inSample(.choosing, read: 30)
-        case .chooseSkipped:
-            inSample(.accessChosen, read: 0)
-            setup = SetupInputs(mark: .accessChosen, skipped: true, decided: false, planned: 0, accessGiven: false)
-            (taste, sample) = (TasteSnap(), nil)
+        case .sampleStart: inSample(read: 0)
+        case .sampleReading: inSample()
+        case .sampleDone: inSample(read: 30)
+        case .sampleWaitingForWifi: inSample(download: (.waitingForWifi, 0.2))
+        case .sampleReady:
+            inSample(read: 18, download: (.ready, 1))
+            (snap.setUp, modelMissing, tune) = (true, false, .done(Copy.tuneSummary(.gpu, imageMs: 120)))
+        case .homeIntro(let ready):
+            midway(running: true)
+            decided(nil, pluggedIn: true)
+            setup = SetupInputs(mark: .accessChosen, skipped: false, decided: true, planned: 30, accessGiven: false)
+            if !ready { withoutModel((.downloading, 0.34)) }
         case .noModel: withoutModel((.idle, 0))
         case .downloading(let p): withoutModel((.downloading, p))
         case .waitingForWifi: withoutModel((.waitingForWifi, 0))
@@ -161,7 +163,7 @@ extension AppModel {
         case .textOnly(let ramGb):
             (snap.textOnly, snap.ramGb, snap.byKind) = (true, ramGb, [.pdf: 64, .doc: 31, .photo: 0])
             (download, tune) = ((.idle, 0), .idle)
-            // Setup shows its welcome, with what this phone reads; Status ignores setup.
+            // Setup shows Hello, with what this phone can do; Status ignores setup.
             setup = SetupInputs(mark: .none, skipped: false, decided: false, planned: 0, accessGiven: false)
         case .paused:
             (snap.indexed, snap.pending, snap.paused, snap.lastStop) = (1_904, 1_238, true, .paused)
@@ -178,7 +180,7 @@ extension AppModel {
         }
         snap.readByKind = snap.byKind.mapValues { $0 }
         for (kind, pending) in snap.pendingByKind { snap.readByKind[kind] = max(0, (snap.byKind[kind] ?? 0) - pending) }
-        snap.prefs = Self.prefs(searchTried: true)
+        snap.prefs = Self.prefs(searchTried: true, homeIntroDue: { if case .homeIntro = fixture { true } else { false } }())
         self.init(snap: snap, photos: photos, download: download, tune: tune, setup: setup, folders: folders, modelMissing: modelMissing, skipped: skipped)
         self.taste = taste
         self.sample = sample
@@ -232,11 +234,12 @@ extension AppModel {
     }
 
     /// Prefs as a fresh install keeps them, with a first search made.
-    private static func prefs(searchTried: Bool) -> Prefs {
+    private static func prefs(searchTried: Bool, homeIntroDue: Bool) -> Prefs {
         Prefs(
             kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, readNowUntil: 0, excludedFolders: [],
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
-            dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false)
+            dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
+            homeIntroDue: homeIntroDue)
     }
 }

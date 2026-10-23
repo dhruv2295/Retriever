@@ -2,9 +2,8 @@ import Photos
 import RetrieverCore
 import SwiftUI
 
-/// First run on core's stage machine (`SetupInputs.stage`): the welcome with its access choice, the demo (processing
-/// and its search on one screen), then when to process the rest. Every stage follows from stored state, so each resumes
-/// after the app is closed.
+/// First run on core's stage machine (`SetupInputs.stage`): Hello, the access screen, then the first search (processing
+/// and its search on one screen). Every stage follows from stored state, so each resumes after the app is closed.
 struct SetupView: View {
     let model: AppModel
     /// In Home's stack (its status row leads here): back to Home once setup has nothing left to ask.
@@ -15,8 +14,8 @@ struct SetupView: View {
         let stage = model.setup?.stage ?? .welcome
         Group {
             switch stage {
-            case .welcome: WelcomeStep(model: model)
-            case .choose: ChooseStep(model: model)
+            case .welcome: HelloStep(model: model)
+            case .access: AccessStep(model: model)
             default: DemoStep(model: model)
             }
         }
@@ -78,59 +77,236 @@ private func wide(_ title: String) -> some View {
     Text(title).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
 }
 
-/// The welcome and the one decision it asks: all photos, folders from Files, or skip the demo.
-private struct WelcomeStep: View {
+/// Over Hello's and the access screen's button: nothing leaves the iPhone.
+private struct OnDevice: View {
+    var body: some View {
+        Label(Words.shared.onDevice(words: Copy.words), systemImage: "lock.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.tint)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Hello: what Retriever does, shown by example, and Get started, which also starts the one-time download.
+private struct HelloStep: View {
+    let model: AppModel
+
+    var body: some View {
+        StepContent(alignment: .center, spacing: 8) {
+            MascotView(mood: .welcome, settles: false).frame(width: 230)
+            Text(Words.shared.helloTitle(textOnly: model.textOnly)).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+            Text(Words.shared.HELLO_BODY).font(.title3).foregroundStyle(.secondary)
+            HelloExamples().padding(.top, 12)
+        }
+        .modifier(
+            StepActions {
+                OnDevice()
+                Button(action: model.getStarted) { wide(Words.shared.GET_STARTED) }.buttonStyle(.primaryAction)
+                if model.downloadOnGetStarted {
+                    // Primary: footnote-sized secondary grey falls short of contrast.
+                    Text(Words.shared.downloadNote(size: model.downloadSize)).font(.footnote).multilineTextAlignment(.center)
+                }
+            })
+    }
+}
+
+/// Hello's looping example: a description types into a search field, then the card that answers it springs in, three
+/// in turn. Illustrations, never the person's files, so VoiceOver skips it; Reduce Motion shows the first, still.
+private struct HelloExamples: View {
+    private static let art = ["ExampleChat", "ExampleSofa", "ExampleLease"]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var index = 0
+    @State private var typed = Int.max
+    @State private var answered = true
+
+    var body: some View {
+        let example = Words.shared.HELLO_EXAMPLES[index]
+        VStack(alignment: .leading, spacing: 8) {
+            // Primary throughout: footnote-sized secondary grey falls short of contrast, and the audit still reads these.
+            Text(Words.shared.FOR_EXAMPLE.uppercased()).font(.footnote.weight(.semibold)).padding(.leading, 4)
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                Text(example.query.prefix(typed)).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+            .background(.fill.tertiary, in: Capsule())
+            HStack(spacing: 14) {
+                Image(Self.art[index]).resizable().scaledToFill().frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(example.title).font(.subheadline.weight(.semibold))
+                    Text(example.detail).font(.footnote)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .opacity(answered ? 1 : 0)
+            .scaleEffect(answered ? 1 : 0.97)
+            .offset(y: answered ? 0 : 14)
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: 342)
+        .accessibilityElement(children: .ignore)
+        .accessibilityHidden(true)
+        .task(id: reduceMotion) {
+            guard !reduceMotion else {
+                (index, typed, answered) = (0, .max, true)
+                return
+            }
+            await loop()
+        }
+    }
+
+    /// About 3.5 s each, as the design has it: type for a second, the card in, a hold, then the next.
+    private func loop() async {
+        do {
+            while true {
+                let query = Words.shared.HELLO_EXAMPLES[index].query
+                (typed, answered) = (0, false)
+                for n in 1...query.count {
+                    try await Task.sleep(for: .milliseconds(1_100 / query.count))
+                    typed = n
+                }
+                try await Task.sleep(for: .milliseconds(150))
+                withAnimation(.spring(duration: 0.5, bounce: 0.3)) { answered = true }
+                try await Task.sleep(for: .milliseconds(2_000))
+                withAnimation(.easeOut(duration: 0.2)) { answered = false }
+                try await Task.sleep(for: .milliseconds(250))
+                index = (index + 1) % Words.shared.HELLO_EXAMPLES.count
+            }
+        } catch {}
+    }
+}
+
+/// What Retriever can search: photos through iOS's ask, documents through folders picked in Files. Continue waits until
+/// one is given; both rows can be filled first. Back goes to Hello.
+private struct AccessStep: View {
     let model: AppModel
     @State private var picking = false
     @State private var folderNote: String?
 
     var body: some View {
-        StepContent(spacing: 8) {
-            MascotView(mood: .welcome, settles: false).frame(width: 180).frame(maxWidth: .infinity)
-            Text(Words.shared.WELCOME_TITLE).font(.title.bold()).accessibilityAddTraits(.isHeader)
-            Text(Words.shared.WELCOME_BODY)
-            Text(Words.shared.nothingSent(words: Copy.words)).font(.headline)
-            if let snap = model.snap, snap.textOnly {
-                Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words))
+        // A stack of its own, so the toolbar's Back shows.
+        NavigationStack {
+            StepContent(alignment: .center, spacing: 8) {
+                MascotView(mood: .searching, settles: false).frame(width: 230)
+                Text(Words.shared.ACCESS_TITLE).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                Text(Words.shared.ACCESS_BODY).font(.title3).foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    AccessRow(icon: "photo.on.rectangle", title: Words.shared.PHOTOS_AND_VIDEOS, detail: photosDetail, below: model.photos == .limited) {
+                        photosAction
+                    }
+                    Divider().padding(.leading, 70)
+                    AccessRow(icon: "folder", title: Words.shared.DOCUMENTS, detail: foldersDetail) { foldersAction }
+                }
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(maxWidth: 342)
+                .padding(.top, 20)
+                if let folderNote { Note(folderNote) }
             }
-            Note(Words.shared.iosAccessNote(words: Copy.words))
-            if model.photos == .limited {
-                Note(Words.shared.ONLY_SELECTED_PHOTOS)
-                Button(Words.shared.CHOOSE_MORE_PHOTOS, action: model.chooseMorePhotos).buttonStyle(.bordered)
-            }
-            // In the content, not the footer: three stacked actions left no room for a label to wrap at larger text.
-            Button(Words.shared.ADD_FOLDERS_FROM_FILES) { picking = true }.buttonStyle(.bordered)
-            if let folderNote { Note(folderNote) }
-            // Last in the content, just above the footer: in the pinned footer it clipped at larger text.
-            Text(Words.shared.welcomeNext(words: Copy.words)).fixedSize(horizontal: false, vertical: true)
-            Text(Words.shared.welcomeAfterDemo(words: Copy.words)).fixedSize(horizontal: false, vertical: true)
-        }
-        .modifier(
-            StepActions {
-                // Access in place: start the demo. Not asked yet: ask for all photos. Refused: only Settings can change it.
-                if model.accessGiven {
+            .modifier(
+                StepActions {
+                    OnDevice()
                     Button {
                         model.setSetupMark(.accessChosen)
                     } label: {
-                        wide(Words.shared.START_THE_DEMO)
-                    }.buttonStyle(.primaryAction)
-                } else if model.photos == .notDetermined {
-                    Button(action: model.requestPhotos) { wide(Words.shared.SEARCH_ALL_PHOTOS) }.buttonStyle(.primaryAction)
-                } else {
-                    Button(action: model.openSettings) { wide("Open Settings") }.buttonStyle(.primaryAction)
+                        wide(Words.shared.CONTINUE)
+                    }
+                    .buttonStyle(.primaryAction)
+                    .disabled(!model.accessGiven)
                 }
-                Button(action: model.skipDemo) { wide(Words.shared.SKIP_THE_DEMO) }
-            }
-        )
+            )
+            .toolbar { SetupBack(model: model) }
+        }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
-            folderNote = model.addFolders(urls).map(Copy.addFolderResult).joined(separator: "\n")
+            // An added folder shows in its row; only what went wrong needs saying.
+            let problems = model.addFolders(urls).filter { if case .added = $0 { false } else { true } }
+            folderNote = problems.isEmpty ? nil : problems.map(Copy.addFolderResult).joined(separator: "\n")
+        }
+    }
+
+    private var photosDetail: String {
+        switch model.photos {
+        case .authorized: Words.shared.ALLOWED
+        case .limited: Words.shared.SOME_PHOTOS
+        case .denied, .restricted: Words.shared.PHOTOS_OFF
+        default: Words.shared.INCLUDES_SCREENSHOTS
+        }
+    }
+
+    @ViewBuilder private var photosAction: some View {
+        switch model.photos {
+        case .authorized: Done()
+        case .limited: Button(Words.shared.CHOOSE_MORE, action: model.chooseMorePhotos).buttonStyle(.bordered)
+        case .denied, .restricted: Button(Words.shared.SETTINGS, action: model.openSettings).buttonStyle(.bordered)
+        default: Button(Words.shared.ALLOW, action: model.requestPhotos).buttonStyle(.primaryAction)
+        }
+    }
+
+    private var foldersDetail: String {
+        model.folders.isEmpty ? Words.shared.PICK_FOLDERS : Words.shared.foldersAdded(n: Int64(model.folders.count))
+    }
+
+    @ViewBuilder private var foldersAction: some View {
+        if !model.folders.isEmpty {
+            Done()
+        } else if model.photos == .notDetermined {
+            // Photos is the row to answer first; Choose is the strong one once it has been.
+            Button(Words.shared.CHOOSE) { picking = true }.buttonStyle(.bordered)
+        } else {
+            Button(Words.shared.CHOOSE) { picking = true }.buttonStyle(.primaryAction)
+        }
+    }
+
+    /// A row's answer once given; its line under the title already says it.
+    private struct Done: View {
+        var body: some View {
+            Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.tint).accessibilityHidden(true)
         }
     }
 }
 
-/// The demo, one screen: the real search over the demo's files (`SearchView` with a `Trial`), the demo's progress under
-/// its field until a word is typed, and Continue pinned below, enabled throughout.
+/// One of the access screen's rows: an icon, what it gives, where it stands, and its one action.
+private struct AccessRow<Action: View>: View {
+    let icon: String
+    let title: String
+    let detail: String
+    /// The action under the words, not beside them: a long label there would break the title.
+    var below = false
+    @ViewBuilder let action: Action
+
+    var body: some View {
+        HStack(alignment: below ? .top : .center, spacing: 14) {
+            Image(systemName: icon).font(.title3).foregroundStyle(.tint)
+                .frame(width: 40, height: 40)
+                .background(.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    // Primary, as the app's notes are: secondary grey fails contrast on the grouped card.
+                    Text(detail).font(.footnote)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .combine)
+                if below { action.buttonBorderShape(.capsule) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Whole: the words beside it wrap instead.
+            if !below { action.buttonBorderShape(.capsule).fixedSize() }
+        }
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+}
+
+/// The first search, one screen: the real search over the recent files (`SearchView` with a `Trial`), their progress
+/// under its field until a word is typed, and Continue pinned below, enabled throughout; it ends setup.
 private struct DemoStep: View {
     let model: AppModel
     @State private var search: SearchModel
@@ -147,58 +323,47 @@ private struct DemoStep: View {
                 .toolbar { SetupBack(model: model, search: search) }
                 .modifier(
                     StepActions {
-                        Button(action: model.continueFromDemo) { wide(Words.shared.CONTINUE) }.buttonStyle(.primaryAction)
+                        Button(action: model.finishSetup) { wide(Words.shared.CONTINUE) }.buttonStyle(.primaryAction)
                     })
         }
     }
 }
 
-/// Under the demo's search field before a word is typed: what the demo is, the pile of its newest files, the one count
-/// and its bar, one muted line, words to try, and the list of its files. Every row is laid out from the first frame,
-/// so the centred group never moves between states.
+/// Under the first search's field before a word is typed: the dog (or, once search by description is ready, a banner
+/// saying so), the title, the one count and its bar, where search by description stands, the pile of the newest files,
+/// words to try, and the list of its files. Every row keeps its place from the first frame, so the centred group never
+/// moves between states.
 struct DemoIntro: View {
     let model: AppModel
     let search: SearchModel
     @State private var seeingAll = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Both kept on the model, so coming back to this screen never starts from zero or replays the pile.
         let taste = model.taste
         let sample = model.sample ?? []
-        let pause = model.progress.reading.pauseReason
-        // One predicate for the mascot and the time line: picking, or processing, not stopped, with files left.
-        // Not `running`: it drops between two demo batches, and the mascot would sit down for that gap.
-        let reading = model.setup?.step == .plan || (pause == nil && taste.pending > 0)
+        // Picking, or processing, not stopped, with files left. Not `running`: it drops between two batches, and the
+        // mascot would sit down for that gap.
+        let reading = model.setup?.step == .plan || (model.progress.reading.pauseReason == nil && taste.pending > 0)
         let planned = Int64(taste.planned)
         let done = Int64(taste.done)
         // The files are picked in under a second; the total is fixed from then on.
         let picking = planned == 0
         let count = picking ? Words.shared.DEMO_PICKING : Words.shared.readOf(done: done, total: planned)
-        let note =
-            picking
-            ? Words.shared.DEMO_PICKING_NOTE
-            : taste.pending == 0
-                ? Words.shared.demoDone(rest: model.snap?.readProgress.rest, words: Copy.words)
-                : pause ?? Words.shared.demoNote(secondsLeft: taste.secondsLeft.map { KotlinInt(int: Int32($0)) })
+        let state = model.descriptionState
         StepContent(alignment: .center) {
-            // The full demo's title holds the height, so picking's shorter one never moves the rows under it.
+            // The dog's height holds the banner's place, so the rows under it stay put when it arrives.
             ZStack {
-                Text(Words.shared.demoTitle(files: Int64(TasteKt.DEMO_FILES))).hidden()
-                Text(Words.shared.demoTitle(files: planned))
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityValue(taste.spoken)
+                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).opacity(state == .ready ? 0 : 1)
+                if state == .ready { ReadyBanner().transition(.scale(scale: 0.96).combined(with: .opacity)) }
             }
-            .font(.title2.bold())
-            .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 16) {
-                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 96)
-                SamplePileView(
-                    cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
-                    hint: Words.shared.seeAll(files: planned), seeAll: picking ? nil : { seeingAll = true }
-                )
-                // A new pile at the first delivery: the files done by then are there from its start, so they never settle again.
-                .id(model.sample == nil)
-            }
+            .animation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.3), value: state == .ready)
+            Text(Words.shared.FIRST_LOOK)
+                .font(.title2.bold())
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityValue(taste.spoken)
             VStack(spacing: 8) {
                 // The picking sentence's height is held throughout, so the shorter count never pulls the group up.
                 ZStack(alignment: .bottom) {
@@ -209,18 +374,80 @@ struct DemoIntro: View {
                 // Exactly the count's numbers: done of planned, name-only and unopenable files included.
                 ProgressView(value: Double(done), total: Double(max(planned, 1))).accessibilityHidden(true)
             }
-            // Two lines kept for the note; larger text still grows it.
-            ZStack {
-                Text(" \n ").hidden()
-                Text(note)
-            }
-            .font(.subheadline)
-            .fixedSize(horizontal: false, vertical: true)
+            DescriptionLine(model: model, state: state)
+            SamplePileView(
+                cards: SamplePile.shared.shown(files: sample), kinds: SamplePileView.kinds(sample), label: count,
+                hint: Words.shared.seeAll(files: planned), seeAll: picking ? nil : { seeingAll = true }
+            )
+            // A new pile at the first delivery: the files done by then are there from its start, so they never settle again.
+            .id(model.sample == nil)
             DemoChips(terms: model.trySuggestions, search: search)
             let seeAll = Button(Words.shared.seeAll(files: planned)) { seeingAll = true }
             if picking { seeAll.hidden() } else { seeAll }
         }
         .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: model.sample ?? []) }
+    }
+}
+
+/// At the top of the first search once search by description is ready.
+private struct ReadyBanner: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark").font(.headline).foregroundStyle(Color(.systemBackground))
+                .frame(width: 40, height: 40)
+                .background(.tint, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Words.shared.DESCRIPTION_READY).font(.subheadline.weight(.semibold))
+                Text(Words.shared.DESCRIPTION_READY_BODY).font(.footnote)
+            }
+            Spacer(minLength: 0)
+        }
+        .multilineTextAlignment(.leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The quiet line under the count while search by description gets ready, with Use mobile data or Try again where they
+/// help. A line and a button's height are kept, so the line coming and going never moves the group.
+private struct DescriptionLine: View {
+    let model: AppModel
+    let state: DescriptionState
+    @State private var askingMobileData = false
+
+    var body: some View {
+        let percent = model.download == .downloading ? KotlinInt(int: Int32((min(max(model.downloadProgress, 0), 1) * 100).rounded())) : nil
+        ZStack {
+            VStack(spacing: 0) {
+                Text(" ")
+                Text(" ").frame(minHeight: 44)
+            }
+            .hidden()
+            if let line = Words.shared.descriptionLine(state: state, percent: percent) {
+                VStack(spacing: 0) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "sparkle").foregroundStyle(.tint)
+                        Text(line).monospacedDigit()
+                    }
+                    .accessibilityElement(children: .combine)
+                    switch state {
+                    case .waitingForWifi:
+                        Button {
+                            askingMobileData = true
+                        } label: {
+                            Text(Words.shared.USE_MOBILE_DATA).frame(minHeight: 44)
+                        }
+                    case .failed: Button(action: model.downloadModel) { Text(Words.shared.TRY_AGAIN).frame(minHeight: 44) }
+                    default: EmptyView()
+                    }
+                }
+            }
+        }
+        .font(.footnote)
+        .fixedSize(horizontal: false, vertical: true)
+        .mobileDataAsk(model, isPresented: $askingMobileData)
     }
 }
 
@@ -409,32 +636,8 @@ private struct SampleRows: View {
     }
 }
 
-/// When to process the rest; no mascot, the decision is the focal point.
-private struct ChooseStep: View {
-    let model: AppModel
-
-    var body: some View {
-        let taste = model.taste
-        // A stack of its own, so the toolbar's Back shows.
-        NavigationStack {
-            ScrollView {
-                ReadingChoice(
-                    ended: Words.shared.demoEnded(done: Int64(taste.done), planned: Int64(taste.planned), skipped: model.setup?.skipped ?? false),
-                    rest: model.snap?.readProgress.rest,
-                    charging: { model.commit(whileCharging: true) }, readNow: { model.commit(whileCharging: false) }, notNow: model.decideLater
-                )
-                .padding(24)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .toolbar { SetupBack(model: model) }
-        }
-    }
-}
-
-/// Back from the choice to the demo, or to the welcome after Skip the demo, by core's rule. On the demo's results it
-/// goes back to the demo itself, in one press; the demo has no Back of its own.
+/// Back from the access screen to Hello, by core's rule. On the first search's results it goes back to the first search
+/// itself, in one press; the first search has no Back of its own.
 private struct SetupBack: ToolbarContent {
     let model: AppModel
     var search: SearchModel?
@@ -492,38 +695,26 @@ struct Busy: View {
     }
 }
 
-#Preview("Welcome") {
+#Preview("Hello") {
     SetupView(model: AppModel(fixture: .firstRun))
 }
 
-#Preview("Welcome, limited Photos") {
+#Preview("Access, some photos") {
     SetupView(model: AppModel(fixture: .photosLimited))
 }
 
-#Preview("Welcome, Photos refused") {
+#Preview("Access, photos refused") {
     SetupView(model: AppModel(fixture: .photosDenied))
 }
 
-#Preview("Demo starting") {
+#Preview("First search starting") {
     SetupView(model: AppModel(fixture: .sampleStart))
 }
 
-#Preview("Demo processing") {
+#Preview("First search, downloading") {
     SetupView(model: AppModel(fixture: .sampleReading))
 }
 
-#Preview("Demo paused") {
-    SetupView(model: AppModel(fixture: .samplePaused))
-}
-
-#Preview("Demo done") {
-    SetupView(model: AppModel(fixture: .sampleDone))
-}
-
-#Preview("Choose, after the demo") {
-    SetupView(model: AppModel(fixture: .choosing))
-}
-
-#Preview("Choose, after a skip") {
-    SetupView(model: AppModel(fixture: .chooseSkipped))
+#Preview("First search, ready") {
+    SetupView(model: AppModel(fixture: .sampleReady))
 }

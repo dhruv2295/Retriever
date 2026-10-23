@@ -64,7 +64,7 @@ final class AppModel {
         var prefs: Prefs?
         /// The phone's files are all counted once; until then Home says "Counting your files…" (core's `ReadingProgress.counted`).
         var counted = true
-        /// Not now was chosen after the demo (core's `ReadingProgress.notNow`).
+        /// Not now was chosen on an older version's choice after the demo (core's `ReadingProgress.notNow`).
         var notNow = false
 
         /// The kinds iOS reads inside, in the order Settings lists them. There is no audio source on iOS.
@@ -223,6 +223,8 @@ final class AppModel {
     @ObservationIgnored private var checkingCelebration = false
     @ObservationIgnored var readCelebrated: () async -> Bool = { true }
     @ObservationIgnored var markCelebrated: () async -> Void = {}
+    /// Get started's download; nil is `downloadModel`. Swapped in tests, which must not start a real one.
+    @ObservationIgnored var startDownload: (() -> Void)?
 
     @ObservationIgnored var observation: KotlinAutoCloseable?
     /// Open only while the demo shows (`watchSetup`).

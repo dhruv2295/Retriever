@@ -26,6 +26,8 @@ struct HomeList: View {
     var body: some View {
         List {
             if let snap {
+                // Just under the search field, once, after setup: what happens next. The status line below carries on after it.
+                if snap.prefs?.homeIntroDue == true { Section { HomeIntroCard(model: model) } }
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)
                 if snap.total == 0 {
                     empty(snap)
@@ -179,6 +181,68 @@ struct HomeList: View {
         }
     }
 
+}
+
+/// Home's one-time card after setup: where the recent files, the rest and new files stand, until Got it.
+struct HomeIntroCard: View {
+    let model: AppModel
+    @State private var askingMobileData = false
+
+    var body: some View {
+        let state = model.descriptionState
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                MascotView(mood: .resting, settles: false).frame(width: 76)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Words.shared.HOME_INTRO_TITLE).font(.headline).accessibilityAddTraits(.isHeader)
+                    Text(Words.shared.HOME_INTRO_BODY).font(.subheadline)
+                }
+            }
+            step(
+                state == .ready ? "checkmark" : "magnifyingglass", done: state == .ready,
+                Words.shared.recentFiles(n: Int64(model.setupInputs?.planned ?? 0)), Words.shared.recentFilesBody(state: state)
+            ) {
+                if let action = Words.shared.recentFilesAction(state: state, size: model.downloadSize) {
+                    Button(action) { run(state) }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                }
+            }
+            step(
+                "bolt.fill", Words.shared.otherFiles(rest: model.snap?.readProgress.rest),
+                Words.shared.otherFilesBody(words: Copy.words)
+            ) {}
+            step("plus", Words.shared.NEW_FILES, Words.shared.NEW_FILES_BODY) {}
+            Button(Words.shared.GOT_IT, action: model.dismissHomeIntro).frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
+                .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 6)
+        .mobileDataAsk(model, isPresented: $askingMobileData)
+    }
+
+    /// Use mobile data asks first; Try again and Download start the download.
+    private func run(_ state: DescriptionState) {
+        if state == .waitingForWifi { askingMobileData = true } else { model.downloadModel() }
+    }
+
+    private func step<Action: View>(
+        _ icon: String, done: Bool = false, _ title: String, _ detail: String, @ViewBuilder action: () -> Action
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.subheadline.weight(.semibold))
+                .foregroundStyle(done ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.tint))
+                .frame(width: 30, height: 30)
+                .background(done ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.16)), in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(detail).font(.footnote)
+                }
+                .accessibilityElement(children: .combine)
+                action().padding(.top, 6)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }
 
 /// The status line leads; a Photos access note or a failed change follows it. Its own view, so the per-file progress it

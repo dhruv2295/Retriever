@@ -163,7 +163,7 @@ final class SettingsModelTests: XCTestCase {
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
                 setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,
                 noMatchSeen: $0.noMatchSeen, showOnThisDay: $0.showOnThisDay, readingCycle: $0.readingCycle, dismissedReadingCycle: $0.dismissedReadingCycle,
-                searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed)
+                searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed, homeIntroDue: $0.homeIntroDue)
         }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)
@@ -218,10 +218,10 @@ final class SettingsModelTests: XCTestCase {
     func testRemoveDownloadConfirmationNamesTheSizeAndWhatKeepsWorking() {
         XCTAssertEqual(
             Words.shared.removeDownloadMessage(size: "388 MB"),
-            "This frees 388\u{00A0}MB. File names and text already processed still work. Search by meaning needs the download again.")
+            "This frees 388\u{00A0}MB. File names and text already processed still work. Search by description needs the download again.")
         XCTAssertEqual(
             Words.shared.removeDownloadMessage(size: nil),
-            "File names and text already processed still work. Search by meaning needs the download again.")
+            "File names and text already processed still work. Search by description needs the download again.")
     }
 
     func testClearingRecentSearchesEmptiesTheListAndKeepsTheSwitch() {
