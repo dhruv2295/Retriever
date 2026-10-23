@@ -28,7 +28,20 @@ class ExitReasonsTest {
             ApplicationExitInfo.REASON_USER_REQUESTED,
             ApplicationExitInfo.REASON_ANR,
             null,
-        ).map(ExitReasons::crashed)
+        ).map { ExitReasons.crashed(it, null) }
         assertEquals(listOf(true, true, false, false, false, false, false), crashes)
+    }
+
+    /** Android 17's per-app memory limit repeats on every open, so it counts as the model's doing; other REASON_OTHER exits don't. */
+    @Test fun aMemoryLimiterKillCountsAsAModelCrashAndIsListed() {
+        val limited = "MemoryLimiter:AnonSwap rss=2.1GB"
+        assertEquals(true, ExitReasons.crashed(ApplicationExitInfo.REASON_OTHER, limited))
+        assertEquals(false, ExitReasons.crashed(ApplicationExitInfo.REASON_OTHER, "user request"))
+        assertEquals(false, ExitReasons.crashed(ApplicationExitInfo.REASON_OTHER, null))
+
+        val rows = ExitReasons.problems(
+            listOf(Raw(ApplicationExitInfo.REASON_OTHER, 20, limited), Raw(ApplicationExitInfo.REASON_OTHER, 30, "user request")),
+        )
+        assertEquals(listOf("Memory limit" to limited), rows.map { it.kind to it.description })
     }
 }
