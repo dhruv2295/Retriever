@@ -17,7 +17,6 @@
 import Foundation
 import MediaPipeTasksRetrieval
 import RetrieverCore
-import UIKit
 import os
 
 final class MediaPipeOpener: NSObject, RefusesForNow {
@@ -70,35 +69,32 @@ final class MediaPipeNativeEmbedder: NSObject, NativeEmbedder {
         self.embedder = embedder
     }
 
+    /// One pool per call: the result holds an NSNumber per dimension, and Kotlin calls this in a loop.
     func embed(parts: [Any]) -> Data? {
-        lastError = 0
-        lastMessage = nil
-        guard let embedder else { return fail(2, "the model is closed") }
-        do {
-            let result: EmbeddingResult
-            if parts.count == 1, let text = parts[0] as? String {
-                result = try embedder.embed(text: text)
-            } else if parts.count == 1, let jpeg = parts[0] as? Data {
-                result = try embedder.embed(imageBytes: jpeg)
-            } else {
-                let content: [Any] = try parts.map { part in
-                    if let jpeg = part as? Data {
-                        guard let image = UIImage(data: jpeg) else { throw EmbedError.badImage }
-                        return try MPImage(uiImage: image)
-                    }
-                    return part
+        autoreleasepool {
+            lastError = 0
+            lastMessage = nil
+            guard let embedder else { return fail(2, "the model is closed") }
+            do {
+                let result: EmbeddingResult
+                if parts.count == 1, let text = parts[0] as? String {
+                    result = try embedder.embed(text: text)
+                } else if parts.count == 1, let jpeg = parts[0] as? Data {
+                    result = try embedder.embed(imageBytes: jpeg)
+                } else {
+                    // The JPEG's own bytes, as embed(imageBytes:) takes them: an MPImage would be decoded and re-encoded.
+                    result = try embedder.embed(content: parts.map { part in (part as? Data).map { ImagePart(data: $0) } ?? part })
                 }
-                result = try embedder.embed(content: content)
+                guard let floats = result.embeddings.first?.floatEmbedding, !floats.isEmpty else {
+                    return fail(2, "the model returned no embedding")
+                }
+                return floats.map { $0.floatValue }.withUnsafeBufferPointer { Data(buffer: $0) }
+            } catch {
+                let message = error.localizedDescription
+                // The same LiteRT-LM message Android matches in MediaPipeEmbedder.isInputTooLong.
+                let tooLong = message.range(of: "exceeds maximum supported", options: .caseInsensitive) != nil
+                return fail(tooLong ? 1 : 2, message)
             }
-            guard let floats = result.embeddings.first?.floatEmbedding, !floats.isEmpty else {
-                return fail(2, "the model returned no embedding")
-            }
-            return floats.map { $0.floatValue }.withUnsafeBufferPointer { Data(buffer: $0) }
-        } catch {
-            let message = error.localizedDescription
-            // The same LiteRT-LM message Android matches in MediaPipeEmbedder.isInputTooLong.
-            let tooLong = message.range(of: "exceeds maximum supported", options: .caseInsensitive) != nil
-            return fail(tooLong ? 1 : 2, message)
         }
     }
 
@@ -110,10 +106,5 @@ final class MediaPipeNativeEmbedder: NSObject, NativeEmbedder {
         lastError = code
         lastMessage = message
         return nil
-    }
-
-    private enum EmbedError: LocalizedError {
-        case badImage
-        var errorDescription: String? { "the image could not be decoded" }
     }
 }
