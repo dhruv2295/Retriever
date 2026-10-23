@@ -1,5 +1,6 @@
 package app.retriever.search
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import app.retriever.ShotTheme
 import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
@@ -41,6 +43,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
@@ -162,6 +165,13 @@ class ResultPiecesTest {
         config[SemanticsActions.OnLongClick].action?.invoke()
         assertEquals(true, opened)
         assertEquals(true, similar)
+    }
+
+    /** The photo search's chip shows its photo at 24 dp: decoded small, not at the 1024 px the search reads. */
+    @Test fun thePhotoChipsAvatarIsDecodedSmall() {
+        val jpeg = ByteArrayOutputStream().also { createBitmap(1024, 768).compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+        val avatar = avatar(jpeg)!!
+        assertEquals(256 to 192, avatar.width to avatar.height)
     }
 
     @Test fun thumbCellPlainFileSaysOpen() {

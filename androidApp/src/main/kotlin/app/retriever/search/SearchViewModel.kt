@@ -398,7 +398,19 @@ fun interface PhotoReader {
 /** A JPEG at most 1024 px on its longest side, decoded once here, not in composition: the chip shows it as its avatar. */
 fun photoReader(context: Context) = PhotoReader { uri, label ->
     withContext(Dispatchers.IO) { ImageBytes.jpeg(context, uri.toUri(), 1024) }?.let { jpeg ->
-        val thumb = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
+        val thumb = withContext(Dispatchers.Default) { avatar(jpeg) }
         PickedPhoto(Similar(uri, label, thumb), jpeg)
     }
 }
+
+/** The avatar is 24 dp: decoded subsampled to at least [AVATAR_PX] on its short side, not the whole 1024 px (about 3 MB). */
+internal fun avatar(jpeg: ByteArray): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+    var sample = 1
+    while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_PX) sample *= 2
+    return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+}
+
+/** 24 dp on the densest screens, with room to spare. */
+private const val AVATAR_PX = 128
