@@ -37,6 +37,8 @@ data class Prefs(
     val upgradeOfferDismissed: Boolean = false,
     /** Setup just finished: Home shows its one-time card about what happens next until "Got it". */
     val homeIntroDue: Boolean = false,
+    /** The person asked to be told once when everything is searchable (Home card, Android). */
+    val notifyWhenCaughtUp: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 
