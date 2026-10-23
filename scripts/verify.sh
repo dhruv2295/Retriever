@@ -97,8 +97,8 @@ tracked() { # $1 = extension; tracked and new files, minus the excluded ones
   ( cd "$ROOT" && git ls-files -co --exclude-standard -- "*.$1" | grep -Ev "$EXCLUDED" || true )
 }
 
+# ktlintCheck runs in main's Gradle invocation.
 format_check() {
-  "$ROOT/gradlew" -q -p "$ROOT" ktlintCheck
   ( cd "$ROOT" && tracked swift | xargs xcrun swift-format lint --strict --configuration .swift-format )
 }
 
@@ -145,10 +145,13 @@ main() {
   [ "$(git config --get core.hooksPath || true)" = ".githooks" ] || git config core.hooksPath .githooks
 
   step "versions"; check_versions
-  step "gradle: tests, lint, release build"
-  local flags=() tasks=(:core:testAndroidHostTest :core:iosSimulatorArm64Test :androidApp:testDebugUnitTest :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease)
+  step "gradle: tests, lint, release build, ktlint"
+  # --rerun forces only the tests. Compiles, lint and R8 are up to date or come from the build cache when their inputs
+  # (warnings-as-errors settings included) are unchanged, so a cached result is gated the same way.
+  local flags=() tasks=(:core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun
+    :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease ktlintCheck)
   if [ $full = 1 ]; then flags=(-Pbench -Pcoverage); tasks+=(:core:koverHtmlReport :androidApp:koverHtmlReportDebug); fi
-  ./gradlew --rerun-tasks ${flags[@]+"${flags[@]}"} "${tasks[@]}"
+  ./gradlew ${flags[@]+"${flags[@]}"} "${tasks[@]}"
   step "ios unit tests"; scripts/ios-unit-tests.sh
   step "format"; format_check
   step "notices"; check_notices
