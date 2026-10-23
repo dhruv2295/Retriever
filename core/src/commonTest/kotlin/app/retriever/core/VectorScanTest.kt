@@ -1,11 +1,15 @@
 package app.retriever.core
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 
-/** The vector scan's block layout finds what one flat scan finds. */
+/** The vector scan's layout and kernels: blocks, parallel slices and the native dot product all find what one flat scan finds. */
 class VectorScanTest {
     private val sig = Signature("M740/0123abcd/vt70/d256/t512")
     private val rnd = Random(5)
@@ -69,5 +73,33 @@ class VectorScanTest {
             all.top(q, 100) { it % 7 != 0 && it % 2 == 0 && all.kinds[it] % 2 == 0 && all.days[it] in 20..60 },
             engine.scan(q, 100, table, allowed, 20..60, LongArray(all.size / 2) { 2L * it + 1 }, dead = dead).pairs(),
         )
+    }
+
+    @Test
+    fun parallelSlicesFindWhatOneScanFinds() = runTest {
+        val half = (SearchEngine.PARALLEL_ROWS + SearchEngine.SLICE_ROWS) / 2
+        val first = flat(half)
+        // The second half repeats the first, so every cosine ties with a row in a later slice.
+        val all = Flat(first.bytes + first.bytes, first.scales + first.scales, first.kinds + first.kinds, first.days + first.days)
+        val table = all.table()
+        val q = query()
+        val allowed = BooleanArray(Kind.entries.size) { it != Kind.PHOTO.ordinal }
+        val dead = BooleanArray(all.size) { it % 11 == 0 }
+        val best = all.top(q, 100)
+        withContext(Dispatchers.Default) {
+            // An odd n cuts between the two rows of a tie: the earlier row stays, as one scan keeps it.
+            for (n in listOf(1, 99, 100)) {
+                val serial = engine.scan(q, n, table).pairs()
+                assertEquals(best.take(n), serial)
+                assertEquals(serial, engine.scanSliced(q, n, table, threads = 4).pairs())
+                val counts = RelevanceRule().histogram()
+                val slicedCounts = RelevanceRule().histogram()
+                assertEquals(
+                    engine.scan(q, n, table, allowed, histogram = counts, dead = dead).pairs(),
+                    engine.scanSliced(q, n, table, allowed, histogram = slicedCounts, dead = dead, threads = 4).pairs(),
+                )
+                assertContentEquals(counts, slicedCounts)
+            }
+        }
     }
 }

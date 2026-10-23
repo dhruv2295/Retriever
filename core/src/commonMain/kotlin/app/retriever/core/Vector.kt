@@ -83,6 +83,9 @@ enum class Modality {
     }
 }
 
+/** The device's cores, which bound how many slices one scan splits into. */
+internal expect val cpuCores: Int
+
 /**
  * Vectors for the scan, in blocks of [BLOCK] rows, each holding its rows in primitive arrays. An append fills the last
  * block, then adds a new one, so a full block is never copied: growth costs one block, not a second copy of the table

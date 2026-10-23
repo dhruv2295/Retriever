@@ -62,6 +62,10 @@ class SearchBenchTest {
         val scans = linkedMapOf<String, (Query) -> Unit>(
             "vector-wave4" to { query -> wave4ScanTop(q, SearchEngine.CANDIDATES, flat, allowed(query.kinds)) },
             "vector" to { query -> engine.scanTop(q, SearchEngine.CANDIDATES, table, allowed(query.kinds)) },
+            // What search runs: 150,000 rows split in two slices, on Dispatchers.Default as Retriever runs it.
+            "vector-sliced" to { query ->
+                runBlocking(Dispatchers.Default) { engine.scanSliced(q, SearchEngine.CANDIDATES, table, allowed(query.kinds)) }
+            },
             "vector+rule" to { query ->
                 val h = rule.histogram()
                 engine.scan(q, SearchEngine.CANDIDATES, table, allowed(query.kinds), histogram = h)
@@ -81,9 +85,10 @@ class SearchBenchTest {
         val scanP95 = scanMs.mapValues { (name, ms) -> report(name, ms.mapValues { it.value.sorted()[SCAN_ROUNDS / 2] }) }
         val base = scanP95.getValue("vector-wave4")
         println(
-            "SearchBench: vector %+.1f%%, vector+rule %+.1f%% against the wave-4 scan".format(
+            "SearchBench: vector %+.1f%%, vector+rule %+.1f%%, vector-sliced %+.1f%% against the wave-4 scan".format(
                 (scanP95.getValue("vector") / base - 1) * 100,
                 (scanP95.getValue("vector+rule") / base - 1) * 100,
+                (scanP95.getValue("vector-sliced") / base - 1) * 100,
             ),
         )
         assertTrue(scanP95.getValue("vector") <= base * 1.05, "vector p95 ${scanP95.getValue("vector")} ms vs wave 4's $base ms")
