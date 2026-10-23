@@ -227,7 +227,7 @@ class SearchEngine(
             val hits = top.rows.indices.mapNotNull { i ->
                 val row = top.rows[i]
                 rows[l.view.chunkIds[row]]?.let {
-                    Candidate(it.fileId, it.id, it.locator, text = it.text, cos = top.cos[i], modality = l.view.modalities[row].toInt())
+                    Candidate(it.fileId, it.id, it.locator, cos = top.cos[i], modality = l.view.modalities[row].toInt())
                 }
             }
             return Lane(hits, Source.MEANING, if (rule != null && histogram != null) rule.minStrong(histogram) else null)
@@ -242,7 +242,7 @@ class SearchEngine(
             traced("kw.fts") {
                 val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred)
                 val rows = store.chunks(hits.map { it.chunkId })
-                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator, k.snippet) } }
+                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
             }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
@@ -365,16 +365,8 @@ class SearchEngine(
     /** Optional per-modality absolute lines; null splits the lane at its relative score gaps. */
     private class Lane(val hits: List<Candidate>, val source: Source, val minStrong: FloatArray? = null)
 
-    /** [text] is a vector candidate's chunk text, [snippet] a keyword candidate's; [cos] is NaN outside the vector lane. */
-    private class Candidate(
-        val fileId: Long,
-        val chunkId: Long = 0L,
-        val locator: String = "",
-        val snippet: String? = null,
-        val text: String? = null,
-        val cos: Float = Float.NaN,
-        val modality: Int = 0,
-    )
+    /** [cos] is NaN outside the vector lane. */
+    private class Candidate(val fileId: Long, val chunkId: Long = 0L, val locator: String = "", val cos: Float = Float.NaN, val modality: Int = 0)
 
     /**
      * The single per-query eligibility rule: the request's kinds, dates and starred/fileIds, in the forms the lanes check

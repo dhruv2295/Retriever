@@ -84,7 +84,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val visual: Boolean = false,
     )
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
-    data class KeywordHit(val chunkId: Long, val snippet: String?)
+    data class KeywordHit(val chunkId: Long)
 
     /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byKind] includes the whole library. */
     data class Counts(
@@ -476,7 +476,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     /**
      * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
-     * modified; null: any time), with snippets cut for those only.
+     * modified; null: any time).
      */
     fun keywordSearch(query: String, limit: Int, kinds: Set<Kind>? = null, dates: LongRange? = null, starredOnly: Boolean = false): List<KeywordHit> =
         ftsQuery {
@@ -490,9 +490,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                     val range = dates ?: Long.MIN_VALUE..Long.MAX_VALUE
                     q.searchFtsOfKinds(match, (kinds ?: Kind.entries).map { it.name }, range.first, range.last, if (starredOnly) 1L else 0L, FTS_CAP, scored)
                 }
-                val top = rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
-                val snippets = if (top.isEmpty()) emptyMap() else q.ftsSnippets(match, top).executeAsList().associate { it.chunkId to it.snippet }
-                top.map { KeywordHit(it, snippets[it]) }
+                rows.executeAsList().sortedByDescending { it.second }.take(limit).map { KeywordHit(it.first) }
             }
         }
 

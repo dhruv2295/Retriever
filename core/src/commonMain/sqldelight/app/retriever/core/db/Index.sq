@@ -399,7 +399,7 @@ INSERT INTO chunk_fts (rowid, text, labels) VALUES (?, ?, ?);
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
 
--- The newest matches, for ranking without snippet(); snippets are cut only for the winners (ftsSnippets).
+-- The newest matches, for ranking; search cuts its snippets from content_text, never from these rows.
 searchFts:
 SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
 FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY rowid DESC LIMIT ?;
@@ -415,11 +415,6 @@ WHERE chunk_fts MATCH :match AND +rowid IN (SELECT id FROM chunks WHERE file_id 
     AND (:starredOnly = 0 OR uri IN (SELECT uri FROM starred))
 ))
 ORDER BY rowid DESC LIMIT :limit;
-
-ftsSnippets:
-SELECT CAST(rowid AS INTEGER) AS chunkId, snippet(chunk_fts, char(2), char(3), '…', 0, 12) AS snippet
-FROM chunk_fts WHERE chunk_fts MATCH ? AND rowid IN ?
-AND rowid IN (SELECT id FROM chunks WHERE content_text IS NOT NULL);
 
 insertFileFts:
 INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);

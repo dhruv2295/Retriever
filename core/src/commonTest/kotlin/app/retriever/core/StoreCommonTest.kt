@@ -18,11 +18,10 @@ class StoreCommonTest {
     }
 
     @Test
-    fun keywordSearchFoldsAccentsAndMarksTheMatch() {
+    fun keywordSearchFoldsAccents() {
         val (store, id) = storeWith("receipt.txt", "Documents", "Café receipt total")
         val hit = store.keywordSearch("cafe", 10).single()
         assertEquals(id, store.chunk(hit.chunkId)?.fileId)
-        assertTrue(hit.snippet.orEmpty().contains('\u0002'), hit.snippet)
     }
 
     @Test
