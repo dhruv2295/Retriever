@@ -47,7 +47,7 @@ class StorageBenchTest {
         return when (kind) {
             Kind.PHOTO -> imageWithText("", jpeg, text(i, photoOcr[i % photoOcr.size]), 800, labels(photoLabels[i % photoLabels.size], i))
             Kind.SCREENSHOT -> imageWithText("", jpeg, text(i, shotOcr[i % shotOcr.size]), 800, labels(shotLabels[i % shotLabels.size], i))
-            Kind.VIDEO -> moments(moments * 5_000L, 5, 0).map { Piece(momentLocator(it, false), momentParts(jpeg, it.frameMs, null), null) }
+            Kind.VIDEO -> moments(moments * 5_000L, 5).map { Piece(momentLocator(it), listOf(Part.Image(jpeg)), null) }
             Kind.AUDIO -> emptyList()
             else -> textPieces(Locator.page(1), text(i, docChars[i % docChars.size]), 800)
         }

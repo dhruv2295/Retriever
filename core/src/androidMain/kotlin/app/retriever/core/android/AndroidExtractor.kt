@@ -51,7 +51,6 @@ import app.retriever.core.joinStrips
 import app.retriever.core.later
 import app.retriever.core.mlKitExecutor
 import app.retriever.core.momentLocator
-import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
 import app.retriever.core.ocrScripts
 import app.retriever.core.ocrStrips
@@ -381,7 +380,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
 
     private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> =
         MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, ctx, log, head = head).map { (m, jpeg) ->
-            if (jpeg == null) later(momentLocator(m, false)) else Piece(momentLocator(m, false), momentParts(jpeg, m.frameMs, null), null)
+            if (jpeg == null) later(momentLocator(m)) else Piece(momentLocator(m), listOf(Part.Image(jpeg)), null)
         }
 }
 

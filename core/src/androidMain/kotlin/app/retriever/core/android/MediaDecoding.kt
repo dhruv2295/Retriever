@@ -183,8 +183,7 @@ object MediaDecoding {
             retriever.setDataSource(context, uri)
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            // Frames only: no model reads a video's sound.
-            val all = moments(durationMs, everySec, audioSec = 0)
+            val all = moments(durationMs, everySec)
             fun frame(m: Moment): ByteArray? {
                 ctx.ensureActive()
                 return listOf(m.frameMs, m.frameMs - 1000, m.frameMs + 1000)

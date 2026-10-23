@@ -138,11 +138,11 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
 
     private suspend fun video(uri: String, profile: DeviceProfile, head: Boolean): List<Piece> {
         if (profile.videoFrameEverySec <= 0) return emptyList()
-        val all = moments(native.videoDurationMs(uri), profile.videoFrameEverySec, 0)
+        val all = moments(native.videoDurationMs(uri), profile.videoFrameEverySec)
         suspend fun frame(m: Moment): Piece? {
             currentCoroutineContext().ensureActive()
             return autoreleasepool {
-                native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m, false), momentParts(it.toByteArray(), m.frameMs, null), null) }
+                native.videoFrameJpeg(uri, m.frameMs, 512)?.let { Piece(momentLocator(m), listOf(Part.Image(it.toByteArray())), null) }
             }
         }
         if (!head) return all.mapNotNull { frame(it) }
@@ -154,7 +154,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
                 missing += i
                 continue
             }
-            return all.withIndex().filter { it.index !in missing }.map { (j, m) -> if (j == i) piece else later(momentLocator(m, false)) }
+            return all.withIndex().filter { it.index !in missing }.map { (j, m) -> if (j == i) piece else later(momentLocator(m)) }
         }
         return emptyList()
     }
