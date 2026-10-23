@@ -40,7 +40,7 @@ class RecompositionTest {
     private val tracer = object : CompositionTracer {
         override fun traceEventStart(key: Int, dirty1: Int, dirty2: Int, info: String) {
             val name = info.substringBefore(" (").substringAfterLast('.')
-            if (name in setOf("ThumbCell", "FileRow", "HitMenu")) runs.merge(name, 1, Int::plus)
+            if (name in setOf("ThumbCell", "FileRow", "HitMenu", "KindChip")) runs.merge(name, 1, Int::plus)
         }
 
         override fun traceEventEnd() = Unit
@@ -73,7 +73,7 @@ class RecompositionTest {
         return u to h
     }
 
-    private fun tileRuns() = runs.filterKeys { it != "HitMenu" }.values.sum()
+    private fun tileRuns() = runs.filterKeys { it != "HitMenu" && it != "KindChip" }.values.sum()
 
     @Test fun equalFilesInANewAnswerDoNotRecomposeTiles() {
         Composer.setTracer(tracer)
@@ -94,6 +94,17 @@ class RecompositionTest {
         h.value = home.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), contentRead = 6, waiting = 9)
         rule.waitForIdle()
         assertEquals("tiles recomposed on a count change: $runs", emptyMap<String, Int>(), runs)
+    }
+
+    /** Each keystroke brings several answers; the chips change only with the filters. */
+    @Test fun typingLeavesTheKindChipsAlone() {
+        Composer.setTracer(tracer)
+        val (u, _) = show()
+        assertTrue("chips never composed: $runs", (runs["KindChip"] ?: 0) >= 4)
+        runs.clear()
+        u.value = u.value.copy(query = "bills", searching = true)
+        rule.waitForIdle()
+        assertEquals("chips recomposed on a keystroke: $runs", null, runs["KindChip"])
     }
 
     @Test fun starringOneFileRecomposesOnlyThatFile() {

@@ -141,31 +141,7 @@ internal fun Results(
     val canStar = home.starred > 0 || ui.onlyStarred
     val scope = ui.scope
     // On the first run a few dozen files have no use for kind chips.
-    if (scope == null && (kinds.isNotEmpty() || canStar)) {
-        LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item(key = "all") {
-                KindChip("All", ui.chip == null && !ui.onlyStarred && wordKinds.isEmpty()) {
-                    actions.onChip(null)
-                    actions.onStarredOnly(false)
-                    if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
-                }
-            }
-            if (canStar) item(key = "starred") { KindChip("Starred", ui.onlyStarred) { actions.onStarredOnly(!ui.onlyStarred) } }
-            items(kinds, key = { it.name }) { k ->
-                KindChip(Words.kindLabelPlural(k), ui.chip == k || k in wordKinds) {
-                    actions.onChip(
-                        if (ui.chip ==
-                            k
-                        ) {
-                            null
-                        } else {
-                            k
-                        },
-                    )
-                }
-            }
-        }
-    }
+    if (scope == null && (kinds.isNotEmpty() || canStar)) KindChips(kinds, ui.chip, ui.onlyStarred, wordKinds, canStar, edge, actions)
     if (scope != null) {
         val finished = ui.unread == 0 && ui.samplePlanned > 0
         Text(
@@ -347,6 +323,24 @@ private fun HitMenu(
         openCopy = { copy -> hit.copies.firstOrNull { it.file == copy }?.let(act.open) },
         content = content,
     )
+}
+
+/** Given the filters, not the whole [SearchUi]: a keystroke brings several answers and leaves every chip as it was. */
+@Composable
+private fun KindChips(kinds: List<Kind>, chip: Kind?, onlyStarred: Boolean, wordKinds: Set<Kind>, canStar: Boolean, edge: Dp, actions: SearchActions) {
+    LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "all") {
+            KindChip("All", chip == null && !onlyStarred && wordKinds.isEmpty()) {
+                actions.onChip(null)
+                actions.onStarredOnly(false)
+                if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
+            }
+        }
+        if (canStar) item(key = "starred") { KindChip("Starred", onlyStarred) { actions.onStarredOnly(!onlyStarred) } }
+        items(kinds, key = { it.name }) { k ->
+            KindChip(Words.kindLabelPlural(k), chip == k || k in wordKinds) { actions.onChip(if (chip == k) null else k) }
+        }
+    }
 }
 
 @Composable
