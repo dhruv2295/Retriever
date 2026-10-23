@@ -51,7 +51,8 @@ It also covers the first moments after launch: until it is built, the lane falls
 2. **Every word must match; the worst class wins.** If nothing matches all words, the most common word is dropped one at
    a time.
 3. **Admit and kinds run before the limit.**
-4. **Tokenizer parity with the store.** A name that FTS splits one way is split the same way here.
+4. **Tokenizer parity with the store.** A name that FTS splits one way is split the same way here, except CJK runs,
+   which the keyword tables store as two-character pieces and this index matches inside a token.
 5. **No typos on very short words.** Below 3 letters only exact and prefix count, and a two-character CJK word inside a
    token (as a prefix).
 6. **Folder words count as name tokens,** but `exactName` looks at the file name only, so a folder word pins no file first.

@@ -63,7 +63,8 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
    words chunk wins a rank tie.
 9. **Exact name first.** A file named exactly by the query is ranked before the others and before the `limit` cut, so
    the names phase and the full search agree on who is first. A folder word pins nothing.
-10. **The name tokenizer matches the FTS one** (`ftsTokens` then `foldLatin`).
+10. **The name tokenizer matches the FTS one** (`ftsTokens` then `foldLatin`), except CJK runs, which the keyword tables
+    store as two-character pieces and the name index matches inside a token.
 
 ## Tests
 
@@ -77,7 +78,7 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
 - `FusionTest.aLiteralMatchAtEqualRankShowsTheWordsSnippet`, `ScopeBeforeCapTest` (`nameLanesScopeBeforeTheCap`,
   `keywordLaneScopesStarredBeforeTheCap`, `coldNameLaneScopesStarredBeforeItsFtsCap`, `keywordLaneScopesContentBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
   `takenAtBackfillMovesALoadedVectorToItsCaptureDay`), `RecentAndLimitTest.searchHonoursLimit`.
-- `RelevanceRuleTest` (`theFitFailedItsGateSoTheRuleShipsOff`, `theShippedSettingCallsEveryHitStrong`,
+- `RelevanceRuleTest` (`theFitFailedItsGateSoTheRuleShipsOff`, `theShippedSettingKeepsAllHitsWithARelativeTail`,
   `exactAndPrefixNamesAreStrongButASubstringOrTypoAloneIsNot`, `aCjkWordInsideANameIsStrong`,
   `substringNamesNeverPushPrefixNamesPastTheCut`,
   `datesKindsAndFileIdsFilterEveryLane`).
@@ -116,8 +117,9 @@ until that search ends; a check that the same snippet renders the same bold span
 - Wave 7 A4 (exact name first) is the behaviour in invariant 9; the relevance rule stays off and has no further
   research this wave.
 
-Snippets mark whole Unicode words or prefixes only. In a query of several words, words of one or two letters and
-function words (`highlightStopwords`: the English stop set, Hindi postpositions and particles) are not marked; the
+Snippets mark whole Unicode words or prefixes, and a CJK query word wherever it occurs inside a run. In a query of
+several words, words of one or two letters and function words (`highlightStopwords`: the English stop set, Hindi
+postpositions and particles) are not marked; the
 longer suggestion stop list would also drop words such as "bill" and "home". Names and snippets fold case and Latin
 accents, as search does. The words iOS marks inside an opened file when the snippet has no marks (`highlightTerms`)
 keep the accents typed, since `WordMatcher` matches them literally. Match windows dominated by digits and separators yield to the
