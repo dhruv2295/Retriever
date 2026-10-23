@@ -1,9 +1,8 @@
 package app.retriever.core
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
 interface ContentHasher {
@@ -41,8 +40,8 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
 
     /**
      * Each file's hash by id: the one stored on its row, else read [HASH_READS] files at a time, and the new ones saved in
-     * one transaction, each only onto the row version that was read. A file whose read fails has none, and is read again
-     * next time.
+     * one transaction when the readers end, cancelled too (the person left the screen), each only onto the row version
+     * that was read. A file whose read fails has none, and is read again next time.
      */
     private suspend fun hashes(
         files: List<Store.StoredFile>,
@@ -54,12 +53,16 @@ class DuplicateFinder(private val store: Store, private val hasher: ContentHashe
         val queue = Channel<Store.StoredFile>(Channel.UNLIMITED)
         files.filter { stored(it) == null }.forEach { queue.trySend(it) }
         queue.close()
-        // A few readers take the next file as each finishes, so one long full hash holds up only its own reader.
-        val fresh = coroutineScope {
-            List(HASH_READS) { async { buildList { for (f in queue) safe { read(f.file) }?.let { add(f to it) } } } }.awaitAll().flatten()
+        // One list per reader, read once every reader has ended.
+        val found = List(HASH_READS) { ArrayList<Pair<Store.StoredFile, String>>() }
+        try {
+            // A few readers take the next file as each finishes, so one long full hash holds up only its own reader.
+            coroutineScope { for (mine in found) launch { for (f in queue) safe { read(f.file) }?.let { mine += f to it } } }
+        } finally {
+            val fresh = found.flatten()
+            if (fresh.isNotEmpty()) store.inTransaction { for ((f, hash) in fresh) save(f, hash) }
         }
-        if (fresh.isNotEmpty()) store.inTransaction { for ((f, hash) in fresh) save(f, hash) }
-        return known.toMap() + fresh.associate { (f, hash) -> f.id to hash }
+        return known.toMap() + found.flatten().associate { (f, hash) -> f.id to hash }
     }
 
     /**

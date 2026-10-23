@@ -32,7 +32,7 @@ UI work is the app agents'.
 | `StatusAction` | `CONTINUE`, `ALLOW_ACCESS`, `CHOOSE_WHEN`, `READ_FOR_15`, `STOP`, `RESUME`, `DISMISS`, `TRY_AGAIN`; `.label` is the button's words | New. Map each to a button and a call: `DISMISS` is the [x] (`dismissedReadingCycle`), `STOP` is `endReadNowSession()` (or the download's cancel), `READ_FOR_15` is `readNow()` |
 | `ReadingStatus.percent` | The bar's figure, the same numbers as the detail's count (`Words.filesDone`): files done of all to do, files with meaning of files done for MEANING, the download's for DOWNLOADING; none for the sample or DEEPENING | Draw the thin bar only while `active` or downloading (Processing draws it whenever present); announce the title, not each count |
 | `ReadingStatus.active` | READ_NOW, READING, SAMPLE, MEANING, DEEPENING | Was a HomePhase; use it for the walking mascot |
-| `readingStatus(): Flow<ReadingStatus>` | Shared, as before; now also says minutes left of a Process for 15 minutes and "while you charge" when plugged in; one decision per conflated count change, so the count moves as files finish | The once-a-second check runs on `CoreDispatchers.default` (was hard-wired to `Dispatchers.Default`: the flaky `StatusViewModelTest`) |
+| `readingStatus(): Flow<ReadingStatus>` | Shared, as before; now also says minutes left of a Process for 15 minutes and "while you charge" when plugged in; one decision per conflated count change, so the count moves as files finish | The once-a-second check runs on `CoreDispatchers.io` (was hard-wired to `Dispatchers.Default`: the flaky `StatusViewModelTest`) |
 | `ReadingPolicy.line(reading?, libraryChosen, hasAccess, libraryTotal, words, download)` | Home's line: lost access, then setup's access step, then the download or its setup, else `reading`; null with no files, and no reading line before core's live status arrives | Replaces `homeStatus`. A stopped download gives way while reading runs |
 | `DownloadState(percent, stopped, size, settingUp)` | What the platform knows of the model download and its tune | New; pass null when neither is under way |
 | `ReadingPolicy.decide(progress, blocker, running, reading, words, readNowMinutes = 0, pluggedIn = false)` | The reading half. Android no longer calls it for a fallback (Home waits for the flow); iOS calls it only for fixtures, since every real `RetrieverSnapshot` carries core's `reading` | Two new parameters with defaults (Swift passes them all) |
@@ -93,8 +93,11 @@ Removed (nothing used them, or their surface is cut): `inLibrary`, `MORE_ON_PHON
 `READING_NOW`, `closestIn`, `searchHint`, `sizeUnavailableFor`, `waitingToRead`, `moreFiles`, `welcomeBody`.
 Also removed in the review pass: `WORDS_ONLY` (search shows no "Words only" label; the download hint under few results
 stays), `NAME_SEARCH_HINT`, `YOUR_FILES`, `Prefs.nameSearchHintDismissed`/`scheduleOfferDismissed` and their
-`Retriever.dismiss*` calls (old saved prefs still load: the JSON ignores unknown keys). Still used: `documentsTitle`,
-`addingMeaning` (the card's MEANING stage). `NBSP` is written `'\u00A0'` so an editor can't turn it into a space; the
+`Retriever.dismiss*` calls (old saved prefs still load: the JSON ignores unknown keys). Still used: `addingMeaning` (the
+card's MEANING stage). Removed after the setup redesign, which left them with no caller: `kindProgress` (and its fixture
+rows), `stillReading`, `documentsTitle`, `countAndSize`, the earlier access copy (`SEARCH_WHOLE_PHONE`,
+`WHOLE_PHONE_READY`, `CHOOSE_INSTEAD`, `SEARCH_ALL_PHOTOS`, `ADD_FOLDERS_FROM_FILES`, `CHOOSE_MORE_PHOTOS`,
+`ONLY_SELECTED_PHOTOS`) and the demo's `DEMO_PICKING_NOTE`, `demoNote`, `demoDone`, `SEARCH_DEMO` and `demoEnded`. `NBSP` is written `'\u00A0'` so an editor can't turn it into a space; the
 fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the files" while the plan can still shrink.
 `wholeDeviceNote` and `iosAccessNote` no longer end "Nothing leaves your phone" (the welcome's line above says it).
 `readingLabel` values start "Its name." where they said "Name only.".

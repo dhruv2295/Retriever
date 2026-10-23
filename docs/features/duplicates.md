@@ -14,7 +14,8 @@ tool, not a search feature, and it only ever deletes what the person selected.
   in commonMain and be tested with a fake. A hasher failure on one file drops that file, not the scan; cancellation
   still propagates. Groups are sorted by wasted bytes, and each group's files by modified time. Files are read
   `HASH_READS` (4) at a time across all size groups, each reader taking the next file as it finishes, because flash
-  storage serves a few parallel reads faster than one at a time; each pass's new hashes are saved in one transaction.
+  storage serves a few parallel reads faster than one at a time; each pass's new hashes are saved in one transaction
+  once its readers end, also when the scan is left mid-way (leaving the screen cancels it).
 - **Hashes persist per file.** Both hashes are stored on the file's row (`quick_hash`, `full_hash`) once the finder
   has computed them, so a later visit reads only files it has not hashed yet. `upsertFile` clears them when the file's size,
   modified time, name, folder, kind or type changes. A failed hash is not stored, so that file is tried again, and a

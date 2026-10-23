@@ -22,7 +22,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -42,12 +41,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
@@ -293,8 +294,11 @@ class Retriever(
     @Volatile
     private var batchJob: Job? = null
 
-    /** Read from the store on first use, so the constructor stays off the database. */
-    private val eta by lazy { Eta(SpeedBook.decode(store.meta(SPEED_KEY)), now).also { savedBook = it.book } }
+    /**
+     * The pace of the configuration in use ([speedKey]), outliving batches and launches. Read from the store on first use,
+     * so the constructor stays off the database.
+     */
+    private val speedBook by lazy { MutableStateFlow(SpeedBook.decode(store.meta(SPEED_KEY))).also { savedBook = it.value } }
     private var savedBook: SpeedBook? = null
     private var speedKey = SPEED_KEY
     private var bookSavedAt = 0L
@@ -319,8 +323,8 @@ class Retriever(
     )
 
     /**
-     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught (the
-     * batch's watchdog reads the device and the store) is logged: uncaught, it would end the process.
+     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught is
+     * logged: uncaught, it would end the process.
      */
     private val background = CoroutineScope(SupervisorJob() + dispatchers.default + CoroutineExceptionHandler { _, e -> log("Background work failed", e) })
 
@@ -408,7 +412,7 @@ class Retriever(
             }
             _prefs.value = new
             // Files of a switched-off kind pass by unread in milliseconds: that pace would under-read them once back on.
-            (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> eta.book = eta.book.copy(paces = eta.book.paces - k) }
+            (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> speedBook.update { it.copy(paces = it.paces - k) } }
             // Stars of dropped files stay, hidden until the folder is put back.
             if (!before.excludedFolders.containsAll(new.excludedFolders) && sync.dropExcluded(new) > 0) {
                 _starred.value = store.starredUris()
@@ -424,16 +428,22 @@ class Retriever(
      * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
      * fresh [read] of [current], never a value from before its subscription. No failure reaches a collector (on iOS an
      * uncaught one ends the process): one in the shared read is logged and read again after a pause that doubles, so a
-     * passing disk error doesn't freeze every screen; one still failing after [WATCH_RETRIES] tries ends the sharing, as
-     * a failure that always recurs would otherwise run and log forever. A failed first read is logged and skipped, and
-     * the collector waits for the next change. Blocking reads, so on [CoreDispatchers.io].
+     * passing disk error doesn't freeze every screen; a good read starts the pauses over. [WATCH_RETRIES] failures in a
+     * row end the sharing, as a failure that always recurs would otherwise run and log forever. A failed first read is
+     * logged and skipped, and the collector waits for the next change. Blocking reads, so on [CoreDispatchers.io].
      */
     private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
-        val shared = changes.conflate().map { read(it) }
-            .retryWhen { e, attempt ->
-                log("A watched read failed", e)
-                (attempt < WATCH_RETRIES).also { if (it) delay(1_000L shl attempt.toInt()) }
-            }
+        val shared = flow {
+            // In a row, for this sharing only: retryWhen's attempt never goes back down.
+            var failures = 0
+            emitAll(
+                changes.conflate().map { read(it) }.onEach { failures = 0 }
+                    .retryWhen { e, _ ->
+                        log("A watched read failed", e)
+                        (failures < WATCH_RETRIES).also { if (it) delay(1_000L shl failures++) }
+                    },
+            )
+        }
             // The last failure, logged above, ends the sharing here: it never reaches a collector.
             .catch { }
             .flowOn(dispatchers.io)
@@ -525,9 +535,11 @@ class Retriever(
         ) { (counts, p, state) ->
             // Fresh, not the key's tick: that can be a second old, and a Resume or a Read for 15 minutes shows at once.
             val t = tick()
+            // No device check sees a full disk: the batch that stopped for it says so until the next one runs.
+            val diskFull = state.lastStop?.takeIf { it == StopReason.DISK_FULL && !state.running }
             ReadingPolicy.decide(
                 counts.progress,
-                if (p.paused) StopReason.PAUSED else t.blocker,
+                if (p.paused) StopReason.PAUSED else t.blocker ?: diskFull,
                 state.running,
                 state.currentFile != null,
                 words,
@@ -694,7 +706,7 @@ class Retriever(
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
             // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use. It covers
-            // being busy and the charger too, so the engine's own busy and charging rules stay off: they would only ask it again.
+            // being busy and the charger too, so the engine's own charger rule stays off: it would only ask it again.
             val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
             policyStop()?.let { return end(it) }
             // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
@@ -702,11 +714,19 @@ class Retriever(
             if (store.sampleIds() != null && !sampleSession()) return end(StopReason.MANUAL)
             // Cancels cooperative extraction too, including a long PDF before its first embedding chunk.
             val owner = currentCoroutineContext().job
-            // On the real clock, not [dispatchers]: a test's virtual time would spin this loop while the batch waits.
-            watchdog = background.launch(Dispatchers.Default) {
+            watchdog = background.launch(dispatchers.watchdog) {
                 while (isActive) {
                     delay(1_000)
-                    if (policyStop() != null) {
+                    // A failed check (a dead binder, a store error) skips one second, not the rest of the batch.
+                    val stop = try {
+                        policyStop()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log("The batch's policy check failed", e)
+                        null
+                    }
+                    if (stop != null) {
                         owner.cancel()
                         break
                     }
@@ -758,7 +778,6 @@ class Retriever(
                 val current = factory.profileNow(store.profile() ?: stored, onScreen)
                 deepen != canDeepen() || (!keywordOnly && configuration != (current.backend to current.visionBackend))
             }
-            eta.start()
             _state.update { it.copy(pendingAtStart = pending) }
             val engine = if (ids == null) {
                 IndexEngine(
@@ -781,7 +800,7 @@ class Retriever(
                     readAheadContext = dispatchers.readAhead,
                 )
             }
-            val result = engine.runBatch(budget - started.elapsedNow(), requireCharging = false, deepen = deepen)
+            val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen)
             return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
@@ -850,7 +869,7 @@ class Retriever(
         } else {
             log("Indexed ${m.file.kind}: extract ${m.extractMs.toInt()} ms, embed ${m.embedMs.toInt()} ms, ${m.pieces} pieces", null)
         }
-        eta.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m))
+        speedBook.update { it.add(m.file.kind, m.extractMs + m.embedMs, SpeedBook.units(m)) }
         if (now() - bookSavedAt >= SAVE_EVERY_MS) saveBook()
         _state.update {
             it.copy(
@@ -866,7 +885,7 @@ class Retriever(
     }
 
     private fun saveBook() {
-        val book = eta.book
+        val book = speedBook.value
         bookSavedAt = now()
         if (book == savedBook) return
         store.setMeta(speedKey, book.encode())
@@ -881,7 +900,7 @@ class Retriever(
 
     private fun bookFor(profile: DeviceProfile): SpeedBook {
         val key = paceKey(profile)
-        val book = if (key == speedKey) eta.book else SpeedBook.decode(store.meta(key))
+        val book = if (key == speedKey) speedBook.value else SpeedBook.decode(store.meta(key))
         val seed = if ((profile.visionBackend ?: profile.backend) == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs
         return book.copy(photoSeedMs = seed ?: book.photoSeedMs)
     }
@@ -890,12 +909,12 @@ class Retriever(
         val key = paceKey(profile)
         val book = bookFor(profile)
         if (key == speedKey) {
-            eta.book = book
+            speedBook.value = book
             return
         }
         saveBook()
         speedKey = key
-        eta.changeBook(book)
+        speedBook.value = book
         savedBook = null
         photoMs.clear()
     }
@@ -907,7 +926,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun estimateAll(): ReadEstimate? = io {
         val ios = probe.platform == Platform.IOS
-        val book = if (_state.value.running) eta.book else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: eta.book
+        val book = if (_state.value.running) speedBook.value else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: speedBook.value
         readEstimate(book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
     }
 
@@ -970,7 +989,8 @@ class Retriever(
      */
     private suspend fun planLocked(budget: Duration): Pair<TastePlan, Job> {
         val planned = CompletableDeferred<TastePlan>()
-        val rest = background.launch {
+        // The scan and its writes block (a full listing, PhotoKit on iOS): on io, not one of default's few threads.
+        val rest = background.launch(dispatchers.io) {
             try {
                 synced(sync.sync(first = { scanned -> planned.complete(plan(scanned, budget)) }))
                 if (!planned.isCompleted) planned.complete(plan(store.knownFiles().values, budget))
@@ -978,7 +998,8 @@ class Retriever(
                 // kotlinx's type, which cancel() takes: common metadata sees it apart from kotlin's (one class on each platform).
                 planned.cancel(e)
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // An Error too (memory, at 100k files): the waiting caller holds indexLock and rethrows it.
                 if (!planned.completeExceptionally(e)) log("The library sync after the sample's plan failed", e)
             }
         }
@@ -989,8 +1010,7 @@ class Retriever(
         val kinds = store.prefs().kinds intersect readableKinds
         val files = scanned.filter { it.kind in kinds }
         store.profile()?.let { selectPace(factory.profileNow(it, uiVisible)) }
-        val plan = FileRules.planTaste(files, eta.book::costMs, budget)
-        store.setMeta(TASTE_BUDGET_KEY, budget.inWholeMilliseconds.toString())
+        val plan = FileRules.planTaste(files, speedBook.value::costMs, budget)
         val picked = plan.ids.toHashSet()
         store.upsertFiles(files.filter { it.uri in picked })
         val byUri = store.filesByUris(plan.ids)
@@ -1021,13 +1041,11 @@ class Retriever(
         watched(combine(store.countChanges(), sampleIds) { _, _ -> }, {}) {
             val ids = store.tasteIds()
             val planned = store.storedIn(ids).groupingBy { it.file.kind }.eachCount()
-            val (pending, videoBytes) = store.pendingIn(ids).byKind()
+            val pending = store.pendingIn(ids).groupingBy { it.file.kind }.eachCount()
             val searchable = store.indexedIn(ids).values.groupingBy { it.kind }.eachCount()
-            TasteProgress.of(ids.size, planned, pending, videoBytes, eta.book, searchable, eta.shownRatio(tasteBudgetMs()))
+            TasteProgress.of(ids.size, planned, pending, searchable)
         }
     }
-
-    private fun tasteBudgetMs() = store.meta(TASTE_BUDGET_KEY)?.toDoubleOrNull() ?: TASTE_BUDGET.inWholeMilliseconds.toDouble()
 
     /** How far the short read is; re-emits as files are read. One shared flow; see [watched]. */
     fun tasteProgress(): Flow<TasteProgress> = sharedTaste
@@ -1628,7 +1646,7 @@ class Retriever(
         applyProfile(stored, profile)
         selectPace(factory.profileNow(profile, uiVisible))
         val vision = factory.profileNow(profile, uiVisible).visionBackend
-        eta.book = eta.book.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs)
+        speedBook.update { it.copy(photoSeedMs = if (vision == Backend.CPU) profile.cpuImageMs else profile.gpuImageMs) }
         saveBook()
         return result.copy(profile = profile)
     }
@@ -1676,8 +1694,8 @@ class Retriever(
     internal companion object {
         const val RECENT_FILES = 24
 
-        /** Reads again of a failing watched read (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
-        private const val WATCH_RETRIES = 5L
+        /** Reads again of a watched read failing in a row (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
+        private const val WATCH_RETRIES = 5
 
         /** How long [suggestions] keep sharing after the last collector leaves, so a rotation or a quick trip away recounts nothing. */
         const val SUGGESTIONS_KEPT_MS = 5_000L

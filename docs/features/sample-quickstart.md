@@ -1,5 +1,10 @@
 # The sample as a quick start: title, layout, start gap, pace and time
 
+> **Superseded in part (2026-10-23): no time left.** The setup redesign ([Demo flow](demo-flow.md)) shows no time line,
+> so the measured time left below is gone from core and both apps: `TasteProgress.secondsLeft`, `Words.demoNote` (the
+> later name of `sampleNote`) and `Eta`'s wall clock (`wallRatio`, `shownRatio`, the `taste_budget_ms` meta). The plan
+> still prices files at the measured pace (`SpeedBook`).
+
 Supersedes in `setup-rethink.md`: the sample table (46-52), `sampleTime` (114), `STARTING` (124) and Fit (128-129);
 in `onboarding.md`: "seconds left" (37-38); both now point here. The sections up to Tests are the design; "Core, as
 built" and "Apps, as built" record what shipped where it differs. Owner feedback: the title names the
@@ -236,19 +241,13 @@ Phone numbers are the orchestrator's next run.
   the plan writes its rows (one small transaction) and sets the plan, `planOrCommit` returns, and the sync writes the
   rest 1,000 rows a transaction, then removals, stars, names and the token. `runBatch` uses `syncUnlessRunning()`, so a
   batch never waits for that tail and scans nothing twice. `planTaste()` waits for the tail (tests, tools).
-- `Eta.wallRatio`: wall time per inference ms this session, from the gaps between files within a batch (a batch's first
-  file counts its own time, so pauses and the gaps between batches never count). `trimTaste` (`tasteDrops`) prices what
-  is left at inference × ratio against the budget less the wall time spent, once every pending kind has a pace; before
-  that, seeds with 1.5× slack. `TasteProgress.secondsLeft` = inference × `Eta.shownRatio(budget)`: null until a quarter
-  of the sample's budget has passed in wall time (`SHOW_AFTER_BUDGET_SHARE`) over at least two files, and while a
-  pending kind has no pace. Not a fixed 30 s of inference: at run 4's ratio of about 5, a sample trimmed to its 90 s
-  budget holds only ~18-30 s of inference, at or under that gate; the budget share is reached at 22.5 s on any
-  phone, and the time shows for the rest.
+- The wall-clock ratio and the time left (`Eta.wallRatio`, `TasteProgress.secondsLeft`) were removed on 2026-10-23
+  (see the note at the top).
 
 ### Tests
 
 `SampleQuickstartTest` (plan rows first, 5,000 files; a batch's sync skips a running one; five screens share one count
-per write; `tasteDrops` at ratio 1 and 3), `TasteProgressTest` (secondsLeft, the wall ratio across batches),
+per write; `tasteDrops` at ratio 1 and 3), `TasteProgressTest` (the count rule),
 `MigrationTest.version6FilesGainTheirReachFromTheChunksTheyHold`, `SetupTest.sampleNote` and the new sentences,
 `ContentSuggestionsTest` (the "garden hose / garden / hose" shape; a second kind of file beats a third note term),
 `TextDecodeTest` (UTF-8, its mark, a cut sequence, Latin-1 and Windows-1252, UTF-16 with and without a mark, binary),
@@ -264,7 +263,7 @@ Everything below is in core now; the apps compile against it with the smallest c
 |---|---|---|
 | `counts(): Flow<Store.Counts>` | Shared, conflated; a fresh first value per collector | Was one upstream per call |
 | `readingStatus(): Flow<ReadingStatus>` | Shared over `counts()`; its once-a-second blocker check runs once | `readingStatus(counts)` is gone |
-| `tasteProgress(): Flow<TasteProgress>` | Shared | `secondsLeft` is measured wall time, null until measured |
+| `tasteProgress(): Flow<TasteProgress>` | Shared | — |
 | `sampleFiles(): Flow<List<SampleFile>>` | Shared | — |
 | `home(): Flow<HomeFacts>` | Shared; again when files come, go or change, or a star does; never because a file was read | Was `suspend`. `HomeFacts` gains `kindTotals` and `folderTotals`, loses `nameOnly` (use `counts().progress.nameOnly`); `kindTotals()` and `folderTotals()` are gone |
 | `suggestions(fileIds: Set<Long>? = null): Flow<List<String>>` | Per call, conflated; again as files are read. Three, none holding another's words, from different kinds of file while there are any | Was `suspend` |
@@ -301,9 +300,8 @@ all sheet's title becomes `readOf(read, planned)`.
 
 - `planOrCommit()` returns once the plan's files are written; the rest of the library is written in the background
   (`Store` counts and Home grow as it lands). The picking state (`SetupStep.PLAN`) is now short.
-- `TasteProgress.secondsLeft`: null until measured; feed it to `sampleNote`. Delete the tickers: Android's `SampleTime`
-  and `TIME_TICK_MS` are gone, `SetupUi.sampleStartedAt` (SetupFlow.kt:41, 192) is now unused; iOS's `TimelineView` and
-  `sampleStartedAt` are gone.
+- No time left (see the note at the top). The tickers are gone: Android's `SampleTime` and `TIME_TICK_MS`, iOS's
+  `TimelineView` and `sampleStartedAt`.
 
 ### Files and text
 
@@ -319,15 +317,13 @@ all sheet's title becomes `readOf(read, planned)`.
 Android: IndexWorker, HomeViewModel (flows for facts and suggestions; the 2 s loop is gone), HomeScreen (`ui.nameOnly`),
 StatusViewModel, TryItScreen, SearchResults and SearchViewModel (`sampleRead`), FirstRunStages (`SAMPLE_PICKING`,
 `sampleNote`), ReadingPermission (`notificationsAsk`), and the tests that named the old API. iOS: AppModel,
-AppModel+Settings (`watchHome`), AppModel+Setup (`TasteSnap.secondsLeft`), SetupView (`SAMPLE_PICKING`, `sampleNote`),
+AppModel+Settings (`watchHome`), AppModel+Setup (`TasteSnap`), SetupView (`SAMPLE_PICKING`, `sampleNote`),
 SearchView (`searchingTry`, `RefreshHome` observes), AppFixture, Extractor.swift, CopyTests,
 HomeModelTests.
 
 ### Left
 
 - Device: tap → first card and per-file database time on the Pixel (the bench is JVM only).
-- Device: the time line should show from 22.5 s of wall time into the sample (a quarter of its 90 s budget); check
-  it on the Pixel, and that its minutes hold steady once shown.
 - Device, expected: a sample still reading when its first 120 s batch ends is past its 90 s budget at the next batch's
   start, so that batch's `trimTaste` drops every pending file and the pile stops growing.
 - iOS photo identity lookups inside the scan (spec, INFERRED): not changed; check the `photo identity` log first.

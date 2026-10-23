@@ -152,7 +152,7 @@ extension AppModel {
         case .meaning(let n): snap.meaningWaiting = n
         case .reading(let done, let total):
             (snap.indexed, snap.pending, snap.running, snap.lastStop) = (done, total - done, true, nil)
-            (snap.processed, snap.pendingAtStart) = (120, total - done + 120)
+            snap.processed = 120
             snap.pendingByKind = [.photo: total - done]
             snap.current = "Photo 2026-09-14 at 18.42.07"
             snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))

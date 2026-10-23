@@ -40,20 +40,6 @@ class EtaTest {
         assertTrue(abs(book.ms(mapOf(Kind.PDF to 390L), 0) - left) <= 0.1 * left, "${book.ms(mapOf(Kind.PDF to 390L), 0)} vs $left")
     }
 
-    @Test fun changingConfigurationUsesItsOwnPaceAndStartsItsWallClockAfresh() {
-        var now = 0L
-        val eta = Eta(SpeedBook()) { now }
-        repeat(20) {
-            now += 6_000
-            eta.add(Kind.PHOTO, 3_000.0, 1.0)
-        }
-        assertNotNull(eta.shownRatio(90_000.0))
-        val cpu = SpeedBook(photoSeedMs = 10000.0)
-        eta.changeBook(cpu)
-        assertEquals(cpu, eta.book)
-        assertNull(eta.shownRatio(90_000.0), "no ratio from the other configuration's session")
-    }
-
     @Test
     fun theBookOutlivesTheRetrieverAndIosCountsNightsAfterABackgroundRun() = runTest {
         val store = newStore().also { it.setProfile(PROFILE) }

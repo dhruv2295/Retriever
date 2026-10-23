@@ -54,9 +54,7 @@ both apps and both screens show. An install from before this flow, without the m
   phases only, so "Up to date" never shows before reading starts.
 - **The short read is a plan, not a sample of whatever is first.** `FileRules.planTaste` picks a deterministic set within
   a time budget that covers the oldest bin and the newest; `Retriever.scopeIds` scopes try-it's search to those files, and
-  `TasteProgress` reports per-kind progress, readiness (`TRY_AFTER_FILES` read or the plan done) and seconds left in
-  wall time, null until this session has measured it (`sample-quickstart.md`). The plan's budget is wall time too: once
-  measured, `trimTaste` prices what is left at inference × the session's wall ratio.
+  `TasteProgress` reports per-kind progress and the files still waiting (`demo-flow.md`); no time left is shown.
 - **Try it is the real Search.** `TryItScreen` hosts `SearchContent` with a scope, so empty, searching and failure states
   are the ones in `search-ui.md`; nothing is faked. Names match across the whole library; words and meaning only inside
   the sample ("Searching every file’s name, and inside the {C} files processed so far.", `Words.searchingTry`, where C is

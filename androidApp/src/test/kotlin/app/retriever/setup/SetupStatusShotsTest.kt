@@ -263,13 +263,7 @@ class SetupStatusShotsTest {
         val plan = linkedMapOf(Kind.SCREENSHOT to 6, Kind.DOC to 6, Kind.PDF to 4, Kind.PHOTO to 12, Kind.VIDEO to 2)
         var left = read
         val byKind = plan.mapValues { (_, n) -> minOf(left, n).also { left -= it } to n }
-        // The time left is measured once files are processed: none before the first.
-        val secondsLeft = when {
-            read == 0 -> null
-            pending == 0 -> 0
-            else -> 75
-        }
-        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, secondsLeft, pending, 30)
+        return TasteProgress(byKind, byKind.filterValues { it.first == it.second }.keys, read, pending, 30)
     }
 
     /** The plan's files, the first [read] of them read; every fourth one a document, the rest photos with previews. */
@@ -288,7 +282,7 @@ class SetupStatusShotsTest {
         SetupUi(setup = chosen, access = Access.ALL, taste = progress(read, pending), sample = planFiles(read), pauseReason = pause)
 
     /** Access chosen, the files not picked yet. */
-    private val picking = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, null, 0, 0))
+    private val picking = SetupUi(setup = chosen.copy(planned = 0), access = Access.ALL, taste = TasteProgress(emptyMap(), emptySet(), 0, 0, 0))
     private val start = sample(0)
     private val processing = sample(12)
     private val paused = sample(12, pause = "Waits until you charge")

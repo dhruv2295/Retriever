@@ -68,11 +68,14 @@ internal class FakeMonitor(var state: DeviceState = DeviceState(8.0, true, 80, T
     override fun state(): DeviceState = if (failing()) throw IllegalStateException("binder died") else state
 }
 
+/** Android's, matched by its name: common code sees no Android type. */
+internal class SQLiteFullException(message: String) : RuntimeException(message)
+
 /** Returns the pieces listed for a file's name; [onExtract] runs first, e.g. to inspect the store mid-file. */
 internal class FakeExtractor(
     private val pieces: Map<String, List<Piece>> = emptyMap(),
     private val fail: Boolean = false,
-    private val onExtract: (SourceFile) -> Unit = {},
+    private val onExtract: suspend (SourceFile) -> Unit = {},
 ) : Extractor {
     val names: MutableList<String> = Collections.synchronizedList(mutableListOf())
 

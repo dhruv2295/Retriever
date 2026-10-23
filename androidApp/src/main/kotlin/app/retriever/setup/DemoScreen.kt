@@ -127,7 +127,7 @@ fun DemoContent(
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             ) {
                 if (description == DescriptionState.READY) ReadyBanner()
-                DemoBody(ui, ui.taste ?: TasteProgress(emptyMap(), emptySet(), 0, null, 0, 0), description, percent, suggestions, actions, reduceMotion, fill)
+                DemoBody(ui, ui.taste ?: TasteProgress(emptyMap(), emptySet(), 0, 0, 0), description, percent, suggestions, actions, reduceMotion, fill)
             }
         }
     }

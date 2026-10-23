@@ -203,7 +203,7 @@ final class CopyTests: XCTestCase {
 
     func testNoJargon() {
         let setting = AppModel.Snap(setUp: false, pending: 5, accessChosen: false)
-        let reading = AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true, pendingAtStart: 5)
+        let reading = AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true)
         func home(_ s: AppModel.Snap) -> [String?] {
             let status = Copy.homeStatus(s)
             return [status?.title, status?.detail]

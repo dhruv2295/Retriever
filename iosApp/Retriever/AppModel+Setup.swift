@@ -290,8 +290,6 @@ struct TasteSnap: Equatable, Sendable {
     var counts: [Kind: Count] = [:]
     /// Planned files still waiting. A name-only or unopenable file is done without ever counting as read.
     var pending = 0
-    /// The rest at this phone's measured pace in wall time; nil until measured (core's `TasteProgress.secondsLeft`).
-    var secondsLeft: Int?
 
     var read: Int { counts.values.reduce(0) { $0 + $1.read } }
     var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
@@ -305,14 +303,14 @@ struct TasteSnap: Equatable, Sendable {
             .joined(separator: ", ")
     }
 
-    init(counts: [Kind: Count] = [:], pending: Int = 0, secondsLeft: Int? = nil) {
-        (self.counts, self.pending, self.secondsLeft) = (counts, pending, secondsLeft)
+    init(counts: [Kind: Count] = [:], pending: Int = 0) {
+        (self.counts, self.pending) = (counts, pending)
     }
 
     init(_ p: TasteProgress) {
         self.init(
             counts: p.byKind.mapValues { Count(read: $0.first?.intValue ?? 0, planned: $0.second?.intValue ?? 0) },
-            pending: Int(p.pending), secondsLeft: p.secondsLeft?.intValue)
+            pending: Int(p.pending))
     }
 }
 

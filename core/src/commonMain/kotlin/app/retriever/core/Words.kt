@@ -110,18 +110,6 @@ object Words {
         Kind.OTHER -> "Other files"
     }
 
-    /**
-     * Where [kinds] stand, for Reading status and Settings, never Home: [FOUND_BY_NAME] when none of them is read inside
-     * on this device, "{N} to go" over the readable ones while any are [scheduled] (pending also holds files whose
-     * content is already read), otherwise nothing. Documents (PDF + doc) follows the same rule.
-     */
-    fun kindProgress(kinds: List<Kind>, inside: Set<Kind>, pending: Map<Kind, Long>, scheduled: Long): String? {
-        val read = kinds.filter { it in inside && it != Kind.OTHER }
-        if (read.isEmpty()) return FOUND_BY_NAME
-        val left = read.sumOf { pending[it] ?: 0L }
-        return if (scheduled > 0 && left > 0) notReadYet(left) else null
-    }
-
     /** Where a match is, as a screen reader says it: "page 12", "at 1 minute 5 seconds"; null for no place. */
     fun spokenPosition(locator: String): String? {
         Locator.pageOf(locator)?.let { return "page $it" }
@@ -131,8 +119,6 @@ object Words {
             .map { (n, unit) -> plural(n, unit) }
         return "at " + parts.joinToString(" ").ifEmpty { "0 seconds" }
     }
-
-    fun stillReading(files: Long): String = "Still processing ${formatCount(files)} more"
 
     fun textOnlyNote(ramGb: Double, words: DeviceWords): String =
         "This ${words.device} has ${ramGb.roundToInt()}${NBSP}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."
@@ -220,13 +206,8 @@ object Words {
     const val ANDROID_ACCESS_BODY = "So you can find any photo, document or download by describing it."
 
     // Access, before this version's access screen.
-    const val SEARCH_WHOLE_PHONE = "Search your whole phone"
-    const val WHOLE_PHONE_READY = "Retriever can look through the files on this phone. You can change this in Settings."
     const val ALL_FILES_OFF = "Turn on “Allow access to manage all files” to search your whole phone, or choose what to include."
-    const val CHOOSE_INSTEAD = "Choose what to include instead"
     const val INCLUDE_TITLE = "Choose what to include"
-    const val SEARCH_ALL_PHOTOS = "Search all your photos"
-    const val ADD_FOLDERS_FROM_FILES = "Add folders from Files"
 
     /** Android's whole-phone access, as Reading status names it (iOS names its photos and folders). */
     const val SHARED_FILES_AND_FOLDERS = "Files and folders on this phone"
@@ -234,8 +215,6 @@ object Words {
     const val ADD_FOLDER = "Add a folder"
     const val SELECTED_PHOTOS = "Selected photos"
     const val ALL_PHOTOS = "All photos"
-    const val CHOOSE_MORE_PHOTOS = "Choose more photos"
-    const val ONLY_SELECTED_PHOTOS = "Only the photos you selected are included."
     const val NOTHING_SELECTED = "No files selected yet. Choose photos or a folder to begin."
 
     fun wholeDeviceNote(words: DeviceWords): String = "Retriever looks inside the files on this ${words.device} so you can find them by what’s in them."
@@ -321,34 +300,8 @@ object Words {
         else -> null
     }
 
-    /** The count line, and the muted line under it, while the files are picked (under a second). */
+    /** The count line while the files are picked (under a second). */
     const val DEMO_PICKING = "Picking your recent files…"
-    const val DEMO_PICKING_NOTE = "You can search them while you wait."
-
-    /**
-     * The muted line while the demo processes: the time left once measured ([TasteProgress.secondsLeft]), else "About a
-     * minute.". Paused, the app shows the pause's reason ([ReadingStatus.pause]); done, [demoDone].
-     */
-    fun demoNote(secondsLeft: Int?): String {
-        val s = secondsLeft ?: return "About a minute."
-        val minutes = (s / 60.0).roundToInt()
-        return when {
-            s < 60 -> "Less than a minute left."
-            minutes == 1 -> "About a minute left."
-            else -> "About $minutes minutes left."
-        }
-    }
-
-    /** The muted line once the demo is done. [rest]: [ReadingProgress.rest], null until the phone's files are all counted. */
-    fun demoDone(rest: Long?, words: DeviceWords): String = "The demo is done." + when (rest) {
-        null -> " Next: the rest of your files."
-        0L -> ""
-        1L -> " Next: the other file on your ${words.device}."
-        else -> " Next: the other ${files(rest)} on your ${words.device}."
-    }
-
-    /** The demo's search field. */
-    const val SEARCH_DEMO = "Search the demo files"
 
     /** The chips' slot until the demo has three suggestions. */
     const val DEMO_HINT = "Type a word you remember from a recent photo, screenshot or document."
@@ -386,16 +339,6 @@ object Words {
     const val TRY_LABEL = "Try:"
 
     // When to process the rest: after the demo, and from Home's status line.
-
-    /**
-     * The choice's first line: how the demo ended, null after Skip the demo ([skipped]) or with no demo. [done] and
-     * [planned]: [TasteProgress.done] and [TasteProgress.planned].
-     */
-    fun demoEnded(done: Long, planned: Long, skipped: Boolean): String? = when {
-        skipped || planned == 0L -> null
-        done >= planned -> "Demo done: ${readOf(done, planned)}"
-        else -> "Demo stopped at ${formatCount(done)} of ${formatCount(planned)}."
-    }
 
     fun chooseTitle(words: DeviceWords): String = "Now, the rest of your ${words.device}"
 
@@ -489,20 +432,6 @@ object Words {
 
     /** Folder rows in More on your phone before All folders; the folder list has the rest. */
     const val MORE_FOLDERS = 3
-
-    /** Home's documents section: PDFs and documents together only under a header that names both. */
-    fun documentsTitle(pdfs: Long, docs: Long): String = when {
-        pdfs > 0 && docs > 0 -> "Documents and PDFs"
-        pdfs > 0 -> kindLabelPlural(Kind.PDF)
-        else -> kindLabelPlural(Kind.DOC)
-    }
-
-    /** "120 files · 640 MB", "At least" when some sizes are unknown, "Size unavailable" when none is known. [knownSize]: the platform's format of [FileTotals.knownBytes]. */
-    fun countAndSize(totals: FileTotals, knownSize: String): String = files(totals.files) + " · " + when {
-        totals.unknownSizes == 0L -> keepTogether(knownSize)
-        totals.unknownSizes < totals.files -> "At least ${keepTogether(knownSize)}"
-        else -> "Size unavailable"
-    }
 
     // Settings.
     const val HOW_IT_WORKS = "How Retriever works and your privacy"

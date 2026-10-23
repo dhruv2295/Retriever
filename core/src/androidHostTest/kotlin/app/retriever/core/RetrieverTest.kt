@@ -75,6 +75,25 @@ class RetrieverTest {
 
     private fun test(body: suspend TestScope.() -> Unit) = runTest(dispatcher, timeout = 20.seconds) { body() }
 
+    /** The counts' one query fails whenever [fail] says so, as a passing disk error would. */
+    private fun storeWithFlakyCounts(fail: () -> Boolean): Store {
+        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        IndexDb.Schema.create(db)
+        val flaky = object : SqlDriver by db {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> {
+                if ("GROUP BY kind, state, partial, reach" in sql && fail()) throw IllegalStateException("disk I/O error")
+                return db.executeQuery(identifier, sql, mapper, parameters, binders)
+            }
+        }
+        return Store(flaky).also { it.resetForModel(SIG) }
+    }
+
     @Test
     fun hidingAnIdleAppReleasesItsModelButVisibleKeepsItWarm() = test {
         val f = fx()
@@ -637,31 +656,13 @@ class RetrieverTest {
 
     @Test
     fun aSharedReadThatFailsOnceIsReadAgainAndTheCountsGoOn() = test {
-        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
-        IndexDb.Schema.create(db)
-        var failCounts = 0
-        // The counts' one query fails when told to, as a disk error would.
-        val flaky = object : SqlDriver by db {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> {
-                if (failCounts > 0 && "GROUP BY kind, state, partial, reach" in sql) {
-                    failCounts--
-                    throw IllegalStateException("disk I/O error")
-                }
-                return db.executeQuery(identifier, sql, mapper, parameters, binders)
-            }
-        }
-        val store = Store(flaky).also { it.resetForModel(SIG) }
+        var failNext = false
+        val store = storeWithFlakyCounts { failNext.also { failNext = false } }
         val f = fx(store = store)
         val totals = mutableListOf<Long>()
         val watching = launch { f.r.counts().collect { totals += it.progress.libraryTotal } }
         advanceUntilIdle()
-        failCounts = 1
+        failNext = true
         store.upsertFiles(listOf(testFile("a.txt")))
         advanceUntilIdle()
         store.upsertFiles(listOf(testFile("b.txt")))
@@ -669,5 +670,23 @@ class RetrieverTest {
         watching.cancel()
         assertEquals(2L, totals.last(), "$totals")
         assertTrue("A watched read failed" in f.logs)
+    }
+
+    /** Only failures in a row end the sharing: a good read between two passing errors starts the count over. */
+    @Test
+    fun aSharedReadThatFailsNowAndThenGoesOn() = test {
+        var failNext = false
+        val store = storeWithFlakyCounts { failNext.also { failNext = false } }
+        val f = fx(store = store)
+        val totals = mutableListOf<Long>()
+        val watching = launch { f.r.counts().collect { totals += it.progress.libraryTotal } }
+        advanceUntilIdle()
+        for (i in 1..8) {
+            failNext = true
+            store.upsertFiles(listOf(testFile("f$i.txt")))
+            advanceUntilIdle()
+        }
+        watching.cancel()
+        assertEquals(8L, totals.last(), "$totals")
     }
 }
