@@ -1,0 +1,3 @@
+-- The duplicate finder's hashes of each file's content, kept on the file (Index.sq, upsertFile clears them when it changes).
+ALTER TABLE files ADD COLUMN quick_hash TEXT;
+ALTER TABLE files ADD COLUMN full_hash TEXT;

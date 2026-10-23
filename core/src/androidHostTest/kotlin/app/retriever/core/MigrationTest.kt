@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(7L, IndexDb.Schema.version)
+        assertEquals(8L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -202,6 +202,31 @@ class MigrationTest {
                 "no scan in this database",
             )
             assertEquals(MeaningCounts(partlyAdded = 1, added = 1), counts.meaning)
+        }
+    }
+
+    /** Version 8 adds the duplicate finder's hashes; files that were already there start without them. */
+    @Test
+    fun version7FilesGainEmptyHashesThatTheStoreCanSet() {
+        val v7 = File.createTempFile("index-v7", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v7, overwrite = true)
+        JdbcSqliteDriver("jdbc:sqlite:${v7.path}").use { driver ->
+            IndexDb.Schema.migrate(driver, 3, 7).value
+            driver.execute(
+                null,
+                "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) VALUES " +
+                    "(1, 'a', 'a.txt', '', 'text/plain', 'DOC', 10, 1, 'INDEXED')",
+                0,
+            )
+            IndexDb.Schema.migrate(driver, 7, IndexDb.Schema.version).value
+
+            val store = Store(driver)
+            assertNull(store.storedById(1)?.quickHash)
+            assertNull(store.storedById(1)?.fullHash)
+            store.setQuickHash(1, "q")
+            store.setFullHash(1, "f")
+            assertEquals("q", store.storedById(1)?.quickHash)
+            assertEquals("f", store.storedById(1)?.fullHash)
         }
     }
 

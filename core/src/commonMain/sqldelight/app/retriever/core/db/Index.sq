@@ -17,7 +17,10 @@ CREATE TABLE files (
   taken_at INTEGER,
   -- What the file's chunks hold, as Store.Reach bits; refreshReach keeps it after every chunk write, so the counts
   -- group files instead of looking inside chunks. Added in 6.sqm.
-  reach INTEGER NOT NULL DEFAULT 0
+  reach INTEGER NOT NULL DEFAULT 0,
+  -- The duplicate finder's hashes of the file's content; upsertFile clears them when the file changes. Added in 7.sqm.
+  quick_hash TEXT,
+  full_hash TEXT
 );
 
 CREATE INDEX files_by_folder ON files(folder);
@@ -102,7 +105,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, ?)
 ON CONFLICT(uri) DO UPDATE SET
   name = excluded.name, folder = excluded.folder, mime = excluded.mime, kind = excluded.kind,
   size = excluded.size, modified_at = excluded.modified_at, taken_at = excluded.taken_at, state = 'PENDING', attempts = 0, partial = 0,
-  reach = 0
+  reach = 0, quick_hash = NULL, full_hash = NULL
 WHERE files.modified_at != excluded.modified_at OR files.size != excluded.size OR files.name != excluded.name OR files.folder != excluded.folder
   OR files.kind != excluded.kind OR files.mime != excluded.mime;
 
@@ -216,6 +219,12 @@ SELECT * FROM files
 WHERE (:kind IS NULL OR kind = :kind) AND (:folder IS NULL OR folder = :folder)
 ORDER BY name COLLATE NOCASE ASC, id
 LIMIT :limit OFFSET :offset;
+
+setQuickHash:
+UPDATE files SET quick_hash = ? WHERE id = ?;
+
+setFullHash:
+UPDATE files SET full_hash = ? WHERE id = ?;
 
 sizeCollisions:
 SELECT * FROM files
