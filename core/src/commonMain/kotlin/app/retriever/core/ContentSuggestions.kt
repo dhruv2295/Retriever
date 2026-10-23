@@ -5,17 +5,18 @@ import kotlin.math.ln
 /**
  * TF-IDF is per file, so a PDF with many chunks does not masquerade as many documents. The caller passes a sample of
  * at most [FILES] files (the newest, plus those asked about) and each counts by its first [TEXT] characters, so the
- * maps and each recount stay small however large the library.
+ * maps and each recount stay small however large the library. One instance answers for one file set, [ids] (null: the
+ * newest files read).
  */
-internal class ContentSuggestions {
+internal class ContentSuggestions(private val ids: Set<Long>? = null) {
     private val versions = mutableMapOf<Long, Long>()
-    private val cached = mutableMapOf<Set<Long>?, List<String>>()
+    private var cached: List<String>? = null
     private val terms = mutableMapOf<Long, Map<String, Int>>()
     private val kinds = mutableMapOf<Long, Kind>()
 
     fun refresh(current: Map<Long, Long>, file: (Long) -> SourceFile? = { null }, text: (Long) -> List<String>) {
         if (current == versions) return
-        cached.clear()
+        cached = null
         terms.keys.retainAll(current.keys)
         kinds.keys.retainAll(current.keys)
         for ((id, version) in current) {
@@ -28,7 +29,7 @@ internal class ContentSuggestions {
         versions.putAll(current)
     }
 
-    fun suggestions(ids: Set<Long>?): List<String> = cached.getOrPut(ids) { distinctiveTerms(terms, ids, kinds) }
+    fun suggestions(): List<String> = cached ?: distinctiveTerms(terms, ids, kinds).also { cached = it }
 
     companion object {
         /** Read files sampled, newest first: plenty for three chips. */

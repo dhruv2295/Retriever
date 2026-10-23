@@ -14,6 +14,8 @@ final class ViewerTests: XCTestCase {
     func testViewerHighlightTermsShareTheCoreStopwordRule() {
         XCTAssertEqual(highlightWords(snippet: nil, query: "a deposit at the bank"), ["deposit", "bank"])
         XCTAssertEqual(highlightWords(snippet: nil, query: "at"), ["at"])
+        let words = highlightWords(snippet: nil, query: "Café")
+        XCTAssertEqual(ReaderMatches(paragraphs: ["Le Café du coin"], words: words).total, 1, "the typed accent is kept: the match is literal")
     }
 
     func testPhotosCancellationCompletesWithoutACallbackAndIgnoresLateResults() async throws {

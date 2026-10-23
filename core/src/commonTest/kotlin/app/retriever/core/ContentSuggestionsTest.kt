@@ -75,20 +75,20 @@ class ContentSuggestionsTest {
         }
         cache.refresh(mapOf(1L to 1L, 2L to 2L)) { error("unchanged content was read again") }
         assertEquals(2, reads)
-        assertTrue(cache.suggestions(null).isNotEmpty())
+        assertTrue(cache.suggestions().isNotEmpty())
         cache.refresh(mapOf(1L to 3L, 2L to 2L)) { listOf("Telescope nebula galaxy comet.") }
-        assertTrue(cache.suggestions(null).isEmpty(), "old prose no longer occurs in two files")
+        assertTrue(cache.suggestions().isEmpty(), "old prose no longer occurs in two files")
         cache.refresh(emptyMap()) { error("deleted content") }
-        assertTrue(cache.suggestions(null).isEmpty())
+        assertTrue(cache.suggestions().isEmpty())
     }
 
     /** A long file counts by its opening, so one file's text cannot grow the maps without bound. */
     @Test fun onlyTheOpeningOfEachFileCounts() {
         val table = "4539,4000;".repeat(ContentSuggestions.TEXT / 10 + 1)
         val opening = ContentSuggestions().apply { refresh(mapOf(1L to 1L, 2L to 1L)) { listOf(prose, table) } }
-        assertEquals(3, opening.suggestions(null).size)
+        assertEquals(3, opening.suggestions().size)
         val buried = ContentSuggestions().apply { refresh(mapOf(1L to 1L, 2L to 1L)) { listOf(table, prose) } }
-        assertTrue(buried.suggestions(null).isEmpty(), "the prose comes after the first ${ContentSuggestions.TEXT} characters")
+        assertTrue(buried.suggestions().isEmpty(), "the prose comes after the first ${ContentSuggestions.TEXT} characters")
     }
 
     /** However many files are read, suggestions sample the newest few, plus the ones a screen asks about. */

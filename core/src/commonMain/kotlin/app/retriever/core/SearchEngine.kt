@@ -243,8 +243,8 @@ class SearchEngine(
         } else {
             traced("kw.fts") {
                 val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f.scope)
-                val rows = store.chunks(hits.map { it.chunkId })
-                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
+                val rows = store.chunks(hits)
+                hits.mapNotNull { id -> rows[id]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
             }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
@@ -340,7 +340,7 @@ class SearchEngine(
     }
 
     /**
-     * [scan] across cores once the table holds [PARALLEL_ROWS]: min([threads], size / [SLICE_ROWS]) slices of whole
+     * [scan] across cores from two slices' worth of rows: min([threads], size / [SLICE_ROWS]) slices of whole
      * blocks, each with its own heap and histogram, run on the caller's dispatcher and merged by cosine, then row, so the
      * result is [scan]'s. A smaller table is scanned as before.
      */
@@ -356,7 +356,7 @@ class SearchEngine(
         threads: Int = cpuCores,
     ): Scan {
         val slices = minOf(threads, table.size / SLICE_ROWS)
-        if (table.size < PARALLEL_ROWS || slices < 2) return traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, histogram, dead) }
+        if (slices < 2) return traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, histogram, dead) }
         val blocks = table.blockCount
         val parts = coroutineScope {
             List(slices) { s ->
@@ -593,8 +593,7 @@ class SearchEngine(
         /** Scans that may each find dead rows before [meaningLane] reloads in full instead. */
         private const val MAX_PASSES = 3
 
-        /** Rows from which [scanSliced] splits the scan, and the fewest rows a slice gets (eval/REPORT.md, "Scan in blocks"). */
-        const val PARALLEL_ROWS = 131_072
+        /** The fewest rows a slice of [scanSliced] gets, so a scan splits from twice this (eval/REPORT.md, "Scan in blocks"). */
         const val SLICE_ROWS = 65_536
         const val SNIPPET = 160
         private const val DAY_MS = 86_400_000L

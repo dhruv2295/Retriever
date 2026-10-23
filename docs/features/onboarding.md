@@ -74,7 +74,8 @@ both apps and both screens show. An install from before this flow, without the m
   recount at 17,500 files. Terms must occur in at least two selected files. Spreadsheet/CSV/JSON/code MIME types and chunks dominated by digits, delimiters or camelCase are excluded, along with English/Hindi stopwords, programming words, mixed alphanumeric tokens and short uppercase codes. Longer words receive more weight.
   With fewer than three, it returns none and try-it shows preview tiles instead. The same shared method feeds the search bar's "Try:" suggestions when there is no history; no fixed phrases are used.
   `ContentSuggestions` caches per-file frequencies by chunk revision, inside one shared computation per file set: it
-  recounts at most once a second while indexing writes, and its maps go when no screen collects it. The ready grid opens the in-app viewer; document tiles show a real picture where the platform makes one (iOS Quick Look; an Android provider's thumbnail), else on Android a paper card badged with the file's extension (`DocCard`), never extracted text (`try-previews.md`).
+  recounts at most once a second while indexing writes, and its maps go 5 s after no screen collects it (a rotation
+  recounts nothing). The ready grid opens the in-app viewer; document tiles show a real picture where the platform makes one (iOS Quick Look; an Android provider's thumbnail), else on Android a paper card badged with the file's extension (`DocCard`), never extracted text (`try-previews.md`).
 - **Layout.** Try's grid is the shared `FileTile` at one computed size: four cells per row on Android (two past font
   scale 1.3), cell size rounded down to whole pixels so rows never break early, and four flexible columns on iOS. Kind
   pills wrap, and the ready action stays in the bottom inset.

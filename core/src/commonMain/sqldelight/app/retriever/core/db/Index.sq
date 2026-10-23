@@ -477,13 +477,14 @@ bumpMeta:
 INSERT OR REPLACE INTO index_meta (key, value)
 VALUES (:key, CAST(COALESCE((SELECT CAST(value AS INTEGER) FROM index_meta WHERE key = :key), 0) + 1 AS TEXT));
 
--- After 2.sqm recreated the keyword tables empty. Rows the indexer wrote since then are skipped, not doubled.
+-- After a migration recreated the keyword tables empty. Rows the indexer wrote since then are skipped, not doubled.
+-- The refill copies text whole, so it clears fts_tokens with fts_rebuild: the CJK pass after it runs until it completes.
 rebuildFts {
   INSERT INTO chunk_fts (rowid, text, labels) SELECT id, text, labels FROM chunks
     WHERE (text IS NOT NULL OR labels IS NOT NULL) AND id NOT IN (SELECT rowid FROM chunk_fts);
   INSERT INTO file_fts (rowid, name, folder) SELECT id, name, folder FROM files
     WHERE id NOT IN (SELECT rowid FROM file_fts);
-  DELETE FROM index_meta WHERE key = 'fts_rebuild';
+  DELETE FROM index_meta WHERE key IN ('fts_rebuild', 'fts_tokens');
 }
 
 -- The keyword text of chunks and of files that is not plain ASCII (more bytes than characters), a page at a time by id,

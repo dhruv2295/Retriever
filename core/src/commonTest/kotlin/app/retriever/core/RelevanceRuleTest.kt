@@ -169,6 +169,16 @@ class RelevanceRuleTest {
         assertTrue(SearchEngine(store, AxisEmbedder(sig)) { names }.search("anything", vector).hits.none { it.byName })
     }
 
+    /** A CJK word inside a name's run is a word, as the cold `file_fts` lane finds it: strong once the index is warm too. */
+    @Test
+    fun aCjkWordInsideANameIsStrong() = runTest {
+        val files = listOf(F("会議資料.pdf", 0.1f))
+        val (store, ids) = store(files)
+        val names = NameIndex.build(files.map { NameEntry(ids.getValue(it.name), it.name, "書類", it.kind) })
+        val r = SearchEngine(store, AxisEmbedder(sig), rule = RelevanceRule()) { names }.names(SearchRequest("資料"))
+        assertEquals(listOf("会議資料.pdf"), strongNames(r))
+    }
+
     /** NameIndex lists close matches before loose ones; fusion must keep that order, so a loose name never cuts a prefix one. */
     @Test
     fun substringNamesNeverPushPrefixNamesPastTheCut() = runTest {

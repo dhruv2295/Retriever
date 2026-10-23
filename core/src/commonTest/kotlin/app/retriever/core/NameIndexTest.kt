@@ -63,11 +63,18 @@ class NameIndexTest {
 
     @Test fun prefixWhileTyping() = assertEquals(MatchClass.PREFIX, classOf("scr", 2))
 
-    /** A CJK name is one token, and its words are two characters: one inside it is a substring match. */
+    /**
+     * A CJK name is one token, and its words are two characters: one inside it is a word, as the keyword tables' pieces
+     * treat it, so it matches as a prefix does.
+     */
     @Test fun aTwoCharacterCjkWordInsideAName() {
-        val names = NameIndex.build(listOf(NameEntry(1, "会議資料.pdf", "書類", Kind.PDF), NameEntry(2, "資料.pdf", "", Kind.PDF)))
-        assertEquals(listOf(2L to MatchClass.EXACT, 1L to MatchClass.SUBSTRING), names.search("資料").map { it.id to it.match })
+        val names = NameIndex.build(
+            listOf(NameEntry(1, "会議資料.pdf", "書類", Kind.PDF), NameEntry(2, "資料.pdf", "", Kind.PDF), NameEntry(3, "전기고지서.pdf", "", Kind.PDF)),
+        )
+        assertEquals(listOf(2L to MatchClass.EXACT, 1L to MatchClass.PREFIX), names.search("資料").map { it.id to it.match })
         assertEquals(listOf(1L to MatchClass.PREFIX), names.search("会議").map { it.id to it.match })
+        // Hangul folds to its letters, so a Korean word goes through the trigram path.
+        assertEquals(listOf(3L to MatchClass.PREFIX), names.search("고지서").map { it.id to it.match })
         assertEquals(emptyList(), names.search("ab"), "two Latin letters are still too few for a substring")
     }
 

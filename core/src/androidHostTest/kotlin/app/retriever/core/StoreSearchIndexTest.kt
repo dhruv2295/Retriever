@@ -106,7 +106,7 @@ class StoreTest {
 
         val whole = store.keywordSearch("invoice", 10)
         assertEquals(1, whole.size)
-        assertEquals(fileId, store.chunk(whole.single().chunkId)?.fileId)
+        assertEquals(fileId, store.chunk(whole.single())?.fileId)
         assertEquals(1, store.keywordSearch("invo", 10).size)
         assertEquals(1, store.keywordSearch("bill invo", 10).size)
         assertTrue(store.keywordSearch("pizza", 10).isEmpty())
@@ -119,7 +119,7 @@ class StoreTest {
         val (old, new) = store.pending(10).map { it.id }
         store.replaceChunks(old, listOf(Store.NewChunk(0, "", "invoice and many other unrelated words about weather and travel plans", vec(SIG))))
         store.replaceChunks(new, listOf(Store.NewChunk(0, "", "invoice invoice invoice", vec(SIG))))
-        assertEquals(new, store.chunk(store.keywordSearch("invoice", 10).first().chunkId)?.fileId)
+        assertEquals(new, store.chunk(store.keywordSearch("invoice", 10).first())?.fileId)
     }
 
     @Test
@@ -135,8 +135,8 @@ class StoreTest {
 
         val all = store.keywordSearch("invoice", cap + 1)
         assertEquals(cap, all.size)
-        assertTrue(all.none { store.chunk(it.chunkId)?.fileId == pdf }, "the oldest match is past the cap")
-        assertEquals(pdf, store.chunk(store.keywordSearch("invoice", 10, setOf(Kind.PDF)).single().chunkId)?.fileId)
+        assertTrue(all.none { store.chunk(it)?.fileId == pdf }, "the oldest match is past the cap")
+        assertEquals(pdf, store.chunk(store.keywordSearch("invoice", 10, setOf(Kind.PDF)).single())?.fileId)
     }
 
     @Test
