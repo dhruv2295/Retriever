@@ -345,9 +345,6 @@ SELECT c.id, c.file_id, c.vector, c.scale, f.kind, (c.text IS NOT NULL AND c.vis
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.vector IS NOT NULL AND c.id > ? ORDER BY c.id LIMIT ?;
 
-vectorCount:
-SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL;
-
 vectorsDeleted:
 SELECT value FROM index_meta WHERE key = 'vectors_deleted';
 
@@ -416,7 +413,7 @@ INSERT INTO chunk_fts (rowid, text, labels) VALUES (?, ?, ?);
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
 
--- The newest matches, for ranking; search cuts its snippets from content_text, never from these rows.
+-- The newest matches, for ranking; snippets come from a chunk's content (contentByIds), never from these rows.
 searchFts:
 SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
 FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY rowid DESC LIMIT ?;
@@ -642,7 +639,3 @@ WHERE c.id > :after AND f.kind IN :kinds AND c.ordinal > 0 AND f.reach & 1;
 -- The text/label fields are separate so classifier words can never become content snippets.
 chunkLabels:
 SELECT id, labels FROM chunks WHERE id IN ? AND labels IS NOT NULL;
-
-meaningProgressIn:
-SELECT f.id, f.state, COUNT(c.id) AS total, COUNT(c.vector) AS embedded
-FROM files f LEFT JOIN chunks c ON c.file_id = f.id WHERE f.id IN ? GROUP BY f.id;

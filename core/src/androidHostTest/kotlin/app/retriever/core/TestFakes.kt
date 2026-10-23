@@ -1,5 +1,9 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import java.util.Collections
@@ -100,12 +104,41 @@ internal class FakeSource : FileSource {
     }
 }
 
+/**
+ * [driver], showing each statement's SQL and binders to [onQuery] (reads) or [onExecute] (writes) before it runs; a hook
+ * may throw, as a full disk would. Subclass it to watch transactions too.
+ */
+internal open class SpyDriver(
+    private val driver: SqlDriver,
+    private val onQuery: (sql: String, binders: (SqlPreparedStatement.() -> Unit)?) -> Unit = { _, _ -> },
+    private val onExecute: (sql: String, binders: (SqlPreparedStatement.() -> Unit)?) -> Unit = { _, _ -> },
+) : SqlDriver by driver {
+    override fun <R> executeQuery(
+        identifier: Int?,
+        sql: String,
+        mapper: (SqlCursor) -> QueryResult<R>,
+        parameters: Int,
+        binders: (SqlPreparedStatement.() -> Unit)?,
+    ): QueryResult<R> {
+        onQuery(sql, binders)
+        return driver.executeQuery(identifier, sql, mapper, parameters, binders)
+    }
+
+    override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
+        onExecute(sql, binders)
+        return driver.execute(identifier, sql, parameters, binders)
+    }
+}
+
 /** An in-memory store; with [sig] set, ready for vectors of that signature. */
 internal fun newStore(sig: Signature? = SIG, log: (String, Throwable?) -> Unit = { _, _ -> }): Store {
     val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
     IndexDb.Schema.create(driver)
     return Store(driver, log).also { if (sig != null) it.resetForModel(sig) }
 }
+
+/** How many chunks have a vector; every chunk's file exists in these tests, so it is what search loads. */
+internal fun Store.vectorCount(): Int = loadVectors().size
 
 internal fun testFile(name: String, kind: Kind = Kind.DOC, modifiedAt: Long = 1L, folder: String = "", size: Long = 100L, takenAt: Long? = null) =
     SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt, takenAt)

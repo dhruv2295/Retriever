@@ -1,7 +1,8 @@
 #!/bin/bash
-# The one verify command. Default: tests, lint, format check, notices, versions, 16 KB alignment.
+# The one verify command. Default: tests, lint, shared-metadata compiles, the migration check, format check, notices,
+# versions, 16 KB alignment.
 #   scripts/verify.sh            default gate
-#   scripts/verify.sh --full     adds benchmarks, coverage, inspections, the iOS selftest and the UI tests
+#   scripts/verify.sh --full     adds benchmarks, coverage, the bundle ABI check, inspections, the iOS selftest and the UI tests
 #   scripts/verify.sh --format-staged   (pre-commit) formats the staged Kotlin and Swift files
 # Sourced by scripts/release.sh for the version helpers; main runs only when executed.
 set -euo pipefail
@@ -157,11 +158,14 @@ main() {
   [ "$(git config --get core.hooksPath || true)" = ".githooks" ] || git config core.hooksPath .githooks
 
   step "versions"; check_versions
-  step "gradle: tests, lint, release build, ktlint"
+  step "gradle: tests, lint, release build, metadata, migrations, ktlint"
   # --rerun forces only the tests. Compiles, lint and R8 are up to date or come from the build cache when their inputs
-  # (warnings-as-errors settings included) are unchanged, so a cached result is gated the same way.
+  # (warnings-as-errors settings included) are unchanged, so a cached result is gated the same way. No other task
+  # compiles the shared common and iosMain metadata; the migration check replays every .sqm on the 3.db snapshot and
+  # diffs the result against Index.sq.
   local flags=() tasks=(:core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun
-    :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease ktlintCheck)
+    :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease
+    :core:compileCommonMainKotlinMetadata :core:compileIosMainKotlinMetadata :core:verifyCommonMainIndexDbMigration ktlintCheck)
   if [ $full = 1 ]; then flags=(-Pbench -Pcoverage); tasks+=(:core:koverHtmlReport :androidApp:koverHtmlReportDebug); fi
   ./gradlew ${flags[@]+"${flags[@]}"} "${tasks[@]}"
   step "ios unit tests"; scripts/ios-unit-tests.sh

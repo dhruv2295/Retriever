@@ -1,9 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.CompletableDeferred
@@ -252,15 +248,7 @@ class FacadeW5Test {
     fun collectorsOfTheSameSuggestionsShareOneReadAndReleaseIt() = test {
         var reads = 0
         val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
-        val spy = object : SqlDriver by raw {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also { if ("MAX(c.id)" in sql) reads++ }
-        }
+        val spy = SpyDriver(raw, onQuery = { sql, _ -> if ("MAX(c.id)" in sql) reads++ })
         val store = Store(spy).also { it.resetForModel(SIG) }
         val r =
             Retriever(store, FakeSource(), FakeExtractor(), FakeFactory(), FakeMonitor(), NoHasher, PIXEL, {

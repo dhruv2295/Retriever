@@ -1,8 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlin.test.Test
@@ -15,12 +12,7 @@ class TokenRetryTest {
     fun buildingAStoreRunsNoSqlTheFirstRetryMakesTheTermTable() {
         val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
         val executed = mutableListOf<String>()
-        val spy = object : SqlDriver by db {
-            override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
-                executed += sql
-                return db.execute(identifier, sql, parameters, binders)
-            }
-        }
+        val spy = SpyDriver(db, onExecute = { sql, _ -> executed += sql })
         val store = Store(spy)
         assertTrue(executed.isEmpty(), "$executed")
         assertTrue(store.keywordSearch("zebra giraffe", 10).isEmpty())

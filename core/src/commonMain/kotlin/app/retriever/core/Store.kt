@@ -274,9 +274,11 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** URIs of the files in [folder] and the folders below it. */
     internal fun urisInFolder(folder: String): List<String> = q.urisInFolder(folder).executeAsList()
 
-    private inline fun eachFile(each: (StoredFile) -> Unit) = paged({ after -> q.filesAfter(after, PAGE_ROWS, ::storedFile).executeAsList() }, { it.id }, each)
+    private inline fun eachFile(each: (StoredFile) -> Unit) =
+        paged(PAGE_ROWS, { it.id }) { after -> q.filesAfter(after, PAGE_ROWS, ::storedFile).executeAsList().onEach(each) }
 
-    private inline fun eachUri(each: (String) -> Unit) = paged({ after -> q.urisAfter(after, PAGE_ROWS).executeAsList() }, { it.id }) { each(it.uri) }
+    private inline fun eachUri(each: (String) -> Unit) =
+        paged(PAGE_ROWS, { it.id }) { after -> q.urisAfter(after, PAGE_ROWS).executeAsList().onEach { each(it.uri) } }
 
     fun fileByUri(uri: String): StoredFile? = q.fileByUri(uri, ::storedFile).executeAsOneOrNull()
 
@@ -288,7 +290,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun fileIds(uris: Collection<String>): List<Long> = inChunks(uris) { q.fileIdsByUris(it).executeAsList() }
 
     /** Every file as the name index keeps it. */
-    fun nameEntries(): List<NameEntry> = buildList { paged({ after -> q.nameEntriesAfter(after, PAGE_ROWS, ::nameEntry).executeAsList() }, { it.id }, ::add) }
+    fun nameEntries(): List<NameEntry> = buildList {
+        paged(PAGE_ROWS, { it.id }) { after -> q.nameEntriesAfter(after, PAGE_ROWS, ::nameEntry).executeAsList().also { addAll(it) } }
+    }
 
     fun nameEntries(uris: Collection<String>): List<NameEntry> = inChunks(uris) { q.nameEntriesByUris(it, ::nameEntry).executeAsList() }
 
@@ -361,8 +365,6 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             }
         }
     }
-
-    fun meaningStates(fileIds: Collection<Long>): Map<Long, MeaningState> = inChunks(fileIds) { q.meaningProgressIn(it, ::meaningRow).executeAsList() }.toMap()
 
     fun chunkLabels(ids: Collection<Long>): Map<Long, String> =
         inChunks(ids) { q.chunkLabels(it) { id, labels -> id to labels.orEmpty() }.executeAsList() }.toMap()
@@ -485,16 +487,12 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         q.setState(FileState.PENDING, attempts.toLong(), fileId)
     }
 
-    fun vectorCount(): Int = q.vectorCount().executeAsOne().toInt()
-
     /** Vector rows with an id above [afterId], appended onto [into] (or a new table). */
-    fun loadVectors(afterId: Long = 0, into: VectorTable? = null, pageSize: Int = PAGE_ROWS.toInt()): VectorTable {
-        var table = into ?: VectorTable.empty()
-        var last = afterId
-        while (true) {
-            val rows = q.vectorsAfter(last, pageSize.toLong()).executeAsList()
-            if (rows.isEmpty()) return table
-            table = table.ensureCapacity(table.size + rows.size)
+    fun loadVectors(afterId: Long = 0, into: VectorTable? = null): VectorTable {
+        val table = into ?: VectorTable.empty()
+        paged(PAGE_ROWS, { it.id }, afterId) { after ->
+            val rows = q.vectorsAfter(after, PAGE_ROWS).executeAsList()
+            table.ensureCapacity(table.size + rows.size)
             for (r in rows) {
                 val kind = Kind.valueOf(r.kind)
                 table.append(
@@ -507,8 +505,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                     r.at.floorDiv(DAY_MS).toInt(),
                 )
             }
-            last = rows.last().id
+            rows
         }
+        return table
     }
 
     /** How many vectors were ever deleted; grows monotonically (kept by a trigger). */
@@ -910,29 +909,28 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val refill = meta("fts_rebuild") != null
         if (!refill && meta(FTS_TOKENS_KEY) == FTS_TOKENS) return false
         if (refill) q.rebuildFts()
-        eachPage({ q.ftsChunkPage(it, FTS_PAGE).executeAsList() }, { it.id }) { c ->
-            if (hasCjk(c.text) || hasCjk(c.labels)) {
-                q.deleteFts(c.id)
-                insertFts(c.id, c.text, c.labels)
+        paged(FTS_PAGE, { it.id }) { after ->
+            transactionWithResult {
+                q.ftsChunkPage(after, FTS_PAGE).executeAsList().onEach { c ->
+                    if (hasCjk(c.text) || hasCjk(c.labels)) {
+                        q.deleteFts(c.id)
+                        insertFts(c.id, c.text, c.labels)
+                    }
+                }
             }
         }
-        eachPage({ q.ftsFilePage(it, FTS_PAGE).executeAsList() }, { it.id }) { f ->
-            if (hasCjk(f.name) || hasCjk(f.folder)) {
-                q.deleteFileFts(f.id)
-                insertFileFts(f.id, f.name, f.folder)
+        paged(FTS_PAGE, { it.id }) { after ->
+            transactionWithResult {
+                q.ftsFilePage(after, FTS_PAGE).executeAsList().onEach { f ->
+                    if (hasCjk(f.name) || hasCjk(f.folder)) {
+                        q.deleteFileFts(f.id)
+                        insertFileFts(f.id, f.name, f.folder)
+                    }
+                }
             }
         }
         setMeta(FTS_TOKENS_KEY, FTS_TOKENS)
         return true
-    }
-
-    /** [each] row of [page] (the rows after an id), in id order, one page per transaction. */
-    private fun <T> eachPage(page: (Long) -> List<T>, id: (T) -> Long, each: (T) -> Unit) {
-        var after = 0L
-        while (true) {
-            val rows = transactionWithResult { page(after).onEach(each) }
-            after = id(rows.lastOrNull() ?: return)
-        }
     }
 
     companion object {
@@ -1024,14 +1022,16 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     }
 }
 
-/** Every row once, [Store.PAGE_ROWS] at a time, each page read past the last one's id. */
-private inline fun <T> paged(page: (after: Long) -> List<T>, id: (T) -> Long, each: (T) -> Unit) {
-    var after = Long.MIN_VALUE
+/**
+ * Every row past [after] once, in id order: [page] reads (and handles) at most [size] rows past an id, each page past the
+ * last one's, and a short page is the last.
+ */
+private inline fun <T> paged(size: Long, id: (T) -> Long, after: Long = Long.MIN_VALUE, page: (after: Long) -> List<T>) {
+    var last = after
     while (true) {
-        val rows = page(after)
-        rows.forEach(each)
-        if (rows.size < Store.PAGE_ROWS) return
-        after = id(rows.last())
+        val rows = page(last)
+        if (rows.size < size) return
+        last = id(rows.last())
     }
 }
 

@@ -6,13 +6,15 @@ One command runs every check the project relies on:
 
 ```
 scripts/verify.sh          # default, about 2 minutes
-scripts/verify.sh --full   # default plus benchmarks, coverage, inspections, ios-selftest and the UI tests
+scripts/verify.sh --full   # default plus benchmarks, coverage, the bundle ABI check, inspections, ios-selftest and the UI tests
 ```
 
 Default layers:
 
-1. One Gradle run: `./gradlew :core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease ktlintCheck`
-   (ktlint is Gradle-managed; the format task is `ktlintFormat`, see the root `build.gradle.kts`).
+1. One Gradle run: `./gradlew :core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease :core:compileCommonMainKotlinMetadata :core:compileIosMainKotlinMetadata :core:verifyCommonMainIndexDbMigration ktlintCheck`
+   (ktlint is Gradle-managed; the format task is `ktlintFormat`, see the root `build.gradle.kts`). The two metadata
+   compiles check the common and iosMain code on its own, as the IDE reads it, which no platform compile does; the migration
+   check replays every `.sqm` on the `3.db` snapshot and diffs the result against `Index.sq` (`docs/features/store.md`).
 2. `scripts/ios-unit-tests.sh` (unit and UI tests over 3+ simulators; pass `-only-testing`-style names to narrow it)
 3. Swift formatter check in check mode: `swift format lint`.
 4. Notices check: fails when a group in `:androidApp` `releaseRuntimeClasspath`, a Kotlin library linked into the iOS

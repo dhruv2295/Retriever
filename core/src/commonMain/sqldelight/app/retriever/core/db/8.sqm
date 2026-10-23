@@ -1,5 +1,5 @@
--- A chunk's content was a second copy of its text; it becomes a flag (Index.sq, chunks.content). Android shrinks the
--- file at commit (its SQLite builds with auto_vacuum); iOS reuses the freed pages.
+-- A chunk's content was a second copy of its text; it becomes a flag (Index.sq, chunks.content). A chunk's row fits in its
+-- page either way, so the freed bytes stay in their pages and the file keeps its size, auto_vacuum or not (store.md).
 ALTER TABLE chunks ADD COLUMN content INTEGER NOT NULL DEFAULT 0;
 UPDATE chunks SET content = 1, content_text = NULL WHERE content_text IS NOT NULL AND content_text = text;
 

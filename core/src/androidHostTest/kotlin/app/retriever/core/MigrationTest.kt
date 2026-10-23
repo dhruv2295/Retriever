@@ -2,9 +2,7 @@ package app.retriever.core
 
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
@@ -157,12 +155,12 @@ class MigrationTest {
             driver.execute(null, "INSERT INTO chunk_fts (rowid, text) VALUES (1, 'receipt 48213')", 0)
             IndexDb.Schema.migrate(driver, 5, IndexDb.Schema.version).value
             val store = Store(driver)
-            assertEquals(2, store.vectorCount(), "a schema upgrade does not force a model download")
+            assertEquals(2L, count(driver, "SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL"), "a schema upgrade does not force a model download")
             assertEquals(1, store.keywordSearch("48213", 10).size)
             assertEquals("receipt 48213", store.chunkTexts(1).single().text)
             assertEquals(1L, count(driver, "SELECT visual FROM chunks WHERE id = 2"))
             store.resetForModel(Signature("new-model"))
-            assertEquals(0, store.vectorCount())
+            assertEquals(0L, count(driver, "SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL"))
             assertEquals(2L, store.chunkCount())
             assertEquals(FileState.INDEXED, store.storedById(1)?.state)
             assertEquals(1, store.keywordSearch("48213", 10).size)
@@ -356,15 +354,7 @@ class MigrationTest {
     /** [driver] and the SQL of each query run through it. */
     private fun capturing(driver: SqlDriver): Pair<SqlDriver, MutableList<String>> {
         val seen = mutableListOf<String>()
-        return object : SqlDriver by driver {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> = driver.executeQuery(identifier, sql, mapper, parameters, binders).also { seen += sql }
-        } to seen
+        return SpyDriver(driver, onQuery = { sql, _ -> seen += sql }) to seen
     }
 
     private fun reach(driver: SqlDriver): Map<Long, Long> = driver.executeQuery(null, "SELECT id, reach FROM files", { c ->

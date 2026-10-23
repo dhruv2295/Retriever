@@ -2,9 +2,6 @@ package app.retriever.core
 
 import app.cash.sqldelight.Transacter
 import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.runBlocking
@@ -18,21 +15,10 @@ class BulkLibrarySyncTest {
     private var statements = 0
     private var transactions = 0
     private val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
-    private val spy = object : SqlDriver by raw {
-        override fun <R> executeQuery(
-            identifier: Int?,
-            sql: String,
-            mapper: (SqlCursor) -> QueryResult<R>,
-            parameters: Int,
-            binders: (SqlPreparedStatement.() -> Unit)?,
-        ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also {
-            this@BulkLibrarySyncTest.sql += sql
-            statements++
-        }
-
-        override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> =
-            raw.execute(identifier, sql, parameters, binders).also { statements++ }
-
+    private val spy = object : SpyDriver(raw, onQuery = { s, _ ->
+        sql += s
+        statements++
+    }, onExecute = { _, _ -> statements++ }) {
         override fun newTransaction(): QueryResult<Transacter.Transaction> {
             if (raw.currentTransaction() == null) transactions++
             return raw.newTransaction()
@@ -102,7 +88,10 @@ class BulkLibrarySyncTest {
         assertTrue(sql.none { "files.uri, files.name" in it && "FROM files WHERE uri = ?" in it }, "point query: $sql")
     }
 
-    /** Every column SourceFile compares is in the scan's diff, so a change to any one of them reaches the store. */
+    /**
+     * Every column SourceFile compares is in the scan's diff, so a change to any one of them reaches the store. A capture
+     * date the source no longer gives is kept: only a new date replaces it.
+     */
     @Test
     fun aFullScanNoticesAChangeToAnyStoredColumn() {
         val file = testFile("a.txt", folder = "Docs", takenAt = 5L)
@@ -119,6 +108,7 @@ class BulkLibrarySyncTest {
         )
         for (changed in changes) {
             assertEquals(SyncResult(0, 1, 0, true), full(listOf(changed)), "$changed")
+            assertEquals(changed.copy(takenAt = changed.takenAt ?: 5L), store.fileByUri(file.uri)!!.file, "$changed")
             full(listOf(file))
         }
     }

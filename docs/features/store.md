@@ -30,7 +30,8 @@ how it migrates and how the migrations are verified.
 - **Bulk reads page by id.** `knownFiles`, `knownFingerprints`, `knownUris`, `nameEntries` and `loadVectors` read
   `PAGE_ROWS` (4,000) rows a query, each page past the last id. Android fills a 2 MB `CursorWindow` and, to refill it,
   runs the query again from its first row, so one big result costs quadratic steps (100k files under Robolectric's
-  Android 11 SQLite: 1.18 s unpaged, 0.13 s paged).
+  Android 11 SQLite: 1.18 s unpaged, 0.13 s paged). One loop, `paged`, does each of them and the CJK rewrite (500 rows
+  and a transaction a page); a short page is the last.
 - **Drivers.** Android: `AndroidSqliteDriver` with write-ahead logging and `synchronous = NORMAL` set in `onConfigure`
   (the driver does not expose them), in `androidApp/.../di/AppModule.kt` (`indexDriver`); NORMAL is AOSP's WAL default,
   set so a device configured for FULL does not sync every commit. iOS: `NativeSqliteDriver` with four reader connections
@@ -143,10 +144,11 @@ how it migrates and how the migrations are verified.
 - `SyncBenchTest` (`-Pbench`): a 100k-file sync's statements per file, allocation, diff snapshot and longest removal
   transaction.
 - `DeadVectorsTest`: dead rows hidden, backfill reload, `aThrowingFtsRefillStillLeavesNamesLoaded`.
-- Not covered yet: `verifyCommonMainIndexDbMigration` is a Gradle task that nothing in `scripts/verify.sh` or CI runs, so
-  run it by hand when `Index.sq` or a `.sqm` changes; `tokenchars` equality between `Index.sq` and `2.sqm` (each is only
-  checked against the generator); restore versus a concurrent transaction; a plan-regression test for the other browse
-  queries (only the Home list and relink plans are pinned).
+- `scripts/verify.sh` runs `verifyCommonMainIndexDbMigration` (up to date unless `Index.sq`, a `.sqm` or a snapshot
+  changed).
+- Not covered yet: `tokenchars` equality between `Index.sq` and `2.sqm` (each is only checked against the generator);
+  restore versus a concurrent transaction; a plan-regression test for the other browse queries (only the Home list and
+  relink plans are pinned).
 
 ## Known limits
 
@@ -159,6 +161,12 @@ how it migrates and how the migrations are verified.
   `resetForNewModel` and `rebuildFts` into one `'rebuild'` statement, but only after invariant 1's deletes are limited
   to indexed rows; measure `SUM(LENGTH(text))` on a real library first. `file_fts` must stay a normal table because
   `upsertFile` updates `files` before the FTS row.
+- The v9 upgrade (`8.sqm`) rewrites every text chunk inside the open's upgrade transaction. A synthetic v8 index of
+  150k chunks (50k files, 282 MB) took 1.2 to 1.5 s on the JVM (M4 Max, xerial SQLite, WAL), 0.9 to 1.2 s of it the
+  `content` UPDATE, plus a 0.25 s checkpoint; the `-wal` file grew to 274 MB, so the upgrade needs about the index's size
+  free. The file stays 282 MB (the freed bytes stay in their pages; a `VACUUM` makes it 156 MB). Readers treat an
+  unconverted row (`content = 0`, `content_text = text`) the same, so the UPDATE could run after the open in pages if a
+  phone measures it slow. Not measured on a device.
 - `resetForNewModel` rewrites every chunk row in one transaction. Rare (model change), but star and prefs writes queue
   behind it.
 - A library-wide removal commits 1,000 files a transaction, so other writes wait for one part (about 0.1 s of 4.7 s at
