@@ -1,5 +1,9 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import java.util.Collections
@@ -94,6 +98,32 @@ internal class FakeSource : FileSource {
     override suspend fun changes(since: String?): Changes {
         calls += since
         return next
+    }
+}
+
+/**
+ * [driver], showing each statement's SQL and binders to [onQuery] (reads) or [onExecute] (writes) before it runs; a hook
+ * may throw, as a full disk would. Subclass it to watch transactions too.
+ */
+internal open class SpyDriver(
+    private val driver: SqlDriver,
+    private val onQuery: (sql: String, binders: (SqlPreparedStatement.() -> Unit)?) -> Unit = { _, _ -> },
+    private val onExecute: (sql: String, binders: (SqlPreparedStatement.() -> Unit)?) -> Unit = { _, _ -> },
+) : SqlDriver by driver {
+    override fun <R> executeQuery(
+        identifier: Int?,
+        sql: String,
+        mapper: (SqlCursor) -> QueryResult<R>,
+        parameters: Int,
+        binders: (SqlPreparedStatement.() -> Unit)?,
+    ): QueryResult<R> {
+        onQuery(sql, binders)
+        return driver.executeQuery(identifier, sql, mapper, parameters, binders)
+    }
+
+    override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
+        onExecute(sql, binders)
+        return driver.execute(identifier, sql, parameters, binders)
     }
 }
 

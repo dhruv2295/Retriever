@@ -2,9 +2,6 @@ package app.retriever.core
 
 import app.cash.sqldelight.Transacter
 import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.runBlocking
@@ -21,18 +18,7 @@ class SyncBenchTest {
     private var statements = 0L
     private val transactions = mutableListOf<Long>()
     private val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
-    private val spy = object : SqlDriver by raw {
-        override fun <R> executeQuery(
-            identifier: Int?,
-            sql: String,
-            mapper: (SqlCursor) -> QueryResult<R>,
-            parameters: Int,
-            binders: (SqlPreparedStatement.() -> Unit)?,
-        ): QueryResult<R> = raw.executeQuery(identifier, sql, mapper, parameters, binders).also { statements++ }
-
-        override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> =
-            raw.execute(identifier, sql, parameters, binders).also { statements++ }
-
+    private val spy = object : SpyDriver(raw, onQuery = { _, _ -> statements++ }, onExecute = { _, _ -> statements++ }) {
         override fun newTransaction(): QueryResult<Transacter.Transaction> {
             val outermost = raw.currentTransaction() == null
             val start = System.nanoTime()

@@ -1,9 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.test.runTest
@@ -71,18 +67,7 @@ class ExactNameTest {
     @Test fun oneLetterSkipsTheChunkKeywordQuery() = runTest {
         val fts = mutableListOf<String>()
         val inner = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
-        val spy = object : SqlDriver by inner {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> {
-                if ("chunk_fts MATCH" in sql) fts += sql
-                return inner.executeQuery(identifier, sql, mapper, parameters, binders)
-            }
-        }
+        val spy = SpyDriver(inner, onQuery = { sql, _ -> if ("chunk_fts MATCH" in sql) fts += sql })
         IndexDb.Schema.create(spy)
         val store = Store(spy).also { it.resetForModel(SIG) }
         val (engine, ids) = engine(store, listOf(testFile("lease.jpg", Kind.PHOTO)), listOf(testFile("notes.txt") to "lease"))

@@ -1,8 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
@@ -124,18 +121,9 @@ class RetrieverTest {
         IndexDb.Schema.create(db)
         var fullLoads = 0
         // Only a full load of the vector table reads its first page from id 0; a refresh reads past its last row.
-        val counting = object : SqlDriver by db {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> {
-                if (sql.startsWith("SELECT c.id, c.file_id, c.vector") && firstLong(binders) == 0L) fullLoads++
-                return db.executeQuery(identifier, sql, mapper, parameters, binders)
-            }
-        }
+        val counting = SpyDriver(db, onQuery = { sql, binders ->
+            if (sql.startsWith("SELECT c.id, c.file_id, c.vector") && firstLong(binders) == 0L) fullLoads++
+        })
         val f = fx(store = Store(counting).also { it.resetForModel(genericSig) })
         f.r.setUiBusy(true)
         val batch = async { f.r.indexBatch(1.minutes) }
@@ -641,21 +629,12 @@ class RetrieverTest {
         IndexDb.Schema.create(db)
         var failCounts = 0
         // The counts' one query fails when told to, as a disk error would.
-        val flaky = object : SqlDriver by db {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> {
-                if (failCounts > 0 && "GROUP BY kind, state, partial, reach" in sql) {
-                    failCounts--
-                    throw IllegalStateException("disk I/O error")
-                }
-                return db.executeQuery(identifier, sql, mapper, parameters, binders)
+        val flaky = SpyDriver(db, onQuery = { sql, _ ->
+            if (failCounts > 0 && "GROUP BY kind, state, partial, reach" in sql) {
+                failCounts--
+                throw IllegalStateException("disk I/O error")
             }
-        }
+        })
         val store = Store(flaky).also { it.resetForModel(SIG) }
         val f = fx(store = store)
         val totals = mutableListOf<Long>()

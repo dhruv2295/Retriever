@@ -2,9 +2,7 @@ package app.retriever.core
 
 import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
@@ -356,15 +354,7 @@ class MigrationTest {
     /** [driver] and the SQL of each query run through it. */
     private fun capturing(driver: SqlDriver): Pair<SqlDriver, MutableList<String>> {
         val seen = mutableListOf<String>()
-        return object : SqlDriver by driver {
-            override fun <R> executeQuery(
-                identifier: Int?,
-                sql: String,
-                mapper: (SqlCursor) -> QueryResult<R>,
-                parameters: Int,
-                binders: (SqlPreparedStatement.() -> Unit)?,
-            ): QueryResult<R> = driver.executeQuery(identifier, sql, mapper, parameters, binders).also { seen += sql }
-        } to seen
+        return SpyDriver(driver, onQuery = { sql, _ -> seen += sql }) to seen
     }
 
     private fun reach(driver: SqlDriver): Map<Long, Long> = driver.executeQuery(null, "SELECT id, reach FROM files", { c ->

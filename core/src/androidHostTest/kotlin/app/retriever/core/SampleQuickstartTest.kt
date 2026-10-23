@@ -1,8 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
@@ -30,26 +27,14 @@ class SampleQuickstartTest {
     private var upsertsAtPlan: Int? = null
 
     private val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
-    private val spy = object : SqlDriver by raw {
-        override fun <R> executeQuery(
-            identifier: Int?,
-            sql: String,
-            mapper: (SqlCursor) -> QueryResult<R>,
-            parameters: Int,
-            binders: (SqlPreparedStatement.() -> Unit)?,
-        ): QueryResult<R> {
-            if ("GROUP BY kind, state, partial, reach" in sql && "WHERE id IN" !in sql) countScans.incrementAndGet()
-            return raw.executeQuery(identifier, sql, mapper, parameters, binders)
+    private val spy = SpyDriver(raw, onQuery = { sql, _ ->
+        if ("GROUP BY kind, state, partial, reach" in sql && "WHERE id IN" !in sql) countScans.incrementAndGet()
+    }, onExecute = { sql, binders ->
+        if (sql.startsWith("INSERT INTO files ")) upserts.incrementAndGet()
+        if ("index_meta" in sql && binders != null && Keys().apply(binders).strings.firstOrNull() == TASTE_IDS_KEY) {
+            if (upsertsAtPlan == null) upsertsAtPlan = upserts.get()
         }
-
-        override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
-            if (sql.startsWith("INSERT INTO files ")) upserts.incrementAndGet()
-            if ("index_meta" in sql && binders != null && Keys().apply(binders).strings.firstOrNull() == TASTE_IDS_KEY) {
-                if (upsertsAtPlan == null) upsertsAtPlan = upserts.get()
-            }
-            return raw.execute(identifier, sql, parameters, binders)
-        }
-    }
+    })
     private val store = Store(spy).also { it.resetForModel(SIG) }
 
     private class Keys : SqlPreparedStatement {

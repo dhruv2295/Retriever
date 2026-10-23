@@ -1,8 +1,5 @@
 package app.retriever.core
 
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.Dispatchers
@@ -188,12 +185,7 @@ class IndexPipelineTest {
             val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
             IndexDb.Schema.create(db)
             var armed = false
-            val failing = object : SqlDriver by db {
-                override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
-                    if (armed && full === sqliteFull && "INSERT INTO chunks" in sql) throw full
-                    return db.execute(identifier, sql, parameters, binders)
-                }
-            }
+            val failing = SpyDriver(db, onExecute = { sql, _ -> if (armed && full === sqliteFull && "INSERT INTO chunks" in sql) throw full })
             val store = Store(failing).also { it.resetForModel(SIG) }
             val files = listOf(testFile("a.txt", modifiedAt = 2), testFile("b.txt", modifiedAt = 1))
             store.upsertFiles(files)
@@ -216,17 +208,13 @@ class IndexPipelineTest {
         var armed = false
         var refuseGiveBack = true
         var stateWrites = 0
-        val failing = object : SqlDriver by db {
-            override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
-                if (!armed) return db.execute(identifier, sql, parameters, binders)
-                if ("INSERT INTO chunks" in sql) throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)")
-                // The first state write counts the attempt; the second, giving it back, finds the disk full too.
-                if (refuseGiveBack && "UPDATE files SET state = ?, attempts = ?" in sql && ++stateWrites == 2) {
-                    throw SQLiteFullException("database or disk is full")
-                }
-                return db.execute(identifier, sql, parameters, binders)
+        val failing = SpyDriver(db, onExecute = { sql, _ ->
+            if (armed && "INSERT INTO chunks" in sql) throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)")
+            // The first state write counts the attempt; the second, giving it back, finds the disk full too.
+            if (armed && refuseGiveBack && "UPDATE files SET state = ?, attempts = ?" in sql && ++stateWrites == 2) {
+                throw SQLiteFullException("database or disk is full")
             }
-        }
+        })
         val store = Store(failing).also { it.resetForModel(SIG) }
         val file = testFile("a.txt")
         store.upsertFiles(listOf(file))
