@@ -41,7 +41,7 @@ final class AccessibilityAuditTests: XCTestCase {
     ]
     private static let routes = [
         "setup.welcome", "setup.textOnly", "setup.access", "setup.limited", "setup.denied", "setup.folders", "setup.accessBoth",
-        "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.sampleDone",
+        "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.paused", "setup.sampleDone",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
@@ -196,8 +196,6 @@ final class AccessibilityAuditTests: XCTestCase {
                         XCTAssertEqual(pile.label, count)
                         XCTAssertTrue(app.staticTexts[count].exists)
                         XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
-                        // Before the files are picked See the files keeps its place, unseen and out of VoiceOver's way.
-                        XCTAssertEqual(app.buttons["See the 30 files"].exists, route != "setup.samplePicking")
                         // The search works from the first frame, and Continue is the one way on, enabled throughout. The
                         // field asks for a description only once search by description is ready.
                         let hint = route == "setup.ready" ? "Describe a photo or file" : "Search by name or words"
@@ -212,6 +210,9 @@ final class AccessibilityAuditTests: XCTestCase {
                             XCTAssertTrue(shown.exists, "\(route): \(line)")
                         }
                         XCTAssertEqual(app.buttons["Use mobile data"].exists, route == "setup.waitingWifi")
+                        // A pause takes the description line's place: it says why the count stands still.
+                        let paused = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Paused, battery is low'")).firstMatch
+                        XCTAssertEqual(paused.exists, route == "setup.paused", route)
                         XCTAssertTrue(app.buttons["Continue"].isEnabled)
                         XCTAssertFalse(app.buttons["Try search"].exists)
                         XCTAssertFalse(app.buttons["Skip for now"].exists)
@@ -289,7 +290,9 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
-    private static let sampleRoutes = ["setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.sampleDone"]
+    private static let sampleRoutes = [
+        "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.paused", "setup.sampleDone",
+    ]
 
     /// The demo's group was left-aligned under a centred dog and pile, with the spare height in one band above the
     /// footer, and rows came and went between states. Now it is centred both ways, and every state lays out the same rows.
@@ -311,10 +314,10 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertEqual(count.frame.midX, group.frame.midX, accuracy: 1, "\(route): the count is centred")
             // Centred between the bar above (the navigation bar, with the search field under it before iOS 26) and the
             // pinned actions. A group pinned to the top, with the spare height in one band above the actions, sits well
-            // above that. The group's test frame spans only its accessible rows, and before the plan See the files is
-            // laid out but hidden, so its frame ends short there; the rows' equal places below carry the centring over.
+            // above that. The group's test frame spans only its accessible rows, and before the chips arrive their held
+            // place is hidden, so its frame ends short there; the rows' equal places below carry the centring over.
             let top = app.navigationBars.firstMatch.frame.maxY
-            if route != "setup.samplePicking", group.frame.height + 32 < actions.frame.minY - top {
+            if !["setup.samplePicking", "setup.sampleStart"].contains(route), group.frame.height + 32 < actions.frame.minY - top {
                 XCTAssertEqual(group.frame.midY, (top + actions.frame.minY) / 2, accuracy: 12, "\(route): spare height split above and below")
             }
             frames[route] = (title.frame, count.frame, bar.frame)
@@ -503,7 +506,7 @@ final class AccessibilityAuditTests: XCTestCase {
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
         // Search by description sits just under When to process, at the first screen's fold.
-        ("settings", "Search by description"), ("settings", "Downloaded · 388\u{00A0}MB"),
+        ("settings", "Search by description"), ("settings", "Find files by describing them"), ("settings", "Downloaded · 388\u{00A0}MB"),
     ]
 
     func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {
@@ -605,7 +608,7 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// Label prefixes, top to bottom (the growth test only scrolls down); the body joins its size with a no-break space.
-    private static let upgradeText = ["Search by description", "One download of", "Download", "Not now"]
+    private static let upgradeText = ["Find files by describing them", "One download of", "Download", "Not now"]
 
     /// Home's optional upgrade row grows at AX5, the growth the live-resize audit loses when the rows above scroll it away.
     func testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize() {

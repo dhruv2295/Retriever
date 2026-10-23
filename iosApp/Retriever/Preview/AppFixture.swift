@@ -9,8 +9,8 @@ enum AppFixture {
     /// Hello, then the access screen: nothing given yet, some photos, Photos refused, a folder added, or both given.
     case firstRun, accessNone, photosLimited, photosDenied, folderAdded, accessBoth
     /// The first search, its download running: picking (no plan yet), starting, processing, or done; processing while the
-    /// download waits for Wi-Fi; and processing with search by description ready.
-    case samplePicking, sampleStart, sampleReading, sampleDone, sampleWaitingForWifi, sampleReady
+    /// download waits for Wi-Fi; processing with search by description ready; and paused on a low battery.
+    case samplePicking, sampleStart, sampleReading, sampleDone, sampleWaitingForWifi, sampleReady, samplePaused
     /// Home's one-time card after setup, search by description ready or still downloading.
     case homeIntro(ready: Bool)
     /// The meaning upgrade: offered (after a search), downloading, waiting for Wi-Fi, failed, tuning, adding meaning.
@@ -130,6 +130,10 @@ extension AppModel {
         case .sampleReading: inSample()
         case .sampleDone: inSample(read: 30)
         case .sampleWaitingForWifi: inSample(download: (.waitingForWifi, 0.2))
+        case .samplePaused:
+            inSample()
+            (snap.running, snap.reading.current) = (false, nil)
+            snap.reading.pauseReason = ReadingPolicy.shared.stopCopy(stop: .lowBattery, words: Copy.words)
         case .sampleReady:
             inSample(read: 18, download: (.ready, 1))
             (snap.setUp, modelMissing, tune) = (true, false, .done(Copy.tuneSummary(.gpu, imageMs: 120)))
@@ -240,6 +244,6 @@ extension AppModel {
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
-            homeIntroDue: homeIntroDue)
+            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false)
     }
 }

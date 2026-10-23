@@ -53,8 +53,9 @@ final class ClarityShotsTests: XCTestCase {
             .environment(\.dynamicTypeSize, largest ? .accessibility5 : .large)
             .environment(\.horizontalSizeClass, .compact)
         let host = UIHostingController(rootView: screen)
-        // Hello is drawn at an iPhone Pro's own size, where it must fit without scrolling above its pinned footer.
-        let fitsPhone = route == .setupWelcome && !largest
+        // Hello and the first search are drawn at an iPhone Pro's own size, where they must fit without scrolling above
+        // their pinned footer.
+        let fitsPhone = [.setupWelcome, .setupReading].contains(route) && !largest
         // UIKit's own size too: the bars, the search field and @ScaledMetric tiles follow the trait, not the environment.
         if largest { host.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -77,7 +78,7 @@ final class ClarityShotsTests: XCTestCase {
             let inset = scroll.adjustedContentInset
             XCTAssertLessThanOrEqual(
                 scroll.contentSize.height + inset.top + inset.bottom, scroll.bounds.height,
-                "Hello scrolls at 393×852: content \(scroll.contentSize.height), footer inset \(inset.bottom)")
+                "\(route.rawValue) scrolls at 393×852: content \(scroll.contentSize.height), footer inset \(inset.bottom)")
         }
         let pixels = try XCTUnwrap(image.cgImage?.dataProvider?.data) as Data
         XCTAssertGreaterThan(Set(stride(from: 0, to: pixels.count, by: 97).map { pixels[$0] }).count, 8, "\(route.rawValue) rendered blank")

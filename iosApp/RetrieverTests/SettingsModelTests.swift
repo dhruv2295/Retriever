@@ -163,7 +163,8 @@ final class SettingsModelTests: XCTestCase {
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
                 setupStarted: $0.setupStarted, notificationsDismissed: $0.notificationsDismissed,
                 noMatchSeen: $0.noMatchSeen, showOnThisDay: $0.showOnThisDay, readingCycle: $0.readingCycle, dismissedReadingCycle: $0.dismissedReadingCycle,
-                searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed, homeIntroDue: $0.homeIntroDue)
+                searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed, homeIntroDue: $0.homeIntroDue,
+                notifyWhenCaughtUp: $0.notifyWhenCaughtUp)
         }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)

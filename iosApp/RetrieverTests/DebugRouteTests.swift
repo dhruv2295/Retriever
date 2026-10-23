@@ -9,7 +9,7 @@
             ("setup.welcome", "firstRun"), ("setup.access", "accessNone"), ("setup.limited", "photosLimited"),
             ("setup.denied", "photosDenied"), ("setup.folders", "folderAdded"), ("setup.accessBoth", "accessBoth"),
             ("setup.samplePicking", "samplePicking"), ("setup.sampleStart", "sampleStart"), ("setup.reading", "sampleReading"),
-            ("setup.waitingWifi", "sampleWaitingForWifi"), ("setup.ready", "sampleReady"), ("setup.sampleDone", "sampleDone"),
+            ("setup.waitingWifi", "sampleWaitingForWifi"), ("setup.ready", "sampleReady"), ("setup.paused", "samplePaused"), ("setup.sampleDone", "sampleDone"),
             ("setup.textOnly", "textOnly(ramGb: 3.0)"),
             ("upgrade.offer", "noModel"), ("upgrade.download", "downloading(0.34)"), ("upgrade.waitingWifi", "waitingForWifi"),
             ("upgrade.failed", "downloadFailed"), ("upgrade.tuning", "tuning"), ("upgrade.meaning", "meaning(1204)"),

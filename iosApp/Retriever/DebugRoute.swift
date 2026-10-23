@@ -48,6 +48,7 @@
         case setupReading = "setup.reading"
         case setupWaitingWifi = "setup.waitingWifi"
         case setupReady = "setup.ready"
+        case setupPaused = "setup.paused"
         case setupSampleDone = "setup.sampleDone"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
@@ -157,6 +158,7 @@
             case .setupReading: .sampleReading
             case .setupWaitingWifi: .sampleWaitingForWifi
             case .setupReady: .sampleReady
+            case .setupPaused: .samplePaused
             case .setupSampleDone: .sampleDone
             case .homeIntroReady: .homeIntro(ready: true)
             case .homeIntroOnItsWay: .homeIntro(ready: false)
@@ -188,7 +190,7 @@
         @MainActor @ViewBuilder func screen(_ model: AppModel, path: Binding<[Route]>) -> some View {
             switch self {
             case .setupWelcome, .setupAccess, .setupLimited, .setupDenied, .setupFolders, .setupAccessBoth, .setupSamplePicking, .setupSampleStart,
-                .setupReading, .setupWaitingWifi, .setupReady, .setupSampleDone, .setupTextOnly:
+                .setupReading, .setupWaitingWifi, .setupReady, .setupPaused, .setupSampleDone, .setupTextOnly:
                 SetupView(model: model)
             case .upgradeOffer, .upgradeDownload, .upgradeWaitingWifi, .upgradeFailed, .upgradeTuning, .upgradeMeaning:
                 // Settings' Search by description entry, alone: the same card as Home's.

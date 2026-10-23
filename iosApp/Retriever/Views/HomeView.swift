@@ -26,7 +26,7 @@ struct HomeList: View {
     var body: some View {
         List {
             if let snap {
-                // Just under the search field, once, after setup: what happens next. The status line below carries on after it.
+                // Just under the search field, once, after setup: what happens next. The status line takes over after Got it.
                 if snap.prefs?.homeIntroDue == true { Section { HomeIntroCard(model: model) } }
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)
                 if snap.total == 0 {
@@ -266,9 +266,12 @@ private struct HomeStatusSection: View {
         let status = model.statusLine(shown)
         // One remedy at a time: Resume while paused, or no access at all, else what Photos access needs.
         let photosNote = snap.total == 0 || status.map({ [.paused, .noAccess].contains($0.phase) }) == true ? nil : Copy.photosNote(photos)
-        let line = status.flatMap { $0.action != .dismiss || !snap.caughtUpDismissed ? $0 : nil }
+        // Home's one-time card says the same until Got it.
+        let line = snap.prefs?.homeIntroDue == true ? nil : status.flatMap { $0.action != .dismiss || !snap.caughtUpDismissed ? $0 : nil }
         // A nearly empty phone is nudged to add a folder, in the line's place and only when nothing else is said.
-        let nudge = line == nil && photosNote == nil && model.readingMessage == nil && snap.total > 0 && snap.total <= Self.nearlyEmpty
+        let nudge =
+            line == nil && photosNote == nil && model.readingMessage == nil && snap.prefs?.homeIntroDue != true && snap.total > 0
+            && snap.total <= Self.nearlyEmpty
         if line != nil || photosNote != nil || model.readingMessage != nil || nudge {
             Section {
                 if let line { StatusLine(status: line, model: model, dismissable: true) }

@@ -23,7 +23,7 @@ extension AppModel {
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
-                homeIntroDue: p.homeIntroDue)
+                homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp)
         }
     }
 

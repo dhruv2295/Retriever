@@ -96,7 +96,7 @@ private struct HelloStep: View {
             MascotView(mood: .welcome, settles: false).frame(width: 230)
             Text(Words.shared.helloTitle(textOnly: model.textOnly)).font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
             Text(Words.shared.HELLO_BODY).font(.title3).foregroundStyle(.secondary)
-            HelloExamples().padding(.top, 12)
+            HelloExamples(textOnly: model.textOnly).padding(.top, 12)
         }
         .modifier(
             StepActions {
@@ -111,16 +111,20 @@ private struct HelloStep: View {
 }
 
 /// Hello's looping example: a description types into a search field, then the card that answers it springs in, three
-/// in turn. Illustrations, never the person's files, so VoiceOver skips it; Reduce Motion shows the first, still.
+/// in turn (a phone without search by description leaves out what only it finds). Illustrations, never the person's
+/// files, so VoiceOver skips it; Reduce Motion shows the first, still.
 private struct HelloExamples: View {
+    /// Core's examples in order, and their art.
     private static let art = ["ExampleChat", "ExampleSofa", "ExampleLease"]
+    let textOnly: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var index = 0
     @State private var typed = Int.max
     @State private var answered = true
 
     var body: some View {
-        let example = Words.shared.HELLO_EXAMPLES[index]
+        let examples = Words.shared.helloExamples(textOnly: textOnly)
+        let example = examples[index % examples.count]
         VStack(alignment: .leading, spacing: 8) {
             // Primary throughout: footnote-sized secondary grey falls short of contrast, and the audit still reads these.
             Text(Words.shared.FOR_EXAMPLE.uppercased()).font(.footnote.weight(.semibold)).padding(.leading, 4)
@@ -133,7 +137,7 @@ private struct HelloExamples: View {
             .frame(minHeight: 48)
             .background(.fill.tertiary, in: Capsule())
             HStack(spacing: 14) {
-                Image(Self.art[index]).resizable().scaledToFill().frame(width: 72, height: 72)
+                Image(Self.art[Words.shared.HELLO_EXAMPLES.firstIndex(of: example) ?? 0]).resizable().scaledToFill().frame(width: 72, height: 72)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(example.title).font(.subheadline.weight(.semibold))
@@ -164,7 +168,8 @@ private struct HelloExamples: View {
     private func loop() async {
         do {
             while true {
-                let query = Words.shared.HELLO_EXAMPLES[index].query
+                let examples = Words.shared.helloExamples(textOnly: textOnly)
+                let query = examples[index % examples.count].query
                 (typed, answered) = (0, false)
                 for n in 1...query.count {
                     try await Task.sleep(for: .milliseconds(1_100 / query.count))
@@ -175,7 +180,7 @@ private struct HelloExamples: View {
                 try await Task.sleep(for: .milliseconds(2_000))
                 withAnimation(.easeOut(duration: 0.2)) { answered = false }
                 try await Task.sleep(for: .milliseconds(250))
-                index = (index + 1) % Words.shared.HELLO_EXAMPLES.count
+                index = (index + 1) % examples.count
             }
         } catch {}
     }
@@ -331,7 +336,7 @@ private struct DemoStep: View {
 
 /// Under the first search's field before a word is typed: the dog (or, once search by description is ready, a banner
 /// saying so), the title, the one count and its bar, where search by description stands, the pile of the newest files,
-/// words to try, and the list of its files. Every row keeps its place from the first frame, so the centred group never
+/// words to try; the pile opens the list of its files. Every row keeps its place from the first frame, so the centred group never
 /// moves between states.
 struct DemoIntro: View {
     let model: AppModel
@@ -352,10 +357,11 @@ struct DemoIntro: View {
         let picking = planned == 0
         let count = picking ? Words.shared.DEMO_PICKING : Words.shared.readOf(done: done, total: planned)
         let state = model.descriptionState
-        StepContent(alignment: .center) {
+        // Tighter than the other steps: with the full-size pile it must fit an iPhone Pro above the footer and search field.
+        StepContent(alignment: .center, spacing: 10) {
             // The dog's height holds the banner's place, so the rows under it stay put when it arrives.
             ZStack {
-                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 160).opacity(state == .ready ? 0 : 1)
+                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 120).opacity(state == .ready ? 0 : 1)
                 if state == .ready { ReadyBanner().transition(.scale(scale: 0.96).combined(with: .opacity)) }
             }
             .animation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.3), value: state == .ready)
@@ -382,8 +388,6 @@ struct DemoIntro: View {
             // A new pile at the first delivery: the files done by then are there from its start, so they never settle again.
             .id(model.sample == nil)
             DemoChips(terms: model.trySuggestions, search: search)
-            let seeAll = Button(Words.shared.seeAll(files: planned)) { seeingAll = true }
-            if picking { seeAll.hidden() } else { seeAll }
         }
         .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: model.sample ?? []) }
     }
@@ -410,8 +414,8 @@ private struct ReadyBanner: View {
     }
 }
 
-/// The quiet line under the count while search by description gets ready, with Use mobile data or Try again where they
-/// help. A line and a button's height are kept, so the line coming and going never moves the group.
+/// The quiet line under the count: why processing is paused, or else where search by description stands, with Use
+/// mobile data or Try again where they help. A line and a button's height are kept, so the line coming and going never moves the group.
 private struct DescriptionLine: View {
     let model: AppModel
     let state: DescriptionState
@@ -425,7 +429,14 @@ private struct DescriptionLine: View {
                 Text(" ").frame(minHeight: 44)
             }
             .hidden()
-            if let line = Words.shared.descriptionLine(state: state, percent: percent) {
+            // A pause wins: it says why the count stands still.
+            if let pause = model.progress.reading.pauseReason {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "pause.circle").foregroundStyle(.tint)
+                    Text(pause)
+                }
+                .accessibilityElement(children: .combine)
+            } else if let line = Words.shared.descriptionLine(state: state, percent: percent) {
                 VStack(spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: "sparkle").foregroundStyle(.tint)
