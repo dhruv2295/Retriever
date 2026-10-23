@@ -9,17 +9,6 @@ class WordsTest {
     private val android = DeviceWords.ANDROID
     private val iphone = DeviceWords.ios("iPhone")
 
-    @Test fun aSectionIsFoundByNameOnlyWhenNoneOfItsKindsIsReadInside() {
-        val docs = listOf(Kind.PDF, Kind.DOC)
-        assertEquals("3 to go", Words.kindProgress(docs, setOf(Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L), 3))
-        assertEquals("8 to go", Words.kindProgress(docs, setOf(Kind.PDF, Kind.DOC), mapOf(Kind.DOC to 3L, Kind.PDF to 5L), 8))
-        assertNull(Words.kindProgress(docs, setOf(Kind.PDF), mapOf(Kind.DOC to 3L), 3), "nothing readable waits")
-        assertEquals("Found by name", Words.kindProgress(docs, emptySet(), mapOf(Kind.PDF to 5L), 5))
-        assertEquals("Found by name", Words.kindProgress(listOf(Kind.OTHER), Kind.entries.toSet() - Kind.OTHER, emptyMap(), 0))
-        assertEquals("${formatCount(1_200)} to go", Words.kindProgress(listOf(Kind.PHOTO), setOf(Kind.PHOTO), mapOf(Kind.PHOTO to 1_200L), 1_200))
-        assertNull(Words.kindProgress(listOf(Kind.PHOTO), setOf(Kind.PHOTO), mapOf(Kind.PHOTO to 50L), 0), "pending files already processed are not waiting")
-    }
-
     @Test fun coverageNamesEveryState() {
         val inside = Kind.entries.toSet() - Kind.OTHER
         fun stored(
@@ -74,7 +63,6 @@ class WordsTest {
         assertEquals("at 2 hours 1 second", Words.spokenPosition("2:00:01"))
         assertEquals("at 0 seconds", Words.spokenPosition("0:00"))
         assertNull(Words.spokenPosition(""))
-        assertEquals("Still processing ${formatCount(1_200)} more", Words.stillReading(1_200))
         assertEquals(
             "This iPhone has 3 GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them.",
             Words.textOnlyNote(3.4, iphone),
@@ -98,7 +86,7 @@ class WordsTest {
     /** Section 4's retired words appear in no shared sentence. */
     @Test fun noSharedSentenceUsesARetiredWord() {
         val sentences = demoAndChoice + listOf(
-            Words.SEARCH_FIELD, Words.HELLO_BODY, Words.WHOLE_PHONE_READY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
+            Words.SEARCH_FIELD, Words.HELLO_BODY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
             Words.READING_STATUS, Words.MORE_ON_PHONE, Words.KIND_OFF, Words.NO_MATCHES, Words.NO_MATCHES_DETAIL, Words.MORE_WAITING,
             Words.readCount(3, 1), Words.notReadYet(3), Words.readNowBody(iphone), Words.onDevice(android),
         ) + StopReason.entries.map { ReadingPolicy.stopCopy(it, android) } + ReadExtent.entries.mapNotNull(Words::extent) +
@@ -118,9 +106,9 @@ class WordsTest {
         Words.foldersAdded(2), Words.FIRST_LOOK, Words.DESCRIPTION_READY, Words.DESCRIPTION_READY_BODY, Words.HOME_INTRO_TITLE,
         Words.HOME_INTRO_BODY, Words.NEW_FILES, Words.NEW_FILES_BODY, Words.NOTIFY_WHEN_SEARCHABLE, Words.recentFiles(30),
         Words.otherFiles(25_763), Words.otherFiles(null), Words.otherFilesBody(android),
-        Words.DEMO_PICKING, Words.DEMO_PICKING_NOTE, Words.demoNote(null), Words.demoDone(25_763, android), Words.demoDone(null, android),
-        Words.SEARCH_DEMO, Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
-        Words.demoEnded(30, 30, false)!!, Words.demoEnded(12, 30, false)!!, Words.chooseTitle(android), Words.chooseBody(25_763),
+        Words.DEMO_PICKING, Words.demoNote(null), Words.demoDone(25_763, android), Words.demoDone(null, android),
+        Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
+        Words.chooseTitle(android), Words.chooseBody(25_763),
         Words.chooseBody(null), Words.choosePace(android), Words.RECOMMENDED, Words.READ_15_NOW, Words.chargingAndNowBody(android),
         Words.NOT_NOW_BODY, Words.START_PROCESSING, Words.GO_TO_HOME, Words.whileChargingBody(android),
         Words.notificationsAsk(true, TasteProgress(emptyMap(), emptySet(), 0, null, 3, 30)), Words.PROGRESS_CHANNEL,
@@ -164,10 +152,6 @@ class WordsTest {
         assertEquals("Finds any file on your phone by its name.", Words.demoSearchScope(0, false, android), "the first frame")
         assertEquals("Finds any file on your phone by its name, and looks inside the 30 demo files.", Words.demoSearchScope(30, true, android))
         assertEquals("See the 30 files" to "See the file", Words.seeAll(30) to Words.seeAll(1))
-        assertEquals("Demo done: 30 of 30 files processed", Words.demoEnded(30, 30, skipped = false))
-        assertEquals("Demo stopped at 12 of 30.", Words.demoEnded(12, 30, skipped = false))
-        assertEquals(null, Words.demoEnded(0, 30, skipped = true), "nothing after a skip")
-        assertEquals(null, Words.demoEnded(0, 0, skipped = false))
         assertEquals("Now, the rest of your phone", Words.chooseTitle(android))
         assertEquals("$n files aren’t processed yet. Until they are, you can find them by name, but not by what’s inside.", Words.chooseBody(25_763))
         assertEquals("1 file isn’t processed yet. Until it is, you can find it by name, but not by what’s inside.", Words.chooseBody(1))

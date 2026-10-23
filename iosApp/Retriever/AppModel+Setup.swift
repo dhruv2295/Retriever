@@ -1,8 +1,6 @@
 import Observation
 import Photos
-import PhotosUI
 @preconcurrency import RetrieverCore
-import SwiftUI
 import UIKit
 import os
 
@@ -293,7 +291,6 @@ struct TasteSnap: Equatable, Sendable {
     /// The rest at this phone's measured pace in wall time; nil until measured (core's `TasteProgress.secondsLeft`).
     var secondsLeft: Int?
 
-    var read: Int { counts.values.reduce(0) { $0 + $1.read } }
     var planned: Int { counts.values.reduce(0) { $0 + $1.planned } }
     /// The one count rule: every planned file no longer waiting (core's `TasteProgress.done`).
     var done: Int { planned - pending }

@@ -8,7 +8,6 @@ import app.retriever.core.FileState
 import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
-import app.retriever.core.ModelBuilds
 import app.retriever.core.Prefs
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile

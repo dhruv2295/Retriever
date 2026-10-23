@@ -58,7 +58,6 @@ class LowEndTest {
         r.refreshSetUp()
         assertFalse(r.modelPresent.value)
         assertEquals(387_710_976L, r.modelDownloadBytes)
-        assertFalse(r.audioContentSupported)
         r.indexBatch(1.minutes)
         assertTrue(factory.opened.isEmpty())
         assertEquals(1, r.search("48213").hits.size)

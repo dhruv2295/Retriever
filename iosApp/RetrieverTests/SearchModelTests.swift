@@ -78,24 +78,6 @@ final class SearchModelTests: XCTestCase {
         XCTAssertEqual(model.key.query, "beach")
     }
 
-    func testResultsGoStaleWhenTheQuestionChanges() {
-        let model = SearchModel.fixture(text: "rent", hits: [])
-        XCTAssertFalse(model.stale)
-        model.setText("rent receipt")
-        XCTAssertTrue(model.stale)
-        model.setText("rent")
-        XCTAssertFalse(model.stale)
-        model.scope = .photos
-        XCTAssertTrue(model.stale)
-        model.scope = .all
-        XCTAssertFalse(model.stale)
-        model.scope = .starred
-        XCTAssertTrue(model.stale)
-        model.scope = .all
-        model.retry()
-        XCTAssertFalse(model.stale, "a retry asks the same question, so its answer stays")
-    }
-
     func testScopedQuestionsCarryThePlannedIds() {
         let model = SearchModel(services: nil)
         model.setText("rent")
@@ -111,12 +93,6 @@ final class SearchModelTests: XCTestCase {
         XCTAssertNotEqual(model.question, before)
         model.fileIds = nil
         XCTAssertNil(model.question.scope)
-    }
-
-    func testNothingAnsweredIsStaleOnceActive() {
-        let model = SearchModel(services: nil)
-        model.setText("rent")
-        XCTAssertTrue(model.stale)
     }
 
     func testANewQueryIsSearchingNeverEmpty() {
@@ -150,7 +126,6 @@ final class SearchModelTests: XCTestCase {
         let model = SearchModel.fixture(text: "rent", hits: [hit], vectorLane: false)
         model.retry()
         XCTAssertEqual(model.screen, .results)
-        XCTAssertFalse(model.stale)
         model.setText("receipt")
         XCTAssertEqual(model.screen, .searching(slow: false))
     }
@@ -180,7 +155,7 @@ final class SearchModelTests: XCTestCase {
         XCTAssertFalse(model.key.literal)
         model.searchAsTyped()
         XCTAssertTrue(model.key.literal)
-        XCTAssertTrue(model.stale, "the answer was to the words read for kinds and dates")
+        XCTAssertEqual(model.screen, .searching(slow: false), "the answer was to the words read for kinds and dates")
         model.setText("rent")
         XCTAssertTrue(model.key.literal, "the same words, so still literal")
         model.setText("rent receipt")

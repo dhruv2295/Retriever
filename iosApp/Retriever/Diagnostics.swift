@@ -1,6 +1,5 @@
 import Foundation
 import MetricKit
-import os
 
 /// Keeps the system's crash and hang reports on the device so a person can share them by hand. Nothing is sent anywhere.
 final class Diagnostics: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
