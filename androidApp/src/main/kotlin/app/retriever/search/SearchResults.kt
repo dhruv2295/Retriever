@@ -103,6 +103,8 @@ internal fun Results(
     grid: LazyGridState,
     useText: (String) -> Unit,
     side: Dp,
+    /** A picture cell's width, for its request size. */
+    cell: Dp,
 ) {
     val q = ui.query.trim()
     val edge = 16.dp + side
@@ -139,31 +141,7 @@ internal fun Results(
     val canStar = home.starred > 0 || ui.onlyStarred
     val scope = ui.scope
     // On the first run a few dozen files have no use for kind chips.
-    if (scope == null && (kinds.isNotEmpty() || canStar)) {
-        LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item(key = "all") {
-                KindChip("All", ui.chip == null && !ui.onlyStarred && wordKinds.isEmpty()) {
-                    actions.onChip(null)
-                    actions.onStarredOnly(false)
-                    if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
-                }
-            }
-            if (canStar) item(key = "starred") { KindChip("Starred", ui.onlyStarred) { actions.onStarredOnly(!ui.onlyStarred) } }
-            items(kinds, key = { it.name }) { k ->
-                KindChip(Words.kindLabelPlural(k), ui.chip == k || k in wordKinds) {
-                    actions.onChip(
-                        if (ui.chip ==
-                            k
-                        ) {
-                            null
-                        } else {
-                            k
-                        },
-                    )
-                }
-            }
-        }
-    }
+    if (scope == null && (kinds.isNotEmpty() || canStar)) KindChips(kinds, ui.chip, ui.onlyStarred, wordKinds, canStar, edge, actions)
     if (scope != null) {
         val finished = ui.unread == 0 && ui.samplePlanned > 0
         Text(
@@ -279,7 +257,7 @@ internal fun Results(
                 }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star)
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
-            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, stale, grid, edge, act)
+            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, stale, grid, edge, cell, act)
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
@@ -303,6 +281,10 @@ internal fun heldFor(ms: Long, on: Boolean, key: Any? = null): Boolean {
     }
     return on && held
 }
+
+/** The results grid's narrowest column and its gaps; [SearchPane] works the column's width out from them. */
+internal val RESULT_CELL_MIN = 110.dp
+internal val RESULT_CELL_GAP = 8.dp
 
 // Material's standard fast-effects and default-spatial springs (its MotionScheme is internal in material3 1.4).
 private val fastEffects = spring<Float>(dampingRatio = 1f, stiffness = 3800f)
@@ -343,6 +325,24 @@ private fun HitMenu(
     )
 }
 
+/** Given the filters, not the whole [SearchUi]: a keystroke brings several answers and leaves every chip as it was. */
+@Composable
+private fun KindChips(kinds: List<Kind>, chip: Kind?, onlyStarred: Boolean, wordKinds: Set<Kind>, canStar: Boolean, edge: Dp, actions: SearchActions) {
+    LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item(key = "all") {
+            KindChip("All", chip == null && !onlyStarred && wordKinds.isEmpty()) {
+                actions.onChip(null)
+                actions.onStarredOnly(false)
+                if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
+            }
+        }
+        if (canStar) item(key = "starred") { KindChip("Starred", onlyStarred) { actions.onStarredOnly(!onlyStarred) } }
+        items(kinds, key = { it.name }) { k ->
+            KindChip(Words.kindLabelPlural(k), chip == k || k in wordKinds) { actions.onChip(if (chip == k) null else k) }
+        }
+    }
+}
+
 @Composable
 private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
     FilterChip(
@@ -371,6 +371,7 @@ private fun ResultGrid(
     stale: Boolean,
     grid: LazyGridState,
     edge: Dp,
+    cell: Dp,
     act: HitActions,
 ) {
     val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
@@ -379,14 +380,14 @@ private fun ResultGrid(
     var expanded by remember(query, hits) { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (stale) 0.6f else 1f, fastEffects)
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(110.dp),
+        columns = GridCells.Adaptive(RESULT_CELL_MIN),
         state = grid,
         contentPadding = PaddingValues(start = edge, end = edge, bottom = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(RESULT_CELL_GAP),
+        verticalArrangement = Arrangement.spacedBy(RESULT_CELL_GAP),
         modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
     ) {
-        sections(strong, extents, query, titled = true, act)
+        sections(strong, extents, query, titled = true, cell, act)
         if (weak.isNotEmpty()) {
             item(key = "weak", span = { GridItemSpan(maxLineSpan) }) {
                 TextButton(
@@ -396,7 +397,7 @@ private fun ResultGrid(
                     },
                 ) { Text("Less likely matches (${weak.size})") }
             }
-            if (expanded) sections(weak, extents, query, titled = false, act)
+            if (expanded) sections(weak, extents, query, titled = false, cell, act)
         }
     }
 }
@@ -406,11 +407,11 @@ private fun ResultGrid(
  * then the pictures, then the other documents. Neither one strong document nor one strong photo buries the rest of
  * the other kind. [titled] gives each its header.
  */
-private fun LazyGridScope.sections(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, query: String?, titled: Boolean, act: HitActions) {
+private fun LazyGridScope.sections(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, query: String?, titled: Boolean, cell: Dp, act: HitActions) {
     val (recordings, others) = hits.partition { it.file.kind == Kind.AUDIO }
     val (lead, media, rest) = sectionsOf(others)
     docSection(lead, extents, query, titled, act)
-    mediaSection(media, extents, titled, act)
+    mediaSection(media, extents, titled, cell, act)
     if (lead.isEmpty()) {
         docSection(rest, extents, query, titled, act)
     } else {
@@ -446,7 +447,7 @@ private fun LazyGridScope.sectionHeader(key: String, title: String) {
     }
 }
 
-private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, titled: Boolean, act: HitActions) {
+private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, titled: Boolean, cell: Dp, act: HitActions) {
     if (hits.isEmpty()) return
     if (titled) sectionHeader("media", "Photos and videos")
     items(hits, key = { it.fileId }, contentType = { "thumb" }) { hit ->
@@ -461,6 +462,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     hit.file,
                     modifier = actions,
                     onClick = { act.open(hit) },
+                    requestSize = cell,
                     locator = hit.locator,
                     readNote = Words.extent(extents[hit.fileId]),
                     onLongClick = menu,

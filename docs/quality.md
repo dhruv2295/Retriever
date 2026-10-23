@@ -171,5 +171,6 @@ Release builds are signed with the debug key until the first store upload (see t
   transcoding and lists local processing under `dataSync`,
   support.google.com/googleplay/android-developer/answer/13392821), R8 full mode and keep rules, PendingIntent and
   exported-component security, `@Throws`, the static framework and linker flags (SQLDelight's plugin links `-lsqlite3`
-  into the Kotlin/Native test binaries; Xcode's `OTHER_LDFLAGS` does it for the app), BGTask registration, source-set
-  hygiene, and the Compose stability config (`androidApp/stability.conf`, value snapshots only).
+  into the Kotlin/Native test binaries; Xcode's `OTHER_LDFLAGS` does it for the app), BGTask registration, and
+  source-set hygiene. The Compose stability config is in place (`androidApp/stability.conf`: value snapshots and
+  read-only collections; `RecompositionTest` relies on it); add entries only if a device frame metric shows a problem.

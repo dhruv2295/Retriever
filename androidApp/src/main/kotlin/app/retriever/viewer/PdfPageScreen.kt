@@ -24,7 +24,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,10 +56,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.R
+import app.retriever.core.Retriever
 import app.retriever.core.motion.MascotMood
 import app.retriever.di.AppScope
 import app.retriever.nav.FoldersRoute
@@ -81,6 +84,7 @@ import app.retriever.nav.PdfRoute
 import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
+import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
 import kotlinx.coroutines.CoroutineScope
@@ -135,7 +139,7 @@ private sealed interface PdfState {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
+fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier, retriever: Retriever = koinInject()) {
     val context = LocalContext.current
     val appScope: CoroutineScope = koinInject(AppScope)
     val stars = koinViewModel<StarHolder>().stars
@@ -174,6 +178,8 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
         }
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (route.page - 1).coerceAtLeast(0))
+    // Before Android 15 the pages and the indexer's PDF reads share PdfRenderer's process-wide lock.
+    ScrollingEffect({ listState.isScrollInProgress }, retriever::setUiBusy)
     val current by remember { derivedStateOf { listState.firstVisibleItemIndex } }
     // The page shown full screen, if any; kept across rotation.
     var zoomed by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -317,13 +323,25 @@ internal fun PdfPageFrame(shown: ImageBitmap?, placeholder: IntSize, label: Stri
     // Motion row 25: the matched page's border starts in the tonal container and fades out once.
     var settled by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { settled = true }
-    val ring by animateColorAsState(if (settled) Color.Transparent else MaterialTheme.colorScheme.primaryContainer, tween(900), label = "matchedPulse")
+    // Read while drawing, so the fade redraws the page and does not recompose it on every frame.
+    val ring = animateColorAsState(if (settled) Color.Transparent else MaterialTheme.colorScheme.primaryContainer, tween(900), label = "matchedPulse")
     Box(
         modifier
             .fillMaxWidth()
             .aspectRatio(if (shown != null) shown.width.toFloat() / shown.height else placeholder.width.toFloat() / placeholder.height)
             .background(Color.White)
-            .then(if (matched) Modifier.border(3.dp, ring) else Modifier)
+            .then(
+                if (matched) {
+                    Modifier.drawWithContent {
+                        drawContent()
+                        // Inside the edge, as Modifier.border draws it.
+                        val stroke = 3.dp.toPx()
+                        drawRect(ring.value, Offset(stroke / 2, stroke / 2), Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .semantics { contentDescription = label + if (matched) ", where your search matched" else "" },
     ) {
         shown?.let { Image(it, contentDescription = null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize()) }

@@ -12,9 +12,11 @@ import app.retriever.core.nameMatchRanges
 import app.retriever.nav.DocRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 
@@ -38,16 +40,16 @@ sealed interface DocUi {
 class DocViewModel(handle: SavedStateHandle, private val retriever: Retriever, private val store: Store) : ViewModel() {
     val route: DocRoute = handle.toRoute()
 
-    val ui: StateFlow<DocUi> = flow {
-        emit(
-            loadDoc(route.query, route.locator) {
-                // A file opened from a list has no id yet; the index finds it by address.
-                val file = withContext(Dispatchers.IO) { if (route.fileId != 0L) store.storedById(route.fileId) else store.fileByUri(route.uri) }
-                file?.let { it.state to retriever.fileText(it.id) }
-            },
-        )
+    val ui: StateFlow<DocUi> = docUi(route.query, route.locator) {
+        // A file opened from a list has no id yet; the index finds it by address.
+        val file = withContext(Dispatchers.IO) { if (route.fileId != 0L) store.storedById(route.fileId) else store.fileByUri(route.uri) }
+        file?.let { it.state to retriever.fileText(it.id) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DocUi.Loading)
 }
+
+/** [loadDoc] off the main thread: its match scan runs over every paragraph, up to megabytes of text. */
+internal fun docUi(query: String, locator: String, read: suspend () -> Pair<FileState, List<ChunkText>>?): Flow<DocUi> =
+    flow { emit(loadDoc(query, locator, read)) }.flowOn(Dispatchers.Default)
 
 /**
  * Reads the file's state and chunks with [read] (null: no such file) and picks the paragraph to open on. A missing file

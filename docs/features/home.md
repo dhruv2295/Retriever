@@ -19,7 +19,9 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
   come, go or change, never because a file was read, and `suggestions()` follows what is read
   (`sample-quickstart.md`, Core API for the apps). Collect them only while Home shows.
 - **Stable lists.** `HomeFacts.reusing` hands back the old list instances for strips that did not change, so the
-  `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`.
+  `LazyStaggeredGrid` items they feed skip recomposition on a refresh. `HomeUi` is `@Immutable`. Home takes only
+  whether reading runs (`HomeViewModel.indexRunning`), not each file's tick, remembers its `HomeActions`, and gives
+  Starred only `hasAccess`, so a counts tick leaves the starred tiles alone.
 - **Sections draw together.** Below the status line, nothing draws until the home facts and On this day (where it can
   show) have answered (`sectionsReady`, on both platforms), so no section lands above one already shown. The
   suggestions belong to the search bar now and don't hold Home back. A failed On this day lookup counts as an answer with no memories, a failed

@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
@@ -141,11 +142,17 @@ class SearchViewModel(
         viewModelScope.launch { keys(SearchTiming.NAMES_MS).collectLatest { search(it, namesOnly = true) } }
         viewModelScope.launch { keys(SearchTiming.FULL_MS).collectLatest { search(it, namesOnly = false) } }
         // Files read since an answer found nothing may hold the match: ask the same question again. Only an empty
-        // answer, so a list being read never reshuffles.
+        // answer, so a list being read never reshuffles; and core's counts are watched only while one is on screen, not
+        // for every write of a reading run behind other screens or in the background. Reading waits while a search
+        // runs, so the count read on subscribing is the one the answer saw, and is dropped.
         viewModelScope.launch {
-            retriever.counts().map { it.byState[FileState.INDEXED] }.distinctUntilChanged().debounce(INDEXED_SETTLE_MS).collect {
-                if (_ui.value.let { ui -> ui.phase.showsEmpty(ui.question) }) retries.update { it + 1 }
-            }
+            _ui.map { it.phase.showsEmpty(it.question) }.distinctUntilChanged().flatMapLatest { empty ->
+                if (!empty) {
+                    emptyFlow()
+                } else {
+                    retriever.counts().map { it.byState[FileState.INDEXED] }.distinctUntilChanged().drop(1).debounce(INDEXED_SETTLE_MS)
+                }
+            }.collect { retries.update { it + 1 } }
         }
         viewModelScope.launch {
             launchQuery.pending.filterNotNull().collect { q ->
@@ -391,7 +398,19 @@ fun interface PhotoReader {
 /** A JPEG at most 1024 px on its longest side, decoded once here, not in composition: the chip shows it as its avatar. */
 fun photoReader(context: Context) = PhotoReader { uri, label ->
     withContext(Dispatchers.IO) { ImageBytes.jpeg(context, uri.toUri(), 1024) }?.let { jpeg ->
-        val thumb = withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.asImageBitmap() }
+        val thumb = withContext(Dispatchers.Default) { avatar(jpeg) }
         PickedPhoto(Similar(uri, label, thumb), jpeg)
     }
 }
+
+/** The avatar is 24 dp: decoded subsampled to at least [AVATAR_PX] on its short side, not the whole 1024 px (about 3 MB). */
+internal fun avatar(jpeg: ByteArray): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+    var sample = 1
+    while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_PX) sample *= 2
+    return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+}
+
+/** 24 dp on the densest screens, with room to spare. */
+private const val AVATAR_PX = 128

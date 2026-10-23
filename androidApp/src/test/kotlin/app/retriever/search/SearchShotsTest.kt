@@ -92,7 +92,7 @@ class SearchShotsTest {
     @Composable
     @NonRestartableComposable
     private fun Screen(ui: SearchUi, home: HomeUi, index: IndexState, actions: SearchActions) =
-        SearchContent(ui, home, actions) { padding, state, side, _ -> HomeBody(home, index, actions, state, padding, side) }
+        SearchContent(ui, home, actions) { padding, state, side, _ -> HomeBody(home, index.running, actions, state, padding, side) }
 
     @Composable
     @NonRestartableComposable

@@ -7,9 +7,11 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,6 +62,19 @@ class PlayerViewModelTest {
         vm.onStop()
         assertEquals(34_000L, h.get<Long>("position"))
         assertEquals(34_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(h["position"])).player.currentPosition)
+    }
+
+    /** In the background the player holds no decoders or buffers; back in front it loads again, paused at the same place. */
+    @Test fun stoppingReleasesTheMediaAndStartingLoadsItAgain() {
+        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), handle())
+        vm.player.seekTo(34_000)
+        vm.onStop()
+        assertEquals(Player.STATE_IDLE, vm.player.playbackState)
+        assertEquals(34_000L, vm.player.currentPosition)
+        vm.onStart()
+        assertNotEquals(Player.STATE_IDLE, vm.player.playbackState)
+        assertEquals(34_000L, vm.player.currentPosition)
+        assertFalse(vm.player.playWhenReady)
     }
 
     @Test fun aPlayerErrorMovesTheStateToFailed() {

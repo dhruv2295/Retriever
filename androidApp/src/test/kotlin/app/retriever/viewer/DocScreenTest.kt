@@ -10,8 +10,10 @@ import androidx.compose.ui.test.performClick
 import app.retriever.ShotTheme
 import app.retriever.core.ChunkText
 import app.retriever.core.FileState
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -34,6 +36,17 @@ class DocScreenTest {
         val ui = loadDoc("deposit", "") { read } as DocUi.Text
         assertEquals(42, ui.paragraphs.size)
         assertEquals(41, ui.matchIndex)
+    }
+
+    @Test fun theMatchesAreFoundOffTheMainThread() = runTest {
+        val main = Thread.currentThread()
+        var readOn: Thread? = null
+        val ui = docUi("deposit", "") {
+            readOn = Thread.currentThread()
+            read
+        }.first()
+        assertEquals(41, (ui as DocUi.Text).matchIndex)
+        assertNotSame(main, readOn)
     }
 
     @Test fun theHitsLocatorNarrowsTheSearch() = runTest {

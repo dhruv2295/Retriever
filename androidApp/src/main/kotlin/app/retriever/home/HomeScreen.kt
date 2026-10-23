@@ -51,7 +51,6 @@ import app.retriever.R
 import app.retriever.access.openAllFilesSettings
 import app.retriever.core.DeviceWords
 import app.retriever.core.DownloadState
-import app.retriever.core.IndexState
 import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingStatus
@@ -111,7 +110,7 @@ fun HomeScreen(
     retriever: Retriever = koinInject(),
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
-    val index by vm.indexState.collectAsStateWithLifecycle()
+    val running by vm.indexRunning.collectAsStateWithLifecycle()
     val up by upgrade.ui.collectAsStateWithLifecycle()
     val prefs by retriever.prefs.collectAsStateWithLifecycle()
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
@@ -125,8 +124,9 @@ fun HomeScreen(
         onResume()
         onPauseOrDispose {}
     }
-    HomeBody(
-        ui, index, actions, state, padding, side,
+    // Built once: a fresh HomeActions per recomposition would defeat HomeBody's skipping.
+    // Not keyed on vm: it lives as long as this screen's back-stack entry.
+    val homeActions = remember(context, requestReading) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
@@ -136,7 +136,11 @@ fun HomeScreen(
             commit = { charging -> requestReading { vm.commit(charging) } },
             decideLater = vm::decideLater,
             hideOnThisDay = vm::hideOnThisDay,
-        ),
+        )
+    }
+    HomeBody(
+        ui, running, actions, state, padding, side,
+        homeActions,
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
     )
@@ -166,7 +170,7 @@ internal fun rememberCelebrating(enabled: Boolean, celebration: Celebration): Bo
 @Composable
 internal fun HomeBody(
     ui: HomeUi,
-    index: IndexState,
+    indexRunning: Boolean,
     actions: SearchActions,
     state: LazyStaggeredGridState,
     padding: PaddingValues,
@@ -212,7 +216,7 @@ internal fun HomeBody(
         val status = homeStatus(ui, download)
         if (counts.values.sum() == 0L && ui.hasAccess) {
             // Still looking while setup runs; "nothing" only once a finished look found nothing.
-            item(key = "empty", span = FullLine) { EmptyHome(index.running || !ui.libraryChosen) }
+            item(key = "empty", span = FullLine) { EmptyHome(indexRunning || !ui.libraryChosen) }
             return@LazyVerticalStaggeredGrid
         }
         if (status != null) {
@@ -237,7 +241,8 @@ internal fun HomeBody(
         val facts = ui.home
         if (!ui.sectionsReady || facts == null) return@LazyVerticalStaggeredGrid
         if (facts.starredCount > 0 && facts.starred.isNotEmpty()) {
-            item(key = "starred", span = FullLine, contentType = "starred") { StarredSection(ui, facts, actions) }
+            val hasAccess = ui.hasAccess
+            item(key = "starred", span = FullLine, contentType = "starred") { StarredSection(hasAccess, facts, actions) }
         }
         // Pictures need the files themselves: without access they would only fail to load.
         if (ui.hasAccess && facts.recentlyAdded.isNotEmpty()) {

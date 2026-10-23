@@ -1,5 +1,6 @@
 package app.retriever.search
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import app.retriever.ShotTheme
 import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
@@ -41,6 +43,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class, qualifiers = "w411dp-h891dp-xxhdpi")
@@ -145,6 +148,7 @@ class ResultPiecesTest {
                 ThumbCell(
                     video,
                     onClick = { opened = true },
+                    requestSize = 120.dp,
                     modifier = Modifier.width(120.dp),
                     locator = "3:41",
                     onLongClick = { similar = true },
@@ -163,15 +167,24 @@ class ResultPiecesTest {
         assertEquals(true, similar)
     }
 
+    /** The photo search's chip shows its photo at 24 dp: decoded small, not at the 1024 px the search reads. */
+    @Test fun thePhotoChipsAvatarIsDecodedSmall() {
+        val jpeg = ByteArrayOutputStream().also { createBitmap(1024, 768).compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+        val avatar = avatar(jpeg)!!
+        assertEquals(256 to 192, avatar.width to avatar.height)
+    }
+
     @Test fun thumbCellPlainFileSaysOpen() {
-        rule.setContent { ShotTheme(dark = false) { ThumbCell(doc, onClick = {}, modifier = Modifier.width(120.dp)) } }
+        rule.setContent { ShotTheme(dark = false) { ThumbCell(doc, onClick = {}, requestSize = 120.dp, modifier = Modifier.width(120.dp)) } }
         val node = rule.onNodeWithContentDescription("Document, Notes.docx, ${Format.date(doc.modifiedAt)}")
         assertEquals("Open", node.fetchSemanticsNode().config[SemanticsActions.OnClick].label)
     }
 
     @Test fun thumbCellSaysWhenOnlyPartWasRead() {
         rule.setContent {
-            ShotTheme(dark = false) { ThumbCell(pdf, onClick = {}, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART)) }
+            ShotTheme(dark = false) {
+                ThumbCell(pdf, onClick = {}, requestSize = 120.dp, modifier = Modifier.width(120.dp), readNote = Words.extent(ReadExtent.FIRST_PART))
+            }
         }
         rule.onNodeWithContentDescription(
             "PDF, Quarterly report.pdf, ${Format.date(pdf.modifiedAt)}, Processed in part · only its beginning",
@@ -231,9 +244,9 @@ class ResultPiecesTest {
         rule.setContent {
             ShotTheme(dark, fontScale) {
                 Row(Modifier.padding(8.dp)) {
-                    ThumbCell(pdf, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp), locator = "p. 12")
-                    ThumbCell(video, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp), locator = "3:41")
-                    ThumbCell(doc, onClick = {}, modifier = Modifier.width(110.dp).padding(4.dp))
+                    ThumbCell(pdf, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp), locator = "p. 12")
+                    ThumbCell(video, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp), locator = "3:41")
+                    ThumbCell(doc, onClick = {}, requestSize = 102.dp, modifier = Modifier.width(110.dp).padding(4.dp))
                 }
             }
         }

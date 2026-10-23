@@ -50,10 +50,19 @@ class PlayerViewModel(context: Context, private val handle: SavedStateHandle) : 
             playWhenReady = false
         }
 
-    /** No background playback: leaving the app pauses and keeps the place. */
+    /**
+     * No background playback: leaving the app pauses and keeps the place. Stopping also gives the decoders and buffers
+     * back (Media3: free them for other apps); the item and the position stay for [onStart].
+     */
     fun onStop() {
         player.pause()
         handle[POSITION] = player.currentPosition
+        player.stop()
+    }
+
+    /** Back in front: load the item again, still paused where it was. Not after a failure, which keeps its message. */
+    fun onStart() {
+        if (player.playbackState == Player.STATE_IDLE && _ui.value == PlayerUi.Ready) player.prepare()
     }
 
     override fun onCleared() = player.release()

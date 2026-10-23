@@ -9,6 +9,9 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,20 +67,32 @@ private val WarmDark = darkColorScheme(
     outlineVariant = Color(0xFF4C4639),
 )
 
-/** The Wallpaper colours switch in Settings. Shots pass `dynamic` themselves, since they run without Koin. */
+/**
+ * The Wallpaper colours switch in Settings, and nothing else of the prefs: the scheme is a static composition local, so a
+ * new one recomposes the whole app, and prefs change on every no-match answer. Shots pass `dynamic` themselves, since
+ * they run without Koin.
+ */
 @Composable
-private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean = retriever.prefs.collectAsStateWithLifecycle().value.dynamicColor
+private fun wallpaperColorsOn(retriever: Retriever = koinInject()): Boolean {
+    val prefs = retriever.prefs.collectAsStateWithLifecycle()
+    // Derived, so the theme is told of a change to this one field only.
+    val on by remember(prefs) { derivedStateOf { prefs.value.dynamicColor } }
+    return on
+}
 
 @Composable
 fun RetrieverTheme(dark: Boolean = isSystemInDarkTheme(), dynamic: Boolean = wallpaperColorsOn(), content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val colors: ColorScheme = when {
-        dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    // A wallpaper change recreates the activity, so a remembered dynamic scheme is never stale.
+    val colors: ColorScheme = remember(dark, dynamic, context) {
+        when {
+            dynamic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
 
-        dark -> WarmDark
+            dark -> WarmDark
 
-        else -> WarmLight
+            else -> WarmLight
+        }
     }
     MaterialTheme(colorScheme = colors, content = content)
 }

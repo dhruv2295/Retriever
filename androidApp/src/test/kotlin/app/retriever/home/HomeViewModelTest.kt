@@ -8,11 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
-import app.cash.sqldelight.Query
-import app.cash.sqldelight.db.QueryResult
-import app.cash.sqldelight.db.SqlCursor
-import app.cash.sqldelight.db.SqlDriver
-import app.cash.sqldelight.db.SqlPreparedStatement
+import app.retriever.CountingDriver
 import app.retriever.access.AccessService
 import app.retriever.core.CoreDispatchers
 import app.retriever.core.HomeFacts
@@ -50,33 +46,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import kotlin.time.Duration.Companion.minutes
-
-/**
- * Counts the live-query subscriptions the store is asked for, and the reads of the oldest photo that start On this day;
- * a read whose SQL holds any of [failing] throws, as a broken database would.
- */
-private class CountingDriver(private val driver: SqlDriver) : SqlDriver by driver {
-    var subscriptions = 0
-    var memoryProbes = 0
-    var failing = emptySet<String>()
-
-    override fun <R> executeQuery(
-        identifier: Int?,
-        sql: String,
-        mapper: (SqlCursor) -> QueryResult<R>,
-        parameters: Int,
-        binders: (SqlPreparedStatement.() -> Unit)?,
-    ): QueryResult<R> {
-        if (sql.contains("MIN(COALESCE")) memoryProbes++
-        check(failing.none(sql::contains)) { "disk I/O error" }
-        return driver.executeQuery(identifier, sql, mapper, parameters, binders)
-    }
-
-    override fun addListener(vararg queryKeys: String, listener: Query.Listener) {
-        subscriptions++
-        driver.addListener(*queryKeys, listener = listener)
-    }
-}
 
 /** A real Retriever over an in-memory store, the ViewModel and the store on one test dispatcher. */
 @OptIn(ExperimentalCoroutinesApi::class)

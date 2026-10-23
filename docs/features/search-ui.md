@@ -35,14 +35,16 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   from the androidx `SearchBarSamples`, Apache-2.0). Results are a `LazyColumn`; `SearchUi.answer` counts answers to new
   questions so the list starts at its top for a new question and refreshes in place for a better answer to the same one.
   `SearchUi` is a flat state, so Home-only fields can invalidate the pane; `RecompositionTest` pins that counts, Home
-  changes and starring one file do not recompose the result tiles.
+  changes and starring one file do not recompose the result tiles, and that a keystroke does not recompose the kind
+  chips (`KindChips` takes the filters, not the whole state).
 - **iOS.** `SearchModel` (`@Observable`) keeps `phase` and the last `answer`, and derives `screen` (`idle`, `searching`,
   `failed`, `results`, `empty`) from the shared functions, so the view only switches on it. One `Task` per key runs the
   names phase (after the 20 ms floor), then the full phase, and checks `Task.isCancelled` after each await.
 - **Search by photo.** The photo is decoded once (Android `photoReader`, iOS `Photo`), becomes part of the `Question`, and
   has no names phase; its relative tail uses the same collapsed disclosure as text search.
 - **Re-ask on indexing.** If an answer is empty and files finish being read, the same question is asked again once, after
-  a 2 s settle, so a list being read never reshuffles but an empty one fills.
+  a 2 s settle, so a list being read never reshuffles but an empty one fills. Core's `counts()` is watched only while an
+  empty answer is on screen, not for every write of a reading run behind other screens or in the background.
 - **Hooks to other features.** `setUiBusy` (indexing yields while the person types or scrolls and while a search runs, see
   `indexing-pipeline.md`); `warmSearch` on first focus (opens the model and refills FTS if pending); recent searches and
   launcher shortcuts (`Shortcuts.kt`, `AppShortcuts.swift`, recorded only with "remember searches"); `Prefs.noMatchSeen`
@@ -84,8 +86,10 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `aWordsOnlyAnswerAskedAgainNeverSaysNothingFound`, `aWordsOnlyAnswerWhileTheModelOpensIsAskedAgain`,
   `anEmptyAnswerIsAskedAgainOnceFilesAreRead`, `aReplacedSearchThatFailsIsNoFailure`,
   `theNamesAnswerFirstAndTheFullOneRefreshesInPlace`, `clearingAndRetypingTheSameWordsAnswersFromNamesFirst`,
-  `noMatchesGoesQuietAfterItWasSeenEnough`, `typingHoldsReadingOffForAMoment`, `aViewModelClearedMidTypingLeavesReadingFree`.
-  Layout: `RecompositionTest.countsAndHomeChangesLeaveTheTilesAlone`, `RecompositionTest.starringOneFileRecomposesOnlyThatFile`.
+  `noMatchesGoesQuietAfterItWasSeenEnough`, `typingHoldsReadingOffForAMoment`, `aViewModelClearedMidTypingLeavesReadingFree`,
+  `theCountsAreWatchedOnlyWhileAnAnswerIsEmpty`.
+  Layout: `RecompositionTest.countsAndHomeChangesLeaveTheTilesAlone`, `RecompositionTest.starringOneFileRecomposesOnlyThatFile`,
+  `RecompositionTest.typingLeavesTheKindChipsAlone`.
 - iOS, `iosApp/RetrieverTests/SearchModelTests.swift`: `testANewQueryIsSearchingNeverEmpty`,
   `testAnEmptyAnswerToAnOlderQuestionIsSearching`, `testARetryOfTheSameQuestionKeepsItsEmptyAnswer`,
   `testAFailureBelongsToItsQuestion`, `testResultsGoStaleWhenTheQuestionChanges`, `testNothingAnsweredIsStaleOnceActive`,

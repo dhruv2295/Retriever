@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.retriever.access.AccessService
 import app.retriever.core.HomeFacts
-import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
@@ -172,7 +171,11 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         }
     }
     val ui: StateFlow<HomeUi> = merge(_ui, library).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), _ui.value)
-    val indexState: StateFlow<IndexState> = retriever.state
+
+    /** Whether reading runs, not each file's tick of [Retriever.state]: Home uses nothing else of it. */
+    val indexRunning: StateFlow<Boolean> = retriever.state.map {
+        it.running
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), retriever.state.value.running)
 
     init {
         viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
