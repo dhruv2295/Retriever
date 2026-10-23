@@ -123,10 +123,12 @@ class NameIndex private constructor(
             mark(i, if (tokens[i].length == q.length) MatchClass.EXACT else MatchClass.PREFIX)
             i++
         }
+        // A CJK word inside a run is a word, as the keyword tables' pieces treat it.
+        val inner = if (hasCjk(q)) MatchClass.PREFIX else MatchClass.SUBSTRING
         if (q.length >= 3) {
-            for (t in withAllGrams(q)) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, MatchClass.SUBSTRING)
+            for (t in withAllGrams(q)) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, inner)
         } else if (q.length == 2 && hasCjk(q)) {
-            for (t in cjk) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, MatchClass.SUBSTRING)
+            for (t in cjk) if (!tokens[t].startsWith(q) && tokens[t].contains(q)) mark(t, inner)
         }
         val edits = if (q.length >= 6) {
             2
