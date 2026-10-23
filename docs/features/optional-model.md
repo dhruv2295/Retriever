@@ -48,7 +48,7 @@ production photo sizes on a host. Apple M4 Max, 16 existing JPEG fixtures, one f
 
 First fixture: decode 38.1 ms, OCR 56.0 ms, classification 17.4 ms. This includes the first requests in this process,
 not a guarantee of cold OS caches. Photo OCR targets 1080 px short / 1600 px long; Android's thumbnail fallback requests 1600 px square.
-Classification uses a 512 px input. Screenshot OCR retains its existing 4096 px long-side cap; on Android a taller screenshot is read in strips (`extraction.md`).
+Classification uses a 512 px input on Android and the OCR-size decode on iOS. Screenshot OCR retains its existing 4096 px long-side cap; on Android a taller screenshot is read in strips (`extraction.md`).
 ML Kit's existing `readScripts` stops on an empty reading. Both classifiers use confidence >= 0.7.
 
 Android planning estimate, not measured: roughly 50–250 ms warm OCR plus 10–50 ms labeling per ordinary photo;
