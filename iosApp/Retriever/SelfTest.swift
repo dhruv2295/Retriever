@@ -133,6 +133,7 @@
             let next = try await indexAll(s).next
             let snap = await snapshot(s.retriever)
             let byKind = snap.counts.byKind.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
+            let indexed = snap.counts.byKind.values.reduce(0) { $0 + $1.intValue }
             let byState = snap.counts.byState.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")
             check("(e) indexed", next == .done, "next \(next.name); by kind \(byKind); by state \(byState)")
 
@@ -170,8 +171,8 @@
             check(
                 "(g) no match \"kids swimming in a pool\"",
                 none.vectorLane && !none.hits.isEmpty
-                    && (RankingKt.RELEVANCE_RULE_ENABLED || none.strongCount >= min(3, none.hits.count)),
-                "strong \(none.strongCount) of \(none.hits.count) hits; top \(top(none))")
+                    && (RankingKt.RELEVANCE_RULE_ENABLED || (none.hits.count == min(20, indexed) && none.strongCount >= min(3, none.hits.count))),
+                "strong \(none.strongCount) of \(none.hits.count) hits (\(indexed) indexed); top \(top(none))")
 
             // (h) Largest first. Photos carry no byte size on iOS, so only the order is checked.
             let largest = try await s.retriever.files(kind: nil, folder: nil, sort: .largest, limit: 100, offset: 0)
