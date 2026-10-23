@@ -44,8 +44,10 @@ check_groups_in_notices() {
   return $missing
 }
 
+# The Android release graph and the Kotlin libraries linked into the iOS framework (both iOS targets share one graph).
 release_groups() {
   "$ROOT/gradlew" -q -p "$ROOT" :androidApp:dependencies --configuration releaseRuntimeClasspath \
+    :core:dependencies --configuration iosArm64CompileKlibraries \
     | sed -nE 's/^[ |+\\-]*([A-Za-z0-9_.-]+):[A-Za-z0-9_.-]+:.*/\1/p' | sort -u
 }
 
