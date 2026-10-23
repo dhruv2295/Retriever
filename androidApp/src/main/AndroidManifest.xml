@@ -61,10 +61,11 @@
         <receiver
             android:name=".indexing.PauseReceiver"
             android:exported="false" />
-        <!-- Exported for the downloads provider. Any sender only triggers a run that reads the real download state, so nothing needs guarding. -->
+        <!-- Exported for the downloads provider. Only it holds this signature permission, so only it can send this. -->
         <receiver
             android:name=".model.DownloadDoneReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.SEND_DOWNLOAD_COMPLETED_INTENTS">
             <intent-filter>
                 <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
             </intent-filter>
