@@ -81,8 +81,9 @@ clears the vectors and queues only what needs one again when the stored signatur
 ## Dispatchers and scopes
 
 - `CoreDispatchers` (`core/CoreDispatchers.kt`) holds core's injectable dispatchers: `default` for CPU work (the vector
-  scan, the model's open and search), `io` for blocking database and file reads (`Dispatchers.IO`), and `indexing` and
-  `readAhead` for the batch (below). `Retriever` runs its blocking work on `io` through `io {}` and its shared reads
+  scan, the model's open and search), `io` for blocking database and file reads (`Dispatchers.IO`), `indexing` and
+  `readAhead` for the batch (below), and `watchdog` for the batch's once-a-second policy check (`Dispatchers.IO`, on the
+  real clock even in tests unless one passes its own). `Retriever` runs its blocking work on `io` through `io {}` and its shared reads
   (`watched`), which read `Store.countsNow` again each time the `Store.countChanges` query flow emits. Tests pass one
   test dispatcher, which `io` follows. The facade's `background` scope (warm-ups, the plan's sync tail, the batch watchdog) logs any failure no
   launch caught instead of crashing.

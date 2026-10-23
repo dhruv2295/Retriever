@@ -22,7 +22,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -322,8 +321,8 @@ class Retriever(
     )
 
     /**
-     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught (the
-     * batch's watchdog reads the device and the store) is logged: uncaught, it would end the process.
+     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught is
+     * logged: uncaught, it would end the process.
      */
     private val background = CoroutineScope(SupervisorJob() + dispatchers.default + CoroutineExceptionHandler { _, e -> log("Background work failed", e) })
 
@@ -707,11 +706,19 @@ class Retriever(
             if (store.sampleIds() != null && !sampleSession()) return end(StopReason.MANUAL)
             // Cancels cooperative extraction too, including a long PDF before its first embedding chunk.
             val owner = currentCoroutineContext().job
-            // On the real clock, not [dispatchers]: a test's virtual time would spin this loop while the batch waits.
-            watchdog = background.launch(Dispatchers.Default) {
+            watchdog = background.launch(dispatchers.watchdog) {
                 while (isActive) {
                     delay(1_000)
-                    if (policyStop() != null) {
+                    // A failed check (a dead binder, a store error) skips one second, not the rest of the batch.
+                    val stop = try {
+                        policyStop()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log("The batch's policy check failed", e)
+                        null
+                    }
+                    if (stop != null) {
                         owner.cancel()
                         break
                     }
