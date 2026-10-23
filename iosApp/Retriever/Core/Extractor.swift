@@ -62,6 +62,10 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         text.automaticallyDetectsLanguage = true
         let classify = VNClassifyImageRequest()
         let requests = labels ? [text, classify] : [text]
+        let id = track {
+            for request in requests { request.cancel() }
+        }
+        defer { untrack(id) }
         // Each request keeps its own results, so one that fails doesn't take the other's with it.
         try? VNImageRequestHandler(cgImage: cg, orientation: CGImagePropertyOrientation(image.imageOrientation)).perform(requests)
         let found = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
@@ -145,6 +149,11 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
                 }
                 done.signal()
             }
+            let tracked = track {
+                PHImageManager.default().cancelImageRequest(id)
+                done.signal()
+            }
+            defer { untrack(tracked) }
             guard done.wait(timeout: .now() + 20) == .success else {
                 PHImageManager.default().cancelImageRequest(id)
                 return nil
@@ -340,6 +349,32 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     /// threads (one per core) would hold up every other task in the app.
     static func blocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { done in DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) } }
+    }
+
+    /// Background time is up: the PhotoKit waits and Vision passes running now end at once, with nothing, so the
+    /// cancelled batch gets to its end without them.
+    func cancelInFlight() {
+        let cancels = inFlightLock.withLock {
+            defer { inFlight = [:] }
+            return Array(inFlight.values)
+        }
+        for cancel in cancels { cancel() }
+    }
+
+    private let inFlightLock = NSLock()
+    private var inFlight: [Int: () -> Void] = [:]
+    private var nextInFlight = 0
+
+    private func track(_ cancel: @escaping () -> Void) -> Int {
+        inFlightLock.withLock {
+            nextInFlight += 1
+            inFlight[nextInFlight] = cancel
+            return nextInFlight
+        }
+    }
+
+    private func untrack(_ id: Int) {
+        _ = inFlightLock.withLock { inFlight.removeValue(forKey: id) }
     }
 
     private func asset(_ uri: String) -> PHAsset? {

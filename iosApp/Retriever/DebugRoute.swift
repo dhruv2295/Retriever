@@ -1,25 +1,34 @@
 #if DEBUG
     @preconcurrency import RetrieverCore
     import SwiftUI
+    import os
 
     /// `-bgdrill <seconds>` (0: when iOS's background time runs out): the simulator has no BGTaskScheduler (submit
     /// fails with "not available on this platform" and lldb's `_simulateLaunchForTaskWithIdentifier:` never
     /// returns), so once the app is in the background this runs the task's own handler pieces: runBatch, then
-    /// expire() after that long.
+    /// expire() after that long. The BGDRILL line gives the time from expiry to completion.
     enum BackgroundDrill {
         static func armIfAsked() {
             let args = CommandLine.arguments
             guard let i = args.firstIndex(of: "-bgdrill"), i + 1 < args.count, let expireAfter = Double(args[i + 1]) else { return }
             _ = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated {
-                    let hold = UIApplication.shared.beginBackgroundTask(withName: "bgdrill") { IndexTask.expire() }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        IndexTask.runBatch { ok in
-                            print("BGDRILL setTaskCompleted(success: \(ok))")
-                            DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(hold) }
-                        }
+                    let hold = OSAllocatedUnfairLock(initialState: UIBackgroundTaskIdentifier.invalid)
+                    let expiredAt = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil)
+                    let complete = IndexTask.Completion { ok in
+                        let after = expiredAt.withLock { $0 }.map { " \(ContinuousClock.now - $0) after expiry" } ?? ""
+                        print("BGDRILL setTaskCompleted(success: \(ok))\(after)")
+                        let id = hold.withLock { $0 }
+                        DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(id) }
                     }
-                    if expireAfter > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 2 + expireAfter) { IndexTask.expire() } }
+                    let expire: @Sendable () -> Void = {
+                        expiredAt.withLock { $0 = $0 ?? .now }
+                        IndexTask.expire(complete)
+                    }
+                    let id = UIApplication.shared.beginBackgroundTask(withName: "bgdrill", expirationHandler: expire)
+                    hold.withLock { $0 = id }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { IndexTask.runBatch { complete($0) } }
+                    if expireAfter > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 2 + expireAfter, execute: expire) }
                 }
             }
         }

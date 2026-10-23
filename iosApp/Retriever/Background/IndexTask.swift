@@ -21,8 +21,9 @@ enum IndexTask {
     static func register(services: AppServices) {
         self.services = services
         BGTaskScheduler.shared.register(forTaskWithIdentifier: id, using: nil) { task in
-            task.expirationHandler = expire
-            runBatch { task.setTaskCompleted(success: $0) }
+            let complete = Completion { task.setTaskCompleted(success: $0) }
+            task.expirationHandler = { expire(complete) }
+            runBatch { complete($0) }
         }
         if #available(iOS 26.0, *) {
             let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: continuedId, using: nil) { task in
@@ -82,12 +83,39 @@ enum IndexTask {
         try await submit(request)
     }
 
-    /// The expiration handler: Swift cancellation doesn't reach the Kotlin coroutine, so this stops the batch
-    /// within one file, and runBatch then completes the task.
-    static func expire() {
+    /// The expiration handler: Swift cancellation doesn't reach the Kotlin coroutine, so this stops the batch within
+    /// one file and ends the native reads in flight, and runBatch then completes the task. A read that outlasts that
+    /// (an iCloud fetch, a long OCR) can't hold the task past its time: `complete` reports failure after a short grace,
+    /// and the batch's own completion is then a no-op.
+    static func expire(_ complete: Completion? = nil) {
         log.info("background time is up; stopping the batch")
         expired.withLock { $0 = true }
         services?.retriever.cancelBatch()
+        services?.extractor.cancelInFlight()
+        guard let complete else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(2)) {
+            if complete(false) { log.notice("background task completed after the grace period") }
+        }
+    }
+
+    /// Reports a task's end once: the batch's own end, or `expire`'s grace timer, whichever comes first.
+    final class Completion: Sendable {
+        private let complete: OSAllocatedUnfairLock<(@Sendable (Bool) -> Void)?>
+
+        init(_ complete: @escaping @Sendable (Bool) -> Void) {
+            self.complete = OSAllocatedUnfairLock(initialState: complete)
+        }
+
+        /// False when the task was already completed.
+        @discardableResult
+        func callAsFunction(_ success: Bool) -> Bool {
+            let once = complete.withLock { c in
+                defer { c = nil }
+                return c
+            }
+            once?(success)
+            return once != nil
+        }
     }
 
     /// Set by `expire()`: cancelBatch() reaches only a batch already running, so one about to start must not.
@@ -147,8 +175,9 @@ enum IndexTask {
         let retriever = services.retriever
         let monitor = services.monitor
         expired.withLock { $0 = false }
+        let complete = Completion { task.setTaskCompleted(success: $0) }
         task.expirationHandler = {
-            expire()
+            expire(complete)
             Task { try? await services.retriever.endReadNowSession() }
         }
         task.progress.totalUnitCount = 1
@@ -180,7 +209,7 @@ enum IndexTask {
             // Stopped early (too hot, or out of time) with files still waiting: not a finished read.
             let ok = !expired.withLock { $0 } && pending.withLock { $0 } == 0
             if !monitor.active { try? await retriever.release() }
-            task.setTaskCompleted(success: ok)
+            complete(ok)
             log.info("continued reading ended: \(next.name, privacy: .public), success \(ok, privacy: .public)")
             DispatchQueue.main.async { NotificationCenter.default.post(name: ended, object: continuedId) }
         }
