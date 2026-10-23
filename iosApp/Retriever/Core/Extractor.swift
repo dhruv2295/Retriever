@@ -9,9 +9,9 @@ import Vision
 import ZIPFoundation
 import os
 
-/// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from background threads, so the
-/// blocking waits here are fine. Every failure is nil (or -1 / empty), never a throw. Unchecked Sendable: each
-/// mutable field sits behind its own lock.
+/// Reads files for the Kotlin IosExtractor and content hasher. Kotlin calls from its own threads, so the blocking
+/// waits here are fine there; Swift code calls them through `blocking`, or uses the async `videoFrame`. Every failure
+/// is nil (or -1 / empty), never a throw. Unchecked Sendable: each mutable field sits behind its own lock.
 final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private let folders: FolderSource
     private static let ocrSide: CGFloat = 1600
@@ -228,6 +228,31 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         }
     }
 
+    /// For Swift's own callers (thumbnails): async all the way, so a grid of video cells never blocks Swift's threads.
+    @concurrent func videoFrame(uri: String, ms: Int64, maxSide: CGFloat) async -> UIImage? {
+        let video: AVAsset?
+        if let asset = asset(uri) {
+            let manager = PHImageManager.default()
+            let found: Box<AVAsset>? = await awaitPhotoRequest(
+                cancel: { manager.cancelImageRequest($0) },
+                start: { done in
+                    let options = PHVideoRequestOptions()
+                    options.isNetworkAccessAllowed = false
+                    options.deliveryMode = .highQualityFormat
+                    return manager.requestAVAsset(forVideo: asset, options: options) { @Sendable av, _, _ in
+                        let box = Box<AVAsset>()
+                        box.value = av
+                        done(box)
+                    }
+                })
+            video = found?.value
+        } else {
+            video = folders.resolve(uri).map { AVURLAsset(url: $0) }
+        }
+        guard let video, let frame = try? await Self.frame(video, ms: ms, maxSide: maxSide) else { return nil }
+        return UIImage(cgImage: frame)
+    }
+
     /// The last video read, so its moments load the asset once rather than once each.
     private let videoLock = NSLock()
     private var lastVideo: (uri: String, asset: AVAsset)?
@@ -310,6 +335,12 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private struct Capped: Error {}
 
     // MARK: Helpers
+
+    /// Runs one of the blocking calls above for Swift code, on a GCD thread: a wait on one of Swift's cooperative
+    /// threads (one per core) would hold up every other task in the app.
+    static func blocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { done in DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) } }
+    }
 
     private func asset(_ uri: String) -> PHAsset? {
         guard uri.hasPrefix("ph://") else { return nil }

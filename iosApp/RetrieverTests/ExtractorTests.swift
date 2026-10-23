@@ -49,4 +49,24 @@ final class ExtractorTests: XCTestCase {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         XCTAssertEqual(properties?[kCGImagePropertyOrientation] as? Int ?? 1, 1)
     }
+
+    /// Swift's callers of the blocking reads wait on GCD, not on Swift's cooperative threads (one per core): with
+    /// three times as many reads stuck, other tasks still run.
+    func testBlockingReadsLeaveSwiftsThreadsFree() async {
+        let gate = DispatchSemaphore(value: 0)
+        let stuck = 3 * ProcessInfo.processInfo.activeProcessorCount
+        let reads = (0..<stuck).map { _ in
+            Task.detached { await FileExtractor.blocking { gate.wait(timeout: .now() + 10) == .success } }
+        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let other = await Task.detached { 42 }.value
+        XCTAssertEqual(other, 42)
+        XCTAssertLessThan(clock.now - start, .seconds(2))
+        for _ in 0..<stuck { gate.signal() }
+        for read in reads {
+            let finished = await read.value
+            XCTAssertTrue(finished)
+        }
+    }
 }

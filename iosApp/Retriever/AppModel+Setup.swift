@@ -225,7 +225,7 @@ extension AppModel {
         tune = .running
         tuneLeft = false
         do {
-            let images = await Task.detached { Self.calibrationImages(services) }.value
+            let images = await FileExtractor.blocking { Self.calibrationImages(services) }
             let result = try await services.retriever.calibrate(samples: RetrieverIosKt.samples(images: images, texts: []), tuneAgain: tuningAgain)
             let imageMs = result.backends.first { $0.backend == result.chosen }?.imageMs?.doubleValue
             tune = .done(Copy.tuneSummary(result.chosen, imageMs: imageMs))
