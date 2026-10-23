@@ -202,6 +202,15 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(continued)
     }
 
+    /// Hello's title and download note are right on its first frame, before any snapshot.
+    func testHelloKnowsTheModelBeforeTheFirstSnapshot() {
+        let services = temporaryServices()
+        let model = AppModel(services: services)
+        XCTAssertNil(model.snap, "no snapshot yet")
+        XCTAssertEqual(model.textOnly, services.retriever.textOnly)
+        XCTAssertEqual(model.downloadOnGetStarted, !services.retriever.textOnly, "a fresh install has no model")
+    }
+
     /// Get started downloads search by description only on an iPhone that runs it and lacks it.
     func testGetStartedDownloadsOnlyWhenTheModelRunsAndIsMissing() {
         for (fixture, downloads) in [(AppFixture.firstRun, true), (.textOnly(ramGb: 3), false), (.caughtUp, false)] {

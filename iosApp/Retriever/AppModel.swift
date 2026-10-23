@@ -255,6 +255,9 @@ final class AppModel {
         fixtureDownload = (.idle, 0)
         folders = Self.pickedFolders(services)
         let textOnly = services.retriever.textOnly
+        // Known now, not at the first snapshot: Hello's title and download note read them on its first frame.
+        self.textOnly = textOnly
+        modelMissing = (services.retriever.modelMissing.value as? Bool) ?? !textOnly
         let ramGb = services.retriever.probe.ramGb
         observation = services.retriever.observeAll { @Sendable [weak self] snapshot in
             let snap = Snap(snapshot, textOnly: textOnly, ramGb: ramGb)
