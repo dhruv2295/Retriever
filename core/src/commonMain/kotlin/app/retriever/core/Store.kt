@@ -242,8 +242,17 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** Every known file by URI. */
     fun knownFiles(): Map<String, SourceFile> = HashMap<String, SourceFile>().also { map -> eachFile { map[it.file.uri] = it.file } }
 
+    /** Every known file's [fingerprint] by URI: what a full scan diffs against, without keeping a copy of each row. */
+    internal fun knownFingerprints(): HashMap<String, Long> = HashMap<String, Long>().also { map -> eachFile { map[it.file.uri] = it.file.fingerprint() } }
+
     /** Every known URI, without building a [SourceFile] per row. */
     fun knownUris(): Set<String> = HashSet<String>().also { set -> eachUri { set += it } }
+
+    /** The known URIs [keep] lets through; only those are held. */
+    internal fun knownUris(keep: (String) -> Boolean): List<String> = buildList { eachUri { if (keep(it)) add(it) } }
+
+    /** URIs of the files in [folder] and the folders below it. */
+    internal fun urisInFolder(folder: String): List<String> = q.urisInFolder(folder).executeAsList()
 
     private inline fun eachFile(each: (StoredFile) -> Unit) = paged({ after -> q.filesAfter(after, PAGE_ROWS, ::storedFile).executeAsList() }, { it.id }, each)
 

@@ -141,6 +141,11 @@ SELECT * FROM files WHERE id > ? ORDER BY id LIMIT ?;
 urisAfter:
 SELECT id, uri FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
+-- The files in :folder and below it. The range is the BINARY-ordered set of strings that start with folder + '/' ('0'
+-- follows '/'), so files_by_folder answers it exactly, where LIKE would fold case and read '_' and '%' as wildcards.
+urisInFolder:
+SELECT uri FROM files WHERE folder = :folder OR (folder >= :folder || '/' AND folder < :folder || '0');
+
 fileCount:
 SELECT COUNT(*) FROM files;
 

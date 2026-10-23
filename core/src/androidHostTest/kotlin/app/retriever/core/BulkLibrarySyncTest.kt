@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import app.cash.sqldelight.Transacter
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
@@ -15,6 +16,7 @@ import kotlin.test.assertTrue
 class BulkLibrarySyncTest {
     private val sql = mutableListOf<String>()
     private var statements = 0
+    private var transactions = 0
     private val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
     private val spy = object : SqlDriver by raw {
         override fun <R> executeQuery(
@@ -30,6 +32,11 @@ class BulkLibrarySyncTest {
 
         override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> =
             raw.execute(identifier, sql, parameters, binders).also { statements++ }
+
+        override fun newTransaction(): QueryResult<Transacter.Transaction> {
+            if (raw.currentTransaction() == null) transactions++
+            return raw.newTransaction()
+        }
     }
     private val store = Store(spy).also { it.resetForModel(SIG) }
     private val source = FakeSource()
@@ -93,5 +100,61 @@ class BulkLibrarySyncTest {
         assertEquals(1, sql.count { "files.uri, files.name" in it && "FROM files WHERE uri IN" in it }, "bulk lookups: $sql")
         assertTrue(sql.none { it.trimEnd().endsWith("FROM files") }, "full read: $sql")
         assertTrue(sql.none { "files.uri, files.name" in it && "FROM files WHERE uri = ?" in it }, "point query: $sql")
+    }
+
+    /** Every column SourceFile compares is in the scan's diff, so a change to any one of them reaches the store. */
+    @Test
+    fun aFullScanNoticesAChangeToAnyStoredColumn() {
+        val file = testFile("a.txt", folder = "Docs", takenAt = 5L)
+        full(listOf(file))
+        val changes = listOf(
+            file.copy(name = "b.txt"),
+            file.copy(folder = "Docs/Old"),
+            file.copy(mime = "text/markdown"),
+            file.copy(kind = Kind.PDF),
+            file.copy(size = 101L),
+            file.copy(modifiedAt = 2L),
+            file.copy(takenAt = 6L),
+            file.copy(takenAt = null),
+        )
+        for (changed in changes) {
+            assertEquals(SyncResult(0, 1, 0, true), full(listOf(changed)), "$changed")
+            full(listOf(file))
+        }
+    }
+
+    /** A folder's own files and its subfolders' go; a sibling sharing the prefix, another case, or SQL wildcards stay. */
+    @Test
+    fun droppingAnExcludedFolderMatchesItsPathExactly() = runBlocking {
+        val gone = listOf(
+            testFile("zebra.jpg", folder = "DCIM/Camera_1"),
+            testFile("edit.jpg", folder = "DCIM/Camera_1/Edits"),
+            testFile("pct.jpg", folder = "100%/x"),
+        )
+        val kept = listOf(
+            testFile("wild.jpg", folder = "DCIM/CameraX1/Edits"),
+            testFile("case.jpg", folder = "dcim/camera_1"),
+            testFile("ten.jpg", folder = "DCIM/Camera_10"),
+            testFile("dot.jpg", folder = "DCIM/Camera_1.old"),
+            testFile("parent.jpg", folder = "DCIM"),
+            testFile("thousand.jpg", folder = "1000/x"),
+        )
+        full(gone + kept)
+        sync.loadNames()
+
+        assertEquals(gone.size, sync.dropExcluded(Prefs(excludedFolders = setOf("DCIM/Camera_1", "100%"))))
+        assertEquals(kept.map { it.uri }.toSet(), store.knownUris())
+        assertTrue(sync.names!!.search("zebra").isEmpty(), "the name index lost the removed files too")
+    }
+
+    /** A library-wide removal lets other writers in between parts, as the upserts do. */
+    @Test
+    fun aLargeRemovalCommitsInParts() {
+        val files = (1..2_500).map { testFile("f$it.txt") }
+        full(files)
+        transactions = 0
+        assertEquals(SyncResult(0, 0, 2_500, true), full(emptyList()))
+        assertTrue(transactions >= 3, "$transactions transactions")
+        assertTrue(store.knownUris().isEmpty())
     }
 }

@@ -50,30 +50,34 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
             prefs.excludedFolders != scannedExcludes() || store.meta(RULES) != source.rulesVersion.toString()
 
         val changes = source.changes(if (wantFull) null else token)
-        // A full scan compares every file; an incremental one looks up only what changed, in one bulk read.
-        val known = if (changes.isFullScan) {
-            store.knownFiles()
-        } else {
-            store.filesByUris(changes.upserted.map { it.uri }).mapValues { it.value.file }
-        }
         // Only files this scan could see may be removed: an unmounted volume's files wait for it to come back.
-        val knownInScope by lazy {
-            (if (changes.isFullScan) known.keys else store.knownUris())
-                .filterTo(HashSet()) { uri -> changes.scope?.any { uri.startsWith(it) } ?: true }
-        }
+        val inScope = { uri: String -> changes.scope?.any { uri.startsWith(it) } ?: true }
         // Sample mode never trims here: it only limits what IndexEngine reads (Store.pending), so nothing read is lost.
         val keep = changes.upserted.filter { !prefs.excludes(it.folder) }
-        // SourceFile mirrors the stored columns, so equality is the change test: kind, mime and takenAt count too.
-        val touched = keep.filter { known[it.uri] != it }
-        val added = touched.count { it.uri !in known }
-
+        val touched = ArrayList<SourceFile>()
+        var added = 0
         val removed = if (changes.isFullScan) {
-            knownInScope - keep.map { it.uri }.toSet() - changes.present.orEmpty()
+            // A full scan compares every file against a fingerprint of its stored row, not a second copy of the library.
+            // Each file the scan keeps leaves the map; what is left is gone, or excluded now.
+            val known = store.knownFingerprints()
+            for (f in keep) {
+                val stored = known.remove(f.uri)
+                if (stored == null) added++
+                if (stored != f.fingerprint()) touched += f
+            }
+            val present = changes.present.orEmpty()
+            known.keys.filter { inScope(it) && it !in present }
         } else {
-            changes.removed.toSet() +
-                changes.upserted.filter { it.uri in known && prefs.excludes(it.folder) }.map { it.uri } +
-                changes.present?.let { knownInScope - it }.orEmpty()
-        }.toList()
+            // An incremental one looks up only what changed, in one bulk read. SourceFile mirrors the stored columns, so
+            // equality is the change test: kind, mime and takenAt count too.
+            val known = store.filesByUris(changes.upserted.map { it.uri }).mapValues { it.value.file }
+            keep.filterTo(touched) { known[it.uri] != it }
+            added = touched.count { it.uri !in known }
+            val excluded = changes.upserted.filter { it.uri in known && prefs.excludes(it.folder) }.map { it.uri }
+            // Read a page at a time, so only the vanished URIs are held beside the source's.
+            val vanished = changes.present?.let { present -> store.knownUris { inScope(it) && it !in present } }.orEmpty()
+            (changes.removed.toSet() + excluded + vanished).toList()
+        }
 
         if (changes.isFullScan) first?.invoke(keep)
         val excludedMeanwhile = namesLock.withLock {
@@ -120,7 +124,7 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
     /** Removes the files in folders [prefs] excludes at once, with no scan, so it works while paused. Returns how many. */
     suspend fun dropExcluded(prefs: Prefs): Int {
         val gone = namesLock.withLock {
-            val uris = store.knownFiles().values.filter { prefs.excludes(it.folder) }.map { it.uri }
+            val uris = prefs.excludedFolders.flatMap(store::urisInFolder).distinct()
             // Not inside `names?.update(...)`: a safe call skips its arguments, so nothing was removed before names loaded.
             val ids = removeLocked(uris)
             names = names?.update(ids, emptyList())
@@ -138,7 +142,8 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
     private fun removeLocked(uris: List<String>, needIds: Boolean = true): List<Long> {
         if (uris.isEmpty()) return emptyList()
         val ids = if (needIds && names != null) store.fileIds(uris) else emptyList()
-        store.removeFiles(uris)
+        // In parts, as the upserts are, so a reader's write waits for one part instead of the whole removal.
+        uris.chunked(WRITE_ROWS).forEach(store::removeFiles)
         return ids
     }
 
@@ -160,4 +165,21 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         /** Rows per write transaction of a sync: SQLite's own transactions, sized so a reader's write waits for one. */
         const val WRITE_ROWS = 1_000
     }
+}
+
+/**
+ * The columns [SourceFile] compares besides its uri, as one 64-bit FNV-1a hash over UTF-16 units and whole longs. Each
+ * step is a bijection, so files that differ in one field's value at one place never collide; any other pair does with
+ * odds of about 2^-64.
+ */
+internal fun SourceFile.fingerprint(): Long {
+    // FNV-1a's 64-bit offset basis (0xcbf29ce484222325) and prime.
+    val prime = 0x100000001b3L
+    var h = -0x340d631b7bdddcdbL
+    for (s in arrayOf(name, folder, mime, kind.name)) {
+        h = (h xor s.length.toLong()) * prime
+        for (c in s) h = (h xor c.code.toLong()) * prime
+    }
+    for (v in longArrayOf(size, modifiedAt, if (takenAt == null) 0L else 1L, takenAt ?: 0L)) h = (h xor v) * prime
+    return h
 }
