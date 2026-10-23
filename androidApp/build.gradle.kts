@@ -98,8 +98,12 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     compilerOptions.allWarningsAsErrors.set(true)
 }
 
-// Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning.
-tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }
+// Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning. The suite runs in up to 4 JVMs
+// (capped for Robolectric's per-fork memory); each fork has its own Koin and WorkManager singletons.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+}
 
 // About shows the repo's notices file; it is copied into the assets at build time, so the repo holds one copy.
 abstract class CopyNotices : DefaultTask() {
