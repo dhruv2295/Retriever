@@ -20,19 +20,16 @@ object ExitReasons {
         return problems(am.getHistoricalProcessExitReasons(null, 0, 0).map { Raw(it.reason, it.timestamp, it.description) })
     }
 
-    /** The previous process died of a native crash, a signal or the memory limit: what a model open killing the process looks like. */
-    fun lastExitCrashed(context: Context): Boolean {
-        val last = context.getSystemService(ActivityManager::class.java)?.getHistoricalProcessExitReasons(null, 0, 1)?.firstOrNull()
-        return crashed(last?.reason, last?.description)
-    }
+    /** The previous process died of a native crash or a signal: what a model open killing the process looks like. */
+    fun lastExitCrashed(context: Context): Boolean =
+        crashed(context.getSystemService(ActivityManager::class.java)?.getHistoricalProcessExitReasons(null, 0, 1)?.firstOrNull()?.reason)
 
     /**
-     * A Java crash, the low-memory killer and the person's own swipe are not the model's doing. Android 17's per-app memory
-     * limit is: it reports REASON_OTHER with "MemoryLimiter" in the description, and it repeats on every open.
+     * A Java crash, the low-memory killer and the person's own swipe are not the model's doing. Nor is Android 17's per-app
+     * memory limit (REASON_OTHER, "MemoryLimiter"): what else is resident shares the blame, and counting it would demote the
+     * GPU or the chip's build for good (ModelHost.checkUnfinishedOpens). It is still listed, as "Memory limit".
      */
-    internal fun crashed(reason: Int?, description: String?): Boolean = reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
-        reason == ApplicationExitInfo.REASON_SIGNALED ||
-        memoryLimited(reason, description)
+    internal fun crashed(reason: Int?): Boolean = reason == ApplicationExitInfo.REASON_CRASH_NATIVE || reason == ApplicationExitInfo.REASON_SIGNALED
 
     private fun memoryLimited(reason: Int?, description: String?) = reason == ApplicationExitInfo.REASON_OTHER && description?.contains(MEMORY_LIMITER) == true
 

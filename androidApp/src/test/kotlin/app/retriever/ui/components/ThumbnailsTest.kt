@@ -93,11 +93,12 @@ class ThumbnailsTest {
         assertNotNull(Thumbnails.cached(app, photo(), 256))
     }
 
-    /** Hidden, the app may go on reading in the background: the pictures make room for it. */
-    @Test fun hidingTheUiEmptiesTheCache() = runBlocking {
+    /** A brief hide keeps the pictures for the way back; once the hidden app is cached they make room for the indexer. */
+    @Test fun onlyACachedAppEmptiesTheCache() = runBlocking {
         assertNotNull(Thumbnails.load(app, photo(), 256, "", Dispatchers.IO) { createBitmap(4, 4) })
-        assertNotNull(Thumbnails.cached(app, photo(), 256))
         app.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)
+        assertNotNull(Thumbnails.cached(app, photo(), 256))
+        app.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND)
         assertNull(Thumbnails.cached(app, photo(), 256))
     }
 }

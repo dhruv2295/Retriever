@@ -5,6 +5,9 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -36,6 +39,14 @@ internal fun Throwable.isDiskFull(): Boolean = generateSequence(this) { it.cause
 }
 
 private val DISK_FULL_SIGNS = listOf("SQLITE_FULL", "database or disk is full", "ENOSPC", "No space left on device")
+
+/**
+ * Attempts a full disk kept from being given back (the give-back is a write too), owed to the next batch, which returns
+ * them before its first file: a file is never skipped for running out of room. Process-wide, since each batch builds
+ * its own engine.
+ */
+// ponytail: held in memory; a process that dies before the next batch keeps the attempt spent. Persist it if that shows up.
+private val owedGiveBacks = MutableStateFlow<List<(Store) -> Unit>>(emptyList())
 
 private class ReadingStopped(val reason: StopReason) : CancellationException()
 
@@ -76,6 +87,7 @@ class IndexEngine(
     /** [requireCharging] is asked on every file, so a policy that depends on the app being visible or the battery applies mid-batch. */
     suspend fun runBatch(budget: Duration, requireCharging: (DeviceState) -> Boolean, deepen: Boolean = false): BatchResult {
         val start = TimeSource.Monotonic.markNow()
+        owedGiveBacks.getAndUpdate { emptyList() }.forEach(::giveBack)
         var processed = 0
         var failed = 0
         // Pages, so the queue's sort runs once per PAGE files rather than once per file.
@@ -218,9 +230,19 @@ class IndexEngine(
         } catch (e: Exception) {
             // Counted above; a later pass tries again. A full disk is no fault of the chunk's.
             if (e.isDiskFull()) {
-                store.setTailAttempts(tail.id, tail.attempts)
+                giveBack { it.setTailAttempts(tail.id, tail.attempts) }
                 throw ReadingStopped(StopReason.DISK_FULL)
             }
+        }
+    }
+
+    /** Gives an attempt back; when the full disk refuses that write too, it is owed to the next batch ([owedGiveBacks]). */
+    private fun giveBack(write: (Store) -> Unit) {
+        try {
+            write(store)
+        } catch (e: Exception) {
+            if (!e.isDiskFull()) throw e
+            owedGiveBacks.update { it + write }
         }
     }
 
@@ -293,7 +315,7 @@ class IndexEngine(
         } catch (e: Throwable) {
             // A full disk is not the file's fault either: give the attempt back and stop until there is room.
             if (e.isDiskFull()) {
-                store.markFailed(stored.id, stored.attempts)
+                giveBack { it.markFailed(stored.id, stored.attempts) }
                 throw ReadingStopped(StopReason.DISK_FULL)
             }
             store.markFailed(stored.id, stored.attempts + 1)

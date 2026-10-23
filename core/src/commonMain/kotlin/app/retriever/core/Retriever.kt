@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
@@ -422,17 +423,19 @@ class Retriever(
      * [read] of the latest [changes], once per burst of them (conflated) and once for all collectors (shared), only while
      * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
      * fresh [read] of [current], never a value from before its subscription. No failure reaches a collector (on iOS an
-     * uncaught one ends the process): one in the shared read is logged and read again after a pause that doubles up to
-     * half a minute, so a passing disk error doesn't freeze every screen; a failed first read is logged and skipped, and
+     * uncaught one ends the process): one in the shared read is logged and read again after a pause that doubles, so a
+     * passing disk error doesn't freeze every screen; one still failing after [WATCH_RETRIES] tries ends the sharing, as
+     * a failure that always recurs would otherwise run and log forever. A failed first read is logged and skipped, and
      * the collector waits for the next change. Blocking reads, so on [CoreDispatchers.io].
      */
     private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
         val shared = changes.conflate().map { read(it) }
             .retryWhen { e, attempt ->
                 log("A watched read failed", e)
-                delay(1_000L shl attempt.coerceAtMost(5).toInt())
-                true
+                (attempt < WATCH_RETRIES).also { if (it) delay(1_000L shl attempt.toInt()) }
             }
+            // The last failure, logged above, ends the sharing here: it never reaches a collector.
+            .catch { }
             .flowOn(dispatchers.io)
             .shareIn(background, SharingStarted.WhileSubscribed())
         return shared.onSubscription {
@@ -1419,7 +1422,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun fileCount(): Long = io { store.fileCount() }
 
-    /** One [suggestions] flow per file set; racing first calls may each make one, and the last one made is kept. */
+    /**
+     * One [suggestions] flow per file set while it is collected; racing first calls may each make one, and the last one
+     * made is kept.
+     */
     @Volatile
     private var sharedSuggestions = mapOf<Set<Long>?, Flow<List<String>>>()
 
@@ -1445,6 +1451,8 @@ class Retriever(
         emit(emptyList())
     }.distinctUntilChanged()
         .flowOn(dispatchers.default)
+        // Sharing stops with its last collector: the entry goes too, so file sets of screens long gone aren't kept.
+        .onCompletion { sharedSuggestions = sharedSuggestions - fileIds }
         .shareIn(background, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
         .also { sharedSuggestions = sharedSuggestions + (fileIds to it) }
 
@@ -1666,6 +1674,9 @@ class Retriever(
 
     internal companion object {
         const val RECENT_FILES = 24
+
+        /** Reads again of a failing watched read (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
+        private const val WATCH_RETRIES = 5L
         const val LARGE_FILE = 100L * 1024 * 1024
 
         const val GPU_RETESTED = "gpu_retested"

@@ -88,7 +88,8 @@ object Thumbnails {
     /**
      * The pictures, and the files with none (encrypted PDF, audio) so they are not retried on every scroll. Sized from the
      * normal heap's memory class, not largeHeap's: bitmaps live outside the Java heap, and the model and the indexer share
-     * this process. Emptied once the UI is hidden, when the indexer may go on reading in the background.
+     * this process. Emptied once the hidden app is cached (TRIM_MEMORY_BACKGROUND), not on every brief hide (a share sheet,
+     * an Open with app), which would reload every cell on the way back.
      */
     private class Memory(app: Context) : ComponentCallbacks2 {
         /** The application this cache belongs to, held weakly: a static must not hold a context. */
@@ -106,7 +107,7 @@ object Thumbnails {
         }
 
         override fun onTrimMemory(level: Int) {
-            if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) clear()
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) clear()
         }
 
         @Deprecated("Superseded by onTrimMemory; still called before API 34.")

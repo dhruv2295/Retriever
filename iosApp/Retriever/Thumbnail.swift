@@ -1,7 +1,8 @@
 // Adapted from mazzzystar/Queryable Queryable/Queryable/PhotoHelper/CachedImageManager.swift
 // (Apple Sample Code License; Queryable took it from Apple sample code).
 // Modified for Retriever: one async load per cell through an NSCache, off the main actor and cancelled with the cell,
-// the PHCachingImageManager setup (no network), the matched PDF page or video moment instead of the first frame, and
+// the PHCachingImageManager setup (no network, cache off for high quality), the matched PDF page or video moment instead
+// of the first frame, and
 // QLThumbnailGenerator for files in folders.
 
 import PDFKit
@@ -20,7 +21,12 @@ enum Thumbnails {
         c.totalCostLimit = 32 << 20
         return c
     }()
-    nonisolated private static let photos = PHCachingImageManager()
+    /// Warmed assets cached at the small quality only: full-quality copies of a whole grid raise memory warnings.
+    nonisolated private static let photos: PHCachingImageManager = {
+        let m = PHCachingImageManager()
+        m.allowsCachingHighQualityImages = false
+        return m
+    }()
 
     static func load(_ file: SourceFile, locator: String, pixels: CGFloat, services: AppServices?) async -> UIImage? {
         let key = Thumb.requestID(file, locator: locator, pixels: pixels) as NSString

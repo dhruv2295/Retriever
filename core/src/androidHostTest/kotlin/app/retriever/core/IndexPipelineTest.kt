@@ -208,6 +208,39 @@ class IndexPipelineTest {
         }
     }
 
+    /** A give-back the full disk refuses too is owed: the next batch returns it before its first file, so nothing is charged. */
+    @Test
+    fun aGiveBackTheFullDiskRefusesIsReturnedByTheNextBatch() = runTest {
+        val db = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        IndexDb.Schema.create(db)
+        var armed = false
+        var refuseGiveBack = true
+        var stateWrites = 0
+        val failing = object : SqlDriver by db {
+            override fun execute(identifier: Int?, sql: String, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<Long> {
+                if (!armed) return db.execute(identifier, sql, parameters, binders)
+                if ("INSERT INTO chunks" in sql) throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)")
+                // The first state write counts the attempt; the second, giving it back, finds the disk full too.
+                if (refuseGiveBack && "UPDATE files SET state = ?, attempts = ?" in sql && ++stateWrites == 2) {
+                    throw SQLiteFullException("database or disk is full")
+                }
+                return db.execute(identifier, sql, parameters, binders)
+            }
+        }
+        val store = Store(failing).also { it.resetForModel(SIG) }
+        val file = testFile("a.txt")
+        store.upsertFiles(listOf(file))
+        val extractor = FakeExtractor(mapOf(file.name to listOf(textPiece("words"))))
+        armed = true
+
+        assertEquals(StopReason.DISK_FULL, engine(store, extractor, FakeEmbedder()).batch().stopReason)
+        assertEquals(1, store.fileByUri(file.uri)!!.attempts, "the give-back was refused")
+
+        refuseGiveBack = false
+        assertEquals(StopReason.DISK_FULL, engine(store, extractor, FakeEmbedder()).batch().stopReason)
+        assertEquals(FileState.PENDING to 0, store.fileByUri(file.uri)!!.let { it.state to it.attempts }, "owed, then returned")
+    }
+
     /**
      * Indexes one file whose kind's switch [flip] turns mid-read. Returns the file's state, chunk count and attempts as
      * the first read left them; the batch then reads it again under the new setting.
