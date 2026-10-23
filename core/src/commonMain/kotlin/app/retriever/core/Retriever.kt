@@ -525,9 +525,11 @@ class Retriever(
         ) { (counts, p, state) ->
             // Fresh, not the key's tick: that can be a second old, and a Resume or a Read for 15 minutes shows at once.
             val t = tick()
+            // No device check sees a full disk: the batch that stopped for it says so until the next one runs.
+            val diskFull = state.lastStop?.takeIf { it == StopReason.DISK_FULL && !state.running }
             ReadingPolicy.decide(
                 counts.progress,
-                if (p.paused) StopReason.PAUSED else t.blocker,
+                if (p.paused) StopReason.PAUSED else t.blocker ?: diskFull,
                 state.running,
                 state.currentFile != null,
                 words,

@@ -1,6 +1,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -201,6 +202,18 @@ class BatchPolicyTest {
         assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertEquals(StopReason.DISK_FULL, f.r.state.value.lastStop)
         assertEquals(null, f.r.state.value.lastError)
+    }
+
+    /** The device's own checks never see a full disk, so the live line takes it from the batch that stopped for it. */
+    @Test
+    fun theStatusLineSaysThePhoneIsFull() = test {
+        val f = Fx()
+        f.onExtract = { throw SQLiteFullException("database or disk is full (code 13 SQLITE_FULL)") }
+        assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
+        val status = f.r.readingStatus().first()
+        assertEquals(ReadingPhase.WAITING, status.phase)
+        assertEquals("Paused, your phone is full", status.title)
+        assertEquals("Free up some space and Retriever carries on.", status.detail)
     }
 
     @Test
