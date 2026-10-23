@@ -26,8 +26,7 @@ class StoreCommonTest {
     @Test
     fun keywordSearchFoldsAccents() {
         val (store, id) = storeWith("receipt.txt", "Documents", "Café receipt total")
-        val hit = store.keywordSearch("cafe", 10).single()
-        assertEquals(id, store.chunk(hit.chunkId)?.fileId)
+        assertEquals(id, store.chunk(store.keywordSearch("cafe", 10).single())?.fileId)
     }
 
     @Test
@@ -41,7 +40,7 @@ class StoreCommonTest {
     @Test
     fun aCjkWordInsideARunIsFound() {
         val (store, id) = storeWith("会議資料.txt", "書類", "会議の資料を送ります")
-        assertEquals(id, store.chunk(store.keywordSearch("資料", 10).single().chunkId)?.fileId)
+        assertEquals(id, store.chunk(store.keywordSearch("資料", 10).single())?.fileId)
         assertEquals(1, store.keywordSearch("送ります", 10).size)
         assertEquals(1, store.keywordSearch("会議 資料", 10).size)
         assertEquals(1, store.keywordSearch("資", 10).size, "one character matches as a prefix")
@@ -61,7 +60,7 @@ class StoreCommonTest {
         store.upsertFiles(listOf(SourceFile("folder://docs/会議資料.txt", "会議資料.txt", "docs", "text/plain", Kind.DOC, 10, 1)))
         val id = store.pending(1).single().id
         store.replaceChunks(id, listOf(Store.NewChunk(1, "", "会議の資料を送ります", null)))
-        val chunk = store.keywordSearch("資料", 10).single().chunkId
+        val chunk = store.keywordSearch("資料", 10).single()
         assertTrue(store.rebuildFtsIfPending(), "a new index records its tokenization")
         for (sql in listOf(
             "DELETE FROM chunk_fts",
@@ -75,7 +74,7 @@ class StoreCommonTest {
         assertTrue(store.keywordSearch("資料", 10).isEmpty())
         assertTrue(store.rebuildFtsIfPending())
         assertFalse(store.rebuildFtsIfPending(), "once")
-        assertEquals(listOf(chunk), store.keywordSearch("資料", 10).map { it.chunkId })
+        assertEquals(listOf(chunk), store.keywordSearch("資料", 10))
         assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))
     }
 
@@ -107,7 +106,7 @@ class StoreCommonTest {
         store.upsertFiles(listOf(SourceFile("folder://docs/会議資料.txt", "会議資料.txt", "docs", "text/plain", Kind.DOC, 10, 1)))
         val id = store.pending(1).single().id
         store.replaceChunks(id, listOf(Store.NewChunk(1, "", "会議の資料を送ります", null)))
-        val chunk = store.keywordSearch("資料", 10).single().chunkId
+        val chunk = store.keywordSearch("資料", 10).single()
         assertTrue(store.rebuildFtsIfPending(), "a new index records its tokenization")
         for (sql in listOf("DELETE FROM chunk_fts", "DELETE FROM file_fts", "INSERT INTO index_meta (key, value) VALUES ('fts_rebuild', '1')")) {
             driver.execute(null, sql, 0)
@@ -117,7 +116,7 @@ class StoreCommonTest {
         assertFails { store.rebuildFtsIfPending() }
         assertTrue(store.rebuildFtsIfPending(), "the pass runs again")
         assertFalse(store.rebuildFtsIfPending(), "once")
-        assertEquals(listOf(chunk), store.keywordSearch("資料", 10).map { it.chunkId })
+        assertEquals(listOf(chunk), store.keywordSearch("資料", 10))
         assertEquals(listOf(id), store.fileKeywordSearch("資料", 10))
     }
 

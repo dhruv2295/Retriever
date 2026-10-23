@@ -42,7 +42,7 @@ class TokenRetryTest {
         return store
     }
 
-    private fun Store.fileNames(q: String) = keywordSearch(q, 10).map { file(chunk(it.chunkId)!!.fileId)!!.name }
+    private fun Store.fileNames(q: String) = keywordSearch(q, 10).map { file(chunk(it)!!.fileId)!!.name }
 
     @Test
     fun droppingTheMostCommonWordsFindsTheLease() {

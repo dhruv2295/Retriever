@@ -189,8 +189,8 @@ class RetrievalEval(
                         queries = queries.map { raw(listOf(Part.Text(if (prefixes) Prefix.query(it.q.trim()) else it.q.trim()))) },
                         keyword = queries.map { q ->
                             val hits = store.keywordSearch(q.q.trim(), SearchEngine.CANDIDATES)
-                            val rows = store.chunks(hits.map { it.chunkId })
-                            hits.mapNotNull { rows[it.chunkId]?.fileId }.distinct().map { indexOf.getValue(it) }
+                            val rows = store.chunks(hits)
+                            hits.mapNotNull { rows[it]?.fileId }.distinct().map { indexOf.getValue(it) }
                         },
                     )
                 }

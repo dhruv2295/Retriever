@@ -247,7 +247,7 @@ class SchemaV3Test {
         val march = 59 * day..61 * day - 1
 
         assertEquals(2, store.keywordSearch("receipt", 10).size)
-        val inMarch = store.keywordSearch("receipt", 10, dates = march).map { store.chunk(it.chunkId)!!.fileId }
+        val inMarch = store.keywordSearch("receipt", 10, dates = march).map { store.chunk(it)!!.fileId }
         assertEquals(listOf(store.fileByUri("content://test/march.jpg")!!.id), inMarch)
         assertEquals(emptyList(), store.keywordSearch("receipt", 10, kinds = setOf(Kind.PDF), dates = march))
         assertEquals(1, store.keywordSearch("receipt", 10, kinds = setOf(Kind.PDF)).size)

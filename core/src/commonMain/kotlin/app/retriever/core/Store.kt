@@ -91,7 +91,6 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val visual: Boolean = false,
     )
     data class MediaSpan(val count: Long, val videos: Long, val coverId: Long?)
-    data class KeywordHit(val chunkId: Long)
 
     /** [tailFiles]: files with a chunk still waiting for the deepen pass. [byKind] includes the whole library. */
     data class Counts(
@@ -519,8 +518,8 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun takenAtBackfills(): Long = q.getMeta(TAKEN_AT_KEY).executeAsOneOrNull()?.toLongOrNull() ?: 0L
 
     /**
-     * The [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or else
-     * modified; null: any time). [fileIds] (null: any file) keeps those files only.
+     * The ids of the [limit] best chunks of files of [kinds] (null: any kind) captured within [dates] (ms, taken or
+     * else modified; null: any time). [fileIds] (null: any file) keeps those files only.
      */
     fun keywordSearch(
         query: String,
@@ -529,7 +528,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         dates: LongRange? = null,
         starredOnly: Boolean = false,
         fileIds: Collection<Long>? = null,
-    ): List<KeywordHit> = ftsQuery {
+    ): List<Long> = ftsQuery {
         retryingMatch(query) { match ->
             // ponytail: ranks only the FTS_CAP most recently indexed matches (new and changed files first), so a
             // common word's best chunk in an older file can be missed; rank in SQL if keyword recall on stop words matters.
@@ -544,7 +543,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             } else {
                 q.searchFtsOfKinds(match, kindNames, range.first, range.last, starred, FTS_CAP, scored)
             }
-            rows.executeAsList().sortedByDescending { it.second }.take(limit).map { KeywordHit(it.first) }
+            rows.executeAsList().sortedByDescending { it.second }.take(limit).map { it.first }
         }
     }
 

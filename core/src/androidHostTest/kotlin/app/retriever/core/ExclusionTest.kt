@@ -61,7 +61,7 @@ class ExclusionTest {
         assertNull(f.store.fileByUri(bank.uri))
         assertEquals(
             listOf(banking.uri),
-            f.store.keywordSearch("statement", 10).map { f.store.chunk(it.chunkId)!!.fileId }
+            f.store.keywordSearch("statement", 10).map { f.store.chunk(it)!!.fileId }
                 .map { f.store.file(it)!!.uri },
             "keyword lane: a sibling folder sharing the prefix stays",
         )

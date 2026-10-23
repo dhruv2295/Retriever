@@ -243,8 +243,8 @@ class SearchEngine(
         } else {
             traced("kw.fts") {
                 val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f.scope)
-                val rows = store.chunks(hits.map { it.chunkId })
-                hits.mapNotNull { k -> rows[k.chunkId]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
+                val rows = store.chunks(hits)
+                hits.mapNotNull { id -> rows[id]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
             }
         }
         return listOf(Lane(words, Source.WORDS)) + nameLanes(q, f)
