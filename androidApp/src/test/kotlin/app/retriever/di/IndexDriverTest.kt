@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowSystemProperties
 
 /** The index database as the app opens it, on the platform's own SQLite. */
 @RunWith(RobolectricTestRunner::class)
@@ -22,7 +23,17 @@ class IndexDriverTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @After fun cleanUp() {
+        ShadowSystemProperties.reset()
         context.deleteDatabase(NAME)
+    }
+
+    /** NORMAL (1) under WAL: a sync at checkpoints instead of every commit, even where the device's own default is FULL. */
+    @Test fun commitsDoNotSyncEachTime() {
+        ShadowSystemProperties.override("debug.sqlite.wal.syncmode", "FULL")
+        indexDriver(context, NAME).use { driver ->
+            assertEquals("wal", string(driver, "PRAGMA journal_mode"))
+            assertEquals("1", string(driver, "PRAGMA synchronous"))
+        }
     }
 
     /** An older build opening a newer build's index makes the index again, and settings and stars come back from their file. */

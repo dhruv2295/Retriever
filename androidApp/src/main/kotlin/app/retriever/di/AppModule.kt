@@ -125,6 +125,10 @@ fun indexDriver(context: Context, name: String): SqlDriver {
     val callback = object : AndroidSqliteDriver.Callback(IndexDb.Schema) {
         override fun onConfigure(db: SupportSQLiteDatabase) {
             db.enableWriteAheadLogging()
+            // With WAL, NORMAL syncs at checkpoints instead of every commit and loses nothing to an app crash
+            // (developer.android.com/topic/performance/sqlite-performance-best-practices). AOSP's WAL default, set here
+            // because a device's own configuration can choose FULL.
+            db.execSQL("PRAGMA synchronous = NORMAL")
         }
 
         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
