@@ -83,6 +83,20 @@ enum class Modality {
     }
 }
 
+/**
+ * Scores the first `count` rows of a block, `count` vectors of [DIMS] bytes back to back with their scales, against a
+ * query, into `out`: each the same Float [dotInt8] returns.
+ */
+internal fun interface RowScorer {
+    fun score(rows: ByteArray, scales: FloatArray, count: Int, q: ByteArray, qScale: Float, out: FloatArray)
+}
+
+/**
+ * A native [RowScorer] the scan runs a block at a time, or null to call [dotInt8] per row. Null on Android and the JVM,
+ * whose compilers vectorise [dotInt8] (eval/REPORT.md); iOS has a C kernel, since Kotlin/Native compiles it to scalar code.
+ */
+internal expect val dotRows: RowScorer?
+
 /** The device's cores, which bound how many slices one scan splits into. */
 internal expect val cpuCores: Int
 

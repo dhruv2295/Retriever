@@ -47,6 +47,25 @@ class VectorScanTest {
     private fun SearchEngine.Scan.pairs() = rows.indices.map { rows[it] to cos[it] }
 
     @Test
+    fun theNativeKernelScoresBitForBitAsDotInt8() {
+        // Android and the JVM have none: their compilers vectorise dotInt8 itself.
+        val kernel = dotRows ?: return
+        val rows = 1_000
+        val bytes = ByteArray(rows * DIMS).also { rnd.nextBytes(it) }
+        // The extremes too: -128 never comes from Vector.of, but the sum must still match.
+        bytes.fill(-128, 0, DIMS)
+        bytes.fill(127, DIMS, 2 * DIMS)
+        val scales = FloatArray(rows) { rnd.nextFloat() / 100 }
+        val q = query()
+        val out = FloatArray(rows)
+        kernel.score(bytes, scales, rows, q.bytes, q.scale, out)
+        assertContentEquals(
+            List(rows) { dotInt8(bytes, it * DIMS, q.bytes, q.scale, scales[it]).toRawBits() },
+            out.map { it.toRawBits() },
+        )
+    }
+
+    @Test
     fun appendsLeaveEarlierBlocksAndViewsAsTheyWere() {
         val all = flat(3 * VectorTable.BLOCK + 100)
         val loaded = 2 * VectorTable.BLOCK + 5_000

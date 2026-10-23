@@ -301,6 +301,8 @@ class SearchEngine(
         val heapScore = FloatArray(k)
         val heapRow = IntArray(k)
         var filled = 0
+        val kernel = dotRows
+        val scores = FloatArray(if (kernel != null) VectorTable.BLOCK else 0)
         val unfiltered = allowed == null && days == null && fileIds == null && histogram == null && dead == null
         for (b in fromBlock until toBlock) {
             val block = table.block(b)
@@ -308,9 +310,16 @@ class SearchEngine(
             val count = minOf(VectorTable.BLOCK, size - base)
             val bytes = block.bytes
             val scales = block.scales
+            // A native kernel scores the whole block at once; that beats Kotlin/Native's per-row loop even for rows a
+            // filter then skips.
+            kernel?.score(bytes, scales, count, q.bytes, q.scale, scores)
             if (unfiltered) {
                 // The usual search gets a loop with no per-row checks: they cost 2-5% of the scan on the JVM bench.
-                for (i in 0 until count) filled = offer(heapScore, heapRow, filled, base + i, dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i]))
+                if (kernel != null) {
+                    for (i in 0 until count) filled = offer(heapScore, heapRow, filled, base + i, scores[i])
+                } else {
+                    for (i in 0 until count) filled = offer(heapScore, heapRow, filled, base + i, dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i]))
+                }
                 continue
             }
             val kinds = block.kinds
@@ -322,7 +331,7 @@ class SearchEngine(
                 if (allowed != null && !allowed[kinds[i].toInt()]) continue
                 if (days != null && (rowDays[i] < firstDay || rowDays[i] > lastDay)) continue
                 if (fileIds != null && !sortedHas(fileIds, rowFiles[i])) continue
-                val s = dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i])
+                val s = if (kernel != null) scores[i] else dotInt8(bytes, i * DIMS, q.bytes, q.scale, scales[i])
                 if (histogram != null) histogram[modalities[i] * RelevanceRule.BINS + RelevanceRule.bin(s)]++
                 filled = offer(heapScore, heapRow, filled, base + i, s)
             }

@@ -46,6 +46,8 @@ kotlin {
     }
     // iOS targets build the static RetrieverCore framework that the SwiftUI app links.
     listOf(iosArm64(), iosSimulatorArm64()).forEach { t ->
+        // The vector scan's int8 dot product in C (src/nativeInterop/cinterop/vecscan.def): Kotlin/Native leaves it scalar.
+        t.compilations.getByName("main").cinterops.create("vecscan")
         t.binaries.framework {
             baseName = "RetrieverCore"
             isStatic = true
