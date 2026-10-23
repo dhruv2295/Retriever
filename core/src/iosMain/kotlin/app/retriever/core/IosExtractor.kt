@@ -22,7 +22,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         val uri = file.uri
         val maxChars = chunkChars(profile.maxTokens)
         return when (file.kind) {
-            Kind.PHOTO, Kind.SCREENSHOT -> imageWithText("", image(uri), ocr(uri, -1), maxChars, native.imageLabels(uri))
+            Kind.PHOTO, Kind.SCREENSHOT -> photo(uri, maxChars)
             Kind.PDF -> pdf(uri, maxChars, if (head) PDF_HEAD_OCR_PAGES else PDF_OCR_PAGES)
             Kind.DOC -> doc(file, uri, maxChars)
             Kind.VIDEO -> video(uri, profile, head)
@@ -35,8 +35,9 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         return when (file.kind) {
             Kind.PDF -> {
                 val page = (Locator.pageOf(locator) ?: return emptyList()) - 1
-                // No render now is a failed try, as Android's unreadable page is.
-                scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens)).ifEmpty { null }
+                // No render now is a failed try, as Android's unreadable page is; a stopped read is a stop.
+                scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens))
+                    .also { currentCoroutineContext().ensureActive() }.ifEmpty { null }
             }
 
             // No frame: the moment holds nothing and its placeholder goes, as on Android.
@@ -47,9 +48,19 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     }
 
     private fun scannedPage(uri: String, i: Int, layer: String, maxChars: Int): List<Piece> = autoreleasepool {
-        native.pdfPageJpeg(uri, i, 1024)?.let {
-            imageWithText(Locator.page(i + 1), it.toByteArray(), betterPageText(layer, ocr(uri, i)), maxChars)
+        native.scan(uri, i, 1024)?.let {
+            imageWithText(Locator.page(i + 1), it.jpeg.toByteArray(), betterPageText(layer, it.text.trim()), maxChars)
         }.orEmpty()
+    }
+
+    // One pool per photo: the indexing queue may run many in one task, and each leaves a decoded image and its JPEG.
+    private suspend fun photo(uri: String, maxChars: Int): List<Piece> {
+        val pieces = autoreleasepool {
+            native.scan(uri, -1, 512)?.let { imageWithText("", it.jpeg.toByteArray(), it.text.trim(), maxChars, it.labels) }
+        }
+        // A read stopped meanwhile (background time up) is a stop, not an unreadable photo.
+        currentCoroutineContext().ensureActive()
+        return checkNotNull(pieces) { "no image to read yet (an iCloud photo waits for Wi-Fi)" }
     }
 
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
@@ -62,11 +73,6 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         }
         return bytes?.let { Part.Image(it.toByteArray()) }
     }
-
-    private fun ocr(uri: String, page: Int): String = native.ocr(uri, page).orEmpty().trim()
-
-    private fun image(uri: String): ByteArray =
-        checkNotNull(native.imageJpeg(uri, 512)) { "no image to read yet (an iCloud photo waits for Wi-Fi)" }.toByteArray()
 
     // A locked PDF reports -1 and leaves the file to its name chunk. One pool per page: the whole file is one
     // coroutine task, so without it every page's renders and PDFKit objects live until the file is done.

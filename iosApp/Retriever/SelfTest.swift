@@ -64,7 +64,7 @@
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let ocrFile = docs.appendingPathComponent("selftest-ocr.png")
             try textImage("Invoice 48213 total 1250").pngData()?.write(to: ocrFile)
-            let ocr = s.extractor.ocr(uri: "folder://documents/selftest-ocr.png", page: -1) ?? ""
+            let ocr = s.extractor.scan(uri: "folder://documents/selftest-ocr.png", page: -1, jpegSide: 512)?.text ?? ""
             try? FileManager.default.removeItem(at: ocrFile)
             check("(b) OCR", ocr.contains("48213"), "\"\(ocr.replacingOccurrences(of: "\n", with: " | "))\"")
 

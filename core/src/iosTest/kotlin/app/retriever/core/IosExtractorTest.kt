@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import platform.Foundation.NSData
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -16,23 +17,57 @@ class IosExtractorTest {
     private val profile = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.CPU, 70, 5, true, false)
     private val video = SourceFile("ph://video", "video.mp4", "Photos", "video/mp4", Kind.VIDEO, 100, 1)
 
-    private class Frames(private val bytes: ByteArray? = null, private val afterFrame: () -> Unit = {}) : NativeExtractor {
+    private class Frames(private val bytes: ByteArray? = null, private val scanned: NativeScan? = null, private val afterFrame: () -> Unit = {}) :
+        NativeExtractor {
         var frames = 0
+        val scans = mutableListOf<Triple<String, Int, Int>>()
         override fun videoDurationMs(uri: String): Long = 120_000
         override fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData {
             frames++
             afterFrame()
             return byteArrayOf(1).toNSData()
         }
+        override fun scan(uri: String, page: Int, jpegSide: Int): NativeScan? {
+            scans += Triple(uri, page, jpegSide)
+            afterFrame()
+            return scanned
+        }
         override fun imageJpeg(uri: String, maxSide: Int): NSData? = error("unexpected image")
-        override fun ocr(uri: String, page: Int): String? = error("unexpected OCR")
-        override fun imageLabels(uri: String): String? = error("unexpected labels")
         override fun pdfPageCount(uri: String): Int = error("unexpected PDF")
-        override fun pdfPageText(uri: String, page: Int): String? = error("unexpected PDF")
+        override fun pdfPageText(uri: String, page: Int): String? = ""
         override fun pdfPageJpeg(uri: String, page: Int, maxSide: Int): NSData? = error("unexpected PDF")
         override fun zipEntryNames(uri: String): List<String> = error("unexpected archive")
         override fun zipEntryText(uri: String, name: String, maxBytes: Int): String? = error("unexpected archive")
         override fun readBytes(uri: String, offset: Long, length: Int): NSData? = checkNotNull(bytes) { "unexpected bytes" }.toNSData()
+    }
+
+    private val photo = SourceFile("ph://photo", "IMG_1.HEIC", "Photos", "image/heic", Kind.PHOTO, 0, 1)
+    private val receipt = NativeScan(byteArrayOf(7).toNSData(), "Total 1250", "receipt")
+
+    @Test fun aPhotoIsDecodedOnceForItsTextLabelsAndPicture() = runBlocking {
+        val native = Frames(scanned = receipt)
+        val pieces = IosExtractor(native).extract(photo, profile)
+        assertEquals(listOf(Triple(photo.uri, -1, 512)), native.scans)
+        val image = pieces.first()
+        assertContentEquals(byteArrayOf(7), (image.parts.single() as Part.Image).jpeg)
+        assertEquals("receipt", image.labels)
+        assertEquals("Total 1250", image.contentText)
+    }
+
+    @Test fun aScannedPageIsRenderedOnce() = runBlocking {
+        val native = Frames(scanned = NativeScan(byteArrayOf(7).toNSData(), "Total 1250", null))
+        val pdf = SourceFile("folder://documents/scan.pdf", "scan.pdf", "Files", "application/pdf", Kind.PDF, 100, 1)
+        val pieces = IosExtractor(native).later(pdf, Locator.page(2), profile)
+        assertEquals(listOf(Triple(pdf.uri, 1, 1024)), native.scans)
+        assertEquals(Locator.page(2), pieces?.first()?.locator)
+    }
+
+    /** An iCloud-only photo off Wi-Fi fails its try; a read stopped meanwhile is a stop, which gives the try back. */
+    @Test fun aPhotoWithNoImageFailsUnlessTheReadWasStopped() = runBlocking {
+        assertFailsWith<IllegalStateException> { IosExtractor(Frames()).extract(photo, profile) }
+        val job = Job()
+        assertFailsWith<CancellationException> { withContext(job) { IosExtractor(Frames(afterFrame = { job.cancel() })).extract(photo, profile) } }
+        Unit
     }
 
     /** A spreadsheet export saved on Windows: Latin-1 bytes, which UTF-8 would show as replacement characters. */
