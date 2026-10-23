@@ -59,6 +59,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -503,7 +504,7 @@ class Retriever(
         val ticks = flow {
             while (true) {
                 emit(tick())
-                delay(1_000)
+                delay(1_000.milliseconds)
             }
         }.flowOn(dispatchers.default).distinctUntilChanged()
         watched(
@@ -629,7 +630,7 @@ class Retriever(
                 batchJob = work
                 try {
                     work.await()
-                } catch (e: CancellationException) {
+                } catch (_: CancellationException) {
                     ensureActive() // the caller was cancelled, not just this batch
                     val reason = readingBlocker() ?: StopReason.BUDGET
                     _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = reason) }
