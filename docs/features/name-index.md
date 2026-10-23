@@ -21,8 +21,10 @@ It also covers the first moments after launch: until it is built, the lane falls
   (the rest, in this order; substring and typo hits are marked loose, never strong); see `search-engine.md`.
 - **Typos run only when nothing closer matched.** The edit budget is 0 below 3 letters, 1 for 3 to 5, 2 from 6.
   Candidates share enough trigrams with the word (an edit spoils at most 3 trigrams, an adjacent swap 4, so the need
-  is `length - 2 - 4 * edits`); a word too short to keep any trigram is compared by length instead. The check is OSA
-  distance (Levenshtein where an adjacent swap is one edit), `withinEdits`.
+  is `length - 2 - 4 * edits`); a word too short to keep any trigram is compared by length instead. Before the DP, a
+  64-bit letter-set mask per token (`letterMask`, built with the index) drops tokens whose character set differs from
+  the word's by more than `2 * edits` bits: one edit changes the set by at most two. The check is OSA distance
+  (Levenshtein where an adjacent swap is one edit), `withinEdits`, with its rows reused across one query's tokens.
 - **Filters before the cap.** `kinds` and the `admit` callback (starred ids, dates) run before `limit`, so a filter
   never empties a full page.
 - **Copy on write.** `update(removed, upserts)` returns a new index and leaves the old one valid for searches already
@@ -56,8 +58,11 @@ It also covers the first moments after launch: until it is built, the lane falls
   `longWordWithASwapAndATypo`, `exactNameIsTheNameNotTheFolder`, `prefixWhileTyping`, `exactTokenInAnyScript`,
   `accentsFold`, `folderWordsMatchToo`, `everyWordMustMatchAndTheWorstClassWins`, `kindFilterAndOrder`,
   `noTyposForVeryShortWords`, `copyOnWriteSnapshots`, `tokenizerMatchesTheStoreSplit`, `editDistanceBounds`,
-  `newestFirstWithinAClassEvenAfterAnUpdate`, `admitRunsBeforeTheCap`, `emptyIndexAndBlankQuery`.
-- `NameIndexBenchTest.fiftyThousandNames` (androidHostTest): 50k names, build at most 300 ms, p95 at most 2 ms, arrays at most 8 MB.
+  `newestFirstWithinAClassEvenAfterAnUpdate`, `admitRunsBeforeTheCap`, `emptyIndexAndBlankQuery`,
+  `typoHitsEqualABruteForceScan` (the prefilters drop nothing a full scan finds).
+- `NameIndexBenchTest.fiftyThousandNames` (androidHostTest): 50k names, build at most 300 ms, p95 at most 2 ms, arrays at
+  most 8 MB, and each keystroke of a word no name holds (the full typo pass) at most 2 ms. On the M4 that pass went from
+  0.66-1.62 ms to 0.16-0.19 ms per keystroke with the letter-set mask.
 - `ExactNameTest` and `ScopeBeforeCapTest.nameLanesScopeBeforeTheCap` cover the lanes built from it.
 - Method for the numbers: `eval/REPORT.md`, speed section (names p95 well under a millisecond at 50k).
 

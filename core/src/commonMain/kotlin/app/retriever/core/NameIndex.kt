@@ -16,19 +16,21 @@ data class NameHit(val id: Long, val match: MatchClass, val exactName: Boolean =
  * Structures, all over the distinct tokens of "name folder" (Store.ftsTokens, then [foldLatin]):
  *  - [tokens]: sorted, so exact is a binary search and prefix is the range that follows it;
  *  - [postings]: slots (positions in [entries]) per token;
- *  - [grams]: character trigram -> sorted token numbers, for substring and typo candidates.
+ *  - [grams]: character trigram -> sorted token numbers, for substring and typo candidates;
+ *  - [masks]: per token, the set of its characters hashed to 64 bits ([letterMask]), a cheap typo prefilter.
  */
 class NameIndex private constructor(
     private val entries: List<NameEntry>,
     private val tokens: Array<String>,
     private val postings: Array<IntArray>,
     private val grams: HashMap<Int, IntArray>,
+    private val masks: LongArray,
 ) {
     val size get() = entries.size
 
     /** Bytes held in the int and reference arrays (not the strings), for the memory budget. */
     val arrayBytes: Long
-        get() = postings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L
+        get() = postings.sumOf { it.size * 4L } + grams.values.sumOf { it.size * 4L } + tokens.size * 8L + masks.size * 8L
 
     /** Drops [removed] and adds or replaces [upserts], in one build. */
     // ponytail: a batch rebuilds everything (about 0.1 s for 50k names); patch the posting arrays if batches get frequent.
@@ -113,26 +115,23 @@ class NameIndex private constructor(
             0
         }
         if (!found && edits > 0) {
+            // Each edit changes the character set by at most two (a substitution drops one and adds one), so a token
+            // whose set differs from the word's by more than 2 * edits cannot match: a bit test before the DP.
+            val qm = letterMask(q)
+            val rows = Array(3) { IntArray(q.length + edits + 1) }
+            fun close(t: Int) = kotlin.math.abs(tokens[t].length - q.length) <= edits &&
+                (qm xor masks[t]).countOneBits() <= 2 * edits &&
+                withinEdits(q, tokens[t], edits, rows)
             // An edit spoils at most 3 trigrams, but an adjacent swap (one OSA edit) spoils 4.
             val need = maxOf(1, q.length - 2 - 4 * edits)
             if (q.length - 2 - 4 * edits < 1) {
                 // A short word can lose every trigram to one edit ('tlak' vs 'talk'), so compare by length instead.
-                for (t in tokens.indices) {
-                    if (kotlin.math.abs(tokens[t].length - q.length) <= edits &&
-                        withinEdits(q, tokens[t], edits)
-                    ) {
-                        mark(t, MatchClass.TYPO)
-                    }
-                }
+                for (t in tokens.indices) if (close(t)) mark(t, MatchClass.TYPO)
             } else {
                 val shared = IntArray(tokens.size)
                 for (g in 0..q.length - 3) {
                     for (t in grams[gram(q, g)] ?: continue) {
-                        if (++shared[t] == need && kotlin.math.abs(tokens[t].length - q.length) <= edits &&
-                            withinEdits(q, tokens[t], edits)
-                        ) {
-                            mark(t, MatchClass.TYPO)
-                        }
+                        if (++shared[t] == need && close(t)) mark(t, MatchClass.TYPO)
                     }
                 }
             }
@@ -208,7 +207,14 @@ class NameIndex private constructor(
             }
             val grams = HashMap<Int, IntArray>(gramLists.size * 2)
             for ((k, v) in gramLists) grams[k] = v.toArray()
-            return NameIndex(entries, tokens, postings, grams)
+            return NameIndex(entries, tokens, postings, grams, LongArray(tokens.size) { letterMask(tokens[it]) })
+        }
+
+        /** Bit (code mod 64) of each character of [s]: equal words have equal masks, and one edit flips at most two bits. */
+        internal fun letterMask(s: String): Long {
+            var m = 0L
+            for (c in s) m = m or (1L shl (c.code and 63))
+            return m
         }
 
         private fun isWordChar(c: Char) = c.isLetter() || when (c.category) {
@@ -242,11 +248,15 @@ class NameIndex private constructor(
          * Optimal string alignment distance of [a] and [b] is at most [max]: Levenshtein where swapping two adjacent
          * letters costs 1. It stops once two whole rows exceed [max] (a swap reaches back two rows).
          */
-        fun withinEdits(a: String, b: String, max: Int): Boolean {
+        fun withinEdits(a: String, b: String, max: Int): Boolean = withinEdits(a, b, max, Array(3) { IntArray(b.length + 1) })
+
+        /** [rows]: three scratch rows of at least `b.length + 1`, reused across the tokens of one query. */
+        private fun withinEdits(a: String, b: String, max: Int, rows: Array<IntArray>): Boolean {
             if (kotlin.math.abs(a.length - b.length) > max) return false
-            var prev2 = IntArray(b.length + 1)
-            var prev = IntArray(b.length + 1) { it }
-            var cur = IntArray(b.length + 1)
+            var prev2 = rows[0]
+            var prev = rows[1]
+            var cur = rows[2]
+            for (j in 0..b.length) prev[j] = j
             var prevMin = 0
             for (i in 1..a.length) {
                 cur[0] = i
