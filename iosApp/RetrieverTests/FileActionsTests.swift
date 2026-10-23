@@ -23,7 +23,8 @@ import XCTest
 
     func testReadingComesFromTheSharedCore() {
         let file = SourceFile(uri: "folder://1/a.pdf", name: "a.pdf", folder: "", mime: "", kind: .pdf, size: 1, modifiedAt: 0, takenAt: nil)
-        let partly = Store.StoredFile(id: 1, file: file, attempts: 0, state: .indexed, partial: true, extent: nil, contentRead: true)
+        let partly = Store.StoredFile(
+            id: 1, file: file, attempts: 0, state: .indexed, partial: true, extent: nil, contentRead: true, quickHash: nil, fullHash: nil)
         XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: partly, readInside: true), "Name and its beginning")
         XCTAssertEqual(ReadingProgressKt.readingLabel(kind: .pdf, stored: nil, readInside: true), "Its name. Not processed yet.")
     }
