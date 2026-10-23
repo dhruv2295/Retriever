@@ -41,7 +41,6 @@ final class AppModel {
         var running = false
         var processed = 0
         var failed = 0
-        var pendingAtStart = 0
         var current: String?
         var reading = ReadingPreview()
         var lastStop: StopReason?
@@ -444,7 +443,6 @@ extension AppModel.Snap {
         running = s.state.running
         processed = Int(s.state.processed)
         failed = Int(s.state.failed)
-        pendingAtStart = Int(s.state.pendingAtStart)
         current = s.state.current
         reading = ReadingPreview(current: s.state.currentFile, recent: s.state.recentFiles, pauseReason: s.reading.pause)
         lastStop = s.state.lastStop
