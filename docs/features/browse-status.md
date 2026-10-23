@@ -32,10 +32,13 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
 - **Scrolling yields reading.** Both Browse layouts use the same `ScrollingEffect` as Home/search to call
   `setUiBusy` through the ViewModel. Gesture end, lifecycle stop/disposal and ViewModel clearing release the gate;
   `awaitUi` pauses extraction and embedding between native calls.
-- **Thumbnails.** `Thumbnails.kt` keeps one `LruCache` of bitmaps sized to a fraction of the heap and a miss cache, with
-  decoding on a dispatcher capped at four. The cache key includes the file's `modifiedAt` and `size` and the requested
-  size bucket, so an edited file gets a new key instead of a stale picture; PDF pages are queued on a separate render
-  dispatcher. It is adapted from the Gallery and platform-samples caches (Apache-2.0). Coil would be worth adding only
+- **Thumbnails.** `Thumbnails.kt` keeps one `LruCache` of bitmaps, an eighth of the normal heap's memory class (halved on
+  a low-RAM phone) and emptied once the UI is hidden, and a miss cache. System thumbnails decode on 4 to 6 IO workers
+  with a `CancellationSignal` the scrolled-away cell cancels; a decode that finishes anyway is kept. Video frames and
+  drawn documents have their own render dispatcher, and PDF pages theirs (one worker before Android 15, where
+  `PdfRenderer` takes a process-wide lock). The cache key includes the file's `modifiedAt` and `size` and the requested
+  size bucket, so an edited file gets a new key instead of a stale picture. The grids work their column width out once
+  and pass it to each `ThumbCell`. It is adapted from the Gallery and platform-samples caches (Apache-2.0). Coil would be worth adding only
   with Telephoto's Coil module, which is not needed.
 - **Status is one value.** `StatusViewModel` combines counts, prefs, index state and access into `StatusUi`; `counts` is
   `null` until the first count arrives, so the screen draws neither "0 of 0" nor "caught up" early. Actions go through
@@ -75,7 +78,8 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
   `firstEmissionHasNoCountsYet`, `failedActionLandsInStateInsteadOfCrashing`, `noCountsDrawsNeitherZeroOfZeroNorCaughtUp`;
   screenshots in `SetupStatusShotsTest`.
 - `FileRowTest`: `coverageLinePerState`, `nameHighlightComesFromCoreRanges`. `ThumbnailKeyTest`: `editedFileGetsNewKey`,
-  `onlyPdfPagesQueueOnTheRenderDispatcher`, `requestSizesRoundUpToABucket`.
+  `onlyPdfPagesQueueOnThePdfDispatcher`, `requestSizesRoundUpToABucket`. `ThumbnailsTest`: `cancellingALoadCancelsItsDecode`,
+  `aFlingDecodesAFewAtATimeAndDropsTheQueuedOnes`, `aDecodeThatFinishesAfterItsCellLeftIsKept`, `hidingTheUiEmptiesTheCache`.
 
 ## Known limits
 

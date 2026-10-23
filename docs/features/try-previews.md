@@ -26,7 +26,7 @@ routines, calibration, and still only the text). Not proposal 2's two content li
 | No access (`load = false`; iOS `folders.resolve` nil) | the kind's icon (unchanged) | SF Symbol (unchanged) |
 
 **DocCard (Android).** `KindFace(file, iconSize)` in Thumbnails.kt: DocCard for DOC and OTHER, else the kind icon;
-`ThumbnailImage`, `ReadingThumb` and `FileRow.Thumb` all call it.
+`ThumbnailImage` (which `FileRow.Thumb` and `ThumbCell` draw through) and `ReadingThumb` call it.
 - **The page.** Inset 12% of the tile's short side, `surfaceBright` paper with 1 dp of `outlineVariant` and a 4 dp
   corner. `surfaceBright` is lighter than the tile in both themes and needs only the hairline on Home's
   `surfaceContainerLowest` card. The render step below confirms the colour.
@@ -70,9 +70,10 @@ dispatcher.
 | Processing now, Recently processed, File info, result rows | 88, 56, 56, 48 dp | `ReadingNow` size, 56, 56, 52 pt |
 | Result grid, Home document cards, See all list | `ThumbCell` width; 112 × 150 dp; — | 160 pt; 92 pt × 4/3; 44 pt (SetupView.swift:295) |
 
-- **Android.** The provider probe goes through `Thumbnails.load`: buckets 256/384/512/768 px, the bitmap `LruCache`
-  (maxMemory/8, by bytes), and `misses` keyed `uri@modified:size@px`. That is one binder call per file and bucket on
-  `Dispatchers.IO`, and a miss is cached (INFERRED: `ExternalStorageProvider` misses for these types). DocCard is one
+- **Android.** The provider probe goes through `Thumbnails.load`: buckets 160/256/384/512/768 px, the bitmap `LruCache`
+  (an eighth of `ActivityManager.memoryClass`, halved on a low-RAM phone, by bytes, emptied from
+  `TRIM_MEMORY_UI_HIDDEN`), and `misses` keyed `uri@modified:size@px`. That is one binder call per file and bucket on
+  a few IO workers (`limitedParallelism`, 4 to 6 by cores), with the load's `CancellationSignal`, and a miss is cached (INFERRED: `ExternalStorageProvider` misses for these types). DocCard is one
   text measure and is not cached. That is cheaper than today's 6 lines plus a query.
 - **iOS.** Quick Look runs on its own queue into the existing 32 MB `NSCache` under `Thumb.requestID`, so Home, Try and
   See all share hits. The `.task(id:)` is cancelled with the cell. The first render of an Office file is INFERRED at

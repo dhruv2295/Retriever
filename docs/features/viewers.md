@@ -19,7 +19,9 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
 - **Photos: Telephoto.** `PhotoScreen` is a `HorizontalPager` of `SubSamplingImage` with `Modifier.zoomable`, fed by
   `SubSamplingImageSource.contentUriOrNull`. Compose `transformable` gives raw gesture deltas only (no bounds, fling,
   double tap, or hand-off of a pan to the pager at the image edge); `me.saket.telephoto` (Apache-2.0) provides those, and
-  sub-sampling decodes tiles so a 50 MP photo never becomes one huge bitmap. No Coil is needed.
+  sub-sampling decodes tiles so a 50 MP photo never becomes one huge bitmap. No Coil is needed. The sharpest thumbnail
+  already in memory (`Thumbnails.largestCached`) is the source's `preview`, drawn at once in place of a spinner until the
+  tiles load; a photo restored without its list has none.
 - **The list for swiping.** A route cannot carry hundreds of uris (the saved-state Bundle would hit
   `TransactionTooLarge`). `Opener.open` hands the list to a Koin `ViewerQueue` before navigating; the route carries only
   the opened photo. After process death `ViewerQueue.itemsFor` falls back to that one photo.
@@ -35,12 +37,14 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   checked. Revisit when it is stable; `PdfPageFrame` stays until then.
 - **Video and audio: Media3.** `PlayerViewModel` owns the one `ExoPlayer` of a route, so a rotation keeps it playing and
   the screen only attaches a `PlayerView`; the position is saved on stop and restored, starting at the hit until a
-  position was saved. It opens paused: sound starts only at Play. `ON_STOP` pauses: nothing plays in the background. A player error is a `Failed` state.
+  position was saved. It opens paused: sound starts only at Play. `ON_STOP` pauses and stops, so nothing plays in the
+  background and the decoders and buffers go back (Media3 asks for that); the item and position stay, and `ON_START`
+  prepares again, still paused. A player error is a `Failed` state.
 - **Text and documents: in-app reader.** `DocViewModel` reads the stored chunks (`Retriever.fileText`), so there is no
   second parser and no file read. The state is `DocUi` (`Loading`, `Text`, `NotReadYet`, `Empty`, `Failed`): a pending
   file with no text yet is `NotReadYet`, never the "couldn't read" `Empty`, and a file the index lacks is `Failed`.
-  `loadDoc` picks the paragraph from the hit's locator or the query (a search hit carries its id and the words asked)
-  and the list opens there with the words marked on a tonal background. The text is selectable. `DocUi.Text.matches` lists every paragraph with the words, and the bar "Match 2 of 5" with Previous / Next match (`stepMatch`, wrapping) scrolls between them.
+  `loadDoc` picks the paragraph from the hit's locator or the query (a search hit carries its id and the words asked),
+  on `Dispatchers.Default` because its match scan runs over every paragraph, and the list opens there with the words marked on a tonal background. The text is selectable. `DocUi.Text.matches` lists every paragraph with the words, and the bar "Match 2 of 5" with Previous / Next match (`stepMatch`, wrapping) scrolls between them.
 - **File actions.** One order everywhere: Add to / Remove from Starred, Share, Open in another app, File info, Rename, a divider, Delete (error colour), each with a `leadingIcon`. On Android `FileAction` is that order (`entries`), `fileActions(uri)` is the availability (a provider Retriever cannot write to gets no Rename or Delete), `FileActionItems` draws the menu and `FilePressMenu` adds the same actions as accessibility custom actions on the row (it hands the content a modifier to apply). Star defaults to the Retriever's set; Browse passes its Undo toggle. Deleting asks "Delete this file?" / "This removes the original from {folder}." (a MediaStore file goes through the system consent sheet instead). iOS: the platform action model supplies the same menu; Photos assets omit Rename.
 - **Viewer bar (Android).** `ViewerTopBar` serves all four viewers: Back, filename over an optional subtitle ("{n} of {count}" for photos, "Match on page {n} · Page {n} of {total}" for PDFs, "Match at {time}" for media), Share, Star (only from 600 dp of window width, `starFitsInBar`; the overflow always has it) and the overflow, which is the shared file menu. A PDF, document or media viewer has a bottom `ViewerStepBar`: Previous file, "2 of 5", Next file, from `ViewerQueue.neighbors` (the list the file was opened from, limited to files of the same viewer: PDFs step to PDFs, audio and video to each other, never to a photo); they replace the viewer in the back stack, so Back still returns to the list and the player is released. Photos swipe instead. `Opener.open` queues the list for every kind when it is given one.
 - **File info (Android).** `FileInfoSheet` (`files/FileInfo.kt`, `ModalBottomSheet` + `ListItem`): preview, selectable name, "PDF · 2.4 MB", Location (folder; full path and Copy path under "Location details"), Modified, or Taken when the source says (`takenAt`), dimensions, duration or pages, and Reading from `readingLabel`: Read / Partly read / Waiting to read / Name only / Couldn't read · tried n times (the index records no finer reason).
@@ -86,15 +90,16 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
 
 - Routing: `ResultPiecesTest` in `androidApp/src/test/kotlin/app/retriever/search/` covers `routeFor` and locator parsing.
 - `PhotoScreenTest`: `openingTheThirdOfFiveShowsPageThreeAndASwipeShowsPageFour`, `aMissingPhotoShowsTheTroubleState`,
-  `aRestoredScreenWithoutTheListShowsTheOpenedPhotoAlone`.
+  `aRestoredScreenWithoutTheListShowsTheOpenedPhotoAlone`, `aPictureInMemoryIsShownWhileThePhotoLoads`.
 - `PdfPageScreenTest`: `matchedHereAppearsOnTheMatchedPageOnly`, `aPdfOpenedWithoutASearchMatchMarksNoPage`, `failedStateOffersOpenInAnotherApp`,
   `zoomBucketGrowsWithZoomAndCaps`, `renderScaleNeverPassesTheBitmapCap`.
 - `PlayerViewModelTest`: `theSameViewModelKeepsTheSamePlayerAndReleasesItWhenCleared`,
   `startsAtTheHitUntilAPositionWasSaved`, `stoppingSavesThePositionAndTheRestoredViewModelOpensThere`,
-  `aPlayerErrorMovesTheStateToFailed`.
+  `stoppingReleasesTheMediaAndStartingLoadsItAgain`, `aPlayerErrorMovesTheStateToFailed`.
 - `DocScreenTest`: `loadsTheParagraphsAndOpensOnTheOneWithTheQuery`, `textScrollsToTheMatchedParagraphAndHighlightsIt`,
   `aFileWithNoChunksIsEmpty`, `aFileStillWaitingToBeReadSaysSoNotThatItCouldntBeRead`,
-  `aSkippedFileWithNoTextIsEmptyAndAMissingOneFailed`, `aFailingReadShowsTheTroubleState`, `loadingShowsNoText`.
+  `aSkippedFileWithNoTextIsEmptyAndAMissingOneFailed`, `aFailingReadShowsTheTroubleState`, `loadingShowsNoText`,
+  `theMatchesAreFoundOffTheMainThread`.
 - `SearchViewModelTest.openingADocumentHitCarriesItsIdAndTheQueryToTheReader`.
 - Actions and info: `FileActionsTest` (menu order and availability per source, the star label, `readingLabel` for every state, `infoRows`). `ViewerQueueTest` (`positionLabel`, `neighbors`, `starFitsInBar`); `PdfPageScreenTest.theBarNamesTheMatchedPageAndWhereTheReaderIs`; `DocScreenTest.everyParagraphWithTheWordsIsAMatchAndStepsWrapRound`, `theMatchBarStepsToTheNextMatch`; `PlayerViewModelTest.opensPausedSoNothingPlaysUntilPlayIsPressed`.
 - iOS: `iosApp/RetrieverUITests/AccessibilityAuditTests.swift` audits fixture routes only.
