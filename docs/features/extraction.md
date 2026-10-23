@@ -56,8 +56,10 @@ extraction is covered by `SelfTest.swift`; the cross-platform `MeaningUpgradeTes
 - ML Kit has no Arabic, Cyrillic, Thai, Hebrew or Tamil; those screenshots read through the Latin pass and store
   low-confidence text. A CJK screenshot read while its Play-services recognizer is still downloading is not re-read.
 - ML Kit tries the next script only for nonempty uncertain/broken text; a blank first reading stops immediately.
-- EPUB reads chapters in zip order and PPTX in slide-file order, not spine or presentation order. HTML and text are decoded as
-  UTF-8 only.
+- EPUB reads chapters in zip order and PPTX in slide-file order, not spine or presentation order.
+- HTML and text decode by `decodeText`: a byte-order mark, UTF-16, UTF-8, else Windows-1252. A legacy CJK file (Shift-JIS,
+  GBK, EUC-KR, Big5) without a mark reads as Windows-1252 garbage. Android's ICU `CharsetDetector` is not in the SDK
+  (`android.jar` has no `android.icu.text.CharsetDetector`), so a detector would be a new library.
 - Audio files are name-only on both platforms; video moments have no audio.
 - iOS `usesLanguageCorrection` can alter codes and passwords in screenshots.
 - Later: a one-entry archive cache for iOS `zipEntryText` (it reopens the archive per entry), and DOCX/ODF streaming still
