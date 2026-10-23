@@ -1426,9 +1426,14 @@ class Retriever(
     private val _fileRevision = MutableStateFlow(0L)
     val fileRevision: StateFlow<Long> = _fileRevision.asStateFlow()
 
-    /** Holds the scan lock across the platform rename and index update so a scan cannot replace the file id. */
+    /**
+     * Holds the index lock across the platform rename and index update so no batch or plan replaces the file id meanwhile.
+     * A running batch stops within one file instead of holding the person's rename until it ends (up to 8 minutes); its
+     * file's attempt is given back and the platform runs the next batch as usual ([NextRun.SOON]).
+     */
     @Throws(Throwable::class)
     suspend fun renameFile(uri: String, operation: (SourceFile) -> SourceFile?): SourceFile? = io {
+        cancelBatch()
         indexLock.withLock {
             val old = store.fileByUri(uri)?.file ?: return@withLock null
             val changed = operation(old) ?: return@withLock null
@@ -1445,8 +1450,10 @@ class Retriever(
         return file
     }
 
+    /** Stops a running batch first, as [renameFile] does. */
     @Throws(Throwable::class)
     suspend fun deletedFiles(uris: List<String>) = io {
+        cancelBatch()
         indexLock.withLock {
             sync.remove(uris)
             _fileRevision.update { it + 1 }

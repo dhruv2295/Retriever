@@ -1,6 +1,10 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +12,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class FileMutationTest {
     @Test fun renamedFileKeepsItsIdStarAndRecentEntryAndDeletionRemovesThem() = runBlocking {
@@ -42,6 +47,37 @@ class FileMutationTest {
         assertEquals(file, retriever.storedFile(file.uri)?.file)
         assertEquals(setOf(file.uri), retriever.starred.value)
         assertEquals(0L, retriever.fileRevision.value)
+    }
+
+    @Test fun renamingOrDeletingDuringABatchStopsItInsteadOfWaitingForItsEnd() = runBlocking {
+        withTimeout(20.seconds) {
+            var reading = CompletableDeferred<Unit>()
+            // Every read hangs until the batch is cancelled: without the stop, the rename would wait for the batch's end.
+            val extractor = object : Extractor {
+                override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
+                    reading.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            val store = newStore()
+            store.setProfile(PROFILE)
+            val file = testFile("before.txt")
+            val retriever = testRetriever(store, listOf(file), extractor)
+            retriever.refreshSetUp()
+            var batch = async { retriever.indexBatch(1.minutes) }
+            reading.await()
+            val changed =
+                assertNotNull(withTimeout(5.seconds) { retriever.renameFile(file.uri) { it.copy(uri = "content://test/after.txt", name = "after.txt") } })
+            assertEquals(NextRun.SOON, batch.await(), "the platform runs the next batch as usual")
+            assertEquals(0, retriever.storedFile(changed.uri)?.attempts, "the stopped read gave its attempt back")
+
+            reading = CompletableDeferred()
+            batch = async { retriever.indexBatch(1.minutes) }
+            reading.await()
+            withTimeout(5.seconds) { retriever.deletedFiles(listOf(file.uri)) }
+            assertEquals(NextRun.SOON, batch.await())
+            assertNull(retriever.storedFile(file.uri))
+        }
     }
 
     @Test fun onlyRealReadingRearmsTheDismissedCompletion() = runBlocking {
