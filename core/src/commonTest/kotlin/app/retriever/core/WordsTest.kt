@@ -151,6 +151,7 @@ class WordsTest {
         assertNull(Words.recentFilesAction(DescriptionState.PREPARING, "388 MB"))
         assertEquals("The other $n files", Words.otherFiles(25_763))
         assertEquals("2 folders added", Words.foldersAdded(2))
+        assertEquals("Your recent files", Words.recentFiles(0), "Continue before the files were picked")
         for (s in DescriptionState.entries.map(Words::recentFilesBody)) {
             assertFalse(Regex("minute|tonight|overnight|tomorrow").containsMatchIn(s), "“$s” promises a time")
         }
