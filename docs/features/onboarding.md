@@ -18,7 +18,8 @@ redesign" canvas):
    Nothing given keeps the person here on purpose: there is nothing to search without access.
 3. **First search** (`SAMPLE`): the demo's 30 recent files with search from the first frame. The field says "Search by
    name or words" until search by description is ready, so no one describes too early; a quiet line says where the
-   download is (`descriptionLine`), and a banner says when it is ready. Continue calls `Retriever.finishSetup()`.
+   download is (`descriptionLine`, with Try again after a failure, and Free up space too on Android when space ran out),
+   and a banner says when it is ready. Continue calls `Retriever.finishSetup()`.
 4. **Home**, with a one-time card (`Prefs.homeIntroDue`) under the search field: what the recent files can do now
    (`recentFilesBody`, per `DescriptionState`, with its action), the rest of the files while charging and not in use,
    new files picked up automatically. No time is promised. Got it dismisses it; the status line and upgrade row carry

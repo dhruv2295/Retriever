@@ -22,6 +22,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import org.robolectric.shadows.ShadowStatFs
 import org.robolectric.shadows.ShadowStorageManager
 import java.io.File
 import java.io.IOException
@@ -105,6 +106,8 @@ class ModelDownloadTest {
         assertEquals(1, manager.requestCount)
 
         SpaceShadow.allocatable = ModelDownload.neededBytes(b) - 1
+        // Room by StatFs, which ignores Android's low-storage reserve: Android's refusal still stands.
+        ShadowStatFs.registerStats(dir, 1_000_000, 1_000_000, 1_000_000)
         assertFalse(dl.hasSpaceFor(b))
         assertThrows(ModelDownload.NoSpace::class.java) { dl.start(b, Prefs()) }
         assertEquals(1, manager.requestCount)

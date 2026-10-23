@@ -135,7 +135,8 @@ class IndexService(private val context: Context, private val retriever: Retrieve
      * The run asks for its foreground service ([FOREGROUND]) only where an exemption lets Android start one from the
      * background: the app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit.
      * Without one the start throws, and WorkManager, which counts the work as foreground before it tries, then ignores
-     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start).
+     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start). Leaving's exemption lasts only seconds,
+     * so the worker asks before anything else, the model's check and tune included.
      */
     private suspend fun continueInForeground(tag: String, leaving: Boolean) {
         val ask = leaving || retriever.uiVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
@@ -143,17 +144,14 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
             // Expedited work takes only network and storage constraints; core checks battery, heat and Battery Saver per file.
             .setConstraints(storageNotLow().build())
-            .setInputData(workDataOf(tag to true, FOREGROUND to ask))
+            .setInputData(workDataOf(FOREGROUND to ask))
             .addTag(tag)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
         work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
     }
 
-    /**
-     * Every run waits while storage is low: a batch then fails each file's write (SQLite full), and three such batches
-     * leave the files skipped until the person retries them.
-     */
+    /** Every run waits while storage is low, so a batch doesn't start only to stop at once on a full disk (core's DISK_FULL). */
     private fun storageNotLow() = Constraints.Builder().setRequiresStorageNotLow(true)
 
     /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */

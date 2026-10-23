@@ -112,7 +112,8 @@ class IndexWorkerTest {
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
             .setForegroundUpdater(countingUpdater)
-            .setInputData(workDataOf(IndexService.TRIAL to trial, IndexService.CHARGER to charger, IndexService.FOREGROUND to askForeground))
+            .setTags(listOfNotNull(IndexService.TRIAL.takeIf { trial }, IndexService.CHARGER.takeIf { charger }))
+            .setInputData(workDataOf(IndexService.FOREGROUND to askForeground))
             .build()
     }
 
@@ -164,6 +165,36 @@ class IndexWorkerTest {
         assertEquals(false, retriever.setUp.value)
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertEquals(true, retriever.setUp.value)
+    }
+
+    /** Android allows the start for only seconds after the app leaves, and a tune takes a minute: the service comes first. */
+    @Test fun aChargerRunAsksForItsServiceBeforeTheTune() = runBlocking {
+        val tuning = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val model = object : Embedder {
+            override val signature = Signature("M740/test/vt70/d256/t512")
+            override val backend = Backend.CPU
+
+            override suspend fun embedRaw(parts: List<Part>): FloatArray {
+                tuning.complete(Unit)
+                release.await()
+                return FloatArray(768).also { it[0] = 1f }
+            }
+
+            override fun close() = Unit
+        }
+        val retriever = untuned(model)
+        val run = async(Dispatchers.Default) { worker(retriever, charger = true).doWork() }
+        try {
+            withTimeout(10.seconds) { tuning.await() }
+            assertEquals("asked before the tune", 1, foregrounds.get())
+            release.complete(Unit)
+            assertEquals(ListenableWorker.Result.success(), withTimeout(10.seconds) { run.await() })
+            assertEquals(true, retriever.setUp.value)
+        } finally {
+            release.complete(Unit)
+            run.cancel()
+        }
     }
 
     /** A tune that fails is logged and left for a later run: the run itself still succeeds and syncs the files. */

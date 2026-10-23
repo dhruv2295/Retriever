@@ -59,6 +59,14 @@ class AppLaunchTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             rule.waitUntil(10_000) { koin.get<Retriever>().setUp.value != null }
             rule.onNodeWithText(Words.helloTitle(koin.get<Retriever>().textOnly)).assertIsDisplayed()
+            // A first run starts at setup, which reports fully drawn at once: Home's report would come only once setup ends.
+            lateinit var activity: MainActivity
+            scenario.onActivity { activity = it }
+            rule.waitUntil(5_000) {
+                // Robolectric draws no frames on a surface, so the draw that delivers the report is dispatched by hand.
+                activity.window.decorView.viewTreeObserver.dispatchOnDraw()
+                activity.fullyDrawnReporter.isFullyDrawnReported
+            }
             scenario.onActivity { assertEquals(Lifecycle.State.RESUMED, it.lifecycle.currentState) }
             app.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
             rule.waitForIdle()

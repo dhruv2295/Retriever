@@ -26,7 +26,8 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   `TransactionTooLarge`). `Opener.open` hands the list to a Koin `ViewerQueue` before navigating; the route carries only
   the opened photo. After process death `ViewerQueue.itemsFor` falls back to that one photo.
 - **PDF: `PdfRenderer` kept.** `PdfPageScreen` is adapted from the platform-samples `PdfRenderer` sample: one renderer
-  opened for the screen's lifetime on a single-thread dispatcher (`PdfRenderer` is not thread-safe), a lazy list of pages
+  opened for the screen's lifetime on a single-thread view of the app's one PDF dispatcher (`Thumbnails.pdfDispatcher`,
+  which the grids' PDF thumbnails share; `PdfRenderer` is not thread-safe), a lazy list of pages
   sized up front, opened at the matched page, with "Matched here" on that page. Zoom is Telephoto on a single-page view
   (a zoomable over the whole list would take the vertical drags the list needs), and the render scale grows with zoom up
   to a cap. The zoomed page covers the list, takes its touches and hides it from TalkBack, closes with a visible Close
@@ -35,8 +36,8 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   search and selection, and parses in an isolated process, with minSdk 28 below the app's 30. It is not adopted because
   it is beta with an experimental opt-in, and whether it can mark the matched page the way "Matched here" does is not
   checked. Revisit when it is stable; `PdfPageFrame` stays until then.
-- **Video and audio: Media3.** `PlayerViewModel` owns the one `ExoPlayer` of a route, so a rotation keeps it playing and
-  the screen only attaches a `PlayerView`; the position is saved on stop and restored, starting at the hit until a
+- **Video and audio: Media3.** `PlayerViewModel` owns the one `ExoPlayer` of a route, so a rotation keeps its item and
+  place (it stops with the activity and prepares again, paused) and the screen only attaches a `PlayerView`; the position is saved on stop and restored, starting at the hit until a
   position was saved. It opens paused: sound starts only at Play. `ON_STOP` pauses and stops, so nothing plays in the
   background and the decoders and buffers go back (Media3 asks for that); the item and position stay, and `ON_START`
   prepares again, still paused. A player error is a `Failed` state.

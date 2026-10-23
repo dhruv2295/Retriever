@@ -78,7 +78,7 @@ internal object DocPage {
     /** Zip formats: without the zip signature (encrypted, or not what the name says) they have no head to show. */
     private val CONTAINERS = setOf("docx", "xlsx", "pptx", "odt", "ods", "odp", "epub")
 
-    /** Called on [Thumbnails.load]'s IO dispatcher; null when the file gives nothing worth drawing. */
+    /** Called on [Thumbnails.renderDispatcher]; null when the file gives nothing worth drawing. */
     fun render(context: Context, file: SourceFile, n: Int): Bitmap? =
         context.contentResolver.openInputStream(file.uri.toUri())?.use { read(it, file.name, file.mime) }?.let { draw(it, n) }
 

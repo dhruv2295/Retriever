@@ -7,7 +7,6 @@ import app.retriever.core.SourceFile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -15,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -56,23 +56,23 @@ class ThumbnailsTest {
     @Test fun aFlingDecodesAFewAtATimeAndDropsTheQueuedOnes() = runBlocking {
         val gate = CountDownLatch(1)
         val started = AtomicInteger()
+        val busy = CountDownLatch(Thumbnails.THUMBNAIL_WORKERS)
         val jobs = (1..20).map { n ->
             launch(Dispatchers.Default) {
                 Thumbnails.load(app, photo(n), 256, "", Thumbnails.dispatcherFor(Kind.PHOTO)) {
                     started.incrementAndGet()
+                    busy.countDown()
                     gate.await(5, SECONDS)
                     null
                 }
             }
         }
-        withTimeout(5_000) { while (started.get() < 4) delay(10) }
-        delay(200)
-        val running = started.get()
-        assertTrue("$running decodes at once", running in 4..6)
+        // Every worker holds a decode, so nothing else can start before the cells scroll away.
+        assertTrue("every worker decodes", busy.await(5, SECONDS))
         jobs.forEach { it.cancel() }
         gate.countDown()
         jobs.joinAll()
-        assertEquals(running, started.get())
+        assertEquals("only the workers' decodes ran", Thumbnails.THUMBNAIL_WORKERS, started.get())
     }
 
     /** A decode that finishes after its cell left is kept, so scrolling back finds it in memory. */
@@ -91,6 +91,13 @@ class ThumbnailsTest {
         finish.countDown()
         job.join()
         assertNotNull(Thumbnails.cached(app, photo(), 256))
+    }
+
+    /** A cell seeded from memory gets the very picture its load returns, so it neither recomposes nor crossfades again. */
+    @Test fun aCachedPictureIsTheOneItsLoadReturns() = runBlocking {
+        val loaded = Thumbnails.load(app, photo(), 256, "", Dispatchers.IO) { createBitmap(4, 4) }
+        assertSame(loaded, Thumbnails.cached(app, photo(), 256))
+        assertSame(loaded, Thumbnails.load(app, photo(), 256, "", Dispatchers.IO) { error("decoded again") })
     }
 
     /** A brief hide keeps the pictures for the way back; once the hidden app is cached they make room for the indexer. */

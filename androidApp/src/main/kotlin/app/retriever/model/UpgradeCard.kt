@@ -189,10 +189,7 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
             Text(if (m.reason == ModelRepository.STOPPED) Words.DOWNLOAD_FAILED else m.reason, live, color = MaterialTheme.colorScheme.error)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = actions.download) { Text(Words.TRY_AGAIN) }
-                if (m.noSpace) {
-                    val context = LocalContext.current
-                    TextButton(onClick = { openStorageManager(context) }) { Text(Words.FREE_UP_SPACE) }
-                }
+                if (m.noSpace) FreeUpSpaceButton()
             }
         }
 
@@ -200,7 +197,16 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
     }
 }
 
-/** Android's own screen for freeing space (developer.android.com/training/data-storage/app-specific#query-free-space). */
+/**
+ * A download refused for space, wherever it shows (this card, setup's line, Home's card and line): Android's own screen for
+ * freeing space (developer.android.com/training/data-storage/app-specific#query-free-space), beside that place's Try again.
+ */
+@Composable
+internal fun FreeUpSpaceButton() {
+    val context = LocalContext.current
+    TextButton(onClick = { openStorageManager(context) }) { Text(Words.FREE_UP_SPACE) }
+}
+
 private fun openStorageManager(context: Context) {
     try {
         context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))

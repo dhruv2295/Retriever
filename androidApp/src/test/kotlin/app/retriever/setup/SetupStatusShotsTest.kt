@@ -1,5 +1,6 @@
 package app.retriever.setup
 
+import android.os.storage.StorageManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -70,6 +71,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -360,6 +362,17 @@ class SetupStatusShotsTest {
         var retried = false
         demo("first_search_failed_light", processing, state = DescriptionState.FAILED, actions = SetupActions(retryDownload = { retried = true }))
         rule.onNodeWithText(Words.descriptionLine(DescriptionState.FAILED, null)!!).assertIsDisplayed()
+        rule.onNodeWithText(Words.TRY_AGAIN).performClick()
+        assertTrue(retried)
+    }
+
+    /** Refused for space: Android's storage screen, then Try again, as Settings' card offers. */
+    @Test fun demoNoSpaceFreesUpSpaceThenTriesAgain() {
+        var retried = false
+        demo("first_search_no_space_light", processing, state = DescriptionState.NO_SPACE, actions = SetupActions(retryDownload = { retried = true }))
+        rule.onNodeWithText(Words.descriptionLine(DescriptionState.NO_SPACE, null)!!).assertIsDisplayed()
+        rule.onNodeWithText(Words.FREE_UP_SPACE).performClick()
+        assertEquals(StorageManager.ACTION_MANAGE_STORAGE, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity?.action)
         rule.onNodeWithText(Words.TRY_AGAIN).performClick()
         assertTrue(retried)
     }

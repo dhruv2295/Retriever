@@ -92,7 +92,7 @@ full size, shrinks with width at large text). `for (c in cards) key(c.index) { F
 .graphicsLayer { rotationZ; translationX/Y }) }`. One semantics node: `contentDescription = readOf(...)`,
 `Role.Button`, `onClickLabel = seeAll(planned)`; the title keeps `kindRead` per kind (`taste.spoken`) for screen readers. iOS `SamplePile` in `SetupView.swift`: `ZStack` +
 `rotationEffect`, `offset`, `zIndex`, `.accessibilityElement(children: .ignore)` with the same label and action.
-Thumbnails: the existing cache (`Thumbnails` LRU + `produceState`, PDFs on `renderDispatcher`; iOS `Thumb`'s task).
+Thumbnails: the existing cache (`Thumbnails` LRU + `produceState`, PDFs on `pdfDispatcher`; iOS `Thumb`'s task).
 At most 12 cards compose; `SampleFile` goes in `androidApp/stability.conf`, so only the new card composes.
 
 ## Core changes

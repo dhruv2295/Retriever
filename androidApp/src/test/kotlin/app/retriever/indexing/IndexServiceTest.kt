@@ -168,10 +168,11 @@ class IndexServiceTest {
         retriever.commit(whileCharging = true)
         val service = IndexService(context, retriever)
 
-        service.screenOff()
+        service.screenOff(leaving = true)
         val live = infos(CONTINUE).single { !it.state.isFinished }
-        assertTrue("asks for its foreground service", IndexService.CHARGER in live.tags)
+        assertTrue(IndexService.CHARGER in live.tags)
         assertEquals(false, live.constraints.requiresDeviceIdle())
+        assertTrue("asks for its foreground service", startedInput(CONTINUE).getBoolean(IndexService.FOREGROUND, false))
 
         work.cancelAllWork().result.get()
         retriever.pause()

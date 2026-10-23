@@ -140,7 +140,8 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Generated Baseline Profile:** at the first store upload, the `androidx.baselineprofile` plugin with a
   `:baselineprofile` module (cold start to Home, a search, opening a result) and a Macrobenchmark startup test. Until
   then `androidApp/src/main/baseline-prof.txt` holds app-wide wildcard rules (every `app/retriever/**` class and method,
-  `:core` included), and Home reports fully drawn once its counts load (`ReportDrawnWhen`).
+  `:core` included). Home reports fully drawn once its counts load (`ReportDrawnWhen`); Setup on its first frame
+  (`ReportDrawn`).
 
 ### No (each with its reason)
 
