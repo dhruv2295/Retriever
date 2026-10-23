@@ -1,6 +1,9 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -471,6 +474,30 @@ class DuplicateFinderTest {
         assertEquals(10, DuplicateFinder(store, hasher).find().single().files.size)
         assertEquals(DuplicateFinder.HASH_READS, most)
         assertTrue((1..10).all { store.fileByUri(uriOf("f$it"))?.quickHash == "q" }, "every new hash is kept")
+    }
+
+    /** Leaving the screen cancels the scan: what it read so far is kept, so the next visit doesn't read it again. */
+    @Test
+    fun aScanThatIsLeftKeepsTheHashesItRead() = runTest {
+        val store = newLibraryStore()
+        store.upsertFiles((1..10).map { sf("f$it", size = 100_000, modifiedAt = it.toLong()) })
+        val threeRead = CompletableDeferred<Unit>()
+        var reads = 0
+        val hasher = object : ContentHasher {
+            override suspend fun quickHash(uri: String, size: Long): String {
+                if (++reads > 3) {
+                    threeRead.complete(Unit)
+                    awaitCancellation()
+                }
+                return "q"
+            }
+
+            override suspend fun fullHash(uri: String): String = "f"
+        }
+        val scan = launch { DuplicateFinder(store, hasher).find() }
+        threeRead.await()
+        scan.cancelAndJoin()
+        assertEquals(3, (1..10).count { store.fileByUri(uriOf("f$it"))?.quickHash == "q" })
     }
 
     @Test
