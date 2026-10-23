@@ -96,7 +96,7 @@ class VectorScanTest {
 
     @Test
     fun parallelSlicesFindWhatOneScanFinds() = runTest {
-        val half = (SearchEngine.PARALLEL_ROWS + SearchEngine.SLICE_ROWS) / 2
+        val half = 3 * SearchEngine.SLICE_ROWS / 2
         val first = flat(half)
         // The second half repeats the first, so every cosine ties with a row in a later slice.
         val all = Flat(first.bytes + first.bytes, first.scales + first.scales, first.kinds + first.kinds, first.days + first.days)
