@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -91,6 +92,13 @@ class ThumbnailsTest {
         finish.countDown()
         job.join()
         assertNotNull(Thumbnails.cached(app, photo(), 256))
+    }
+
+    /** A cell seeded from memory gets the very picture its load returns, so it neither recomposes nor crossfades again. */
+    @Test fun aCachedPictureIsTheOneItsLoadReturns() = runBlocking {
+        val loaded = Thumbnails.load(app, photo(), 256, "", Dispatchers.IO) { createBitmap(4, 4) }
+        assertSame(loaded, Thumbnails.cached(app, photo(), 256))
+        assertSame(loaded, Thumbnails.load(app, photo(), 256, "", Dispatchers.IO) { error("decoded again") })
     }
 
     /** A brief hide keeps the pictures for the way back; once the hidden app is cached they make room for the indexer. */

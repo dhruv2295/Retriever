@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.takeOrElse
@@ -89,19 +90,20 @@ object Thumbnails {
      * The pictures, and the files with none (encrypted PDF, audio) so they are not retried on every scroll. Sized from the
      * normal heap's memory class, not largeHeap's: bitmaps live outside the Java heap, and the model and the indexer share
      * this process. Emptied once the hidden app is cached (TRIM_MEMORY_BACKGROUND), not on every brief hide (a share sheet,
-     * an Open with app), which would reload every cell on the way back.
+     * an Open with app), which would reload every cell on the way back. Held as ImageBitmap, so a cell seeded from memory and
+     * its load get the same picture, which neither recomposes the cell nor crossfades it again.
      */
     private class Memory(app: Context) : ComponentCallbacks2 {
         /** The application this cache belongs to, held weakly: a static must not hold a context. */
         val owner = WeakReference(app)
-        val bitmaps: LruCache<String, Bitmap>
+        val bitmaps: LruCache<String, ImageBitmap>
         val misses = LruCache<String, Boolean>(2000)
 
         init {
             val am = app.getSystemService(ActivityManager::class.java)
             val kb = am.memoryClass * 1024 / 8
-            bitmaps = object : LruCache<String, Bitmap>(if (am.isLowRamDevice) kb / 2 else kb) {
-                override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+            bitmaps = object : LruCache<String, ImageBitmap>(if (am.isLowRamDevice) kb / 2 else kb) {
+                override fun sizeOf(key: String, value: ImageBitmap): Int = value.asAndroidBitmap().byteCount / 1024
             }
             app.registerComponentCallbacks(this)
         }
@@ -157,8 +159,7 @@ object Thumbnails {
     internal fun key(file: SourceFile, sizePx: Int, locator: String = "") = "${file.uri}@${file.modifiedAt}:${file.size}@$sizePx#$locator"
 
     /** The bitmap when it is already in memory, so a cell can start with it and not fade in again. */
-    fun cached(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? =
-        memory(context).bitmaps.get(key(file, sizePx, locator))?.asImageBitmap()
+    fun cached(context: Context, file: SourceFile, sizePx: Int, locator: String = ""): ImageBitmap? = memory(context).bitmaps.get(key(file, sizePx, locator))
 
     /** The sharpest picture of [file] in memory at any size, for a viewer to show while it loads the file itself. */
     fun largestCached(context: Context, file: SourceFile): ImageBitmap? = buckets.reversed().firstNotNullOfOrNull { cached(context, file, it) }
@@ -178,12 +179,12 @@ object Thumbnails {
     ): ImageBitmap? {
         val memory = memory(context)
         val key = key(file, sizePx, locator)
-        memory.bitmaps.get(key)?.let { return it.asImageBitmap() }
+        memory.bitmaps.get(key)?.let { return it }
         if (memory.misses.get(key) != null) return null
         return coroutineScope {
             val signal = CancellationSignal()
             val work = async(dispatcher) {
-                val bitmap = runCatching { render(signal) }.getOrNull()
+                val bitmap = runCatching { render(signal) }.getOrNull()?.asImageBitmap()
                 // Kept even when the cell has scrolled away, for when it comes back. A load cut short is not a miss.
                 if (bitmap != null) {
                     memory.bitmaps.put(key, bitmap)
@@ -199,7 +200,7 @@ object Thumbnails {
                 signal.cancel()
                 throw e
             }
-        }?.asImageBitmap()
+        }
     }
 
     private suspend fun render(context: Context, file: SourceFile, n: Int, locator: String, signal: CancellationSignal): Bitmap? {
