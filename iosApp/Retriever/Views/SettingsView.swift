@@ -115,7 +115,7 @@ struct SettingsView: View {
                     ? Words.shared.whileChargingBody(words: Copy.words)
                     : snap.automaticReading == .manual
                         ? "Only when you choose \(Words.shared.READ_FOR_15). You can always find any file by its name."
-                        : "Processes your files while Retriever is open, and when iOS allows, above 20% battery. Pauses when your \(Copy.device) is warm or in Low Power Mode."
+                        : "Processes your files while Retriever is open, above 20% battery. When you’re not using it, iOS waits until your \(Copy.device) is charging. Pauses when your \(Copy.device) is warm or in Low Power Mode."
             ).font(.footnote)
             if #available(iOS 26.0, *) {
                 EmptyView()
