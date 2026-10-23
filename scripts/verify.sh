@@ -93,6 +93,16 @@ check_16k() {
   check_elf_16k "$tmp"
 }
 
+# Play derives an App Bundle's ABIs from its lib/ folders: a 32-bit one would offer the app to phones that can't load the
+# model. Its own Gradle run, since a bundle build turns the ABI splits off (androidApp/build.gradle.kts); about 75 s.
+check_bundle_abis() {
+  local aab="$ROOT/androidApp/build/outputs/bundle/release/androidApp-release.aab" bad
+  "$ROOT/gradlew" -q -p "$ROOT" :androidApp:bundleRelease
+  [ -f "$aab" ] || { fail "no release bundle at $aab"; return 1; }
+  bad="$(unzip -Z1 "$aab" | grep -E '(^|/)lib/(armeabi-v7a|x86)/' || true)"
+  [ -z "$bad" ] || { fail "32-bit libraries in $aab: $(printf '%s\n' "$bad" | head -3 | tr '\n' ' ')"; return 1; }
+}
+
 tracked() { # $1 = extension; tracked and new files, minus the excluded ones
   ( cd "$ROOT" && git ls-files -co --exclude-standard -- "*.$1" | grep -Ev "$EXCLUDED" || true )
 }
@@ -154,6 +164,7 @@ main() {
   step "notices"; check_notices
   step "16 KB alignment"; check_16k
   if [ $full = 1 ]; then
+    step "bundle ABIs"; check_bundle_abis
     step "inspections"; inspections
     step "ios selftest"; scripts/ios-selftest.sh
     if [ -x scripts/ios-ui-tests.sh ]; then step "ios ui tests"; scripts/ios-ui-tests.sh; fi

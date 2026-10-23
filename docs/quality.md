@@ -19,8 +19,9 @@ Default layers:
 5. Version check: the Android `versionName` equals the iOS `MARKETING_VERSION`.
 6. 16 KB page-size check on release builds (`zipalign -c -P 16` and `check_elf.py`).
 
-`--full` adds `-Pbench`, `-Pcoverage` (a Kover report, no threshold), the headless inspections, `scripts/ios-selftest.sh`
-and the iOS UI tests.
+`--full` adds `-Pbench`, `-Pcoverage` (a Kover report, no threshold), the bundle ABI check (`bundleRelease` in its own
+Gradle run, about 75 s; fails on any 32-bit `lib/` folder), the headless inspections, `scripts/ios-selftest.sh` and the
+iOS UI tests.
 
 Warnings are defects. The build fails on them: lint `warningsAsErrors`, and Kotlin `allWarningsAsErrors`
 on every compilation of `:androidApp` and `:core` (Android and iOS, tests included). A dependency-forced deprecation
@@ -29,7 +30,9 @@ is a targeted `@Suppress("DEPRECATION")` at its call, with the reason. Swift bui
 The lint baseline is empty: `androidApp/lint-baseline.xml` is deleted and no baseline is configured, so any new
 lint issue fails the build. Release builds ship per-ABI APKs (`androidApp-arm64-v8a-release.apk` and
 `androidApp-x86_64-release.apk`, no universal APK) via AGP `splits { abi }`, which satisfies `ChromeOsAbiSupport`;
-the 16 KB check covers both.
+the 16 KB check covers both. A bundle build turns the splits off (AGP can't build an App Bundle with them), and
+`packaging.jniLibs` drops the 32-bit libraries ML Kit and androidx ship, so neither output offers the app to 32-bit
+phones, which can't load the model.
 
 Use `--rerun-tasks` only for the final gate. During development, run the tests you touched and compile the
 modules you changed.
