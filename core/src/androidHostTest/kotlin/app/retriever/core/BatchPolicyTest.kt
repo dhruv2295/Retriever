@@ -1,7 +1,10 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -35,6 +38,7 @@ class BatchPolicyTest {
         val factory = FakeFactory()
         var onSync: () -> Unit = {}
         var onExtract: (SourceFile) -> Unit = {}
+        var onLog: (String) -> Unit = {}
         val extractor = FakeExtractor(onExtract = { onExtract(it) })
         private val source = object : FileSource {
             override suspend fun changes(since: String?): Changes {
@@ -44,7 +48,7 @@ class BatchPolicyTest {
         }
         val r = Retriever(
             store, source, extractor, factory, monitor, NoHasher, PIXEL.copy(ramGb = ramGb), { modelReady }, { true },
-            { _, _ -> }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), fewWaitingLimit = 0,
+            { m, _ -> onLog(m) }, System::currentTimeMillis, { 0L }, CoreDispatchers(dispatcher), fewWaitingLimit = 0,
         )
 
         fun indexed() = store.countsByState()[FileState.INDEXED] ?: 0L
@@ -185,6 +189,18 @@ class BatchPolicyTest {
         assertEquals(NextRun.RETRY, f.r.indexBatch(1.minutes))
         assertTrue(f.r.state.value.lastError != null)
         assertTrue(f.factory.opened.isEmpty())
+    }
+
+    @Test
+    fun aFailedCheckOffTheBatchIsLoggedNotACrash() = test {
+        val f = Fx()
+        val logged = CompletableDeferred<Unit>()
+        f.onLog = { if (it == "Background work failed") logged.complete(Unit) }
+        // Only the batch's watchdog asks off the test thread: its check fails, the batch's own checks pass.
+        f.monitor.failing = { Thread.currentThread().name.startsWith("DefaultDispatcher") }
+        f.onExtract = { runBlocking { withTimeout(10.seconds) { logged.await() } } }
+        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
+        assertEquals(1L, f.indexed())
     }
 
     @Test

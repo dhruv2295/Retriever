@@ -19,6 +19,7 @@
 package app.retriever.core
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -318,14 +320,17 @@ class Retriever(
         visible = { onScreen },
     )
 
-    /** For the model's open off a search's path: it outlives the search that started it. */
-    private val background = CoroutineScope(SupervisorJob() + dispatchers.default)
+    /**
+     * For the model's open off a search's path: it outlives the search that started it. A failure no launch caught (the
+     * batch's watchdog reads the device and the store) is logged: uncaught, it would end the process.
+     */
+    private val background = CoroutineScope(SupervisorJob() + dispatchers.default + CoroutineExceptionHandler { _, e -> log("Background work failed", e) })
 
     @Volatile
     private var opening: Job? = null
 
     @Throws(Throwable::class)
-    suspend fun refreshSetUp() = withContext(dispatchers.default) {
+    suspend fun refreshSetUp() = withContext(dispatchers.io) {
         reload()
         _starred.value = store.starredUris()
     }
@@ -392,7 +397,7 @@ class Retriever(
 
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
-        withContext(dispatchers.default) {
+        withContext(dispatchers.io) {
             // "Stop searching" acts here, paused or not: every platform's switch lands in this one place.
             var before = Prefs()
             val new = store.updatePrefs { old ->
@@ -420,16 +425,22 @@ class Retriever(
      * [read] of the latest [changes], once per burst of them (conflated) and once for all collectors (shared), only while
      * something collects: a screen that is gone costs nothing, and ten screens cost one. A new collector first gets a
      * fresh [read] of [current], never a value from before its subscription. No failure reaches a collector (on iOS an
-     * uncaught one ends the process): one in the shared read is logged and ends the sharing; a failed first read is
-     * logged and skipped, and the collector waits for the next change.
+     * uncaught one ends the process): one in the shared read is logged and read again after a pause that doubles up to
+     * half a minute, so a passing disk error doesn't freeze every screen; a failed first read is logged and skipped, and
+     * the collector waits for the next change. Blocking reads, so on [CoreDispatchers.io].
      */
     private fun <K, T> watched(changes: Flow<K>, current: () -> K, read: (K) -> T): Flow<T> {
         val shared = changes.conflate().map { read(it) }
-            .catch { log("A watched read failed", it) }
+            .retryWhen { e, attempt ->
+                log("A watched read failed", e)
+                delay(1_000L shl attempt.coerceAtMost(5).toInt())
+                true
+            }
+            .flowOn(dispatchers.io)
             .shareIn(background, SharingStarted.WhileSubscribed())
         return shared.onSubscription {
             runCatching { read(current()) }.onSuccess { emit(it) }.onFailure { log("A watched read failed", it) }
-        }.distinctUntilChanged().flowOn(dispatchers.default)
+        }.distinctUntilChanged().flowOn(dispatchers.io)
     }
 
     /** Meaning work waits for the model and its tune, as reading does. */
@@ -507,7 +518,7 @@ class Retriever(
                 emit(tick())
                 delay(1_000)
             }
-        }.flowOn(dispatchers.default).distinctUntilChanged()
+        }.flowOn(dispatchers.io).distinctUntilChanged()
         watched(
             combine(sharedCounts, prefs, state, ticks, ::StatusKey),
             { StatusKey(countsOf(countsKeyNow()), prefs.value, state.value, tick()) },
@@ -1504,7 +1515,7 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun requeue(kinds: Set<Kind>) = io { store.requeue(kinds) }
 
-    private suspend fun <T> io(block: suspend () -> T): T = withContext(dispatchers.default) { block() }
+    private suspend fun <T> io(block: suspend () -> T): T = withContext(dispatchers.io) { block() }
 
     // --- Calibration ---
 

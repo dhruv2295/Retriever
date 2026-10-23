@@ -63,8 +63,9 @@ internal class FakeFactory(var backendsFor: (ModelBuild) -> List<Backend> = { li
     }
 }
 
-internal class FakeMonitor(var state: DeviceState = DeviceState(8.0, true, 80, Thermal.NONE)) : DeviceMonitor {
-    override fun state(): DeviceState = state
+/** [failing] true makes [state] throw, as a dead binder would. */
+internal class FakeMonitor(var state: DeviceState = DeviceState(8.0, true, 80, Thermal.NONE), var failing: () -> Boolean = { false }) : DeviceMonitor {
+    override fun state(): DeviceState = if (failing()) throw IllegalStateException("binder died") else state
 }
 
 /** Returns the pieces listed for a file's name; [onExtract] runs first, e.g. to inspect the store mid-file. */
