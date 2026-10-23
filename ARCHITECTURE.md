@@ -80,7 +80,8 @@ and re-queues every file when the stored signature differs (`core/Store.kt:175`,
   `core/src/androidMain/.../MediaStoreSource.kt:49`, `core/src/iosMain/.../IosExtractor.kt:16`. `CoreDispatchers` does not
   reach them.
 - Android scopes: `AppScope` (`SupervisorJob() + Dispatchers.IO`) for work that outlives a screen
-  (`androidApp/.../di/AppModule.kt`); `viewModelScope` in ViewModels; `IndexWorker.doWork` on `Dispatchers.IO`.
+  (`androidApp/.../di/AppModule.kt`); `viewModelScope` in ViewModels; `IndexWorker.doWork` on `indexingDispatcher`, a
+  dedicated background-priority thread (`core/src/androidMain/.../IndexingDispatcher.kt`).
 - Locks inside `Retriever`: `indexLock` (one batch, or Tune), `embedderLock` (one model copy; `search` takes it with
   `tryLock` and falls back to keywords instead of waiting), `ftsRefill` (one FTS refill) (`core/Retriever.kt:146,589,640`).
 
@@ -88,7 +89,8 @@ and re-queues every file when the stored signature differs (`core/Store.kt:175`,
 
 - **Android: Koin.** `appModule` in `androidApp/.../di/AppModule.kt` builds the whole graph: store, retriever, sources,
   services, ViewModels (`viewModelOf`). Every `single` is lazy, so the first `get` happens off the main thread in
-  `RetrieverApp.start` (`androidApp/.../RetrieverApp.kt`). `IndexWorker` is a `KoinComponent` (`IndexWorker.kt:49`).
+  `RetrieverApp.start` (`androidApp/.../RetrieverApp.kt`). `IndexWorker` takes its dependencies as constructor
+  parameters, built by Koin's `worker { }` and `KoinWorkerFactory` (`AppModule.kt`, `RetrieverApp.kt`).
   Debug builds swap parts via `DemoMode` (`AppModule.kt`).
 - **iOS: `createRetriever`.** Swift's `AppServices` builds the native pieces and calls it once
   (`iosApp/Retriever/Core/AppServices.swift:61`, `RetrieverIos.kt:30`).

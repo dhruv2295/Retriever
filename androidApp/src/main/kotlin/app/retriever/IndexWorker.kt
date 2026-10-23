@@ -50,7 +50,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 // Stays in app.retriever: WorkManager persists this class name in pending work specs.
-// Built by Koin's WorkerFactory (workerOf in AppModule), so its dependencies are constructor parameters.
+// Built by Koin's WorkerFactory (worker { } in AppModule), so its dependencies are constructor parameters.
 class IndexWorker(
     context: Context,
     params: WorkerParameters,
