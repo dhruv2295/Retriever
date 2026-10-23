@@ -1,6 +1,7 @@
 package app.retriever.indexing
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ForegroundUpdater
@@ -71,11 +72,13 @@ class IndexWorkerTest {
     @After fun stop() = stopKoin()
 
     private val notificationIds = java.util.Collections.synchronizedList(mutableListOf<Int>())
+    private val serviceTypes = java.util.Collections.synchronizedList(mutableListOf<Int>())
 
-    /** Counts the run's foreground-service starts and keeps each one's notification id. */
+    /** Counts the run's foreground-service starts and keeps each one's notification id and service type. */
     private val countingUpdater = ForegroundUpdater { _, _, info ->
         foregrounds.incrementAndGet()
         notificationIds += info.notificationId
+        serviceTypes += info.foregroundServiceType
         CallbackToFutureAdapter.getFuture { it.set(null) }
     }
 
@@ -213,6 +216,8 @@ class IndexWorkerTest {
         retriever.uiVisible = true
         assertEquals(ListenableWorker.Result.success(), run(retriever))
         assertEquals(1, foregrounds.get())
+        // Play's declaration lists local file processing under dataSync; mediaProcessing is for media transcoding only.
+        assertEquals(listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC), serviceTypes.toList())
     }
 
     /** Q1 2: a run that can't read content (here paused) only syncs names, so it posts no reading notification. */

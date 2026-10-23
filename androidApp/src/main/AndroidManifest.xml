@@ -20,7 +20,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
 
     <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0): the
          chip-specific model builds use the NPU where there is one; phones without it still install. -->
@@ -64,11 +63,12 @@
             android:exported="false" />
 
         <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0):
-             WorkManager's foreground service needs its types declared on Android 14+. IndexWorker uses
-             mediaProcessing from Android 15 (its own time budget) and dataSync below it. -->
+             WorkManager's foreground service needs its type declared on Android 14+. IndexWorker uses dataSync
+             on every level: Play's declaration lists local file processing under it (mediaProcessing is for
+             media transcoding only). -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync|mediaProcessing"
+            android:foregroundServiceType="dataSync"
             android:exported="false"
             tools:node="merge">
         </service>

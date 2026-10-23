@@ -135,6 +135,9 @@ Release builds are signed with the debug key until the first store upload (see t
 - **Coil.** It does not fix the thumbnail problem and costs 150-400 KB.
 - **AppSearch.** A 3.78 MB duplicate index.
 - **LICENSE for Retriever itself.** The owner's call, before any publication.
-- **Already right, no change needed:** edge-to-edge and IME, splash, foreground service types, R8 full mode and keep rules,
-  PendingIntent and exported-component security, `@Throws`, the static framework and linker flags, BGTask
-  registration, and source-set hygiene.
+- **Already right, no change needed:** edge-to-edge and IME, splash, the foreground service type (`dataSync` on every API
+  level since 2026-10; `mediaProcessing` on 35+ was dropped because Play's FGS declaration lists it only for media
+  transcoding and lists local processing under `dataSync`,
+  support.google.com/googleplay/android-developer/answer/13392821), R8 full mode and keep rules, PendingIntent and
+  exported-component security, `@Throws`, the static framework and linker flags, BGTask registration, and source-set
+  hygiene.

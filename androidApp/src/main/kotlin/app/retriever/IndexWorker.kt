@@ -187,10 +187,11 @@ class IndexWorker(
         false
     }
 
-    // mediaProcessing has its own budget on API 35+.
+    // dataSync on every level: Play's foreground service declaration lists local file processing under it, while
+    // mediaProcessing's only declared use is media transcoding. Android 15+ gives either type the same 6 h a day.
     private suspend fun foregroundInfo() = ForegroundInfo(
         notificationId,
         Notifications.progress(applicationContext, retriever.counts().first().let { it.sampleProgress ?: it.progress }, null, pauseIntent),
-        if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
 }
