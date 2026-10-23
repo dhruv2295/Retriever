@@ -7,6 +7,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 
 /** The vector scan's layout and kernels: blocks, parallel slices and the native dot product all find what one flat scan finds. */
@@ -92,6 +93,32 @@ class VectorScanTest {
             all.top(q, 100) { it % 7 != 0 && it % 2 == 0 && all.kinds[it] % 2 == 0 && all.days[it] in 20..60 },
             engine.scan(q, 100, table, allowed, 20..60, LongArray(all.size / 2) { 2L * it + 1 }, dead = dead).pairs(),
         )
+    }
+
+    /** A small library's lone first block is the one block an append copies: a published view keeps the old one. */
+    @Test
+    fun aViewKeepsTheFirstBlockWhileItGrows() {
+        val all = flat(1_500)
+        val table = VectorTable.empty()
+        fun appendRows(rows: IntRange) {
+            for (row in rows) {
+                val vector = all.bytes.copyOfRange(row * DIMS, (row + 1) * DIMS)
+                table.append(row + 1L, row + 1L, vector, all.scales[row], Kind.entries[all.kinds[row].toInt()], Modality.TEXT, all.days[row])
+            }
+        }
+        appendRows(0 until 1_000)
+        val q = query()
+        val view = table.view()
+        val first = view.block(0)
+        val before = engine.scan(q, 100, view).pairs()
+
+        appendRows(1_000 until all.size)
+
+        assertNotSame(first, table.block(0), "the first block grew into a copy")
+        assertSame(first, view.block(0))
+        assertEquals(1_000, view.size)
+        assertEquals(before, engine.scan(q, 100, view).pairs(), "a published view never sees the copy")
+        assertEquals(all.top(q, 100), engine.scan(q, 100, table).pairs())
     }
 
     @Test

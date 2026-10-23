@@ -85,7 +85,7 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `RelevanceRuleTest.theSnippetIsTheSentenceSharingTheMostQueryWords` pins `bestSentence`.
 - `SearchBenchTest.searchStaysFastAtFiftyThousandFiles`, `keywordLanesRunBesideTheEmbed`: lane limits at scale.
 - `VectorScanTest` (commonTest, so also on the iOS simulator): `theNativeKernelScoresBitForBitAsDotInt8`,
-  `appendsLeaveEarlierBlocksAndViewsAsTheyWere`, `parallelSlicesFindWhatOneScanFinds`.
+  `appendsLeaveEarlierBlocksAndViewsAsTheyWere`, `aViewKeepsTheFirstBlockWhileItGrows`, `parallelSlicesFindWhatOneScanFinds`.
 - `EvalTest` and the corpus eval: see `eval.md`.
 
 Missing, as far as this note knows: a facade test that a sync swapping `names` mid-search leaves the old snapshot valid
