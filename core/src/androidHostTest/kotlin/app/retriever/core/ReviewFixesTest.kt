@@ -5,7 +5,6 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
@@ -62,18 +61,6 @@ class ReviewFixesTest {
         source.next = Changes(listOf(main), emptyList(), "t3", isFullScan = true, scope = primaryOnly)
         sync.sync(forceFull = true)
         assertEquals(setOf(main.uri, sd.uri), store.knownUris())
-    }
-
-    @Test
-    fun aVideoMomentsTimestampsAreNotKeywords() = runTest {
-        val store = newStore()
-        val video = testFile("v.mp4", Kind.VIDEO)
-        store.upsertFiles(listOf(video))
-        val moment = Piece("0:30", momentParts(ByteArray(5), 37_000, ShortArray(16)), null)
-        index(store, FakeExtractor(mapOf("v.mp4" to listOf(moment))))
-        assertTrue(store.keywordSearch("37", 10).isEmpty())
-        val id = store.fileByUri(video.uri)!!.id
-        assertNull(store.chunks(listOf(id)).values.firstOrNull()?.text)
     }
 
     @Test
@@ -139,10 +126,9 @@ class ReviewFixesTest {
     }
 
     @Test
-    fun aMomentJumpsToWhatTheModelHeardOrSaw() {
-        val m = moments(durationMs = 60 * 60_000L, everySec = 5, audioSec = 10).first()
-        assertEquals(timeLocator(((m.frameMs - 5_000) / 1000).toInt()), momentLocator(m, withAudio = true))
-        assertEquals(timeLocator((m.frameMs / 1000).toInt()), momentLocator(m, withAudio = false))
+    fun aMomentJumpsToTheFrameTheModelSaw() {
+        val m = moments(durationMs = 60 * 60_000L, everySec = 5).first()
+        assertEquals(timeLocator((m.frameMs / 1000).toInt()), momentLocator(m))
         assertTrue(m.frameMs > 60_000, "a long video's segment is minutes long, so the start would be far off")
     }
 }

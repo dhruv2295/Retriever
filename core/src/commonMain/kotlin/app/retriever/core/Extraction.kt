@@ -22,6 +22,9 @@ const val MAX_PAGE_PX = 4096
 const val OCR_WIDTH = 1600
 const val OCR_SHORT_PX = 1080
 
+/** The long side of a photo, screenshot or video frame as the model embeds it; Android's labeler reads the same pixels. */
+const val EMBED_PX = 512
+
 /**
  * A text file's bytes as its text, the same on both platforms: a byte-order mark's UTF-8 or UTF-16; UTF-16 without one
  * by where its zero bytes fall; UTF-8 when every sequence is whole (one cut by a byte cap at the end is dropped); else
@@ -80,6 +83,13 @@ fun fitSize(w: Int, h: Int, maxShort: Int, maxLong: Int): Pair<Int, Int> {
     return if (scale >= 1.0) w to h else maxOf(1, (w * scale).roundToInt()) to maxOf(1, (h * scale).roundToInt())
 }
 
+/** The largest power-of-two decode subsample (Android's inSampleSize) that keeps [side] at least [atLeast] px. */
+fun sampleFor(side: Int, atLeast: Int): Int {
+    var sample = 1
+    while (side / (sample * 2) >= atLeast) sample *= 2
+    return sample
+}
+
 /**
  * The size to OCR an image at: ML Kit wants about 16 px per character, which a 1080 px short side gives for screen
  * text, and the long side stays under [MAX_PAGE_PX] so a very tall screenshot does not decode to a huge bitmap
@@ -106,8 +116,7 @@ class OcrStrips(val width: Int, val height: Int, val sample: Int, val bands: Lis
  */
 fun ocrStrips(width: Int, height: Int): OcrStrips? {
     if (width <= 0 || height.toLong() * minOf(width, OCR_SHORT_PX) <= MAX_PAGE_PX.toLong() * width) return null
-    var sample = 1
-    while (width / (sample * 2) >= OCR_SHORT_PX) sample *= 2
+    val sample = sampleFor(width, OCR_SHORT_PX)
     val rows = minOf(MAX_PAGE_PX, OCR_SHORT_PX * MAX_PAGE_PX / (width / sample)) * sample
     val overlap = OCR_STRIP_OVERLAP_PX * sample
     val bands = mutableListOf<IntRange>()

@@ -24,6 +24,7 @@ import androidx.core.net.toUri
 import app.retriever.core.Chunker
 import app.retriever.core.DeviceProfile
 import app.retriever.core.DocFormat
+import app.retriever.core.EMBED_PX
 import app.retriever.core.Extractor
 import app.retriever.core.Kind
 import app.retriever.core.Locator
@@ -51,7 +52,6 @@ import app.retriever.core.joinStrips
 import app.retriever.core.later
 import app.retriever.core.mlKitExecutor
 import app.retriever.core.momentLocator
-import app.retriever.core.momentParts
 import app.retriever.core.ocrOrder
 import app.retriever.core.ocrScripts
 import app.retriever.core.ocrStrips
@@ -91,9 +91,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 
 private const val PDF_PREV_EXTENSION = 13
-
-/** The model's and the labeler's input for a photo or screenshot; iOS asks PhotoKit for the same. */
-private const val EMBED_PX = 512
 
 /** A scanned PDF page as the model sees it, on the first read and in visual(): 512 px on its short side, at most 1024 on its long. */
 private const val PAGE_SHORT_PX = 512
@@ -381,7 +378,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
 
     private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> =
         MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, ctx, log, head = head).map { (m, jpeg) ->
-            if (jpeg == null) later(momentLocator(m, false)) else Piece(momentLocator(m, false), momentParts(jpeg, m.frameMs, null), null)
+            if (jpeg == null) later(momentLocator(m)) else Piece(momentLocator(m), listOf(Part.Image(jpeg)), null)
         }
 }
 
@@ -470,7 +467,7 @@ object ImageBytes {
 
     /**
      * [read] over [plan]'s bands of [uri], decoded one at a time by a region decoder so no bitmap is larger than one
-     * strip; null when the file can't be region-decoded, or is not the size [plan] is for.
+     * strip; null when the file can't be region-decoded, a band fails, or the file is not the size [plan] is for.
      */
     suspend fun <T> strips(context: Context, uri: Uri, plan: OcrStrips, read: suspend (Bitmap) -> T): List<T>? {
         val fd = try {
@@ -488,8 +485,8 @@ object ImageBytes {
                 // The plan's size came from ImageDecoder, which applies a JPEG's EXIF rotation; the region decoder does not.
                 if (decoder.width != plan.width || decoder.height != plan.height) return null
                 val options = BitmapFactory.Options().apply { inSampleSize = plan.sample }
-                plan.bands.mapNotNull { rows ->
-                    val bitmap = decoder.decodeRegion(Rect(0, rows.first, plan.width, rows.last + 1), options) ?: return@mapNotNull null
+                plan.bands.map { rows ->
+                    val bitmap = decoder.decodeRegion(Rect(0, rows.first, plan.width, rows.last + 1), options) ?: return null
                     // Recycled only once read returns: native ML Kit tasks may still hold the pixels after a cancellation.
                     read(bitmap).also { bitmap.recycle() }
                 }

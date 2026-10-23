@@ -28,7 +28,7 @@ suspend fun runEval(
     val queries = parseEvalQueries(queriesJson)
     log("corpus ${corpus.size} files, ${queries.size} queries")
 
-    val photos = corpus.filter { it.kind == Kind.PHOTO }.take(2).mapNotNull { extractor.imageJpeg(it.uri, 512)?.toByteArray() }
+    val photos = corpus.filter { it.kind == Kind.PHOTO }.take(2).mapNotNull { extractor.imageJpeg(it.uri, EMBED_PX)?.toByteArray() }
     val calibration = retriever.calibrate(Samples(photos, listOf("Invoice for garden supplies", "Notes from the lighthouse meeting"), emptyList()), false)
     val profile = calibration.profile
     log("calibrated: ${profile.tier} ${profile.backend} vt${profile.visionTokens} t${profile.maxTokens}")

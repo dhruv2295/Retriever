@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/AudioInterleaving.kt and Common.kt formatTime (Apache-2.0). Modified for Retriever: one keyframe per moment, token budget derived from the profile's window, padStart formatting for commonMain.
+// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/videomomentfinder/AudioInterleaving.kt (Apache-2.0). Modified for Retriever: one keyframe per moment, token budget derived from the profile's window.
 
 package app.retriever.core
 
@@ -26,14 +26,7 @@ const val MAX_VIDEO_MOMENTS = 8
 
 fun audioWindowSec(maxTokens: Int): Int = ((maxTokens - MARKER_TOKENS - SEQUENCE_TOKENS) / AUDIO_TOKENS_PER_SEC).coerceIn(1, AUDIO_WINDOW_SEC)
 
-/** 0 or 1 means moments carry no audio. */
-fun momentAudioSec(maxTokens: Int, visionTokens: Int): Int =
-    ((maxTokens - visionTokens - 2 * MARKER_TOKENS - SEQUENCE_TOKENS) / AUDIO_TOKENS_PER_SEC).coerceIn(0, AUDIO_WINDOW_SEC)
-
-fun estimateTokens(visionTokens: Int, audioSec: Int): Int =
-    visionTokens + audioSec * AUDIO_TOKENS_PER_SEC + (if (audioSec > 0) 2 else 1) * MARKER_TOKENS + SEQUENCE_TOKENS
-
-data class Moment(val startMs: Long, val endMs: Long, val frameMs: Long, val audioFromMs: Long, val audioToMs: Long)
+data class Moment(val startMs: Long, val endMs: Long, val frameMs: Long)
 
 /**
  * The first pass embeds one moment of a video and leaves the rest [later]: the middle one, the likeliest to show what the
@@ -41,37 +34,18 @@ data class Moment(val startMs: Long, val endMs: Long, val frameMs: Long, val aud
  */
 fun headOrder(n: Int): List<Int> = (0 until n).sortedBy { kotlin.math.abs(it - n / 2) }
 
-fun moments(durationMs: Long, everySec: Int, audioSec: Int): List<Moment> {
+fun moments(durationMs: Long, everySec: Int): List<Moment> {
     if (durationMs <= 0 || everySec <= 0) return emptyList()
     val n = (durationMs / 1000 / everySec).coerceIn(1, MAX_VIDEO_MOMENTS.toLong())
-    val half = audioSec * 500L
     return (0 until n).map { i ->
         val start = i * durationMs / n
         val end = (i + 1) * durationMs / n
-        val frame = (start + end) / 2
-        Moment(start, end, frame, maxOf(start, frame - half), minOf(end, frame + half))
+        Moment(start, end, (start + end) / 2)
     }
 }
 
-/** Gallery's TAV layout when audio exists; its frame-only path was trained without timestamps. */
-fun momentParts(frameJpeg: ByteArray, frameMs: Long, audio: ShortArray?): List<Part> = if (audio == null || audio.isEmpty()) {
-    listOf(Part.Image(frameJpeg))
-} else {
-    val stamp = Part.Text(modelTimestamp(frameMs))
-    listOf(stamp, Part.Audio(audio), stamp, Part.Image(frameJpeg))
-}
-
-/** Where a result jumps: the start of what the model heard, else the frame it saw, not the segment start. */
-fun momentLocator(m: Moment, withAudio: Boolean): String = timeLocator(((if (withAudio) m.audioFromMs else m.frameMs) / 1000).toInt())
-
-/** The timestamp text the model sees: 'mm:ss' or 'h:mm:ss'. */
-fun modelTimestamp(ms: Long): String {
-    val s = ms.coerceAtLeast(0) / 1000
-    val h = s / 3600
-    return if (h > 0) "$h:${pad(s % 3600 / 60)}:${pad(s % 60)}" else "${pad(s / 60)}:${pad(s % 60)}"
-}
+/** Where a result jumps: the frame the model saw, not the segment start. */
+fun momentLocator(m: Moment): String = timeLocator((m.frameMs / 1000).toInt())
 
 /** UI locator ('3:45', '1:02:03'); see [Locator.time]. */
 fun timeLocator(sec: Int): String = Locator.time(sec)
-
-private fun pad(n: Long): String = n.toString().padStart(2, '0')

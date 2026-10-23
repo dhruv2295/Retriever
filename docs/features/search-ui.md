@@ -41,7 +41,9 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `failed`, `results`, `empty`) from the shared functions, so the view only switches on it. One `Task` per key runs the
   names phase (after the 20 ms floor), then the full phase, and checks `Task.isCancelled` after each await.
 - **Search by photo.** The photo is decoded once (Android `photoReader`, iOS `Photo`), becomes part of the `Question`, and
-  has no names phase; its relative tail uses the same collapsed disclosure as text search.
+  has no names phase; its relative tail uses the same collapsed disclosure as text search. Android decodes the picked
+  file in process at 1024 px (`ImageBytes.jpeg`), not from MediaProvider's thumbnail; a cloud-only photo-picker item is
+  fetched in full by the picker first.
 - **Re-ask on indexing.** If an answer is empty and files finish being read, the same question is asked again once, after
   a 2 s settle, so a list being read never reshuffles but an empty one fills. Core's `counts()` is watched only while an
   empty answer is on screen, not for every write of a reading run behind other screens or in the background.

@@ -16,12 +16,15 @@ import androidx.core.graphics.createBitmap
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.OCR_SHORT_PX
 import app.retriever.core.OCR_WIDTH
+import app.retriever.core.OcrStrips
 import app.retriever.core.android.ImageBytes
 import app.retriever.core.ocrStrips
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -82,7 +85,7 @@ class ImageBytesTest {
     fun aPhotoIsEmbeddedFromItsOwnDecodeNeverMediaProvidersThumbnail() {
         val uri = serve("photo.jpg", createBitmap(2000, 1500).apply { eraseColor(Color.GRAY) }, Bitmap.CompressFormat.JPEG)
 
-        // The first read: one decode for OCR, and the model's and labeler's 512 px copy of it.
+        // The first read's two steps: the decode for OCR, and the 512 px copy of it the model and labeler get.
         val ocr = ImageBytes.bitmap(app, uri, OCR_WIDTH, maxShort = OCR_SHORT_PX)!!
         assertEquals(1440 to 1080, ocr.width to ocr.height)
         val thumb = ImageBytes.scaled(ocr, 512, 512)
@@ -114,14 +117,22 @@ class ImageBytesTest {
         val uri = serve("long.png", screenshot, Bitmap.CompressFormat.PNG)
         val strips = ocrStrips(540, 9000)!!
 
+        val seen = mutableListOf<Bitmap>()
         val read = runBlocking {
-            ImageBytes.strips(app, uri, strips) { Triple(it.width to it.height, it.getPixel(0, 467), it.getPixel(0, 468)) }!!
+            ImageBytes.strips(app, uri, strips) {
+                seen += it
+                Triple(it.width to it.height, it.getPixel(0, 467), it.getPixel(0, 468))
+            }!!
         }
 
         assertEquals(listOf(540 to 4096, 540 to 4096, 540 to 936), read.map { it.first })
         // The second strip starts 64 rows above where the first ends (4032), so the colour change at 4500 is its row 468.
         assertEquals(Color.RED to Color.BLUE, read[1].second to read[1].third)
         assertEquals(Color.BLUE to Color.BLUE, read[2].second to read[2].third)
+        assertTrue("only one strip's pixels are held at a time", seen.all { it.isRecycled })
+
+        // A file not the size the plan is for (a JPEG's EXIF rotation) is not read in strips: the caller decodes it whole.
+        assertNull(runBlocking { ImageBytes.strips(app, uri, OcrStrips(540, 9001, 1, listOf(0 until 4096))) { it } })
     }
 
     private companion object {

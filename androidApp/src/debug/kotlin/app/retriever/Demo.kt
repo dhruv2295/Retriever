@@ -7,6 +7,7 @@ import app.retriever.core.Backend
 import app.retriever.core.Changes
 import app.retriever.core.DIMS
 import app.retriever.core.DeviceProfile
+import app.retriever.core.EMBED_PX
 import app.retriever.core.Embedder
 import app.retriever.core.EmbedderFactory
 import app.retriever.core.Extractor
@@ -82,7 +83,7 @@ private class DemoExtractor(private val context: Context) : Extractor {
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
         val d = FILES.first { it.file.uri == file.uri }
         if (file.kind != Kind.PHOTO) return listOf(Piece(d.locator, listOf(Part.Text(d.text)), d.text))
-        val jpeg = ImageBytes.jpeg(context, file.uri.toUri(), 512) ?: return emptyList()
+        val jpeg = ImageBytes.jpeg(context, file.uri.toUri(), EMBED_PX) ?: return emptyList()
         return listOf(Piece("", listOf(Part.Image(jpeg)), d.text))
     }
 }
