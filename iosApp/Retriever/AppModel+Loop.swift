@@ -92,23 +92,26 @@ extension AppModel {
     /// Status's "Keep reading after I leave", and Setup's done button: hands reading to a task iOS lets carry on
     /// after the person leaves, with its progress on the Lock Screen.
     func keepReading() {
-        guard #available(iOS 26.0, *), let services, active, !continuing, let snap else { return }
-        // Submitted in the tap itself: iOS takes it only from an app in front. The task waits for this loop's batch,
-        // which stops within its current file.
-        do {
-            try IndexTask.submitContinued(snap)
-            Self.log.info("continued reading submitted")
-        } catch {
-            Self.log.error("couldn't keep reading after leaving: \(error, privacy: .private)")
-            readingMessage =
-                "iOS couldn’t keep processing while you weren’t using Retriever. Keep it open, or let it process your files while your \(Copy.device) charges."
-            return
-        }
+        guard #available(iOS 26.0, *), let services, active, !continuing, snap != nil else { return }
+        // Submitted from the tap: iOS takes it only from an app in front. The task waits for this loop's batch, which
+        // stops within its current file. Set first, so a second tap while iOS answers submits nothing.
         continuing = true
-        loop?.cancel()
-        loop = nil
-        services.retriever.cancelBatch()
-        keepScreenOn(false)
+        Task {
+            do {
+                try await IndexTask.submitContinued()
+                Self.log.info("continued reading submitted")
+            } catch {
+                Self.log.error("couldn't keep reading after leaving: \(error, privacy: .private)")
+                continuing = false
+                readingMessage =
+                    "iOS couldn’t keep processing while you weren’t using Retriever. Keep it open, or let it process your files while your \(Copy.device) charges."
+                return
+            }
+            loop?.cancel()
+            loop = nil
+            services.retriever.cancelBatch()
+            keepScreenOn(false)
+        }
     }
 
     /// Something changed (a photo, a folder, Resume, setup finishing): run the next batch now.

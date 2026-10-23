@@ -46,26 +46,40 @@ enum IndexTask {
 
     /// Submitting again replaces the waiting request. Fails on the simulator, which has no BGTaskScheduler.
     static func schedule() {
+        Task { await reschedule() }
+    }
+
+    /// Off the main thread, as iOS 27's submit asks.
+    @concurrent private static func reschedule() async {
         // Submitting an identifier this process never registered raises an exception `try` can't catch: the unit-test
         // host skips register(), and a Settings toggle there crashed it.
         guard services != nil else { return }
         do {
-            try BGTaskScheduler.shared.submit(processingRequest())
+            try await submit(processingRequest())
             log.info("background reading scheduled")
         } catch {
             log.error("couldn't schedule background reading: \(error, privacy: .private)")
         }
     }
 
+    /// iOS 27's submit reports every error, including a continued read iOS won't start now (ImmediateRunIneligible).
+    private static func submit(_ request: BGTaskRequest) async throws {
+        if #available(iOS 27.0, *) {
+            try await BGTaskScheduler.shared.submitTaskRequest(request)
+        } else {
+            try BGTaskScheduler.shared.submit(request)
+        }
+    }
+
     /// Only from a person's tap while the app is in front; it starts at once or throws. The simulator throws
     /// BGTaskScheduler error 1 (unavailable).
     @available(iOS 26.0, *)
-    static func submitContinued(_ snap: AppModel.Snap) throws {
+    @concurrent static func submitContinued() async throws {
         let request = BGContinuedProcessingTaskRequest(identifier: continuedId, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
         // No .gpu: it needs the continued-processing GPU entitlement, and backendNow picks the CPU once the app leaves.
-        try BGTaskScheduler.shared.submit(request)
+        try await submit(request)
     }
 
     /// The expiration handler: Swift cancellation doesn't reach the Kotlin coroutine, so this stops the batch
@@ -84,8 +98,11 @@ enum IndexTask {
     static func runBatch(complete: @escaping @Sendable (Bool) -> Void) {
         // The person's continued read holds the index; it schedules the next run itself when it ends.
         if services?.monitor.continued == true {
-            schedule()
-            return complete(true)
+            Task {
+                await reschedule()
+                complete(true)
+            }
+            return
         }
         guard let retriever = services?.retriever else { return complete(false) }
         expired.withLock { $0 = false }
@@ -114,7 +131,7 @@ enum IndexTask {
             if !retriever.uiVisible && !retriever.stateNow.running { try? await retriever.release() }
             // Even when caught up: the next run reads photos taken meanwhile. A failed batch (.retry) rests like a
             // cooldown: iOS has no backoff to hand it to, so the next scheduled run is the retry.
-            schedule()
+            await reschedule()
             let ok = next != nil && !expired.withLock { $0 }
             complete(ok)
             log.info("background task completed, success \(ok)")
