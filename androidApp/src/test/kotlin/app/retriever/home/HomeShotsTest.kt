@@ -1,6 +1,7 @@
 package app.retriever.home
 
 import android.content.Context
+import android.os.storage.StorageManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,6 +11,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
@@ -63,6 +65,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.time.LocalDate
@@ -653,10 +656,44 @@ class HomeShotsTest {
         rule.onAllNodesWithText(Words.UPGRADE_TITLE).assertCountEquals(0)
     }
 
+    /** Refused for space: Android's storage screen, then Try again, as Settings' card offers. */
+    @Test fun introNoSpaceFreesUpSpaceThenTriesAgain() {
+        var downloads = 0
+        introShot("home_intro_no_space_light", DescriptionState.NO_SPACE, upgrade = UpgradeActions(download = { downloads++ }))
+        rule.onNodeWithText(Words.recentFilesBody(DescriptionState.NO_SPACE)).assertIsDisplayed()
+        freeUpSpaceOpensAndroidsStorage()
+        rule.onNodeWithText(Words.TRY_AGAIN).performClick()
+        assertEquals(1, downloads)
+    }
+
+    /** After Got it the line names the room a refused download needs, not Wi-Fi, and offers the same two ways on. */
+    @Test fun noSpaceLineNamesTheRoomAndFreesItUp() {
+        var downloads = 0
+        val stopped = base.copy(readingStatus = line(stop = StopReason.UNPLUGGED, pluggedIn = false))
+        rule.setContent {
+            ShotTheme(false) {
+                Screen(stopped, upgrade = upgrades.getValue(DescriptionState.NO_SPACE), upgradeActions = UpgradeActions(download = { downloads++ }))
+            }
+        }
+        rule.shot("clarity_home_no_space_light")
+        rule.onNodeWithText(Words.NO_SPACE).assertIsDisplayed()
+        rule.onNodeWithText("Needs 0.7 GB free.").assertIsDisplayed()
+        rule.onAllNodesWithText("Wi-Fi", substring = true).assertCountEquals(0)
+        freeUpSpaceOpensAndroidsStorage()
+        rule.onNodeWithText(Words.TRY_AGAIN).performClick()
+        assertEquals(1, downloads)
+    }
+
+    /** The button, not Home's own Free up space section further down. */
+    private fun freeUpSpaceOpensAndroidsStorage() {
+        rule.onNode(hasText(Words.FREE_UP_SPACE) and hasClickAction()).performClick()
+        assertEquals(StorageManager.ACTION_MANAGE_STORAGE, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity?.action)
+    }
+
     @Test fun introWithNothingToDoHasNoAction() {
-        var state by mutableStateOf(DescriptionState.NO_SPACE)
+        var state by mutableStateOf(DescriptionState.UNAVAILABLE)
         rule.setContent { ShotTheme(false) { Screen(intro, upgrade = upgrades.getValue(state)) } }
-        for (s in listOf(DescriptionState.NO_SPACE, DescriptionState.UNAVAILABLE, DescriptionState.PREPARING)) {
+        for (s in listOf(DescriptionState.UNAVAILABLE, DescriptionState.PREPARING)) {
             state = s
             rule.waitForIdle()
             rule.onNodeWithText(Words.recentFilesBody(s)).assertExists()

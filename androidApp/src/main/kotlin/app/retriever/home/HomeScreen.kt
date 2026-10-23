@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,7 +67,9 @@ import app.retriever.core.UpgradePolicy
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.model.FreeUpSpaceButton
 import app.retriever.model.MobileDataAsk
+import app.retriever.model.ModelState
 import app.retriever.model.UpgradeActions
 import app.retriever.model.UpgradeCard
 import app.retriever.model.UpgradeFlow
@@ -235,7 +238,8 @@ internal fun HomeBody(
         }
         // Not loaded yet: show nothing rather than flash the first-run message over a full index.
         val counts = ui.counts ?: return@LazyVerticalStaggeredGrid
-        val status = homeStatus(ui, download)
+        val noSpace = (upgrade.model as? ModelState.Failed)?.takeIf { it.noSpace }?.reason
+        val status = homeStatus(ui, download, noSpace)
         if (ui.introDue) {
             item(key = "intro", span = FullLine) {
                 val state = upgrade.description
@@ -271,6 +275,7 @@ internal fun HomeBody(
                         },
                         onOpen = { actions.onNavigate(StatusRoute) },
                         onAction = { onAction(it, status.phase) },
+                        more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
                     )
                 }
             }
@@ -324,11 +329,18 @@ internal fun HomeBody(
 
 /**
  * The one status line, on Home and Settings: the dog, what is happening and one plain detail, a thin bar while reading or
- * downloading, and the line's one button. The whole line opens Reading status ([onOpen]). Only the state, not each
- * file's count, is announced: the title is the live node and holds still while the detail's count moves.
+ * downloading, and the line's one button ([more] beside it). The whole line opens Reading status ([onOpen]). Only the
+ * state, not each file's count, is announced: the title is the live node and holds still while the detail's count moves.
  */
 @Composable
-internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> Unit)?, onAction: (StatusAction) -> Unit, modifier: Modifier = Modifier) {
+internal fun StatusLine(
+    status: ReadingStatus,
+    mood: MascotMood,
+    onOpen: (() -> Unit)?,
+    onAction: (StatusAction) -> Unit,
+    modifier: Modifier = Modifier,
+    more: (@Composable () -> Unit)? = null,
+) {
     val done = status.done
     val total = status.total
     val bar = done != null && total != null
@@ -367,7 +379,10 @@ internal fun StatusLine(status: ReadingStatus, mood: MascotMood, onOpen: (() -> 
         )
         // Spelled out and below the words, so it never squeezes them at large text; aligned with the title.
         status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
-            FilledTonalButton(onClick = { onAction(action) }, modifier = Modifier.padding(start = 56.dp, end = 16.dp)) { Text(action.label) }
+            FlowRow(Modifier.padding(start = 56.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = { onAction(action) }) { Text(action.label) }
+                more?.invoke()
+            }
         }
     }
 }
@@ -394,6 +409,11 @@ private fun EmptyHome(looking: Boolean) {
     }
 }
 
-/** Core's status line, once its live reading status has arrived (its detail carries the live count). */
-internal fun homeStatus(ui: HomeUi, download: DownloadState? = null): ReadingStatus? =
-    ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)
+/**
+ * Core's status line, once its live reading status has arrived (its detail carries the live count). [noSpace]: why a
+ * download Android refused for space stopped, said in place of core's stopped-download line, which speaks of Wi-Fi.
+ */
+internal fun homeStatus(ui: HomeUi, download: DownloadState? = null, noSpace: String? = null): ReadingStatus? =
+    ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)?.let {
+        if (noSpace != null && it.phase == ReadingPhase.DOWNLOAD_STOPPED) it.copy(title = Words.NO_SPACE, detail = noSpace) else it
+    }

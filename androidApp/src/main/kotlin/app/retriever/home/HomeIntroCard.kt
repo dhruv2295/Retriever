@@ -29,12 +29,14 @@ import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.model.FreeUpSpaceButton
 import app.retriever.motion.Mascot
 
 /**
  * Home's one-time card after setup: what happens next to the recent files, the rest, and new ones. Until Got it it stands
  * in for the status line, which then carries the state and its action. [size]: the download's, in the platform's format.
- * [onNotify]: null once the notice was asked for.
+ * [onRecentAction]: the action under the recent files, and Try again after a download refused for space. [onNotify]: null once
+ * the notice was asked for.
  */
 @Composable
 internal fun HomeIntroCard(
@@ -60,6 +62,12 @@ internal fun HomeIntroCard(
                 IntroRow(R.drawable.ic_check, Words.recentFiles(planned), Words.recentFilesBody(state), filled = state == DescriptionState.READY) {
                     Words.recentFilesAction(state, size)?.let {
                         FilledTonalButton(onClick = onRecentAction, modifier = Modifier.padding(top = 4.dp)) { Text(it) }
+                    }
+                    if (state == DescriptionState.NO_SPACE) {
+                        FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = onRecentAction) { Text(Words.TRY_AGAIN) }
+                            FreeUpSpaceButton()
+                        }
                     }
                 }
                 IntroRow(R.drawable.ic_bolt, Words.otherFiles(rest), Words.otherFilesBody(DeviceWords.ANDROID))

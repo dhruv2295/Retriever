@@ -51,6 +51,7 @@ import app.retriever.core.SamplePile
 import app.retriever.core.TasteProgress
 import app.retriever.core.Words
 import app.retriever.home.HomeUi
+import app.retriever.model.FreeUpSpaceButton
 import app.retriever.model.MobileDataAsk
 import app.retriever.model.UpgradeFlow
 import app.retriever.model.actions
@@ -201,7 +202,14 @@ internal fun DemoBody(
                 if (paused == null) {
                     when (description) {
                         DescriptionState.WAITING_FOR_WIFI -> TextButton(onClick = actions.useMobileData) { Text(Words.USE_MOBILE_DATA) }
+
                         DescriptionState.FAILED -> TextButton(onClick = actions.retryDownload) { Text(Words.TRY_AGAIN) }
+
+                        DescriptionState.NO_SPACE -> {
+                            TextButton(onClick = actions.retryDownload) { Text(Words.TRY_AGAIN) }
+                            FreeUpSpaceButton()
+                        }
+
                         else -> Unit
                     }
                 }
