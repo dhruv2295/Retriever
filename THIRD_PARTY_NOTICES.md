@@ -32,6 +32,9 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
   (com.google.mlkit:vision-internal-vkp)
 - Copyright Square, Inc.
 - License: Apache License 2.0
+- OkHttp bundles `publicsuffixes.gz`, compiled from the Public Suffix List
+  (https://publicsuffix.org/list/public_suffix_list.dat) and subject to the Mozilla Public License 2.0
+  (https://mozilla.org/MPL/2.0/)
 
 ## oguzhaneksi/TikTokCompose
 

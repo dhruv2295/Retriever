@@ -73,7 +73,9 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
-        disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+        // -Poutdated turns the checks on to list newer versions (docs/quality.md, Dependency versions).
+        val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+        if (providers.gradleProperty("outdated").isPresent) enable += versionChecks else disable += versionChecks
         // No baseline: it is empty, so a new lint issue fails the build.
     }
 
@@ -98,8 +100,12 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     compilerOptions.allWarningsAsErrors.set(true)
 }
 
-// Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning.
-tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }
+// Robolectric's native SQLite/ICU loads trip JDK 24+'s restricted-method warning. The suite runs in up to 4 JVMs
+// (capped for Robolectric's per-fork memory); each fork has its own Koin and WorkManager singletons.
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+}
 
 // About shows the repo's notices file; it is copied into the assets at build time, so the repo holds one copy.
 abstract class CopyNotices : DefaultTask() {
@@ -127,10 +133,10 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
     implementation(libs.activity.compose)
+    implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.serialization.json)
     implementation(libs.sqldelight.android.driver)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.navigation.compose)
@@ -147,6 +153,13 @@ dependencies {
     implementation(libs.koin.androidx.compose)
     implementation(libs.koin.androidx.workmanager)
     lintChecks(libs.compose.lint.checks)
+    constraints {
+        // Every class and member ML Kit's vision-internal-vkp and MediaPipe's tasks-core reference resolves in these
+        // versions (javap over their constant pools). OkHttp 4 keeps 3.x's binary API; protobuf supports older gencode
+        // on a newer runtime of the same major version.
+        implementation(libs.okhttp) { because("ML Kit vision-internal-vkp pins 3.0.0: GHSA-3cqm-mf7h-prrj, GHSA-4hc2-jh7r-wrc3") }
+        implementation(libs.protobuf.javalite) { because("MediaPipe tasks-core pins 4.26.1: CVE-2024-7254") }
+    }
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
@@ -157,7 +170,6 @@ dependencies {
     testImplementation(libs.koin.test)
     testImplementation(libs.koin.test.junit4)
     testImplementation(libs.work.testing)
-    testImplementation(libs.compose.ui.test.junit4.accessibility)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary.android)
 }

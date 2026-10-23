@@ -1,5 +1,5 @@
 #!/bin/bash
-# Archives the R8 mapping and tags the release. Run after scripts/verify.sh (it builds the per-ABI release APKs).
+# Builds the release (up to date after scripts/verify.sh), archives its R8 mapping and tags the commit.
 # Fails unless versionCode and CURRENT_PROJECT_VERSION were bumped together since the last tag.
 # Does not push.
 set -euo pipefail
@@ -13,7 +13,6 @@ main_release() {
   check_versions
   [ "$code" = "$cpv" ] || { fail "versionCode $code != CURRENT_PROJECT_VERSION $cpv"; return 1; }
   [ -z "$(git status --porcelain --untracked-files=no)" ] || { fail "working tree has uncommitted changes"; return 1; }
-  [ -f "$mapping" ] || { fail "no $mapping, run scripts/verify.sh first"; return 1; }
 
   tag="v$name-$code"
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null && { fail "tag $tag already exists"; return 1; }
@@ -24,6 +23,10 @@ main_release() {
     { [ "$code" -gt "$prev_code" ] && [ "$cpv" -gt "$prev_cpv" ]; } \
       || { fail "bump versionCode and CURRENT_PROJECT_VERSION together (last $prev: $prev_code / $prev_cpv, now $code / $cpv)"; return 1; }
   fi
+
+  # The mapping must come from this commit's build; up to date (and quick) when verify.sh just ran on it.
+  "$ROOT/gradlew" -q -p "$ROOT" :androidApp:assembleRelease
+  [ -f "$mapping" ] || { fail "no $mapping after :androidApp:assembleRelease"; return 1; }
 
   dest="$HOME/Retriever-releases/$name-$code"
   mkdir -p "$dest"

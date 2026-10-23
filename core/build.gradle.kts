@@ -25,7 +25,9 @@ val lintGate: Lint.() -> Unit = {
     abortOnError = true
     checkReleaseBuilds = true
     // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
-    disable += setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+    // -Poutdated turns the checks on to list newer versions (docs/quality.md, Dependency versions).
+    val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
+    if (providers.gradleProperty("outdated").isPresent) enable += versionChecks else disable += versionChecks
 }
 lint { lintGate() }
 
@@ -50,7 +52,6 @@ kotlin {
             baseName = "RetrieverCore"
             isStatic = true
         }
-        t.binaries.all { linkerOpts("-lsqlite3") }
     }
 
     sourceSets {
@@ -70,6 +71,7 @@ kotlin {
             implementation(libs.sqldelight.sqlite.driver)
         }
         androidMain.dependencies {
+            implementation(libs.core.ktx)
             implementation(libs.sqldelight.android.driver)
             implementation(libs.mediapipe.tasks.retrieval)
             implementation(libs.litertlm.android)
