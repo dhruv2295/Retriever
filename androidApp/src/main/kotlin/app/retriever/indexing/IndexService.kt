@@ -144,7 +144,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         val request = OneTimeWorkRequestBuilder<IndexWorker>()
             // Expedited work takes only network and storage constraints; core checks battery, heat and Battery Saver per file.
             .setConstraints(storageNotLow().build())
-            .setInputData(workDataOf(tag to true, FOREGROUND to ask))
+            .setInputData(workDataOf(FOREGROUND to ask))
             .addTag(tag)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()

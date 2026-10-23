@@ -86,7 +86,7 @@ class IndexWorker(
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
         val started = TimeSource.Monotonic.markNow()
-        val trial = inputData.getBoolean(IndexService.TRIAL, false)
+        val trial = IndexService.TRIAL in tags
         // Before setup finishes a batch only syncs the file list, so names are findable before reading starts.
         if (!platformReady()) {
             // Before access too, which the person may not have given yet; a trial runs in front, where the upgrade does this.

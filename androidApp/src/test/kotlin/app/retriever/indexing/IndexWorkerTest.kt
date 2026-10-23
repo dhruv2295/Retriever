@@ -112,7 +112,8 @@ class IndexWorkerTest {
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
             .setForegroundUpdater(countingUpdater)
-            .setInputData(workDataOf(IndexService.TRIAL to trial, IndexService.CHARGER to charger, IndexService.FOREGROUND to askForeground))
+            .setTags(listOfNotNull(IndexService.TRIAL.takeIf { trial }, IndexService.CHARGER.takeIf { charger }))
+            .setInputData(workDataOf(IndexService.FOREGROUND to askForeground))
             .build()
     }
 
