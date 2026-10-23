@@ -241,27 +241,27 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
 
     /// For Swift's own callers (thumbnails): async all the way, so a grid of video cells never blocks Swift's threads.
     @concurrent func videoFrame(uri: String, ms: Int64, maxSide: CGFloat) async -> UIImage? {
-        let video: AVAsset?
-        if let asset = asset(uri) {
-            let manager = PHImageManager.default()
-            let found: Box<AVAsset>? = await awaitPhotoRequest(
-                cancel: { manager.cancelImageRequest($0) },
-                start: { done in
-                    let options = PHVideoRequestOptions()
-                    options.isNetworkAccessAllowed = false
-                    options.deliveryMode = .highQualityFormat
-                    return manager.requestAVAsset(forVideo: asset, options: options) { @Sendable av, _, _ in
-                        let box = Box<AVAsset>()
-                        box.value = av
-                        done(box)
-                    }
-                })
-            video = found?.value
-        } else {
-            video = folders.resolve(uri).map { AVURLAsset(url: $0) }
-        }
-        guard let video, let frame = try? await Self.frame(video, ms: ms, maxSide: maxSide) else { return nil }
+        guard let video = await loadVideo(uri), let frame = try? await Self.frame(video, ms: ms, maxSide: maxSide) else { return nil }
         return UIImage(cgImage: frame)
+    }
+
+    /// The library's copy (never from the network) or the folder's file. Cancelling the task cancels the PhotoKit request.
+    private func loadVideo(_ uri: String) async -> AVAsset? {
+        guard let asset = asset(uri) else { return folders.resolve(uri).map { AVURLAsset(url: $0) } }
+        let manager = PHImageManager.default()
+        let found: Box<AVAsset>? = await awaitPhotoRequest(
+            cancel: { manager.cancelImageRequest($0) },
+            start: { done in
+                let options = PHVideoRequestOptions()
+                options.isNetworkAccessAllowed = false
+                options.deliveryMode = .highQualityFormat
+                return manager.requestAVAsset(forVideo: asset, options: options) { @Sendable av, _, _ in
+                    let box = Box<AVAsset>()
+                    box.value = av
+                    done(box)
+                }
+            })
+        return found?.value
     }
 
     /// The last video read, so its moments load the asset once rather than once each.
@@ -279,23 +279,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     }
 
     private func avAsset(_ uri: String) -> AVAsset? {
-        if let asset = asset(uri) {
-            let options = PHVideoRequestOptions()
-            options.isNetworkAccessAllowed = false
-            options.deliveryMode = .highQualityFormat
-            let done = DispatchSemaphore(value: 0)
-            let box = Box<AVAsset>()
-            let id = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { av, _, _ in
-                box.value = av
-                done.signal()
-            }
-            guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
-                PHImageManager.default().cancelImageRequest(id)
-                return nil
-            }
-            return box.value
-        }
-        return folders.resolve(uri).map { AVURLAsset(url: $0) }
+        wait { await self.loadVideo(uri) } ?? nil
     }
 
     // MARK: Text and archives
@@ -356,8 +340,8 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         await withCheckedContinuation { done in DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) } }
     }
 
-    /// Background time is up: the PhotoKit waits and Vision passes running now end at once, with nothing, so the
-    /// cancelled batch gets to its end without them.
+    /// Background time is up: the PhotoKit waits, AVFoundation loads and Vision passes running now end at once, with
+    /// nothing, so the cancelled batch gets to its end without them.
     func cancelInFlight() {
         let cancels = inFlightLock.withLock {
             defer { inFlight = [:] }
@@ -391,7 +375,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     private static let mediaWait: DispatchTimeInterval = .seconds(20)
 
     /// Runs async AVFoundation loading from the synchronous bridge; callers are on Kotlin's worker threads. A load that
-    /// outlasts mediaWait is cancelled and gives nil.
+    /// outlasts mediaWait, or that cancelInFlight ends, is cancelled and gives nil.
     private func wait<T>(_ op: @escaping @Sendable () async throws -> T) -> T? {
         let done = DispatchSemaphore(value: 0)
         let box = Box<T>()
@@ -399,7 +383,13 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
             box.value = try? await op()
             done.signal()
         }
-        guard done.wait(timeout: .now() + Self.mediaWait) == .success else {
+        let tracked = track {
+            task.cancel()
+            done.signal()
+        }
+        defer { untrack(tracked) }
+        // Cancelled, the load may still be writing the box: it is left unread.
+        guard done.wait(timeout: .now() + Self.mediaWait) == .success, !task.isCancelled else {
             task.cancel()
             return nil
         }
