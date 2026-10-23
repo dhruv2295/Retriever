@@ -18,6 +18,7 @@
 package app.retriever.di
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.os.Build
@@ -25,6 +26,7 @@ import android.util.AtomicFile
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.sqlite.db.SupportSQLiteDatabase
+import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.BuildConfig
 import app.retriever.Demo
@@ -115,6 +117,35 @@ val PlatformReady = named("platformReady")
 
 private val log: (String, Throwable?) -> Unit = { message, t -> LogSink.write(BuildConfig.DEBUG, message, t) }
 
+/**
+ * The index database [name], opened as the app opens it; the driver opens the file on first query, so building it touches
+ * no disk. WAL lets the UI read while the indexer holds a write transaction, instead of queueing behind it.
+ */
+fun indexDriver(context: Context, name: String): SqlDriver {
+    val callback = object : AndroidSqliteDriver.Callback(IndexDb.Schema) {
+        override fun onConfigure(db: SupportSQLiteDatabase) {
+            db.enableWriteAheadLogging()
+            // With WAL, NORMAL syncs at checkpoints instead of every commit and loses nothing to an app crash
+            // (developer.android.com/topic/performance/sqlite-performance-best-practices). AOSP's WAL default, set here
+            // because a device's own configuration can choose FULL.
+            db.execSQL("PRAGMA synchronous = NORMAL")
+        }
+
+        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            val start = System.nanoTime()
+            super.onUpgrade(db, oldVersion, newVersion)
+            if (BuildConfig.DEBUG) Log.i("Retriever", "Index upgraded $oldVersion -> $newVersion in ${(System.nanoTime() - start) / 1_000_000} ms")
+        }
+
+        // An older build over a newer index (adb install -d): made again from the files, not a crash on every open.
+        override fun onDowngrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            Store.resetSchema(AndroidSqliteDriver(db))
+            if (BuildConfig.DEBUG) Log.i("Retriever", "Index $oldVersion made again as $newVersion")
+        }
+    }
+    return AndroidSqliteDriver(IndexDb.Schema, context, name, callback = callback)
+}
+
 // Every single is lazy: the first get, from RetrieverApp's IO start, does the disk reads off the main thread.
 val appModule = module {
     single(AppScope) { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
@@ -145,22 +176,9 @@ val appModule = module {
         )
     }
     single<Extractor> { get<DemoMode>().parts?.extractor ?: AndroidExtractor(androidContext(), log) }
-    // The driver opens the file on first query, so building it touches no disk.
     single {
         val app = androidContext()
         val demo = get<DemoMode>().parts
-        // WAL lets the UI read while the indexer holds a write transaction, instead of queueing behind it.
-        val callback = object : AndroidSqliteDriver.Callback(IndexDb.Schema) {
-            override fun onConfigure(db: SupportSQLiteDatabase) {
-                db.enableWriteAheadLogging()
-            }
-
-            override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                val start = System.nanoTime()
-                super.onUpgrade(db, oldVersion, newVersion)
-                if (BuildConfig.DEBUG) Log.i("Retriever", "Index upgraded $oldVersion -> $newVersion in ${(System.nanoTime() - start) / 1_000_000} ms")
-            }
-        }
         // Backed up and moved to a new phone (data_extraction_rules.xml); demo mode keeps the person's state out of its database.
         val userState = if (demo != null) {
             null
@@ -187,7 +205,7 @@ val appModule = module {
                 )
             }
         }
-        Store(AndroidSqliteDriver(IndexDb.Schema, app, demo?.dbName ?: Store.DB_NAME, callback = callback), log, userState = userState)
+        Store(indexDriver(app, demo?.dbName ?: Store.DB_NAME), log, userState = userState)
     }
     single<EmbedderFactory> {
         get<DemoMode>().parts?.factory

@@ -1,9 +1,14 @@
 package app.retriever.core
 
+import app.cash.sqldelight.EnumColumnAdapter
 import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlPreparedStatement
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.Files
 import app.retriever.core.db.IndexDb
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,7 +19,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(8L, IndexDb.Schema.version)
+        assertEquals(9L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -230,6 +235,75 @@ class MigrationTest {
         }
     }
 
+    /**
+     * Version 9 keeps a flag where content_text copied text, indexes the later queue, and recomputes the reach that 6.sqm
+     * filled with an older rule: a page image still waiting for its vector is a later pass.
+     */
+    @Test
+    fun version8ChunksKeepTheirWordsOnceAndFilesTheirReachByTodaysRule() = runBlocking {
+        val v8 = File.createTempFile("index-v8", ".db").apply { deleteOnExit() }
+        File("src/commonMain/sqldelight/databases/3.db").copyTo(v8, overwrite = true)
+        JdbcSqliteDriver("jdbc:sqlite:${v8.path}").use { raw ->
+            // Read before 6.sqm, which fills reach with the rule of its day.
+            IndexDb.Schema.migrate(raw, 3, 6).value
+            raw.execute(
+                null,
+                "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) VALUES " +
+                    "(1, 'lease', 'lease.pdf', '', 'application/pdf', 'PDF', 10, 1, 'INDEXED'), " +
+                    "(2, 'photo', 'photo.jpg', '', 'image/jpeg', 'PHOTO', 10, 1, 'INDEXED'), " +
+                    "(3, 'note', 'note.txt', '', 'text/plain', 'DOC', 10, 1, 'INDEXED')",
+                0,
+            )
+            // The lease: page 1's words with a vector, page 2's image waiting for one, page 3 left for later. The photo: words
+            // that are not its content. The note: content that differs from the indexed text, as no writer makes today.
+            raw.execute(
+                null,
+                "INSERT INTO chunks (id, file_id, ordinal, locator, text, content_text, vector, scale, visual) VALUES " +
+                    "(1, 1, 1, 'p. 1', 'rent is due monthly', 'rent is due monthly', X'01', 1.0, 0), " +
+                    "(2, 1, 2, 'p. 2', NULL, NULL, NULL, NULL, 1), (3, 1, 3, 'later:p. 3', NULL, NULL, NULL, NULL, 1), " +
+                    "(4, 2, 1, '', 'sunset photo metadata', NULL, NULL, NULL, 0), " +
+                    "(5, 3, 1, '', 'metadata score 0.9 deposit refund', 'deposit refund', NULL, NULL, 0)",
+                0,
+            )
+            raw.execute(null, "INSERT INTO chunk_fts (rowid, text) SELECT id, text FROM chunks WHERE text IS NOT NULL", 0)
+            IndexDb.Schema.migrate(raw, 6, 8).value
+            assertEquals(121L, reach(raw).getValue(1L), "6.sqm's rule: the waiting page image is no later pass")
+            IndexDb.Schema.migrate(raw, 8, IndexDb.Schema.version).value
+
+            assertEquals(1L, count(raw, "SELECT COUNT(*) FROM chunks WHERE content_text IS NOT NULL"), "only the differing content keeps its column")
+            val migratedReach = reach(raw)
+            IndexDb(raw, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries.refreshReach(listOf(1L, 2L, 3L))
+            assertEquals(reach(raw), migratedReach, "the upgrade's reach is refreshReach's")
+            assertEquals(127L, migratedReach.getValue(1L))
+
+            val (spy, seen) = capturing(raw)
+            val store = Store(spy)
+            assertEquals(listOf(Store.ChunkRow(1, 1, 1, "p. 1", "rent is due monthly")), store.chunkTexts(1))
+            assertTrue(store.chunkTexts(2).isEmpty())
+            assertEquals(listOf("deposit refund"), store.chunkTexts(3).map { it.text })
+            assertEquals(mapOf(1L to "rent is due monthly", 4L to null, 5L to "deposit refund"), store.contentTexts(listOf(1L, 4L, 5L)))
+            val engine = SearchEngine(store, NoModel)
+            assertTrue("\u0002rent\u0003" in engine.search("rent", SearchEngine.Mode.KEYWORD).hits.single().snippet!!)
+            assertNull(engine.search("sunset", SearchEngine.Mode.KEYWORD).hits.single().snippet)
+            assertEquals(ReadExtent.DEEPENING, store.readExtents(listOf(1L))[1L])
+            assertEquals(listOf(3L), store.laterChunks(10).map { it.id })
+
+            seen.clear()
+            store.laterChunks(64)
+            store.laterChunkCount()
+            store.starredVisibleCount()
+            val queries = seen.toList()
+            val fresh = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+            for (driver in listOf(raw, fresh)) {
+                assertTrue("chunks_later" in indexes(driver))
+                val (later, laterCount, starred) = queries.map { plan(driver, it) }
+                assertTrue(later.first().startsWith("SCAN c USING INDEX chunks_later") && later.none { "TEMP B-TREE" in it }, later.toString())
+                assertTrue(laterCount.first().startsWith("SCAN c USING INDEX chunks_later"), laterCount.toString())
+                assertTrue(starred.first().startsWith("SCAN s"), starred.toString())
+            }
+        }
+    }
+
     @Test
     fun aFreshVersion5DatabaseHasItsOwnColumnOrderAndKeepsItsTextWhenMeaningIsAdded() {
         val v5 = File.createTempFile("fresh-v5", ".db").apply { deleteOnExit() }
@@ -272,10 +346,29 @@ class MigrationTest {
 
     private fun indexes(driver: SqlDriver): List<String> = strings(driver, "SELECT name FROM sqlite_master WHERE type = 'index'", 0)
 
+    /** Unbound parameters plan as NULL, so a query's own SQL can be planned as Store runs it. */
     private fun plan(driver: SqlDriver, sql: String): List<String> = strings(driver, "EXPLAIN QUERY PLAN $sql", 3)
 
     private fun strings(driver: SqlDriver, sql: String, column: Int): List<String> = driver.executeQuery(null, sql, { c ->
         QueryResult.Value(buildList { while (c.next().value) add(c.getString(column)!!) })
+    }, 0).value
+
+    /** [driver] and the SQL of each query run through it. */
+    private fun capturing(driver: SqlDriver): Pair<SqlDriver, MutableList<String>> {
+        val seen = mutableListOf<String>()
+        return object : SqlDriver by driver {
+            override fun <R> executeQuery(
+                identifier: Int?,
+                sql: String,
+                mapper: (SqlCursor) -> QueryResult<R>,
+                parameters: Int,
+                binders: (SqlPreparedStatement.() -> Unit)?,
+            ): QueryResult<R> = driver.executeQuery(identifier, sql, mapper, parameters, binders).also { seen += sql }
+        } to seen
+    }
+
+    private fun reach(driver: SqlDriver): Map<Long, Long> = driver.executeQuery(null, "SELECT id, reach FROM files", { c ->
+        QueryResult.Value(buildMap { while (c.next().value) put(c.getLong(0)!!, c.getLong(1)!!) })
     }, 0).value
 
     private fun terms(driver: SqlDriver): List<String> {

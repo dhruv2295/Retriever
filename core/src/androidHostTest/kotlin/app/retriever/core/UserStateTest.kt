@@ -1,5 +1,6 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.test.runTest
@@ -65,6 +66,39 @@ class UserStateTest {
         LibrarySync(again, FakeSource().apply { next = Changes(listOf(report), emptyList(), "t", isFullScan = true) }) { 0L }.sync()
         assertEquals(setOf(report.uri), again.starredUris())
     }
+
+    /** An older app opening a newer app's index (a downgrade) makes the index again, as if deleted, and keeps both. */
+    @Test
+    fun aNewerIndexIsMadeAgainAndKeepsStarsAndSettings() = runTest {
+        val store = open()
+        store.upsertFiles(listOf(report))
+        store.replaceChunks(store.pending(1).single().id, listOf(Store.NewChunk(1, "p. 1", "refund due", null)))
+        store.setStarred(report.uri, true, at = 7)
+        store.updatePrefs { it.copy(kinds = setOf(Kind.PDF), excludedFolders = setOf("Private")) }
+        val newer = drivers.single()
+        listOf(
+            "CREATE VIRTUAL TABLE chunk_terms USING fts4aux(chunk_fts)",
+            "CREATE VIRTUAL TABLE future_fts USING fts4(a)",
+            "CREATE TABLE future (x INTEGER)",
+            "CREATE INDEX future_x ON future(x)",
+            "CREATE VIEW future_view AS SELECT x FROM future",
+        ).forEach { newer.execute(null, it, 0) }
+
+        Store.resetSchema(newer)
+
+        val fresh = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        assertEquals(schema(fresh), schema(newer))
+        val again = Store(newer, userState = file)
+        assertEquals(Prefs(kinds = setOf(Kind.PDF), excludedFolders = setOf("Private")), again.prefs())
+        assertEquals(0L, again.fileCount())
+        LibrarySync(again, FakeSource().apply { next = Changes(listOf(report), emptyList(), "t", isFullScan = true) }) { 0L }.sync()
+        assertEquals(setOf(report.uri), again.starredUris())
+    }
+
+    private fun schema(driver: JdbcSqliteDriver): List<String> =
+        driver.executeQuery(null, "SELECT type || ' ' || name || ' ' || COALESCE(sql, '') FROM sqlite_master ORDER BY name", { c ->
+            QueryResult.Value(buildList { while (c.next().value) add(c.getString(0)!!) })
+        }, 0).value
 
     @Test
     fun aStarFindsItsFileUnderANewUriButNotAFileOfAnotherSize() = runTest {

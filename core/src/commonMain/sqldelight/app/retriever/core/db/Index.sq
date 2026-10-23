@@ -50,14 +50,20 @@ CREATE TABLE chunks (
   scale REAL,
   -- Deepen-pass tries, counted before each embed so a chunk that kills the process is given up on.
   tail_attempts INTEGER NOT NULL DEFAULT 0,
+  -- What the file itself says here, when that is not the text above (no writer makes such a chunk today).
   content_text TEXT,
   labels TEXT,
-  visual INTEGER NOT NULL DEFAULT 0
+  visual INTEGER NOT NULL DEFAULT 0,
+  -- 1: text is the file's own words, kept once; content_text is then NULL. Added in 8.sqm.
+  content INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX chunks_by_file ON chunks(file_id);
 
 CREATE INDEX chunks_tail ON chunks(file_id, tail_attempts) WHERE vector IS NULL;
+
+-- The later queue reads its placeholders in id order from here, not every chunk of every read file. Added in 8.sqm.
+CREATE INDEX chunks_later ON chunks(id) WHERE locator LIKE 'later:%';
 
 -- tokenchars: every combining mark (Unicode Mn and Mc) outside the generic diacritic blocks that remove_diacritics
 -- folds. unicode61 would otherwise split words at the vowel signs of Indic and Southeast Asian scripts
@@ -113,9 +119,6 @@ WHERE files.modified_at != excluded.modified_at OR files.size != excluded.size O
 setTakenAt:
 UPDATE files SET taken_at = :takenAt WHERE uri = :uri AND taken_at IS NOT :takenAt;
 
-changes:
-SELECT changes();
-
 fileIdByUri:
 SELECT id FROM files WHERE uri = ?;
 
@@ -125,18 +128,24 @@ SELECT * FROM files WHERE uri = ?;
 fileIdsByUris:
 SELECT id FROM files WHERE uri IN ?;
 
--- Only what the name index keeps, so building it never reads whole rows.
-nameEntries:
-SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files;
+-- Only what the name index keeps, so building it never reads whole rows. The bulk reads page by id: Android re-runs a
+-- query from its first row each time a result outgrows one 2 MB cursor window.
+nameEntriesAfter:
+SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
 nameEntriesByUris:
 SELECT id, name, folder, kind, COALESCE(taken_at, modified_at) AS at FROM files WHERE uri IN ?;
 
-allFiles:
-SELECT * FROM files;
+filesAfter:
+SELECT * FROM files WHERE id > ? ORDER BY id LIMIT ?;
 
-allUris:
-SELECT uri FROM files;
+urisAfter:
+SELECT id, uri FROM files WHERE id > ? ORDER BY id LIMIT ?;
+
+-- The files in :folder and below it. The range is the BINARY-ordered set of strings that start with folder + '/' ('0'
+-- follows '/'), so files_by_folder answers it exactly, where LIKE would fold case and read '_' and '%' as wildcards.
+urisInFolder:
+SELECT uri FROM files WHERE folder = :folder OR (folder >= :folder || '/' AND folder < :folder || '0');
 
 fileCount:
 SELECT COUNT(*) FROM files;
@@ -301,9 +310,9 @@ SELECT id FROM files WHERE id IN ? AND partial = 1;
 deepeningFiles:
 SELECT DISTINCT c.file_id FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
-  AND (length(trim(c.content_text)) > 0 OR c.visual = 1)
+  AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR c.visual = 1)
   AND EXISTS (SELECT 1 FROM chunks d WHERE d.file_id = c.file_id AND d.ordinal > 0
-    AND (d.vector IS NOT NULL OR (d.tail_attempts >= 3 AND length(trim(d.content_text)) > 0)));
+    AND (d.vector IS NOT NULL OR (d.tail_attempts >= 3 AND length(trim(CASE WHEN d.content = 1 THEN d.text ELSE d.content_text END)) > 0)));
 
 deleteFileById:
 DELETE FROM files WHERE id = ?;
@@ -324,7 +333,7 @@ deleteChunk:
 DELETE FROM chunks WHERE id = ?;
 
 insertChunk:
-INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text, labels, visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale, content_text, labels, visual, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 lastId:
 SELECT last_insert_rowid();
@@ -342,17 +351,19 @@ SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL;
 vectorsDeleted:
 SELECT value FROM index_meta WHERE key = 'vectors_deleted';
 
--- Pages and moments left for the deepen pass (Extraction.LATER), for a batch without the model to resolve.
+-- Pages and moments left for the deepen pass (Extraction.LATER), for a batch without the model to resolve. CROSS JOIN
+-- keeps chunks outer, read through chunks_later in id order: without statistics SQLite would start from files and read
+-- every chunk of every read file. The LIKE term must stay identical to the index's.
 laterChunks:
 SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
-FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE f.state = 'INDEXED' AND c.locator LIKE 'later:%' AND c.tail_attempts < 3
+FROM chunks c CROSS JOIN files f ON f.id = c.file_id
+WHERE c.locator LIKE 'later:%' AND f.state = 'INDEXED' AND c.tail_attempts < 3
 ORDER BY c.id
 LIMIT ?;
 
 laterChunkCount:
-SELECT COUNT(*) FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE f.state = 'INDEXED' AND c.locator LIKE 'later:%' AND c.tail_attempts < 3;
+SELECT COUNT(*) FROM chunks c CROSS JOIN files f ON f.id = c.file_id
+WHERE c.locator LIKE 'later:%' AND f.state = 'INDEXED' AND c.tail_attempts < 3;
 
 tailChunks:
 SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
@@ -384,18 +395,19 @@ SELECT file_id FROM chunks WHERE id = ?;
 
 -- v5 fresh databases put content_text before vector; upgraded ones appended it. Never depend on physical column order.
 chunkById:
-SELECT id, file_id, ordinal, locator, text, vector, scale, tail_attempts, content_text, labels, visual FROM chunks WHERE id = ?;
+SELECT id, file_id, ordinal, locator, text, vector, scale, tail_attempts, content_text, labels, visual, content FROM chunks WHERE id = ?;
 
 chunksByIds:
 SELECT id, file_id, locator, text FROM chunks WHERE id IN ?;
 
 chunkTextsOfFile:
-SELECT id, ordinal, locator, content_text FROM chunks WHERE file_id = ? AND content_text IS NOT NULL ORDER BY ordinal, id;
+SELECT id, ordinal, locator, CASE WHEN content = 1 THEN text ELSE content_text END AS content_text FROM chunks
+WHERE file_id = ? AND (content = 1 OR content_text IS NOT NULL) ORDER BY ordinal, id;
 
 -- The first text at each place, for many places at once; SQLite returns the text of the row that holds MIN(ordinal).
 firstTextAtMany:
-SELECT file_id, locator, content_text, MIN(ordinal) FROM chunks
-WHERE file_id IN :fileIds AND locator IN :locators AND content_text IS NOT NULL
+SELECT file_id, locator, CASE WHEN content = 1 THEN text ELSE content_text END AS content_text, MIN(ordinal) FROM chunks
+WHERE file_id IN :fileIds AND locator IN :locators AND (content = 1 OR content_text IS NOT NULL)
 GROUP BY file_id, locator;
 
 insertFts:
@@ -433,6 +445,10 @@ ORDER BY rowid DESC LIMIT :limit;
 
 insertFileFts:
 INSERT INTO file_fts (rowid, name, folder) VALUES (?, ?, ?);
+
+-- The name row of the file upsertFile just inserted, without a query for its id.
+insertFileFtsForLastRow:
+INSERT INTO file_fts (rowid, name, folder) VALUES (last_insert_rowid(), ?, ?);
 
 deleteFileFts:
 DELETE FROM file_fts WHERE rowid = ?;
@@ -539,18 +555,19 @@ SELECT s.uri FROM starred s JOIN files f ON f.uri = s.uri;
 starredFiles:
 SELECT f.* FROM starred s JOIN files f ON f.uri = s.uri ORDER BY s.starred_at DESC LIMIT ? OFFSET ?;
 
--- Home strip only: OTHER never shows there, and the count agrees with the strip.
+-- Home strip only: OTHER never shows there, and the count agrees with the strip. CROSS JOIN keeps the few stars outer,
+-- where SQLite would otherwise scan every file for the count.
 starredVisible:
 SELECT f.* FROM starred s JOIN files f ON f.uri = s.uri WHERE f.kind != 'OTHER' ORDER BY s.starred_at DESC LIMIT ?;
 
 starredVisibleCount:
-SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri WHERE f.kind != 'OTHER';
+SELECT COUNT(*) FROM starred s CROSS JOIN files f ON f.uri = s.uri WHERE f.kind != 'OTHER';
 
 starredCount:
 SELECT COUNT(*) FROM starred s JOIN files f ON f.uri = s.uri;
 
 contentByIds:
-SELECT id, content_text FROM chunks WHERE id IN ?;
+SELECT id, CASE WHEN content = 1 THEN text ELSE content_text END AS content_text FROM chunks WHERE id IN ?;
 
 renameFile:
 UPDATE files SET uri = ?, name = ?, modified_at = ? WHERE id = ?;
@@ -572,7 +589,8 @@ WHERE f.id IN ? AND f.state = 'INDEXED' AND f.reach & 1;
 
 -- A file's first chunks of extracted text, for suggestions.
 contentHead:
-SELECT content_text FROM chunks WHERE file_id = ? AND content_text IS NOT NULL ORDER BY ordinal, id LIMIT ?;
+SELECT CASE WHEN content = 1 THEN text ELSE content_text END AS content_text FROM chunks
+WHERE file_id = ? AND (content = 1 OR content_text IS NOT NULL) ORDER BY ordinal, id LIMIT ?;
 
 -- The bits of reach (Store.Reach), each set when some chunk of the file is so. Ordinal 0 is a name vector, metadata
 -- text is not extracted content, and labels are content even without a model.
@@ -582,14 +600,14 @@ SELECT content_text FROM chunks WHERE file_id = ? AND content_text IS NOT NULL O
 refreshReach:
 UPDATE files SET reach =
   EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
-    AND (length(trim(c.content_text)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
   + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL
-    AND (length(trim(c.content_text)) > 0 OR (c.visual = 1 AND c.tail_attempts < 3)))
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR (c.visual = 1 AND c.tail_attempts < 3)))
   + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
-    AND (length(trim(c.content_text)) > 0 OR c.visual = 1))
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR c.visual = 1))
   + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
   + 16 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
-    AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(c.content_text)) > 0)))
+    AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0)))
   + 32 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NOT NULL)
   + 64 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NULL)
 WHERE id IN ?;
@@ -609,7 +627,8 @@ filesWithContent:
 SELECT * FROM files WHERE id IN :ids AND reach & 1;
 
 failedMeaningFiles:
-SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND ordinal > 0 AND vector IS NULL AND tail_attempts >= 3 AND length(trim(content_text)) > 0;
+SELECT DISTINCT file_id FROM chunks WHERE file_id IN ? AND ordinal > 0 AND vector IS NULL AND tail_attempts >= 3
+  AND length(trim(CASE WHEN content = 1 THEN text ELSE content_text END)) > 0;
 
 lastChunkId:
 SELECT COALESCE(MAX(id), 0) FROM chunks;

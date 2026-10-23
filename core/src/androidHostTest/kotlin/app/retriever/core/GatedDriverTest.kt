@@ -1,7 +1,11 @@
 package app.retriever.core
 
+import app.cash.sqldelight.Transacter
 import app.cash.sqldelight.TransacterImpl
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -63,5 +67,42 @@ class GatedDriverTest {
             }
         }
         withTimeout(5_000) { driver.closeWhenIdle() }
+    }
+
+    @Test
+    fun closeWaitsForTheCommitHooksOfAReplacedLaterChunk() = runBlocking<Unit> {
+        val inside = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var hold = false
+        val raw = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        val spy = object : SqlDriver by raw {
+            override fun newTransaction(): QueryResult<Transacter.Transaction> = raw.newTransaction().also { t ->
+                if (hold) {
+                    hold = false
+                    t.value.afterCommit {
+                        inside.countDown()
+                        release.await()
+                    }
+                }
+            }
+        }
+        val store = Store(spy)
+        store.upsertFiles(listOf(testFile("scan.pdf", Kind.PDF)))
+        val id = store.pending(1).single().id
+        store.replaceChunks(id, listOf(Store.NewChunk(1, LATER + "p. 2", null, null, visual = true)))
+        val later = store.laterChunks(1).single()
+        hold = true
+        val writer = thread { store.replaceTailChunk(later.id, listOf(Store.NewChunk(1, "p. 2", "page two words", null))) }
+        inside.await()
+        val closing = async(Dispatchers.Default) { store.close() }
+        try {
+            delay(200)
+            assertFalse(closing.isCompleted, "closed under a running transaction's commit hooks")
+        } finally {
+            release.countDown()
+        }
+        closing.await()
+        writer.join()
+        assertFailsWith<IllegalStateException> { store.laterChunkCount() }
     }
 }

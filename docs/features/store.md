@@ -11,19 +11,37 @@ how it migrates and how the migrations are verified.
 
 - **SQLDelight, one database `IndexDb`** (`core/build.gradle.kts`), dialect `sqlite-3-25`. minSdk 30 ships SQLite 3.28:
   upsert (3.24) and `remove_diacritics=2` (3.27) work, newer syntax does not. Typed queries live in `Index.sq`; migrations
-  are `1.sqm` (v1 to v2), `2.sqm` (v2 to v3) and `3.sqm` (v3 to v4). `MigrationTest` pins the current version.
-- **Schema.** `files` (identity, kind, state, attempts, `partial`, `taken_at`), `chunks` (text, int8 vector blob, scale,
-  `tail_attempts`; `AUTOINCREMENT` id), `chunk_fts` and `file_fts` (FTS4), `index_meta` (key and value), `recent_queries`,
-  `starred`. The `vector_deleted` trigger counts deleted vector rows in meta so the search engine can notice with one read.
-  Indexes: state, kind and state, `files_by_modified`, `files_by_size`, `files_by_kind_time` (Home lists, capture-time
-  filter, star relinking) and the partial index `chunks_tail` for the deepen pass.
-- **Drivers.** Android: `AndroidSqliteDriver` with write-ahead logging switched on in `onConfigure` (the driver does not
-  expose it), in `androidApp/.../di/AppModule.kt`. iOS: `NativeSqliteDriver` with four reader connections in WAL mode
-  (`IosStore.kt`). WAL lets the UI read while the indexer holds a write transaction.
+  are `1.sqm` to `8.sqm` (v1 to v9). `MigrationTest` pins the current version.
+- **Migrations.** `1.sqm`: `files.partial`, re-reads what version 1's caps cut. `2.sqm`: `starred`, `files.taken_at`, both
+  FTS tables recreated with the generated `tokenchars` and refilled after the open. `3.sqm`: the Home list indexes.
+  `4.sqm`: `chunks.content_text`, `files_by_folder`. `5.sqm`: `chunks.labels` and `visual`, `chunk_fts` gains `labels`.
+  `6.sqm`: `files.reach` and `files_by_reach`. `7.sqm`: the duplicate finder's hashes. `8.sqm`: `chunks.content` replaces
+  the copy in `content_text`, the `chunks_later` index, and `reach` recomputed for files with a waiting page image or
+  moment (6.sqm's rule predates them).
+- **Schema.** `files` (identity, kind, state, attempts, `partial`, `taken_at`, `reach`, the duplicate hashes), `chunks`
+  (text, int8 vector blob, scale, `tail_attempts`, `labels`, `visual`, `content`; `AUTOINCREMENT` id), `chunk_fts` and
+  `file_fts` (FTS4), `index_meta` (key and value), `recent_queries`, `starred`. A chunk's displayable content is its text
+  when `content` is 1, else `content_text` (NULL from every writer today), so the words are stored once in the row (and
+  once more in `chunk_fts`). The `vector_deleted` trigger counts deleted vector rows in meta so the search engine can
+  notice with one read. Indexes: `files_by_state`, `files_by_reach` (kind, state, partial, reach), `files_by_folder`,
+  `files_by_modified`, `files_by_size`, `files_by_kind_time` (Home lists, capture-time filter, star relinking),
+  `chunks_by_file`, and the partial indexes `chunks_tail` (the deepen pass) and `chunks_later` (the later queue, read
+  through a `CROSS JOIN` because there are no statistics).
+- **Bulk reads page by id.** `knownFiles`, `knownFingerprints`, `knownUris`, `nameEntries` and `loadVectors` read
+  `PAGE_ROWS` (4,000) rows a query, each page past the last id. Android fills a 2 MB `CursorWindow` and, to refill it,
+  runs the query again from its first row, so one big result costs quadratic steps (100k files under Robolectric's
+  Android 11 SQLite: 1.18 s unpaged, 0.13 s paged).
+- **Drivers.** Android: `AndroidSqliteDriver` with write-ahead logging and `synchronous = NORMAL` set in `onConfigure`
+  (the driver does not expose them), in `androidApp/.../di/AppModule.kt` (`indexDriver`); NORMAL is AOSP's WAL default,
+  set so a device configured for FULL does not sync every commit. iOS: `NativeSqliteDriver` with four reader connections
+  in WAL mode and `SynchronousFlag.NORMAL` (`IosStore.kt`); Apple's SQLite caps the `-wal` file at 32 KB after a
+  checkpoint (its `journal_size_limit`), Android's at 512 KB. WAL lets the UI read while the indexer holds a write
+  transaction. A newer build's index (a downgrade) is dropped and made again (`Store.resetSchema`), on Android from
+  `onDowngrade`, on iOS from `onCreateConnection` because sqliter 1.3 has no downgrade hook.
 - **FTS4, not FTS5.** Android's framework SQLite builds FTS3 and FTS4 and the app bundles no SQLite. Tokenizer: unicode61
   with `remove_diacritics=2` and a generated `tokenchars` list of combining marks, so Indic and Southeast Asian words stay
   whole. CJK runs, which have no spaces, are written as their overlapping two-character pieces (`Cjk.kt`; every FTS write
-  goes through `Store.insertFts` and `insertFileFts`, so keep it so). Ranking is BM25 in Kotlin from `matchinfo`;
+  goes through `Store.insertFts`, `insertFileFts` and `insertFileFtsForLastRow`, so keep it so). Ranking is BM25 in Kotlin from `matchinfo`;
   `ORDER BY rowid DESC LIMIT` is answered by the FTS module itself.
 - **Vectors as blobs in `chunks`, scanned in memory.** `SearchEngine.refresh` owns the in-memory `VectorTable` and loads
   only rows above the last id it saw. That relies on `AUTOINCREMENT` (ids never go back), on `setChunkVector` giving a
@@ -34,8 +52,9 @@ how it migrates and how the migrations are verified.
   `filesDir`; iOS beside the index directory as `<dir>-user-state.json`). The snapshot is read back into a database that
   has no prefs row yet (`restoreUserState`). Prefs are read inside SQL transactions and stars JOIN `files`, so DataStore
   or a second database would add plumbing for no gain.
-- **Reset is one statement set.** `resetForModel` drops every chunk and queues every file again under the new
-  `Signature`. `replaceChunks` checks the signature and a caller-supplied `stillCurrent` inside its transaction.
+- **Reset is one statement set.** `resetForModel` keeps every chunk's text and labels, clears the vectors, adds a name
+  chunk to read files with none, queues again only videos read without frames, and records the new `Signature`.
+  `replaceChunks` checks the signature and a caller-supplied `stillCurrent` inside its transaction.
 - **After a schema bump that recreates the FTS tables** (`2.sqm`), the tables start empty and a meta flag
   `fts_rebuild` makes `rebuildFtsIfPending` refill them once after the open, off the migration (150k chunks take seconds).
   The refill copies text as it is, so the same call then rewrites the rows that hold CJK; it also does that once when
@@ -51,8 +70,8 @@ how it migrates and how the migrations are verified.
 ## Owner files
 
 - `core/src/commonMain/sqldelight/app/retriever/core/db/Index.sq`: schema and every query
-- `core/src/commonMain/sqldelight/app/retriever/core/db/1.sqm`, `2.sqm`, `3.sqm`: migrations
-- `core/src/commonMain/sqldelight/databases/3.db`: schema snapshot used by the verifier
+- `core/src/commonMain/sqldelight/app/retriever/core/db/1.sqm` to `8.sqm`: migrations
+- `core/src/commonMain/sqldelight/databases/3.db`: schema snapshot the verifier replays every later migration on
 - `core/src/commonMain/kotlin/app/retriever/core/Store.kt`: the only DB access, plus `VectorTable`, BM25, `retryingMatch`, user-state mirror
 - `core/src/commonMain/kotlin/app/retriever/core/UserState.kt` and `Prefs.kt`
 - `androidApp/src/main/kotlin/app/retriever/di/AppModule.kt` and `core/src/iosMain/kotlin/app/retriever/core/IosStore.kt`: drivers
@@ -61,11 +80,14 @@ how it migrates and how the migrations are verified.
 ## Invariants
 
 1. **FTS rows are deleted before their chunk rows** (`removeFiles`, `replaceChunks`, `setChunkVector`, the kind deletes).
-   Required today because foreign keys are off, and tomorrow if `chunk_fts` becomes external-content.
+   Required today because foreign keys are off, and tomorrow if `chunk_fts` becomes external-content. Those paths delete
+   the FTS row of every chunk id, including chunks never indexed (no text, no labels): a normal FTS4 table ignores that,
+   but an external-content one miscounts and, repeated, reports "database disk image is malformed" (SQLite 3.28). Limit
+   every FTS delete to indexed rows before any switch.
 2. **`ON DELETE CASCADE` on `chunks.file_id` is inert.** Foreign keys are off on both drivers, so every file delete goes
    through `Store.removeFiles`.
-3. **`SELECT changes()` is read inside the transaction that wrote** (`upsertFiles`, `relinkStars`). On iOS a bare read can
-   go to a reader connection whose `changes()` is not the writer's.
+3. **Row counts come from the writing statement** (`upsertFile`, `setTakenAt`, `relinkStars`): the generated mutator
+   returns the driver's changed-row count. Never `SELECT changes()`: on iOS a bare read can go to a reader connection.
 4. **The signature check and `resetForModel` run under `Retriever.indexLock`,** and `replaceChunks` re-checks inside its
    transaction. A vector is written only under the current signature.
 5. **A sync never rewrites a row being read.** `runBatch` syncs under `indexLock` and skips while another sync runs
@@ -95,7 +117,9 @@ how it migrates and how the migrations are verified.
 
 - `MigrationTest` (androidHostTest): `version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain`,
   `version2KeepsEveryFileIndexedAndBecomesSearchableInAnyScript`, `version3GainsTheListIndexesAndTheQueriesUseThem` (it
-  also asserts the query plans use the new indexes and sort nothing).
+  also asserts the query plans use the new indexes and sort nothing), and
+  `version8ChunksKeepTheirWordsOnceAndFilesTheirReachByTodaysRule` (content, snippets and reader text survive, reach
+  equals `refreshReach`, and the generated later-queue and star-count SQL plans through `chunks_later` and `starred`).
 - `SchemaV3Test`: `generatedTokenchars`, `tokencharsAreCombiningMarksOutsideTheFoldedDiacriticBlocks`,
   `wordsInAbugidasStayWholeAndAccentsStillFold`, `starsAreKeptByUriAndSurviveAModelReset`,
   `aStarOnARemovedFileIsHiddenAndComesBackWithTheFile`, `longUriListsRunInPartsUnderAndroid11sVariableLimit`,
@@ -106,8 +130,17 @@ how it migrates and how the migrations are verified.
   `resetForModelResetsIndex`, `markFailedKeepsPendingUntilThirdAttempt`, `retrySkippedGivesSkippedFilesFreshAttempts`,
   `recentQueriesKeepTheNewestTenWithoutDuplicates`. `StoreCommonTest` (commonTest) adds the accent, Devanagari,
   file-name and CJK keyword cases (`aCjkWordInsideARunIsFound`, `cjkRowsWrittenWholeAreRewrittenOnce`).
-- `UserStateTest`: `aDeletedIndexKeepsStarsAndSettings`, `aStarFindsItsFileUnderANewUriButNotAFileOfAnotherSize`,
-  `aStarAddedBeforeTheFirstReadDoesNotOverwriteTheSnapshot`, `aCorruptSnapshotIsIgnoredAndLogsNoName`.
+- `UserStateTest`: `aDeletedIndexKeepsStarsAndSettings`, `aNewerIndexIsMadeAgainAndKeepsStarsAndSettings`,
+  `aStarFindsItsFileUnderANewUriButNotAFileOfAnotherSize`, `aStarAddedBeforeTheFirstReadDoesNotOverwriteTheSnapshot`,
+  `aCorruptSnapshotIsIgnoredAndLogsNoName`.
+- `StoreTest` also: `aChunksWordsAreStoredOnceAndStayContentWhenSplitOrEmbedded`, `bulkReadsPageThroughEveryRowOnce`.
+  `BulkLibrarySyncTest.aNewFileCostsALookupItsRowAndItsNameRow` counts statements per new file (3).
+  `GatedDriverTest.closeWaitsForTheCommitHooksOfAReplacedLaterChunk`.
+- Drivers on their platform's SQLite: `IndexDriverTest` (androidApp, Robolectric, API 30 and 35: `synchronous` is 1
+  where the device says FULL; a newer index is made again) and `IosStoreTest` (iOS simulator: the `-wal` file shrinks
+  after a big write; a newer index is made again).
+- `SyncBenchTest` (`-Pbench`): a 100k-file sync's statements per file, allocation, diff snapshot and longest removal
+  transaction.
 - `DeadVectorsTest`: dead rows hidden, backfill reload, `aThrowingFtsRefillStillLeavesNamesLoaded`.
 - Not covered yet: `verifyCommonMainIndexDbMigration` is a Gradle task that nothing in `scripts/verify.sh` or CI runs, so
   run it by hand when `Index.sq` or a `.sqm` changes; `tokenchars` equality between `Index.sq` and `2.sqm` (each is only
@@ -122,10 +155,13 @@ how it migrates and how the migrations are verified.
 - Starred is encoded twice: in-memory file ids for the scan and name lanes, and SQL `uri IN (SELECT uri FROM starred)` for
   the keyword lane. Both come from the same JOIN with `files`, so they agree.
 - `chunk_fts` stores every text a second time. Making it external-content (`content="chunks"`) would turn
-  `resetForNewModel` and `rebuildFts` into one `'rebuild'` statement; measure `SUM(LENGTH(text))` on a real library
-  first. `file_fts` must stay a normal table because `upsertFile` updates `files` before the FTS row.
-- `resetForNewModel` runs the `vector_deleted` trigger once per vector row, all in one transaction. Rare (model change),
-  but star and prefs writes queue behind it.
+  `resetForNewModel` and `rebuildFts` into one `'rebuild'` statement, but only after invariant 1's deletes are limited
+  to indexed rows; measure `SUM(LENGTH(text))` on a real library first. `file_fts` must stay a normal table because
+  `upsertFile` updates `files` before the FTS row.
+- `resetForNewModel` rewrites every chunk row in one transaction. Rare (model change), but star and prefs writes queue
+  behind it.
+- A library-wide removal commits 1,000 files a transaction, so other writes wait for one part (about 0.1 s of 4.7 s at
+  100k files on the JVM); FTS4 writes a segment per commit, so the whole removal takes about 1.5x one transaction.
 - Memory is rows times `DIMS` bytes, with a 2x peak during a full rebuild while a running search still holds the old view.
 - Restore is keyed on "no prefs row". If a snapshot write failed (only logged), a deleted star can come back on the next
   launch that restores.

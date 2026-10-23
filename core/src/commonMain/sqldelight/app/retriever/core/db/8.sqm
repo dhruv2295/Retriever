@@ -1,0 +1,22 @@
+-- A chunk's content was a second copy of its text; it becomes a flag (Index.sq, chunks.content). Android shrinks the
+-- file at commit (its SQLite builds with auto_vacuum); iOS reuses the freed pages.
+ALTER TABLE chunks ADD COLUMN content INTEGER NOT NULL DEFAULT 0;
+UPDATE chunks SET content = 1, content_text = NULL WHERE content_text IS NOT NULL AND content_text = text;
+
+CREATE INDEX chunks_later ON chunks(id) WHERE locator LIKE 'later:%';
+
+-- 6.sqm filled reach before a page image or moment still waiting for its vector counted as a later pass. Only files
+-- holding such a chunk can differ from refreshReach, which this repeats.
+UPDATE files SET reach =
+  EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
+  + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR (c.visual = 1 AND c.tail_attempts < 3)))
+  + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
+    AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR c.visual = 1))
+  + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
+  + 16 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
+    AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0)))
+  + 32 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NOT NULL)
+  + 64 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NULL)
+WHERE id IN (SELECT file_id FROM chunks WHERE vector IS NULL AND visual = 1);

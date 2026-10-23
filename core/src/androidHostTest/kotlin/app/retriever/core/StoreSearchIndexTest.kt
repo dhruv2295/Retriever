@@ -1,5 +1,9 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -170,6 +174,37 @@ class StoreTest {
         assertTrue(store.keywordSearch("invoice", 10).isEmpty())
         assertTrue(store.fileKeywordSearch("bill", 10).isEmpty())
         assertNull(store.file(fileId))
+    }
+
+    /** Words read inside a file are kept once, in text, with a flag for content; a split or a new vector keeps the flag. */
+    @Test
+    fun aChunksWordsAreStoredOnceAndStayContentWhenSplitOrEmbedded() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        val store = Store(driver).also { it.resetForModel(SIG) }
+        store.upsertFiles(listOf(testFile("notes.txt")))
+        val id = store.pending(1).single().id
+        store.replaceChunks(id, listOf(Store.NewChunk(1, "p. 1", "alpha beta gamma delta", null)))
+        assertEquals(0L, count(driver, "SELECT COUNT(*) FROM chunks WHERE content_text IS NOT NULL"), "no second copy of the words")
+
+        store.splitTailChunk(store.chunkTexts(id).single().id, listOf("alpha beta", "gamma delta"))
+        assertEquals(listOf("alpha beta", "gamma delta"), store.chunkTexts(id).map { it.text })
+        store.setChunkVector(store.chunkTexts(id).first().id, vec(SIG))
+        assertEquals(listOf("gamma delta", "alpha beta"), store.chunkTexts(id).map { it.text })
+        assertEquals(mapOf(Kind.DOC to 1L), store.countsNow(kinds = setOf(Kind.DOC)).readByKind)
+        assertEquals(0L, count(driver, "SELECT COUNT(*) FROM chunks WHERE content_text IS NOT NULL"))
+    }
+
+    /** The bulk reads go by id in pages; a page boundary neither drops nor repeats a row. */
+    @Test
+    fun bulkReadsPageThroughEveryRowOnce() {
+        val store = newStore()
+        val files = List(10_001) { testFile("f$it.txt", modifiedAt = it.toLong(), folder = "Docs/${it % 7}") }
+        files.chunked(1_000).forEach(store::upsertFiles)
+        assertEquals(files.associateBy { it.uri }, store.knownFiles())
+        assertEquals(files.map { it.uri }.toSet(), store.knownUris())
+        val names = store.nameEntries()
+        assertEquals(files.size, names.size)
+        assertEquals(files.map { it.name }.toSet(), names.map { it.name }.toSet())
     }
 
     @Test
@@ -389,3 +424,8 @@ class IndexEngineTest {
         assertEquals(CORPUS.size, result.processed)
     }
 }
+
+private fun count(driver: SqlDriver, sql: String): Long = driver.executeQuery(null, sql, { c ->
+    c.next()
+    QueryResult.Value(c.getLong(0)!!)
+}, 0).value

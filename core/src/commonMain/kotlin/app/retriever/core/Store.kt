@@ -29,10 +29,12 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     private fun <R> transactionWithResult(body: TransactionWithReturn<R>.() -> R): R = driver.counted { q.transactionWithResult(false, body) }
 
-    // Every keyword-table write goes through these two, so CJK runs are always stored as their pieces (Cjk.kt).
+    // Every keyword-table write goes through these three, so CJK runs are always stored as their pieces (Cjk.kt).
     private fun insertFts(chunkId: Long, text: String?, labels: String?) = q.insertFts(chunkId, text?.let(::cjkBigrams), labels?.let(::cjkBigrams))
 
     private fun insertFileFts(fileId: Long, name: String, folder: String) = q.insertFileFts(fileId, cjkBigrams(name), cjkBigrams(folder))
+
+    private fun insertFileFtsForLastRow(name: String, folder: String) = q.insertFileFtsForLastRow(cjkBigrams(name), cjkBigrams(folder))
 
     /** Retries run by [retryingMatch]; a test spy. */
     internal var retries = 0
@@ -118,15 +120,19 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         transaction {
             var backfilled = false
             for (f in files) {
-                q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt)
-                val changed = q.changes().executeAsOne() != 0L
-                // Fills rows synced before taken_at existed or takes a changed date, and leaves state alone so nothing is read again.
-                f.takenAt?.let {
-                    q.setTakenAt(it, f.uri)
-                    if (q.changes().executeAsOne() != 0L) backfilled = true
+                val id = q.fileIdByUri(f.uri).executeAsOneOrNull()
+                // The driver returns the changed-row count: no SELECT changes() round trip.
+                val changed = q.upsertFile(f.uri, f.name, f.folder, f.mime, f.kind.name, f.size, f.modifiedAt, f.takenAt).value != 0L
+                // A new row was written whole, taken_at too, and has no chunks or name row yet.
+                if (id == null) {
+                    if (changed) insertFileFtsForLastRow(f.name, f.folder)
+                    continue
                 }
-                if (!changed) continue
-                val id = q.fileIdByUri(f.uri).executeAsOne()
+                if (!changed) {
+                    // Fills rows synced before taken_at existed or takes a changed date, and leaves state alone so nothing is read again.
+                    if (f.takenAt != null && q.setTakenAt(f.takenAt, f.uri).value != 0L) backfilled = true
+                    continue
+                }
                 // The old text must not outlive the change, even if the re-read fails; the file is found by name till then.
                 q.chunkIdsForFile(id).executeAsList().forEach { q.deleteFts(it) }
                 q.deleteChunksForFile(id)
@@ -172,7 +178,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     }
 
     /** The first [limit] chunks of [fileId]'s extracted text, in reading order. */
-    fun contentHead(fileId: Long, limit: Int): List<String> = q.contentHead(fileId, limit.toLong()).executeAsList()
+    fun contentHead(fileId: Long, limit: Int): List<String> = q.contentHead(fileId, limit.toLong()) { it.orEmpty() }.executeAsList()
 
     fun contentTexts(ids: Collection<Long>): Map<Long, String?> = inChunks(ids) { q.contentByIds(it) { id, text -> id to text }.executeAsList() }.toMap()
 
@@ -254,11 +260,24 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** How many files [sizeCollisions] would return, without reading them. */
     fun sizeCollisionCount(minSize: Long): Long = q.sizeCollisionCount(minSize).executeAsOne()
 
-    /** Every known file by URI, in one query. */
-    fun knownFiles(): Map<String, SourceFile> = q.allFiles(::storedFile).executeAsList().associate { it.file.uri to it.file }
+    /** Every known file by URI. */
+    fun knownFiles(): Map<String, SourceFile> = HashMap<String, SourceFile>().also { map -> eachFile { map[it.file.uri] = it.file } }
+
+    /** Every known file's [fingerprint] by URI: what a full scan diffs against, without keeping a copy of each row. */
+    internal fun knownFingerprints(): HashMap<String, Long> = HashMap<String, Long>().also { map -> eachFile { map[it.file.uri] = it.file.fingerprint() } }
 
     /** Every known URI, without building a [SourceFile] per row. */
-    fun knownUris(): Set<String> = q.allUris().executeAsList().toHashSet()
+    fun knownUris(): Set<String> = HashSet<String>().also { set -> eachUri { set += it } }
+
+    /** The known URIs [keep] lets through; only those are held. */
+    internal fun knownUris(keep: (String) -> Boolean): List<String> = buildList { eachUri { if (keep(it)) add(it) } }
+
+    /** URIs of the files in [folder] and the folders below it. */
+    internal fun urisInFolder(folder: String): List<String> = q.urisInFolder(folder).executeAsList()
+
+    private inline fun eachFile(each: (StoredFile) -> Unit) = paged({ after -> q.filesAfter(after, PAGE_ROWS, ::storedFile).executeAsList() }, { it.id }, each)
+
+    private inline fun eachUri(each: (String) -> Unit) = paged({ after -> q.urisAfter(after, PAGE_ROWS).executeAsList() }, { it.id }) { each(it.uri) }
 
     fun fileByUri(uri: String): StoredFile? = q.fileByUri(uri, ::storedFile).executeAsOneOrNull()
 
@@ -270,7 +289,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun fileIds(uris: Collection<String>): List<Long> = inChunks(uris) { q.fileIdsByUris(it).executeAsList() }
 
     /** Every file as the name index keeps it. */
-    fun nameEntries(): List<NameEntry> = q.nameEntries(::nameEntry).executeAsList()
+    fun nameEntries(): List<NameEntry> = buildList { paged({ after -> q.nameEntriesAfter(after, PAGE_ROWS, ::nameEntry).executeAsList() }, { it.id }, ::add) }
 
     fun nameEntries(uris: Collection<String>): List<NameEntry> = inChunks(uris) { q.nameEntriesByUris(it, ::nameEntry).executeAsList() }
 
@@ -321,10 +340,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             q.chunkIdsForFile(fileId).executeAsList().forEach { q.deleteFts(it) }
             q.deleteChunksForFile(fileId)
             for (c in chunks) {
-                q.insertChunk(
-                    fileId, c.ordinal.toLong(), c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
-                    c.contentText, c.labels, if (c.visual) 1L else 0L,
-                )
+                insertChunk(fileId, c.ordinal.toLong(), c)
                 val chunkId = q.lastId().executeAsOne()
                 if (c.text != null || c.labels != null) insertFts(chunkId, c.text, c.labels)
             }
@@ -394,8 +410,9 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun splitTailChunk(id: Long, parts: List<String>) {
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
+            // A part of the file's own words stays content; a chunk whose content differs from its text has none to split.
             for (text in parts) {
-                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, text.takeIf { c.content_text == c.text }, c.labels, 0L)
+                q.insertChunk(c.file_id, c.ordinal, c.locator, text, null, null, null, c.labels, 0L, c.content)
                 insertFts(q.lastId().executeAsOne(), text, c.labels)
             }
             q.deleteFts(id)
@@ -408,17 +425,25 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun replaceTailChunk(id: Long, chunks: List<NewChunk>) {
         val index = signature()
         check(chunks.all { it.vector == null || it.vector.signature == index }) { "vector signature does not match index ${index?.value}" }
-        q.transaction {
+        transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
             for (n in chunks) {
-                val v = n.vector
-                q.insertChunk(c.file_id, c.ordinal, n.locator, n.text, v?.bytes, v?.scale?.toDouble(), n.contentText, n.labels, if (n.visual) 1L else 0L)
+                insertChunk(c.file_id, c.ordinal, n)
                 if (n.text != null || n.labels != null) insertFts(q.lastId().executeAsOne(), n.text, n.labels)
             }
             q.deleteFts(id)
             q.deleteChunk(id)
             q.refreshReach(listOf(c.file_id))
         }
+    }
+
+    /** Content that is the chunk's own text is stored as a flag, not as a second copy of it. */
+    private fun insertChunk(fileId: Long, ordinal: Long, c: NewChunk) {
+        val own = c.contentText != null && c.contentText == c.text
+        q.insertChunk(
+            fileId, ordinal, c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
+            c.contentText.takeUnless { own }, c.labels, if (c.visual) 1L else 0L, if (own) 1L else 0L,
+        )
     }
 
     internal fun tailCountsIn(ids: Collection<Long>): Pair<Long, Long> {
@@ -443,7 +468,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         check(vector.signature == signature()) { "vector signature ${vector.signature.value} does not match index" }
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
-            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual)
+            q.insertChunk(c.file_id, c.ordinal, c.locator, c.text, vector.bytes, vector.scale.toDouble(), c.content_text, c.labels, c.visual, c.content)
             val newId = q.lastId().executeAsOne()
             q.deleteFts(id)
             q.deleteChunk(id)
@@ -464,7 +489,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun vectorCount(): Int = q.vectorCount().executeAsOne().toInt()
 
     /** Vector rows with an id above [afterId], appended onto [into] (or a new table). */
-    fun loadVectors(afterId: Long = 0, into: VectorTable? = null, pageSize: Int = 10_000): VectorTable {
+    fun loadVectors(afterId: Long = 0, into: VectorTable? = null, pageSize: Int = PAGE_ROWS.toInt()): VectorTable {
         var table = into ?: VectorTable.empty()
         var last = afterId
         while (true) {
@@ -761,11 +786,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** Moves stars of files that are gone to the same file under a new uri; see Index.sq. */
     internal fun relinkStars() {
         // Counts every orphaned star, moved or not: a spare save at worst.
-        val orphans = transactionWithResult {
-            q.relinkStars()
-            q.changes().executeAsOne()
-        }
-        if (orphans > 0) saveUserState()
+        if (q.relinkStars().value > 0) saveUserState()
     }
 
     /** Every starred URI of a file still in the index, as a HashSet so a row's star is one lookup. */
@@ -924,6 +945,26 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         /** Keyword matches ranked per query; see eval/REPORT.md, "Search speed at scale (wave 4)". */
         internal const val FTS_CAP = 5_000L
 
+        /**
+         * Rows per page of a bulk read. Android refills a 2 MB cursor window by running the query again from its first
+         * row, so a result past one window costs quadratic steps; this many rows of files, names or vectors fit in one.
+         */
+        internal const val PAGE_ROWS = 4_000L
+
+        /**
+         * Drops every table, index and trigger and creates the current schema: for an index written by a newer app
+         * (a downgrade), which the files can rebuild. Settings and stars come back from the user-state file, as after a
+         * deleted index. Virtual tables go first, taking their shadow tables with them.
+         */
+        fun resetSchema(driver: SqlDriver) {
+            val objects = driver.executeQuery(null, "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite%'", { c ->
+                QueryResult.Value(buildList { while (c.next().value) add(Triple(c.getString(0)!!, c.getString(1)!!, c.getString(2).orEmpty())) })
+            }, 0).value
+            val (virtual, plain) = objects.partition { it.third.startsWith("CREATE VIRTUAL TABLE", ignoreCase = true) }
+            for ((type, name) in virtual + plain) driver.execute(null, "DROP ${type.uppercase()} IF EXISTS \"${name.replace("\"", "\"\"")}\"", 0)
+            IndexDb.Schema.create(driver).value
+        }
+
         /** Query tokens; the FTS tables fold case and accents themselves with the same unicode61 tokenizer. */
         fun ftsTokens(s: String): List<String> = s.lowercase().split(NON_WORD).filter { it.isNotEmpty() }
 
@@ -964,6 +1005,17 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             }
             return score
         }
+    }
+}
+
+/** Every row once, [Store.PAGE_ROWS] at a time, each page read past the last one's id. */
+private inline fun <T> paged(page: (after: Long) -> List<T>, id: (T) -> Long, each: (T) -> Unit) {
+    var after = Long.MIN_VALUE
+    while (true) {
+        val rows = page(after)
+        rows.forEach(each)
+        if (rows.size < Store.PAGE_ROWS) return
+        after = id(rows.last())
     }
 }
 
