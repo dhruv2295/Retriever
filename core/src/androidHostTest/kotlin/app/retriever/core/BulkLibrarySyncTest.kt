@@ -102,7 +102,10 @@ class BulkLibrarySyncTest {
         assertTrue(sql.none { "files.uri, files.name" in it && "FROM files WHERE uri = ?" in it }, "point query: $sql")
     }
 
-    /** Every column SourceFile compares is in the scan's diff, so a change to any one of them reaches the store. */
+    /**
+     * Every column SourceFile compares is in the scan's diff, so a change to any one of them reaches the store. A capture
+     * date the source no longer gives is kept: only a new date replaces it.
+     */
     @Test
     fun aFullScanNoticesAChangeToAnyStoredColumn() {
         val file = testFile("a.txt", folder = "Docs", takenAt = 5L)
@@ -119,6 +122,7 @@ class BulkLibrarySyncTest {
         )
         for (changed in changes) {
             assertEquals(SyncResult(0, 1, 0, true), full(listOf(changed)), "$changed")
+            assertEquals(changed.copy(takenAt = changed.takenAt ?: 5L), store.fileByUri(file.uri)!!.file, "$changed")
             full(listOf(file))
         }
     }
