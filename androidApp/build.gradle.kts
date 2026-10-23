@@ -147,6 +147,13 @@ dependencies {
     implementation(libs.koin.androidx.compose)
     implementation(libs.koin.androidx.workmanager)
     lintChecks(libs.compose.lint.checks)
+    constraints {
+        // Every class and member ML Kit's vision-internal-vkp and MediaPipe's tasks-core reference resolves in these
+        // versions (javap over their constant pools). OkHttp 4 keeps 3.x's binary API; protobuf supports older gencode
+        // on a newer runtime of the same major version.
+        implementation(libs.okhttp) { because("ML Kit vision-internal-vkp pins 3.0.0: GHSA-3cqm-mf7h-prrj, GHSA-4hc2-jh7r-wrc3") }
+        implementation(libs.protobuf.javalite) { because("MediaPipe tasks-core pins 4.26.1: CVE-2024-7254") }
+    }
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
