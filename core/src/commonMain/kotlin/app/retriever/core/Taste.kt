@@ -64,12 +64,14 @@ data class SampleFile(val index: Int, val file: SourceFile, val read: Boolean, v
 /** The demo's pile: each card's slot follows its plan index, so a card never moves once it lands. Offsets in dp. */
 object SamplePile {
     const val SHOWN = 3
-    const val CARD_DP = 96
-    const val FOOTPRINT_DP = 128
 
-    private val ANGLES = floatArrayOf(0f, 4f, -4f)
-    private val DX = intArrayOf(0, 6, -6)
-    private val DY = intArrayOf(0, -4, 4)
+    // The first search's picture: the person's own files carry the screen, so the pile is its largest element.
+    const val CARD_DP = 160
+    const val FOOTPRINT_DP = 224
+
+    private val ANGLES = floatArrayOf(-2f, 8f, -10f)
+    private val DX = intArrayOf(0, 26, -22)
+    private val DY = intArrayOf(12, -16, -2)
 
     fun angle(i: Int): Float = ANGLES[i % SHOWN]
 
@@ -89,6 +91,7 @@ internal const val TASTE_BUDGET_KEY = "taste_budget_ms"
 internal const val TASTE_IDS_KEY = "taste_ids"
 internal const val TASTE_DECIDED_KEY = "taste_decided"
 internal const val CELEBRATED_KEY = "celebrated"
+internal const val CAUGHT_UP_NOTIFIED_KEY = "caught_up_notified"
 
 private val JSON = Json { ignoreUnknownKeys = true }
 

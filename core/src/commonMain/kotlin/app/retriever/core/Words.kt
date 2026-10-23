@@ -177,14 +177,20 @@ object Words {
     /** Over Hello's looping example, so it reads as an illustration, not the person's files. */
     const val FOR_EXAMPLE = "For example"
 
-    /** Hello's illustrated examples: what is typed, then the card that answers it. */
-    data class HelloExample(val query: String, val title: String, val detail: String)
+    /** Hello's illustrated examples: what is typed, then the card that answers it. [needsModel]: found only by description. */
+    data class HelloExample(val query: String, val title: String, val detail: String, val needsModel: Boolean = false)
 
     val HELLO_EXAMPLES = listOf(
         HelloExample("wifi password the landlord sent", "Screenshot from 14 March", "Says “Wi-Fi password: …”"),
-        HelloExample("dog asleep on the sofa", "Photo from last Sunday", "Found by what’s in it"),
+        HelloExample("dog asleep on the sofa", "Photo from last Sunday", "Found by what’s in it", needsModel = true),
         HelloExample("my rent agreement", "Lease 2025.pdf", "Page 3, the signed copy"),
     )
+
+    /** The examples this phone can keep: a phone too small for the model shows only those words alone find. */
+    fun helloExamples(textOnly: Boolean): List<HelloExample> = HELLO_EXAMPLES.filter { !textOnly || !it.needsModel }
+
+    /** Android's access screen's third tile. */
+    const val DOWNLOADS = "Downloads"
 
     /** The privacy line above Hello's and the access screen's button. */
     fun onDevice(words: DeviceWords): String = "Everything happens on your ${words.device}"
@@ -265,6 +271,12 @@ object Words {
     const val NEW_FILES = "New photos and files"
     const val NEW_FILES_BODY = "Picked up automatically. You don’t need to do anything."
     const val NOTIFY_WHEN_SEARCHABLE = "Notify me when everything’s searchable"
+
+    /** The one notice [NOTIFY_WHEN_SEARCHABLE] asked for ([Retriever.claimCaughtUpNotice]). */
+    const val CAUGHT_UP_NOTICE_TITLE = "Everything is searchable"
+
+    fun caughtUpNotice(files: Long, textOnly: Boolean): String = "Retriever has processed all ${files(files)}. " +
+        if (textOnly) "Find any of them by name or the words inside." else "Describe anything to find it."
 
     fun recentFiles(n: Long): String = if (n == 1L) "Your most recent file" else "Your ${formatCount(n)} recent files"
 
@@ -530,7 +542,7 @@ object Words {
     fun deleteConfirm(words: DeviceWords): String = "This deletes the file from your ${words.device}."
 
     // The meaning upgrade.
-    const val UPGRADE_TITLE = "Search by description"
+    const val UPGRADE_TITLE = "Find files by describing them"
     const val WAITING_FOR_WIFI = "Waiting for Wi-Fi to download"
     const val USE_MOBILE_DATA = "Use mobile data"
     const val WAIT_FOR_WIFI = "Wait for Wi-Fi"

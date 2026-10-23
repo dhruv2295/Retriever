@@ -8,10 +8,10 @@ class SamplePileTest {
     private fun sample(index: Int, read: Boolean) =
         SampleFile(index, SourceFile("f:$index", "$index.jpg", "Photos", "image/jpeg", Kind.PHOTO, 1, 1), read, null)
 
-    /** Three small cards in a small footprint, so no private file fills the screen. */
+    /** Three cards, the first search's main picture, in a footprint that never fills the screen. */
     @Test fun aSlotFollowsTheIndexAndWrapsAtThree() {
-        assertEquals(Triple(3, 96, 128), Triple(SamplePile.SHOWN, SamplePile.CARD_DP, SamplePile.FOOTPRINT_DP))
-        assertEquals(Triple(0f, 0, 0), Triple(SamplePile.angle(0), SamplePile.dx(0), SamplePile.dy(0)))
+        assertEquals(Triple(3, 160, 224), Triple(SamplePile.SHOWN, SamplePile.CARD_DP, SamplePile.FOOTPRINT_DP))
+        assertEquals(Triple(-2f, 0, 12), Triple(SamplePile.angle(0), SamplePile.dx(0), SamplePile.dy(0)))
         for (i in 0 until 30) {
             assertEquals(SamplePile.angle(i), SamplePile.angle(i + SamplePile.SHOWN))
             assertEquals(SamplePile.dx(i), SamplePile.dx(i + SamplePile.SHOWN))

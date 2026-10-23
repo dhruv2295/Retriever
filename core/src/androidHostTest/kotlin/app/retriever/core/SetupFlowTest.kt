@@ -79,6 +79,25 @@ class SetupFlowTest {
         assertEquals(SetupStage.SAMPLE to SetupStep.READ_SAMPLE, back.stage to back.step)
     }
 
+    /** Notify me tells once, and only when everything is searchable: a model still on its way is not everything. */
+    @Test
+    fun theCaughtUpNoticeIsClaimedOnceWhenEverythingIsSearchable() = test {
+        val waiting = testRetriever(newStore(), emptyList(), FakeExtractor(), modelReady = { false })
+        waiting.setSetupMark(SetupMark.ACCESS_CHOSEN)
+        waiting.planOrCommit()
+        assertFalse(waiting.claimCaughtUpNotice(), "not asked for")
+        waiting.requestCaughtUpNotice()
+        assertFalse(waiting.claimCaughtUpNotice(), "processed, but search by description isn't set up yet")
+
+        val small = DeviceProbe(Platform.ANDROID, 35, "Google", "Small", 3.0, false)
+        val r = testRetriever(newStore(), emptyList(), FakeExtractor(), probe = small)
+        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
+        r.planOrCommit()
+        r.requestCaughtUpNotice()
+        assertTrue(r.claimCaughtUpNotice(), "a phone too small for the model is done once its words are")
+        assertFalse(r.claimCaughtUpNotice(), "once")
+    }
+
     @Test
     fun getStartedLeadsToAccessAndBackLeadsToHello() = test {
         val r = testRetriever(newStore(), files, FakeExtractor(), modelReady = { false })

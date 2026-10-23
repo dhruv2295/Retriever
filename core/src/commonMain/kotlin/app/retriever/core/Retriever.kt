@@ -551,6 +551,28 @@ class Retriever(
         changedSinceSync = true
     }
 
+    /** Home card's Notify me: one notice once everything is searchable. */
+    @Throws(Throwable::class)
+    suspend fun requestCaughtUpNotice() = updatePrefs { it.copy(notifyWhenCaughtUp = true) }
+
+    /**
+     * True once, when the notice was asked for and every file is processed, including search by description where the
+     * phone has it (a model still on its way is not "everything"). The platform posts [Words.CAUGHT_UP_NOTICE_TITLE].
+     */
+    @Throws(Throwable::class)
+    suspend fun claimCaughtUpNotice(): Boolean = io {
+        store.inTransaction {
+            val done = store.tasteScope() == Scope.ALL && store.pendingByKind().values.sum() == 0L &&
+                (textOnly || (!noModel() && store.tailChunkCount() == 0L))
+            if (!store.prefs().notifyWhenCaughtUp || store.flag(CAUGHT_UP_NOTIFIED_KEY) || !done) {
+                false
+            } else {
+                store.setFlag(CAUGHT_UP_NOTIFIED_KEY)
+                true
+            }
+        }
+    }
+
     /** Claim only when the platform can post; survives process death and worker handoffs. */
     @Throws(Throwable::class)
     suspend fun claimSampleNotification(): Boolean = io {
