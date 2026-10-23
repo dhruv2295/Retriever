@@ -39,7 +39,9 @@ class SearchBenchTest {
         check(store.fileCount() == FILES.toLong() && store.chunkCount() == CHUNKS.toLong())
         // Schema 3's upgrade only recreates the keyword tables, so the database open stays quick at phone scale; the
         // refill runs once, later, from warmSearch.
-        val upgrade = File(SchemaV3Test.SQL_DIR, "2.sqm").readText().substringAfter("DROP TABLE chunk_fts").let { "DROP TABLE chunk_fts$it" }
+        val upgrade = File(SchemaV3Test.SQL_DIR, "2.sqm").readText().substringAfter("DROP TABLE chunk_fts").let { "DROP TABLE chunk_fts$it" } +
+            // 5.sqm then gave chunk_fts the labels column the refill writes.
+            ";DROP TABLE chunk_fts;" + File(SchemaV3Test.SQL_DIR, "5.sqm").readLines().single { it.startsWith("CREATE VIRTUAL TABLE chunk_fts") }
         val upgradeMs = timed { upgrade.split(';').filter { it.isNotBlank() }.forEach { driver.execute(null, it, 0) } }
         val rebuildMs = timed { check(store.rebuildFtsIfPending()) }
         println("SearchBench: keyword tables recreated in ${upgradeMs.toInt()} ms, refilled in ${rebuildMs.toInt()} ms")
