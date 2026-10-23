@@ -413,7 +413,7 @@ INSERT INTO chunk_fts (rowid, text, labels) VALUES (?, ?, ?);
 deleteFts:
 DELETE FROM chunk_fts WHERE rowid = ?;
 
--- The newest matches, for ranking; search cuts its snippets from content_text, never from these rows.
+-- The newest matches, for ranking; snippets come from a chunk's content (contentByIds), never from these rows.
 searchFts:
 SELECT CAST(rowid AS INTEGER) AS chunkId, CAST(matchinfo(chunk_fts, 'pcnalx') AS BLOB) AS info
 FROM chunk_fts WHERE chunk_fts MATCH ? ORDER BY rowid DESC LIMIT ?;
