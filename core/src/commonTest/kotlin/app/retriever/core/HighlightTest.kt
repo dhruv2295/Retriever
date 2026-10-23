@@ -57,6 +57,12 @@ class HighlightTest {
         assertEquals(listOf("Crème", "brûlée"), marked("Crème brûlée recipe", "creme brulee"))
     }
 
+    /** iOS matches these words literally (case aside), so they keep the accents the person typed. */
+    @Test fun highlightTermsKeepTheTypedAccents() {
+        assertEquals(listOf("café"), highlightTerms("Café"))
+        assertEquals(listOf("crème", "brûlée"), highlightTerms("la Crème brûlée"))
+    }
+
     /** A CJK word has no spaces around it, so it is marked where it occurs inside a run. */
     @Test fun aCjkWordIsMarkedInsideItsRun() {
         assertEquals(listOf("資料"), marked("会議資料.pdf", "資料"))

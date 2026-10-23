@@ -20,10 +20,14 @@ fun nameMatchRanges(name: String, query: String): List<IntRange> {
 }
 
 /**
- * Unicode letters and combining marks stay together; a query never marks an interior fragment, except a CJK word,
- * which has no spaces around it. Case and Latin accents fold, as the name index and FTS fold them.
+ * The query's words to mark inside an opened file, as typed (lowercased, accents kept): iOS matches them literally. Which
+ * words count follows the snippet rule: a stopword or a short word of a longer query is left out.
  */
-fun highlightTerms(query: String): List<String> = highlightable(Store.ftsTokens(query).map(::foldWord))
+fun highlightTerms(query: String): List<String> {
+    val tokens = Store.ftsTokens(query)
+    val keep = highlightable(tokens.map(::foldWord)).toSet()
+    return tokens.filter { foldWord(it) in keep }
+}
 
 /** A query word as the highlighter compares it: [foldLatin], except CJK, kept composed so it is found inside a run. */
 internal fun foldWord(word: String): String = if (hasCjk(word)) word.lowercase() else foldLatin(word)
