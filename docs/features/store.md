@@ -30,7 +30,8 @@ how it migrates and how the migrations are verified.
 - **Bulk reads page by id.** `knownFiles`, `knownFingerprints`, `knownUris`, `nameEntries` and `loadVectors` read
   `PAGE_ROWS` (4,000) rows a query, each page past the last id. Android fills a 2 MB `CursorWindow` and, to refill it,
   runs the query again from its first row, so one big result costs quadratic steps (100k files under Robolectric's
-  Android 11 SQLite: 1.18 s unpaged, 0.13 s paged).
+  Android 11 SQLite: 1.18 s unpaged, 0.13 s paged). One loop, `paged`, does each of them and the CJK rewrite (500 rows
+  and a transaction a page); a short page is the last.
 - **Drivers.** Android: `AndroidSqliteDriver` with write-ahead logging and `synchronous = NORMAL` set in `onConfigure`
   (the driver does not expose them), in `androidApp/.../di/AppModule.kt` (`indexDriver`); NORMAL is AOSP's WAL default,
   set so a device configured for FULL does not sync every commit. iOS: `NativeSqliteDriver` with four reader connections
