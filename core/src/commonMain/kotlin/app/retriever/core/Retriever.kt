@@ -1423,7 +1423,7 @@ class Retriever(
     suspend fun fileCount(): Long = io { store.fileCount() }
 
     /**
-     * One [suggestions] flow per file set while it is collected; racing first calls may each make one, and the last one
+     * One [suggestions] flow per file set while it is shared; racing first calls may each make one, and the last one
      * made is kept.
      */
     @Volatile
@@ -1433,8 +1433,9 @@ class Retriever(
      * Three things to search for from the content of [fileIds] (null: the newest files read), with document frequencies
      * from the newest [ContentSuggestions.FILES] files read plus [fileIds]; empty when there are not three good ones.
      * Again as files are read, at most once a second, while collected. Collectors of one file set share one
-     * computation, and its term maps go when the last one leaves. A failed read is logged and answers empty, then the
-     * flow ends, as [watched] does: it never reaches a collector, and a screen waiting on suggestions still draws.
+     * computation, and its term maps go [SUGGESTIONS_KEPT_MS] after the last one leaves. A failed read is logged and
+     * answers empty, then the flow ends, as [watched] does: it never reaches a collector, and a screen waiting on
+     * suggestions still draws.
      */
     fun suggestions(fileIds: Set<Long>? = null): Flow<List<String>> = sharedSuggestions[fileIds] ?: flow {
         val terms = ContentSuggestions(fileIds)
@@ -1451,9 +1452,9 @@ class Retriever(
         emit(emptyList())
     }.distinctUntilChanged()
         .flowOn(dispatchers.default)
-        // Sharing stops with its last collector: the entry goes too, so file sets of screens long gone aren't kept.
+        // Sharing stops a while after its last collector: the entry goes too, so file sets of screens gone aren't kept.
         .onCompletion { sharedSuggestions = sharedSuggestions - fileIds }
-        .shareIn(background, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
+        .shareIn(background, SharingStarted.WhileSubscribed(SUGGESTIONS_KEPT_MS, replayExpirationMillis = 0), replay = 1)
         .also { sharedSuggestions = sharedSuggestions + (fileIds to it) }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
@@ -1677,6 +1678,9 @@ class Retriever(
 
         /** Reads again of a failing watched read (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
         private const val WATCH_RETRIES = 5L
+
+        /** How long [suggestions] keep sharing after the last collector leaves, so a rotation or a quick trip away recounts nothing. */
+        const val SUGGESTIONS_KEPT_MS = 5_000L
         const val LARGE_FILE = 100L * 1024 * 1024
 
         const val GPU_RETESTED = "gpu_retested"

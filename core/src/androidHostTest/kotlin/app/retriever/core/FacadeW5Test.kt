@@ -275,11 +275,14 @@ class FacadeW5Test {
         assertEquals(1, reads, "the second collector shares the first one's read")
         a.cancelAndJoin()
         b.cancelAndJoin()
-        // The sharing stops just after its last collector leaves; from then on a new collector reads afresh.
-        while (reads == 1) {
-            r.suggestions().first()
-            delay(10)
-        }
+        // A collector back soon (a rotation, a quick trip away) gets the last terms without a recount.
+        delay(500)
+        r.suggestions().first()
+        assertEquals(1, reads, "a collector back within the grace shares the read")
+        // The sharing stops that long after its last collector leaves; from then on a new collector reads afresh.
+        delay(Retriever.SUGGESTIONS_KEPT_MS + 1_000)
+        r.suggestions().first()
+        assertEquals(2, reads)
     }
 
     @Test
