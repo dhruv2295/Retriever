@@ -59,7 +59,6 @@ import app.retriever.duplicates.DuplicatesViewModel
 import app.retriever.duplicates.MediaDeleter
 import app.retriever.folders.FoldersViewModel
 import app.retriever.home.HomeViewModel
-import app.retriever.indexing.ChargingBoost
 import app.retriever.indexing.IndexService
 import app.retriever.model.Calibrator
 import app.retriever.model.ModelDownload
@@ -217,13 +216,12 @@ val appModule = module {
     }
 
     single { IndexService(androidContext(), get()) }
-    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get(), get()) }
+    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
     single { StorageService(androidContext(), get(), get(), get(ModelDir)) }
     single { MediaDeleter(androidContext()) }
     singleOf(::LaunchQuery)
     singleOf(::RecentShortcuts)
     singleOf(::Calibrator)
-    single { ChargingBoost(androidContext()) }
     single { photoReader(androidContext()) }
     single { ModelRepository(androidContext(), get(), get(), get(AppScope), get()) }
     single {
