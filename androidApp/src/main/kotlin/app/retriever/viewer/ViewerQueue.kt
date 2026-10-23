@@ -4,8 +4,8 @@ import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.nav.PhotoRoute
 
-/** What the photo viewer needs of a file. */
-data class PhotoItem(val uri: String, val name: String, val mime: String)
+/** What the photo viewer needs of a file; [file] when the list had it, for its picture in memory (none after a restore). */
+data class PhotoItem(val uri: String, val name: String, val mime: String, val file: SourceFile? = null)
 
 /**
  * The list a person opened a file from, so the viewers can swipe through its photos and step to its previous and next
@@ -21,7 +21,7 @@ class ViewerQueue {
 
     /** The queue's photos when they hold the opened one; otherwise just that photo. */
     fun itemsFor(route: PhotoRoute): List<PhotoItem> =
-        files.filter { it.kind == Kind.PHOTO || it.kind == Kind.SCREENSHOT }.map { PhotoItem(it.uri, it.name, it.mime) }
+        files.filter { it.kind == Kind.PHOTO || it.kind == Kind.SCREENSHOT }.map { PhotoItem(it.uri, it.name, it.mime, it) }
             .takeIf { q -> q.any { it.uri == route.uri } } ?: listOf(PhotoItem(route.uri, route.name, route.mime))
 
     /**

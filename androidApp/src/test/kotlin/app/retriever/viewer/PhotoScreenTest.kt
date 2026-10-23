@@ -7,16 +7,25 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
 import app.retriever.ShotTheme
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.nav.PhotoRoute
+import app.retriever.ui.components.Thumbnails
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.ByteArrayInputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
@@ -54,6 +63,17 @@ class PhotoScreenTest {
     @Test fun aMissingPhotoShowsTheTroubleState() {
         show(0)
         rule.waitUntil(5_000) { trouble.fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** A photo whose thumbnail is in memory shows it while its tiles load; one opened without its list has none. */
+    @Test fun aPictureInMemoryIsShownWhileThePhotoLoads() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        val photo = SourceFile("content://photos.test/1.jpg", "1.jpg", "DCIM", "image/jpeg", Kind.PHOTO, 10, 1)
+        shadowOf(app.contentResolver).registerInputStreamSupplier(photo.uri.toUri()) { ByteArrayInputStream(ByteArray(1)) }
+        Thumbnails.load(app, photo, 384, "", Dispatchers.IO) { createBitmap(384, 288) }
+        val queued = ViewerQueue().apply { set(listOf(photo)) }.itemsFor(PhotoRoute(photo.uri, photo.name, photo.mime)).single()
+        assertEquals(384, photoSource(app, queued)?.preview?.width)
+        assertNull(photoSource(app, PhotoItem(photo.uri, photo.name, photo.mime))?.preview)
     }
 
     @Test fun aRestoredScreenWithoutTheListShowsTheOpenedPhotoAlone() {

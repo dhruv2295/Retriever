@@ -2,6 +2,7 @@
 
 package app.retriever.viewer
 
+import android.content.Context
 import androidx.compose.animation.core.SnapSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import app.retriever.nav.PhotoRoute
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
+import app.retriever.ui.components.Thumbnails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.saket.telephoto.subsamplingimage.SubSamplingImage
@@ -74,24 +76,31 @@ internal fun PhotoPager(items: List<PhotoItem>, pager: PagerState, modifier: Mod
     }
 }
 
-/** One photo: a placeholder at the final size until the first tiles draw, then the zoomable image, or a plain failure. */
+/**
+ * [item]'s source for the tiles, with its sharpest picture already in memory as the preview they replace; null when the
+ * photo can't be read. The decoder reports only IOExceptions; a revoked grant or a dead provider throws others, so the
+ * open is tried first.
+ */
+internal suspend fun photoSource(context: Context, item: PhotoItem): SubSamplingImageSource? {
+    val uri = item.uri.toUri()
+    val readable = withContext(Dispatchers.IO) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { true } ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
+    return if (readable) SubSamplingImageSource.contentUriOrNull(uri, preview = item.file?.let { Thumbnails.largestCached(context, it) }) else null
+}
+
+/** One photo: its picture from memory or a spinner until the first tiles draw, then the zoomable image, or a plain failure. */
 @Composable
 internal fun PhotoPage(item: PhotoItem, current: Boolean, openWith: (PhotoItem) -> Unit) {
     val context = LocalContext.current
     var failed by remember(item.uri) { mutableStateOf(false) }
-    // The decoder reports only IOExceptions; a revoked grant or a dead provider throws others, so the open is tried first.
     val source by produceState<SubSamplingImageSource?>(null, item.uri) {
-        val uri = item.uri.toUri()
-        val readable = withContext(Dispatchers.IO) {
-            try {
-                context.contentResolver.openInputStream(uri)?.use { true } ?: false
-            } catch (
-                _: Exception,
-            ) {
-                false
-            }
-        }
-        if (readable) value = SubSamplingImageSource.contentUriOrNull(uri) else failed = true
+        val s = photoSource(context, item)
+        if (s != null) value = s else failed = true
     }
     if (failed) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
