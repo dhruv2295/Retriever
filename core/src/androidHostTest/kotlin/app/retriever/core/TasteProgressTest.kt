@@ -145,52 +145,6 @@ class TasteProgressTest {
         assertEquals(20 to 30, r.tasteProgress().first().let { it.done to it.planned })
     }
 
-    /** The demo's Continue stops it where it is: no batch reads its files in front any more, and its count holds. */
-    @Test
-    fun continueStopsTheDemo() = test {
-        val docs = (1..30).map { testFile("doc$it.txt", Kind.DOC, modifiedAt = it * 7_200_000L) }
-        val store = newStore(Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens))
-        var n = 0
-        lateinit var r: Retriever
-        val extractor = FakeExtractor(docs.associate { it.name to listOf(textPiece("words of ${it.name}")) }) { if (++n == 12) r.cancelBatch() }
-        val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
-        r = testRetriever(store, docs, extractor, monitor = unplugged).apply { uiVisible = true }
-        r.planTaste()
-        store.setProfile(PROFILE)
-        r.refreshSetUp()
-        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
-        r.taste()
-        assertTrue(r.hasPendingTaste())
-        r.setSetupMark(SetupMark.CHOOSING)
-        assertFalse(r.hasPendingTaste(), "the demo stopped at Continue")
-        r.taste()
-        assertEquals(11 to 30, r.tasteProgress().first().let { it.done to it.planned }, "Demo stopped at 11 of 30.")
-    }
-
-    /**
-     * Plugged in, nothing blocks reading once the demo stops, so the platform's follow-up batch ran and finished the demo
-     * ("Demo done: 30 of 30") under its still-standing scope. It ends before reading, and the count holds.
-     */
-    @Test
-    fun continueStopsTheDemoWhilePluggedIn() = test {
-        val docs = (1..30).map { testFile("doc$it.txt", Kind.DOC, modifiedAt = it * 7_200_000L) }
-        val store = newStore(Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens))
-        var n = 0
-        lateinit var r: Retriever
-        val extractor = FakeExtractor(docs.associate { it.name to listOf(textPiece("words of ${it.name}")) }) { if (++n == 12) r.cancelBatch() }
-        r = testRetriever(store, docs, extractor, monitor = FakeMonitor(DeviceState(8.0, true, 80, Thermal.NONE))).apply { uiVisible = true }
-        r.planTaste()
-        store.setProfile(PROFILE)
-        r.refreshSetUp()
-        r.setSetupMark(SetupMark.ACCESS_CHOSEN)
-        r.taste()
-        r.setSetupMark(SetupMark.CHOOSING)
-        assertEquals(null, r.readingBlocker(), "plugged in and in front: nothing blocks a batch")
-        assertEquals(NextRun.DONE, r.indexBatch(30.seconds))
-        assertEquals(11 to 30, r.tasteProgress().first().let { it.done to it.planned }, "Demo stopped at 11 of 30.")
-        assertEquals(StopReason.MANUAL, r.state.value.lastStop, "ended before reading, with no follow-up")
-    }
-
     /** No model, no chips: twenty words-only files are enough, and photos aren't planned. */
     @Test
     fun textOnlyReadsItsKindsAndNeedsNoChip() = test {

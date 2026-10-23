@@ -119,47 +119,29 @@ final class CopyTests: XCTestCase {
     }
 
     /// Setup's sentences are core's; the shell adds only "iPhone" for "this device".
-    func testSetupSaysWhatComesNextAndNeverDownload() {
-        XCTAssertEqual(Words.shared.GO_TO_HOME, "Go to Home")
+    func testSetupNamesTheDevice() {
         XCTAssertEqual(
             Words.shared.demoSearchScope(done: 12, finished: false, words: Copy.words),
             "Finds any file on your iPhone by its name. Looks inside the 12 demo files processed so far.")
         XCTAssertEqual(Copy.photosAccess(.limited), Words.shared.SELECTED_PHOTOS)
         XCTAssertEqual(Copy.photosAccess(.authorized), Words.shared.ALL_PHOTOS)
         XCTAssertNil(Copy.photosAccess(.notDetermined))
-        XCTAssertTrue(Words.shared.nothingSent(words: Copy.words).contains("your \(Copy.device)"))
-        XCTAssertTrue(Words.shared.welcomeNext(words: Copy.words).contains("here on your \(Copy.device)"))
-        let texts = [
-            Words.shared.WELCOME_TITLE, Words.shared.WELCOME_BODY, Words.shared.iosAccessNote(words: Copy.words), Words.shared.demoTitle(files: 30),
-            Words.shared.welcomeNext(words: Copy.words), Words.shared.welcomeAfterDemo(words: Copy.words),
-        ]
-        for text in texts {
+        XCTAssertEqual(Words.shared.onDevice(words: Copy.words), "Everything happens on your \(Copy.device)")
+        XCTAssertTrue(Words.shared.otherFilesBody(words: Copy.words).contains("When your \(Copy.device) is charging"))
+        XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))
+        // Hello names the download only under Get started, and only where it happens.
+        for text in [Words.shared.helloTitle(textOnly: false), Words.shared.helloTitle(textOnly: true), Words.shared.HELLO_BODY] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("download"), text)
             XCTAssertFalse(text.localizedCaseInsensitiveContains("skip"), text)
         }
+        XCTAssertEqual(Words.shared.downloadNote(size: Copy.downloadSize(388_000_000)), "Includes a one-time 388\u{00A0}MB download, on Wi-Fi.")
     }
 
-    /// The demo's lines as the iPhone says them; the rest of the wording is core's (WordsTest).
-    func testTheDemoNamesTheDevice() {
-        XCTAssertEqual(Words.shared.demoTitle(files: 30), "A short demo on 30 of your recent files")
-        XCTAssertEqual(
-            Words.shared.demoDone(rest: KotlinLong(value: 25_763), words: Copy.words), "The demo is done. Next: the other 25,763 files on your iPhone.")
-        XCTAssertEqual(Words.shared.chooseTitle(words: Copy.words), "Now, the rest of your iPhone")
-        XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))
-    }
-
-    /// The welcome's iOS ask and the pile's count line.
-    func testWelcomeAskAndDemoCountWords() {
-        XCTAssertEqual(Words.shared.SEARCH_ALL_PHOTOS, "Search all your photos")
-        XCTAssertEqual(Words.shared.ADD_FOLDERS_FROM_FILES, "Add folders from Files")
-        XCTAssertEqual(
-            Words.shared.iosAccessNote(words: Copy.words),
-            "iOS lets Retriever see your photos and the folders you pick in Files.")
+    /// The pile's count line.
+    func testFirstSearchCountWords() {
         XCTAssertEqual(Words.shared.DEMO_PICKING, "Picking your recent files…")
         XCTAssertEqual(Words.shared.readOf(done: 12, total: 30), "12 of 30 files processed", "always the total: it is fixed at picking")
         XCTAssertEqual(Words.shared.READ, "Found by what’s inside")
-        XCTAssertEqual(Words.shared.demoNote(secondsLeft: nil), "About a minute.", "no time before it is measured")
-        XCTAssertEqual(Words.shared.demoNote(secondsLeft: 170), "About 3 minutes left.")
         XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, count: nil, done: nil, total: nil).pause, "not a pause")
     }
 
@@ -202,8 +184,8 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(try line(.waitingForWifi).phase, .downloadStopped)
         XCTAssertEqual(try line(.tuning).phase, .tuning)
         XCTAssertEqual(try line(.meaningPass).phase, .meaning)
-        XCTAssertEqual(try line(.meaningPass).title, "Adding search by meaning")
-        XCTAssertEqual(try line(.meaningPass).count, "1,938 of 3,142 files have search by meaning")
+        XCTAssertEqual(try line(.meaningPass).title, "Adding search by description")
+        XCTAssertEqual(try line(.meaningPass).count, "1,938 of 3,142 files have search by description")
         XCTAssertEqual(try line(.firstDay).phase, .notNow)
         XCTAssertEqual(try line(.firstDay).action, .chooseWhen)
         // The demo's 30 carry over to the whole phone's count.
@@ -232,7 +214,7 @@ final class CopyTests: XCTestCase {
                 Copy.tuneSummary(Backend.gpu, imageMs: 900), Copy.tuneSummary(Backend.cpu, imageMs: nil),
                 Copy.addFolderResult(.added("Work")), Copy.addFolderResult(.overlaps("Work")), Copy.addFolderResult(.failed),
                 Copy.backgroundNote, Copy.screenKeptOn, Words.shared.tuneFailed(words: Copy.words), Words.shared.DEMO_HINT,
-                Words.shared.WELCOME_BODY, Words.shared.upgradeBody(size: "388 MB", words: Copy.words),
+                Words.shared.HELLO_BODY, Words.shared.recentFilesBody(state: .notStarted), Words.shared.upgradeBody(size: "388 MB", words: Copy.words),
                 Words.shared.tuneTitle(words: Copy.words), Words.shared.tuneBody(words: Copy.words),
             ] + home(setting) + home(reading) + home(AppModel.Snap(setUp: true, indexed: 7))
         for string in strings.compactMap({ $0 }) {

@@ -3,9 +3,11 @@ import Foundation
 import Network
 import Observation
 @preconcurrency import RetrieverCore
+import UIKit
 
 /// Downloads the model in a background URLSession, so it keeps going after the app leaves the screen, then checks
-/// its SHA-256 and writes "<fileName>.sha256": the marker RetrieverIosKt.modelReady reads.
+/// its SHA-256 and writes "<fileName>.sha256": the marker RetrieverIosKt.modelReady reads. The check runs under a
+/// background task: iOS relaunches the app to hand over a finished download and would otherwise suspend it mid-check.
 @Observable @MainActor
 final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     enum State: Equatable {
@@ -17,6 +19,8 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         case ready
         /// Plain words, safe to show.
         case failed(String)
+        /// Not started, or not kept, for want of free space; plain words saying how much to free.
+        case noSpace(String)
     }
 
     static let sessionId = "app.retriever.model"
@@ -25,6 +29,8 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     private(set) var state: State = .idle
     /// 0...1 while downloading.
     private(set) var progress: Double = 0
+    /// Held while a finished file is checked. ponytail: one task covers overlapping checks; the first to finish ends it.
+    @ObservationIgnored private(set) var checkTask = UIBackgroundTaskIdentifier.invalid
 
     /// Set from the app delegate's handleEventsForBackgroundURLSession; called once the session's events are in.
     /// Setting it reconnects the session on a cold relaunch, so the pending events reach this delegate.
@@ -70,9 +76,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
         let size = (try? dir.appendingPathComponent(build.fileName).resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         if size.map(Int64.init) == build.sizeBytes {
             set(.verifying)
-            DispatchQueue.global(qos: .utility).async {
-                if self.verifyInPlace(build) { self.set(.ready) } else { DispatchQueue.main.async { self.download(build, allowCellular: allowCellular) } }
-            }
+            check({ self.verifyInPlace(build) ? .ready : nil }, otherwise: { self.download(build, allowCellular: allowCellular) })
             return
         }
         download(build, allowCellular: allowCellular)
@@ -81,7 +85,7 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
     private func download(_ build: ModelBuild, allowCellular: Bool) {
         let free = (try? dir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage ?? 0
         if free < build.sizeBytes + Self.headroom {
-            return set(.failed(Words.shared.freeUp(size: Copy.downloadSize(build.sizeBytes + Self.headroom - free))))
+            return set(.noSpace(Words.shared.freeUp(size: Copy.downloadSize(build.sizeBytes + Self.headroom - free))))
         }
         guard let url = URL(string: build.url) else { return set(.failed(Words.shared.DOWNLOAD_FAILED)) }
         try? FileManager.default.removeItem(at: marker(build.fileName))
@@ -191,12 +195,10 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
             try? FileManager.default.removeItem(at: file)
             try FileManager.default.moveItem(at: location, to: file)
         } catch {
-            return set(.failed(Words.shared.NO_SPACE))
+            return set(.noSpace(Words.shared.NO_SPACE))
         }
         set(.verifying)
-        DispatchQueue.global(qos: .utility).async {
-            self.set(self.verify(file, fileName: parts[0], sha256: parts[1]) ? .ready : .failed(Words.shared.DOWNLOAD_FAILED))
-        }
+        check { self.verify(file, fileName: parts[0], sha256: parts[1]) ? .ready : .failed(Words.shared.DOWNLOAD_FAILED) }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -245,6 +247,29 @@ final class ModelDownload: NSObject, URLSessionDownloadDelegate {
             return false
         }
         return (try? Data(hex.utf8).write(to: marker(fileName), options: .atomic)) != nil
+    }
+
+    /// Runs a slow SHA-256 check off main under a background task, then shows its state, or runs [otherwise] when it
+    /// gives none. Begun on main before the session's events finish (`urlSessionDidFinishEvents` queues behind it).
+    nonisolated private func check(_ work: @escaping @Sendable () -> State?, otherwise: @escaping @MainActor @Sendable () -> Void = {}) {
+        DispatchQueue.main.async {
+            if self.checkTask == .invalid {
+                self.checkTask = UIApplication.shared.beginBackgroundTask(withName: "verify-model") { self.endCheck() }
+            }
+            DispatchQueue.global(qos: .utility).async {
+                let state = work()
+                DispatchQueue.main.async {
+                    if let state { self.state = state } else { otherwise() }
+                    self.endCheck()
+                }
+            }
+        }
+    }
+
+    private func endCheck() {
+        guard checkTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(checkTask)
+        checkTask = .invalid
     }
 
     nonisolated private func set(_ state: State) {

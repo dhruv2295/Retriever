@@ -5,14 +5,28 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 
 ## Purpose
 
-First run, with no download: a welcome that asks for access in one decision (Android: "Search your whole phone" through
-`ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION`, or a "Choose what to include" sheet; iOS: "Search all your photos"
-through `PHPhotoLibrary`, or "Add folders from Files"; "Start the one-minute try" when access is already there), a short read of a
-planned few files shown as the retriever's pile of real previews, a "try it" screen that runs the real search, and a
-choice of when to read the rest ("Choose when to process": While charging, Also on battery, When I start it). "Skip for
-now" (`Words.GO_TO_HOME`, and "Skip the try") leaves setup for good, once access is chosen, with
-the sample still reading. The model download and tune are not part of first run; they are the separate upgrade, "Search by meaning and
-what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)), offered after the person has searched.
+Search by description (the model) is the product (`PRODUCT.md`), so first run proves it on the person's own files and
+then gets out of the way. Four steps, one button each (owner-approved design, 2026-10-23; mocks on the "Retriever setup
+redesign" canvas):
+
+1. **Hello** (`SetupStage.WELCOME`): the waving mascot, `Words.helloTitle(textOnly)`, a looping illustrated example
+   (`HELLO_EXAMPLES`, labelled "For example"), the privacy line `onDevice`, **Get started**. Under it `downloadNote` when
+   `SetupPolicy.downloadOnGetStarted`: Get started marks GREETED and starts the one-time download on Wi-Fi.
+2. **Access** (`ACCESS`): "Choose what Retriever can search". iOS has no whole-device permission, so one screen holds two
+   rows, Photos and videos (the Photos prompt, limited and refused states in the row) and Documents (folders from Files);
+   Continue once either is given. Android asks for all-files access, with "Choose what to include" as the alternative.
+   Nothing given keeps the person here on purpose: there is nothing to search without access.
+3. **First search** (`SAMPLE`): the demo's 30 recent files with search from the first frame. The field says "Search by
+   name or words" until search by description is ready, so no one describes too early; a quiet line says where the
+   download is (`descriptionLine`), and a banner says when it is ready. Continue calls `Retriever.finishSetup()`.
+4. **Home**, with a one-time card (`Prefs.homeIntroDue`) under the search field: what the recent files can do now
+   (`recentFilesBody`, per `DescriptionState`, with its action), the rest of the files while charging and not in use,
+   new files picked up automatically. No time is promised. Got it dismisses it; the status line and upgrade row carry
+   the state after that. Android's notification ask lives on this card.
+
+There is no choice of when to process (one automatic strategy, owner decision 2026-10-23) and no skip.
+`UpgradePolicy.description` turns the upgrade stage and the platform's `DownloadPhase` into the one `DescriptionState`
+both apps and both screens show. An install from before this flow, without the model, is offered it on Home at once.
 
 ## Mechanism and why
 
@@ -81,15 +95,21 @@ what's in your photos" (`UpgradePolicy`, see [Optional model](optional-model.md)
 
 ## Invariants
 
-1. **First run never downloads the model;** only the upgrade's Download does.
-2. **Every stage resumes after process death** from persisted state, and Go to Home is remembered across launches.
+1. **Get started downloads the model** (reversed 2026-10-23; it used to be "first run never downloads"), on Wi-Fi
+   unless the person allows mobile data, only where it runs and is missing, and only with room for it; the size is on
+   Hello before the tap.
+2. **Every stage resumes after process death** from persisted state.
 3. **Suggestions quote real content only.** Semantic concept suggestions remain parked. Hours stay behind
-   `ESTIMATE_CALIBRATED` until the timing evidence exists.
-4. **The short read reads only its plan,** then stops; every other file is still found by name.
-5. **"Read everything now" skips try-it and commit;** a returning user never sees the short read.
+   `ESTIMATE_CALIBRATED` until the timing evidence exists; no setup or Home sentence promises a time.
+4. **The demo reads only its plan** until setup finishes; every other file is still found by name.
+5. **No describing before it works:** the first search's hint and Home's card say "name or words" until
+   `DescriptionState.READY`.
 6. **Names are searchable from the moment access is granted,** before any model exists.
-7. **Go to Home lands on Home** with the sample reading carrying on; skipping never skips access: "Search by name"
-   without access stays on the welcome.
+7. **Nothing skips access.** The access screen has no skip; a phone too small for the model gets the same flow with
+   promises it can keep (`helloTitle(textOnly)`, no download line).
+8. **The model finishes setting up without the app in front where the platform allows:** Android verifies the
+   download and tunes from background work; iOS tunes only in front (it refuses the GPU in the background) and
+   protects the download's check with a background task.
 
 ## Tests
 

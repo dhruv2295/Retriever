@@ -193,7 +193,7 @@ class ResultPiecesTest {
 
     @Test fun fileRowShowsItsReadNote() {
         rule.setContent { ShotTheme(dark = false) { FileRow(doc, readNote = Words.extent(ReadExtent.DEEPENING), onClick = {}) } }
-        rule.onNodeWithText("Processed in part · search by meaning still to come").assertExists()
+        rule.onNodeWithText("Processed in part · search by description still to come").assertExists()
     }
 
     @Test fun onlyAFileFoundByItsNameIsBold() {

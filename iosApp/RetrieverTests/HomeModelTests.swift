@@ -153,6 +153,10 @@ final class HomeModelTests: XCTestCase {
         let loaded = await eventually { model.snap != nil }
         XCTAssertTrue(loaded)
         try XCTSkipUnless(model.starred.isEmpty, "this simulator holds stars")
+        // A fresh install is offered search by description at once; put off, it has nothing to say here either.
+        try await services.retriever.dismissUpgradeOffer()
+        let putOff = await eventually { !model.upgradeOnHome }
+        XCTAssertTrue(putOff)
         model.home = HomeFacts(
             newMedia: [], newShots: [], newDocs: [], starred: [], starredCount: 0, folders: 0, largeCount: 0, largeBytes: 0,
             possibleCopies: 0, kindTotals: [:], folderTotals: [])

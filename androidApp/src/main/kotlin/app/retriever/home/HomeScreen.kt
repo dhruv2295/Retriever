@@ -1,6 +1,11 @@
 package app.retriever.home
 
+import android.Manifest
+import android.app.NotificationManager
+import android.os.Build
 import androidx.activity.compose.ReportDrawnWhen
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +54,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.openAllFilesSettings
+import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.DownloadState
 import app.retriever.core.ReadingPhase
@@ -66,14 +72,13 @@ import app.retriever.model.UpgradeCard
 import app.retriever.model.UpgradeFlow
 import app.retriever.model.UpgradeUi
 import app.retriever.model.actions
+import app.retriever.model.description
 import app.retriever.model.downloadState
 import app.retriever.motion.Mascot
 import app.retriever.nav.SetupRoute
 import app.retriever.nav.StatusRoute
 import app.retriever.search.SearchActions
 import app.retriever.setup.CommitStage
-import app.retriever.setup.SetupActions
-import app.retriever.setup.SetupUi
 import app.retriever.ui.Format
 import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.contentPaddingFor
@@ -97,6 +102,9 @@ class HomeActions(
     val commit: (whileCharging: Boolean) -> Unit = {},
     val decideLater: () -> Unit = {},
     val hideOnThisDay: () -> Unit = {},
+    /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
+    val dismissIntro: () -> Unit = {},
+    val notify: (() -> Unit)? = null,
 )
 
 @Composable
@@ -119,14 +127,16 @@ fun HomeScreen(
     val onResume = remember(vm) { vm::onResume }
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
     ReportDrawnWhen { ui.counts != null }
+    // The card's Notify me asks core for the one notice, and Android for notifications where they are off.
+    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     // All-files access is switched in Settings, so the "can't see your files" line clears on return without a restart.
     LifecycleResumeEffect(Unit) {
         onResume()
         onPauseOrDispose {}
     }
-    // Built once: a fresh HomeActions per recomposition would defeat HomeBody's skipping.
-    // Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val homeActions = remember(context, requestReading) {
+    // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
+    // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
+    val homeActions = remember(context, requestReading, prefs.notifyWhenCaughtUp) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
@@ -136,6 +146,18 @@ fun HomeScreen(
             commit = { charging -> requestReading { vm.commit(charging) } },
             decideLater = vm::decideLater,
             hideOnThisDay = vm::hideOnThisDay,
+            dismissIntro = vm::dismissIntro,
+            // Hidden once asked: the card has nothing more to promise.
+            notify = if (prefs.notifyWhenCaughtUp) {
+                null
+            } else {
+                {
+                    vm.requestCaughtUpNotice()
+                    if (Build.VERSION.SDK_INT >= 33 && !context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
+                        notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            },
         )
     }
     HomeBody(
@@ -214,12 +236,28 @@ internal fun HomeBody(
         // Not loaded yet: show nothing rather than flash the first-run message over a full index.
         val counts = ui.counts ?: return@LazyVerticalStaggeredGrid
         val status = homeStatus(ui, download)
+        if (ui.introDue) {
+            item(key = "intro", span = FullLine) {
+                val state = upgrade.description
+                HomeIntroCard(
+                    state,
+                    ui.planned,
+                    ui.progress.rest,
+                    Format.downloadSize(context, upgrade.sizeBytes),
+                    onRecentAction = if (state == DescriptionState.WAITING_FOR_WIFI) upgradeActions.useMobileData else upgradeActions.download,
+                    onNotify = home.notify,
+                    onGotIt = home.dismissIntro,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
         if (counts.values.sum() == 0L && ui.hasAccess) {
             // Still looking while setup runs; "nothing" only once a finished look found nothing.
             item(key = "empty", span = FullLine) { EmptyHome(indexRunning || !ui.libraryChosen) }
             return@LazyVerticalStaggeredGrid
         }
-        if (status != null) {
+        // The card says the same until Got it.
+        if (status != null && !ui.introDue) {
             item(key = "status", span = FullLine) {
                 val shown = status.action != StatusAction.DISMISS || !ui.caughtUpDismissed
                 if (shown) {
@@ -267,21 +305,18 @@ internal fun HomeBody(
             item(key = "free", span = FullLine, contentType = "free") { FreeUpSpaceSection(facts, actions.onNavigate) }
         }
     }
-    // The status line's Try again asks too, where no card is drawn; the offer's card asks for itself.
-    if (upgrade.stage != UpgradeStage.OFFER) MobileDataAsk(upgrade, upgradeActions)
+    // The status line's Try again and the one-time card ask too; the offer's card, when shown, asks for itself.
+    if (!(offer && upgrade.stage == UpgradeStage.OFFER)) MobileDataAsk(upgrade, upgradeActions)
     if (choosing) {
         ModalBottomSheet(onDismissRequest = { choosing = false }) {
             Box(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
-                CommitStage(
-                    SetupUi(rest = ui.progress.rest),
-                    SetupActions(commit = {
-                        choosing = false
-                        home.commit(it)
-                    }, decideLater = {
-                        choosing = false
-                        home.decideLater()
-                    }),
-                )
+                CommitStage(ui.progress.rest, commit = {
+                    choosing = false
+                    home.commit(it)
+                }, decideLater = {
+                    choosing = false
+                    home.decideLater()
+                })
             }
         }
     }

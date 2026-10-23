@@ -46,8 +46,8 @@ object Words {
      */
     fun readOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} processed"
 
-    /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by meaning". */
-    fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by meaning"
+    /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by description". */
+    fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by description"
 
     /**
      * Processing's Details: what the count's processed files are, then what is left. "535 found by what’s inside · 597 by
@@ -70,10 +70,10 @@ object Words {
     /** Said under a file that was not read whole; null when it was. */
     fun extent(extent: ReadExtent?): String? = when (extent) {
         ReadExtent.FIRST_PART -> "Processed in part · only its beginning"
-        ReadExtent.MEANING_LIMITED -> "Processed in part · couldn’t finish search by meaning"
-        ReadExtent.FIRST_PART_MEANING_LIMITED -> "Processed in part · only its beginning, without search by meaning"
+        ReadExtent.MEANING_LIMITED -> "Processed in part · couldn’t finish search by description"
+        ReadExtent.FIRST_PART_MEANING_LIMITED -> "Processed in part · only its beginning, without search by description"
         ReadExtent.FIRST_PART_DEEPENING -> "Processed in part · only its beginning so far"
-        ReadExtent.DEEPENING -> "Processed in part · search by meaning still to come"
+        ReadExtent.DEEPENING -> "Processed in part · search by description still to come"
         else -> null
     }
 
@@ -135,7 +135,7 @@ object Words {
     fun stillReading(files: Long): String = "Still processing ${formatCount(files)} more"
 
     fun textOnlyNote(ramGb: Double, words: DeviceWords): String =
-        "This ${words.device} has ${ramGb.roundToInt()}${NBSP}GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them."
+        "This ${words.device} has ${ramGb.roundToInt()}${NBSP}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."
 
     /** Processing only; never on Home. */
     fun notReadYet(files: Long): String = "${formatCount(files)} to go"
@@ -170,31 +170,56 @@ object Words {
     /** Marks the search-by-meaning row at the end of Home. */
     const val OPTIONAL = "Optional"
 
-    // Welcome. No download note: reading needs none.
-    const val WELCOME_TITLE = "Find files by what’s inside"
+    // Hello. [textOnly]: a phone too small for search by description promises only what it can do.
+    fun helloTitle(textOnly: Boolean): String = if (textOnly) "Find files by what’s inside them" else "Find anything by describing it"
+    const val HELLO_BODY = "Photos, screenshots, documents and videos, in one search."
 
-    /** The welcome's primary button once access is in place, and its text button, which leads to the choice. */
-    const val START_THE_DEMO = "Start the demo"
-    const val SKIP_THE_DEMO = "Skip the demo"
+    /** Over Hello's looping example, so it reads as an illustration, not the person's files. */
+    const val FOR_EXAMPLE = "For example"
 
-    /**
-     * Above the welcome's buttons: what follows the access choice, and what "process" means, said once. "Up to": the files
-     * are not picked yet.
-     */
-    fun welcomeNext(words: DeviceWords): String =
-        "Next, a short demo. Retriever processes up to $DEMO_FILES of your recent files, so you can watch it work and search them. " +
-            "Processing means Retriever looks at the words and pictures inside a file, here on your ${words.device}. " +
-            "Nothing is changed, copied or sent. It takes a minute or two."
+    /** Hello's illustrated examples: what is typed, then the card that answers it. [needsModel]: found only by description. */
+    data class HelloExample(val query: String, val title: String, val detail: String, val needsModel: Boolean = false)
 
-    /** The welcome's second paragraph. */
-    fun welcomeAfterDemo(words: DeviceWords): String = "After the demo, you choose when Retriever processes the rest of your ${words.device}. " +
-        "That takes hours, so most people let it happen while the ${words.device} charges."
-    const val WELCOME_BODY = "Remember what it says or shows, even if you’ve forgotten the name."
+    val HELLO_EXAMPLES = listOf(
+        HelloExample("wifi password the landlord sent", "Screenshot from 14 March", "Says “Wi-Fi password: …”"),
+        HelloExample("dog asleep on the sofa", "Photo from last Sunday", "Found by what’s in it", needsModel = true),
+        HelloExample("my rent agreement", "Lease 2025.pdf", "Page 3, the signed copy"),
+    )
 
-    /** The welcome's privacy promise, on its own line and larger than the body. */
-    fun nothingSent(words: DeviceWords): String = "Nothing leaves your ${words.device}. No account, nothing sent anywhere."
+    /** The examples this phone can keep: a phone too small for the model shows only those words alone find. */
+    fun helloExamples(textOnly: Boolean): List<HelloExample> = HELLO_EXAMPLES.filter { !textOnly || !it.needsModel }
 
-    // Access, asked on the welcome.
+    /** Android's access screen's third tile. */
+    const val DOWNLOADS = "Downloads"
+
+    /** The privacy line above Hello's and the access screen's button. */
+    fun onDevice(words: DeviceWords): String = "Everything happens on your ${words.device}"
+    const val GET_STARTED = "Get started"
+
+    /** Under Get started on a phone that will download search by description; [size]: the platform's format. */
+    fun downloadNote(size: String): String = "Includes a one-time ${keepTogether(size)} download, on Wi-Fi."
+
+    // The access screen.
+    const val ACCESS_TITLE = "Choose what Retriever can search"
+    const val ACCESS_BODY = "Pick one or more. You can add more later."
+    const val ALLOW = "Allow"
+    const val ALLOW_ACCESS = "Allow access"
+    const val CHOOSE = "Choose"
+    const val CHOOSE_MORE = "Choose more"
+    const val SETTINGS = "Settings"
+    const val DOCUMENTS = "Documents"
+    const val INCLUDES_SCREENSHOTS = "Includes screenshots"
+    const val ALLOWED = "Allowed"
+    const val SOME_PHOTOS = "Some photos selected"
+    const val PHOTOS_OFF = "Turned off. Turn on in Settings."
+    const val PICK_FOLDERS = "Pick folders in Files, like Downloads"
+
+    fun foldersAdded(n: Long): String = "${plural(n, "folder")} added"
+
+    /** Android's access screen, under the title. */
+    const val ANDROID_ACCESS_BODY = "So you can find any photo, document or download by describing it."
+
+    // Access, before this version's access screen.
     const val SEARCH_WHOLE_PHONE = "Search your whole phone"
     const val WHOLE_PHONE_READY = "Retriever can look through the files on this phone. You can change this in Settings."
     const val ALL_FILES_OFF = "Turn on “Allow access to manage all files” to search your whole phone, or choose what to include."
@@ -215,15 +240,85 @@ object Words {
 
     fun wholeDeviceNote(words: DeviceWords): String = "Retriever looks inside the files on this ${words.device} so you can find them by what’s in them."
 
-    fun iosAccessNote(words: DeviceWords): String = "iOS lets Retriever see your photos and the folders you pick in Files."
+    // The first search: processing and search on one screen.
 
-    // The demo: processing and search on one screen.
+    /** The first search's title: it describes, never orders. */
+    const val FIRST_LOOK = "A first look at your recent files"
 
-    /** The demo's title: it describes, never orders. [files]: [TasteProgress.planned], 0 before the files are picked. */
-    fun demoTitle(files: Long): String = when (files) {
-        0L -> "A short demo on your recent files"
-        1L -> "A short demo on your most recent file"
-        else -> "A short demo on ${formatCount(files)} of your recent files"
+    /** The search field's hint: words only until search by description is ready, so no one describes too early. */
+    fun firstSearchHint(state: DescriptionState): String = if (state == DescriptionState.READY) "Describe a photo or file" else "Search by name or words"
+
+    /**
+     * The quiet line under the count while search by description gets ready; null when ready, not on this phone, or
+     * not started. [percent]: the download's, when known.
+     */
+    fun descriptionLine(state: DescriptionState, percent: Int?): String? = when (state) {
+        DescriptionState.DOWNLOADING -> "Downloading search by description" + (percent?.let { " · $it%" } ?: "")
+        DescriptionState.WAITING_FOR_WIFI -> "Waiting for Wi-Fi to download search by description."
+        DescriptionState.PREPARING -> "Preparing search by description"
+        DescriptionState.FAILED -> "The download of search by description stopped."
+        DescriptionState.NO_SPACE -> "Not enough free space to download search by description."
+        DescriptionState.READY, DescriptionState.NOT_STARTED, DescriptionState.UNAVAILABLE -> null
+    }
+
+    const val DESCRIPTION_READY = "Search by description is ready"
+    const val DESCRIPTION_READY_BODY = "Now describe your recent files to find them."
+
+    // Home's one-time card after setup.
+    const val HOME_INTRO_TITLE = "Retriever keeps going on its own"
+    const val HOME_INTRO_BODY = "Here’s what happens next."
+    const val GOT_IT = "Got it"
+    const val NEW_FILES = "New photos and files"
+    const val NEW_FILES_BODY = "Picked up automatically. You don’t need to do anything."
+    const val NOTIFY_WHEN_SEARCHABLE = "Notify me when everything’s searchable"
+
+    /** The one notice [NOTIFY_WHEN_SEARCHABLE] asked for ([Retriever.claimCaughtUpNotice]). */
+    const val CAUGHT_UP_NOTICE_TITLE = "Everything is searchable"
+
+    fun caughtUpNotice(files: Long, textOnly: Boolean): String = "Retriever has processed all ${files(files)}. " +
+        if (textOnly) "Find any of them by name or the words inside." else "Describe anything to find it."
+
+    /** [n]: the demo's planned files; 0 when Continue came before they were picked. */
+    fun recentFiles(n: Long): String = when (n) {
+        0L -> "Your recent files"
+        1L -> "Your most recent file"
+        else -> "Your ${formatCount(n)} recent files"
+    }
+
+    /** [rest]: [ReadingProgress.rest]; null until counted. */
+    fun otherFiles(rest: Long?): String = when (rest) {
+        null -> "The rest of your files"
+        1L -> "The other file"
+        else -> "The other ${files(rest)}"
+    }
+
+    fun otherFilesBody(words: DeviceWords): String =
+        "When your ${words.device} is charging and you’re not using it. With lots of files, this can take a few nights."
+
+    /** What the recent files can do now; promises no time. */
+    fun recentFilesBody(state: DescriptionState): String = when (state) {
+        DescriptionState.READY -> "Find them by describing them."
+
+        DescriptionState.UNAVAILABLE -> "Find them by name or words. Search by description needs a phone with more memory."
+
+        DescriptionState.WAITING_FOR_WIFI -> "Find them by name or words now. Waiting for Wi-Fi to finish a one-time download."
+
+        DescriptionState.FAILED -> "Find them by name or words now. The download stopped."
+
+        DescriptionState.NO_SPACE -> "Find them by name or words now. There isn’t enough free space to download search by description."
+
+        DescriptionState.NOT_STARTED -> "Find them by name or words now. Search by description needs a one-time download."
+
+        DescriptionState.DOWNLOADING, DescriptionState.PREPARING ->
+            "Find them by name or words now. Search by description arrives when setup finishes."
+    }
+
+    /** The card's action under the recent files, null when there is nothing to do; [size]: the download's size. */
+    fun recentFilesAction(state: DescriptionState, size: String): String? = when (state) {
+        DescriptionState.WAITING_FOR_WIFI -> "Use mobile data (${keepTogether(size)})"
+        DescriptionState.FAILED -> TRY_AGAIN
+        DescriptionState.NOT_STARTED -> "Download ${keepTogether(size)}"
+        else -> null
     }
 
     /** The count line, and the muted line under it, while the files are picked (under a second). */
@@ -375,14 +470,14 @@ object Words {
     /** Results this few, without the model, earn the one-line upgrade hint. */
     const val FEW_RESULTS = 3
 
-    /** No model to search by meaning: a phone too small for it, or the optional download not in place and tuned. */
+    /** No model to search by description: a phone too small for it, or the optional download not in place and tuned. */
     fun wordsOnly(textOnly: Boolean, modelMissing: Boolean, setUp: Boolean): Boolean = textOnly || modelMissing || !setUp
 
     fun matches(labels: List<String>): String = "Matches: " + labels.joinToString(", ")
 
     /** The one-line hint under few results while the upgrade is on offer; null otherwise. */
     fun upgradeHint(results: Int, upgrade: UpgradeStage): String? =
-        "Download for meaning search".takeIf { upgrade == UpgradeStage.OFFER && results < FEW_RESULTS }
+        "Download for search by description".takeIf { upgrade == UpgradeStage.OFFER && results < FEW_RESULTS }
 
     // Home, in order under the status line: Starred, Recently added, On this day, Browse.
 
@@ -423,8 +518,8 @@ object Words {
 
     fun keptOn(size: String, words: DeviceWords): String = "${keepTogether(size)} · kept on this ${words.device}"
 
-    /** Settings → Search by meaning, once downloaded: what it costs and how to give the space back. */
-    const val SEARCH_BY_MEANING = "Search by meaning"
+    /** Settings → Search by description, once downloaded: what it costs and how to give the space back. */
+    const val SEARCH_BY_MEANING = "Search by description"
     const val REMOVE_DOWNLOAD = "Remove search download"
     const val REMOVE_DOWNLOAD_ASK = "Remove the search download?"
     const val NAMES_STILL_WORK = "File names and text already processed still work."
@@ -433,7 +528,7 @@ object Words {
 
     /** The confirmation for removing the download; [size] is what is on the device, null when it can't be read. */
     fun removeDownloadMessage(size: String?): String =
-        (if (size != null) "This frees ${keepTogether(size)}. " else "") + "$NAMES_STILL_WORK Search by meaning needs the download again."
+        (if (size != null) "This frees ${keepTogether(size)}. " else "") + "$NAMES_STILL_WORK Search by description needs the download again."
 
     /** Home's last section: large files and possible copies. Nothing is deleted from either list without asking. */
     const val FREE_UP_SPACE = "Free up space"
@@ -452,7 +547,7 @@ object Words {
     fun deleteConfirm(words: DeviceWords): String = "This deletes the file from your ${words.device}."
 
     // The meaning upgrade.
-    const val UPGRADE_TITLE = "Search by meaning and what’s in your photos"
+    const val UPGRADE_TITLE = "Find files by describing them"
     const val WAITING_FOR_WIFI = "Waiting for Wi-Fi to download"
     const val USE_MOBILE_DATA = "Use mobile data"
     const val WAIT_FOR_WIFI = "Wait for Wi-Fi"
@@ -480,7 +575,7 @@ object Words {
     /** A download bar as a screen reader says it; [percent]: the platform's percent format. */
     fun downloading(percent: String): String = "Downloading, $percent"
 
-    /** The meaning pass: files read so far that have search by meaning, of all files read. */
+    /** The meaning pass: files read so far that have search by description, of all files read. */
     fun addingMeaning(progress: ReadingProgress): String =
-        "Adding search by meaning · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"
+        "Adding search by description · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"
 }

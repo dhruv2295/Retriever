@@ -40,13 +40,13 @@ final class AccessibilityAuditTests: XCTestCase {
         "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your iPhone is charging. Process for 15 minutes uses some battery.",
     ]
     private static let routes = [
-        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.samplePicking", "setup.sampleStart",
-        "setup.reading",
-        "setup.readingPaused", "setup.sampleDone", "setup.choose", "setup.chooseSkipped",
+        "setup.welcome", "setup.textOnly", "setup.access", "setup.limited", "setup.denied", "setup.folders", "setup.accessBoth",
+        "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.paused", "setup.sampleDone",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
-        "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "settings", "search.empty", "search.wordsOnly",
+        "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "home.introReady", "home.introOnItsWay",
+        "settings", "search.empty", "search.wordsOnly",
         "search.noModel",
         "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
     ]
@@ -54,13 +54,13 @@ final class AccessibilityAuditTests: XCTestCase {
     /// The fixture routes by screen, light and dark each, so a screen's change reruns only its own audits and the parallel
     /// runner can spread them. Every route sits in exactly one area (testEveryFixtureRouteIsInExactlyOneAuditArea).
     private static let setupRoutes = [
-        "setup.welcome", "setup.limited", "setup.denied", "setup.folders", "setup.textOnly", "setup.choose", "setup.chooseSkipped",
+        "setup.welcome", "setup.textOnly", "setup.access", "setup.limited", "setup.denied", "setup.folders", "setup.accessBoth",
     ]
     private static let upgradeRoutes = ["upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning"]
     private static let statusAndSettingsRoutes = [
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles", "settings",
     ]
-    private static let homeRoutes = ["home.caughtUp", "home.reading", "home.empty", "home.upgrade"]
+    private static let homeRoutes = ["home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.introReady", "home.introOnItsWay"]
     private static let homeStatusLineRoutes = [
         "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.readNow", "home.downloading", "home.meaning", "home.noAccess",
         "home.notNow", "home.counting",
@@ -119,19 +119,19 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
-    /// The limited-Photos access screen shows "Choose more photos" whole, not cut by the scroll view's edge.
-    func testLimitedPhotosAccessShowsChooseMorePhotosWhole() {
+    /// The limited-Photos access screen shows "Choose more" whole, not cut by the scroll view's edge.
+    func testLimitedPhotosAccessShowsChooseMoreWhole() {
         let app = XCUIApplication()
         app.launchArguments = ["-mutedMedia", "-route", "setup.limited"]
         launch(app)
         defer { app.terminate() }
-        let more = app.buttons["Choose more photos"]
+        let more = app.buttons["Choose more"]
         for _ in 0..<6 {
             if more.exists && more.isHittable { break }
             app.swipeUp()
         }
         XCTAssertTrue(more.isHittable)
-        let continueButton = app.buttons["Start the demo"]
+        let continueButton = app.buttons["Continue"]
         XCTAssertTrue(continueButton.isHittable)
         XCTAssertLessThanOrEqual(more.frame.maxY, continueButton.frame.minY, "the footer never covers it")
     }
@@ -189,17 +189,30 @@ final class AccessibilityAuditTests: XCTestCase {
                         let pile = app.descendants(matching: .any)["sample-pile"].firstMatch
                         let counts = [
                             "setup.samplePicking": "Picking your recent files…", "setup.sampleStart": "0 of 30 files processed",
-                            "setup.sampleDone": "30 of 30 files processed",
+                            "setup.sampleDone": "30 of 30 files processed", "setup.ready": "18 of 30 files processed",
                         ]
                         // Always "of 30": the total is fixed once the files are picked.
                         let count = counts[route] ?? "12 of 30 files processed"
                         XCTAssertEqual(pile.label, count)
                         XCTAssertTrue(app.staticTexts[count].exists)
                         XCTAssertFalse(app.descendants(matching: .any)["recent:folder://fixture/reading-2"].firstMatch.exists)
-                        // Before the files are picked See the files keeps its place, unseen and out of VoiceOver's way.
-                        XCTAssertEqual(app.buttons["See the 30 files"].exists, route != "setup.samplePicking")
-                        // The search works from the first frame, and Continue is the one way on, enabled throughout.
-                        XCTAssertTrue(app.searchFields["Search the demo files"].exists)
+                        // The search works from the first frame, and Continue is the one way on, enabled throughout. The
+                        // field asks for a description only once search by description is ready.
+                        let hint = route == "setup.ready" ? "Describe a photo or file" : "Search by name or words"
+                        XCTAssertTrue(app.searchFields[hint].exists, "\(route): \(hint)")
+                        XCTAssertEqual(app.staticTexts["Search by description is ready"].exists, route == "setup.ready")
+                        let lines = [
+                            "setup.waitingWifi": "Waiting for Wi-Fi to download search by description.",
+                            "setup.reading": "Downloading search by description · 64%",
+                        ]
+                        if let line = lines[route] {
+                            let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", line)).firstMatch
+                            XCTAssertTrue(shown.exists, "\(route): \(line)")
+                        }
+                        XCTAssertEqual(app.buttons["Use mobile data"].exists, route == "setup.waitingWifi")
+                        // A pause takes the description line's place: it says why the count stands still.
+                        let paused = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Paused, battery is low'")).firstMatch
+                        XCTAssertEqual(paused.exists, route == "setup.paused", route)
                         XCTAssertTrue(app.buttons["Continue"].isEnabled)
                         XCTAssertFalse(app.buttons["Try search"].exists)
                         XCTAssertFalse(app.buttons["Skip for now"].exists)
@@ -209,23 +222,31 @@ final class AccessibilityAuditTests: XCTestCase {
                         XCTAssertEqual(app.staticTexts["Type a word you remember from a recent photo, screenshot or document."].exists, !chips)
                         XCTAssertFalse(app.staticTexts["Taking a short break"].exists, "no status leaks in before the plan")
                         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '/'")).firstMatch.exists)
-                        XCTAssertEqual(
-                            app.staticTexts["Paused while you use other apps. It carries on when you come back."].exists, route == "setup.readingPaused")
-                        XCTAssertEqual(
-                            app.staticTexts["The demo is done. Next: the other 25,763 files on your iPhone."].exists, route == "setup.sampleDone")
                     }
-                    // How the demo ended, first on the choice; nothing after a skip. The button starts a long job, never Done.
-                    if route.hasPrefix("setup.choose") {
-                        XCTAssertEqual(app.staticTexts["Demo done: 30 of 30 files processed"].exists, route == "setup.choose")
-                        XCTAssertTrue(app.staticTexts["Now, the rest of your iPhone"].exists)
-                        XCTAssertTrue(app.buttons["Start processing"].exists)
-                        XCTAssertFalse(app.buttons["Done"].exists)
-                        // Whole-phone access makes "your selected photos and folders" untrue; the count above says enough.
-                        XCTAssertFalse(app.staticTexts["From your selected photos and folders"].exists)
+                    // Continue waits for Photos or a folder; given either, it goes on. Nothing on Hello asks for access.
+                    if Self.setupRoutes.contains(route) {
+                        let hello = ["setup.welcome", "setup.textOnly"].contains(route)
+                        XCTAssertEqual(app.buttons["Get started"].exists, hello, route)
+                        if !hello {
+                            XCTAssertEqual(app.buttons["Continue"].isEnabled, !["setup.access", "setup.denied"].contains(route), route)
+                            XCTAssertEqual(app.buttons["Allow"].exists, route == "setup.access" || route == "setup.folders", route)
+                            XCTAssertEqual(app.buttons["Settings"].exists, route == "setup.denied", route)
+                        }
+                        XCTAssertEqual(app.staticTexts["Includes a one-time 388\u{00A0}MB download, on Wi-Fi."].exists, route == "setup.welcome", route)
+                    }
+                    // Home's one-time card: the recent files' state, and its button only where it helps.
+                    if route.hasPrefix("home.intro") {
+                        XCTAssertTrue(app.staticTexts["Retriever keeps going on its own"].exists)
+                        XCTAssertTrue(app.buttons["Got it"].exists)
+                        let body =
+                            route == "home.introReady"
+                            ? "Find them by describing them." : "Find them by name or words now. Search by description arrives when setup finishes."
+                        let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", body)).firstMatch
+                        XCTAssertTrue(shown.exists, "\(route): \(body)")
                     }
                     if route == "search.noModel" {
                         XCTAssertFalse(app.staticTexts["Words only"].exists, "retired: nothing is broken")
-                        XCTAssertTrue(app.buttons["Download for meaning search"].exists, "one result is few: the hint shows")
+                        XCTAssertTrue(app.buttons["Download for search by description"].exists, "one result is few: the hint shows")
                     }
                     // home.upgrade's Not now is Home's last row, below the fold: testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize
                     // scrolls to it (scrolling here would change what the audit below sees).
@@ -240,7 +261,7 @@ final class AccessibilityAuditTests: XCTestCase {
                             "home.counting": ("Counting your files…", nil),
                             "home.unplugged": ("Waits until you charge", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
                             "home.readNow": ("Processing for 15 minutes · 12 min left", "Stop"),
-                            "home.downloading": ("Downloading search by meaning · 34%", "Stop"), "home.meaning": ("Adding search by meaning", nil),
+                            "home.downloading": ("Downloading search by description · 34%", "Stop"), "home.meaning": ("Adding search by description", nil),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
                         ] as [String: (String, String?)]
                     if let line = lines[route] {
@@ -252,7 +273,7 @@ final class AccessibilityAuditTests: XCTestCase {
                     // demo's 30 carry over to Not now's whole-phone count. Counting has no count and no bar.
                     let liveCounts = [
                         "home.charging": "1,204 of 5,310 files processed", "home.unplugged": "1,204 of 5,310 files processed",
-                        "home.meaning": "1,938 of 3,142 files have search by meaning", "home.notNow": "30 of 25,793 files processed",
+                        "home.meaning": "1,938 of 3,142 files have search by description", "home.notNow": "30 of 25,793 files processed",
                         "status.reading": "1,204 of 5,310 files processed",
                     ]
                     if let count = liveCounts[route] {
@@ -269,7 +290,9 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
-    private static let sampleRoutes = ["setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.readingPaused", "setup.sampleDone"]
+    private static let sampleRoutes = [
+        "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.paused", "setup.sampleDone",
+    ]
 
     /// The demo's group was left-aligned under a centred dog and pile, with the spare height in one band above the
     /// footer, and rows came and went between states. Now it is centred both ways, and every state lays out the same rows.
@@ -280,7 +303,7 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchArguments = ["-mutedMedia", "-route", route]
             launch(app)
             defer { app.terminate() }
-            let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'A short demo on'")).firstMatch
+            let title = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'A first look'")).firstMatch
             let group = app.descendants(matching: .any)["step-content"].firstMatch
             let actions = app.descendants(matching: .any)["step-actions"].firstMatch
             let count = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'processed' OR label BEGINSWITH 'Picking'")).firstMatch
@@ -291,10 +314,10 @@ final class AccessibilityAuditTests: XCTestCase {
             XCTAssertEqual(count.frame.midX, group.frame.midX, accuracy: 1, "\(route): the count is centred")
             // Centred between the bar above (the navigation bar, with the search field under it before iOS 26) and the
             // pinned actions. A group pinned to the top, with the spare height in one band above the actions, sits well
-            // above that. The group's test frame spans only its accessible rows, and before the plan See the files is
-            // laid out but hidden, so its frame ends short there; the rows' equal places below carry the centring over.
+            // above that. The group's test frame spans only its accessible rows, and before the chips arrive their held
+            // place is hidden, so its frame ends short there; the rows' equal places below carry the centring over.
             let top = app.navigationBars.firstMatch.frame.maxY
-            if route != "setup.samplePicking", group.frame.height + 32 < actions.frame.minY - top {
+            if !["setup.samplePicking", "setup.sampleStart"].contains(route), group.frame.height + 32 < actions.frame.minY - top {
                 XCTAssertEqual(group.frame.midY, (top + actions.frame.minY) / 2, accuracy: 12, "\(route): spare height split above and below")
             }
             frames[route] = (title.frame, count.frame, bar.frame)
@@ -464,6 +487,9 @@ final class AccessibilityAuditTests: XCTestCase {
                     // The upgrade row below them moves the same way; testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize checks it.
                     if route == "home.upgrade", Self.upgradeText.contains(where: element.label.hasPrefix) { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
+                    // Home's one-time card pushes the status line below it off screen as the text grows; that line is
+                    // audited whole on its own routes (home.charging, home.downloading). The card's own rows still count.
+                    if route.hasPrefix("home.intro"), element.frame.minY > app.buttons["Got it"].frame.maxY { return true }
                 }
                 print("AUDIT \(route): \(issue.auditType) \(issue.compactDescription) \(element.debugDescription)")
                 return false
@@ -479,8 +505,8 @@ final class AccessibilityAuditTests: XCTestCase {
         ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
-        // Search by meaning sits just under When to process, at the first screen's fold.
-        ("settings", "Search by meaning"), ("settings", "Search by meaning and what’s in your photos"),
+        // Search by description sits just under When to process, at the first screen's fold.
+        ("settings", "Search by description"), ("settings", "Find files by describing them"), ("settings", "Downloaded · 388\u{00A0}MB"),
     ]
 
     func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {
@@ -582,7 +608,7 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
     /// Label prefixes, top to bottom (the growth test only scrolls down); the body joins its size with a no-break space.
-    private static let upgradeText = ["Search by meaning and what’s in your photos", "One download of", "Download", "Not now"]
+    private static let upgradeText = ["Find files by describing them", "One download of", "Download", "Not now"]
 
     /// Home's optional upgrade row grows at AX5, the growth the live-resize audit loses when the rows above scroll it away.
     func testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize() {

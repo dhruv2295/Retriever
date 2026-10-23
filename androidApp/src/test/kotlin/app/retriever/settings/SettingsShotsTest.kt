@@ -38,6 +38,7 @@ import app.retriever.model.spaceMessage
 import app.retriever.shot
 import app.retriever.ui.Format
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -93,7 +94,10 @@ class SettingsShotsTest {
         page("settings_light", ready)
         rule.onNodeWithText("Waits until you charge").assertExists()
         rule.onNodeWithText("of 3,300 files processed", substring = true).assertExists()
+        // The section's header, once: the row under it says something else.
+        assertNotEquals(Words.SEARCH_BY_MEANING, Words.UPGRADE_TITLE)
         rule.onNodeWithText(Words.SEARCH_BY_MEANING).assertExists()
+        rule.onNodeWithText(Words.UPGRADE_TITLE).assertExists()
         // Large files and duplicates live on Home now; no storage sentence is joined by a dot.
         val gone = listOf(Words.FREE_UP_SPACE, Words.FIND_DUPLICATES, Words.NEVER_DELETES, "stays on")
         (gone + listOf("session", "Name only", "Manage access", "Excluded", "Saved search data"))
@@ -168,7 +172,7 @@ class SettingsShotsTest {
 
     @Test fun textOnlyPhone() {
         page("settings_text_only_light", ready.copy(textOnly = true, ramGb = 3.0, readable = setOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT)))
-        // It can't run search by meaning, so nothing offers it.
+        // It can't run search by description, so nothing offers it.
         rule.onAllNodesWithText(Words.SEARCH_BY_MEANING, substring = true).assertCountEquals(0)
     }
 
@@ -335,7 +339,7 @@ class SettingsShotsTest {
 
         assertEquals(1, freed)
         assertEquals(
-            "File names and text already processed still work. Search by meaning needs the download again.",
+            "File names and text already processed still work. Search by description needs the download again.",
             Words.removeDownloadMessage(null),
         )
     }

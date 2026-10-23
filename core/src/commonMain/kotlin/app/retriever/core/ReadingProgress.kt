@@ -12,7 +12,7 @@ data class ReadingProgress(
     val sample: Boolean = false,
     /** A subset of Partly read whose first pass was requeued (for example after a reading setting changed). */
     val rereads: Long = 0,
-    /** Files read without vectors that the model will add search by meaning to; a subset count, never a partition bucket. */
+    /** Files read without vectors that the model will add search by description to; a subset count, never a partition bucket. */
     val meaningWaiting: Long = 0,
     /** The phone's files have all been counted once (the first full scan is written); until then the totals still grow. */
     val counted: Boolean = true,
@@ -226,7 +226,7 @@ object ReadingPolicy {
 
             else -> ReadingStatus(
                 ReadingPhase.DOWNLOADING,
-                "Downloading search by meaning" + (download.percent?.let { " · $it%" } ?: ""),
+                "Downloading search by description" + (download.percent?.let { " · $it%" } ?: ""),
                 "You can keep using Retriever.",
                 StatusAction.STOP,
                 done = download.percent?.toLong(),
@@ -306,7 +306,7 @@ object ReadingPolicy {
             ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
             ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
             ReadingPhase.SAMPLE -> "Processing the demo files"
-            ReadingPhase.MEANING -> "Adding search by meaning"
+            ReadingPhase.MEANING -> "Adding search by description"
             ReadingPhase.DEEPENING -> "Processing the rest of some long files"
             ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
             ReadingPhase.LOOKING -> "Checking for new files…"
@@ -340,7 +340,7 @@ object ReadingPolicy {
             ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
 
             ReadingPhase.READING -> when {
-                progress.meaningWaiting > 0 -> "Also adding search by meaning."
+                progress.meaningWaiting > 0 -> "Also adding search by description."
                 words.ios -> "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
                 else -> "You can close Retriever; it carries on. Search works the whole time."
             }
@@ -396,9 +396,9 @@ fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): St
             stored.partial || extent == ReadExtent.FIRST_PART || extent == ReadExtent.FIRST_PART_DEEPENING ||
                 extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Name and its beginning"
 
-            extent == ReadExtent.MEANING_LIMITED -> "Name and what’s inside. Search by meaning couldn’t finish."
+            extent == ReadExtent.MEANING_LIMITED -> "Name and what’s inside. Search by description couldn’t finish."
 
-            extent == ReadExtent.DEEPENING -> "Name and what’s inside. Search by meaning is still to come."
+            extent == ReadExtent.DEEPENING -> "Name and what’s inside. Search by description is still to come."
 
             else -> "Name and what’s inside"
         }

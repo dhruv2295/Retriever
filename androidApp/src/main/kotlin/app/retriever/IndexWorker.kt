@@ -38,6 +38,8 @@ import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.indexing.PauseReceiver
 import app.retriever.model.Calibrator
+import app.retriever.model.ModelRepository
+import app.retriever.model.ModelState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -58,6 +60,7 @@ class IndexWorker(
     private val index: IndexService,
     private val platformReady: () -> Boolean,
     private val calibrator: Calibrator,
+    private val models: ModelRepository,
 ) : CoroutineWorker(context, params) {
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
 
@@ -82,6 +85,10 @@ class IndexWorker(
         if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
+        val started = TimeSource.Monotonic.markNow()
+        val trial = inputData.getBoolean(IndexService.TRIAL, false)
+        // Before access, which the person may not have given yet; a trial runs in front, where the upgrade does this.
+        if (!trial) prepareModel()
         // Before setup finishes a batch only syncs the file list, so names are findable before reading starts.
         if (!platformReady()) {
             retriever.clearUnavailableLibrary()
@@ -92,14 +99,12 @@ class IndexWorker(
                 // A trial handoff owns its foreground service before waiting for the direct batch to stop. A trial or charger run
                 // asks only when IndexService saw an exemption that lets Android start it (FOREGROUND). A run that can't read
                 // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
-                val trial = inputData.getBoolean(IndexService.TRIAL, false)
                 val ask = inputData.getBoolean(IndexService.FOREGROUND, false)
                 val foreground = (ask || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
                 val guard = launch { stopBeforeFreeze() }
                 // Before the batch, so a GPU that passes serves this run; its minute comes out of the batch's budget.
-                val started = TimeSource.Monotonic.markNow()
                 if (!trial) {
                     try {
                         calibrator.retestGpuIfDue()
@@ -133,6 +138,7 @@ class IndexWorker(
                 next
             }
             index.notifySampleIfReady()
+            index.notifyCaughtUpIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
             if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
@@ -142,6 +148,25 @@ class IndexWorker(
         // Never Result.retry(): NOW work waiting in WorkManager's backoff (up to 5 h) would make indexNow's KEEP drop every
         // Resume, setting change and first-run commit until it ran. A failed batch rests through CONTINUE instead.
         Result.success()
+    }
+
+    /**
+     * A model download that finished with the app closed is checked and tuned here, so search by description is ready
+     * without opening the app. Each step is a no-op once done; a failure is logged and the next run tries again.
+     */
+    private suspend fun prepareModel() {
+        if (retriever.textOnly) return
+        try {
+            models.sync(retriever.requiredBuild.value)
+            // sync() hashes a finished download in the app's scope; a download still running is left to finish.
+            models.state.first { it != ModelState.Checking }
+            calibrator.tuneOnce()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Errors too (a missing API, OOM), as the upgrade's own tune catches them.
+            Log.w("Retriever", "model setup in the background failed", e)
+        }
     }
 
     /**

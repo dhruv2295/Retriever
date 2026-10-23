@@ -235,7 +235,7 @@ val appModule = module {
     }
 
     single { IndexService(androidContext(), get()) }
-    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get()) }
+    worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get(), get()) }
     single { StorageService(androidContext(), get(), get(), get(ModelDir)) }
     single { MediaDeleter(androidContext()) }
     singleOf(::LaunchQuery)
@@ -253,13 +253,15 @@ val appModule = module {
             get(),
             get(AppScope),
             onMeteredNetwork = { app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered },
-            calibrate = { calibrator.calibrate(tuneAgain = false) },
+            calibrate = calibrator::tuneOnce,
         )
     }
     single {
         val app = androidContext()
+        val retriever = get<Retriever>()
+        val models = get<ModelRepository>()
         SetupFlow(
-            get(),
+            retriever,
             get(),
             get(),
             get(AppScope),
@@ -268,6 +270,8 @@ val appModule = module {
                 Build.VERSION.SDK_INT < 33 ||
                     ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             },
+            // No mobile data question: Wi-Fi only unless the person allowed mobile data before, as Hello's note says.
+            startDownload = { models.start(retriever.requiredBuild.value) },
         )
     }
 

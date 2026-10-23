@@ -1,5 +1,10 @@
 # First run: a short demo, then one clear choice
 
+> **Superseded in part (2026-10-23), see [Onboarding](onboarding.md).** The choice screen (§3) and "Skip the demo" are
+> gone: processing runs on one automatic strategy, and the first search's Continue ends setup with a one-time Home card.
+> The welcome's paragraphs are replaced by Hello. The model download is now part of setup (this doc's "Leave out" item
+> on it is reversed). The count rule, the pile and the demo's search below still hold.
+
 **Pick.** Design 1's shape: the demo and its search on one screen, Continue pinned at the bottom, the grid gone, the
 number of files fixed when they are picked, one count rule from the demo to Home. **Grafted from Design 2:** a welcome
 that says the whole order up front and explains "process" once; "Skip the demo" leads to the choice, not past it; a

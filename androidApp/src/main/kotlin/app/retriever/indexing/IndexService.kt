@@ -214,6 +214,12 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         if (sample.planned > 0 && sample.pending == 0 && retriever.claimSampleNotification()) notifyDemoDone(sample.done, sample.planned)
     }
 
+    /** Home card's Notify me, once everything is searchable; not claimed while notifications are off, so it waits for them. */
+    suspend fun notifyCaughtUpIfReady() {
+        if (!context.getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()) return
+        if (retriever.claimCaughtUpNotice()) Notifications.caughtUp(context, retriever.counts().first().progress.processed, retriever.textOnly)
+    }
+
     /** Stops the current and follow-up runs; the periodic run stays scheduled. */
     fun cancel() {
         for (name in listOf(NOW, CONTINUE)) work.cancelUniqueWork(name)
