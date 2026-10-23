@@ -278,7 +278,12 @@ object Words {
     fun caughtUpNotice(files: Long, textOnly: Boolean): String = "Retriever has processed all ${files(files)}. " +
         if (textOnly) "Find any of them by name or the words inside." else "Describe anything to find it."
 
-    fun recentFiles(n: Long): String = if (n == 1L) "Your most recent file" else "Your ${formatCount(n)} recent files"
+    /** [n]: the demo's planned files; 0 when Continue came before they were picked. */
+    fun recentFiles(n: Long): String = when (n) {
+        0L -> "Your recent files"
+        1L -> "Your most recent file"
+        else -> "Your ${formatCount(n)} recent files"
+    }
 
     /** [rest]: [ReadingProgress.rest]; null until counted. */
     fun otherFiles(rest: Long?): String = when (rest) {

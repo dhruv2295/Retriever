@@ -29,5 +29,5 @@ spoken	1:05	at 1 minute 5 seconds
 spoken	1:00:01	at 1 hour 1 second
 readCount	1200	24	1,200 files processed · 24 processed in part
 readCount	1	0	1 file processed
-textOnlyNote	3.4	android	This phone has 3 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.
-textOnlyNote	3.6	ipad	This iPad has 4 GB of memory, too little to understand photos or meaning, so Retriever finds files by their names and the words inside them.
+textOnlyNote	3.4	android	This phone has 3 GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them.
+textOnlyNote	3.6	ipad	This iPad has 4 GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them.
