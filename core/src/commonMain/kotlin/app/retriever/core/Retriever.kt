@@ -155,8 +155,11 @@ class Retriever(
     private val platformReady: () -> Boolean,
     private val log: (String, Throwable?) -> Unit,
     private val now: () -> Long,
-    /** The local zone's offset from UTC now, so "yesterday" means the person's yesterday. No default: a platform must pass it. */
-    private val zoneOffsetMs: () -> Long,
+    /**
+     * The local zone's offset from UTC at an instant (epoch ms), so "yesterday" means the person's yesterday and "March"
+     * ends at its own midnight across a daylight-saving change. No default: a platform must pass it.
+     */
+    private val zoneOffsetMs: (Long) -> Long,
     private val dispatchers: CoreDispatchers = CoreDispatchers(),
     /**
      * The process before this one died of a native crash or a signal. Only then does a model open it left unfinished
@@ -1176,7 +1179,7 @@ class Retriever(
         scope: List<Long>?,
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
-        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs())
+        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs)
         val ids = starredIds(onlyStarred)
         // Nothing to search, so nothing by meaning is missing.
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)

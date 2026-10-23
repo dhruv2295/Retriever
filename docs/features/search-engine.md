@@ -94,7 +94,7 @@ until that search ends; a check that the same snippet renders the same bold span
   term only.
 - The day filter in the scan uses UTC days widened by up to one day, so at most 100 candidates can be crowded by rows
   outside the local day.
-- A query takes one date phrase; the parser's range uses a fixed zone offset (see `query-parser.md`).
+- A query takes one date phrase (see `query-parser.md`).
 - Folder words are name tokens, so "camera" exact-matches every file in that folder. This is deliberate.
 - `Hit.score` has no common scale (RRF sum on a merged search, `1/(i+1)` on a single lane, 0 for `browse`). Only debug
   and self-test code reads it.
