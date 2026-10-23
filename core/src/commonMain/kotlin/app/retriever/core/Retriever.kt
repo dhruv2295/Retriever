@@ -199,7 +199,6 @@ class Retriever(
     /** Downloaded bytes are present; tuning/opening is a separate concern. Refreshed by refreshSetUp and each batch. */
     val modelPresent: StateFlow<Boolean> = _modelPresent.asStateFlow()
     val modelDownloadBytes: Long get() = requiredBuild.value.sizeBytes
-    val audioContentSupported: Boolean get() = false
 
     /** Set up, but the model file is gone (freed, or a fallback build not downloaded yet): names and words search only. */
     val modelMissing: StateFlow<Boolean> = _modelMissing.asStateFlow()

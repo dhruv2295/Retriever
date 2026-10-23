@@ -25,7 +25,6 @@ data class StatusUi(
     val prefs: Prefs,
     val index: IndexState,
     val access: Access,
-    val textOnly: Boolean,
     val skipped: List<Store.StoredFile> = emptyList(),
     val folderError: String? = null,
     val error: String? = null,
@@ -44,11 +43,11 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
         accessService.state,
         combine(skipped, folderError, error, ::Triple),
     ) { counts, prefs, (index, status), access, (skipped, folderError, error) ->
-        StatusUi(counts, prefs, index, access, retriever.textOnly, skipped, folderError, error, status)
+        StatusUi(counts, prefs, index, access, skipped, folderError, error, status)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
-        StatusUi(null, retriever.prefs.value, retriever.state.value, accessService.state.value, retriever.textOnly),
+        StatusUi(null, retriever.prefs.value, retriever.state.value, accessService.state.value),
     )
 
     /** The header's caught-up pop; the same once-only rule as Home's status. */

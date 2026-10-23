@@ -29,7 +29,6 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import app.retriever.core.IndexState
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason

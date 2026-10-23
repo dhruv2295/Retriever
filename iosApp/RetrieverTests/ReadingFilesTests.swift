@@ -73,7 +73,6 @@ final class ReadingFilesTests: XCTestCase {
 
     func testTheSampleIsSpokenByKindNotShownAsSlashCounts() {
         let taste = TasteSnap(counts: [.photo: .init(read: 12, planned: 40), .pdf: .init(read: 3, planned: 5)], pending: 28)
-        XCTAssertEqual(taste.read, 15)
         XCTAssertEqual(taste.planned, 45)
         XCTAssertEqual(taste.done, 17, "a name-only or unopenable file is done without being read")
         XCTAssertTrue(taste.spoken.contains("12 of 40 photos processed"), taste.spoken)

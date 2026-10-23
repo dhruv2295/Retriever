@@ -4,7 +4,6 @@ import PDFKit
 import Photos
 @preconcurrency import RetrieverCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The same actions serve result menus, Browse, Recently read and every viewer, in this order.
 enum FileAction: CaseIterable {

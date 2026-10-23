@@ -73,7 +73,6 @@ import app.retriever.core.Locator
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.nameMatchRanges
-import app.retriever.search.Similar
 import app.retriever.ui.Format
 import app.retriever.ui.tabular
 

@@ -1,6 +1,5 @@
 import Photos
 @preconcurrency import RetrieverCore
-import SwiftUI
 
 // MARK: Fixtures
 

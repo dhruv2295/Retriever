@@ -72,7 +72,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.retriever.R
-import app.retriever.access.Photos
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ReadExtent

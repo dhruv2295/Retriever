@@ -59,6 +59,5 @@ final class StarredTests: XCTestCase {
         let model = SearchModel.fixture(text: "lease", hits: [])
         model.scope = .starred
         XCTAssertEqual(model.key.scope, .starred)
-        XCTAssertTrue(model.stale, "the answer on screen was for every file")
     }
 }

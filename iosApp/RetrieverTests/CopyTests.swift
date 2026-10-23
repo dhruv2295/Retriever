@@ -122,9 +122,6 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(
             Words.shared.demoSearchScope(done: 12, finished: false, words: Copy.words),
             "Finds any file on your iPhone by its name. Looks inside the 12 demo files processed so far.")
-        XCTAssertEqual(Copy.photosAccess(.limited), Words.shared.SELECTED_PHOTOS)
-        XCTAssertEqual(Copy.photosAccess(.authorized), Words.shared.ALL_PHOTOS)
-        XCTAssertNil(Copy.photosAccess(.notDetermined))
         XCTAssertEqual(Words.shared.onDevice(words: Copy.words), "Everything happens on your \(Copy.device)")
         XCTAssertTrue(Words.shared.otherFilesBody(words: Copy.words).contains("When your \(Copy.device) is charging"))
         XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))

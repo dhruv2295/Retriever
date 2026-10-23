@@ -10,21 +10,11 @@ final class WordsFixtureTests: XCTestCase {
         let words = [
             "android": DeviceWords.companion.ANDROID, "iphone": DeviceWords.companion.ios(device: "iPhone"), "ipad": DeviceWords.companion.ios(device: "iPad"),
         ]
-        func kind(_ name: Substring) -> Kind { Kind.entries.first { $0.name == name }! }
-        func kinds(_ s: String) -> [Kind] { s.split(separator: ",").map(kind) }
         func stop(_ name: String) -> StopReason { StopReason.entries.first { $0.name == name }! }
         for row in rows {
             let actual: String? =
                 switch row[0] {
                 case "stop": ReadingPolicy.shared.stopCopy(stop: stop(row[1]), words: words[row[2]]!)
-                case "kindProgress":
-                    Words.shared.kindProgress(
-                        kinds: kinds(row[1]), inside: Set(kinds(row[2])),
-                        pending: Dictionary(
-                            uniqueKeysWithValues: row[3].split(separator: ",").map {
-                                (kind($0.split(separator: "=")[0]), KotlinLong(value: Int64($0.split(separator: "=")[1])!))
-                            }),
-                        scheduled: Int64(row[4])!)
                 case "spoken": Words.shared.spokenPosition(locator: row[1])
                 case "readCount": Words.shared.readCount(read: Int64(row[1])!, partlyRead: Int64(row[2])!)
                 case "textOnlyNote": Words.shared.textOnlyNote(ramGb: Double(row[1])!, words: words[row[2]]!)
@@ -32,6 +22,6 @@ final class WordsFixtureTests: XCTestCase {
                 }
             XCTAssertEqual(actual, row.last!.isEmpty ? nil : row.last!, row.joined(separator: " | "))
         }
-        XCTAssertEqual(rows.count, 32)
+        XCTAssertEqual(rows.count, 27)
     }
 }

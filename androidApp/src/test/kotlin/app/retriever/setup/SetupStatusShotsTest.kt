@@ -19,7 +19,6 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -620,14 +619,13 @@ class SetupStatusShotsTest {
         dark: Boolean = false,
         fontScale: Float = 1f,
         access: Access = Access.ALL,
-        textOnly: Boolean = false,
         tall: Boolean = false,
         prefs: Prefs = this.prefs,
         readingStatus: ReadingStatus? = null,
     ) = shot(name, dark, fontScale, tall) {
         StatusContent(
             counts, prefs, index, skippedFiles, open, batteryHint = true,
-            actions = StatusActions(openSettings = {}), access = access, textOnly = textOnly, readingStatus = readingStatus,
+            actions = StatusActions(openSettings = {}), access = access, readingStatus = readingStatus,
         )
     }
 
@@ -655,9 +653,9 @@ class SetupStatusShotsTest {
 
     private val textOnlyCounts = app.retriever.readCounts(mapOf(FileState.INDEXED to 2_140L, FileState.PENDING to 310L), mapOf(Kind.PDF to 900L), 0)
 
-    @Test fun statusTextOnly() = status("status_text_only_light", textOnlyCounts, idle, textOnly = true, tall = true)
+    @Test fun statusTextOnly() = status("status_text_only_light", textOnlyCounts, idle, tall = true)
 
-    @Test fun statusTextOnlyDark() = status("status_text_only_dark", textOnlyCounts, idle, dark = true, textOnly = true, tall = true)
+    @Test fun statusTextOnlyDark() = status("status_text_only_dark", textOnlyCounts, idle, dark = true, tall = true)
 
     private val tail = reading.copy(tailFiles = 7)
 

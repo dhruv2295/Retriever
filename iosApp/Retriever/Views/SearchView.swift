@@ -4,12 +4,10 @@
 // searchable with scopes and suggestions in a NavigationStack. Modified for Retriever: scopes pass kinds to the
 // engine, results mix a photo grid with document rows, and every state has an illustration.
 
-import ImageIO
 import Photos
 import PhotosUI
 @preconcurrency import RetrieverCore
 import SwiftUI
-import os
 
 // MARK: Screen
 

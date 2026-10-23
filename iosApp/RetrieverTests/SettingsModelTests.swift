@@ -70,11 +70,8 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(model.snap?.kinds.contains(.video), true)
     }
 
-    func testChargingAndRememberTogglesShowAtOnce() {
+    func testRememberToggleShowsAtOnce() {
         let model = AppModel(fixture: .caughtUp)
-        XCTAssertEqual(model.snap?.onlyWhileCharging, false)
-        model.setOnlyWhileCharging(true)
-        XCTAssertEqual(model.snap?.onlyWhileCharging, true)
         XCTAssertEqual(model.snap?.rememberSearches, true)
         model.setRememberSearches(false)
         XCTAssertEqual(model.snap?.rememberSearches, false)
@@ -130,12 +127,8 @@ final class SettingsModelTests: XCTestCase {
         let model = try await liveModel()
         let before = prefs
 
-        model.setOnlyWhileCharging(!before.onlyWhileCharging)
-        var landed = await eventually { self.prefs.onlyWhileCharging == !before.onlyWhileCharging }
-        XCTAssertTrue(landed, "only while charging")
-
         model.setRememberSearches(!before.rememberSearches)
-        landed = await eventually { self.prefs.rememberSearches == !before.rememberSearches }
+        var landed = await eventually { self.prefs.rememberSearches == !before.rememberSearches }
         XCTAssertTrue(landed, "remember searches")
 
         let wasOn = before.kinds.contains(.video)

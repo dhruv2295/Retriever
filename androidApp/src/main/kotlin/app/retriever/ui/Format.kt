@@ -18,12 +18,10 @@
 package app.retriever.ui
 
 import android.content.Context
-import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.ui.text.TextStyle
 import app.retriever.core.Kind
 import app.retriever.core.Locator
-import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.formatCount
 import java.text.DateFormat
@@ -57,12 +55,6 @@ object Format {
     fun locatorLabel(locator: String): String? = Locator.pageOf(locator)?.let { "Page $it" } ?: locator.takeIf { Locator.msOf(it) != null }
 
     fun count(n: Long): String = formatCount(n)
-
-    /** "Download · Today · 2.1 MB": the last folder, the file's modified day in the system's words, its size. */
-    fun fileLine(file: SourceFile, now: Long = System.currentTimeMillis()): String {
-        val day = DateUtils.getRelativeTimeSpanString(file.modifiedAt, now, DateUtils.DAY_IN_MILLIS, DateUtils.FORMAT_ABBREV_MONTH)
-        return listOf(file.folder.trimEnd('/').substringAfterLast('/'), day.toString(), bytes(file.size)).filter { it.isNotEmpty() }.joinToString(" · ")
-    }
 }
 
 /** Equal-width digits, so counts that tick up don't nudge the text around them. */

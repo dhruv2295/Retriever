@@ -53,28 +53,6 @@ enum Copy {
         }
     }
 
-    /// Setup's Photos row: the authorization as it stands; nil before it is asked.
-    static func photosAccess(_ photos: PHAuthorizationStatus) -> String? {
-        switch photos {
-        case .authorized: Words.shared.ALL_PHOTOS
-        case .limited: Words.shared.SELECTED_PHOTOS
-        case .denied, .restricted: "Photos access is off"
-        default: nil
-        }
-    }
-
-    /// "Today", "Yesterday" or the date, in the person's language.
-    static func day(_ ms: Int64) -> String {
-        dayFormatter.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
-    }
-
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.doesRelativeDateFormatting = true
-        return f
-    }()
-
     nonisolated static func count(_ n: Int) -> String {
         n.formatted(.number)
     }
@@ -115,11 +93,6 @@ enum Copy {
     static let exactWords = "Search my exact words"
     static let star = "Add to Starred"
     static let removeStar = "Remove from Starred"
-
-    static let lessLikely = "Less likely matches"
-    static func nothingWell(_ q: String) -> String { "Nothing matches “\(q)” well" }
-    static let closestFiles = "These are the closest files, but they may not be what you're looking for."
-    static let closestFilesShort = "These are the closest files."
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
     nonisolated static let continuedTitle = Words.shared.PROCESSING_YOUR_FILES

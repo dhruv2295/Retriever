@@ -66,7 +66,6 @@ import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
-import app.retriever.core.Retriever
 import app.retriever.core.StatusAction
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words

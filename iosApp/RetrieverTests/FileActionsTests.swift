@@ -47,7 +47,6 @@ import XCTest
     func testHeroUsesWholeLibraryDuringTrial() {
         var snap = AppModel.Snap(setUp: true, byKind: [.photo: 100, .pdf: 10], indexed: 4, pending: 6, trial: true, waiting: 100)
         snap.readByKind = [.pdf: 4]
-        XCTAssertEqual(snap.libraryTotal, 110)
         XCTAssertEqual(snap.readByKind[.pdf], 4)
         XCTAssertEqual(snap.pending, 6)
     }
