@@ -367,8 +367,6 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         }
     }
 
-    fun meaningStates(fileIds: Collection<Long>): Map<Long, MeaningState> = inChunks(fileIds) { q.meaningProgressIn(it, ::meaningRow).executeAsList() }.toMap()
-
     fun chunkLabels(ids: Collection<Long>): Map<Long, String> =
         inChunks(ids) { q.chunkLabels(it) { id, labels -> id to labels.orEmpty() }.executeAsList() }.toMap()
 
@@ -489,8 +487,6 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun recordAttempt(fileId: Long, attempts: Int) {
         q.setState(FileState.PENDING, attempts.toLong(), fileId)
     }
-
-    fun vectorCount(): Int = q.vectorCount().executeAsOne().toInt()
 
     /** Vector rows with an id above [afterId], appended onto [into] (or a new table). */
     fun loadVectors(afterId: Long = 0, into: VectorTable? = null): VectorTable {

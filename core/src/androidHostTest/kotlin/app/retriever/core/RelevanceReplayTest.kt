@@ -51,7 +51,7 @@ class RelevanceReplayTest {
      */
     private fun replay(dump: RelevanceDump.Dump, manifest: List<DumpFile>, queries: List<DumpQuery>, rule: RelevanceRule = RelevanceRule()): List<Row> {
         val sig = Signature(dump.signature)
-        val table = VectorTable.withCapacity(dump.files.sumOf { it.chunks.size })
+        val table = VectorTable.empty()
         var chunkId = 0L
         dump.files.forEachIndexed { i, f ->
             for (c in f.chunks) table.append(++chunkId, i + 1L, c.bytes, c.scale, f.kind, c.modality, 0)

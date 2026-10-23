@@ -345,9 +345,6 @@ SELECT c.id, c.file_id, c.vector, c.scale, f.kind, (c.text IS NOT NULL AND c.vis
 FROM chunks c JOIN files f ON f.id = c.file_id
 WHERE c.vector IS NOT NULL AND c.id > ? ORDER BY c.id LIMIT ?;
 
-vectorCount:
-SELECT COUNT(*) FROM chunks WHERE vector IS NOT NULL;
-
 vectorsDeleted:
 SELECT value FROM index_meta WHERE key = 'vectors_deleted';
 
@@ -641,7 +638,3 @@ WHERE c.id > :after AND f.kind IN :kinds AND c.ordinal > 0 AND f.reach & 1;
 -- The text/label fields are separate so classifier words can never become content snippets.
 chunkLabels:
 SELECT id, labels FROM chunks WHERE id IN ? AND labels IS NOT NULL;
-
-meaningProgressIn:
-SELECT f.id, f.state, COUNT(c.id) AS total, COUNT(c.vector) AS embedded
-FROM files f LEFT JOIN chunks c ON c.file_id = f.id WHERE f.id IN ? GROUP BY f.id;

@@ -228,7 +228,5 @@ class VectorTable private constructor(private var blocks: Array<Block>, size: In
         private const val FIRST_BLOCK = 1_024
 
         fun empty() = VectorTable(emptyArray(), 0)
-
-        fun withCapacity(n: Int) = empty().ensureCapacity(n)
     }
 }

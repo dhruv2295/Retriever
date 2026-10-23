@@ -3,7 +3,6 @@ package app.retriever.core
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -43,8 +42,8 @@ class MeaningUpgradeTest {
         val ids = files.map { store.fileByUri(it.uri)!!.id }
         val before = ids.associateWith { store.chunkTexts(it).map { chunk -> chunk.text } }
         assertEquals(4, extractions, "audio is name-only even if requested")
-        assertEquals(0, store.vectorCount())
-        assertTrue(store.meaningStates(ids).values.all { it == MeaningState.NOT_ADDED })
+        assertEquals(0, store.loadVectors().size)
+        assertEquals(ids.size.toLong(), store.countsNow().meaning.notAdded)
         val search = SearchEngine(store, NoModel)
         assertEquals(3, search.search("48213", SearchEngine.Mode.KEYWORD).hits.size)
         val labelHits = search.search("beach", SearchEngine.Mode.KEYWORD).hits
@@ -72,12 +71,11 @@ class MeaningUpgradeTest {
                 override fun close() = Unit
             }
             engine(embedder).runBatch(1.minutes, false, deepen = true)
-            assertEquals(chunkCount.toInt(), store.vectorCount())
+            assertEquals(chunkCount.toInt(), store.loadVectors().size)
             assertTrue(embeddedText.any { OCR in it })
             assertTrue(embeddedText.none { "beach" in it }, "labels are keyword metadata, not document text")
             assertEquals(before, ids.associateWith { store.chunkTexts(it).map { chunk -> chunk.text } })
             assertEquals(4, extractions, "neither OCR nor document extraction runs on model changes")
-            assertTrue(store.meaningStates(ids).values.all { it == MeaningState.ADDED })
             assertEquals(ids.size.toLong(), store.countsNow().meaning.added)
             assertEquals(0L, store.countsNow().tailFiles)
         }
@@ -170,7 +168,7 @@ class MeaningUpgradeTest {
         assertEquals(0L, store.tailChunkCount())
         assertTrue(store.tailChunks(10).isEmpty())
         assertTrue(store.readExtents(listOf(id)).isEmpty())
-        assertEquals(MeaningState.UNREAD, store.meaningStates(listOf(id))[id])
+        assertEquals(MeaningCounts(), store.countsNow().meaning)
     }
 
     @Test fun failedMeaningLeavesContentSearchableAndDoesNotClaimCompletion() = runTest {
@@ -192,14 +190,14 @@ class MeaningUpgradeTest {
         }
         IndexEngine(store, extractor, e, monitor, { IndexSettings(profile, setOf(Kind.PHOTO)) }).runBatch(1.minutes, false, deepen = true)
         assertEquals(0L, store.tailChunkCount(), "three attempts bound unavailable pixels")
-        assertEquals(MeaningState.NOT_ADDED, store.meaningStates(listOf(id))[id])
+        assertEquals(1L, store.countsNow().meaning.notAdded)
         assertEquals(FileState.INDEXED, store.fileByUri(source.uri)?.state)
         val hit = SearchEngine(store, NoModel).search("beach", SearchEngine.Mode.KEYWORD).hits.single()
         assertEquals("Matches: beach", hit.matchReason)
         assertNull(hit.snippet)
         store.removeFiles(listOf(source.uri))
         assertTrue(store.keywordSearch("beach", 10).isEmpty())
-        assertFalse(store.meaningStates(listOf(id)).containsKey(id))
+        assertNull(store.storedById(id))
     }
 
     private companion object {

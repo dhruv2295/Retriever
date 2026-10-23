@@ -104,6 +104,9 @@ internal fun newStore(sig: Signature? = SIG, log: (String, Throwable?) -> Unit =
     return Store(driver, log).also { if (sig != null) it.resetForModel(sig) }
 }
 
+/** How many chunks have a vector; every chunk's file exists in these tests, so it is what search loads. */
+internal fun Store.vectorCount(): Int = loadVectors().size
+
 internal fun testFile(name: String, kind: Kind = Kind.DOC, modifiedAt: Long = 1L, folder: String = "", size: Long = 100L, takenAt: Long? = null) =
     SourceFile("content://test/$name", name, folder, "text/plain", kind, size, modifiedAt, takenAt)
 
