@@ -87,8 +87,7 @@ clears the vectors and queues only what needs one again when the stored signatur
   test dispatcher, which `io` follows. The facade's `background` scope (warm-ups, the plan's sync tail, the batch watchdog) logs any failure no
   launch caught instead of crashing.
 - Platform adapters that block (file reads, hashing, decoding) use `Dispatchers.IO` or `Default` directly, e.g.
-  `core/src/androidMain/.../MediaStoreSource.kt:49`, `core/src/iosMain/.../IosExtractor.kt:16`. `CoreDispatchers` does not
-  reach them.
+  `core/src/androidMain/.../MediaStoreSource.kt:48` (`changes` on `Dispatchers.IO`). `CoreDispatchers` does not reach them.
 - Android scopes: `AppScope` (`SupervisorJob() + Dispatchers.IO`) for work that outlives a screen
   (`androidApp/.../di/AppModule.kt`); `viewModelScope` in ViewModels; `IndexWorker.doWork` on `indexingDispatcher`, a
   dedicated background-priority thread (`core/src/androidMain/.../IndexingDispatcher.kt`).
@@ -111,7 +110,7 @@ clears the vectors and queues only what needs one again when the stored signatur
   `worker { IndexWorker(…) }` in `AppModule.kt`, built by the `KoinWorkerFactory` that `RetrieverApp` gives WorkManager.
   Debug builds swap parts via `DemoMode` (`AppModule.kt`).
 - **iOS: `createRetriever`.** Swift's `AppServices` builds the native pieces and calls it once
-  (`iosApp/Retriever/Core/AppServices.swift:61`, `RetrieverIos.kt:30`).
+  (`iosApp/Retriever/Core/AppServices.swift:63`, `RetrieverIos.kt:31`).
 - **No Koin in `:core`.** Its dependencies are coroutines, serialization and SQLDelight (`core/build.gradle.kts`
   `commonMain.dependencies`). `Retriever`'s constructor takes every collaborator as a plain parameter, so both platforms and the JVM tests compose it the same way, and iOS needs no container.
 
@@ -125,7 +124,7 @@ One owner per question:
 | Which kinds are read inside | `Prefs.kinds`, applied per file by `IndexEngine` and by `Retriever.updatePrefs` | `IndexEngine.readsInside`, `Retriever.updatePrefs` |
 | Is this indexed file in this query's scope (kinds, dates, starred, file ids) | `SearchEngine.Filter` | `core/SearchEngine.kt:454` |
 
-- **Index level.** Source-side skips (`FileRules.shouldSkip`) run in the source (`MediaStoreSource.kt:152`). `sync`
+- **Index level.** Source-side skips (`FileRules.shouldSkip`) run in the source (`MediaStoreSource.kt:145`). `sync`
   drops excluded folders, removes vanished files, and forces a full scan when excludes or the source's `rulesVersion`
   changed or a day passed (`LibrarySync.kt:26`). `dropExcluded` applies a new exclusion at once, with no scan
   (`LibrarySync.kt:125`). `removeLocked` is the one way files leave, under `namesLock`, 1,000 files a transaction, and
@@ -150,13 +149,13 @@ Two stores, different lifetimes:
 
 - `retriever.db` is the index. It is rebuilt from the files, so it is excluded from backup. Android:
   `androidApp/src/main/res/xml/backup_rules.xml` and `data_extraction_rules.xml` exclude `retriever.db`, its `-wal`/`-shm`,
-  the demo database and `models/`. iOS: the data directory is marked `NSURLIsExcludedFromBackupKey` (`IosStore.kt:28`).
+  the demo database and `models/`. iOS: the data directory is marked `NSURLIsExcludedFromBackupKey` (`IosStore.kt:35`).
 - User state is the settings (`Prefs`) and the stars: a JSON file (`UserState`, `core/UserState.kt`). `Store` writes
   it on every prefs or star change (`setMeta` for the `prefs` key, `setStarred`, `relinkStars`) and restores it once,
   lazily, into a database that has no settings yet (`core/Store.kt:795,864,874`). `UserStateFile` is the platform
   seam: write a temp file, then rename. Android: `files/user-state.json` via `AtomicFile`, backed up
   (`AppModule.kt`, rules files above). iOS: `<dataDir>-user-state.json` beside the data directory, so it is backed up
-  while the directory is not (`IosStore.kt:32`). Demo mode passes no file.
+  while the directory is not (`IosStore.kt:37`). Demo mode passes no file.
 
 ## What may log
 
@@ -165,7 +164,7 @@ kind, MIME, size, exception class, counts (`Retriever`'s `log` parameter; `Store
 `Store.kt:884`). `core/src/androidHostTest/.../LogPrivacyTest.kt` fails if a name, folder, query or path reaches the sink.
 Platform sinks: Android `LogSink` writes the message plus the exception class and top stack frame in release, never the
 exception message (`androidApp/.../diagnostics/LogSink.kt`); iOS logs through `os.Logger` with the message public because core
-guarantees it is clean (`AppServices.swift:59,74`). Crash and hang reports on iOS stay on the device in
+guarantees it is clean (`AppServices.swift:61,78`). Crash and hang reports on iOS stay on the device in
 `problems.json` for the person to share by hand (`iosApp/Retriever/Diagnostics.swift`).
 
 ## Checks
