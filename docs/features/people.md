@@ -36,13 +36,14 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   that photo leave them for good).
 - **"Same person?"** One person can split into two groups when a whole series of their photos looks alike and unlike
   the rest (mirror selfies, the phone covering part of the face). Home asks about the closest pair of people it shows
-  whose faces' means are at least 0.65 (`ASK_SAME_PERSON`), who share no photo and aren't named differently. Yes merges
-  them into the one in more photos; No is kept (meta `people_not_same`) and that pair is never asked about again. It
-  asks rather than merges because a wrong merge has no undo. 0.65 comes from LFW with the same SFace (5,420 faces, 311
-  people with six or more photos): one person split at random into groups of 3 to 10 scored 0.70 or more in 99% of
-  splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father and sons and brothers;
-  Venus and Serena Williams) at most 0.63. On the Pixel library the two real splits scored 0.78 and 0.81, and nothing
-  else reached 0.65.
+  whose faces' means are at least 0.65 (`ASK_SAME_PERSON`), who share at most two photos (a collage or a mirror shows
+  one person twice; on the Pixel two likely splits shared 1 and 2 photos with the person) and aren't named
+  differently. Yes merges them into the one in more photos; No is kept (meta `people_not_same`) and that pair is never
+  asked about again. It asks rather than merges because a wrong merge has no undo. 0.65 comes from LFW with the same
+  SFace (5,420 faces, 311 people with six or more photos): one person split at random into groups of 3 to 10 scored
+  0.70 or more in 99% of splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father
+  and sons and brothers; Venus and Serena Williams) at most 0.63. On the Pixel, with 12,906 photos looked at, ten pairs
+  of people on Home reached 0.65; the closest (0.82) was one person with and without glasses.
 - **A person's picture** is the face most like the person (closest to their faces' mean) among their larger faces (the
   bigger half by area) not cut off by the photo's edge (`coverOf`). The largest face, the earlier rule, was often a
   close-up cut off at the edge: on the Pixel it ranked 403rd of 406 faces in how much it looked like that person.
@@ -74,8 +75,8 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 ## Tests
 
 - `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk; a person's
-  picture; "Same person?" (asks the closest pair, never a pair sharing a photo, named differently or answered No) and
-  forgetting its answers with People.
+  picture; "Same person?" (asks the closest pair, sharing up to two photos; never three, named differently or answered
+  No) and forgetting its answers with People.
 - `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
   reading waits while faces are left and reads every file once they are done.
 - `MigrationTest`: schema 10 adds the face tables.

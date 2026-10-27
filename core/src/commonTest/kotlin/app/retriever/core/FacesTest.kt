@@ -199,8 +199,9 @@ class FacesTest {
         assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, faces, emptySet()), "the one in more photos first")
         assertNull(samePersonQuestion(people, faces, setOf(1L to 2L)), "a pair answered no is never asked again")
         assertNull(samePersonQuestion(listOf(asha.copy(name = "Asha"), ashaBehindAPhone.copy(name = "Meera"), ravi), faces, emptySet()))
-        val together = faces + (2L to faces.getValue(2L) + personFace(1, face(3, j = 10, w = 0.5f)))
-        assertNull(samePersonQuestion(people, together, emptySet()), "two people in one photo are two people")
+        fun sharing(n: Long) = faces + (2L to faces.getValue(2L) + (1L..n).map { personFace(it, face(3, j = 10, w = 0.5f)) })
+        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, sharing(2), emptySet()), "a collage or a mirror shows one person twice")
+        assertNull(samePersonQuestion(people, sharing(3), emptySet()), "two people in three photos together are two people")
     }
 
     @Test

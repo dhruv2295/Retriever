@@ -254,12 +254,18 @@ internal fun coverOf(faces: List<PersonFace>): FaceCrop? {
     return whole.filter { it.crop.box.area() >= median }.maxByOrNull { dot(it.vector, mean) }?.crop
 }
 
+/**
+ * Two people in one photo are usually two people, but one person shows twice in a collage or a mirror: on the Pixel
+ * library two splits of one person shared 1 and 2 photos with them.
+ */
+private const val MAX_SHARED_PHOTOS = 2
+
 /** A face box this close to the photo's edge is taken to be cut off by it. */
 private const val EDGE = 0.01f
 
 /**
- * The two people most likely to be one ([ASK_SAME_PERSON] or closer), or null. Never two who share a photo (one photo,
- * two people, bar collages), two named differently, or a pair in [declined] (smaller id first).
+ * The two people most likely to be one ([ASK_SAME_PERSON] or closer), or null. Never two who share more than
+ * [MAX_SHARED_PHOTOS] photos, two named differently, or a pair in [declined] (smaller id first).
  */
 internal fun samePersonQuestion(people: List<Person>, faces: Map<Long, List<PersonFace>>, declined: Set<Pair<Long, Long>>): SamePerson? {
     val shown = people.filter { faces[it.id] != null }
@@ -274,7 +280,7 @@ internal fun samePersonQuestion(people: List<Person>, faces: Map<Long, List<Pers
             val sa = sums.getValue(a.id)
             val sb = sums.getValue(b.id)
             val cos = dot(sa, sb) / (length(sa) * length(sb))
-            if (cos < bestCos || photos.getValue(a.id).any { it in photos.getValue(b.id) }) continue
+            if (cos < bestCos || photos.getValue(a.id).count { it in photos.getValue(b.id) } > MAX_SHARED_PHOTOS) continue
             best = if (a.photos >= b.photos) SamePerson(a, b) else SamePerson(b, a)
             bestCos = cos
         }
