@@ -505,9 +505,22 @@ class Retriever(
 
     /**
      * Something is on the screen: Retriever, or another app while a few new files are read. A GPU that stalls rendering
-     * ([DeviceProfile.gpuStallsRendering]) then gives way to the CPU, so the phone in use never stutters.
+     * ([DeviceProfile.gpuStallsRendering]) then gives way to the CPU, so the phone in use never stutters. Not while
+     * Retriever sits untouched on a charger ([idleInFront]): the next file then reads on the GPU, and the first input
+     * turns it back. Each turn ends the batch and reopens the model (3-9 s), so it happens once per idle spell, not per touch.
      */
-    private val onScreen: Boolean get() = uiVisible || monitor.state().screenOn
+    private val onScreen: Boolean get() = (uiVisible || monitor.state().screenOn) && !idle
+
+    private val idle: Boolean get() = idleInFront(uiVisible, monitor.state().pluggedIn, lastInputMs, now())
+
+    /** When the platform last saw input on Retriever's screens, or null when it doesn't report it ([inputSeen]). */
+    @Volatile
+    private var lastInputMs: Long? = null
+
+    /** A touch or key on Retriever, or Retriever coming to the front: it is in use again. Android only; iOS never calls it. */
+    fun inputSeen() {
+        lastInputMs = now()
+    }
 
     /**
      * Between 1 and [fewWaitingLimit] files left to read. With none, only later parts can be left, and they keep the charger
@@ -799,7 +812,7 @@ class Retriever(
                 IndexEngine(
                     store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     onCurrent = ::onCurrent, configurationChanged = changedConfiguration, policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) }, readAheadContext = dispatchers.readAhead,
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory(), idle) }, readAheadContext = dispatchers.readAhead,
                 )
             } else {
                 val rank = ids.withIndex().associate { it.value to it.index }
@@ -812,7 +825,7 @@ class Retriever(
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,
-                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory()) },
+                    readAheadDepth = { IndexEngine.readAheadDepth(it, uiVisible, monitor.lowMemory(), idle) },
                     readAheadContext = dispatchers.readAhead,
                 )
             }

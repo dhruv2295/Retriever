@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -12,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VisionPolicyTest {
@@ -71,6 +73,28 @@ class VisionPolicyTest {
         assertEquals(0L, r.counts().first().byState[FileState.PENDING])
         assertEquals(1L, SpeedBook.decode(store.meta("speed_by_kind_CPU_CPU")).paces[Kind.DOC]?.files)
         assertEquals(1L, SpeedBook.decode(store.meta("speed_by_kind_GPU_GPU")).paces[Kind.DOC]?.files)
+    }
+
+    @Test fun anUntouchedAppOnAChargerReadsOnTheGpuAndTheNextInputTurnsItBack() = runBlocking {
+        val files = (1..3).map { testFile("f$it.txt") }
+        var clock = 1_000_000L
+        var retriever: Retriever? = null
+        val extractor = FakeExtractor(files.associate { it.name to listOf(textPiece("words in ${it.name}")) }) { file ->
+            if (file.name == "f1.txt") clock += IDLE_IN_FRONT_MS // left alone while the first file reads
+            if (file.name == "f2.txt") retriever?.inputSeen() // touched while the second one reads
+        }
+        val factory = FakeFactory()
+        val store = newStore().also { it.setProfile(PROFILE.copy(backend = Backend.GPU, gpuStallsRendering = true)) }
+        val r = testRetriever(store, files, extractor, factory = factory, now = { clock }).apply {
+            uiVisible = true
+            inputSeen()
+        }
+        retriever = r
+        r.refreshSetUp()
+        repeat(4) { r.indexBatch(1.minutes) }
+        // Each change ends the batch after its file, so the model reopens once per change, not per file.
+        assertEquals(listOf(Backend.CPU, Backend.GPU, Backend.CPU), factory.opened.map { it.first.backend })
+        assertEquals(3L, r.counts().first().byState[FileState.INDEXED])
     }
 
     @Test fun interruptedTrialDoesNotKeepTheNamesOnlyBatchesDoneReason() = runTest {

@@ -45,6 +45,15 @@ class RenderingStallsTest {
         assertEquals(Backend.NPU, inferenceBackendFor(p.copy(backend = Backend.NPU), visible = true))
     }
 
+    @Test fun idleOnlyInFrontOnAChargerAfterThirtyUntouchedSeconds() {
+        val t = 100_000L
+        assertTrue(idleInFront(visible = true, pluggedIn = true, lastInputMs = t - IDLE_IN_FRONT_MS, now = t))
+        assertFalse(idleInFront(visible = true, pluggedIn = true, lastInputMs = t - IDLE_IN_FRONT_MS + 1, now = t), "touched 29.999 s ago")
+        assertFalse(idleInFront(visible = true, pluggedIn = false, lastInputMs = 0L, now = t), "on battery")
+        assertFalse(idleInFront(visible = false, pluggedIn = true, lastInputMs = 0L, now = t), "hidden: the screen-off rules apply")
+        assertFalse(idleInFront(visible = true, pluggedIn = true, lastInputMs = null, now = t), "a platform that reports no input (iOS)")
+    }
+
     @Test fun earlierTuneResultsStillProtectRendering() {
         val saved = """
             {"tier":"BALANCED","model":"M440","backend":"GPU","visionTokens":70,"videoFrameEverySec":5,

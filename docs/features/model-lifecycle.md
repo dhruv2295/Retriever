@@ -130,8 +130,13 @@ cancellation. Hidden frames do not count. No extra model inference runs.
 For a GPU profile with stalls, foreground vision runs on CPU and text stays on GPU. Android screen-off reading uses
 GPU vision again. iOS already used GPU vision in front (`MediaPipeOpener` set both delegates to GPU), so it has the
 same measurement and split-delegate policy; background iOS stays on the CPU because iOS refuses background GPU work,
-except for a continued read granted the GPU (`BGContinuedProcessingTaskRequest.Resources.gpu`). A visibility/configuration change ends the current batch after its current file; the next batch opens the new
-configuration. Search warm-up also takes the index lock, so it cannot retire a batch's handle. Signatures stay the same.
+except for a continued read granted the GPU (`BGContinuedProcessingTaskRequest.Resources.gpu`). On Android, Retriever
+left untouched in front on a charger for 30 s (`idleInFront`; `MainActivity` reports input from `onResume` and
+`onUserInteraction`) reads as if hidden: GPU, one file read ahead. The next input turns it back. iOS reports no input,
+so it never counts as idle. Pixel 8 Pro, 28 Oct 2026: 0.87 s a photo against 1.97 s on CPU, with janky frames at
+37 % against 10 %, which nobody is watching. A visibility/configuration change ends the current batch after its current
+file; the next batch opens the new configuration (3-9 s on the Pixel), so idle and in use each switch once, not per
+touch. Search warm-up also takes the index lock, so it cannot retire a batch's handle. Signatures stay the same.
 
 Debug Android only (persistent across process restarts, applies at the next file/batch boundary):
 
