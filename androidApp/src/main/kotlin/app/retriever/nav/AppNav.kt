@@ -1,10 +1,12 @@
 package app.retriever.nav
 
 import android.animation.ValueAnimator
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ReportDrawn
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +14,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -23,6 +26,7 @@ import app.retriever.browse.BrowseScreen
 import app.retriever.core.Retriever
 import app.retriever.duplicates.DuplicatesScreen
 import app.retriever.folders.FoldersScreen
+import app.retriever.search.HomeHost
 import app.retriever.search.SearchScreen
 import app.retriever.settings.SettingsScreen
 import app.retriever.setup.SetupFlow
@@ -54,6 +58,13 @@ sealed interface Route
     val takenTo: Long? = null,
 ) : Route
 
+/**
+ * Search, opened from Home's pill or the demo's: [query] in the field, and [run] it at once (a chip, a shortcut); or
+ * [photo]'s matches (the picker's address). [scoped] keeps it to the first run's files.
+ */
+@Serializable
+data class SearchRoute(val query: String = "", val run: Boolean = false, val photo: String? = null, val scoped: Boolean = false) : Route
+
 @Serializable data object SettingsRoute : Route
 
 @Serializable data object FoldersRoute : Route
@@ -78,6 +89,7 @@ data class DocRoute(val fileId: Long, val uri: String, val name: String, val mim
 private val defaultEffects = spring<Float>(1f, 1600f)
 private val fastEffects = spring<Float>(1f, 3800f)
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
     val koin = getKoin()
@@ -96,68 +108,50 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
         val current = navController.currentBackStackEntry?.destination?.id
         if (settled() && current != null) navController.navigate(route) { popUpTo(current) { inclusive = true } }
     }
-    // Back to Home skips the predictive peek: it recomposes Home, whose open search bar is a window of its own, and that
-    // window taking focus mid-gesture makes the system cancel the back, so the viewer slides back in. A screen's own
-    // handlers come later and still win.
-    val viewerBack = @Composable { BackHandler(navController.previousBackStackEntry?.destination?.hasRoute<HomeRoute>() == true, back) }
     // Core's machine decides; SetupFlow is built here, after setUp settles, so it seeds from the stored setup.
     val start: Route = remember { if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute }
     // Reduce motion: setup gives way to Home with no fade or growth.
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     app.retriever.files.FileActionsHost(retriever) {
-        NavHost(navController, startDestination = start) {
-            // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
-            composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
-                // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
-                ReportDrawn()
-                // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
-                SetupScreen(onNavigate = go, onDone = {
-                    navController.navigate(HomeRoute) {
-                        popUpTo(navController.graph.id) { inclusive = true }
-                        launchSingleTop = true
-                    }
-                })
-            }
-            // The expanded search bar is its own window; Home must leave at once, or it covers the PDF or player while fading.
-            composable<HomeRoute>(
-                enterTransition = {
-                    when {
-                        !initialState.destination.hasRoute<SetupRoute>() -> null
-                        reduceMotion -> EnterTransition.None
-                        else -> fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f)
-                    }
-                },
-                exitTransition = {
-                    val to = targetState.destination
-                    if (to.hasRoute<PdfRoute>() || to.hasRoute<PhotoRoute>() || to.hasRoute<PlayerRoute>() ||
-                        to.hasRoute<DocRoute>()
-                    ) {
-                        ExitTransition.None
-                    } else {
-                        null
-                    }
-                },
-            ) { SearchScreen(onNavigate = go) }
-            composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
-            composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
-            composable<FoldersRoute> { FoldersScreen(go, back) }
-            composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
-            composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
-            composable<PlayerRoute> {
-                viewerBack()
-                PlayerScreen(it.toRoute<PlayerRoute>(), back, replace)
-            }
-            composable<PdfRoute> {
-                viewerBack()
-                PdfPageScreen(it.toRoute<PdfRoute>(), back, replace)
-            }
-            composable<PhotoRoute> {
-                viewerBack()
-                PhotoScreen(it.toRoute<PhotoRoute>(), back)
-            }
-            composable<DocRoute> {
-                viewerBack()
-                DocScreen(it.toRoute<DocRoute>(), back, replace)
+        SharedTransitionLayout {
+            // Home's search pill and the search screen share bounds: opening grows the pill into the screen, and Back
+            // (a predictive swipe too) shrinks it back.
+            val searchBounds = @Composable { scope: AnimatedVisibilityScope -> Modifier.sharedBounds(rememberSharedContentState("search"), scope) }
+            NavHost(navController, startDestination = start) {
+                // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
+                composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
+                    // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
+                    ReportDrawn()
+                    // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
+                    SetupScreen(onNavigate = go, pillModifier = searchBounds(this), onDone = {
+                        navController.navigate(HomeRoute) {
+                            popUpTo(navController.graph.id) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    })
+                }
+                composable<HomeRoute>(
+                    enterTransition = {
+                        when {
+                            !initialState.destination.hasRoute<SetupRoute>() -> null
+                            reduceMotion -> EnterTransition.None
+                            else -> fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f)
+                        }
+                    },
+                ) { HomeHost(go, pillModifier = searchBounds(this)) }
+                // The rest of the screen fades in with the pill's growth.
+                composable<SearchRoute>(enterTransition = { fadeIn(defaultEffects) }, popExitTransition = { fadeOut(defaultEffects) }) {
+                    SearchScreen(it.toRoute<SearchRoute>(), go, back, searchBounds(this))
+                }
+                composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
+                composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
+                composable<FoldersRoute> { FoldersScreen(go, back) }
+                composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
+                composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
+                composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back, replace) }
+                composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back, replace) }
+                composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
+                composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back, replace) }
             }
         }
     }

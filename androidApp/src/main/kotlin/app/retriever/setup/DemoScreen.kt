@@ -50,7 +50,6 @@ import app.retriever.core.Retriever
 import app.retriever.core.SamplePile
 import app.retriever.core.TasteProgress
 import app.retriever.core.Words
-import app.retriever.home.HomeUi
 import app.retriever.indexing.rememberReadingPermission
 import app.retriever.model.FreeUpSpaceButton
 import app.retriever.model.MobileDataAsk
@@ -60,8 +59,9 @@ import app.retriever.model.description
 import app.retriever.model.percent
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
+import app.retriever.nav.SearchRoute
+import app.retriever.search.HomeShell
 import app.retriever.search.SearchActions
-import app.retriever.search.SearchContent
 import app.retriever.search.SearchUi
 import app.retriever.search.SearchViewModel
 import app.retriever.search.actions
@@ -75,6 +75,8 @@ fun DemoScreen(
     ui: SetupUi,
     actions: SetupActions,
     onNavigate: (Route) -> Unit,
+    modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
     retriever: Retriever = koinInject(),
     upgrade: UpgradeFlow = koinInject(),
     vm: SearchViewModel = koinViewModel(),
@@ -91,14 +93,14 @@ fun DemoScreen(
     // Setup ends with the rest processing in the background, so its notice is asked for here, once; Not now is kept.
     val requestReading = rememberReadingPermission(retriever)
     val finishing = remember(actions, requestReading) { actions.copy(finish = { requestReading(actions.finish) }) }
-    DemoContent(ui, shown, searchActions, finishing, up.description, up.percent, suggestions = suggestions)
+    DemoContent(ui, shown, searchActions, finishing, up.description, up.percent, modifier, pillModifier, suggestions, open = onNavigate)
     // Try again after a failed download asks before using mobile data, as Home does.
     MobileDataAsk(up, remember(upgrade) { upgrade.actions(dismissible = false) })
 }
 
 /**
- * The first search inside the real Search: its body above, the search field and Continue pinned below. The field works
- * from the first frame; its results open the full-screen search, and one Back returns here. [description]: search by
+ * The first search in Home's frame: its body above, the search pill and Continue pinned below. The pill and the chips
+ * open the real search, kept to the first run's files, and one Back returns here. [description]: search by
  * description's state, [percent] its download's.
  */
 @Composable
@@ -110,20 +112,25 @@ fun DemoContent(
     description: DescriptionState,
     percent: Int?,
     modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
     /** Null until core answers; chips once there are three, the hint until then. */
     suggestions: List<String>? = emptyList(),
     reduceMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(),
+    open: (SearchRoute) -> Unit = {},
 ) {
-    SearchContent(
+    val scoped = { route: SearchRoute -> open(route.copy(scoped = true)) }
+    val fill = { q: String, run: Boolean -> scoped(SearchRoute(q, run)) }
+    HomeShell(
         search,
-        HomeUi(suggestions = suggestions),
         searchActions,
+        scoped,
         modifier,
+        pillModifier = pillModifier,
         placeholder = Words.firstSearchHint(description),
         footer = {
             Button(onClick = actions.finish, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
         },
-    ) { padding, _, side, fill ->
+    ) { padding, _, side ->
         // At least the viewport tall with the spare height split above and below, as Hello and the access screen do.
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             Column(

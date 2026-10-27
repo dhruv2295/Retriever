@@ -1,5 +1,6 @@
 package app.retriever.search
 
+import android.animation.ValueAnimator
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
@@ -7,20 +8,20 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.platform.app.InstrumentationRegistry
 import app.retriever.ShotTheme
+import app.retriever.core.Words
 import app.retriever.home.HomeUi
+import app.retriever.nav.SearchRoute
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,129 +30,87 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
+/** Search is a screen like any other: Back belongs to the nav host, and the keyboard comes up only to type. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
 class SearchBackTest {
     @get:Rule val rule = createComposeRule()
-    private lateinit var back: OnBackPressedDispatcher
-    private var query = ""
+    private var back: OnBackPressedDispatcher? = null
 
-    private fun show(initial: String = "") {
+    // A phone in use is in touch mode; out of it, a window hands its first field the focus again.
+    @Before fun touchMode() = InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
+
+    private fun search(query: String = "", typing: Boolean = query.isBlank(), onBack: () -> Unit = {}) {
         rule.setContent {
-            back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
-            ShotTheme(false) {
-                SearchContent(SearchUi(query = initial), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, _ -> }
-            }
+            back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            ShotTheme(false) { SearchContent(SearchUi(query = query), HomeUi(), SearchActions(), onBack, query = query, typing = typing) }
         }
     }
 
-    @Test fun backClearsAQueryBeforeLeavingHome() {
-        show("receipt")
-        rule.runOnIdle {
-            assertTrue(back.hasEnabledCallbacks())
-            back.onBackPressed()
-        }
-        rule.waitForIdle()
-        assertEquals("", query)
-        rule.runOnIdle { assertFalse(back.hasEnabledCallbacks()) }
+    private fun keyboardUp() = shadowOf(RuntimeEnvironment.getApplication().getSystemService(InputMethodManager::class.java)).isSoftInputVisible
+
+    /** One Back is one screen, from the results as from a viewer: nothing here holds it. */
+    @Test fun theSearchScreenNeverHoldsBack() {
+        search("receipt", typing = false)
+        rule.runOnIdle { assertEquals(false, back?.hasEnabledCallbacks()) }
     }
 
-    @Test fun backCollapsesAnEmptyExpandedSearch() {
-        show()
-        rule.onNodeWithText(app.retriever.core.Words.SEARCH_FIELD).performClick()
-        rule.waitForIdle()
-        rule.onAllNodesWithContentDescription("Back").onFirst().assertExists()
-        rule.runOnIdle { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithContentDescription("Back").assertDoesNotExist()
-        rule.runOnIdle { assertFalse(back.hasEnabledCallbacks()) }
+    @Test fun theBackArrowLeaves() {
+        var left = 0
+        search(onBack = { left++ })
+        rule.onNodeWithContentDescription("Back").performClick()
+        assertEquals(1, left)
     }
 
-    /**
-     * A chip's search (Home's, Try's) opens its results with nothing to type: the field holds no focus, which with the
-     * keyboard down would take the first Back, so one Back leaves the results.
-     */
-    @Test fun oneBackLeavesAChipsResults() {
-        // A phone in use is in touch mode; out of it, a window hands its first field the focus again.
-        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
-        var fill: ((String, Boolean) -> Unit)? = null
-        rule.setContent {
-            back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
-            ShotTheme(false) {
-                SearchContent(SearchUi(), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, f -> fill = f }
-            }
-        }
-        rule.runOnIdle { fill!!("invoice", true) }
-        rule.waitForIdle()
-        rule.onAllNodesWithContentDescription("Back").onFirst().assertExists()
-        rule.onAllNodes(isFocused()).assertCountEquals(0)
-        rule.runOnIdle { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithContentDescription("Back").assertDoesNotExist()
-        assertEquals("", query)
-        rule.runOnIdle { assertFalse(back.hasEnabledCallbacks()) }
+    @Test fun anEmptySearchOpensReadyToType() {
+        search()
+        rule.onAllNodes(isFocused()).assertCountEquals(1)
     }
 
-    /**
-     * The phone's bug: M3 asks the opening bar's field for focus, and a give-back after idle passed here while the
-     * keyboard stayed up on the device. Frame by frame, the field must never hold focus while the bar opens.
-     */
+    /** A chip's or a recent search opens on its results: frame by frame, the field never takes focus or the keyboard. */
     @Test fun aChipsSearchNeverFocusesTheField() {
-        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
-        var fill: ((String, Boolean) -> Unit)? = null
-        rule.setContent {
-            back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
-            ShotTheme(false) {
-                SearchContent(SearchUi(), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, f -> fill = f }
-            }
-        }
+        // The mascot stays still, as with reduced motion: Robolectric decodes its clips as stills, not animations.
+        ValueAnimator::class.java.getMethod("setDurationScale", Float::class.java).invoke(null, 0f)
+        search("invoice", typing = false)
+        rule.onAllNodes(isFocused()).assertCountEquals(0)
         rule.mainClock.autoAdvance = false
-        rule.runOnUiThread { fill!!("invoice", true) }
         repeat(60) {
             rule.mainClock.advanceTimeByFrame()
             rule.onAllNodes(isFocused()).assertCountEquals(0)
         }
-        rule.onAllNodesWithContentDescription("Back").onFirst().assertExists()
-        val ime = RuntimeEnvironment.getApplication().getSystemService(InputMethodManager::class.java)
-        assertFalse(shadowOf(ime).isSoftInputVisible)
-        rule.mainClock.autoAdvance = true
-        rule.runOnIdle { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        assertFalse(keyboardUp())
     }
 
-    /** Once the bar has settled open, a tap on the field focuses it as usual. */
     @Test fun aTapFocusesTheFieldAfterAChipsSearch() {
-        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
-        var fill: ((String, Boolean) -> Unit)? = null
-        rule.setContent {
-            ShotTheme(false) {
-                SearchContent(SearchUi(), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, f -> fill = f }
-            }
-        }
-        rule.runOnIdle { fill!!("invoice", true) }
-        rule.waitForIdle()
-        rule.onAllNodes(hasSetTextAction()).onLast().performClick()
+        search("invoice", typing = false)
+        rule.onAllNodes(hasSetTextAction())[0].performClick()
         rule.onAllNodes(isFocused()).assertCountEquals(1)
     }
 
     /** TalkBack's double-tap sends no touch: it runs the field's click action, which must focus it too. */
     @Test fun aScreenReaderClickFocusesTheFieldAfterAChipsSearch() {
-        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
-        var fill: ((String, Boolean) -> Unit)? = null
-        rule.setContent {
-            ShotTheme(false) {
-                SearchContent(SearchUi(), HomeUi(), SearchActions(onQuery = { query = it })) { _, _, _, f -> fill = f }
-            }
-        }
-        rule.runOnIdle { fill!!("invoice", true) }
-        rule.waitForIdle()
-        rule.onAllNodes(hasSetTextAction()).onLast().performSemanticsAction(SemanticsActions.OnClick)
+        search("invoice", typing = false)
+        rule.onAllNodes(hasSetTextAction())[0].performSemanticsAction(SemanticsActions.OnClick)
         rule.onAllNodes(isFocused()).assertCountEquals(1)
     }
 
-    @Test fun idleHomeDoesNotInterceptBack() {
-        show()
-        rule.runOnIdle { assertFalse(back.hasEnabledCallbacks()) }
+    /** Back from a viewer rebuilds the screen from its saved state: the keyboard asked for on the way in stays down. */
+    @Test fun comingBackFromAViewerBringsNoKeyboard() {
+        val restore = StateRestorationTester(rule)
+        restore.setContent { ShotTheme(false) { SearchContent(SearchUi(), HomeUi(), SearchActions(), onBack = {}) } }
+        rule.onAllNodes(isFocused()).assertCountEquals(1)
+        restore.emulateSavedInstanceStateRestore()
+        rule.onAllNodes(isFocused()).assertCountEquals(0)
+    }
+
+    @Test fun homeHoldsNoBackAndItsPillOpensSearch() {
+        var opened: SearchRoute? = null
+        rule.setContent {
+            back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            ShotTheme(false) { HomeShell(SearchUi(), SearchActions(), open = { opened = it }) { _, _, _ -> } }
+        }
+        rule.runOnIdle { assertEquals(false, back?.hasEnabledCallbacks()) }
+        rule.onNodeWithText(Words.SEARCH_FIELD).performClick()
+        assertEquals(SearchRoute(), opened)
     }
 }
