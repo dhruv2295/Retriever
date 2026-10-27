@@ -205,7 +205,7 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
 
             // A moment whose frame turned out black holds nothing, as the first read would have dropped it.
             Kind.VIDEO -> MediaDecoding.frameJpeg(context, uri, Locator.msOf(locator) ?: return emptyList())
-                ?.let { listOf(Piece(locator, listOf(Part.Image(it)), null)) }.orEmpty()
+                ?.let { listOf(frame(locator, it)) }.orEmpty()
 
             else -> super.later(file, locator, profile)
         }
@@ -375,10 +375,16 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         xlsx: Boolean = false,
     ): String = context.contentResolver.openInputStream(uri)?.use { zipText(it, order, onCut, strip, single, xlsx) }.orEmpty()
 
-    private fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> =
+    private suspend fun video(uri: Uri, profile: DeviceProfile, ctx: CoroutineContext, head: Boolean): List<Piece> =
         MediaDecoding.momentFrames(context, uri, profile.videoFrameEverySec, ctx, log, head = head).map { (m, jpeg) ->
-            if (jpeg == null) later(momentLocator(m)) else Piece(momentLocator(m), listOf(Part.Image(jpeg)), null)
+            if (jpeg == null) later(momentLocator(m)) else frame(momentLocator(m), jpeg)
         }
+
+    /** A moment's frame, labeled as a photo is. GC owns the decoded pixels, as in [picture]. */
+    private suspend fun frame(locator: String, jpeg: ByteArray): Piece {
+        val labels = optionalLabels(log) { BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)?.let { labels(it) }.orEmpty() }
+        return Piece(locator, listOf(Part.Image(jpeg)), null, labels = labels)
+    }
 }
 
 /**

@@ -23,10 +23,11 @@ class IosExtractorTest {
         var frames = 0
         val scans = mutableListOf<Triple<String, Int, Int>>()
         override fun videoDurationMs(uri: String): Long = 120_000
-        override fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData {
+        override fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData = error("a frame read for its pixels only")
+        override fun videoFrameScan(uri: String, ms: Long, maxSide: Int): NativeScan {
             frames++
             afterFrame()
-            return byteArrayOf(1).toNSData()
+            return NativeScan(byteArrayOf(1).toNSData(), "", "dog")
         }
         override fun scan(uri: String, page: Int, jpegSide: Int): NativeScan? {
             scans += Triple(uri, page, jpegSide)
@@ -100,6 +101,14 @@ class IosExtractorTest {
         assertTrue(pieces.isNotEmpty())
         assertTrue(pieces.any { p -> p.parts.any { it is Part.Image } })
         assertTrue(pieces.none { p -> p.parts.any { it is Part.Audio } })
+    }
+
+    @Test fun videoFramesCarryTheirLabelsNowAndLater() = runBlocking {
+        val extractor = IosExtractor(Frames())
+        val pieces = extractor.extractHead(video, profile)
+        assertEquals("dog", pieces.single { it.parts.isNotEmpty() }.labels)
+        val later = pieces.first { it.locator.startsWith(LATER) }.locator.removePrefix(LATER)
+        assertEquals(listOf("dog"), extractor.later(video, later, profile)?.map { it.labels })
     }
 
     @Test fun audioProvidesNoContent() = runBlocking {

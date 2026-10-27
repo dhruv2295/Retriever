@@ -56,6 +56,9 @@ interface NativeExtractor {
 
     fun videoFrameJpeg(uri: String, ms: Long, maxSide: Int): NSData?
 
+    /** The frame [videoFrameJpeg] gives, with its classifier labels; no OCR, so [NativeScan.text] is empty. */
+    fun videoFrameScan(uri: String, ms: Long, maxSide: Int): NativeScan?
+
     /** In archive order. */
     fun zipEntryNames(uri: String): List<String>
 

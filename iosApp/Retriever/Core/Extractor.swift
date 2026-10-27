@@ -55,8 +55,9 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         }
     }
 
-    /// Text and (for a photo) labels in one Vision pass over the picture as shown, and its JPEG.
-    func read(_ image: UIImage, labels: Bool, jpegSide: CGFloat) -> NativeScan? {
+    /// Text (unless `ocr` is off) and (for a photo or video frame) labels in one Vision pass over the picture as shown,
+    /// and its JPEG.
+    func read(_ image: UIImage, labels: Bool, ocr: Bool = true, jpegSide: CGFloat) -> NativeScan? {
         guard let cg = image.cgImage, let jpeg = Self.jpeg(image, maxSide: jpegSide) else { return nil }
         _ = Self.logLanguages
         let text = VNRecognizeTextRequest()
@@ -64,7 +65,7 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         text.usesLanguageCorrection = true
         text.automaticallyDetectsLanguage = true
         let classify = VNClassifyImageRequest()
-        let requests = labels ? [text, classify] : [text]
+        let requests: [VNRequest] = (ocr ? [text] : []) + (labels ? [classify] : [])
         let id = track {
             for request in requests { request.cancel() }
         }
@@ -236,10 +237,20 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
     }
 
     func videoFrameJpeg(uri: String, ms: Int64, maxSide: Int32) -> Data? {
+        autoreleasepool { frameImage(uri, ms: ms, maxSide: CGFloat(maxSide))?.jpegData(compressionQuality: 0.85) }
+    }
+
+    /// The same frame with its labels, as a photo has them; no OCR.
+    func videoFrameScan(uri: String, ms: Int64, maxSide: Int32) -> NativeScan? {
         autoreleasepool {
-            guard let asset = videoLock.withLock({ lastVideo.flatMap { $0.uri == uri ? $0.asset : nil } }) ?? avAsset(uri) else { return nil }
-            return wait({ try await Self.frame(asset, ms: ms, maxSide: CGFloat(maxSide)) }).flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.85) }
+            let side = CGFloat(maxSide)
+            return frameImage(uri, ms: ms, maxSide: side).flatMap { read($0, labels: true, ocr: false, jpegSide: side) }
         }
+    }
+
+    private func frameImage(_ uri: String, ms: Int64, maxSide: CGFloat) -> UIImage? {
+        guard let asset = videoLock.withLock({ lastVideo.flatMap { $0.uri == uri ? $0.asset : nil } }) ?? avAsset(uri) else { return nil }
+        return wait({ try await Self.frame(asset, ms: ms, maxSide: maxSide) }).map { UIImage(cgImage: $0) }
     }
 
     /// For Swift's own callers (thumbnails): async all the way, so a grid of video cells never blocks Swift's threads.

@@ -265,7 +265,7 @@ class SchemaV3Test {
         index(testFile("blank.pdf", Kind.PDF), Store.NewChunk(0, "", null, vector(6)))
         val table = store.loadVectors()
         assertEquals(
-            listOf(Modality.IMAGE, Modality.IMAGE, Modality.TEXT, Modality.AUDIO, Modality.IMAGE_TEXT, Modality.TEXT),
+            listOf(Modality.IMAGE, Modality.IMAGE, Modality.TEXT, Modality.AUDIO, Modality.IMAGE, Modality.TEXT),
             (0 until table.size).map { table.modality(it) },
         )
         assertEquals(Kind.SCREENSHOT, table.kind(2), "the kind is untouched")
