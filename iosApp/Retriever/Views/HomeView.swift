@@ -155,6 +155,9 @@ struct HomeList: View {
         if !photosOff, !model.people.isEmpty || model.facesLeft > 0 {
             Section {
                 if !model.people.isEmpty { PeopleStrip(people: model.people) }
+                if let question = model.samePerson {
+                    SamePersonCard(question: question) { model.answerSamePerson(question, same: $0) }
+                }
             } header: {
                 if model.facesLeft > 0 {
                     DateHeader(title: Words.shared.PEOPLE, subtitle: Words.shared.lookingForFaces(left: model.facesLeft))

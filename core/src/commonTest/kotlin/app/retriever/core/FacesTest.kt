@@ -171,6 +171,48 @@ class FacesTest {
         assertEquals(FacesProgress(2, 0), store.facesProgress())
     }
 
+    private fun personFace(fileId: Long, v: FloatArray, box: FaceBox = this.box) = PersonFace(FaceCrop(fileId, "photo://$fileId", box), normalized(v))
+
+    @Test
+    fun theCoverIsALargerWholeFaceMostLikeThePerson() {
+        val typical = personFace(1, face(3))
+        val odd = personFace(2, face(3, w = 0.9f), FaceBox(0.1f, 0.1f, 0.5f, 0.6f))
+        val cutOff = personFace(3, face(3), FaceBox(0f, 0.2f, 0.4f, 0.7f))
+        val small = personFace(4, face(3), FaceBox(0.1f, 0.1f, 0.15f, 0.15f))
+        assertEquals(typical.crop, coverOf(listOf(odd, cutOff, small, typical, personFace(5, face(3)))))
+        assertEquals(cutOff.crop, coverOf(listOf(cutOff)), "a face cut off is still better than none")
+        assertNull(coverOf(emptyList()))
+    }
+
+    @Test
+    fun homeAsksAboutTwoPeopleWhoMayBeOne() {
+        fun person(id: Long, photos: Int, name: String? = null) = Person(id, name, photos, null)
+        val asha = person(1, 3)
+        val ashaBehindAPhone = person(2, 4)
+        val ravi = person(3, 3)
+        val faces = mapOf(
+            1L to (1L..3L).map { personFace(it, face(3)) },
+            2L to (4L..7L).map { personFace(it, face(3, j = 10, w = 0.5f)) },
+            3L to (8L..10L).map { personFace(it, face(20)) },
+        )
+        val people = listOf(asha, ashaBehindAPhone, ravi)
+        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, faces, emptySet()), "the one in more photos first")
+        assertNull(samePersonQuestion(people, faces, setOf(1L to 2L)), "a pair answered no is never asked again")
+        assertNull(samePersonQuestion(listOf(asha.copy(name = "Asha"), ashaBehindAPhone.copy(name = "Meera"), ravi), faces, emptySet()))
+        val together = faces + (2L to faces.getValue(2L) + personFace(1, face(3, j = 10, w = 0.5f)))
+        assertNull(samePersonQuestion(people, together, emptySet()), "two people in one photo are two people")
+    }
+
+    @Test
+    fun answeringNoIsKeptAndForgottenWithPeople() {
+        val (store, _) = storeWithPhotos(1)
+        store.declineSamePerson(5, 2)
+        store.declineSamePerson(3, 4)
+        assertEquals(setOf(2L to 5L, 3L to 4L), store.declinedPairs())
+        store.forgetAllFaces()
+        assertEquals(emptySet(), store.declinedPairs())
+    }
+
     @Test
     fun aFullDiskStopsThePassWithoutSpendingATry() = runTest {
         val (store, _) = storeWithPhotos(1)

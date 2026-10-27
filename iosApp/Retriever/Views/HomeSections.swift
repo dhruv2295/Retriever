@@ -250,6 +250,31 @@ struct PeopleStrip: View {
     }
 }
 
+/// Two people who may be one (core's ASK_SAME_PERSON): both faces, and the answer that merges them or never asks again.
+struct SamePersonCard: View {
+    let question: SamePerson
+    let answer: (Bool) -> Void
+    @ScaledMetric(relativeTo: .body) private var side = 56.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                FaceAvatar(cover: question.first.cover, name: question.first.name, side: side)
+                FaceAvatar(cover: question.second.cover, name: question.second.name, side: side)
+                Text(Words.shared.SAME_PERSON_ASK).font(.headline).padding(.leading, 8)
+            }
+            .accessibilityElement(children: .combine)
+            HStack {
+                Spacer()
+                Button(Words.shared.SAME_PERSON_NO) { answer(false) }
+                Button(Words.shared.SAME_PERSON_YES) { answer(true) }.buttonStyle(.borderedProminent)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 8)
+    }
+}
+
 // MARK: The iPad sidebar
 
 /// The iPad sidebar's rows: one per kind and per busiest folder, each with its count, then All folders.

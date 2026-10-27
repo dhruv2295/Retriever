@@ -1485,6 +1485,26 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun peopleNow(): List<Person> = io { if (prefs.value.recognizePeople) store.people() else emptyList() }
 
+    private val sharedSamePerson: Flow<SamePerson?> by lazy {
+        watched(combine(library, peopleVersion, prefs) { _, _, p -> p.recognizePeople }, { prefs.value.recognizePeople }) { on ->
+            if (on) store.samePersonQuestion() else null
+        }
+    }
+
+    /** Two people Home shows who may be one, for Home to ask about; null when there are none. */
+    fun samePerson(): Flow<SamePerson?> = sharedSamePerson
+
+    /** [samePerson] once, for platforms that read it on demand. */
+    @Throws(Throwable::class)
+    suspend fun samePersonNow(): SamePerson? = io { if (prefs.value.recognizePeople) store.samePersonQuestion() else null }
+
+    /** The answer to [samePerson]: the same, and they merge into the one in more photos; not, and the pair is never asked again. */
+    @Throws(Throwable::class)
+    suspend fun answerSamePerson(question: SamePerson, same: Boolean) = io {
+        if (same) store.mergePeople(question.first.id, question.second.id) else store.declineSamePerson(question.first.id, question.second.id)
+        peopleChanged()
+    }
+
     /** Photos looked at for faces so far, and still to look at. */
     @Throws(Throwable::class)
     suspend fun facesProgress(): FacesProgress = io { store.facesProgress() }

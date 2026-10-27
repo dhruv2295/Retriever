@@ -88,11 +88,10 @@ SELECT p.id, p.name, COUNT(DISTINCT f.file_id) AS photos FROM persons p JOIN fac
 GROUP BY p.id HAVING p.name IS NOT NULL OR photos >= :minPhotos
 ORDER BY photos DESC, p.id;
 
--- A person's clearest face: the largest one, as their picture.
-coverFace:
-SELECT fa.id, fa.file_id, fi.uri, fa.box_left, fa.box_top, fa.box_right, fa.box_bottom
-FROM faces fa JOIN files fi ON fi.id = fa.file_id WHERE fa.person_id = ?
-ORDER BY (fa.box_right - fa.box_left) * (fa.box_bottom - fa.box_top) DESC LIMIT 1;
+-- Every face in a person, with its photo: for their pictures and the same-person question.
+groupedFaces:
+SELECT fa.person_id, fa.file_id, fi.uri, fa.box_left, fa.box_top, fa.box_right, fa.box_bottom, fa.vector, fa.scale
+FROM faces fa JOIN files fi ON fi.id = fa.file_id WHERE fa.person_id IS NOT NULL;
 
 -- A person's photos, newest first.
 personFileIds:

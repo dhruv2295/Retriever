@@ -452,6 +452,11 @@ object Words {
     const val SAVE = "Save"
     const val SAME_PERSON_AS = "Same person as…"
 
+    // Home's question about two people who may be one (Faces.kt, ASK_SAME_PERSON).
+    const val SAME_PERSON_ASK = "Same person?"
+    const val SAME_PERSON_YES = "Same person"
+    const val SAME_PERSON_NO = "Not the same"
+
     /** The person's screen title and the rename dialog's: their name, or the ask for one. */
     fun personTitle(name: String?): String = name ?: ADD_A_NAME
 

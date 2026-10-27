@@ -23,12 +23,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
@@ -51,6 +53,7 @@ import app.retriever.core.BrowseKind
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Person
+import app.retriever.core.SamePerson
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.YearMemory
@@ -132,9 +135,18 @@ internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchAction
     }
 }
 
-/** Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos. */
+/**
+ * Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos.
+ * Below, when two people may be one ([samePerson]), the question.
+ */
 @Composable
-internal fun PeopleSection(people: List<Person>, facesLeft: Long, go: (Route) -> Unit) {
+internal fun PeopleSection(
+    people: List<Person>,
+    facesLeft: Long,
+    go: (Route) -> Unit,
+    samePerson: SamePerson? = null,
+    answer: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(Words.PEOPLE, subtitle = if (facesLeft > 0) Words.lookingForFaces(facesLeft) else null)
         if (people.isNotEmpty()) {
@@ -156,8 +168,32 @@ internal fun PeopleSection(people: List<Person>, facesLeft: Long, go: (Route) ->
                 }
             }
         }
+        samePerson?.let { SamePersonCard(it, answer) }
     }
 }
+
+@Composable
+private fun SamePersonCard(q: SamePerson, answer: (SamePerson, same: Boolean) -> Unit) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FaceAvatar(q.first.cover, q.first.name, SAME_PERSON_FACE)
+                FaceAvatar(q.second.cover, q.second.name, SAME_PERSON_FACE)
+                Text(Words.SAME_PERSON_ASK, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
+            }
+            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { answer(q, false) }) { Text(Words.SAME_PERSON_NO) }
+                FilledTonalButton(onClick = { answer(q, true) }) { Text(Words.SAME_PERSON_YES) }
+            }
+        }
+    }
+}
+
+private val SAME_PERSON_FACE = 56.dp
 
 /**
  * Browse: each kind with its count, then Folders; three a row, two at large text. Documents holds PDFs too and opens the

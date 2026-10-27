@@ -62,6 +62,7 @@ import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
+import app.retriever.core.SamePerson
 import app.retriever.core.StatusAction
 import app.retriever.core.UpgradePolicy
 import app.retriever.core.UpgradeStage
@@ -105,6 +106,7 @@ class HomeActions(
     val commit: (whileCharging: Boolean) -> Unit = {},
     val decideLater: () -> Unit = {},
     val hideOnThisDay: () -> Unit = {},
+    val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
     val dismissIntro: () -> Unit = {},
     val notify: (() -> Unit)? = null,
@@ -149,6 +151,7 @@ fun HomeScreen(
             commit = { charging -> requestReading { vm.commit(charging) } },
             decideLater = vm::decideLater,
             hideOnThisDay = vm::hideOnThisDay,
+            answerSamePerson = vm::answerSamePerson,
             dismissIntro = vm::dismissIntro,
             // Hidden once asked: the card has nothing more to promise.
             notify = if (prefs.notifyWhenCaughtUp) {
@@ -292,7 +295,9 @@ internal fun HomeBody(
             item(key = "recent", span = FullLine, contentType = "recent") { RecentlyAddedSection(facts.recentlyAdded, actions) }
         }
         if (ui.hasAccess && (ui.people.isNotEmpty() || ui.facesLeft > 0)) {
-            item(key = "people", span = FullLine, contentType = "people") { PeopleSection(ui.people, ui.facesLeft, actions.onNavigate) }
+            item(key = "people", span = FullLine, contentType = "people") {
+                PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePerson, home.answerSamePerson)
+            }
         }
         val day = ui.memoriesDay
         if (ui.hasAccess && ui.showOnThisDay && day != null && ui.memories.isNotEmpty()) {

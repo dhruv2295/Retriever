@@ -11,7 +11,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
@@ -178,13 +177,13 @@ private fun <T> observe(flow: Flow<T>, cb: (T) -> Unit): AutoCloseable {
     return AutoCloseable { scope.cancel() }
 }
 
-/** Home's People: [people] and the photos still to look at for faces (0 while People is off). */
-class PeopleNow(val people: List<Person>, val facesLeft: Long)
+/** Home's People: [people], the photos still to look at for faces (0 while People is off), and the question to ask. */
+class PeopleNow(val people: List<Person>, val facesLeft: Long, val samePerson: SamePerson?)
 
-/** [Retriever.people] as [PeopleNow]; open it while Home shows, close it when Home goes. */
+/** [Retriever.people] and [Retriever.samePerson] as [PeopleNow]; open it while Home shows, close it when Home goes. */
 fun Retriever.observePeople(cb: (PeopleNow) -> Unit): AutoCloseable = observe(
-    people().map { p ->
-        PeopleNow(p, if (prefs.value.recognizePeople) runCatching { facesProgress().pending }.getOrDefault(0L) else 0L)
+    combine(people(), samePerson()) { p, q ->
+        PeopleNow(p, if (prefs.value.recognizePeople) runCatching { facesProgress().pending }.getOrDefault(0L) else 0L, q)
     },
     cb,
 )

@@ -20,6 +20,13 @@ const val FACE_DIMS = 128
  */
 const val SAME_PERSON = 0.5f
 
+/**
+ * Two people whose faces' means are at least this close may be one person, so Home asks. Measured on LFW with SFace:
+ * one person split in two scored 0.70 or more in 99% of splits, strangers at most 0.59, and brothers, sisters and father
+ * and son at most 0.63. A real library's splits (selfies behind a phone) scored 0.78 and 0.81.
+ */
+const val ASK_SAME_PERSON = 0.65f
+
 /** An unnamed person shows on Home once they are in this many photos; a named one shows from their first. */
 const val PERSON_MIN_PHOTOS = 3
 
@@ -41,6 +48,9 @@ data class FaceCrop(val fileId: Long, val uri: String, val box: FaceBox)
 
 /** [name] is null until the person names them; [photos] counts the photos they are in. */
 data class Person(val id: Long, val name: String?, val photos: Int, val cover: FaceCrop?)
+
+/** Two people Home shows who may be one: [first] has at least as many photos as [second]. */
+data class SamePerson(val first: Person, val second: Person)
 
 /** Photos looked at for faces, and photos still to look at. */
 data class FacesProgress(val done: Long, val pending: Long)
@@ -222,13 +232,81 @@ internal fun Store.groupNewFaces() = inTransaction {
     faces.deleteEmptyPersons()
 }
 
-internal fun Store.people(minPhotos: Int = PERSON_MIN_PHOTOS): List<Person> =
-    faces.people(minPhotos.toLong()) { id, name, photos -> Person(id, name, photos.toInt(), null) }.executeAsList().map { p ->
-        val cover = faces.coverFace(p.id) { _, fileId, uri, l, t, r, b ->
-            FaceCrop(fileId, uri, FaceBox(l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat()))
-        }.executeAsOneOrNull()
-        p.copy(cover = cover)
+/** A face in a person, as their picture and the same-person question read it. */
+internal class PersonFace(val crop: FaceCrop, val vector: FloatArray)
+
+/** Sums of unit vectors: the mean's direction, which is all a cosine needs. */
+private fun sum(faces: List<PersonFace>): FloatArray = FloatArray(FACE_DIMS).also { s ->
+    for (f in faces) for (i in s.indices) s[i] += f.vector[i]
+}
+
+private fun FaceBox.area() = (right - left) * (bottom - top)
+
+/**
+ * A person's picture: of their larger faces (the bigger half) not cut off by the photo's edge, the one most like them
+ * all. The largest face alone was often a close-up cut off at the edge and among the least like the person (on a real
+ * library it ranked 403rd of 406 faces and 69th of 74).
+ */
+internal fun coverOf(faces: List<PersonFace>): FaceCrop? {
+    val whole = faces.filter { minOf(it.crop.box.left, it.crop.box.top, 1 - it.crop.box.right, 1 - it.crop.box.bottom) >= EDGE }.ifEmpty { faces }
+    val median = whole.map { it.crop.box.area() }.sorted().getOrNull(whole.size / 2) ?: return null
+    val mean = sum(faces)
+    return whole.filter { it.crop.box.area() >= median }.maxByOrNull { dot(it.vector, mean) }?.crop
+}
+
+/** A face box this close to the photo's edge is taken to be cut off by it. */
+private const val EDGE = 0.01f
+
+/**
+ * The two people most likely to be one ([ASK_SAME_PERSON] or closer), or null. Never two who share a photo (one photo,
+ * two people, bar collages), two named differently, or a pair in [declined] (smaller id first).
+ */
+internal fun samePersonQuestion(people: List<Person>, faces: Map<Long, List<PersonFace>>, declined: Set<Pair<Long, Long>>): SamePerson? {
+    val shown = people.filter { faces[it.id] != null }
+    val sums = shown.associate { p -> p.id to faces.getValue(p.id).let(::sum) }
+    val photos = shown.associate { p -> p.id to faces.getValue(p.id).mapTo(HashSet()) { it.crop.fileId } }
+    var best: SamePerson? = null
+    var bestCos = ASK_SAME_PERSON
+    for ((i, a) in shown.withIndex()) {
+        for (b in shown.subList(i + 1, shown.size)) {
+            if (a.name != null && b.name != null && !a.name.equals(b.name, ignoreCase = true)) continue
+            if (minOf(a.id, b.id) to maxOf(a.id, b.id) in declined) continue
+            val sa = sums.getValue(a.id)
+            val sb = sums.getValue(b.id)
+            val cos = dot(sa, sb) / (length(sa) * length(sb))
+            if (cos < bestCos || photos.getValue(a.id).any { it in photos.getValue(b.id) }) continue
+            best = if (a.photos >= b.photos) SamePerson(a, b) else SamePerson(b, a)
+            bestCos = cos
+        }
     }
+    return best
+}
+
+private fun Store.groupedFaces(): Map<Long, List<PersonFace>> = faces.groupedFaces { person, fileId, uri, l, t, r, b, bytes, scale ->
+    val crop = FaceCrop(fileId, uri, FaceBox(l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat()))
+    person to PersonFace(crop, FaceVector(bytes, scale.toFloat()).floats())
+}.executeAsList().groupBy({ it.first }, { it.second })
+
+internal fun Store.people(minPhotos: Int = PERSON_MIN_PHOTOS, grouped: Map<Long, List<PersonFace>> = groupedFaces()): List<Person> =
+    faces.people(minPhotos.toLong()) { id, name, photos -> Person(id, name, photos.toInt(), grouped[id]?.let(::coverOf)) }.executeAsList()
+
+private const val NOT_SAME_KEY = "people_not_same"
+
+internal fun Store.declinedPairs(): Set<Pair<Long, Long>> = meta(NOT_SAME_KEY).orEmpty().split(',').mapNotNullTo(HashSet()) { pair ->
+    val ids = pair.split(':').mapNotNull { it.toLongOrNull() }
+    if (ids.size == 2) ids[0] to ids[1] else null
+}
+
+/** Home's question, if any: two people it shows who may be one. */
+internal fun Store.samePersonQuestion(): SamePerson? {
+    val grouped = groupedFaces()
+    return samePersonQuestion(people(grouped = grouped), grouped, declinedPairs())
+}
+
+/** "Not the same person": the pair is never asked about again. */
+internal fun Store.declineSamePerson(a: Long, b: Long) = inTransaction {
+    setMeta(NOT_SAME_KEY, (declinedPairs() + (minOf(a, b) to maxOf(a, b))).joinToString(",") { "${it.first}:${it.second}" })
+}
 
 internal fun Store.personFileIds(id: Long): List<Long> = faces.personFileIds(id).executeAsList()
 
@@ -254,6 +332,7 @@ internal fun Store.forgetAllFaces() = inTransaction {
     faces.deleteAllPersons()
     faces.deleteAllFaceReads()
     deleteMeta(GROUPED_KEY)
+    deleteMeta(NOT_SAME_KEY)
 }
 
 /**

@@ -90,7 +90,10 @@ extension AppModel {
     /// Off forgets every face and name (Retriever.updatePrefs); on starts looking at photos.
     func setRecognizePeople(_ on: Bool) {
         snap?.recognizePeople = on
-        if !on { people = [] }
+        if !on {
+            people = []
+            samePerson = nil
+        }
         Task {
             try? await edit(people: on)
             if on { wake() }
@@ -266,6 +269,7 @@ extension AppModel {
                 Task { @MainActor in
                     self?.people = now.people
                     self?.facesLeft = now.facesLeft
+                    self?.samePerson = now.samePerson
                 }
             },
         ]
@@ -286,12 +290,19 @@ extension AppModel {
         changePeople(then: then) { try await $0.notThisPerson(person: id, fileId: fileId) }
     }
 
+    /// Home's "Same person?": hidden at once, then merged or never asked again.
+    func answerSamePerson(_ question: SamePerson, same: Bool) {
+        samePerson = nil
+        changePeople { try await $0.answerSamePerson(question: question, same: same) }
+    }
+
     private func changePeople(then: @escaping @MainActor () -> Void = {}, _ change: @escaping (Retriever) async throws -> Void) {
         guard let retriever = services?.retriever else { return }
         Task {
             do {
                 try await change(retriever)
                 people = try await retriever.peopleNow()
+                samePerson = try await retriever.samePersonNow()
                 then()
             } catch {
                 peopleMessage = "Couldn’t change this person. Try again."

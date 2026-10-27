@@ -11,6 +11,7 @@ import app.retriever.core.Person
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
+import app.retriever.core.SamePerson
 import app.retriever.core.Store
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
@@ -77,6 +78,8 @@ data class HomeUi(
     val people: List<Person> = emptyList(),
     /** Photos still to look at for faces. */
     val facesLeft: Long = 0,
+    /** Two people who may be one, for Home to ask about. */
+    val samePerson: SamePerson? = null,
 ) {
     val progress: ReadingProgress get() = ReadingProgress(
         (contentRead - partlyRead).coerceAtLeast(0),
@@ -176,6 +179,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 _ui.update { it.copy(people = p, facesLeft = left) }
             }
         }
+        launch { retriever.samePerson().collect { q -> _ui.update { it.copy(samePerson = q) } } }
         // Core's facts follow files coming, going and changing, never a file being read.
         launch {
             retriever.home().collect { h ->
@@ -254,6 +258,12 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
 
     /** The one-time card's Got it. */
     fun dismissIntro() = launchCatching { retriever.dismissHomeIntro() }
+
+    /** People's "Same person?": hidden at once, then merged or never asked again. */
+    fun answerSamePerson(question: SamePerson, same: Boolean) {
+        _ui.update { it.copy(samePerson = null) }
+        launchCatching { retriever.answerSamePerson(question, same) }
+    }
 
     val celebration = celebrationOf(retriever)
 

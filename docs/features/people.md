@@ -34,10 +34,23 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 - **Corrections.** Rename (blank makes them unnamed again), "Same person as…" (the other group's photos join this
   one, and its name when this one has none), and "Not this person" on a photo's long-press menu (the person's faces in
   that photo leave them for good).
+- **"Same person?"** One person can split into two groups when a whole series of their photos looks alike and unlike
+  the rest (mirror selfies, the phone covering part of the face). Home asks about the closest pair of people it shows
+  whose faces' means are at least 0.65 (`ASK_SAME_PERSON`), who share no photo and aren't named differently. Yes merges
+  them into the one in more photos; No is kept (meta `people_not_same`) and that pair is never asked about again. It
+  asks rather than merges because a wrong merge has no undo. 0.65 comes from LFW with the same SFace (5,420 faces, 311
+  people with six or more photos): one person split at random into groups of 3 to 10 scored 0.70 or more in 99% of
+  splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father and sons and brothers;
+  Venus and Serena Williams) at most 0.63. On the Pixel library the two real splits scored 0.78 and 0.81, and nothing
+  else reached 0.65.
+- **A person's picture** is the face most like the person (closest to their faces' mean) among their larger faces (the
+  bigger half by area) not cut off by the photo's edge (`coverOf`). The largest face, the earlier rule, was often a
+  close-up cut off at the edge: on the Pixel it ranked 403rd of 406 faces in how much it looked like that person.
 - **Search.** `Retriever`'s query parsing takes named people out of the query, longest name first (`namedIn`), and
   narrows the results to their photos; the rest of the query searches as usual. A quoted (literal) query skips it.
 - **Home and the person's screen.** Home's People strip shows people in at least three photos (named ones from their
-  first) as round crops of their cover face, and "Looking for faces · N to go" while photos wait. A person opens as
+  first) as round crops of their picture, then "Same person?" when there is a pair to ask about, and "Looking for
+  faces · N to go" while photos wait. A person opens as
   `BrowseRoute(person = id)`: their photos newest first, with rename and merge in the top bar.
 
 ## Owner files
@@ -60,7 +73,9 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 ## Tests
 
-- `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk.
+- `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk; a person's
+  picture; "Same person?" (asks the closest pair, never a pair sharing a photo, named differently or answered No) and
+  forgetting its answers with People.
 - `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
   reading waits while faces are left and reads every file once they are done.
 - `MigrationTest`: schema 10 adds the face tables.
@@ -71,6 +86,10 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 ## Known limits
 
+- Faces seen side on aren't recognized: SFace knows faces from the front, and ML Kit gives no eyes for a profile.
+- About 175 photos a minute on a Pixel 8 Pro: ML Kit's accurate face detection (~190 ms a photo) runs one photo at a
+  time across the app, so lanes of photos in parallel gained 3%, and its fast mode was 10% quicker but kept 6% fewer
+  faces.
 - SFace is the ceiling, not our pipeline: OpenCV's own detector and SFace give the same fingerprints (median cosine
   0.95 to ours on one library) and the same overlap, strangers up to ~0.45 and one person down to ~0.3. Grouping
   quality was measured on one library only, without labels beyond faces sharing a photo.
