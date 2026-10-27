@@ -753,18 +753,15 @@ class Retriever(
                 else -> store.tailCountsIn(ids).first
             }
             // People (Faces.kt) before the model opens, which faces never need, and under the deepen pass's rule (in the
-            // background only on the charger with the screen off). While files wait to be read faces get a share of the batch,
-            // so people show up during a long first read and reading keeps most of the time; once none wait, all of it.
+            // background only on the charger with the screen off). Faces go first: a photo takes them ~0.3 s against reading's
+            // ~1.5 s, so People is whole in about a fifth of a first read; reading waits while they may run.
             val reader = faceReader
             val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }
             var facesLeft = facesOn && store.facesProgress().pending > 0
             if (reader != null && facesLeft && deepenBlocker() == null) {
-                val left = budget - started.elapsedNow()
-                val faces = FacePass(store, reader, log, ::peopleChanged).run(if (pending == 0L) left else left * FACES_SHARE, policyStop, ::awaitUi)
-                when {
-                    faces == StopReason.DONE -> facesLeft = false
-                    faces != StopReason.BUDGET || pending == 0L -> return end(faces)
-                }
+                val faces = FacePass(store, reader, log, ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
+                if (faces != StopReason.DONE) return end(faces)
+                facesLeft = false
             }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending == 0L &&
@@ -1779,9 +1776,6 @@ class Retriever(
 
     internal companion object {
         const val RECENT_FILES = 24
-
-        /** A batch's share for faces while files wait to be read. */
-        const val FACES_SHARE = 0.25
 
         /** Reads again of a watched read failing in a row (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
         private const val WATCH_RETRIES = 5

@@ -7,7 +7,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 /** People end to end: the faces pass alongside reading, a name, a search by it, and turning it off. */
 class PeopleTest {
@@ -46,9 +45,9 @@ class PeopleTest {
         assertEquals(emptyList(), r.search("asha", null, 10).parsed?.people.orEmpty())
     }
 
-    /** While files wait to be read faces get a share of the batch, and reading carries on when it runs out. */
+    /** Faces go first: reading waits until every photo has been looked at, then carries on. */
     @Test
-    fun facesTakeAShareWhileFilesWaitToBeRead() = runBlocking {
+    fun facesGoBeforeReading() = runBlocking {
         val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
         val slow = object : FaceReader {
             override suspend fun faces(uri: String): List<FoundFace> {
@@ -62,10 +61,13 @@ class PeopleTest {
         r.uiVisible = true
         r.updatePrefs { it.copy(recognizePeople = true) }
 
-        r.indexBatch(2.seconds)
-
+        r.indexBatch(500.milliseconds)
         val looked = r.facesProgress().done
-        assertTrue(looked in 1L..11L, "a quarter of the batch looks at some photos, not all: $looked")
-        assertEquals(0L, store.pendingByKind().values.sum(), "the rest of the batch reads every file")
+        assertTrue(looked in 1L..11L, "a short batch looks at some photos, not all: $looked")
+        assertEquals(12L, store.pendingByKind().values.sum(), "reading waits while faces are left")
+
+        r.indexBatch(1.minutes)
+        assertEquals(FacesProgress(12, 0), r.facesProgress())
+        assertEquals(0L, store.pendingByKind().values.sum(), "once faces are done the batch reads every file")
     }
 }
