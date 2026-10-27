@@ -752,15 +752,19 @@ class Retriever(
                 ids == null -> store.tailChunkCount()
                 else -> store.tailCountsIn(ids).first
             }
-            // People (Faces.kt) once nothing waits to be read: before the model opens, which faces never need, and under the
-            // deepen pass's rule (in the background only on the charger with the screen off).
+            // People (Faces.kt) before the model opens, which faces never need, and under the deepen pass's rule (in the
+            // background only on the charger with the screen off). While files wait to be read faces get a share of the batch,
+            // so people show up during a long first read and reading keeps most of the time; once none wait, all of it.
             val reader = faceReader
             val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }
-            var facesLeft = facesOn && pending == 0L && store.facesProgress().pending > 0
+            var facesLeft = facesOn && store.facesProgress().pending > 0
             if (reader != null && facesLeft && deepenBlocker() == null) {
-                val faces = FacePass(store, reader, log, ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
-                if (faces != StopReason.DONE) return end(faces)
-                facesLeft = false
+                val left = budget - started.elapsedNow()
+                val faces = FacePass(store, reader, log, ::peopleChanged).run(if (pending == 0L) left else left * FACES_SHARE, policyStop, ::awaitUi)
+                when {
+                    faces == StopReason.DONE -> facesLeft = false
+                    faces != StopReason.BUDGET || pending == 0L -> return end(faces)
+                }
             }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending == 0L &&
@@ -816,7 +820,7 @@ class Retriever(
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen)
-            // Photos just read wait for faces: the next batch looks at them before the model opens, or the deepen rule's time.
+            // Read, with photos still to look at for faces: the next batch gives them all its time, or the deepen rule's time.
             if (result.stopReason == StopReason.DONE && facesOn && store.facesProgress().pending > 0) {
                 return deepenBlocker()?.let(::end) ?: end(StopReason.DONE).let { NextRun.SOON }
             }
@@ -1775,6 +1779,9 @@ class Retriever(
 
     internal companion object {
         const val RECENT_FILES = 24
+
+        /** A batch's share for faces while files wait to be read. */
+        const val FACES_SHARE = 0.25
 
         /** Reads again of a watched read failing in a row (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
         private const val WATCH_RETRIES = 5

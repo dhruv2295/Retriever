@@ -16,10 +16,12 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 - **Alignment is core's.** `FaceAlign` fits the five landmarks to SFace's template by least squares; template slots
   follow image x, never the detector's left/right labels. ML Kit gives the nose base where the template has the tip;
   the fit absorbs it (measured: same-person cosine 0.84 vs OpenCV's 0.91 on the same pair, cross-person 0.19).
-- **A pass after reading.** `FacePass` runs once nothing waits to be read, before the model opens (faces never need it),
-  under the deepen pass's rule: in the background only on the charger with the screen off. It reads photos a page at a
-  time, saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is
-  left out (`MAX_FACE_ATTEMPTS`).
+- **A pass alongside reading.** `FacePass` runs at the start of a batch, before the model opens (faces never need it),
+  under the deepen pass's rule: in the background only on the charger with the screen off. While files wait to be read
+  it gets a quarter of the batch (`FACES_SHARE`), so people show up during a long first read (a large library took 7 to
+  8 hours of charging to read on a Pixel 8 Pro); once none wait, the whole batch. It reads photos a page at a time,
+  saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is left
+  out (`MAX_FACE_ATTEMPTS`).
 - **Grouping only places new faces.** `groupNewFaces` places faces added since `faces_grouped_through`: each joins the
   person whose mean fingerprint is closest at cosine ≥ 0.363 (OpenCV's SFace threshold), or pairs with another lone
   face to start a person. Older faces never move, which is what makes "Not this person" and merges stick without a
@@ -49,12 +51,13 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 1. **Nothing about faces is written while Recognize people is off,** and turning it off empties every face table.
 2. **A face taken out of a person, or moved by a merge, never moves again** by later grouping.
-3. **Photos are read before faces are looked for;** the faces pass never delays reading.
+3. **Reading keeps most of the time:** while files wait to be read, faces take at most a quarter of a batch.
 
 ## Tests
 
 - `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk.
-- `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them.
+- `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
+  faces take their share while files wait and reading carries on after it.
 - `MigrationTest`: schema 10 adds the face tables.
 - `BrowseViewModelTest`: a person's photos page, and "Not this person" takes one out.
 - `FaceFinderTests` (iOS): core's alignment and SFace know `Person.jpg` (a generated picture of no real person) in its
@@ -66,8 +69,7 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 - Grouping quality on real libraries is unmeasured beyond the reference pairs above.
 - The bundled model adds 19.3 MB to the APK and to git history; the int8 variant (9.9 MB) missed the fidelity target.
 - SFace's training data is not named by its authors (see `THIRD_PARTY_NOTICES.md`).
-- A new, large library waits for its whole first read before any face is looked for (invariant 3). Measured on a
-  Pixel 8 Pro: about 1.5 s a photo, so 18k files is roughly 7 to 8 hours of charging with the screen off before People
-  shows anyone.
+- Until every photo has been looked at, reading gets three quarters of each batch, so a large library's first read
+  takes up to a third longer while People is on.
 - On the iOS simulator Vision can't find faces, so each photo's three tries fail and People stays empty there; the
   `home.people` debug route shows the strip.
