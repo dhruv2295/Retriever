@@ -173,6 +173,8 @@ class Retriever(
     private val words: DeviceWords = DeviceWords.ANDROID,
     /** Up to this many files waiting are read at once, on battery and in use ([ReadingPolicy.FEW_WAITING]); tests of the charger rule pass 0. */
     private val fewWaitingLimit: Int = ReadingPolicy.FEW_WAITING,
+    /** People's face finder; null where the platform has none, and People stays off. */
+    private val faceReader: FaceReader? = null,
 ) {
     private val variant = ModelBuilds.variantFor(probe)
 
@@ -407,11 +409,13 @@ class Retriever(
                 before = old
                 t(old).also {
                     if (old.rememberSearches && !it.rememberSearches) store.clearRecentQueries()
+                    if (old.recognizePeople && !it.recognizePeople) store.forgetAllFaces()
                     (old.kinds - it.kinds).takeIf { k -> k.isNotEmpty() }?.let(store::deleteChunksOfKinds)
                     (it.kinds - old.kinds).takeIf { k -> k.isNotEmpty() }?.let(store::requeue)
                 }
             }
             _prefs.value = new
+            if (before.recognizePeople != new.recognizePeople) peopleChanged()
             // Files of a switched-off kind pass by unread in milliseconds: that pace would under-read them once back on.
             (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> speedBook.update { it.copy(paces = it.paces - k) } }
             // Stars of dropped files stay, hidden until the folder is put back.
@@ -748,6 +752,16 @@ class Retriever(
                 ids == null -> store.tailChunkCount()
                 else -> store.tailCountsIn(ids).first
             }
+            // People (Faces.kt) once nothing waits to be read: before the model opens, which faces never need, and under the
+            // deepen pass's rule (in the background only on the charger with the screen off).
+            val reader = faceReader
+            val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }
+            var facesLeft = facesOn && pending == 0L && store.facesProgress().pending > 0
+            if (reader != null && facesLeft && deepenBlocker() == null) {
+                val faces = FacePass(store, reader, log, ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
+                if (faces != StopReason.DONE) return end(faces)
+                facesLeft = false
+            }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
             val idle = pending == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
@@ -755,7 +769,7 @@ class Retriever(
                 // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
                 (!keywordOnly || store.laterChunkCount() == 0L)
             // Later parts left that may not run now: stop for that reason, so the platform comes back on the charger or at screen-off.
-            if (idle) return end(if (tails > 0) deepenBlocker() ?: StopReason.DONE else StopReason.DONE)
+            if (idle) return end(if (tails > 0 || facesLeft) deepenBlocker() ?: StopReason.DONE else StopReason.DONE)
             val e = if (keywordOnly) {
                 null
             } else {
@@ -802,6 +816,10 @@ class Retriever(
                 )
             }
             val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen)
+            // Photos just read wait for faces: the next batch looks at them before the model opens, or the deepen rule's time.
+            if (result.stopReason == StopReason.DONE && facesOn && store.facesProgress().pending > 0) {
+                return deepenBlocker()?.let(::end) ?: end(StopReason.DONE).let { NextRun.SOON }
+            }
             return end(result.stopReason)
         } catch (e: CancellationException) {
             throw e
@@ -1225,19 +1243,25 @@ class Retriever(
         scope: List<Long>?,
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
-        val p = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs)
-        val ids = starredIds(onlyStarred)
+        val parsed = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs)
+        // A named person's name keeps the photos they are in, as a kind word keeps its kind.
+        val (rest, named) = if (literal || !prefs.value.recognizePeople) parsed.text to emptyList() else namedIn(parsed.text, store.namedPersons())
+        val names = named.map { it.second }
+        val p = if (named.isEmpty()) parsed else parsed.copy(text = rest, understood = parsed.understood + names, people = names)
+        val starred = starredIds(onlyStarred)
+        val ids = named.fold(starred) { kept, (person, _) -> store.personFileIds(person).filterTo(HashSet()) { kept == null || it in kept } }
         // Nothing to search, so nothing by meaning is missing.
-        if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
+        if (ids != null && ids.isEmpty() && named.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
         val parsedKinds = p.kinds.ifEmpty { null }
         val kinds = if (parsedKinds == null) uiKinds else uiKinds?.intersect(parsedKinds) ?: parsedKinds
         val req = SearchRequest(p.text, kinds, p.from, p.to, ids, limit, onlyStarred = onlyStarred, contentIds = scope?.toSet())
-        val filtered = parsedKinds != null || p.from != null
+        val filtered = parsedKinds != null || p.from != null || named.isNotEmpty()
         val search: suspend (SearchRequest) -> SearchEngine.SearchResult = if (p.text.isBlank()) ::browse else run
         if (p.text.isBlank() && !filtered) return SearchEngine.SearchResult(emptyList(), vectorLane = true, parsed = p)
-        val first = search(req)
+        val first = if (ids != null && ids.isEmpty()) SearchEngine.SearchResult(emptyList(), vectorLane = true) else search(req)
         if (first.hits.isNotEmpty() || !filtered || !relax) return first.copy(parsed = p)
-        return search(req.copy(kinds = uiKinds, from = null, to = null)).copy(parsed = p, relaxed = true)
+        if (starred != null && starred.isEmpty()) return first.copy(parsed = p)
+        return search(req.copy(kinds = uiKinds, from = null, to = null, fileIds = starred)).copy(parsed = p, relaxed = true)
     }
 
     private fun starredIds(onlyStarred: Boolean): Set<Long>? = if (onlyStarred) store.starredFiles(Int.MAX_VALUE).mapTo(HashSet()) { it.id } else null
@@ -1254,8 +1278,16 @@ class Retriever(
 
     /** A query that was all filters ("screenshots last week"): the newest files that pass them, filtered in SQL. */
     private fun browse(req: SearchRequest): SearchEngine.SearchResult {
-        val hits = store.captured(req.kinds ?: Kind.entries.toSet(), req.from ?: Long.MIN_VALUE, req.to ?: Long.MAX_VALUE, req.onlyStarred, req.limit)
-            .map { SearchEngine.Hit(it.file, it.id, 0L, "", null, 0.0, false) }
+        val kinds = req.kinds ?: Kind.entries.toSet()
+        val from = req.from ?: Long.MIN_VALUE
+        val to = req.to ?: Long.MAX_VALUE
+        val files = req.fileIds?.let { ids ->
+            // A person's photos ("Asha", "Asha last year"): theirs that pass the other filters, newest taken first.
+            ids.chunked(500).flatMap { store.files(it).toList() }
+                .filter { (_, f) -> f.kind in kinds && (f.takenAt ?: f.modifiedAt) in from until to }
+                .sortedByDescending { (_, f) -> f.takenAt ?: f.modifiedAt }.take(req.limit)
+        } ?: store.captured(kinds, from, to, req.onlyStarred, req.limit).map { it.id to it.file }
+        val hits = files.map { (id, f) -> SearchEngine.Hit(f, id, 0L, "", null, 0.0, false) }
         // No words were left to match by meaning, so nothing is missing: the screen must not say meaning results are on the way.
         return SearchEngine.SearchResult(SearchEngine.foldCopies(hits), vectorLane = true)
     }
@@ -1430,6 +1462,59 @@ class Retriever(
         }
         val covers = store.files(hits.map { it.second.coverId!! })
         hits.mapNotNull { (year, s) -> covers[s.coverId]?.let { YearMemory(year, s.count - s.videos, s.videos, it) } }
+    }
+
+    // --- People ---
+
+    /** Bumped when faces are grouped or a person is named, merged or corrected, so [people] reads again. */
+    private val peopleVersion = MutableStateFlow(0L)
+
+    private fun peopleChanged() = peopleVersion.update { it + 1 }
+
+    private val sharedPeople: Flow<List<Person>> by lazy {
+        watched(combine(library, peopleVersion, prefs) { _, _, p -> p.recognizePeople }, { prefs.value.recognizePeople }) { on ->
+            if (on) store.people() else emptyList()
+        }
+    }
+
+    /** Home's people: named ones, and unnamed ones in [PERSON_MIN_PHOTOS] photos or more; empty while People is off. */
+    fun people(): Flow<List<Person>> = sharedPeople
+
+    /** [people] once, for platforms that read it on demand. */
+    @Throws(Throwable::class)
+    suspend fun peopleNow(): List<Person> = io { if (prefs.value.recognizePeople) store.people() else emptyList() }
+
+    /** Photos looked at for faces so far, and still to look at. */
+    @Throws(Throwable::class)
+    suspend fun facesProgress(): FacesProgress = io { store.facesProgress() }
+
+    /** [id]'s photos, newest first. */
+    @Throws(Throwable::class)
+    suspend fun personPhotos(id: Long): List<SourceFile> = io {
+        val ids = store.personFileIds(id)
+        val files = ids.chunked(500).fold(HashMap<Long, SourceFile>()) { all, part -> all.apply { putAll(store.files(part)) } }
+        ids.mapNotNull { files[it] }
+    }
+
+    /** A blank [name] makes the person unnamed again. */
+    @Throws(Throwable::class)
+    suspend fun renamePerson(id: Long, name: String) = io {
+        store.renamePerson(id, name)
+        peopleChanged()
+    }
+
+    /** [from]'s photos become [into]'s; [from] goes. */
+    @Throws(Throwable::class)
+    suspend fun mergePeople(into: Long, from: Long) = io {
+        store.mergePeople(into, from)
+        peopleChanged()
+    }
+
+    /** The photo at [fileId] isn't of [person]: their face in it leaves them for good. */
+    @Throws(Throwable::class)
+    suspend fun notThisPerson(person: Long, fileId: Long) = io {
+        store.notThisPerson(person, fileId)
+        peopleChanged()
     }
 
     /** A file's text in reading order: what the in-app reader shows. Empty for files read by name only. */

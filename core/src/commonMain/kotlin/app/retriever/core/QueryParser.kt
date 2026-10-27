@@ -13,6 +13,8 @@ data class ParsedQuery(
     val understood: List<String> = emptyList(),
     /** The date's label in [understood], or null when no date was understood. */
     val dateLabel: String? = null,
+    /** The named people the query asked for, as named; also last in [understood]. */
+    val people: List<String> = emptyList(),
 ) {
     /**
      * Said above results when the filters found nothing and were dropped. [scope] is what the search kept, as a plural
@@ -20,16 +22,14 @@ data class ParsedQuery(
      */
     fun relaxedNote(scope: String?): String = "${missing()}, so here " + if (scope == null) "is everything." else "are all your $scope."
 
-    /** What the filters asked for and found none of: "No PDFs from last week", "Nothing from yesterday". */
+    /** What the filters asked for and found none of: "No PDFs from last week", "Nothing from yesterday", "No photos of Asha". */
     fun missing(): String {
-        val kinds = understood.filter { it != dateLabel }.joinToString(" and ") { k ->
+        val kinds = understood.filter { it != dateLabel && it !in people }.joinToString(" and ") { k ->
             if (k.length > 1 && k[1].isUpperCase()) k else k.replaceFirstChar { it.lowercase() }
         }
-        return when {
-            kinds.isEmpty() -> "Nothing from $dateLabel"
-            dateLabel == null -> "No $kinds"
-            else -> "No $kinds from $dateLabel"
-        }
+        val of = if (people.isEmpty()) "" else " of " + people.joinToString(" and ")
+        val from = dateLabel?.let { " from $it" }.orEmpty()
+        return if (kinds.isEmpty()) "Nothing$of$from" else "No $kinds$of$from"
     }
 }
 

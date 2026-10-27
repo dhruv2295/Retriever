@@ -39,6 +39,8 @@ data class Prefs(
     val homeIntroDue: Boolean = false,
     /** The person asked to be told once when everything is searchable (Home card, Android). */
     val notifyWhenCaughtUp: Boolean = false,
+    /** People: faces in photos are grouped and can be named and searched. Off until the person turns it on. */
+    val recognizePeople: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

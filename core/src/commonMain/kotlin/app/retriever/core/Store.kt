@@ -19,7 +19,11 @@ enum class FileState { PENDING, INDEXED, SKIPPED }
 /** [userState]: where settings and stars outlive this database; see [UserState]. */
 class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit = { _, _ -> }, private val userState: UserStateFile? = null) {
     private val driver = GatedDriver(sqlDriver)
-    private val q = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter())).indexQueries
+    private val db = IndexDb(driver, Files.Adapter(stateAdapter = EnumColumnAdapter()))
+    private val q = db.indexQueries
+
+    /** People's tables (Faces.sq); [Faces.kt] reads and writes them. */
+    internal val faces = db.facesQueries
 
     /** Closes the database once no statement or transaction is running; a later call throws instead of reaching SQLite. */
     suspend fun close() = driver.closeWhenIdle()
@@ -137,6 +141,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                 q.deleteChunksForFile(id)
                 q.deleteFileFts(id)
                 insertFileFts(id, f.name, f.folder)
+                forgetFaces(id)
             }
             // Loaded vectors keep their capture day; the bump tells a warm SearchEngine to load them again.
             if (backfilled) q.bumpMeta(TAKEN_AT_KEY)
@@ -151,8 +156,15 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                 q.deleteChunksForFile(id)
                 q.deleteFileFts(id)
                 q.deleteFileById(id)
+                forgetFaces(id)
             }
         }
+    }
+
+    /** A photo changed or left: its faces go, and a changed one is looked at again. Foreign keys are off, so by hand. */
+    private fun forgetFaces(fileId: Long) {
+        faces.deleteFacesOfFile(fileId)
+        faces.deleteFaceRead(fileId)
     }
 
     /** A provider-confirmed rename keeps the file id, chunks, read state and star. */

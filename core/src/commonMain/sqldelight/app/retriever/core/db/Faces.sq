@@ -1,0 +1,126 @@
+-- People (docs/features/people.md): written only while the person has it on, and emptied when they turn it off. The
+-- database is kept out of backups on both platforms, so none of this leaves the phone. Added in 10.sqm.
+
+-- A photo the faces pass has begun (attempts, counted before each try) or finished (done). Its row goes when the
+-- photo changes or leaves, with its faces, so the photo is looked at again.
+CREATE TABLE face_reads (
+  file_id INTEGER PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  done INTEGER NOT NULL DEFAULT 0
+);
+
+-- Faces taken to be one person; named by the person, or not yet.
+CREATE TABLE persons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT
+);
+
+-- AUTOINCREMENT keeps ids monotonic, so grouping takes only faces above the last id it grouped.
+CREATE TABLE faces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL,
+  -- The face's box in the upright photo, as fractions of its width and height.
+  box_left REAL NOT NULL,
+  box_top REAL NOT NULL,
+  box_right REAL NOT NULL,
+  box_bottom REAL NOT NULL,
+  -- The face's fingerprint (FACE_DIMS numbers, unit length) as int8: value[i] ≈ vector[i] * scale.
+  vector BLOB NOT NULL,
+  scale REAL NOT NULL,
+  -- Null while the face waits alone, or after "Not this person". Grouping places only faces newer than its last
+  -- pass, so a face taken out of a person is never put back.
+  person_id INTEGER
+);
+
+CREATE INDEX faces_by_file ON faces(file_id);
+
+CREATE INDEX faces_by_person ON faces(person_id);
+
+-- The photos still to look at, newest first; one that failed MAX_FACE_ATTEMPTS times is left out.
+pendingFaceFiles:
+SELECT f.id, f.uri, COALESCE(r.attempts, 0) AS attempts FROM files f LEFT JOIN face_reads r ON r.file_id = f.id
+WHERE f.kind = 'PHOTO' AND COALESCE(r.done, 0) = 0 AND COALESCE(r.attempts, 0) < :maxAttempts
+ORDER BY COALESCE(f.taken_at, f.modified_at) DESC LIMIT :limit;
+
+pendingFaceCount:
+SELECT COUNT(*) FROM files f LEFT JOIN face_reads r ON r.file_id = f.id
+WHERE f.kind = 'PHOTO' AND COALESCE(r.done, 0) = 0 AND COALESCE(r.attempts, 0) < :maxAttempts;
+
+doneFaceCount:
+SELECT COUNT(*) FROM face_reads r JOIN files f ON f.id = r.file_id WHERE r.done = 1;
+
+setFaceAttempts:
+INSERT INTO face_reads (file_id, attempts) VALUES (?, ?)
+ON CONFLICT(file_id) DO UPDATE SET attempts = excluded.attempts, done = 0;
+
+finishFaceRead:
+INSERT INTO face_reads (file_id, done) VALUES (?, 1) ON CONFLICT(file_id) DO UPDATE SET done = 1;
+
+deleteFaceRead:
+DELETE FROM face_reads WHERE file_id = ?;
+
+insertFace:
+INSERT INTO faces (file_id, box_left, box_top, box_right, box_bottom, vector, scale) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+deleteFacesOfFile:
+DELETE FROM faces WHERE file_id = ?;
+
+-- Grouping's input: every face, in id order.
+groupingFaces:
+SELECT id, person_id, vector, scale FROM faces ORDER BY id;
+
+setFacePerson:
+UPDATE faces SET person_id = ? WHERE id = ?;
+
+insertPerson:
+INSERT INTO persons (name) VALUES (NULL);
+
+lastPersonId:
+SELECT last_insert_rowid();
+
+-- An unnamed person left with no face: its faces' photos changed or left.
+deleteEmptyPersons:
+DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT person_id FROM faces WHERE person_id IS NOT NULL);
+
+-- The people Home shows: named ones with a photo, and unnamed ones in at least :minPhotos photos; most photos first.
+people:
+SELECT p.id, p.name, COUNT(DISTINCT f.file_id) AS photos FROM persons p JOIN faces f ON f.person_id = p.id
+GROUP BY p.id HAVING p.name IS NOT NULL OR photos >= :minPhotos
+ORDER BY photos DESC, p.id;
+
+-- A person's clearest face: the largest one, as their picture.
+coverFace:
+SELECT fa.id, fa.file_id, fi.uri, fa.box_left, fa.box_top, fa.box_right, fa.box_bottom
+FROM faces fa JOIN files fi ON fi.id = fa.file_id WHERE fa.person_id = ?
+ORDER BY (fa.box_right - fa.box_left) * (fa.box_bottom - fa.box_top) DESC LIMIT 1;
+
+-- A person's photos, newest first.
+personFileIds:
+SELECT DISTINCT fi.id FROM faces fa JOIN files fi ON fi.id = fa.file_id WHERE fa.person_id = ?
+ORDER BY COALESCE(fi.taken_at, fi.modified_at) DESC, fi.id DESC;
+
+namedPersons:
+SELECT id, name FROM persons WHERE name IS NOT NULL;
+
+renamePerson:
+UPDATE persons SET name = :name WHERE id = :id;
+
+-- Merging: :from's faces become :into's.
+moveFaces:
+UPDATE faces SET person_id = :into WHERE person_id = :from;
+
+deletePerson:
+DELETE FROM persons WHERE id = ?;
+
+-- "Not this person" for a photo: the person's faces in it leave them.
+rejectFaces:
+UPDATE faces SET person_id = NULL WHERE person_id = :person AND file_id = :file;
+
+deleteAllFaces:
+DELETE FROM faces;
+
+deleteAllPersons:
+DELETE FROM persons;
+
+deleteAllFaceReads:
+DELETE FROM face_reads;
