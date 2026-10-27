@@ -1485,20 +1485,20 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun peopleNow(): List<Person> = io { if (prefs.value.recognizePeople) store.people() else emptyList() }
 
-    private val sharedSamePerson: Flow<SamePerson?> by lazy {
+    private val sharedSamePeople: Flow<List<SamePerson>> by lazy {
         watched(combine(library, peopleVersion, prefs) { _, _, p -> p.recognizePeople }, { prefs.value.recognizePeople }) { on ->
-            if (on) store.samePersonQuestion() else null
+            if (on) store.samePersonQuestions() else emptyList()
         }
     }
 
-    /** Two people Home shows who may be one, for Home to ask about; null when there are none. */
-    fun samePerson(): Flow<SamePerson?> = sharedSamePerson
+    /** Pairs of people Home shows who may be one, closest first, for Home to ask about one at a time. */
+    fun samePeople(): Flow<List<SamePerson>> = sharedSamePeople
 
-    /** [samePerson] once, for platforms that read it on demand. */
+    /** [samePeople] once, for platforms that read it on demand. */
     @Throws(Throwable::class)
-    suspend fun samePersonNow(): SamePerson? = io { if (prefs.value.recognizePeople) store.samePersonQuestion() else null }
+    suspend fun samePeopleNow(): List<SamePerson> = io { if (prefs.value.recognizePeople) store.samePersonQuestions() else emptyList() }
 
-    /** The answer to [samePerson]: the same, and they merge into the one in more photos; not, and the pair is never asked again. */
+    /** The answer to one of [samePeople]: the same, and they merge into the one in more photos; not, and the pair is never asked again. */
     @Throws(Throwable::class)
     suspend fun answerSamePerson(question: SamePerson, same: Boolean) = io {
         if (same) store.mergePeople(question.first.id, question.second.id) else store.declineSamePerson(question.first.id, question.second.id)

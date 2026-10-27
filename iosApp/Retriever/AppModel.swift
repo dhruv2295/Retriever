@@ -184,8 +184,8 @@ final class AppModel {
     /// Grouped faces, most photos first, and the photos still to look at; empty and 0 while People is off (`watchHome`).
     var people: [Person] = []
     var facesLeft: Int64 = 0
-    /// Two people who may be one, for Home to ask about (`answerSamePerson`).
-    var samePerson: SamePerson?
+    /// Pairs of people who may be one, closest first, for Home to ask about one at a time (`answerSamePerson`).
+    var samePeople: [SamePerson] = []
     /// A rename, merge or "Not this person" that failed, said on the person's screen.
     var peopleMessage: String?
     /// Open while Home shows (`watchHome`).

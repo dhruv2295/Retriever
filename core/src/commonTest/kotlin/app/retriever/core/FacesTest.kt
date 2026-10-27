@@ -196,19 +196,30 @@ class FacesTest {
             3L to (8L..10L).map { personFace(it, face(20)) },
         )
         val people = listOf(asha, ashaBehindAPhone, ravi)
-        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, faces, emptySet()), "the one in more photos first")
-        assertNull(samePersonQuestion(people, faces, setOf(1L to 2L)), "a pair answered no is never asked again")
-        assertNull(samePersonQuestion(listOf(asha.copy(name = "Asha"), ashaBehindAPhone.copy(name = "Meera"), ravi), faces, emptySet()))
+        assertEquals(listOf(SamePerson(ashaBehindAPhone, asha)), samePersonQuestions(people, faces, emptySet()), "the one in more photos first")
+        assertEquals(emptyList(), samePersonQuestions(people, faces, setOf(1L to 2L)), "a pair answered no is never asked again")
+        assertEquals(emptyList(), samePersonQuestions(listOf(asha.copy(name = "Asha"), ashaBehindAPhone.copy(name = "Meera"), ravi), faces, emptySet()))
         fun sharing(n: Long) = faces + (2L to faces.getValue(2L) + (1L..n).map { personFace(it, face(3, j = 10, w = 0.5f)) })
-        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, sharing(2), emptySet()), "a collage or a mirror shows one person twice")
-        assertNull(samePersonQuestion(people, sharing(3), emptySet()), "two people in three photos together are two people")
+        assertEquals(
+            listOf(SamePerson(ashaBehindAPhone, asha)),
+            samePersonQuestions(people, sharing(2), emptySet()),
+            "a collage or a mirror shows one person twice",
+        )
+        assertEquals(emptyList(), samePersonQuestions(people, sharing(3), emptySet()), "two people in three photos together are two people")
 
         val ashaInGlasses = person(4, 3)
-        val glasses = faces + (4L to (11L..13L).map { personFace(it, face(3, j = 10, w = 1f)) }) - 2L
-        val withGlasses = listOf(asha, ashaInGlasses, ravi)
-        assertEquals(SamePerson(asha, ashaInGlasses), samePersonQuestion(withGlasses, glasses, emptySet()), "0.69 is asked")
-        assertNull(samePersonQuestion(withGlasses, glasses, emptySet(), JOIN_SAME_PERSON), "but not joined")
-        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, faces, emptySet(), JOIN_SAME_PERSON), "0.88 is joined")
+        val glasses = faces + (4L to (11L..13L).map { personFace(it, face(3, j = 10, w = 1f)) })
+        val all = people + ashaInGlasses
+        assertEquals(
+            listOf(SamePerson(ashaBehindAPhone, ashaInGlasses), SamePerson(ashaBehindAPhone, asha), SamePerson(asha, ashaInGlasses)),
+            samePersonQuestions(all, glasses, emptySet()),
+            "closest first (0.95, 0.88, 0.69), so Home can move between them",
+        )
+        assertEquals(
+            listOf(SamePerson(ashaBehindAPhone, ashaInGlasses), SamePerson(ashaBehindAPhone, asha)),
+            samePersonQuestions(all, glasses, emptySet(), JOIN_SAME_PERSON),
+            "0.69 is only asked",
+        )
     }
 
     /** One person per list of photos, each photo's faces in it, as grouping that never looked back could leave them. */

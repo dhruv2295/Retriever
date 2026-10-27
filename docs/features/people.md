@@ -44,6 +44,9 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   0.70 or more in 99% of splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father
   and sons and brothers; Venus and Serena Williams) at most 0.63. On the Pixel, with 12,906 photos looked at, ten pairs
   of people on Home reached 0.65; the closest (0.82) was one person with and without glasses.
+- **One pair at a time.** Home shows the pairs closest first, with previous and next, so a pair the person isn't sure
+  about can wait without holding up the rest; answering one shows the next in its place. Debug builds number the
+  People tiles and name the card's two tiles, so a tester can say which people they mean (Android).
 - **Joining without asking.** Pairs at 0.75 or more (`JOIN_SAME_PERSON`) join by the same rules, closest first, after
   each grouping and after each answer (so a library grouped before joining existed joins too); the question then asks
   only between 0.65 and 0.75. Grouping places one face at a time against people's means and never looks back, so the

@@ -247,7 +247,7 @@ internal fun Store.joinSamePeople() = inTransaction {
     val declined = declinedPairs()
     while (true) {
         val grouped = groupedFaces()
-        val pair = samePersonQuestion(people(grouped = grouped), grouped, declined, JOIN_SAME_PERSON) ?: break
+        val pair = samePersonQuestions(people(grouped = grouped), grouped, declined, JOIN_SAME_PERSON).firstOrNull() ?: break
         mergePeople(into = pair.first.id, from = pair.second.id)
     }
 }
@@ -284,20 +284,19 @@ private const val MAX_SHARED_PHOTOS = 2
 private const val EDGE = 0.01f
 
 /**
- * The two people most likely to be one ([at] or closer), or null. Never two who share more than [MAX_SHARED_PHOTOS]
+ * Pairs of people who may be one ([at] or closer), closest first. Never two who share more than [MAX_SHARED_PHOTOS]
  * photos, two named differently, or a pair in [declined] (smaller id first).
  */
-internal fun samePersonQuestion(
+internal fun samePersonQuestions(
     people: List<Person>,
     faces: Map<Long, List<PersonFace>>,
     declined: Set<Pair<Long, Long>>,
     at: Float = ASK_SAME_PERSON,
-): SamePerson? {
+): List<SamePerson> {
     val shown = people.filter { faces[it.id] != null }
     val sums = shown.associate { p -> p.id to faces.getValue(p.id).let(::sum) }
     val photos = shown.associate { p -> p.id to faces.getValue(p.id).mapTo(HashSet()) { it.crop.fileId } }
-    var best: SamePerson? = null
-    var bestCos = at
+    val found = ArrayList<Pair<Float, SamePerson>>()
     for ((i, a) in shown.withIndex()) {
         for (b in shown.subList(i + 1, shown.size)) {
             if (a.name != null && b.name != null && !a.name.equals(b.name, ignoreCase = true)) continue
@@ -305,12 +304,11 @@ internal fun samePersonQuestion(
             val sa = sums.getValue(a.id)
             val sb = sums.getValue(b.id)
             val cos = dot(sa, sb) / (length(sa) * length(sb))
-            if (cos < bestCos || photos.getValue(a.id).count { it in photos.getValue(b.id) } > MAX_SHARED_PHOTOS) continue
-            best = if (a.photos >= b.photos) SamePerson(a, b) else SamePerson(b, a)
-            bestCos = cos
+            if (cos < at || photos.getValue(a.id).count { it in photos.getValue(b.id) } > MAX_SHARED_PHOTOS) continue
+            found += cos to if (a.photos >= b.photos) SamePerson(a, b) else SamePerson(b, a)
         }
     }
-    return best
+    return found.sortedByDescending { it.first }.map { it.second }
 }
 
 private fun Store.groupedFaces(): Map<Long, List<PersonFace>> = faces.groupedFaces { person, fileId, uri, l, t, r, b, bytes, scale ->
@@ -328,10 +326,10 @@ internal fun Store.declinedPairs(): Set<Pair<Long, Long>> = meta(NOT_SAME_KEY).o
     if (ids.size == 2) ids[0] to ids[1] else null
 }
 
-/** Home's question, if any: two people it shows who may be one. */
-internal fun Store.samePersonQuestion(): SamePerson? {
+/** Home's questions: pairs of people it shows who may be one, closest first. */
+internal fun Store.samePersonQuestions(): List<SamePerson> {
     val grouped = groupedFaces()
-    return samePersonQuestion(people(grouped = grouped), grouped, declinedPairs())
+    return samePersonQuestions(people(grouped = grouped), grouped, declinedPairs())
 }
 
 /** "Not the same person": the pair is never asked about again. */

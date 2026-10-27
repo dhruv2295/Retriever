@@ -296,7 +296,7 @@ internal fun HomeBody(
         }
         if (ui.hasAccess && (ui.people.isNotEmpty() || ui.facesLeft > 0)) {
             item(key = "people", span = FullLine, contentType = "people") {
-                PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePerson, home.answerSamePerson)
+                PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePeople, home.answerSamePerson)
             }
         }
         val day = ui.memoriesDay

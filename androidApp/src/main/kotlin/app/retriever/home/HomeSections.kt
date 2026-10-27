@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +35,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +54,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.retriever.BuildConfig
 import app.retriever.R
 import app.retriever.core.BrowseKind
 import app.retriever.core.HomeFacts
@@ -137,21 +144,22 @@ internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchAction
 
 /**
  * Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos.
- * Below, when two people may be one ([samePerson]), the question.
+ * Below, when people may be one ([samePeople]), the question, one pair at a time. Debug builds number the tiles so a
+ * tester can name them.
  */
 @Composable
 internal fun PeopleSection(
     people: List<Person>,
     facesLeft: Long,
     go: (Route) -> Unit,
-    samePerson: SamePerson? = null,
+    samePeople: List<SamePerson> = emptyList(),
     answer: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(Words.PEOPLE, subtitle = if (facesLeft > 0) Words.lookingForFaces(facesLeft) else null)
         if (people.isNotEmpty()) {
             LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(people, key = { it.id }, contentType = { "person" }) { p ->
+                itemsIndexed(people, key = { _, p -> p.id }, contentType = { _, _ -> "person" }) { i, p ->
                     val title = Words.personTitle(p.name)
                     Column(
                         Modifier
@@ -162,32 +170,55 @@ internal fun PeopleSection(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
+                        if (BuildConfig.DEBUG) Muted("${i + 1}")
                         FaceAvatar(p.cover, p.name, TILE - 16.dp)
                         Muted(title, maxLines = 1)
                     }
                 }
             }
         }
-        samePerson?.let { SamePersonCard(it, answer) }
+        if (samePeople.isNotEmpty()) SamePersonCard(samePeople, answer) { q -> people.indexOfFirst { it.id == q.id } + 1 }
     }
 }
 
+/** One pair at a time, closest first; previous and next leave a pair the person isn't sure about unanswered. */
 @Composable
-private fun SamePersonCard(q: SamePerson, answer: (SamePerson, same: Boolean) -> Unit) {
+private fun SamePersonCard(pairs: List<SamePerson>, answer: (SamePerson, same: Boolean) -> Unit, tile: (Person) -> Int) {
+    var shown by rememberSaveable { mutableIntStateOf(0) }
+    // An answered pair leaves the list, so the same place shows the next one.
+    val at = shown.coerceAtMost(pairs.lastIndex)
+    val q = pairs[at]
     Surface(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
+            if (BuildConfig.DEBUG) Muted("Tiles ${tile(q.first)} and ${tile(q.second)}")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FaceAvatar(q.first.cover, q.first.name, SAME_PERSON_FACE)
                 FaceAvatar(q.second.cover, q.second.name, SAME_PERSON_FACE)
-                Text(Words.SAME_PERSON_ASK, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
+                Column(Modifier.padding(start = 8.dp)) {
+                    Text(Words.SAME_PERSON_ASK, style = MaterialTheme.typography.titleMedium)
+                    if (pairs.size > 1) Muted(Words.pairOf(at + 1, pairs.size))
+                }
             }
-            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { answer(q, false) }) { Text(Words.SAME_PERSON_NO) }
-                FilledTonalButton(onClick = { answer(q, true) }) { Text(Words.SAME_PERSON_YES) }
+            // Large text wraps the answers below the arrows.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
+                Row {
+                    if (pairs.size > 1) {
+                        IconButton(onClick = { shown = at - 1 }, enabled = at > 0) {
+                            Icon(painterResource(R.drawable.ic_keyboard_arrow_left), contentDescription = Words.SAME_PERSON_PREVIOUS)
+                        }
+                        IconButton(onClick = { shown = at + 1 }, enabled = at < pairs.lastIndex) {
+                            Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = Words.SAME_PERSON_NEXT)
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { answer(q, false) }) { Text(Words.SAME_PERSON_NO) }
+                    FilledTonalButton(onClick = { answer(q, true) }) { Text(Words.SAME_PERSON_YES) }
+                }
             }
         }
     }

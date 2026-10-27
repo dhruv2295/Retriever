@@ -92,7 +92,7 @@ extension AppModel {
         snap?.recognizePeople = on
         if !on {
             people = []
-            samePerson = nil
+            samePeople = []
         }
         Task {
             try? await edit(people: on)
@@ -269,7 +269,7 @@ extension AppModel {
                 Task { @MainActor in
                     self?.people = now.people
                     self?.facesLeft = now.facesLeft
-                    self?.samePerson = now.samePerson
+                    self?.samePeople = now.samePeople
                 }
             },
         ]
@@ -290,9 +290,9 @@ extension AppModel {
         changePeople(then: then) { try await $0.notThisPerson(person: id, fileId: fileId) }
     }
 
-    /// Home's "Same person?": hidden at once, then merged or never asked again.
+    /// Home's "Same person?": that pair hidden at once, then merged or never asked again.
     func answerSamePerson(_ question: SamePerson, same: Bool) {
-        samePerson = nil
+        samePeople.removeAll { $0 == question }
         changePeople { try await $0.answerSamePerson(question: question, same: same) }
     }
 
@@ -302,7 +302,7 @@ extension AppModel {
             do {
                 try await change(retriever)
                 people = try await retriever.peopleNow()
-                samePerson = try await retriever.samePersonNow()
+                samePeople = try await retriever.samePeopleNow()
                 then()
             } catch {
                 peopleMessage = "Couldn’t change this person. Try again."

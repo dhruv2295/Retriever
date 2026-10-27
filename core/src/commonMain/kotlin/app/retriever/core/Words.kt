@@ -456,6 +456,11 @@ object Words {
     const val SAME_PERSON_ASK = "Same person?"
     const val SAME_PERSON_YES = "Same person"
     const val SAME_PERSON_NO = "Not the same"
+    const val SAME_PERSON_PREVIOUS = "Previous pair"
+    const val SAME_PERSON_NEXT = "Next pair"
+
+    /** Which of Home's same-person pairs shows, when there is more than one: "2 of 5". */
+    fun pairOf(at: Int, of: Int): String = "$at of $of"
 
     /** The person's screen title and the rename dialog's: their name, or the ask for one. */
     fun personTitle(name: String?): String = name ?: ADD_A_NAME

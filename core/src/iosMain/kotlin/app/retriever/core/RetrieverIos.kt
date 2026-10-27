@@ -177,12 +177,12 @@ private fun <T> observe(flow: Flow<T>, cb: (T) -> Unit): AutoCloseable {
     return AutoCloseable { scope.cancel() }
 }
 
-/** Home's People: [people], the photos still to look at for faces (0 while People is off), and the question to ask. */
-class PeopleNow(val people: List<Person>, val facesLeft: Long, val samePerson: SamePerson?)
+/** Home's People: [people], the photos still to look at for faces (0 while People is off), and the questions to ask. */
+class PeopleNow(val people: List<Person>, val facesLeft: Long, val samePeople: List<SamePerson>)
 
-/** [Retriever.people] and [Retriever.samePerson] as [PeopleNow]; open it while Home shows, close it when Home goes. */
+/** [Retriever.people] and [Retriever.samePeople] as [PeopleNow]; open it while Home shows, close it when Home goes. */
 fun Retriever.observePeople(cb: (PeopleNow) -> Unit): AutoCloseable = observe(
-    combine(people(), samePerson()) { p, q ->
+    combine(people(), samePeople()) { p, q ->
         PeopleNow(p, if (prefs.value.recognizePeople) runCatching { facesProgress().pending }.getOrDefault(0L) else 0L, q)
     },
     cb,

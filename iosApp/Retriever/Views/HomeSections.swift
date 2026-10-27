@@ -250,24 +250,51 @@ struct PeopleStrip: View {
     }
 }
 
-/// Two people who may be one (core's ASK_SAME_PERSON): both faces, and the answer that merges them or never asks again.
+/// Two people who may be one (core's ASK_SAME_PERSON), one pair at a time, closest first: both faces, and the answer
+/// that merges them or never asks again. Previous and next leave a pair the person isn't sure about unanswered.
 struct SamePersonCard: View {
-    let question: SamePerson
-    let answer: (Bool) -> Void
+    let pairs: [SamePerson]
+    let answer: (SamePerson, Bool) -> Void
     @ScaledMetric(relativeTo: .body) private var side = 56.0
+    @State private var shown = 0
 
     var body: some View {
+        // An answered pair leaves the list, so the same place shows the next one.
+        let at = min(shown, pairs.count - 1)
+        let question = pairs[at]
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 FaceAvatar(cover: question.first.cover, name: question.first.name, side: side)
                 FaceAvatar(cover: question.second.cover, name: question.second.name, side: side)
-                Text(Words.shared.SAME_PERSON_ASK).font(.headline).padding(.leading, 8)
+                VStack(alignment: .leading) {
+                    Text(Words.shared.SAME_PERSON_ASK).font(.headline)
+                    if pairs.count > 1 {
+                        Text(Words.shared.pairOf(at: Int32(at + 1), of: Int32(pairs.count))).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, 8)
             }
             .accessibilityElement(children: .combine)
             HStack {
+                if pairs.count > 1 {
+                    Button {
+                        shown = at - 1
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel(Words.shared.SAME_PERSON_PREVIOUS)
+                    .disabled(at == 0)
+                    Button {
+                        shown = at + 1
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .accessibilityLabel(Words.shared.SAME_PERSON_NEXT)
+                    .disabled(at == pairs.count - 1)
+                }
                 Spacer()
-                Button(Words.shared.SAME_PERSON_NO) { answer(false) }
-                Button(Words.shared.SAME_PERSON_YES) { answer(true) }.buttonStyle(.borderedProminent)
+                Button(Words.shared.SAME_PERSON_NO) { answer(question, false) }
+                Button(Words.shared.SAME_PERSON_YES) { answer(question, true) }.buttonStyle(.borderedProminent)
             }
             .buttonStyle(.bordered)
         }

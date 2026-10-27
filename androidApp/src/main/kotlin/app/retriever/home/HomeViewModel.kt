@@ -78,8 +78,8 @@ data class HomeUi(
     val people: List<Person> = emptyList(),
     /** Photos still to look at for faces. */
     val facesLeft: Long = 0,
-    /** Two people who may be one, for Home to ask about. */
-    val samePerson: SamePerson? = null,
+    /** Pairs of people who may be one, closest first, for Home to ask about one at a time. */
+    val samePeople: List<SamePerson> = emptyList(),
 ) {
     val progress: ReadingProgress get() = ReadingProgress(
         (contentRead - partlyRead).coerceAtLeast(0),
@@ -179,7 +179,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 _ui.update { it.copy(people = p, facesLeft = left) }
             }
         }
-        launch { retriever.samePerson().collect { q -> _ui.update { it.copy(samePerson = q) } } }
+        launch { retriever.samePeople().collect { q -> _ui.update { it.copy(samePeople = q) } } }
         // Core's facts follow files coming, going and changing, never a file being read.
         launch {
             retriever.home().collect { h ->
@@ -259,9 +259,9 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     /** The one-time card's Got it. */
     fun dismissIntro() = launchCatching { retriever.dismissHomeIntro() }
 
-    /** People's "Same person?": hidden at once, then merged or never asked again. */
+    /** People's "Same person?": that pair hidden at once, then merged or never asked again. */
     fun answerSamePerson(question: SamePerson, same: Boolean) {
-        _ui.update { it.copy(samePerson = null) }
+        _ui.update { it.copy(samePeople = it.samePeople - question) }
         launchCatching { retriever.answerSamePerson(question, same) }
     }
 
