@@ -1502,6 +1502,8 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun answerSamePerson(question: SamePerson, same: Boolean) = io {
         if (same) store.mergePeople(question.first.id, question.second.id) else store.declineSamePerson(question.first.id, question.second.id)
+        // A merge moves the person's mean, and a library grouped before joining existed joins here too.
+        store.joinSamePeople()
         peopleChanged()
     }
 

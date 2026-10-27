@@ -202,6 +202,40 @@ class FacesTest {
         fun sharing(n: Long) = faces + (2L to faces.getValue(2L) + (1L..n).map { personFace(it, face(3, j = 10, w = 0.5f)) })
         assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, sharing(2), emptySet()), "a collage or a mirror shows one person twice")
         assertNull(samePersonQuestion(people, sharing(3), emptySet()), "two people in three photos together are two people")
+
+        val ashaInGlasses = person(4, 3)
+        val glasses = faces + (4L to (11L..13L).map { personFace(it, face(3, j = 10, w = 1f)) }) - 2L
+        val withGlasses = listOf(asha, ashaInGlasses, ravi)
+        assertEquals(SamePerson(asha, ashaInGlasses), samePersonQuestion(withGlasses, glasses, emptySet()), "0.69 is asked")
+        assertNull(samePersonQuestion(withGlasses, glasses, emptySet(), JOIN_SAME_PERSON), "but not joined")
+        assertEquals(SamePerson(ashaBehindAPhone, asha), samePersonQuestion(people, faces, emptySet(), JOIN_SAME_PERSON), "0.88 is joined")
+    }
+
+    /** One person per list of photos, each photo's faces in it, as grouping that never looked back could leave them. */
+    private fun Store.personOf(fileIds: List<Long>, v: FloatArray): Long {
+        fileIds.forEach { saveFaces(it, listOf(FoundFace(box, v))) }
+        faces.insertPerson()
+        val person = faces.lastPersonId().executeAsOne()
+        faces.groupingFaces { id, p, _, _ -> id to p }.executeAsList().filter { it.second == null }.forEach { faces.setFacePerson(person, it.first) }
+        return person
+    }
+
+    @Test
+    fun peopleThisCloseJoinUnlessAnsweredNo() {
+        val (store, ids) = storeWithPhotos(12)
+        val asha = store.personOf(ids.take(4), face(3))
+        val ashaBehindAPhone = store.personOf(ids.slice(4..6), face(3, j = 10, w = 0.5f))
+        val ravi = store.personOf(ids.slice(7..9), face(20))
+        store.declineSamePerson(asha, ravi)
+        store.joinSamePeople()
+        assertEquals(listOf(asha to 7, ravi to 3), store.people().map { it.id to it.photos }, "into the one in more photos")
+
+        val (other, more) = storeWithPhotos(8)
+        val meera = other.personOf(more.take(4), face(3))
+        val meeraBehindAPhone = other.personOf(more.drop(4), face(3, j = 10, w = 0.5f))
+        other.declineSamePerson(meera, meeraBehindAPhone)
+        other.joinSamePeople()
+        assertEquals(2, other.people().size, "a pair answered no is never joined")
     }
 
     @Test

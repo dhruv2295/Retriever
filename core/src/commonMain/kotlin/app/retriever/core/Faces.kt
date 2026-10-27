@@ -27,6 +27,12 @@ const val SAME_PERSON = 0.5f
  */
 const val ASK_SAME_PERSON = 0.65f
 
+/**
+ * Two people whose faces' means are at least this close are joined without asking: well past LFW's strangers (0.59) and
+ * relatives (0.63). On a real library all five pairs at 0.75 or more were one person, confirmed by its owner.
+ */
+const val JOIN_SAME_PERSON = 0.75f
+
 /** An unnamed person shows on Home once they are in this many photos; a named one shows from their first. */
 const val PERSON_MIN_PHOTOS = 3
 
@@ -230,6 +236,20 @@ internal fun Store.groupNewFaces() = inTransaction {
     for ((face, person) in assigned) faces.setFacePerson(person, face)
     rows.lastOrNull()?.let { setMeta(GROUPED_KEY, it.id.toString()) }
     faces.deleteEmptyPersons()
+    joinSamePeople()
+}
+
+/**
+ * Joins people at [JOIN_SAME_PERSON] or closer, closest first, by the question's rules. Grouping places one face at a
+ * time and never looks back, so a run of unusual photos (glasses, a phone over the face) can start a second person.
+ */
+internal fun Store.joinSamePeople() = inTransaction {
+    val declined = declinedPairs()
+    while (true) {
+        val grouped = groupedFaces()
+        val pair = samePersonQuestion(people(grouped = grouped), grouped, declined, JOIN_SAME_PERSON) ?: break
+        mergePeople(into = pair.first.id, from = pair.second.id)
+    }
 }
 
 /** A face in a person, as their picture and the same-person question read it. */
@@ -264,15 +284,20 @@ private const val MAX_SHARED_PHOTOS = 2
 private const val EDGE = 0.01f
 
 /**
- * The two people most likely to be one ([ASK_SAME_PERSON] or closer), or null. Never two who share more than
- * [MAX_SHARED_PHOTOS] photos, two named differently, or a pair in [declined] (smaller id first).
+ * The two people most likely to be one ([at] or closer), or null. Never two who share more than [MAX_SHARED_PHOTOS]
+ * photos, two named differently, or a pair in [declined] (smaller id first).
  */
-internal fun samePersonQuestion(people: List<Person>, faces: Map<Long, List<PersonFace>>, declined: Set<Pair<Long, Long>>): SamePerson? {
+internal fun samePersonQuestion(
+    people: List<Person>,
+    faces: Map<Long, List<PersonFace>>,
+    declined: Set<Pair<Long, Long>>,
+    at: Float = ASK_SAME_PERSON,
+): SamePerson? {
     val shown = people.filter { faces[it.id] != null }
     val sums = shown.associate { p -> p.id to faces.getValue(p.id).let(::sum) }
     val photos = shown.associate { p -> p.id to faces.getValue(p.id).mapTo(HashSet()) { it.crop.fileId } }
     var best: SamePerson? = null
-    var bestCos = ASK_SAME_PERSON
+    var bestCos = at
     for ((i, a) in shown.withIndex()) {
         for (b in shown.subList(i + 1, shown.size)) {
             if (a.name != null && b.name != null && !a.name.equals(b.name, ignoreCase = true)) continue

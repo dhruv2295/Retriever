@@ -44,6 +44,13 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   0.70 or more in 99% of splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father
   and sons and brothers; Venus and Serena Williams) at most 0.63. On the Pixel, with 12,906 photos looked at, ten pairs
   of people on Home reached 0.65; the closest (0.82) was one person with and without glasses.
+- **Joining without asking.** Pairs at 0.75 or more (`JOIN_SAME_PERSON`) join by the same rules, closest first, after
+  each grouping and after each answer (so a library grouped before joining existed joins too); the question then asks
+  only between 0.65 and 0.75. Grouping places one face at a time against people's means and never looks back, so the
+  first photos of a look (glasses, a phone over the face) can start a second person that later photos of that look
+  then match best; comparing whole people is the steadier test. On the Pixel all five pairs at 0.75 or more (0.77 to
+  0.86) were one person, confirmed by the owner, and the next pair down scored 0.74. Not measured: identical twins
+  (LFW has none). A join, like a merge, has no undo; "Not this person" takes photos out one at a time.
 - **A person's picture** is the face most like the person (closest to their faces' mean) among their larger faces (the
   bigger half by area) not cut off by the photo's edge (`coverOf`). The largest face, the earlier rule, was often a
   close-up cut off at the edge: on the Pixel it ranked 403rd of 406 faces in how much it looked like that person.
@@ -69,14 +76,15 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 ## Invariants
 
 1. **Nothing about faces is written while Recognize people is off,** and turning it off empties every face table.
-2. **A face taken out of a person, or moved by a merge, never moves again** by later grouping.
+2. **A face taken out of a person, or moved by a merge, is never placed again** by later grouping; faces move only with
+   their whole person, in a merge or a join.
 3. **Faces go first:** while a photo waits to be looked at and faces may run, the batch reads no files.
 
 ## Tests
 
 - `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk; a person's
   picture; "Same person?" (asks the closest pair, sharing up to two photos; never three, named differently or answered
-  No) and forgetting its answers with People.
+  No) and forgetting its answers with People; joining pairs at 0.75 or more, never one answered No.
 - `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
   reading waits while faces are left and reads every file once they are done.
 - `MigrationTest`: schema 10 adds the face tables.
