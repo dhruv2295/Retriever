@@ -19,7 +19,7 @@
             ("status.paused", "paused"), ("status.readNow", "readNow"), ("status.skipped", "skipped(6)"),
             ("status.textOnly", "textOnly(ramGb: 3.0)"), ("status.tailFiles", "tailFiles(12)"),
             ("home.caughtUp", "caughtUp"), ("home.reading", "caughtUp"), ("home.empty", "caughtUp"), ("search.empty", "caughtUp"),
-            ("home.memories", "caughtUp"), ("home.photos", "caughtUp"), ("viewer.photoMissing", "caughtUp"),
+            ("home.memories", "caughtUp"), ("home.photos", "caughtUp"), ("home.people", "caughtUp"), ("viewer.photoMissing", "caughtUp"),
             ("search.wordsOnly", "caughtUp"), ("search.lessLikely", "caughtUp"), ("search.nothingWell", "caughtUp"),
             ("search.firstPart", "caughtUp"), ("search.copies", "caughtUp"), ("search.error", "caughtUp"), ("search.loading", "caughtUp"),
             ("search.noAccess", "noAccess"), ("search.reading", "reading(done: 1204, total: 5310)"),

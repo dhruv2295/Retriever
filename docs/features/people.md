@@ -69,3 +69,5 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 - A new, large library waits for its whole first read before any face is looked for (invariant 3). Measured on a
   Pixel 8 Pro: about 1.5 s a photo, so 18k files is roughly 7 to 8 hours of charging with the screen off before People
   shows anyone.
+- On the iOS simulator Vision can't find faces, so each photo's three tries fail and People stays empty there; the
+  `home.people` debug route shows the strip.

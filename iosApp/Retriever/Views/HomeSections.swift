@@ -93,7 +93,8 @@ enum OnThisDay {
     }
 }
 
-/// A section title with a subtitle that is not a doorway (On This Day: each card is).
+/// A section title with a subtitle that is not a doorway (On This Day: each card is). The subtitle is primary too: secondary
+/// grey fails contrast on the grouped list.
 struct DateHeader: View {
     let title: String
     let subtitle: String
@@ -101,7 +102,7 @@ struct DateHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.title3.bold())
-            Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            Text(subtitle).font(.subheadline)
         }
         .foregroundStyle(Color.primary)
         .textCase(nil)
