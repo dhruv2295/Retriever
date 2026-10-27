@@ -62,9 +62,9 @@ fun dotInt8(a: ByteArray, aOff: Int, b: ByteArray, bScale: Float, aScale: Float)
 /**
  * What a row's vector was made from, so statistics over cosines never mix populations (text-to-image cosines sit in
  * another band from text-to-text ones). Derived from what the chunk row keeps: the name vector (ordinal 0) and words
- * are text; with no words, audio files are audio, video moments are a frame with its timestamp text (and sound), and
- * the rest are images. Known gap: a screenshot or page image with too few words to make text chunks keeps those words
- * on its image row, so it reads as TEXT here.
+ * are text; with no words, audio files are audio and the rest, video moments included (a frame alone), are images.
+ * [IMAGE_TEXT] is no longer made; it keeps its ordinal for relevance dumps written with it. Known gap: a screenshot or
+ * page image with too few words to make text chunks keeps those words on its image row, so it reads as TEXT here.
  */
 enum class Modality {
     TEXT,
@@ -77,7 +77,6 @@ enum class Modality {
         fun of(kind: Kind, hasText: Boolean, ordinal: Long): Modality = when {
             hasText || ordinal == 0L -> TEXT
             kind == Kind.AUDIO -> AUDIO
-            kind == Kind.VIDEO -> IMAGE_TEXT
             else -> IMAGE
         }
     }

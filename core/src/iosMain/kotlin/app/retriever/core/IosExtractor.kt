@@ -41,7 +41,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
             }
 
             // No frame: the moment holds nothing and its placeholder goes, as on Android.
-            Kind.VIDEO -> super.later(file, locator, profile).orEmpty()
+            Kind.VIDEO -> listOfNotNull(frameAt(file.uri, locator, Locator.msOf(locator) ?: return emptyList()))
 
             else -> super.later(file, locator, profile)
         }
@@ -140,12 +140,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
     private suspend fun video(uri: String, profile: DeviceProfile, head: Boolean): List<Piece> {
         if (profile.videoFrameEverySec <= 0) return emptyList()
         val all = moments(native.videoDurationMs(uri), profile.videoFrameEverySec)
-        suspend fun frame(m: Moment): Piece? {
-            currentCoroutineContext().ensureActive()
-            return autoreleasepool {
-                native.videoFrameJpeg(uri, m.frameMs, EMBED_PX)?.let { Piece(momentLocator(m), listOf(Part.Image(it.toByteArray())), null) }
-            }
-        }
+        suspend fun frame(m: Moment): Piece? = frameAt(uri, momentLocator(m), m.frameMs)
         if (!head) return all.mapNotNull { frame(it) }
         // One moment now (see headOrder), the others for the deepen pass; one with no frame is dropped, as above.
         val missing = mutableSetOf<Int>()
@@ -158,5 +153,13 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
             return all.withIndex().filter { it.index !in missing }.map { (j, m) -> if (j == i) piece else later(momentLocator(m)) }
         }
         return emptyList()
+    }
+
+    /** A moment's frame, labeled as a photo is. */
+    private suspend fun frameAt(uri: String, locator: String, ms: Long): Piece? {
+        currentCoroutineContext().ensureActive()
+        return autoreleasepool {
+            native.videoFrameScan(uri, ms, EMBED_PX)?.let { Piece(locator, listOf(Part.Image(it.jpeg.toByteArray())), null, labels = it.labels) }
+        }
     }
 }

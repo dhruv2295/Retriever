@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(9L, IndexDb.Schema.version)
+        assertEquals(10L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -300,6 +300,29 @@ class MigrationTest {
                 assertTrue(starred.first().startsWith("SCAN s"), starred.toString())
             }
         }
+    }
+
+    /** Version 10 reads videos again for their frames' labels; their chunks and every star stay meanwhile. */
+    @Test
+    fun version9VideosAreReadAgainAndKeepWhatTheyHold() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        driver.execute(
+            null,
+            "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state, attempts) VALUES " +
+                "(1, 'clip', 'clip.mp4', '', 'video/mp4', 'VIDEO', 10, 1, 'INDEXED', 1), " +
+                "(2, 'photo', 'photo.jpg', '', 'image/jpeg', 'PHOTO', 10, 1, 'INDEXED', 1)",
+            0,
+        )
+        driver.execute(null, "INSERT INTO chunks (file_id, ordinal, locator, vector, scale, visual) VALUES (1, 1, '0:05', X'01', 1.0, 1)", 0)
+        driver.execute(null, "INSERT INTO starred (uri, starred_at, name, size, modified_at) VALUES ('clip', 5, 'clip.mp4', 10, 1)", 0)
+
+        IndexDb.Schema.migrate(driver, 9, IndexDb.Schema.version).value
+
+        val store = Store(driver)
+        assertEquals(FileState.PENDING, store.fileByUri("clip")!!.state)
+        assertEquals(FileState.INDEXED, store.fileByUri("photo")!!.state)
+        assertEquals(1L, count(driver, "SELECT COUNT(*) FROM chunks WHERE file_id = 1"))
+        assertEquals(setOf("clip"), store.starredUris())
     }
 
     @Test
