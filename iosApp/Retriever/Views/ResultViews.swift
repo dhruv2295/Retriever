@@ -45,6 +45,7 @@ struct ResultCell: View {
     var matchReason: String?
     var copies: [SourceFile] = []
     var onOpenCopy: (SourceFile) -> Void = { _ in }
+    var notThisPerson: (() -> Void)?
 
     var body: some View {
         Button(action: onOpen) {
@@ -61,7 +62,7 @@ struct ResultCell: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint(Format.openHint(locator))
-        .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy)
+        .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy, notThisPerson: notThisPerson)
     }
 
     private var label: String {
@@ -214,12 +215,12 @@ extension View {
     /// `copies` are a search result's other copies (`SearchEngine.Hit.copies`), listed first, each opened by `onOpenCopy`.
     func resultActions(
         _ file: SourceFile, starred: Bool, _ onFindSimilar: ((SourceFile) -> Void)?, copies: [SourceFile] = [],
-        onOpenCopy: @escaping (SourceFile) -> Void = { _ in }
+        onOpenCopy: @escaping (SourceFile) -> Void = { _ in }, notThisPerson: (() -> Void)? = nil
     ) -> some View {
         modifier(
             ResultActions(
                 file: file, starred: starred, similar: onFindSimilar.flatMap { f in file.kind == .photo || file.kind == .screenshot ? f : nil },
-                copies: copies, openCopy: onOpenCopy))
+                copies: copies, openCopy: onOpenCopy, notThisPerson: notThisPerson))
     }
 }
 
@@ -230,8 +231,14 @@ private struct ResultActions: ViewModifier {
     let similar: ((SourceFile) -> Void)?
     let copies: [SourceFile]
     let openCopy: (SourceFile) -> Void
+    /// On a person's photos: their face in this one isn't them.
+    let notThisPerson: (() -> Void)?
 
     @ViewBuilder private var items: some View {
+        if let notThisPerson {
+            Button(action: notThisPerson) { Label(Words.shared.NOT_THIS_PERSON, systemImage: "person.badge.minus") }
+            Divider()
+        }
         ForEach(copies, id: \.uri) { copy in
             Button {
                 openCopy(copy)

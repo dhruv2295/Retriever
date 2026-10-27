@@ -49,6 +49,7 @@ final class AppModel {
         var allowMobileData = false
         var rememberSearches = true
         var showOnThisDay = true
+        var recognizePeople = false
         /// What Retriever reads inside; the rest is found by name. Settings offers `Snap.inside`.
         var kinds = Set(Snap.inside)
         var downloadBytes: Int64 = 0
@@ -180,6 +181,11 @@ final class AppModel {
     var memories: [OnThisDay.Card] = []
     /// `refreshOnThisDay` has answered once, found or not.
     var memoriesLoaded = false
+    /// Grouped faces, most photos first, and the photos still to look at; empty and 0 while People is off (`watchHome`).
+    var people: [Person] = []
+    var facesLeft: Int64 = 0
+    /// A rename, merge or "Not this person" that failed, said on the person's screen.
+    var peopleMessage: String?
     /// Open while Home shows (`watchHome`).
     @ObservationIgnored var homeObservations: [KotlinAutoCloseable] = []
     /// Until the old setting is in Prefs, a snapshot's older value must not overwrite it.
@@ -407,6 +413,7 @@ extension AppModel.Snap {
         allowMobileData = s.prefs.allowMobileData
         rememberSearches = s.prefs.rememberSearches
         showOnThisDay = s.prefs.showOnThisDay
+        recognizePeople = s.prefs.recognizePeople
         kinds = s.prefs.kinds
         indexed = Int(coverage.contentRead)
         pending = Int(coverage.scheduled)

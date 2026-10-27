@@ -7,7 +7,7 @@ extension AppModel {
     /// Changes the settings given and leaves the rest as they are.
     func edit(
         kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
-        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil
+        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil, people: Bool? = nil
     ) async throws {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
@@ -20,7 +20,7 @@ extension AppModel {
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
-                homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp)
+                homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople)
         }
     }
 
@@ -85,6 +85,16 @@ extension AppModel {
     func setShowOnThisDay(_ on: Bool) {
         snap?.showOnThisDay = on
         Task { try? await edit(onThisDay: on) }
+    }
+
+    /// Off forgets every face and name (Retriever.updatePrefs); on starts looking at photos.
+    func setRecognizePeople(_ on: Bool) {
+        snap?.recognizePeople = on
+        if !on { people = [] }
+        Task {
+            try? await edit(people: on)
+            if on { wake() }
+        }
     }
 
     func clearRecentSearches() {
@@ -252,7 +262,41 @@ extension AppModel {
             services.retriever.observeSuggestions(fileIds: nil) { @Sendable [weak self] terms in
                 Task { @MainActor in if let self, self.suggestions != terms { self.suggestions = terms } }
             },
+            services.retriever.observePeople { @Sendable [weak self] now in
+                Task { @MainActor in
+                    self?.people = now.people
+                    self?.facesLeft = now.facesLeft
+                }
+            },
         ]
+    }
+
+    // MARK: People. A person's screen sits over Home, whose observation may be closed: each change reads them again.
+
+    func renamePerson(_ id: Int64, _ name: String) {
+        changePeople { try await $0.renamePerson(id: id, name: name) }
+    }
+
+    /// `other` is this person too: their photos join `into`'s, and their name when `into` has none.
+    func mergePeople(into: Int64, from other: Int64, then: @escaping @MainActor () -> Void) {
+        changePeople(then: then) { try await $0.mergePeople(into: into, from: other) }
+    }
+
+    func notThisPerson(_ id: Int64, fileId: Int64, then: @escaping @MainActor () -> Void) {
+        changePeople(then: then) { try await $0.notThisPerson(person: id, fileId: fileId) }
+    }
+
+    private func changePeople(then: @escaping @MainActor () -> Void = {}, _ change: @escaping (Retriever) async throws -> Void) {
+        guard let retriever = services?.retriever else { return }
+        Task {
+            do {
+                try await change(retriever)
+                people = try await retriever.peopleNow()
+                then()
+            } catch {
+                peopleMessage = "Couldn’t change this person. Try again."
+            }
+        }
     }
 
     func unwatchHome() {

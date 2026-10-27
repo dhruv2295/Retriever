@@ -99,6 +99,21 @@ final class FileExtractor: NSObject, NativeExtractor, @unchecked Sendable {
         }
     }
 
+    /// The photo upright and at most `maxSide` px, for FaceFinder, which measures and crops in its pixels.
+    func uprightImage(uri: String, maxSide: Int32) -> CGImage? {
+        autoreleasepool {
+            let side = CGFloat(maxSide)
+            guard let image = image(uri, asset: asset(uri), size: CGSize(width: side, height: side)) else { return nil }
+            let (w, h) = (image.size.width * image.scale, image.size.height * image.scale)
+            let fit = min(1, side / max(w, h, 1))
+            if fit == 1, image.imageOrientation == .up, let cg = image.cgImage { return cg }
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let size = CGSize(width: max(1, (w * fit).rounded()), height: max(1, (h * fit).rounded()))
+            return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }.cgImage
+        }
+    }
+
     /// What Vision can read on this OS, logged once per OS version (no user data), so a missing script shows up.
     private static let logLanguages: Void = {
         let os = ProcessInfo.processInfo.operatingSystemVersionString

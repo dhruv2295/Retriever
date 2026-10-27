@@ -242,6 +242,6 @@ extension AppModel {
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
-            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false)
+            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false)
     }
 }

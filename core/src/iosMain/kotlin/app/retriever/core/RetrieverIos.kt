@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
@@ -33,6 +34,7 @@ fun createRetriever(
     extractor: NativeExtractor,
     photos: NativeFileSource,
     folders: NativeFileSource,
+    faces: NativeFaceReader,
     monitor: IosDeviceMonitor,
     modelDir: String,
     cacheDir: String,
@@ -77,6 +79,7 @@ fun createRetriever(
         lastExitCrashed = { true },
         frames = IosFrameSource(),
         words = words,
+        faceReader = IosFaceReader(faces),
     )
 }
 
@@ -174,6 +177,17 @@ private fun <T> observe(flow: Flow<T>, cb: (T) -> Unit): AutoCloseable {
     scope.launch { flow.collect { cb(it) } }
     return AutoCloseable { scope.cancel() }
 }
+
+/** Home's People: [people] and the photos still to look at for faces (0 while People is off). */
+class PeopleNow(val people: List<Person>, val facesLeft: Long)
+
+/** [Retriever.people] as [PeopleNow]; open it while Home shows, close it when Home goes. */
+fun Retriever.observePeople(cb: (PeopleNow) -> Unit): AutoCloseable = observe(
+    people().map { p ->
+        PeopleNow(p, if (prefs.value.recognizePeople) runCatching { facesProgress().pending }.getOrDefault(0L) else 0L)
+    },
+    cb,
+)
 
 /** The short read's progress, as [observeAll] delivers its snapshots. */
 fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable = observe(tasteProgress(), cb)

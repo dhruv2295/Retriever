@@ -219,6 +219,36 @@ struct TileStrip: View {
     }
 }
 
+/// Each person a face and their name, if they have one; a tap opens their photos.
+struct PeopleStrip: View {
+    let people: [Person]
+    @ScaledMetric(relativeTo: .caption) private var side = 72.0
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(people, id: \.id) { p in
+                    let title = Words.shared.personTitle(name: p.name)
+                    NavigationLink(value: Route.files(FileQuery(title: title, person: p.id))) {
+                        VStack(spacing: 6) {
+                            FaceAvatar(cover: p.cover, name: p.name, side: side)
+                            Text(p.name ?? " ").font(.caption).lineLimit(1).frame(width: side)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(title), \(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos"))")
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .contentMargins(.horizontal, gutter, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+}
+
 // MARK: The iPad sidebar
 
 /// The iPad sidebar's rows: one per kind and per busiest folder, each with its count, then All folders.

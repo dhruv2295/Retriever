@@ -65,6 +65,7 @@ final class AppServices: Sendable {
             extractor: extractor,
             photos: photos,
             folders: folders,
+            faces: FaceFinder(extractor: extractor),
             monitor: monitor,
             modelDir: modelsDir.path,
             cacheDir: cacheDir.path,

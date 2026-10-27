@@ -95,6 +95,8 @@
         case settings
         /// Home with its photo mosaic.
         case homePhotos = "home.photos"
+        /// Home's People strip, a named and an unnamed person, while photos still wait for faces.
+        case homePeople = "home.people"
         case viewerPhotoMissing = "viewer.photoMissing"
         case searchEmpty = "search.empty"
         case searchWordsOnly = "search.wordsOnly"
@@ -251,6 +253,11 @@
                         newMedia: (1...6).map { Fixtures.file("Photo \($0).jpg", .photo, "Photos", daysAgo: Double($0)) }, newShots: h.newShots,
                         newDocs: h.newDocs, starred: h.starred, starredCount: h.starredCount, folders: h.folders, largeCount: h.largeCount,
                         largeBytes: h.largeBytes, possibleCopies: h.possibleCopies, kindTotals: h.kindTotals, folderTotals: h.folderTotals)
+                }
+            case .homePeople:
+                SearchView(model: model, search: .fixture()).onAppear {
+                    model.people = [Person(id: 1, name: "Asha", photos: 12, cover: nil), Person(id: 2, name: nil, photos: 4, cover: nil)]
+                    model.facesLeft = 1_250
                 }
             case .searchNoModel:
                 SearchView(model: model, search: .fixture(text: "security deposit", hits: Array(Fixtures.hits.prefix(1)), vectorLane: false), presented: true)
