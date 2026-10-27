@@ -391,7 +391,6 @@ object Words {
     const val SEARCH_FIELD = "What are you looking for?"
     const val NAME_MATCHES = "Name matches"
     const val TEXT_MATCHES = "Text matches"
-    const val RELATED = "Related to your search"
     const val SEARCHING_CONTENTS = "Searching file contents…"
 
     /** A result that stands for exact copies ([SearchEngine.Hit.copies]): "2 copies". */

@@ -135,7 +135,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
 /** What the search screen can ask for; every default does nothing, so a test passes only what it checks. */
-class SearchActions(
+data class SearchActions(
     val onQuery: (String) -> Unit = {},
     val onSubmit: (String) -> Unit = {},
     val onChip: (Kind?) -> Unit = {},
@@ -277,7 +277,21 @@ fun SearchContent(
     // bar's field for focus, and taking it back afterwards loses to the keyboard on a phone, so the field turns down that
     // one request: no keyboard, and one Back leaves the results. Every later one (a touch, TalkBack's double-tap, Tab)
     // focuses it as usual. Not "until the bar settles": M3's request can land after that, and the keyboard came back.
-    var picked by remember { mutableStateOf(false) }
+    // Saveable and set on opening a file in a viewer too: back from it reopens the bar, and its field would take the
+    // keyboard, which then eats the first Back. Not for a file another app opens: the bar stays and asks for nothing.
+    var picked by rememberSaveable { mutableStateOf(false) }
+    val paneActions = remember(actions) {
+        actions.copy(
+            onOpenHit = {
+                picked = Opener.routeFor(it.file) != null
+                actions.onOpenHit(it)
+            },
+            onOpenFile = {
+                picked = Opener.routeFor(it) != null
+                actions.onOpenFile(it)
+            },
+        )
+    }
     val closeSearch = {
         picked = false
         text.clearText()
@@ -395,7 +409,7 @@ fun SearchContent(
         ExpandedFullScreenSearchBar(state = bar, inputField = { inputField() }) {
             BackHandler(enabled = bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
             LightStatusBarIconsOnDark()
-            SearchPane(ui, home, actions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
+            SearchPane(ui, home, paneActions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
         }
     }
 }

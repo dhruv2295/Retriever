@@ -61,7 +61,7 @@ class SearchEngine(
         /** 0 when only the file's name or folder matched and it has no chunk to point at. */
         val chunkId: Long,
         val locator: String,
-        /** Keyword hits mark matched words with \u0002 and \u0003. */
+        /** Text around a word of the query, matched words marked with \u0002 and \u0003; null when the text holds none. */
         val snippet: String?,
         val score: Double,
         /** Found by its name or folder, so the matched words are in the name. */
@@ -563,15 +563,14 @@ class SearchEngine(
                 val raw = (content[c.chunkId] ?: pageText[r.first to c.locator])?.let { contentSnippet(it, words) }
                 // A run of numbers or symbols says nothing: no snippet, and the reason says what matched.
                 val unreadable = raw != null && numericSnippet(raw.filterNot { it == '\u0002' || it == '\u0003' })
-                val snippet = raw.takeUnless { unreadable }
+                // Only text holding a word of the query: a passage found by meaning alone, or a screenshot's status bar, is
+                // noise under a result.
+                val snippet = raw?.takeUnless { unreadable || '\u0002' !in it }
                 val matched = labelMatches[r.first].orEmpty()
-                // Not in the words lane and not by name: found by meaning alone, with no word of the query to highlight.
-                val related = r.first !in labelMatches && '\u0002' !in snippet.orEmpty()
                 val reason = when {
                     r.first in byName -> null
-                    matched.isNotEmpty() && (snippet == null || '\u0002' !in snippet) -> Words.matches(matched)
+                    matched.isNotEmpty() && snippet == null -> Words.matches(matched)
                     unreadable && '\u0002' in raw.orEmpty() -> Words.TEXT_MATCHES
-                    related -> Words.RELATED
                     else -> null
                 }
                 Hit(file, r.first, c.chunkId, c.locator, snippet, r.second, r.first in byName, reason)
@@ -641,7 +640,8 @@ class SearchEngine(
         fun bestSentence(text: String, words: List<String>): String {
             val candidates = sentences(text).flatMap { sentence ->
                 wordMatchRanges(sentence, words).map { range ->
-                    var start = maxOf(0, range.first - 40)
+                    // A word or two before the match: a result shows one line, and the match must be on it.
+                    var start = maxOf(0, range.first - 16)
                     // A cut inside a word must not create a new word boundary for the highlighter.
                     while (start in 1 until range.first && wordCharacter(sentence[start - 1]) && wordCharacter(sentence[start])) start++
                     sentence.substring(start).trimStart().take(SNIPPET)

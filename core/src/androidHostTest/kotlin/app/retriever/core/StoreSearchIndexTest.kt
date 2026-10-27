@@ -290,7 +290,7 @@ class SearchEngineTest {
     fun keywordSearchFindsExactNumber() = runTest {
         val hits = indexedSearch().search("48213", SearchEngine.Mode.KEYWORD).hits
         assertEquals("bill.txt", hits.first().file.name)
-        assertEquals("electricity bill september invoice \u000248213\u0003", hits.first().snippet)
+        assertEquals("invoice \u000248213\u0003", hits.first().snippet)
     }
 
     @Test

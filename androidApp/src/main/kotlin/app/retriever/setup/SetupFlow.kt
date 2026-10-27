@@ -196,7 +196,7 @@ class SetupFlow(
 }
 
 /** What setup's screens can ask for; every default does nothing, so a test passes only what it checks. */
-class SetupActions(
+data class SetupActions(
     val getStarted: () -> Unit = {},
     val allowFiles: () -> Unit = {},
     val chooseInstead: () -> Unit = {},

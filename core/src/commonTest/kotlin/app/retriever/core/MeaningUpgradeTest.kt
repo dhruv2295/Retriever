@@ -88,7 +88,7 @@ class MeaningUpgradeTest {
             override fun close() = Unit
         }
         val related = SearchEngine(store, ones).search("sunset").hits
-        assertTrue(related.isNotEmpty() && related.all { it.matchReason == Words.RELATED }, "found by meaning alone: $related")
+        assertTrue(related.isNotEmpty() && related.all { it.matchReason == null && it.snippet == null }, "found by meaning alone: $related")
     }
 
     @Test fun aWarmSearchDropsOldVectorsAsSoonAsTheSignatureChanges() = runTest {
@@ -139,7 +139,7 @@ class MeaningUpgradeTest {
             override fun close() = Unit
         }
         val hit = SearchEngine(store, e).search("beach").hits.single { it.fileId == id }
-        assertEquals("receipt", hit.snippet)
+        assertNull(hit.snippet)
         assertEquals("Matches: beach", hit.matchReason)
     }
 

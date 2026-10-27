@@ -145,7 +145,7 @@ struct FileRowView: View {
                 .foregroundStyle(Color.primary)
                 .fixedSize(horizontal: false, vertical: true)
             if let snippet, !snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
+                snippetText(snippet).font(.subheadline).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             }
             if let note = Words.shared.extent(extent: extent) ?? coverage {
                 Text(note).font(.footnote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)

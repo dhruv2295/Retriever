@@ -406,10 +406,10 @@
         static let closest: [SearchEngine.Hit] = [
             SearchEngine.Hit(
                 file: file("Rent receipt March.pdf", .pdf, "Retriever/Home", daysAgo: 200), fileId: 4, chunkId: 41, locator: "p. 1",
-                snippet: "Received with thanks from the tenant", score: 0.3),
+                snippet: nil, score: 0.3),
             SearchEngine.Hit(
                 file: file("Society notice board.docx", .doc, "Downloads", daysAgo: 90), fileId: 5, chunkId: 51, locator: "",
-                snippet: "Water supply will be off on Sunday morning", score: 0.25),
+                snippet: nil, score: 0.25),
             SearchEngine.Hit(
                 file: file("Scan_0001_long_file_name_without_spaces_final_copy.pdf", .pdf, "Downloads", daysAgo: 400), fileId: 6, chunkId: 61, locator: "p. 2",
                 snippet: nil, score: 0.2),

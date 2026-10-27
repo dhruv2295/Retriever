@@ -152,7 +152,7 @@ fun FileRow(
             }
             if (!snippet.isNullOrBlank()) {
                 val text = highlighted(snippet, SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.primary))
-                Text(text, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(text, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         trailing?.invoke()

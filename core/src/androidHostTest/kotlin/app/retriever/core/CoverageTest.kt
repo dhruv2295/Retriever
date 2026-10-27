@@ -104,7 +104,7 @@ class CoverageTest {
     }
 
     @Test
-    fun aPdfPageFoundByItsPictureShowsThatPagesWords() = runTest {
+    fun aPdfPageFoundByItsPictureShowsNoTextWithoutAQueryWord() = runTest {
         val store = newStore()
         val pdf = testFile("Document_04.pdf", Kind.PDF)
         store.upsertFiles(listOf(pdf))
@@ -115,7 +115,7 @@ class CoverageTest {
 
         val hit = SearchEngine(store, FakeEmbedder()).search("zebra", SearchEngine.Mode.VECTOR).hits.single()
         assertEquals("p. 1", hit.locator)
-        assertEquals("Priya Sharma, résumé", hit.snippet)
+        assertEquals(null, hit.snippet)
     }
 
     @Test

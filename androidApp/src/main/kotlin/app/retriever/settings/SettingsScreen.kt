@@ -318,6 +318,11 @@ fun SettingsContent(
                     supportingContent = { Text(Words.readNowBody(DeviceWords.ANDROID)) },
                     modifier = Modifier.clickable(role = Role.Button, onClick = actions.readNow),
                 )
+                ListItem(
+                    headlineContent = { Text("Processing notifications") },
+                    supportingContent = { Text(if (ui.notificationsOn) "On" else "Off. Processing still runs; you just don’t see how far it’s got.") },
+                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotificationSettings),
+                )
                 if (!ui.textOnly && !ui.modelMissing) {
                     var adjust by rememberSaveable { mutableStateOf(false) }
                     ListItem(
@@ -390,11 +395,6 @@ fun SettingsContent(
                         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
                     )
                 }
-                ListItem(
-                    headlineContent = { Text("Processing notifications") },
-                    supportingContent = { Text(if (ui.notificationsOn) "On" else "Off") },
-                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotificationSettings),
-                )
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Storage")

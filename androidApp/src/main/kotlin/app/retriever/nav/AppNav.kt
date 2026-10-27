@@ -1,6 +1,7 @@
 package app.retriever.nav
 
 import android.animation.ValueAnimator
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ReportDrawn
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -95,6 +96,10 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
         val current = navController.currentBackStackEntry?.destination?.id
         if (settled() && current != null) navController.navigate(route) { popUpTo(current) { inclusive = true } }
     }
+    // Back to Home skips the predictive peek: it recomposes Home, whose open search bar is a window of its own, and that
+    // window taking focus mid-gesture makes the system cancel the back, so the viewer slides back in. A screen's own
+    // handlers come later and still win.
+    val viewerBack = @Composable { BackHandler(navController.previousBackStackEntry?.destination?.hasRoute<HomeRoute>() == true, back) }
     // Core's machine decides; SetupFlow is built here, after setUp settles, so it seeds from the stored setup.
     val start: Route = remember { if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute }
     // Reduce motion: setup gives way to Home with no fade or growth.
@@ -138,10 +143,22 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
             composable<FoldersRoute> { FoldersScreen(go, back) }
             composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
             composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
-            composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back, replace) }
-            composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back, replace) }
-            composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
-            composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back, replace) }
+            composable<PlayerRoute> {
+                viewerBack()
+                PlayerScreen(it.toRoute<PlayerRoute>(), back, replace)
+            }
+            composable<PdfRoute> {
+                viewerBack()
+                PdfPageScreen(it.toRoute<PdfRoute>(), back, replace)
+            }
+            composable<PhotoRoute> {
+                viewerBack()
+                PhotoScreen(it.toRoute<PhotoRoute>(), back)
+            }
+            composable<DocRoute> {
+                viewerBack()
+                DocScreen(it.toRoute<DocRoute>(), back, replace)
+            }
         }
     }
 }

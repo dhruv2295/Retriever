@@ -51,6 +51,7 @@ import app.retriever.core.SamplePile
 import app.retriever.core.TasteProgress
 import app.retriever.core.Words
 import app.retriever.home.HomeUi
+import app.retriever.indexing.rememberReadingPermission
 import app.retriever.model.FreeUpSpaceButton
 import app.retriever.model.MobileDataAsk
 import app.retriever.model.UpgradeFlow
@@ -87,7 +88,10 @@ fun DemoScreen(
     val suggestions by remember(ids) { retriever.suggestions(ids?.toSet() ?: emptySet()) }.collectAsStateWithLifecycle(null)
     val stage = up.stage
     val shown = remember(search, stage) { search.copy(upgrade = stage) }
-    DemoContent(ui, shown, searchActions, actions, up.description, up.percent, suggestions = suggestions)
+    // Setup ends with the rest processing in the background, so its notice is asked for here, once; Not now is kept.
+    val requestReading = rememberReadingPermission(retriever)
+    val finishing = remember(actions, requestReading) { actions.copy(finish = { requestReading(actions.finish) }) }
+    DemoContent(ui, shown, searchActions, finishing, up.description, up.percent, suggestions = suggestions)
     // Try again after a failed download asks before using mobile data, as Home does.
     MobileDataAsk(up, remember(upgrade) { upgrade.actions(dismissible = false) })
 }

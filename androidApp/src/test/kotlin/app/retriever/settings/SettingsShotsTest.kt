@@ -295,7 +295,7 @@ class SettingsShotsTest {
         rule.onNodeWithText("Processing notifications").performScrollTo().performClick()
 
         assertEquals(1, opened)
-        rule.onNodeWithText("Off").assertExists()
+        rule.onNodeWithText("Off. Processing still runs; you just don’t see how far it’s got.").assertExists()
         assertEquals(0, rule.onAllNodesWithTextCount("On"))
     }
 
