@@ -29,7 +29,7 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 
 - Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface
   (`face_recognition_sface_2021dec.onnx`, sha256 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79)
-- Converted to `androidApp/src/main/assets/sface.tflite` (float16 weights) and `iosApp/Retriever/SFace.mlpackage`
+- Converted to `androidApp/src/main/assets/sface.tflite` (float16 weights) and `iosApp/Retriever/Faces/SFace.mlpackage`
   (Core ML, float16); the network and its weights are otherwise unchanged
 - Copyright OpenCV team and the SFace authors (Zhong et al., "SFace: Sigmoid-Constrained Hypersphere Loss for Robust
   Face Recognition", 2021)
