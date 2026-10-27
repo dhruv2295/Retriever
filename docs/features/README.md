@@ -19,6 +19,7 @@ One note per feature: purpose, mechanism and why, files. Code layout is in [ARCH
 - [Model lifecycle and the AI pipeline](model-lifecycle.md)
 - [Name index](name-index.md)
 - [Notifications](notifications.md)
+- [People](people.md)
 - [Onboarding](onboarding.md)
 - [Query parser](query-parser.md)
 - [Search engine](search-engine.md)

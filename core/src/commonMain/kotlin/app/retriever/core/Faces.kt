@@ -238,6 +238,7 @@ internal fun Store.renamePerson(id: Long, name: String?) = faces.renamePerson(na
 internal fun Store.mergePeople(into: Long, from: Long) = inTransaction {
     if (into == from) return@inTransaction
     faces.moveFaces(into, from)
+    faces.adoptName(from, into)
     faces.deletePerson(from)
 }
 
@@ -267,6 +268,7 @@ internal class FacePass(
     suspend fun run(budget: Duration, stop: () -> StopReason?, awaitUi: suspend () -> Unit): StopReason {
         val start = TimeSource.Monotonic.markNow()
         var sinceGrouping = 0
+        var looked = false
         try {
             while (true) {
                 val page = store.pendingFaces(PAGE).ifEmpty { return StopReason.DONE }
@@ -288,6 +290,7 @@ internal class FacePass(
                         log("Couldn't look for faces in a photo", e)
                         null
                     }
+                    looked = true
                     if (found != null) {
                         store.saveFaces(p.id, found)
                         if (found.isNotEmpty() && ++sinceGrouping >= GROUP_EVERY) {
@@ -299,10 +302,9 @@ internal class FacePass(
                 }
             }
         } finally {
-            if (sinceGrouping > 0) {
-                store.groupNewFaces()
-                onGrouped()
-            }
+            if (sinceGrouping > 0) store.groupNewFaces()
+            // Also after photos with no face, so a count of photos to go reaches 0.
+            if (looked) onGrouped()
         }
     }
 

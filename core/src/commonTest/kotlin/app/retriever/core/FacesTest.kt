@@ -128,8 +128,10 @@ class FacesTest {
         store.groupNewFaces()
         val (big, small) = store.people(1)
         store.notThisPerson(small.id, ids[1])
+        store.renamePerson(small.id, "Asha")
         store.mergePeople(into = big.id, from = small.id)
         assertEquals(listOf(4), store.people(1).map { it.photos })
+        assertEquals(listOf("Asha"), store.people(1).map { it.name }, "the kept person takes the name they lacked")
         store.groupNewFaces()
         assertEquals(4, store.people(1).single().photos, "the face taken out of the merged person stays out")
     }
@@ -155,6 +157,18 @@ class FacesTest {
         assertEquals(FacesProgress(3, 0), store.facesProgress())
         assertEquals(1, grouped)
         assertEquals(ids.take(3).reversed(), store.personFileIds(store.people().single().id))
+    }
+
+    @Test
+    fun aPassOverPhotosWithNoFaceStillSaysSo() = runTest {
+        val (store, _) = storeWithPhotos(2)
+        val none = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> = emptyList()
+        }
+        var told = 0
+        assertEquals(StopReason.DONE, FacePass(store, none, { _, _ -> }) { told++ }.run(1.minutes, { null }, {}))
+        assertEquals(1, told, "Home's count of photos to go reads again")
+        assertEquals(FacesProgress(2, 0), store.facesProgress())
     }
 
     @Test

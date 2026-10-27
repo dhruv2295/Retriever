@@ -837,6 +837,10 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     fun filesTakenBetween(from: Long, to: Long, limit: Int, offset: Int = 0): List<StoredFile> =
         q.filesTakenBetween(from, to, limit.toLong(), offset.toLong(), ::storedFile).executeAsList()
 
+    /** [person]'s photos, newest first (Faces.kt). */
+    fun personFiles(person: Long, limit: Int, offset: Int = 0): List<StoredFile> =
+        faces.personFiles(person, limit.toLong(), offset.toLong(), ::storedFile).executeAsList()
+
     internal fun lastChunkId(): Long = q.lastChunkId().executeAsOne()
 
     /** New usable chunks include successful later passes; deleting older library files cannot subtract session work. */

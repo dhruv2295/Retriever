@@ -50,6 +50,7 @@ import app.retriever.R
 import app.retriever.core.BrowseKind
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
+import app.retriever.core.Person
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.YearMemory
@@ -60,6 +61,7 @@ import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
 import app.retriever.search.SearchActions
 import app.retriever.ui.Format
+import app.retriever.ui.components.FaceAvatar
 import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbnailImage
@@ -124,6 +126,33 @@ internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchAction
                 FileTile(f, TILE) {
                     Opener.queue(files)
                     actions.onOpenFile(it)
+                }
+            }
+        }
+    }
+}
+
+/** Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos. */
+@Composable
+internal fun PeopleSection(people: List<Person>, facesLeft: Long, go: (Route) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(Words.PEOPLE, subtitle = if (facesLeft > 0) Words.lookingForFaces(facesLeft) else null)
+        if (people.isNotEmpty()) {
+            LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(people, key = { it.id }, contentType = { "person" }) { p ->
+                    val title = Words.personTitle(p.name)
+                    Column(
+                        Modifier
+                            .width(TILE)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(role = Role.Button, onClickLabel = "Open") { go(BrowseRoute(title = title, person = p.id)) }
+                            .semantics(mergeDescendants = true) { contentDescription = "$title, ${Words.plural(p.photos.toLong(), "photo")}" },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FaceAvatar(p.cover, p.name, TILE - 16.dp)
+                        Muted(title, maxLines = 1)
+                    }
                 }
             }
         }

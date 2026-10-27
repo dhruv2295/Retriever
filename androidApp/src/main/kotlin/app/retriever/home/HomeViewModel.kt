@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import app.retriever.access.AccessService
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
+import app.retriever.core.Person
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
@@ -72,6 +73,10 @@ data class HomeUi(
     val introDue: Boolean = false,
     /** Setup's first search's files, core's [app.retriever.core.SetupInputs.planned]. */
     val planned: Long = 0,
+    /** Grouped faces, most photos first; empty while Recognize people is off. */
+    val people: List<Person> = emptyList(),
+    /** Photos still to look at for faces. */
+    val facesLeft: Long = 0,
 ) {
     val progress: ReadingProgress get() = ReadingProgress(
         (contentRead - partlyRead).coerceAtLeast(0),
@@ -164,6 +169,13 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         launch { retriever.readingStatus().collect { s -> _ui.update { it.copy(readingStatus = s) } } }
         launch { retriever.counts().collect { c -> _ui.update { it.withCounts(c) } } }
         launch { retriever.suggestions().collect { s -> _ui.update { it.copy(suggestions = s) } } }
+        // The faces pass tells people() after each photo it groups, so the count to go follows it.
+        launch {
+            retriever.people().collect { p ->
+                val left = if (retriever.prefs.value.recognizePeople) runCatching { retriever.facesProgress().pending }.getOrDefault(0L) else 0L
+                _ui.update { it.copy(people = p, facesLeft = left) }
+            }
+        }
         // Core's facts follow files coming, going and changing, never a file being read.
         launch {
             retriever.home().collect { h ->

@@ -438,6 +438,26 @@ object Words {
     const val KIND_OFF = "Turned off: Retriever still finds these by name, but forgets what’s inside them. Your files aren’t touched."
     const val SHOW_ON_THIS_DAY = "Show On this day (photos from this date in past years)"
 
+    // People (docs/features/people.md): off until the person turns it on.
+    const val PEOPLE = "People"
+    const val RECOGNIZE_PEOPLE = "Recognize people"
+    const val RECOGNIZE_PEOPLE_DETAIL =
+        "Groups the faces in your photos so you can name people and find them by name. Processed on this phone, never backed up."
+    const val FORGET_PEOPLE_TITLE = "Forget every face and name?"
+    const val FORGET_PEOPLE_BODY = "Retriever forgets the faces it grouped and the names you gave. Your photos aren’t touched."
+    const val FORGET = "Forget"
+    const val NOT_THIS_PERSON = "Not this person"
+    const val ADD_A_NAME = "Add a name"
+    const val NAME = "Name"
+    const val SAVE = "Save"
+    const val SAME_PERSON_AS = "Same person as…"
+
+    /** The person's screen title and the rename dialog's: their name, or the ask for one. */
+    fun personTitle(name: String?): String = name ?: ADD_A_NAME
+
+    /** Home's People header line while photos still wait to be looked at. */
+    fun lookingForFaces(left: Long): String = "Looking for faces · ${formatCount(left)} to go"
+
     /** Settings → Storage: a title, then its size and where it is kept. */
     const val RETRIEVERS_DATA = "Retriever’s data"
     const val TEMPORARY_FILES = "Temporary files"

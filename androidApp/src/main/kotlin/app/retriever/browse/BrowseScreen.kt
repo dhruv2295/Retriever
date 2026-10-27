@@ -79,7 +79,7 @@ private val GRID_KINDS = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
  * all-files access can call the list "All files": with less (limited Photos, a few folders) it is what Retriever can see.
  */
 internal fun browseTitle(route: BrowseRoute, sort: String, allFiles: Boolean): String =
-    if (route.kind == null && route.folder == null && !route.starredOnly && route.takenFrom == null && sort != "LARGEST") {
+    if (route.kind == null && route.folder == null && !route.starredOnly && route.takenFrom == null && route.person == null && sort != "LARGEST") {
         if (allFiles) "All files" else "Files Retriever can access"
     } else {
         route.title
@@ -108,28 +108,43 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
     // As on a search result: starring says so, with Undo, which also brings an unstarred file back to this list.
     val onStar = remember(vm, snackbar, scope) { starWithUndo({ file, on -> vm.stars.set(file.uri, on) }, snackbar, scope) }
     StarFailureEffect(vm.stars, snackbar)
+    val people by vm.people.collectAsStateWithLifecycle()
+    val person = people.firstOrNull { it.id == route.person }
+    // Until the people load, the name Home opened them with.
+    val title = if (route.person == null) browseTitle(route, ui.sort, access.allFiles) else person?.let { Words.personTitle(it.name) } ?: route.title
+    val personFailed by vm.personFailed.collectAsStateWithLifecycle()
+    LaunchedEffect(personFailed) {
+        if (personFailed) {
+            snackbar.showSnackbar("Couldn't change this person. Try again.")
+            vm.personFailureShown()
+        }
+    }
 
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(browseTitle(route, ui.sort, access.allFiles)) },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
                     }
+                },
+                actions = {
+                    if (route.person != null) PersonActions(person, people.filter { it.id != route.person }, vm::rename, vm::sameAs)
                 },
             )
         },
     ) { padding ->
         BrowseContent(
             ui = ui,
-            // A day holds photos and videos together: a grid, oldest first, so no sort chips.
-            kind = if (route.takenFrom != null) Kind.PHOTO else Kind.entries.firstOrNull { it.name == route.kind },
-            sortable = route.takenFrom == null,
+            // A day, or a person, holds photos and videos together: a grid in its own order, so no sort chips.
+            kind = if (route.takenFrom != null || route.person != null) Kind.PHOTO else Kind.entries.firstOrNull { it.name == route.kind },
+            sortable = route.takenFrom == null && route.person == null,
             starredOnly = route.starredOnly,
-            filtered = route.kind != null || route.folder != null || route.takenFrom != null,
+            filtered = route.kind != null || route.folder != null || route.takenFrom != null || route.person != null,
+            onNotThisPerson = if (route.person != null) vm::notThisPerson else null,
             onManageAccess = { onNavigate(StatusRoute) },
             padding = padding,
             onSort = vm::setSort,
@@ -162,6 +177,8 @@ fun BrowseContent(
     onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
     onRetry: () -> Unit = {},
     onScrolling: (Boolean) -> Unit = {},
+    /** A person's photos: the menu can take one out of their group. */
+    onNotThisPerson: ((Store.StoredFile) -> Unit)? = null,
 ) {
     val files = ui.files
     Column(modifier.padding(top = padding.calculateTopPadding())) {
@@ -240,7 +257,7 @@ fun BrowseContent(
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
+                            StarMenu(stored.file, on, { onStar(stored.file, !on) }, onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
                                 ThumbCell(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
@@ -305,8 +322,14 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
 
 /** A file list's long-press menu, the shared one; a star here offers Undo through [toggle]. */
 @Composable
-private fun StarMenu(file: SourceFile, on: Boolean, toggle: () -> Unit, content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit) {
-    FilePressMenu(file, starred = on, onStar = { toggle() }, content = content)
+private fun StarMenu(
+    file: SourceFile,
+    on: Boolean,
+    toggle: () -> Unit,
+    notThisPerson: (() -> Unit)? = null,
+    content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit,
+) {
+    FilePressMenu(file, starred = on, onStar = { toggle() }, notThisPerson = notThisPerson, content = content)
 }
 
 private fun Store.Sort.label(): String = when (this) {

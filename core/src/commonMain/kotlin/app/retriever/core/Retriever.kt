@@ -1488,13 +1488,9 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun facesProgress(): FacesProgress = io { store.facesProgress() }
 
-    /** [id]'s photos, newest first. */
+    /** [id]'s photos, newest first, a page at a time. */
     @Throws(Throwable::class)
-    suspend fun personPhotos(id: Long): List<SourceFile> = io {
-        val ids = store.personFileIds(id)
-        val files = ids.chunked(500).fold(HashMap<Long, SourceFile>()) { all, part -> all.apply { putAll(store.files(part)) } }
-        ids.mapNotNull { files[it] }
-    }
+    suspend fun personPhotos(id: Long, limit: Int, offset: Int): List<Store.StoredFile> = io { withExtents(store.personFiles(id, limit, offset)) }
 
     /** A blank [name] makes the person unnamed again. */
     @Throws(Throwable::class)

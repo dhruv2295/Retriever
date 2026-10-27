@@ -99,15 +99,23 @@ personFileIds:
 SELECT DISTINCT fi.id FROM faces fa JOIN files fi ON fi.id = fa.file_id WHERE fa.person_id = ?
 ORDER BY COALESCE(fi.taken_at, fi.modified_at) DESC, fi.id DESC;
 
+-- A person's photos as files, newest first, a page at a time (the person's screen).
+personFiles:
+SELECT * FROM files WHERE id IN (SELECT file_id FROM faces WHERE person_id = :person)
+ORDER BY COALESCE(taken_at, modified_at) DESC, id DESC LIMIT :limit OFFSET :offset;
+
 namedPersons:
 SELECT id, name FROM persons WHERE name IS NOT NULL;
 
 renamePerson:
 UPDATE persons SET name = :name WHERE id = :id;
 
--- Merging: :from's faces become :into's.
+-- Merging: :from's faces become :into's, and :from's name when :into has none.
 moveFaces:
 UPDATE faces SET person_id = :into WHERE person_id = :from;
+
+adoptName:
+UPDATE persons SET name = (SELECT name FROM persons WHERE id = :from) WHERE id = :into AND name IS NULL;
 
 deletePerson:
 DELETE FROM persons WHERE id = ?;

@@ -35,7 +35,7 @@ class PeopleTest {
         val found = r.search("asha", null, 10)
         assertEquals(listOf("Asha"), found.parsed?.people)
         assertEquals(listOf("p3.jpg", "p2.jpg", "p1.jpg"), found.hits.map { it.file.name })
-        assertEquals(listOf("p3.jpg", "p2.jpg", "p1.jpg"), r.personPhotos(asha.id).map { it.name })
+        assertEquals(listOf("p3.jpg", "p2.jpg", "p1.jpg"), r.personPhotos(asha.id, 10, 0).map { it.file.name })
 
         r.updatePrefs { it.copy(recognizePeople = false) }
         assertEquals(emptyList(), r.peopleNow())

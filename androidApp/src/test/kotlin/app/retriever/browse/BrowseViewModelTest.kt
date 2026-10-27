@@ -4,6 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModelStore
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.CoreDispatchers
+import app.retriever.core.FACE_DIMS
+import app.retriever.core.FaceBox
+import app.retriever.core.FaceReader
+import app.retriever.core.FoundFace
 import app.retriever.core.Kind
 import app.retriever.duplicates.retrieverOver
 import app.retriever.nav.BrowseRoute
@@ -170,5 +174,26 @@ class BrowseViewModelTest {
         assertEquals(listOf("early.jpg", "clip.mp4", "late.jpg"), loaded.files.map { it.file.name })
         assertTrue(loaded.exhausted)
         assertEquals("17 October 2023", browseTitle(vm.route, loaded.sort, allFiles = true))
+    }
+
+    @Test fun aPersonListsTheirPhotosAndLetsOneGo() = runTest {
+        val photos = (1..3).map { testFile("p$it.jpg", Kind.PHOTO).copy(modifiedAt = it.toLong()) }
+        val face = FloatArray(FACE_DIMS).also { it[0] = 1f }
+        val reader = object : FaceReader {
+            override suspend fun faces(uri: String) = listOf(FoundFace(FaceBox(0f, 0f, 0.5f, 0.5f), face))
+        }
+        val retriever = testRetriever(photos, faceReader = reader)
+        retriever.updatePrefs { it.copy(recognizePeople = true) }
+        retriever.uiVisible = true
+        repeat(2) { retriever.indexBatch(1.minutes) }
+        val asha = retriever.peopleNow().single()
+        val vm = BrowseViewModel(retriever, SavedStateHandle(mapOf("title" to "Add a name", "starredOnly" to false, "person" to asha.id)))
+        val loaded = vm.uiState.first { it.files.size == 3 }
+        assertEquals(listOf("p3.jpg", "p2.jpg", "p1.jpg"), loaded.files.map { it.file.name })
+
+        vm.notThisPerson(loaded.files.first())
+        assertEquals(listOf("p2.jpg", "p1.jpg"), vm.uiState.first { it.files.size == 2 }.files.map { it.file.name })
+        vm.rename("Asha")
+        assertEquals("Asha", retriever.people().first { p -> p.any { it.name != null } }.single().name)
     }
 }

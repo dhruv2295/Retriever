@@ -48,6 +48,7 @@ import app.retriever.core.android.AndroidContentHasher
 import app.retriever.core.android.AndroidDeviceMonitor
 import app.retriever.core.android.AndroidDeviceProbe
 import app.retriever.core.android.AndroidExtractor
+import app.retriever.core.android.AndroidFaceReader
 import app.retriever.core.android.AndroidFrameSource
 import app.retriever.core.android.MediaPipeEmbedderFactory
 import app.retriever.core.android.MediaStoreSource
@@ -231,6 +232,7 @@ val appModule = module {
             dispatchers = CoreDispatchers(indexing = indexingDispatcher, readAhead = readAheadDispatcher),
             frames = AndroidFrameSource(androidContext()),
             lastExitCrashed = androidContext().let { app -> { ExitReasons.lastExitCrashed(app) } },
+            faceReader = AndroidFaceReader(androidContext()),
         )
     }
 

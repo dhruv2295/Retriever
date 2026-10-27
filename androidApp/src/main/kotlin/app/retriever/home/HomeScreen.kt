@@ -291,6 +291,9 @@ internal fun HomeBody(
         if (ui.hasAccess && facts.recentlyAdded.isNotEmpty()) {
             item(key = "recent", span = FullLine, contentType = "recent") { RecentlyAddedSection(facts.recentlyAdded, actions) }
         }
+        if (ui.hasAccess && (ui.people.isNotEmpty() || ui.facesLeft > 0)) {
+            item(key = "people", span = FullLine, contentType = "people") { PeopleSection(ui.people, ui.facesLeft, actions.onNavigate) }
+        }
         val day = ui.memoriesDay
         if (ui.hasAccess && ui.showOnThisDay && day != null && ui.memories.isNotEmpty()) {
             item(key = "day", span = FullLine, contentType = "day") { OnThisDaySection(day, ui.memories, actions.onNavigate, home.hideOnThisDay) }
