@@ -14,10 +14,11 @@ import kotlin.time.TimeSource
 const val FACE_DIMS = 128
 
 /**
- * Two fingerprints at or above this cosine are taken to be one person: OpenCV's FaceRecognizerSF threshold for SFace
- * (opencv_zoo models/face_recognition_sface/sface.py, `_threshold_cosine`).
+ * Two fingerprints at or above this cosine are taken to be one person. OpenCV's own SFace threshold (0.363, tuned on
+ * LFW's celebrities) put strangers in one person on a real 3,500-photo library; at 0.5 faces sharing a photo stopped
+ * joining one person except in collages, where they are one person (docs/features/people.md).
  */
-const val SAME_PERSON = 0.363f
+const val SAME_PERSON = 0.5f
 
 /** An unnamed person shows on Home once they are in this many photos; a named one shows from their first. */
 const val PERSON_MIN_PHOTOS = 3

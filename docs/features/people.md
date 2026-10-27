@@ -23,8 +23,12 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is left
   out (`MAX_FACE_ATTEMPTS`).
 - **Grouping only places new faces.** `groupNewFaces` places faces added since `faces_grouped_through`: each joins the
-  person whose mean fingerprint is closest at cosine ≥ 0.363 (OpenCV's SFace threshold), or pairs with another lone
-  face to start a person. Older faces never move, which is what makes "Not this person" and merges stick without a
+  person whose mean fingerprint is closest at cosine ≥ 0.5 (`SAME_PERSON`), or pairs with another lone face to start a
+  person. OpenCV's SFace threshold, 0.363, is tuned on LFW's celebrities; on a real library (a Pixel's 3,474 photos,
+  1,929 faces) it put strangers together. Two faces in one photo are different people unless it is a collage, so pairs
+  from one photo grouped as one person measure it: 231 at 0.363, 123 at 0.45, 109 at 0.5 and still 109 at 0.55, the
+  collages. 0.5 costs coverage (faces in a person shown on Home: 90% → 77%) and splits some people, which "Same person
+  as…" mends. Older faces never move, which is what makes "Not this person" and merges stick without a
   rejection table.
 - **Corrections.** Rename (blank makes them unnamed again), "Same person as…" (the other group's photos join this
   one, and its name when this one has none), and "Not this person" on a photo's long-press menu (the person's faces in
@@ -66,7 +70,9 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 ## Known limits
 
-- Grouping quality on real libraries is unmeasured beyond the reference pairs above.
+- SFace is the ceiling, not our pipeline: OpenCV's own detector and SFace give the same fingerprints (median cosine
+  0.95 to ours on one library) and the same overlap, strangers up to ~0.45 and one person down to ~0.3. Grouping
+  quality was measured on one library only, without labels beyond faces sharing a photo.
 - The bundled model adds 19.3 MB to the APK and to git history; the int8 variant (9.9 MB) missed the fidelity target.
 - SFace's training data is not named by its authors (see `THIRD_PARTY_NOTICES.md`).
 - Until every photo has been looked at, reading gets three quarters of each batch, so a large library's first read
