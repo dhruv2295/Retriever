@@ -12,8 +12,8 @@ import app.retriever.core.Prefs
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
+import app.retriever.search.HomeShell
 import app.retriever.search.SearchActions
-import app.retriever.search.SearchContent
 import app.retriever.search.SearchPane
 import app.retriever.search.SearchUi
 import app.retriever.search.answered
@@ -103,7 +103,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
         )
         val home = readyHome.copy(waiting = 0, contentRead = 5_330, home = facts)
         val actions = SearchActions()
-        SearchContent(ready, home, actions) { padding, state, side, _ ->
+        HomeShell(ready, actions, open = {}) { padding, state, side ->
             HomeBody(home, false, actions, state, padding, side)
         }
     }

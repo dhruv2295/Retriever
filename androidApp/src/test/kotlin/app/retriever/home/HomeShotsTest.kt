@@ -13,7 +13,6 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -51,8 +50,8 @@ import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
 import app.retriever.nav.SettingsRoute
 import app.retriever.nav.StatusRoute
+import app.retriever.search.HomeShell
 import app.retriever.search.SearchActions
-import app.retriever.search.SearchContent
 import app.retriever.search.SearchUi
 import app.retriever.shot
 import app.retriever.tallWindowForBigText
@@ -196,7 +195,7 @@ class HomeShotsTest {
         upgrade: UpgradeUi = UpgradeUi(),
         upgradeActions: UpgradeActions = UpgradeActions(),
         offer: Boolean = false,
-    ) = SearchContent(SearchUi(), home, actions) { padding, state, side, _ ->
+    ) = HomeShell(SearchUi(), actions, open = {}) { padding, state, side ->
         HomeBody(home, index.running, actions, state, padding, side, homeActions, celebration, upgrade, upgradeActions, offer)
     }
 
@@ -562,13 +561,12 @@ class HomeShotsTest {
         rule.onNodeWithText("Looking for your files").assertExists()
     }
 
-    @Test fun theSearchFieldAsksTheQuestionAtTheBottomAndSettingsIsAtTheTop() {
+    @Test fun theSearchPillAsksTheQuestionAtTheBottomAndSettingsIsAtTheTop() {
         val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onNavigate = { went += it })) } }
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        val field = rule.onNode(hasSetTextAction()).fetchSemanticsNode().boundsInRoot
-        assertTrue("search in the bottom half", field.top > root.height / 2)
-        rule.onNodeWithText(Words.SEARCH_FIELD).assertExists()
+        val pill = rule.onNodeWithText(Words.SEARCH_FIELD).fetchSemanticsNode().boundsInRoot
+        assertTrue("search in the bottom half", pill.top > root.height / 2)
         rule.onNodeWithContentDescription("Settings").performClick()
         assertEquals(listOf<Route>(SettingsRoute), went)
     }

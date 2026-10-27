@@ -14,30 +14,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Adapted from androidx compose material3 1.4.0 samples SearchBarSamples.kt SimpleSearchBarSample (Apache-2.0) and google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt results grid (Apache-2.0). Modified for Retriever: one shared input field for the collapsed and full-screen bar, search by photo, recent searches, kind chips that search again, and a grid that mixes picture cells with full-width document rows keyed by file.
+// Adapted from androidx compose material3 1.4.0 samples SearchBarSamples.kt SimpleSearchBarSample (Apache-2.0) and google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt results grid (Apache-2.0). Modified for Retriever: search on a screen of its own opened from a pill on Home, search by photo, recent searches, kind chips that search again, and a grid that mixes picture cells with full-width document rows keyed by file.
 
 package app.retriever.search
 
 import android.content.Context
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
@@ -57,35 +57,28 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -93,28 +86,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.WindowCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.core.Kind
+import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
@@ -124,13 +115,13 @@ import app.retriever.home.HomeUi
 import app.retriever.home.HomeViewModel
 import app.retriever.model.UpgradeFlow
 import app.retriever.nav.Route
+import app.retriever.nav.SearchRoute
 import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -158,24 +149,56 @@ data class SearchActions(
 
 internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
+/** Home: its page, and the search pill that opens [SearchScreen]. */
+@Composable
+fun HomeHost(onNavigate: (Route) -> Unit, modifier: Modifier = Modifier, pillModifier: Modifier = Modifier, vm: SearchViewModel = koinViewModel()) {
+    val search by vm.ui.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
+    HomeShell(search, actions, onNavigate, modifier, pillModifier) { padding, state, side -> HomeScreen(actions, state, padding, side) }
+}
+
+/**
+ * Search on a screen of its own, on the nav host's back stack like any other: a viewer opened from it goes back to it,
+ * and it goes back to where it was opened. [SearchRoute.scoped] keeps it to the first run's files.
+ */
 @Composable
 fun SearchScreen(
+    route: SearchRoute,
     onNavigate: (Route) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     vm: SearchViewModel = koinViewModel(),
-    homeVm: HomeViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
+    retriever: Retriever = koinInject(),
 ) {
+    val home = if (route.scoped) {
+        val ids by retriever.scopeIds.collectAsStateWithLifecycle()
+        LaunchedEffect(ids) { vm.setScope(ids) }
+        // What to try comes from the first run's files too.
+        val suggestions by remember(ids) { retriever.suggestions(ids?.toSet().orEmpty()) }.collectAsStateWithLifecycle(null)
+        HomeUi(suggestions = suggestions)
+    } else {
+        koinViewModel<HomeViewModel>().ui.collectAsStateWithLifecycle().value
+    }
     val search by vm.ui.collectAsStateWithLifecycle()
-    val home by homeVm.ui.collectAsStateWithLifecycle()
     val stage by upgrade.stage.collectAsStateWithLifecycle()
     val ui = remember(search, stage) { search.copy(upgrade = stage) }
     val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
-    SearchContent(ui, home, actions) { padding, state, side, _ ->
-        HomeScreen(actions, state, padding, side)
+    // What the route asks for, once: the screen kept behind a viewer has it already.
+    var started by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (started) return@LaunchedEffect
+        started = true
+        when {
+            route.photo != null -> actions.onPhoto(route.photo.toUri())
+            route.run -> actions.onSubmit(route.query)
+        }
     }
+    SearchContent(ui, home, actions, onBack, modifier, query = route.query, typing = !route.run && route.photo == null)
 }
 
 /** The screen's actions on this view model; the first run's demo hosts the same search with the same ones. */
@@ -204,169 +227,39 @@ fun SearchViewModel.actions(context: Context, onNavigate: (Route) -> Unit) = Sea
     onErrorShown = this::errorShown,
 )
 
+/**
+ * Home's frame, and the first run's demo's: a settings bar (none above a [footer]), the page, and the search pill docked
+ * at the bottom in a thumb's reach. The pill holds no field: it opens [open]'s search, where the typing happens.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchContent(
+fun HomeShell(
     ui: SearchUi,
-    home: HomeUi,
     actions: SearchActions,
+    open: (SearchRoute) -> Unit,
     modifier: Modifier = Modifier,
-    /** The field's placeholder; the demo's names its files. */
+    /** The pill's own: the nav host's shared bounds, so the pill grows into the search screen. */
+    pillModifier: Modifier = Modifier,
+    /** The pill's words; the demo's names its files. */
     placeholder: String = Words.SEARCH_FIELD,
-    /** Under the docked bar, pinned with it: the demo's Continue. With one, there is no top bar: nothing goes there. */
+    /** Under the pill, pinned with it: the demo's Continue. */
     footer: (@Composable () -> Unit)? = null,
-    /** The Home page: the padding the top bar leaves, its list state, the side gutter, and fill (a past search into the field; true also runs it). */
-    homeContent: @Composable (PaddingValues, LazyStaggeredGridState, Dp, (String, Boolean) -> Unit) -> Unit,
+    /** The page: the padding the bars leave, its list state, and the side gutter. */
+    content: @Composable (PaddingValues, LazyStaggeredGridState, Dp) -> Unit,
 ) {
-    val bar = rememberSearchBarState()
-    val text = rememberTextFieldState(ui.query)
-    val scope = rememberCoroutineScope()
     val homeList = rememberLazyStaggeredGridState()
-    val grid = rememberLazyGridState()
-    // One host state for Home and the full-screen bar: only the one in front is seen.
-    val snackbar = remember { SnackbarHostState() }
-    // Consumed after it was shown: consuming first changes the key, which cancels the effect and takes the snackbar down.
-    LaunchedEffect(ui.error) {
-        ui.error?.let {
-            snackbar.showSnackbar(it)
-            actions.onErrorShown()
-        }
-    }
-    val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-        if (uri != null) {
-            actions.onPhoto(uri)
-            scope.launch { bar.animateToExpanded() }
-        }
-    }
-
-    LaunchedEffect(text) { snapshotFlow { text.text.toString() }.collect { actions.onQuery(it) } }
-    // A search by photo replaces the words.
-    LaunchedEffect(ui.similar) { if (ui.similar != null) text.clearText() }
-    // The grid keeps its place by item key, so a new answer sharing a key (a section header, a file) would open
-    // part way down, past its best matches. Saveable, so coming back from a viewer keeps the place.
-    var shownAnswer by rememberSaveable { mutableIntStateOf(ui.answer) }
-    LaunchedEffect(ui.answer) {
-        if (ui.answer != shownAnswer) {
-            grid.scrollToItem(0)
-            shownAnswer = ui.answer
-        }
-    }
-    // A search handed in from outside (a shortcut) opens the bar with its words, once. Saveable, so a return from a viewer does not reopen it.
+    ScrollingEffect({ homeList.isScrollInProgress }, actions.onScrolling)
+    // A search handed in from outside (a shortcut) opens its results, once. Saveable, so coming back does not reopen them.
     var shownLaunch by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(ui.launched) {
         if (ui.launched > shownLaunch) {
             shownLaunch = ui.launched
-            text.setTextAndPlaceCursorAtEnd(ui.query)
-            bar.animateToExpanded()
+            open(SearchRoute(ui.query, run = true))
         }
     }
-    ScrollingEffect({ homeList.isScrollInProgress || grid.isScrollInProgress }, actions.onScrolling)
-    // The collapsed bar and the full-screen one are two fields: busy while either has focus, whichever event comes first.
-    val focusing = remember { mutableStateSetOf<Any>() }
-    LaunchedEffect(Unit) { snapshotFlow { focusing.isNotEmpty() }.collect { actions.onFocus(it) } }
-    // Busy pauses indexing. The collectors above die with this screen before saying "not busy", and a focused field
-    // stays focused in the background, so leaving the screen or the app says it here: else reading stalls until return.
-    LifecycleStartEffect(Unit) {
-        actions.onFocus(focusing.isNotEmpty())
-        onStopOrDispose {
-            actions.onFocus(false)
-        }
-    }
-
-    // A search run from a chip (Home's, the demo's) opens the bar on its results with nothing to type. M3 asks the opening
-    // bar's field for focus, and taking it back afterwards loses to the keyboard on a phone, so the field turns down that
-    // one request: no keyboard, and one Back leaves the results. Every later one (a touch, TalkBack's double-tap, Tab)
-    // focuses it as usual. Not "until the bar settles": M3's request can land after that, and the keyboard came back.
-    // Saveable and set on opening a file in a viewer too: back from it reopens the bar, and its field would take the
-    // keyboard, which then eats the first Back. Not for a file another app opens: the bar stays and asks for nothing.
-    var picked by rememberSaveable { mutableStateOf(false) }
-    val paneActions = remember(actions) {
-        actions.copy(
-            onOpenHit = {
-                picked = Opener.routeFor(it.file) != null
-                actions.onOpenHit(it)
-            },
-            onOpenFile = {
-                picked = Opener.routeFor(it) != null
-                actions.onOpenFile(it)
-            },
-        )
-    }
-    val closeSearch = {
-        picked = false
-        text.clearText()
-        actions.onQuery("")
-        actions.onClearSimilar()
-        scope.launch { bar.animateToCollapsed() }
-        Unit
-    }
-    BackHandler(enabled = text.text.isNotEmpty() || ui.similar != null || bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
-
-    // Read before the lambda, so it captures these two values and not the whole SearchUi.
-    val similar = ui.similar
-    val photoSearch = ui.canSearchByPhoto
-    val inputField = @Composable {
-        // Read here: the expanded bar shows this field in its own dialog window.
-        val keyboard = LocalSoftwareKeyboardController.current
-        val focus = LocalFocusManager.current
-        // The bar focuses its field when it opens; a search by photo has nothing to type.
-        LaunchedEffect(similar, bar.currentValue) {
-            if (similar != null && bar.currentValue == SearchBarValue.Expanded) {
-                focus.clearFocus()
-                keyboard?.hide()
-            }
-        }
-        val me = remember { Any() }
-        DisposableEffect(me) { onDispose { focusing.remove(me) } }
-        SearchBarDefaults.InputField(
-            // A group, as a focus target's onEnter runs only for focus coming into it from outside.
-            modifier = Modifier.focusProperties {
-                onEnter = {
-                    if (picked) {
-                        picked = false
-                        cancelFocusChange()
-                    }
-                }
-            }.focusGroup().onFocusChanged {
-                if (it.hasFocus) focusing.add(me) else focusing.remove(me)
-            },
-            textFieldState = text,
-            searchBarState = bar,
-            onSearch = {
-                actions.onSubmit(it)
-                // Done typing: a focused field with the keyboard down would take the first Back.
-                focus.clearFocus()
-                keyboard?.hide()
-            },
-            placeholder = { Text(placeholder, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            leadingIcon = {
-                if (bar.currentValue == SearchBarValue.Expanded) {
-                    IconButton(onClick = closeSearch) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
-                    }
-                } else {
-                    Icon(painterResource(R.drawable.ic_search), contentDescription = null)
-                }
-            },
-            trailingIcon = {
-                if (text.text.isNotEmpty() || similar != null) {
-                    IconButton(onClick = {
-                        text.clearText()
-                        actions.onClearSimilar()
-                    }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search") }
-                } else if (photoSearch) {
-                    // Matching a photo needs the model a words-only phone leaves out, and on the first run photos to match.
-                    IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
-                        Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo")
-                    }
-                }
-            },
-        )
-    }
-
+    val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> if (uri != null) open(SearchRoute(photo = uri.toString())) }
     Scaffold(
         modifier = modifier,
-        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (footer == null) {
                 TopAppBar(title = {}, actions = {
@@ -377,8 +270,7 @@ fun SearchContent(
             }
         },
         bottomBar = {
-            // Docked at the bottom, in a thumb's reach; opaque, so Home's rows never show through it. safeDrawing holds
-            // the navigation bar and the keyboard.
+            // Opaque, so Home's rows never show through it. safeDrawing holds the navigation bar.
             Column(
                 Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
@@ -386,41 +278,144 @@ fun SearchContent(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SearchBar(state = bar, inputField = { inputField() }, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth())
+                // Matching a photo needs the model a words-only phone leaves out, and on the first run photos to match.
+                val photo = if (ui.canSearchByPhoto) ({ pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) else null
+                SearchPill(placeholder, photo, pillModifier) { open(SearchRoute()) }
                 footer?.invoke()
             }
         },
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val use = { q: String, submit: Boolean ->
-                text.setTextAndPlaceCursorAtEnd(q)
-                picked = submit
-                if (submit) actions.onSubmit(q)
-                scope.launch { bar.animateToExpanded() }
-                Unit
-            }
-            homeContent(padding, homeList, gutter(1200.dp), use)
-        }
+        BoxWithConstraints(Modifier.fillMaxSize()) { content(padding, homeList, gutter(1200.dp)) }
     }
+}
 
-    // Outside the Scaffold nothing sets the content colour, and the bar's dialog picks its status bar icons and its
-    // results' text colour from it.
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        ExpandedFullScreenSearchBar(state = bar, inputField = { inputField() }) {
-            BackHandler(enabled = bar.currentValue == SearchBarValue.Expanded, onBack = closeSearch)
-            LightStatusBarIconsOnDark()
-            SearchPane(ui, home, paneActions, grid, snackbar, useText = { text.setTextAndPlaceCursorAtEnd(it) })
+/** The collapsed search bar's look, as a button: focus and the keyboard belong to the search screen's field. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        onClick = onOpen,
+        shape = SearchBarDefaults.inputFieldShape,
+        color = SearchBarDefaults.colors().containerColor,
+        modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = SearchBarDefaults.InputFieldHeight).then(modifier),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = muted)
+            Text(
+                placeholder,
+                Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 8.dp),
+                color = muted,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (onPhoto != null) {
+                IconButton(onClick = onPhoto) { Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo") }
+            }
         }
     }
 }
 
-/** The bar's dialog is its own window: enableEdgeToEdge() set the status bar icons of the activity's only. */
+/**
+ * The search screen's body: the field on top, suggestions or results below. Back is the nav host's, as on every
+ * screen. [typing]: the keyboard comes up on the way in (an empty search, or words to edit), once: coming back from a
+ * viewer brings none.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LightStatusBarIconsOnDark() {
-    val view = LocalView.current
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    SideEffect {
-        (view.parent as? DialogWindowProvider)?.window?.let { WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars = !dark }
+fun SearchContent(
+    ui: SearchUi,
+    home: HomeUi,
+    actions: SearchActions,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    query: String = "",
+    typing: Boolean = query.isBlank(),
+) {
+    val text = rememberTextFieldState(query)
+    val grid = rememberLazyGridState()
+    val snackbar = remember { SnackbarHostState() }
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // Consumed after it was shown: consuming first changes the key, which cancels the effect and takes the snackbar down.
+    LaunchedEffect(ui.error) {
+        ui.error?.let {
+            snackbar.showSnackbar(it)
+            actions.onErrorShown()
+        }
+    }
+    val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> if (uri != null) actions.onPhoto(uri) }
+    LaunchedEffect(text) { snapshotFlow { text.text.toString() }.collect { actions.onQuery(it) } }
+    // A search by photo replaces the words.
+    LaunchedEffect(ui.similar) { if (ui.similar != null) text.clearText() }
+    // A search handed in from outside (a shortcut) while this screen shows: its words, once.
+    var shownLaunch by rememberSaveable { mutableIntStateOf(ui.launched) }
+    LaunchedEffect(ui.launched) {
+        if (ui.launched > shownLaunch) {
+            shownLaunch = ui.launched
+            text.setTextAndPlaceCursorAtEnd(ui.query)
+        }
+    }
+    // The grid keeps its place by item key, so a new answer sharing a key (a section header, a file) would open
+    // part way down, past its best matches. Saveable, so coming back from a viewer keeps the place.
+    var shownAnswer by rememberSaveable { mutableIntStateOf(ui.answer) }
+    LaunchedEffect(ui.answer) {
+        if (ui.answer != shownAnswer) {
+            grid.scrollToItem(0)
+            shownAnswer = ui.answer
+        }
+    }
+    ScrollingEffect({ grid.isScrollInProgress }, actions.onScrolling)
+    var arrived by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!arrived) {
+            arrived = true
+            if (typing) focus.requestFocus()
+        }
+    }
+    // Done typing: the keyboard goes, and the results are in full view.
+    val done = {
+        focusManager.clearFocus()
+        keyboard?.hide()
+        Unit
+    }
+    val similar = ui.similar
+    Surface(modifier.fillMaxSize(), color = SearchBarDefaults.colors().containerColor) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+            SearchBarDefaults.InputField(
+                state = text,
+                onSearch = {
+                    actions.onSubmit(it)
+                    done()
+                },
+                expanded = true,
+                onExpandedChange = {},
+                modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { actions.onFocus(it.hasFocus) },
+                placeholder = { Text(Words.SEARCH_FIELD, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = {
+                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                },
+                trailingIcon = {
+                    if (text.text.isNotEmpty() || similar != null) {
+                        IconButton(onClick = {
+                            text.clearText()
+                            actions.onClearSimilar()
+                        }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search") }
+                    } else if (ui.canSearchByPhoto) {
+                        IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
+                            Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo")
+                        }
+                    }
+                },
+            )
+            HorizontalDivider()
+            SearchPane(ui, home, actions, grid, snackbar, useText = {
+                text.setTextAndPlaceCursorAtEnd(it)
+                done()
+            })
+        }
     }
 }
 
@@ -436,7 +431,7 @@ private fun GroupHeader(title: String, modifier: Modifier = Modifier) {
 
 // --- Full-screen search ---
 
-/** The full-screen bar's body: suggestions before anything is typed, results after. */
+/** The search screen's body under its field: suggestions before anything is typed, results after. */
 @Composable
 internal fun SearchPane(
     ui: SearchUi,

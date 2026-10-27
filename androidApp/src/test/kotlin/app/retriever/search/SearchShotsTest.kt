@@ -92,7 +92,7 @@ class SearchShotsTest {
     @Composable
     @NonRestartableComposable
     private fun Screen(ui: SearchUi, home: HomeUi, index: IndexState, actions: SearchActions) =
-        SearchContent(ui, home, actions) { padding, state, side, _ -> HomeBody(home, index.running, actions, state, padding, side) }
+        HomeShell(ui, actions, open = {}) { padding, state, side -> HomeBody(home, index.running, actions, state, padding, side) }
 
     @Composable
     @NonRestartableComposable
@@ -485,7 +485,8 @@ class SearchShotsTest {
     @Test fun anErrorStaysUpUntilItWasShown() {
         val text = "That didn't work. Try again."
         var ui by mutableStateOf(ready.copy(error = text))
-        rule.setContent { ShotTheme(false, 1f) { Screen(ui, readyHome, IndexState(), SearchActions(onErrorShown = { ui = ui.copy(error = null) })) } }
+        val actions = SearchActions(onErrorShown = { ui = ui.copy(error = null) })
+        rule.setContent { ShotTheme(false, 1f) { SearchContent(ui, readyHome, actions, onBack = {}, typing = false) } }
         rule.waitForIdle()
         rule.onNodeWithText(text).assertExists()
     }

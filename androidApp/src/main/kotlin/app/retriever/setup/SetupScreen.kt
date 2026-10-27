@@ -72,6 +72,8 @@ import org.koin.compose.koinInject
 fun SetupScreen(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The demo's search pill's: the nav host's shared bounds with the search screen. */
+    pillModifier: Modifier = Modifier,
     onNavigate: (Route) -> Unit = {},
     flow: SetupFlow = koinInject(),
     access: AccessService = koinInject(),
@@ -131,7 +133,7 @@ fun SetupScreen(
     )
     // The first search is hosted by the real Search, whose field and full-screen results sit outside SetupContent's scroll.
     if (ui.stage == SetupStage.SAMPLE) {
-        DemoScreen(ui, actions, onNavigate)
+        DemoScreen(ui, actions, onNavigate, modifier, pillModifier)
     } else {
         SetupContent(ui, modifier, actions = actions, allFilesOff = allFilesOff)
     }
