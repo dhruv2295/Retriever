@@ -7,6 +7,7 @@ One command runs every check the project relies on:
 ```
 scripts/verify.sh          # default, about 2 minutes
 scripts/verify.sh --full   # default plus benchmarks, coverage, the bundle ABI check, inspections, ios-selftest and the UI tests
+scripts/verify.sh --quick  # pre-push: versions, ktlint, Swift format, notices
 ```
 
 Default layers:
@@ -100,7 +101,9 @@ Grep-checked on 2026-10-18 over `androidApp/src/main` and `core/src` main source
 ## Hooks
 
 - `pre-commit` runs the formatters on the staged files (`scripts/verify.sh --format-staged`, which calls `ktlintFormat`).
-- `pre-push` runs `scripts/verify.sh`.
+- `pre-push` runs `scripts/verify.sh --quick`: versions, ktlint, Swift format and notices, no builds or tests.
+- `post-merge`, after a merge into main, runs `scripts/verify.sh` and the iOS UI tests in the background, one run at a
+  time. The result is the last line of `build/verify-main.log`; a failure also posts a macOS notification.
 - `scripts/verify.sh` sets `core.hooksPath` to `.githooks` on its first run.
 
 ## Release

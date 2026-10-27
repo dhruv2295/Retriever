@@ -3,6 +3,7 @@
 # versions, 16 KB alignment.
 #   scripts/verify.sh            default gate
 #   scripts/verify.sh --full     adds benchmarks, coverage, the bundle ABI check, inspections, the iOS selftest and the UI tests
+#   scripts/verify.sh --quick    (pre-push) versions, ktlint, Swift format and notices: no builds or tests
 #   scripts/verify.sh --format-staged   (pre-commit) formats the staged Kotlin and Swift files
 # Sourced by scripts/release.sh for the version helpers; main runs only when executed.
 set -euo pipefail
@@ -147,17 +148,26 @@ inspections() {
 }
 
 main() {
-  local full=0
+  local full=0 quick=0
   case "${1:-}" in
     --format-staged) format_staged; return;;
     --full) full=1;;
+    --quick) quick=1;;
     "") ;;
-    *) echo "usage: verify.sh [--full | --format-staged]" >&2; return 2;;
+    *) echo "usage: verify.sh [--full | --quick | --format-staged]" >&2; return 2;;
   esac
   cd "$ROOT"
   [ "$(git config --get core.hooksPath || true)" = ".githooks" ] || git config core.hooksPath .githooks
 
   step "versions"; check_versions
+  # A push waits on this, so only the static checks: the tests ran before each commit, and .githooks/post-merge runs
+  # the gate and the UI tests in the background after a merge to main.
+  if [ $quick = 1 ]; then
+    step "ktlint"; ./gradlew -q ktlintCheck
+    step "format"; format_check
+    step "notices"; check_notices
+    printf '\nverify: OK (quick)\n'; return
+  fi
   step "gradle: tests, lint, release build, metadata, migrations, ktlint"
   # --rerun forces only the tests. Compiles, lint and R8 are up to date or come from the build cache when their inputs
   # (warnings-as-errors settings included) are unchanged, so a cached result is gated the same way. No other task
@@ -168,7 +178,8 @@ main() {
     :core:compileCommonMainKotlinMetadata :core:compileIosMainKotlinMetadata :core:verifyCommonMainIndexDbMigration ktlintCheck)
   if [ $full = 1 ]; then flags=(-Pbench -Pcoverage); tasks+=(:core:koverHtmlReport :androidApp:koverHtmlReportDebug); fi
   ./gradlew ${flags[@]+"${flags[@]}"} "${tasks[@]}"
-  step "ios unit tests"; scripts/ios-unit-tests.sh
+  # Unit tests only: with no filter the script runs the UI tests too, about 12 minutes on three simulators.
+  step "ios unit tests"; scripts/ios-unit-tests.sh RetrieverTests
   step "format"; format_check
   step "notices"; check_notices
   step "16 KB alignment"; check_16k
@@ -176,7 +187,7 @@ main() {
     step "bundle ABIs"; check_bundle_abis
     step "inspections"; inspections
     step "ios selftest"; scripts/ios-selftest.sh
-    if [ -x scripts/ios-ui-tests.sh ]; then step "ios ui tests"; scripts/ios-ui-tests.sh; fi
+    step "ios ui tests"; scripts/ios-unit-tests.sh RetrieverUITests
   fi
   printf '\nverify: OK\n'
 }

@@ -1,0 +1,10 @@
+#!/bin/bash
+# After a merge into main, the gate and the UI tests run in the background, one run at a time: the result is the last
+# line of build/verify-main.log, and a notification says when it failed.
+root="$(git rev-parse --show-toplevel)"
+[ "$(git -C "$root" branch --show-current)" = main ] || exit 0
+mkdir -p "$root/build"
+nohup /usr/bin/lockf -k /tmp/retriever-verify-main.lock bash -c '
+  { "$1/scripts/verify.sh" && "$1/scripts/ios-unit-tests.sh" RetrieverUITests; } >"$1/build/verify-main.log" 2>&1 ||
+    osascript -e "display notification \"build/verify-main.log\" with title \"Retriever: verify failed on main\""
+' _ "$root" >/dev/null 2>&1 &

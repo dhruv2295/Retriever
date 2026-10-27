@@ -35,6 +35,7 @@ Keep signing on ("Sign to Run Locally"). An unsigned app has no Keychain entitle
 ```
 scripts/verify.sh          # default gate, about 2 minutes
 scripts/verify.sh --full   # adds benchmarks, coverage, the bundle ABI check, inspections, the iOS selftest and the UI tests
+scripts/verify.sh --quick  # pre-push: versions, ktlint, Swift format, notices
 ```
 
 The individual iOS checks are:
