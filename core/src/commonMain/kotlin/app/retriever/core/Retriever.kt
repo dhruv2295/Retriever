@@ -770,6 +770,10 @@ class Retriever(
             // ~1.5 s, so People is whole in about a fifth of a first read; reading waits while they may run.
             val reader = faceReader
             val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }
+            if (facesOn && store.regroupDue()) {
+                store.groupNewFaces()
+                peopleChanged()
+            }
             var facesLeft = facesOn && store.facesProgress().pending > 0
             if (reader != null && facesLeft && deepenBlocker() == null) {
                 val faces = FacePass(store, reader, log, ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)

@@ -14,11 +14,19 @@ import kotlin.time.TimeSource
 const val FACE_DIMS = 128
 
 /**
- * Two fingerprints at or above this cosine are taken to be one person. OpenCV's own SFace threshold (0.363, tuned on
- * LFW's celebrities) put strangers in one person on a real 3,500-photo library; at 0.5 faces sharing a photo stopped
- * joining one person except in collages, where they are one person (docs/features/people.md).
+ * A face joins a person when its [CLOSEST] most alike faces of theirs average this cosine or more, and two faces alone
+ * start a person at it. Against the old rule (0.5 to the person's mean), on LFW (5,420 faces, 311 people, three orders)
+ * faces placed with someone else fell from 5–13 to 2, with 98% of one person's pairs still together against 99.6%;
+ * at 0.5 two whole people merged. On a real library a 1,493-face person no longer split off its glasses and selfies,
+ * and a group started from two wrong faces let them go (docs/features/people.md).
  */
-const val SAME_PERSON = 0.5f
+const val SAME_PERSON = 0.55f
+
+/**
+ * How many of a person's faces a new face is compared with. A mean blurs a person seen over years into nobody in
+ * particular, and a person of three faces into whatever those happen to share; their closest faces are neither.
+ */
+const val CLOSEST = 5
 
 /**
  * Two people whose faces' means are at least this close may be one person, so Home asks. Measured on LFW with SFace:
@@ -136,35 +144,44 @@ private fun dot(a: FloatArray, b: FloatArray): Float {
 private fun length(a: FloatArray): Float = sqrt(dot(a, a)).coerceAtLeast(1e-12f)
 
 /**
- * Gives each face above [after] that has no person one: the person whose faces' mean is closest, when it is at least
- * [SAME_PERSON]; else, with the closest face still on its own at that distance, a new person ([newPerson]) for the
- * two; else it waits alone for a later face. Faces at or below [after] keep their person, or lack of one ("Not this
- * person"). Returns face id → person id.
+ * Gives each face with no person that [place] picks one: the person whose [CLOSEST] most alike faces average closest
+ * (a person with fewer counts them all), when that is at least [SAME_PERSON]; else, with the closest face still on its
+ * own at that distance, a new person ([newPerson]) for the two; else it waits alone for a later face. Faces it doesn't
+ * pick keep their person, or lack of one ("Not this person"). Returns face id → person id.
  */
-// ponytail: one pass, nearest mean; Apple Photos adds a second agglomerative pass overnight. Add one if people split or merge.
-internal fun groupFaces(rows: List<FaceRow>, after: Long, newPerson: () -> Long): Map<Long, Long> {
-    val sums = HashMap<Long, FloatArray>()
-    for (r in rows) {
-        val p = r.person ?: continue
-        val sum = sums.getOrPut(p) { FloatArray(r.vector.size) }
-        for (i in sum.indices) sum[i] += r.vector[i]
-    }
-    val alone = rows.filterTo(ArrayList()) { it.person == null && it.id <= after }
+// ponytail: one pass in id order; Apple Photos adds a second agglomerative pass overnight. Add one if people still split.
+internal fun groupFaces(rows: List<FaceRow>, place: (FaceRow) -> Boolean, newPerson: () -> Long): Map<Long, Long> {
+    val people = HashMap<Long, MutableList<FloatArray>>()
+    for (r in rows) r.person?.let { people.getOrPut(it) { ArrayList() } += r.vector }
+    val alone = rows.filterTo(ArrayList()) { it.person == null && !place(it) }
     val assigned = HashMap<Long, Long>()
+    val top = FloatArray(CLOSEST)
     for (r in rows) {
-        if (r.id <= after || r.person != null) continue
+        if (r.person != null || !place(r)) continue
         var best: Long? = null
-        var bestCos = SAME_PERSON
-        for ((p, sum) in sums) {
-            val cos = dot(r.vector, sum) / length(sum)
-            if (cos >= bestCos) {
+        var bestScore = SAME_PERSON
+        for ((p, faces) in people) {
+            top.fill(-1f)
+            for (f in faces) {
+                val cos = dot(r.vector, f)
+                if (cos <= top[CLOSEST - 1]) continue
+                var i = CLOSEST - 1
+                while (i > 0 && top[i - 1] < cos) {
+                    top[i] = top[i - 1]
+                    i--
+                }
+                top[i] = cos
+            }
+            val k = minOf(CLOSEST, faces.size)
+            val score = (0 until k).sumOf { top[it].toDouble() }.toFloat() / k
+            if (score >= bestScore) {
                 best = p
-                bestCos = cos
+                bestScore = score
             }
         }
         if (best != null) {
             assigned[r.id] = best
-            sums.getValue(best).let { sum -> for (i in sum.indices) sum[i] += r.vector[i] }
+            people.getValue(best) += r.vector
             continue
         }
         val pair = alone.maxByOrNull { dot(r.vector, it.vector) }
@@ -172,7 +189,7 @@ internal fun groupFaces(rows: List<FaceRow>, after: Long, newPerson: () -> Long)
             val p = newPerson()
             assigned[r.id] = p
             assigned[pair.id] = p
-            sums[p] = FloatArray(r.vector.size) { r.vector[it] + pair.vector[it] }
+            people[p] = mutableListOf(pair.vector, r.vector)
             alone.remove(pair)
         } else {
             alone += r
@@ -224,20 +241,62 @@ internal fun Store.saveFaces(fileId: Long, found: List<FoundFace>) = inTransacti
     faces.finishFaceRead(fileId)
 }
 
-/** Groups the faces added since the last grouping ([groupFaces]); unnamed people left with no face go. */
+/**
+ * Groups the faces added since the last grouping ([groupFaces]); unnamed people left with no face go. A library grouped
+ * by an older rule ([GROUPING_RULE]) is grouped again first: every face in a person is placed afresh, faces taken out
+ * stay out, and each name and "not the same person" answer moves to the new person holding most of that person's faces.
+ */
 internal fun Store.groupNewFaces() = inTransaction {
     val after = meta(GROUPED_KEY)?.toLongOrNull() ?: 0L
-    val rows = faces.groupingFaces { id, person, bytes, scale -> FaceRow(id, person, FaceVector(bytes, scale.toFloat()).floats()) }
+    val stored = faces.groupingFaces { id, person, bytes, scale -> FaceRow(id, person, FaceVector(bytes, scale.toFloat()).floats()) }
         .executeAsList()
-    val assigned = groupFaces(rows, after) {
+    val again = meta(RULE_KEY) != GROUPING_RULE
+    // Grouping again leaves out the faces waiting alone, and with them any taken out of a person, which a lone face could pair with.
+    val rows = if (again) stored.filter { it.person != null || it.id > after }.map { FaceRow(it.id, null, it.vector) } else stored
+    val assigned = groupFaces(rows, { again || it.id > after }) {
         faces.insertPerson()
         faces.lastPersonId().executeAsOne()
     }
+    if (again) {
+        for (r in stored) if (r.person != null && r.id !in assigned) faces.setFacePerson(null, r.id)
+        carryOver(stored, assigned)
+        setMeta(RULE_KEY, GROUPING_RULE)
+    }
     for ((face, person) in assigned) faces.setFacePerson(person, face)
-    rows.lastOrNull()?.let { setMeta(GROUPED_KEY, it.id.toString()) }
+    stored.lastOrNull()?.let { setMeta(GROUPED_KEY, it.id.toString()) }
     faces.deleteEmptyPersons()
     joinSamePeople()
 }
+
+/** Names and "not the same person" answers of the people [old] grouped, onto whom [assigned] put most of their faces. */
+private fun Store.carryOver(old: List<FaceRow>, assigned: Map<Long, Long>) {
+    val successor = old.filter { it.person != null }.groupBy { it.person }.mapNotNull { (person, rows) ->
+        val most = rows.mapNotNull { assigned[it.id] }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+        if (person != null && most != null) person to most else null
+    }.toMap()
+    // A name whose faces all went elsewhere stays on its empty person, as when its photos leave the library.
+    val taken = HashSet<Long>()
+    for ((person, name) in namedPersons()) {
+        val next = successor[person] ?: continue
+        if (!taken.add(next)) continue
+        renamePerson(next, name)
+        renamePerson(person, null)
+    }
+    val declined = declinedPairs().mapNotNull { (a, b) ->
+        val na = successor[a] ?: return@mapNotNull null
+        val nb = successor[b] ?: return@mapNotNull null
+        if (na == nb) null else minOf(na, nb) to maxOf(na, nb)
+    }
+    setMeta(NOT_SAME_KEY, declined.toSet().joinToString(",") { "${it.first}:${it.second}" })
+}
+
+/** Faces grouped by an older rule, which [groupNewFaces] groups again even with no photo left to look at. */
+internal fun Store.regroupDue(): Boolean = meta(RULE_KEY) != GROUPING_RULE && facesProgress().done > 0
+
+private const val RULE_KEY = "faces_grouping_rule"
+
+/** Which [groupFaces] rule grouped the library; a library grouped by another is grouped again. */
+private const val GROUPING_RULE = "closest-5-0.55"
 
 /**
  * Joins people at [JOIN_SAME_PERSON] or closer, closest first, by the question's rules. Grouping places one face at a

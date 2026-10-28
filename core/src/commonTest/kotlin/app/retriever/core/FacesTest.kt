@@ -61,13 +61,50 @@ class FacesTest {
             row(4, face(0, w = 0.1f)),
             row(5, face(9)),
         )
-        val first = groupFaces(rows, 0) { next++ }
+        val first = groupFaces(rows, { it.id > 0 }) { next++ }
         assertEquals(mapOf(1L to 100L, 3L to 100L, 4L to 100L), first, "the 2nd of a person pairs with the 1st, the 3rd joins")
         assertEquals(101L, next)
 
         // Face 2 was taken out of person 100 ("Not this person"): it is not placed again, and a new face of 100 joins 100.
         val later = listOf(row(1, face(0), 100), row(2, face(0)), row(6, face(0, w = 0.25f)), row(7, face(5)))
-        assertEquals(mapOf(6L to 100L), groupFaces(later, 5) { next++ })
+        assertEquals(mapOf(6L to 100L), groupFaces(later, { it.id > 5 }) { next++ })
+    }
+
+    @Test
+    fun aFaceLikeSomeOfAPersonsFacesJoinsThoughTheirMeanIsFar() {
+        // Five faces in glasses among 80 others of one person seen over years: the mean is 0.43 from a new face in glasses.
+        val person = (20 until 100).map { FaceRow(it.toLong(), 7, normalized(face(it))) } +
+            (1L..5L).map { FaceRow(it, 7, normalized(face(2))) }
+        val inGlasses = FaceRow(200, null, normalized(face(2, w = 0.3f)))
+        assertEquals(mapOf(200L to 7L), groupFaces(person + inGlasses, { it.id > 100 }) { 8 })
+    }
+
+    @Test
+    fun anOlderGroupingIsRedoneKeepingNamesAnswersAndTakenOutFaces() {
+        val (store, ids) = storeWithPhotos(11)
+        store.saveFaces(ids[4], listOf(FoundFace(box, face(20))))
+        val asha = store.personOf(ids.take(4), face(3)) // and Ravi's face in photo 5, which the old rule let in
+        val ravi = store.personOf(ids.slice(5..7), face(20))
+        val meera = store.personOf(ids.slice(8..10), face(40))
+        store.renamePerson(asha, "Asha")
+        store.declineSamePerson(asha, meera)
+        store.notThisPerson(meera, ids[10])
+        store.setMeta("faces_grouped_through", store.faces.groupingFaces { id, _, _, _ -> id }.executeAsList().max().toString())
+        assertTrue(store.regroupDue())
+
+        store.groupNewFaces()
+        val newAsha = store.namedPersons().single { it.second == "Asha" }.first
+        assertEquals(ids.take(4).reversed(), store.personFileIds(newAsha), "the name moves with Asha's faces")
+        val newRavi = store.people().single { it.photos == 4 && it.id != newAsha }.id
+        assertEquals(ids.slice(4..7).reversed(), store.personFileIds(newRavi), "Ravi's face leaves Asha for Ravi")
+        val newMeera = store.people(1).single { it.photos == 2 }.id
+        assertEquals(ids.slice(8..9).reversed(), store.personFileIds(newMeera), "a face taken out stays out")
+        assertEquals(setOf(minOf(newAsha, newMeera) to maxOf(newAsha, newMeera)), store.declinedPairs())
+        assertTrue(listOf(asha, ravi, meera).none { old -> store.people(1).any { it.id == old } }, "the old people go")
+
+        assertTrue(!store.regroupDue())
+        store.groupNewFaces()
+        assertEquals(listOf(newAsha, newRavi, newMeera).sorted(), store.people(1).map { it.id }.sorted(), "only once")
     }
 
     @Test

@@ -24,13 +24,24 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is left
   out (`MAX_FACE_ATTEMPTS`).
 - **Grouping only places new faces.** `groupNewFaces` places faces added since `faces_grouped_through`: each joins the
-  person whose mean fingerprint is closest at cosine ≥ 0.5 (`SAME_PERSON`), or pairs with another lone face to start a
-  person. OpenCV's SFace threshold, 0.363, is tuned on LFW's celebrities; on a real library (a Pixel's 3,474 photos,
-  1,929 faces) it put strangers together. Two faces in one photo are different people unless it is a collage, so pairs
-  from one photo grouped as one person measure it: 231 at 0.363, 123 at 0.45, 109 at 0.5 and still 109 at 0.55, the
-  collages. 0.5 costs coverage (faces in a person shown on Home: 90% → 77%) and splits some people, which "Same person
-  as…" mends. Older faces never move, which is what makes "Not this person" and merges stick without a
-  rejection table.
+  person whose five most alike faces (`CLOSEST`; all of them for a smaller person) average the highest cosine, when
+  that is at least 0.55 (`SAME_PERSON`), or pairs with another lone face at 0.55 to start a person. Older faces never
+  move, which is what makes "Not this person" and merges stick without a rejection table.
+- **Why closest faces, not the mean.** Until October 2026 a face joined the person whose mean fingerprint was closest at
+  0.5. On the Pixel (8,412 faces) that failed three ways: a person in 1,493 photos over years had a mean like nobody in
+  particular, so their selfies and glasses photos started other people (one scored 0.60 to the mean but 0.66 to its
+  five closest faces, against at most 0.43 for a stranger); a person started from two wrong faces gathered a real
+  person around them; and a mean of unrelated faces sat close enough to everything to keep taking more (a 38-face
+  person of strangers and objects). On LFW (5,420 faces, 311 people, three orders) faces placed with someone else
+  fell from 5–13 to 2 and same-photo pairs inside one person on the Pixel from 295 to 259, keeping 98% of one person's
+  pairs together against 99.6%. At 0.5 the closest-faces rule merged two whole LFW people, so the bar is 0.55. Earlier
+  measures of the bar: OpenCV's 0.363 put strangers together on a 3,474-photo library, and pairs from one photo grouped
+  as one person fell from 231 at 0.363 to 109 at 0.5.
+- **Grouping again.** A library grouped by an older rule (meta `faces_grouping_rule`) is grouped again once, from the
+  stored fingerprints (`regroupDue`, at the start of a batch, even with no photo left to look at): every face in a
+  person is placed afresh in id order, faces taken out stay out, and each name and "not the same person" answer moves
+  to the new person holding most of the old person's faces. Pairs joined by "Same person?" are found again by grouping
+  or asked again.
 - **Corrections.** Rename (blank makes them unnamed again), "Same person as…" (the other group's photos join this
   one, and its name when this one has none), and "Not this person" on a photo's long-press menu (the person's faces in
   that photo leave them for good).
@@ -49,7 +60,7 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   People tiles and name the card's two tiles, so a tester can say which people they mean (Android).
 - **Joining without asking.** Pairs at 0.75 or more (`JOIN_SAME_PERSON`) join by the same rules, closest first, after
   each grouping and after each answer (so a library grouped before joining existed joins too); the question then asks
-  only between 0.65 and 0.75. Grouping places one face at a time against people's means and never looks back, so the
+  only between 0.65 and 0.75. Grouping places one face at a time and never looks back, so the
   first photos of a look (glasses, a phone over the face) can start a second person that later photos of that look
   then match best; comparing whole people is the steadier test. On the Pixel all five pairs at 0.75 or more (0.77 to
   0.86) were one person, confirmed by the owner, and the next pair down scored 0.74. Not measured: identical twins
@@ -80,12 +91,13 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 1. **Nothing about faces is written while Recognize people is off,** and turning it off empties every face table.
 2. **A face taken out of a person, or moved by a merge, is never placed again** by later grouping; faces move only with
-   their whole person, in a merge or a join.
+   their whole person, in a merge or a join, or once when a new grouping rule groups the library again.
 3. **Faces go first:** while a photo waits to be looked at and faces may run, the batch reads no files.
 
 ## Tests
 
-- `FacesTest`: alignment, grouping, naming and forgetting, merging, the pass's retries and a full disk; a person's
+- `FacesTest`: alignment, grouping (a face like a few of a big person's faces joins though their mean is far),
+  grouping an older library again (names, answers and taken-out faces kept), naming and forgetting, merging, the pass's retries and a full disk; a person's
   picture; "Same person?" (asks the closest pair, sharing up to two photos; never three, named differently or answered
   No) and forgetting its answers with People; joining pairs at 0.75 or more, never one answered No.
 - `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
