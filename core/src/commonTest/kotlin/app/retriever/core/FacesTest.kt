@@ -11,10 +11,10 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 
 class FacesTest {
-    /** Unit vector [i], tilted towards [j] by [w]: faces of one person share [i]. */
+    /** [i], tilted towards [j] by [w], as long as a clear face's raw fingerprint (12): faces of one person share [i]. */
     private fun face(i: Int, j: Int = (i + 1) % FACE_DIMS, w: Float = 0.2f) = FloatArray(FACE_DIMS).also {
-        it[i] = 1f
-        it[j] += w
+        it[i] = 12f
+        it[j] += 12 * w
     }
 
     private val box = FaceBox(0.1f, 0.1f, 0.3f, 0.4f)
@@ -68,6 +68,15 @@ class FacesTest {
         // Face 2 was taken out of person 100 ("Not this person"): it is not placed again, and a new face of 100 joins 100.
         val later = listOf(row(1, face(0), 100), row(2, face(0)), row(6, face(0, w = 0.25f)), row(7, face(5)))
         assertEquals(mapOf(6L to 100L), groupFaces(later, { it.id > 5 }) { next++ })
+    }
+
+    @Test
+    fun aFaceTooUnclearToKnowAgainIsNotKept() {
+        val (store, ids) = storeWithPhotos(1)
+        val unclear = face(0).map { it * 0.7f }.toFloatArray() // 8.6 long: a phone over the face, a blur, a logo
+        store.saveFaces(ids[0], listOf(FoundFace(box, unclear), FoundFace(box, face(5))))
+        assertEquals(1, store.faces.groupingFaces { id, _, _, _ -> id }.executeAsList().size)
+        assertEquals(FacesProgress(1, 0), store.facesProgress(), "the photo is still done")
     }
 
     @Test

@@ -23,6 +23,13 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   (in the background on battery), reading goes on as before. It reads photos a page at a time,
   saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is left
   out (`MAX_FACE_ATTEMPTS`).
+- **Unclear faces aren't kept.** A face whose raw SFace fingerprint is shorter than 9 (`MIN_FACE_STRENGTH`) is
+  dropped when its photo is saved, on both platforms, since both hand core the raw fingerprint. The length tracks how
+  well SFace can make the face out (as MagFace found for ArcFace-type models): on the Pixel a 38-face person of
+  strangers, mirror selfies with the phone over the face, a logo, a screenshot and a dog measured 2.9–10.8, with 26 of
+  27 under 9, against 10.6–14.6 for 114 clear faces; LFW's 5,425 faces (OpenCV's SFace) have 0.5% under 9 and a median
+  of 12.5. Such faces look alike whoever they are, so kept, they grouped strangers as one person. Faces saved before
+  the rule have no length to check: turning People off and on looks at every photo again.
 - **Grouping only places new faces.** `groupNewFaces` places faces added since `faces_grouped_through`: each joins the
   person whose five most alike faces (`CLOSEST`; all of them for a smaller person) average the highest cosine, when
   that is at least 0.55 (`SAME_PERSON`), or pairs with another lone face at 0.55 to start a person. Older faces never
@@ -96,7 +103,7 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 
 ## Tests
 
-- `FacesTest`: alignment, grouping (a face like a few of a big person's faces joins though their mean is far),
+- `FacesTest`: alignment, an unclear face not kept, grouping (a face like a few of a big person's faces joins though their mean is far),
   grouping an older library again (names, answers and taken-out faces kept), naming and forgetting, merging, the pass's retries and a full disk; a person's
   picture; "Same person?" (asks the closest pair, sharing up to two photos; never three, named differently or answered
   No) and forgetting its answers with People; joining pairs at 0.75 or more, never one answered No.

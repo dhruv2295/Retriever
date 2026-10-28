@@ -11,8 +11,8 @@ import kotlin.time.Duration.Companion.minutes
 /** People end to end: the faces pass alongside reading, a name, a search by it, and turning it off. */
 class PeopleTest {
     private fun face(i: Int) = FloatArray(FACE_DIMS).also {
-        it[i] = 1f
-        it[i + 1] = 0.2f
+        it[i] = 12f
+        it[i + 1] = 2.4f
     }
 
     @Test

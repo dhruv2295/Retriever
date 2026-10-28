@@ -178,7 +178,7 @@ class BrowseViewModelTest {
 
     @Test fun aPersonListsTheirPhotosAndLetsOneGo() = runTest {
         val photos = (1..3).map { testFile("p$it.jpg", Kind.PHOTO).copy(modifiedAt = it.toLong()) }
-        val face = FloatArray(FACE_DIMS).also { it[0] = 1f }
+        val face = FloatArray(FACE_DIMS).also { it[0] = 12f }
         val reader = object : FaceReader {
             override suspend fun faces(uri: String) = listOf(FoundFace(FaceBox(0f, 0f, 0.5f, 0.5f), face))
         }

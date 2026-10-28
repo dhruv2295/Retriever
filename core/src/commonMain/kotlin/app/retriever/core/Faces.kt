@@ -41,13 +41,21 @@ const val ASK_SAME_PERSON = 0.65f
  */
 const val JOIN_SAME_PERSON = 0.75f
 
+/**
+ * A face whose raw SFace fingerprint is shorter than this is too unclear to know again, so it isn't kept: SFace gives
+ * a face it can't make out (a phone over it, a blur, a sideways head) or something that isn't a face a short one, and
+ * those look alike whoever they are, so they grouped strangers, a logo and a dog as one person. On a real library such
+ * faces measured 2.9–10.8 and 114 clear ones 10.6–14.6; 26 of 27 such faces are under 9, and 0.5% of LFW's 5,425 faces.
+ */
+const val MIN_FACE_STRENGTH = 9f
+
 /** An unnamed person shows on Home once they are in this many photos; a named one shows from their first. */
 const val PERSON_MIN_PHOTOS = 3
 
 /** A face's place in its photo, as fractions of the upright photo's width and height. */
 data class FaceBox(val left: Float, val top: Float, val right: Float, val bottom: Float)
 
-/** A face the platform found: where it is, and its SFace fingerprint (any length; normalised here). */
+/** A face the platform found: where it is, and SFace's raw fingerprint (its length says how clear the face is; normalised here). */
 class FoundFace(val box: FaceBox, val vector: FloatArray)
 
 /** Finds the faces in a photo; the platform's face detector and SFace. */
@@ -231,10 +239,11 @@ internal fun Store.facesProgress(): FacesProgress =
 
 internal fun Store.setFaceAttempts(fileId: Long, attempts: Int) = faces.setFaceAttempts(fileId, attempts.toLong())
 
-/** [fileId]'s faces, replacing any it had, and the photo marked done. */
+/** [fileId]'s clear faces ([MIN_FACE_STRENGTH]), replacing any it had, and the photo marked done. */
 internal fun Store.saveFaces(fileId: Long, found: List<FoundFace>) = inTransaction {
     faces.deleteFacesOfFile(fileId)
     for (f in found) {
+        if (length(f.vector) < MIN_FACE_STRENGTH) continue
         val v = FaceVector.of(f.vector)
         faces.insertFace(fileId, f.box.left.toDouble(), f.box.top.toDouble(), f.box.right.toDouble(), f.box.bottom.toDouble(), v.bytes, v.scale.toDouble())
     }
