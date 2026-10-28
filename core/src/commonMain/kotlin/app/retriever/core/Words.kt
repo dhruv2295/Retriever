@@ -49,6 +49,9 @@ object Words {
     /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by description". */
     fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by description"
 
+    /** The look for faces' count (ReadingPhase.FACES): "2,046 of 16,705 photos looked at". */
+    fun facesOf(done: Long, total: Long): String = "${formatCount(done)} of ${plural(total, "photo")} looked at"
+
     /**
      * Processing's Details: what the count's processed files are, then what is left. "535 found by what’s inside · 597 by
      * name only · 4 in part · 25,125 to go"; in part and couldn't open only when there are some.

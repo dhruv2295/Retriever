@@ -20,7 +20,9 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   under the deepen pass's rule: in the background only on the charger with the screen off. It takes the whole batch,
   and reading waits until every photo has been looked at: on a Pixel 8 Pro faces take ~0.3 s a photo against reading's
   ~1.5 s, so 16,700 photos have People whole in about 1.5 hours of a 7 to 8 hour first read. When faces may not run
-  (in the background on battery), reading goes on as before. It reads photos a page at a time,
+  (in the background on battery), reading goes on as before. While it runs, the status line on Home, Processing and the
+  notification says "Looking for faces in your photos" and counts photos looked at (`ReadingPhase.FACES`, from
+  `IndexState.faces`): the files' count stands still meanwhile, and on a Pixel looked stuck. It reads photos a page at a time,
   saves each photo's faces (`saveFaces`), and groups every 25 photos. A photo that stops the app three times is left
   out (`MAX_FACE_ATTEMPTS`).
 - **Unclear faces aren't kept.** A face whose raw SFace fingerprint is shorter than 9 (`MIN_FACE_STRENGTH`) is

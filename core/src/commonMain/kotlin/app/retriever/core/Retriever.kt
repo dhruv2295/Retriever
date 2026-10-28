@@ -86,6 +86,8 @@ data class IndexState(
     val backend: Backend? = null,
     /** Part of the model running elsewhere than [backend], e.g. the vision encoder on CPU. */
     val detail: String? = null,
+    /** While a batch looks for faces, how far it has got: files wait meanwhile, so their count stands still. */
+    val faces: FacesProgress? = null,
 )
 
 /**
@@ -563,6 +565,7 @@ class Retriever(
                 words,
                 t.readNowMinutes,
                 t.pluggedIn,
+                state.faces,
             )
         }
     }
@@ -776,7 +779,11 @@ class Retriever(
             }
             var facesLeft = facesOn && store.facesProgress().pending > 0
             if (reader != null && facesLeft && deepenBlocker() == null) {
-                val faces = FacePass(store, reader, log, ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
+                _state.update { it.copy(faces = store.facesProgress()) }
+                val faces = FacePass(store, reader, log, onLooked = {
+                    _state.update { s -> s.copy(faces = s.faces?.let { FacesProgress(it.done + 1, (it.pending - 1).coerceAtLeast(0)) }) }
+                }, onGrouped = ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
+                _state.update { it.copy(faces = null) }
                 if (faces != StopReason.DONE) return end(faces)
                 facesLeft = false
             }
@@ -863,7 +870,7 @@ class Retriever(
         } finally {
             watchdog?.cancel()
             saveBook()
-            _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error) }
+            _state.update { it.copy(running = false, current = null, currentFile = null, lastStop = stop, lastError = error, faces = null) }
             // Why each batch ended, so a phone that reads nothing says which rule stopped it.
             val device = monitor.state()
             val why = stop?.name ?: if (error != null) "error" else "cancelled"

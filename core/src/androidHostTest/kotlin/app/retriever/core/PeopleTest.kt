@@ -49,14 +49,18 @@ class PeopleTest {
     @Test
     fun facesGoBeforeReading() = runBlocking {
         val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+        var retriever: Retriever? = null
+        val counts = mutableListOf<FacesProgress?>()
         val slow = object : FaceReader {
             override suspend fun faces(uri: String): List<FoundFace> {
+                counts += retriever?.state?.value?.faces
                 delay(100.milliseconds)
                 return emptyList()
             }
         }
         val store = newStore()
         val r = testRetriever(store, photos, FakeExtractor(), faceReader = slow)
+        retriever = r
         store.setProfile(PROFILE)
         r.uiVisible = true
         r.updatePrefs { it.copy(recognizePeople = true) }
@@ -65,6 +69,8 @@ class PeopleTest {
         val looked = r.facesProgress().done
         assertTrue(looked in 1L..11L, "a short batch looks at some photos, not all: $looked")
         assertEquals(12L, store.pendingByKind().values.sum(), "reading waits while faces are left")
+        assertEquals(listOf(FacesProgress(0, 12), FacesProgress(1, 11)), counts.take(2), "the status line counts photos as they're looked at")
+        assertEquals(null, r.state.value.faces, "and goes back to files once the batch ends")
 
         r.indexBatch(1.minutes)
         assertEquals(FacesProgress(12, 0), r.facesProgress())

@@ -434,12 +434,14 @@ internal fun Store.forgetAllFaces() = inTransaction {
 
 /**
  * Looks at photos for faces until none are left, [budget] runs out, or [stop] names a reason; groups what it found as
- * it goes. Each try is counted first, so a photo that stops the app is left out after [MAX_FACE_ATTEMPTS].
+ * it goes. Each try is counted first, so a photo that stops the app is left out after [MAX_FACE_ATTEMPTS]. [onLooked]
+ * follows each photo, for the status line's count.
  */
 internal class FacePass(
     private val store: Store,
     private val reader: FaceReader,
     private val log: (String, Throwable?) -> Unit,
+    private val onLooked: () -> Unit = {},
     private val onGrouped: () -> Unit,
 ) {
     suspend fun run(budget: Duration, stop: () -> StopReason?, awaitUi: suspend () -> Unit): StopReason {
@@ -468,6 +470,7 @@ internal class FacePass(
                         null
                     }
                     looked = true
+                    onLooked()
                     if (found != null) {
                         store.saveFaces(p.id, found)
                         if (found.isNotEmpty() && ++sinceGrouping >= GROUP_EVERY) {
