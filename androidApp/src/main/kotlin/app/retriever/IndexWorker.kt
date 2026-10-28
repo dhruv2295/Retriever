@@ -40,6 +40,7 @@ import app.retriever.model.Calibrator
 import app.retriever.model.ModelRepository
 import app.retriever.model.ModelState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -102,6 +103,8 @@ class IndexWorker(
                 val foreground = (ask || (!retriever.state.value.running && retriever.uiVisible)) &&
                     retriever.readingBlocker() == null && safeSetForeground(foregroundInfo())
                 val progress = if (foreground) launch { showProgress() } else null
+                // Undispatched, so a screen-off from here on sees it.
+                val held = if (foreground) launch(start = CoroutineStart.UNDISPATCHED) { index.holdForeground() } else null
                 // After the service starts: Android allows a start for a few seconds after leaving, and a hash or tune can
                 // take a minute. Before the guard, which can stop only a batch.
                 if (!trial) prepareModel()
@@ -136,6 +139,7 @@ class IndexWorker(
                     next = retriever.indexBatch(8.minutes)
                 }
                 progress?.cancel()
+                held?.cancel()
                 guard.cancel()
                 next
             }

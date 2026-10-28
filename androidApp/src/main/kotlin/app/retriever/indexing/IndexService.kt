@@ -21,6 +21,7 @@ import app.retriever.core.StopReason
 import app.retriever.core.ThermalRest
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -28,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -106,9 +108,10 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         if (retriever.hasPendingTaste()) {
             continueTrial(leaving)
         } else if (startsOnCharger(retriever.deviceState().pluggedIn, retriever.readingBlocker(), retriever.hasWork())) {
-            // A charger run resting between batches (heat, a refused model open) holds the foreground service: replacing it
-            // would end the service, which could not be started again from here.
-            if (!chargerRunAlive()) continueOnCharger(leaving)
+            // A run holding the foreground service carries on by itself on a charger, resting between batches, and so does a
+            // charger run not started yet. Replacing a held run ended its service, and its successor, started seconds after
+            // leaving, was refused one: a Pixel 8 Pro then read on 8-minute jobs all night.
+            if (foregroundRuns.get() == 0 && !chargerRunAlive()) continueOnCharger(leaving)
         } else if (retriever.state.value.lastStop == StopReason.BUSY) {
             continueLater(10.seconds)
         }
@@ -130,6 +133,19 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     internal suspend fun continueOnCharger(leaving: Boolean = false) = continueInForeground(CHARGER, leaving)
 
     private suspend fun chargerRunAlive() = work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { CHARGER in it.tags && !it.state.isFinished }
+
+    // Whatever started them (in front, Index now, a follow-up): a tag can't tell which runs hold the service.
+    private val foregroundRuns = AtomicInteger()
+
+    /** IndexWorker's, from the moment it holds its foreground service until it cancels this. */
+    suspend fun holdForeground() {
+        foregroundRuns.incrementAndGet()
+        try {
+            awaitCancellation()
+        } finally {
+            foregroundRuns.decrementAndGet()
+        }
+    }
 
     /**
      * The run asks for its foreground service ([FOREGROUND]) only where an exemption lets Android start one from the
