@@ -131,6 +131,7 @@ and every pin in the iOS `Package.resolved`. Licences are read from each artifac
 | com.google.android.datatransport | Apache-2.0 |
 | com.google.android.gms | Android Software Development Kit License and ML Kit Terms of Service (Google Play services binaries, not open source) |
 | com.google.android.odml | Android Software Development Kit License |
+| com.google.android.play | Play Core Software Development Kit Terms of Service (ai-delivery, asset-delivery and core-common, by way of LiteRT; not open source) |
 | com.google.code.findbugs | Apache-2.0 |
 | com.google.code.gson | Apache-2.0 |
 | com.google.errorprone | Apache-2.0 |
