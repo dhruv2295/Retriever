@@ -48,6 +48,9 @@ internal class ModelHost(
         withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
     }
 
+    /** [open], unless a model is open already: then it keeps that one, whatever build or backend it has. */
+    suspend fun openIfClosed(): Embedder? = lock.withLock { embedder ?: withContext(dispatchers.default) { openLocked() } }
+
     suspend fun openLocked(): Embedder? {
         reload()
         if (textOnly) return null

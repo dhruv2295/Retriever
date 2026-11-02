@@ -61,7 +61,8 @@ class VisionPolicyTest {
         r.uiVisible = false // screen is off; all inference may use GPU after this file
         val warm = async { r.warmSearch() }
         runCurrent()
-        assertFalse(warm.isCompleted)
+        // The warm-up finds the batch's model open and keeps it, though the screen is off now and GPU would be chosen.
+        assertEquals(0, closed)
         assertEquals(listOf(Backend.CPU), opened.map { it.visionBackend })
         resume.complete(Unit)
         assertEquals(NextRun.SOON, batch.await())

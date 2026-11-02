@@ -1381,8 +1381,9 @@ class Retriever(
     private suspend fun openAhead() {
         if (_setUp.value != true || textOnly) return
         try {
-            // A search warm-up must not replace the handle held by a running file or batch.
-            indexLock.withLock { model.open() }
+            // A search warm-up must not replace the handle held by a running file or batch, so it opens only when none is open.
+            // It doesn't wait for indexLock: a batch looking for faces holds that for minutes without the model.
+            model.openIfClosed()
         } catch (c: CancellationException) {
             throw c
         } catch (t: Exception) {
