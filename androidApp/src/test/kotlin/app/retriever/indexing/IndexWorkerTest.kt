@@ -1,10 +1,8 @@
 package app.retriever.indexing
 
+import android.app.Application
 import android.content.Context
-import android.content.pm.ServiceInfo
-import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.test.core.app.ApplicationProvider
-import androidx.work.ForegroundUpdater
 import androidx.work.ListenableWorker
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -57,9 +55,9 @@ import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -68,22 +66,10 @@ import kotlin.time.Duration.Companion.seconds
 @Config(sdk = [35], application = android.app.Application::class)
 class IndexWorkerTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val foregrounds = AtomicInteger()
 
     @Before fun setUp() = WorkManagerTestInitHelper.initializeTestWorkManager(context)
 
     @After fun stop() = stopKoin()
-
-    private val notificationIds = java.util.Collections.synchronizedList(mutableListOf<Int>())
-    private val serviceTypes = java.util.Collections.synchronizedList(mutableListOf<Int>())
-
-    /** Counts the run's foreground-service starts and keeps each one's notification id and service type. */
-    private val countingUpdater = ForegroundUpdater { _, _, info ->
-        foregrounds.incrementAndGet()
-        notificationIds += info.notificationId
-        serviceTypes += info.foregroundServiceType
-        CallbackToFutureAdapter.getFuture { it.set(null) }
-    }
 
     /** [askForeground]: what IndexService sets when Android can still allow the service (leaving, visible). */
     private fun worker(
@@ -111,13 +97,15 @@ class IndexWorkerTest {
         }
         return TestListenableWorkerBuilder<IndexWorker>(context)
             .setWorkerFactory(KoinWorkerFactory())
-            .setForegroundUpdater(countingUpdater)
             .setTags(listOfNotNull(IndexService.TRIAL.takeIf { trial }, IndexService.CHARGER.takeIf { charger }))
             .setInputData(workDataOf(IndexService.FOREGROUND to askForeground))
             .build()
     }
 
     private fun run(retriever: Retriever, platformReady: Boolean = true): ListenableWorker.Result = runBlocking { worker(retriever, platformReady).doWork() }
+
+    /** The services the runs started, oldest first. */
+    private fun started(): List<String?> = generateSequence { shadowOf(context as Application).nextStartedService }.map { it.component?.className }.toList()
 
     private fun listed(retriever: Retriever) = runBlocking { retriever.counts().first().byKind[Kind.DOC] ?: 0L }
 
@@ -167,34 +155,16 @@ class IndexWorkerTest {
         assertEquals(true, retriever.setUp.value)
     }
 
-    /** Android allows the start for only seconds after the app leaves, and a tune takes a minute: the service comes first. */
-    @Test fun aChargerRunAsksForItsServiceBeforeTheTune() = runBlocking {
-        val tuning = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        val model = object : Embedder {
-            override val signature = Signature("M740/test/vt70/d256/t512")
-            override val backend = Backend.CPU
-
-            override suspend fun embedRaw(parts: List<Part>): FloatArray {
-                tuning.complete(Unit)
-                release.await()
-                return FloatArray(768).also { it[0] = 1f }
-            }
-
-            override fun close() = Unit
-        }
-        val retriever = untuned(model)
-        val run = async(Dispatchers.Default) { worker(retriever, charger = true).doWork() }
-        try {
-            withTimeout(10.seconds) { tuning.await() }
-            assertEquals("asked before the tune", 1, foregrounds.get())
-            release.complete(Unit)
-            assertEquals(ListenableWorker.Result.success(), withTimeout(10.seconds) { run.await() })
-            assertEquals(true, retriever.setUp.value)
-        } finally {
-            release.complete(Unit)
-            run.cancel()
-        }
+    /**
+     * Android allows the start for only seconds after the app leaves, and a tune takes a minute: the service comes first, and
+     * the tune is the service's. The job ends at once, so JobScheduler never counts it as timed out.
+     */
+    @Test fun aChargerRunStartsReadingServiceAndEndsItsJob() {
+        val retriever = untuned(Model())
+        assertEquals(ListenableWorker.Result.success(), runBlocking { worker(retriever, charger = true).doWork() })
+        assertEquals(listOf(ReadingService::class.java.name), started())
+        assertEquals("not tuned here", false, retriever.setUp.value)
+        assertTrue("no follow-up: the service schedules what comes after", queued(CONTINUE).isEmpty())
     }
 
     /** A tune that fails is logged and left for a later run: the run itself still succeeds and syncs the files. */
@@ -257,30 +227,6 @@ class IndexWorkerTest {
         assertEquals(1, queued(CONTINUE).size)
     }
 
-    /** Two runs that overlap share one notification instead of showing two identical ones. */
-    @Test fun everyRunUsesTheOneProcessingNotification() {
-        repeat(2) {
-            val retriever = testRetriever(files = listOf(testFile("a$it.txt", Kind.DOC)), ramGb = 3.0)
-            runBlocking { worker(retriever, charger = true).doWork() }
-            stopKoin()
-        }
-        assertEquals(listOf(Notifications.PROGRESS_ID, Notifications.PROGRESS_ID), notificationIds.toList())
-    }
-
-    /** Hidden on a charger, a run holding its foreground service starts the next batch itself instead of a follow-up. */
-    @Test fun aChargerRunHoldsItsForegroundServiceAcrossBatches() {
-        val model = Model()
-        lateinit var retriever: Retriever
-        retriever = withModel(model) {
-            retriever.notifyChanged() // the first batch ends SOON, as one past its budget does
-            emptyList()
-        }
-        assertEquals(ListenableWorker.Result.success(), runBlocking { worker(retriever, charger = true).doWork() })
-        assertEquals(1, foregrounds.get())
-        assertTrue("the second batch ran here and ended DONE: no follow-up to schedule", queued(CONTINUE).isEmpty())
-        assertTrue("done, the model goes", model.closed)
-    }
-
     @Test fun aFailedBatchRestsThroughContinueSoIndexNowStillRuns() {
         val retriever = withModel(Model(), beforeOpen = { error("the model file can't be read") })
         assertEquals(ListenableWorker.Result.success(), run(retriever))
@@ -291,20 +237,14 @@ class IndexWorkerTest {
         assertEquals(1, queued(NOW).size)
     }
 
-    @Test fun aVisibleRunStartsAForegroundService() {
+    @Test fun aVisibleRunStartsReadingService() {
         val retriever = withModel(Model())
         retriever.uiVisible = true
         assertEquals(ListenableWorker.Result.success(), run(retriever))
-        assertEquals(1, foregrounds.get())
-        // Play's declaration lists local file processing under dataSync; mediaProcessing is for media transcoding only.
-        assertEquals(listOf(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC), serviceTypes.toList())
+        assertEquals(listOf(ReadingService::class.java.name), started())
     }
 
-    /**
-     * Hidden, with no exemption left (a deferred screen-off broadcast, a follow-up), Android refuses the service, and
-     * WorkManager would still count the run as foreground and ignore its job's stop. So the worker doesn't ask, and reads
-     * as a plain job.
-     */
+    /** Hidden, with no exemption left (a deferred screen-off broadcast, a follow-up), Android refuses the service: plain jobs. */
     @Test fun aHiddenTrialOrChargerRunAsksForNoServiceWithoutAnExemption() {
         for ((trial, charger) in listOf(true to false, false to true)) {
             val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
@@ -315,7 +255,7 @@ class IndexWorkerTest {
             }
             stopKoin()
         }
-        assertEquals(0, foregrounds.get())
+        assertEquals(emptyList<String?>(), started())
     }
 
     /** Q1 2: a run that can't read content (here paused) only syncs names, so it posts no reading notification. */
@@ -324,41 +264,25 @@ class IndexWorkerTest {
         retriever.uiVisible = true
         runBlocking { retriever.pause() }
         assertEquals(ListenableWorker.Result.success(), run(retriever))
-        assertEquals(0, foregrounds.get())
+        assertEquals(emptyList<String?>(), started())
     }
 
-    @Test fun trialWorkerWaitsForTheDirectBatchAndStartsForegroundWhileHidden() = runBlocking {
+    /** A trial handoff starts the service while the direct batch still runs; the service, not the job, waits for its lock. */
+    @Test fun aTrialHandoffStartsReadingServiceWithoutWaitingForTheDirectBatch() = runBlocking {
         val entered = CompletableDeferred<Unit>()
-        var calls = 0
-        val retriever =
-            testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, wrapDriver = {
-                it.close()
-                AndroidSqliteDriver(IndexDb.Schema, context, null)
-            }, extract = {
-                if (calls++ == 0) {
-                    entered.complete(Unit)
-                    awaitCancellation()
-                }
-                emptyList()
-            })
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, extract = {
+            entered.complete(Unit)
+            awaitCancellation()
+        })
         retriever.planTaste()
-        val direct = async { retriever.taste() }
-        withTimeout(10.seconds) { entered.await() }
-        val worker = worker(retriever, trial = true)
-        val continuation = async(Dispatchers.Default) { worker.doWork() }
+        val direct = async(Dispatchers.Default) { retriever.taste() }
         try {
-            withTimeout(10.seconds) { while (!continuation.isCompleted && foregrounds.get() == 0) delay(10) }
-            assertFalse("the continuation must wait for the core lock", continuation.isCompleted)
-            assertEquals(1, foregrounds.get())
-            retriever.cancelBatch()
-            direct.await()
-            assertEquals(ListenableWorker.Result.success(), withTimeout(10.seconds) { continuation.await() })
-            assertEquals(2, calls)
-            assertFalse(retriever.hasPendingTaste())
+            withTimeout(10.seconds) { entered.await() }
+            assertEquals(ListenableWorker.Result.success(), withTimeout(10.seconds) { worker(retriever, trial = true).doWork() })
+            assertEquals(listOf(ReadingService::class.java.name), started())
         } finally {
             retriever.cancelBatch()
             direct.cancel()
-            continuation.cancel()
         }
     }
 
@@ -378,6 +302,6 @@ class IndexWorkerTest {
             gate.countDown()
             batch.await()
         }
-        assertEquals(0, foregrounds.get())
+        assertEquals(emptyList<String?>(), started())
     }
 }

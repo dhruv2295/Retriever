@@ -81,6 +81,11 @@
             android:exported="false"
             tools:node="merge">
         </service>
+        <!-- Held runs, batch after batch, outside any job: see ReadingService. -->
+        <service
+            android:name=".indexing.ReadingService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
 
         <!-- WorkManager starts on demand: RetrieverApp is its Configuration.Provider, so it isn't built at launch. -->
         <provider

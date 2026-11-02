@@ -95,6 +95,10 @@ object Notifications {
 
     fun cancelSample(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(DEMO_DONE_ID)
 
+    /** The progress notification's Pause action. */
+    fun pauseIntent(context: Context): PendingIntent =
+        PendingIntent.getBroadcast(context, 0, Intent(context, PauseReceiver::class.java), PendingIntent.FLAG_IMMUTABLE)
+
     const val OPEN_STATUS = "app.retriever.OPEN_READING_STATUS"
 
     private fun publicVersion(context: Context) = NotificationCompat.Builder(context, CHANNEL)

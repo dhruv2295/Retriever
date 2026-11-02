@@ -44,12 +44,14 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     private val ownership = Mutex()
     private var directTrial: Job? = null
 
-    /** A comeback leaves an already-persisted trial worker in charge; otherwise it reads directly. */
+    /** A comeback leaves a held run or an already-persisted trial worker in charge; otherwise it reads directly. */
     suspend fun readTrial(): Boolean = trialLock.withLock {
         coroutineScope {
             val reading = ownership.withLock {
                 if (!retriever.uiVisible || !retriever.hasPendingTaste()) return@coroutineScope false
-                if (work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { TRIAL in it.tags && !it.state.isFinished }) {
+                if (foregroundRuns.get() > 0 ||
+                    work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { TRIAL in it.tags && !it.state.isFinished }
+                ) {
                     return@coroutineScope true
                 }
                 retriever.cancelBatch()
@@ -137,7 +139,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     // Whatever started them (in front, Index now, a follow-up): a tag can't tell which runs hold the service.
     private val foregroundRuns = AtomicInteger()
 
-    /** IndexWorker's, from the moment it holds its foreground service until it cancels this. */
+    /** ReadingService's, from the moment it holds the foreground service until it cancels this. */
     suspend fun holdForeground() {
         foregroundRuns.incrementAndGet()
         try {
@@ -148,11 +150,10 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     /**
-     * The run asks for its foreground service ([FOREGROUND]) only where an exemption lets Android start one from the
-     * background: the app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit.
-     * Without one the start throws, and WorkManager, which counts the work as foreground before it tries, then ignores
-     * the job's stop (develop/background-work/services/fgs/restrictions-bg-start). Leaving's exemption lasts only seconds,
-     * so the worker asks before anything else, the model's check and tune included.
+     * The run starts ReadingService ([FOREGROUND]) only where an exemption lets Android start one from the background: the
+     * app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit
+     * (develop/background-work/services/fgs/restrictions-bg-start). Leaving's exemption lasts only seconds, so the worker
+     * starts it before anything else, the model's check and tune included. Refused, the run reads as a plain expedited job.
      */
     private suspend fun continueInForeground(tag: String, leaving: Boolean) {
         val ask = leaving || retriever.uiVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
