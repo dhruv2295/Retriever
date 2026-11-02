@@ -293,6 +293,12 @@ final class SearchModel {
             let jpeg = photo.flatMap { $0.id == key.photo ? $0.jpeg : nil }
             let result = try await ask(key, retriever, limit: limit, namesOnly: false, jpeg: jpeg)
             guard !Task.isCancelled else { return }
+            // Nothing yet for a word still being typed: the answer on screen stays until typing pauses. A key cancels this.
+            if result.hits.isEmpty, key.photo == nil, SearchPhaseKt.midWord(typed: text) {
+                slow = false
+                try? await Task.sleep(for: .milliseconds(timing.TYPING_MS))
+                guard !Task.isCancelled else { return }
+            }
             // Words only while the model was busy opening: ask again shortly, a few times, for results by meaning.
             // Not when it was removed in Settings: asking again can't bring it back.
             let settled = result.vectorLane || retriever.textOnly || retriever.modelMissingNow

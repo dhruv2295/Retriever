@@ -70,7 +70,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.core.DeviceWords
@@ -131,8 +130,10 @@ internal fun Results(
     val phase = ui.phase
     val results = phase as? SearchPhase.Results
     val shown = results?.result
-    // The answer on screen was to other words or filters: newer ones are being searched.
+    // The answer on screen was to other words or filters: newer ones are being searched. It dims only once the wait is
+    // noticeable, like the bar, so typing doesn't pulse it at every key.
     val stale = phase.isStale(question)
+    val dim = heldFor(SearchTiming.SEARCHING_BAR_MS, stale, question)
     // What was understood is of the words searched; while newer ones wait, it would be of the old ones.
     val parsed = shown?.parsed?.takeIf { ui.similar == null && !stale && it.understood.isNotEmpty() }
     // Kinds the words asked for show as picked chips too, so the row never says "All" over filtered results.
@@ -168,9 +169,11 @@ internal fun Results(
         }
     }
     val hits = shown?.hits.orEmpty()
+    // Name matches are up; the words inside are still being searched. Said only once that takes a while, or the line
+    // would push the results down and back at every key.
+    val contentsWait = heldFor(SearchTiming.SEARCHING_BAR_MS, ui.searching && hits.isNotEmpty() && !stale, question)
     val note = when {
-        // Name matches are up; the words inside are still being searched.
-        ui.searching && hits.isNotEmpty() && !stale -> Words.SEARCHING_CONTENTS
+        contentsWait -> Words.SEARCHING_CONTENTS
 
         ui.similar != null && !ui.vectorLane -> "Search by photo works once setup finishes."
 
@@ -199,8 +202,10 @@ internal fun Results(
         actions.onChip(null)
         actions.onStarredOnly(false)
     }
-    // "Nothing found" only once the whole search for these very words and filters has answered.
-    val empty = phase.showsEmpty(question)
+    // "Nothing found" only once the whole search for these very words and filters has answered. It then stays, dimmed
+    // like old hits, while newer words are searched, so typing never blinks it away and back.
+    val empty = phase.showsEmpty(question) || (stale && results?.complete == true && hits.isEmpty())
+    val asked = results?.question?.text ?: q
     when {
         phase is SearchPhase.Failed && !stale -> Message {
             EmptyState(
@@ -212,11 +217,11 @@ internal fun Results(
             )
         }
 
-        empty && (chip != null || ui.onlyStarred) -> Message {
+        empty && (chip != null || ui.onlyStarred) -> Message(dim) {
             val where = Format.scope(chip, ui.onlyStarred)
             EmptyState(
                 "No matches in your $where",
-                if (ui.similar != null) "Nothing like this photo there." else "Nothing for “$q” there.",
+                if (ui.similar != null) "Nothing like this photo there." else "Nothing for “$asked” there.",
                 R.drawable.ic_search_off,
                 action = "Search all files" to searchAll,
                 mood = mood,
@@ -224,11 +229,11 @@ internal fun Results(
         }
 
         empty && ui.similar != null -> if (ui.vectorLane) {
-            Message { EmptyState("Nothing like this yet", "Try another photo.", R.drawable.ic_image_search, mood = mood) }
+            Message(dim) { EmptyState("Nothing like this yet", "Try another photo.", R.drawable.ic_image_search, mood = mood) }
         }
 
-        empty -> Message {
-            val words = q.split(Regex("\\s+"))
+        empty -> Message(dim) {
+            val words = asked.split(Regex("\\s+"))
             val waiting = if (scope != null) ui.unread > 0 else home.waiting > 0
             val message = listOfNotNull(
                 Words.NO_MATCHES_DETAIL,
@@ -257,7 +262,7 @@ internal fun Results(
                 }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star)
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
-            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, stale, grid, edge, cell, act)
+            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, edge, cell, act)
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
@@ -286,9 +291,9 @@ internal fun heldFor(ms: Long, on: Boolean, key: Any? = null): Boolean {
 internal val RESULT_CELL_MIN = 110.dp
 internal val RESULT_CELL_GAP = 8.dp
 
-// Material's standard fast-effects and default-spatial springs (its MotionScheme is internal in material3 1.4).
+// Material's standard fast-effects spring (its MotionScheme is internal in material3 1.4). Results only fade in: they snap
+// to their places and leave at once, since sliding and fading together drew rows over each other at every key.
 private val fastEffects = spring<Float>(dampingRatio = 1f, stiffness = 3800f)
-private val defaultSpatial = spring<IntOffset>(dampingRatio = 0.9f, stiffness = 700f)
 
 /** What a result can do: open, find similar (null when the phone cannot), and be starred. */
 private class HitActions(
@@ -358,8 +363,12 @@ private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Message(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 32.dp), contentAlignment = Alignment.TopCenter) { content() }
+private fun Message(dim: Boolean = false, content: @Composable () -> Unit) {
+    val alpha by animateFloatAsState(if (dim) 0.6f else 1f, fastEffects)
+    Box(
+        Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.verticalScroll(rememberScrollState()).padding(vertical = 32.dp),
+        contentAlignment = Alignment.TopCenter,
+    ) { content() }
 }
 
 @Composable
@@ -437,11 +446,7 @@ private fun LazyGridScope.sectionHeader(key: String, title: String) {
             title,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.animateItem(
-                fadeInSpec = fastEffects,
-                placementSpec = defaultSpatial,
-                fadeOutSpec = fastEffects,
-            ).padding(top = 12.dp).semantics {
+            modifier = Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = null, fadeOutSpec = null).padding(top = 12.dp).semantics {
                 heading()
             },
         )
@@ -456,7 +461,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
             hit,
             act,
             similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null,
-            Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects),
+            Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = null, fadeOutSpec = null),
         ) { menu, actions ->
             Column {
                 ThumbCell(
@@ -491,7 +496,7 @@ private fun LazyGridScope.docSection(
             hit,
             act,
             similar = hit.file.kind == Kind.SCREENSHOT && act.findSimilar != null,
-            Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = defaultSpatial, fadeOutSpec = fastEffects).bleed(16.dp),
+            Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = null, fadeOutSpec = null).bleed(16.dp),
         ) { menu, actions ->
             FileRow(
                 hit.file,

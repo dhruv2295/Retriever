@@ -25,10 +25,13 @@ private val SearchPhase.question: Question?
 /** A retry of the same question keeps its answer on screen; anything else is a new search. */
 fun SearchPhase.onAsk(q: Question): SearchPhase = if (this is SearchPhase.Results && question == q) this else SearchPhase.Searching(q)
 
-/** The fast names-only answer. An empty one says nothing, and it never replaces a fuller answer to the same question. */
+/**
+ * The fast names-only answer. An empty one says nothing: the answer on screen, to these words or earlier ones, stays
+ * until the full search answers, so a key never blanks the results. It never replaces a fuller answer to the same question.
+ */
 fun SearchPhase.onNames(q: Question, r: SearchEngine.SearchResult): SearchPhase = when {
     question == q && this is SearchPhase.Results -> this
-    r.hits.isEmpty() -> if (question == q && this is SearchPhase.Searching) this else SearchPhase.Searching(q)
+    r.hits.isEmpty() -> if (this is SearchPhase.Results || (question == q && this is SearchPhase.Searching)) this else SearchPhase.Searching(q)
     else -> SearchPhase.Results(q, r, complete = false)
 }
 
@@ -45,6 +48,16 @@ fun SearchPhase.isStale(current: Question): Boolean = question.let { it != null 
 
 /** The hits to show for [current]: the answer to that question only. */
 fun SearchPhase.answerFor(current: Question): SearchEngine.SearchResult? = (this as? SearchPhase.Results)?.takeIf { it.question == current }?.result
+
+/**
+ * The last word of [typed] is still being typed and too short to match as a word's beginning (that takes three letters):
+ * an empty answer to it is usually the next key's match, not "nothing found" yet.
+ */
+fun midWord(typed: String): Boolean {
+    if (typed.isEmpty() || !typed.last().isLetterOrDigit()) return false
+    val last = typed.takeLastWhile { it.isLetterOrDigit() }
+    return last.length < 3 && !hasCjk(last)
+}
 
 /** Search timings shared by both apps; the Android values, which the iOS model matches except where noted. */
 object SearchTiming {

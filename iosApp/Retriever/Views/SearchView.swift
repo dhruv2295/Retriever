@@ -246,6 +246,9 @@ private struct ResultsView: View {
                 // One branch for both, so the list keeps its scroll when the new answer replaces the dimmed old one.
                 if let answer = search.answer, !answer.hits.isEmpty {
                     list(answer).opacity(screen == .results ? 1 : 0.6)
+                } else if let answer = search.answer, answer.key.question != search.question {
+                    // Earlier words' "Nothing found" stays, dimmed, while these are searched: typing never blinks it.
+                    empty(answer).opacity(0.6)
                 } else if search.pondering {
                     VStack(spacing: 8) {
                         MascotView(mood: .searching).frame(maxWidth: 160)
@@ -268,7 +271,8 @@ private struct ResultsView: View {
     }
 
     @ViewBuilder private func empty(_ answer: SearchModel.Answer) -> some View {
-        let q = search.query
+        // The answer's own words: an earlier answer stays up while newer ones are searched.
+        let q = answer.key.query
         let scope = answer.key.scope
         if scope.needsPhotos && (photos == .denied || photos == .restricted) {
             StateView(

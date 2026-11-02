@@ -24,10 +24,12 @@ import app.retriever.core.ReadExtent
 import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
+import app.retriever.core.SearchTiming
 import app.retriever.core.Signature
 import app.retriever.core.Tier
 import app.retriever.core.answerFor
 import app.retriever.core.cutShort
+import app.retriever.core.isStale
 import app.retriever.core.showsEmpty
 import app.retriever.nav.DocRoute
 import app.retriever.nav.Route
@@ -388,6 +390,40 @@ class SearchViewModelTest {
         vm.ui.first { it.answer == names.answer + 1 }
         vm.setQuery("bill from")
         vm.ui.first { it.answer == names.answer + 2 && it.hits != null }
+    }
+
+    /** Typing on past every name: the earlier hits stay up, dimmed, until the full answer, which alone is the new answer. */
+    @Test fun anEmptyNamesAnswerKeepsTheEarlierHitsUp() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = vm()
+        vm.setQuery("bill")
+        val before = vm.ui.first { it.done }
+        vm.setQuery("zzqx")
+        advanceTimeBy(40)
+        runCurrent()
+        val names = vm.ui.value
+        assertEquals(before.phase, names.phase)
+        assertTrue(names.phase.isStale(names.question))
+        assertEquals(before.answer, names.answer)
+        val full = vm.ui.first { it.done }
+        assertTrue(full.empty)
+        assertEquals(before.answer + 1, full.answer)
+    }
+
+    /** "bill z": a word too short to match its beginning finds nothing yet; the hits stay until typing pauses. */
+    @Test fun nothingForAHalfTypedWordWaitsForTypingToPause() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = vm()
+        vm.setQuery("bill")
+        val before = vm.ui.first { it.done }
+        vm.setQuery("bill z")
+        advanceTimeBy(SearchTiming.FULL_MS + 500)
+        runCurrent()
+        assertEquals(before.phase, vm.ui.value.phase)
+        assertFalse(vm.ui.value.empty)
+        advanceTimeBy(SearchTiming.TYPING_MS)
+        runCurrent()
+        assertTrue(vm.ui.value.empty)
     }
 
     /** Reading waits while the person types or scrolls: [act] holds a batch off until [release]; focus alone does not. */

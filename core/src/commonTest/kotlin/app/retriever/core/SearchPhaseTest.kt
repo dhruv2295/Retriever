@@ -28,6 +28,26 @@ class SearchPhaseTest {
         assertFalse(p.showsEmpty(q))
     }
 
+    /** Typing on: an empty names answer leaves the earlier words' answer up, dimmed as stale, until the full one comes. */
+    @Test fun emptyNamesAnswerKeepsTheEarlierAnswer() {
+        val earlier = SearchPhase.Searching(q).onFull(q, some, willRetry = false)
+        val next = q.copy(text = "taxes")
+        val p = earlier.onNames(next, none)
+        assertEquals(earlier, p)
+        assertTrue(p.isStale(next))
+        assertFalse(p.showsEmpty(next))
+        assertEquals(SearchPhase.Searching(next), SearchPhase.Idle.onNames(next, none))
+    }
+
+    @Test fun aWordUnderThreeLettersIsStillBeingTyped() {
+        assertTrue(midWord("b"))
+        assertTrue(midWord("bill m"))
+        assertFalse(midWord("bil"))
+        assertFalse(midWord("bill "))
+        assertFalse(midWord(""))
+        assertFalse(midWord("账"))
+    }
+
     @Test fun namesWithHitsShowAsIncomplete() {
         assertEquals(SearchPhase.Results(q, some, complete = false), SearchPhase.Searching(q).onNames(q, some))
     }

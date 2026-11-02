@@ -19,6 +19,8 @@ import app.retriever.core.SourceFile
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.core.android.ImageBytes
+import app.retriever.core.isStale
+import app.retriever.core.midWord
 import app.retriever.core.onFull
 import app.retriever.core.onNames
 import app.retriever.core.showsEmpty
@@ -45,6 +47,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.milliseconds
 
 /** A photo to search by; [uri] names it in the [Question]. Not a data class: equality is identity, so each pick searches. */
 @Immutable
@@ -223,11 +226,18 @@ class SearchViewModel(
             }
             // Typing went on, or the full answer already came: this one is old.
             if (k != keyNow() || (namesOnly && complete == q)) return
+            // Nothing yet for a word still being typed: the answer on screen stays until typing pauses. A key cancels this.
+            if (!namesOnly && r.hits.isEmpty() && k.photo == null && midWord(_ui.value.query)) {
+                _ui.update { it.copy(searching = false) }
+                delay(SearchTiming.TYPING_MS.milliseconds)
+            }
             val again = !namesOnly && willAskAgain(q, r.vectorLane)
             val before = _ui.value.phase
             val phase = if (namesOnly) before.onNames(q, r) else before.onFull(q, r, again)
-            val fresh = phase is SearchPhase.Results && shown != q
-            if (phase is SearchPhase.Results) shown = q
+            // An empty names answer leaves the earlier words' answer up: it answers nothing here, so the screen keeps its place.
+            val answered = phase is SearchPhase.Results && !phase.isStale(q)
+            val fresh = answered && shown != q
+            if (answered) shown = q
             if (!namesOnly) complete = q
             val noMatch = phase.showsEmpty(q) && !before.showsEmpty(q)
             val quiet = retriever.prefs.value.noMatchSeen >= SearchTiming.NO_MATCH_QUIET_AFTER
@@ -236,7 +246,7 @@ class SearchViewModel(
                 it.copy(
                     phase = phase,
                     answer = if (fresh) it.answer + 1 else it.answer,
-                    extents = it.extents.filterKeys { id -> id in ids },
+                    extents = if (answered) it.extents.filterKeys { id -> id in ids } else it.extents,
                     vectorLane = if (namesOnly) it.vectorLane else r.vectorLane,
                     searching = namesOnly,
                     quietNoMatch = if (noMatch) quiet else it.quietNoMatch,
