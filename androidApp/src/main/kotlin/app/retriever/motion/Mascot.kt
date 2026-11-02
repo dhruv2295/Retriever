@@ -95,7 +95,8 @@ fun Mascot(mood: MascotMood, modifier: Modifier = Modifier, settles: Boolean = t
                 StepKind.LOOP -> {
                     val anim = frames.anim(step.clip)
                     // Ask half a loop early: the request lands inside the last wanted loop, which then finishes.
-                    val end = SystemClock.elapsedRealtime() + ((step.seconds!! - step.clip.seconds / 2) * 1000).toLong()
+                    // No length loops until the mood changes, as a hold without one does.
+                    val end = step.seconds?.let { SystemClock.elapsedRealtime() + ((it - step.clip.seconds / 2) * 1000).toLong() } ?: Long.MAX_VALUE
                     anim.playToEnd(view, repeat = AnimatedImageDrawable.REPEAT_INFINITE) {
                         while (true) {
                             val left = end - SystemClock.elapsedRealtime()

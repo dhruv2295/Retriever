@@ -60,7 +60,8 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         }
         // A read stopped meanwhile (background time up) is a stop, not an unreadable photo.
         currentCoroutineContext().ensureActive()
-        return checkNotNull(pieces) { "no image to read yet (an iCloud photo waits for Wi-Fi)" }
+        // A failed try, not an empty photo: the engine counts it and tries again, so an iCloud photo waits for Wi-Fi.
+        return pieces ?: throw IllegalStateException("no image to read yet (an iCloud photo waits for Wi-Fi)")
     }
 
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
@@ -102,7 +103,7 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
             return decodeText(if (cut) bytes.copyOf(TEXT_BYTES) else bytes)
         }
         val text = when (format) {
-            DocFormat.DOCX, DocFormat.ODF -> stripXml(entry(format.textEntry!!, 4 * TEXT_BYTES))
+            DocFormat.DOCX, DocFormat.ODF -> format.textEntry?.let { stripXml(entry(it, 4 * TEXT_BYTES)) }.orEmpty()
             DocFormat.PPTX -> zipText(uri, ::slideOrder, ::entry, onCut)
             DocFormat.XLSX -> xlsxText(zipText(uri, ::xlsxOrder, ::entry, onCut, strip = { it }))
             DocFormat.EPUB -> epub(uri, ::entry, onCut)

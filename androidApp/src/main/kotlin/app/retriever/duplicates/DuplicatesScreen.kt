@@ -120,6 +120,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
         },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
+            val error = s.error
             when {
                 s.scanning -> Column(
                     Modifier.fillMaxWidth().padding(24.dp),
@@ -130,10 +131,10 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
 
-                s.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         title = "Couldn't look for duplicates",
-                        description = s.error!!,
+                        description = error,
                         icon = R.drawable.ic_warning_amber,
                         action = "Try again" to vm::scan,
                         mood = MascotMood.TROUBLE,

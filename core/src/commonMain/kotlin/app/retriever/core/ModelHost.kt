@@ -45,7 +45,7 @@ internal class ModelHost(
 
     /** The shared embedder and its build, opened if needed. Null when not set up. */
     suspend fun open(): Pair<Embedder, ModelBuild>? = lock.withLock {
-        withContext(dispatchers.default) { openLocked()?.let { it to embedderKey!!.build } }
+        withContext(dispatchers.default) { openLocked()?.let { e -> embedderKey?.let { e to it.build } } }
     }
 
     /** [open], unless a model is open already: then it keeps that one, whatever build or backend it has. */

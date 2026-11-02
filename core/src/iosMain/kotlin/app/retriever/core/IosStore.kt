@@ -16,6 +16,7 @@ import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -69,7 +70,7 @@ private fun configure(connection: DatabaseConnection) {
 }
 
 /** Application Support/Retriever, the app's own data directory. */
-fun appDataDir(): String = checkNotNull(
-    NSFileManager.defaultManager.URLForDirectory(NSApplicationSupportDirectory, NSUserDomainMask, null, true, null)
-        ?.URLByAppendingPathComponent("Retriever")?.path,
-) { "no Application Support directory" }
+fun appDataDir(): String = NSFileManager.defaultManager.URLForDirectory(NSApplicationSupportDirectory, NSUserDomainMask, null, true, null)
+    ?.URLByAppendingPathComponent("Retriever")?.path
+    // The same place, spelled out, should the lookup fail.
+    ?: (NSHomeDirectory() + "/Library/Application Support/Retriever")

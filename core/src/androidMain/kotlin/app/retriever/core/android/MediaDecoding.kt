@@ -39,8 +39,8 @@ object MediaDecoding {
         var codec: MediaCodec? = null
         try {
             extractor.setDataSource(context, uri, null)
-            val track = (0 until extractor.trackCount).firstOrNull {
-                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            val (track, mime) = (0 until extractor.trackCount).firstNotNullOfOrNull { i ->
+                extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.takeIf { it.startsWith("audio/") }?.let { i to it }
             } ?: return ShortArray(0)
             extractor.selectTrack(track)
             val fromUs = fromMs * 1000
@@ -51,7 +51,7 @@ object MediaDecoding {
             var channels = inFormat.intOr(MediaFormat.KEY_CHANNEL_COUNT, 0)
             var rate = inFormat.intOr(MediaFormat.KEY_SAMPLE_RATE, 0)
             if (channels <= 0 || rate <= 0) return ShortArray(0)
-            val dec = MediaCodec.createDecoderByType(inFormat.getString(MediaFormat.KEY_MIME)!!)
+            val dec = MediaCodec.createDecoderByType(mime)
             codec = dec
             dec.configure(inFormat, null, null, 0)
             dec.start()
@@ -102,12 +102,14 @@ object MediaDecoding {
 
                     o >= 0 -> {
                         postEosTimeouts = 0
-                        val buf = dec.getOutputBuffer(o)!!
-                        buf.position(info.offset).limit(info.offset + info.size)
-                        buf.order(ByteOrder.nativeOrder())
-                        val frames = info.size / ((if (float) 4 else 2) * channels)
-                        val shorts = if (float) null else buf.asShortBuffer()
-                        val floats = if (float) buf.asFloatBuffer() else null
+                        // A buffer the codec can't hand over counts as an empty one.
+                        val buf = dec.getOutputBuffer(o)?.apply {
+                            position(info.offset).limit(info.offset + info.size)
+                            order(ByteOrder.nativeOrder())
+                        }
+                        val frames = if (buf == null) 0 else info.size / ((if (float) 4 else 2) * channels)
+                        val shorts = if (float) null else buf?.asShortBuffer()
+                        val floats = if (float) buf?.asFloatBuffer() else null
                         // The seek lands on an earlier sync sample; keep only frames inside the window.
                         val pts = info.presentationTimeUs
                         val first = ((fromUs - pts) * rate / 1_000_000).coerceIn(0, frames.toLong()).toInt()
@@ -118,8 +120,8 @@ object MediaDecoding {
                             for (c in 0 until channels) {
                                 if (floats != null) {
                                     fsum += floats.get(fr * channels + c)
-                                } else {
-                                    sum += shorts!!.get(fr * channels + c)
+                                } else if (shorts != null) {
+                                    sum += shorts.get(fr * channels + c)
                                 }
                             }
                             val v = if (floats != null) {
@@ -250,14 +252,13 @@ object MediaDecoding {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(context, uri, null)
-            val track = (0 until extractor.trackCount).asSequence()
+            val (track, mime) = (0 until extractor.trackCount).asSequence()
                 .map { extractor.getTrackFormat(it) }
-                .firstOrNull {
-                    it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true &&
-                        it.containsKey(MediaFormat.KEY_WIDTH) && it.containsKey(MediaFormat.KEY_HEIGHT)
-                } ?: return false
+                .filter { it.containsKey(MediaFormat.KEY_WIDTH) && it.containsKey(MediaFormat.KEY_HEIGHT) }
+                .firstNotNullOfOrNull { f -> f.getString(MediaFormat.KEY_MIME)?.takeIf { it.startsWith("video/") }?.let { f to it } }
+                ?: return false
             val format = MediaFormat.createVideoFormat(
-                track.getString(MediaFormat.KEY_MIME)!!,
+                mime,
                 track.getInteger(MediaFormat.KEY_WIDTH),
                 track.getInteger(MediaFormat.KEY_HEIGHT),
             )

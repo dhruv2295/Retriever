@@ -1493,7 +1493,7 @@ class Retriever(
             val span = store.mediaTakenBetween(from, to)
             if (span.count > 0 && span.coverId != null) hits += year to span
         }
-        val covers = store.files(hits.map { it.second.coverId!! })
+        val covers = store.files(hits.mapNotNull { it.second.coverId })
         hits.mapNotNull { (year, s) -> covers[s.coverId]?.let { YearMemory(year, s.count - s.videos, s.videos, it) } }
     }
 

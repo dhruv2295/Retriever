@@ -16,8 +16,9 @@ internal class IosFrameSource : FrameSource {
     private var target: DisplayTarget? = null
 
     override fun start(onFrame: (Double) -> Unit) {
-        target = DisplayTarget(onFrame)
-        link = CADisplayLink.displayLinkWithTarget(target!!, NSSelectorFromString("frame:"))
+        val t = DisplayTarget(onFrame)
+        target = t
+        link = CADisplayLink.displayLinkWithTarget(t, NSSelectorFromString("frame:"))
             .also { it.addToRunLoop(NSRunLoop.mainRunLoop, NSRunLoopCommonModes) }
     }
 

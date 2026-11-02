@@ -152,7 +152,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
         value = withContext(pdfDispatcher) {
             try {
                 val opened = try {
-                    context.contentResolver.openFileDescriptor(route.uri.toUri(), "r") ?: error("no file")
+                    context.contentResolver.openFileDescriptor(route.uri.toUri(), "r") ?: return@withContext PdfState.Failed
                 } catch (_: SecurityException) {
                     return@withContext PdfState.NoAccess
                 }

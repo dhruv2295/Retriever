@@ -18,7 +18,8 @@
 // Cursor loop adapted from Google AI Edge Gallery (Apache-2.0):
 // Android/src/app/src/main/java/com/google/ai/edge/gallery/services/photolibrary/PhotoLibraryService.kt
 // Modified for Retriever: Files collection per storage volume, MediaColumns projection, generation-based
-// incremental scans reset when access changes, null-MIME fallback, and query failures are rethrown instead of returning an empty result.
+// incremental scans reset when access changes, null-MIME fallback, query failures rethrown and a missing cursor reporting no
+// change, never an empty result.
 // Query and projection pattern also follows android/platform-samples
 // samples/storage/src/main/java/com/example/platform/storage/mediastore/MediaStoreQuery.kt (Apache-2.0).
 package app.retriever.core.android
@@ -49,8 +50,9 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
         val seeing = access()
         val old = resumable(parse(since), seeing)
         val volumes = MediaStore.getExternalVolumeNames(context).toList()
-        // Storage not mounted yet (early boot): report nothing rather than a full scan that finds no files.
-        if (volumes.isEmpty()) return@withContext Changes(emptyList(), emptyList(), since.orEmpty(), present = null, scope = emptySet())
+        // Storage not mounted yet (early boot), or MediaStore gave no cursor: report nothing rather than a scan that finds no files.
+        val nothing = Changes(emptyList(), emptyList(), since.orEmpty(), present = null, scope = emptySet())
+        if (volumes.isEmpty()) return@withContext nothing
         // An unmounted volume (an ejected SD card) keeps its token, so it resumes incrementally when it is back.
         val tokens = JSONObject(old.filterKeys { it !in volumes } + (ACCESS to seeing))
         val upserted = ArrayList<SourceFile>()
@@ -64,7 +66,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
             val prior = old[volume]?.split(':')
             val sinceGeneration = if (prior?.size == 2 && prior[0] == version) prior[1].toLongOrNull() else null
             if (sinceGeneration == null) fullVolumes++
-            upserted += query(volume, sinceGeneration, skips, removed)
+            upserted += query(volume, sinceGeneration, skips, removed) ?: return@withContext nothing
         }
         val isFull = fullVolumes == volumes.size
         log("MediaStore scan: ${upserted.size} files, skipped $skips, full=$isFull", null)
@@ -73,7 +75,7 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
             removed = removed,
             nextToken = tokens.toString(),
             isFullScan = isFull,
-            present = if (isFull) null else volumes.flatMapTo(HashSet()) { presentUris(it) },
+            present = if (isFull) null else volumes.flatMapTo(HashSet()) { presentUris(it) ?: return@withContext nothing },
             scope = volumes.mapTo(HashSet()) { MediaStore.Files.getContentUri(it).toString() + "/" },
         )
     }
@@ -96,10 +98,14 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
         json.keys().asSequence().associateWith { json.getString(it) }
     }.getOrDefault(emptyMap())
 
-    private fun presentUris(volume: String): List<String> {
+    /** Null when MediaStore gives no cursor. */
+    private fun presentUris(volume: String): List<String>? {
         val collection = MediaStore.Files.getContentUri(volume)
         val cursor = context.contentResolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), NOT_FOLDER, null, null)
-            ?: error("MediaStore query returned no cursor")
+            ?: run {
+                log("MediaStore gave no cursor for $volume", null)
+                return null
+            }
         return cursor.use { c ->
             buildList {
                 while (c.moveToNext()) add(ContentUris.withAppendedId(collection, c.getLong(0)).toString())
@@ -107,8 +113,8 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
         }
     }
 
-    /** On an incremental scan, a changed row that no longer qualifies (now hidden, now empty) goes to [removed]. */
-    private fun query(volume: String, sinceGeneration: Long?, skips: MutableMap<String, Int>, removed: MutableList<String>): List<SourceFile> {
+    /** On an incremental scan, a changed row that no longer qualifies (now hidden, now empty) goes to [removed]. Null when MediaStore gives no cursor. */
+    private fun query(volume: String, sinceGeneration: Long?, skips: MutableMap<String, Int>, removed: MutableList<String>): List<SourceFile>? {
         val collection = MediaStore.Files.getContentUri(volume)
         val volumeLabel = volumeLabel(collection)
         val projection = arrayOf(
@@ -127,7 +133,10 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
         val out = ArrayList<SourceFile>()
         try {
             val cursor = context.contentResolver.query(collection, projection, selection, args, null)
-                ?: error("MediaStore query returned no cursor")
+                ?: run {
+                    log("MediaStore gave no cursor for $volume", null)
+                    return null
+                }
             cursor.use { c ->
                 val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                 val nameCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)

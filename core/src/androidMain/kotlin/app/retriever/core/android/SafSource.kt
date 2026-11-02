@@ -46,8 +46,12 @@ class SafSource(
         var failed = false
         for (tree in trees) {
             try {
-                walk(ctx, tree.toUri(), skipped, known, describe, files)
-                walked += "$tree/document/"
+                if (walk(ctx, tree.toUri(), skipped, known, describe, files)) {
+                    walked += "$tree/document/"
+                } else {
+                    failed = true
+                    log("A picked folder gave no listing", null)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -59,14 +63,22 @@ class SafSource(
         Changes(files, emptyList(), "", isFullScan = true, scope = if (failed) walked else setOf(PREFIX))
     }
 
-    private fun walk(ctx: CoroutineContext, tree: Uri, skipped: Set<Kind>, known: Set<String>, describe: (String) -> String?, out: MutableList<SourceFile>) {
+    /** False when a folder in [tree] gave no listing, so the tree wasn't seen whole. */
+    private fun walk(
+        ctx: CoroutineContext,
+        tree: Uri,
+        skipped: Set<Kind>,
+        known: Set<String>,
+        describe: (String) -> String?,
+        out: MutableList<SourceFile>,
+    ): Boolean {
         val resolver = context.contentResolver
         val dirs = ArrayDeque(listOf(DocumentsContract.getTreeDocumentId(tree)))
         while (dirs.isNotEmpty()) {
             ctx.ensureActive()
             val dir = dirs.removeLast()
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, dir)
-            val cursor = resolver.query(children, PROJECTION, null, null, null) ?: error("No cursor for $children")
+            val cursor = resolver.query(children, PROJECTION, null, null, null) ?: return false
             cursor.use { c ->
                 while (c.moveToNext()) {
                     val id = c.getString(0) ?: continue
@@ -81,6 +93,7 @@ class SafSource(
                 }
             }
         }
+        return true
     }
 
     companion object {
@@ -112,8 +125,9 @@ class SafSource(
             val labels by lazy {
                 runCatching {
                     context.getSystemService(StorageManager::class.java).storageVolumes
-                        .filter { it.uuid != null && it.state.startsWith(Environment.MEDIA_MOUNTED) }
-                        .associate { it.uuid!!.uppercase() to it.getDescription(context) }
+                        .filter { it.state.startsWith(Environment.MEDIA_MOUNTED) }
+                        .mapNotNull { v -> v.uuid?.let { it.uppercase() to v.getDescription(context) } }
+                        .toMap()
                 }.getOrDefault(emptyMap())
             }
             return { id -> labels[id.uppercase()] }

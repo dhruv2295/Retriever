@@ -367,7 +367,7 @@ class SearchEngine(
                 }
             }.awaitAll()
         }
-        if (histogram != null) for ((_, counts) in parts) for (i in histogram.indices) histogram[i] += counts!![i]
+        if (histogram != null) for ((_, counts) in parts) counts?.forEachIndexed { i, c -> histogram[i] += c }
         val rows = IntArray(parts.sumOf { it.first.rows.size })
         val cos = FloatArray(rows.size)
         var at = 0

@@ -256,6 +256,10 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     var name by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Pair<Request, String>?>(null) }
     var busy by remember { mutableStateOf(false) }
+    fun failed() {
+        request = null
+        Toast.makeText(context, "Couldn't finish that. The file may have moved or access may have changed.", Toast.LENGTH_LONG).show()
+    }
     fun run(work: suspend () -> Unit) {
         scope.launch {
             busy = true
@@ -264,15 +268,14 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                request = null
-                Toast.makeText(context, "Couldn't finish that. The file may have moved or access may have changed.", Toast.LENGTH_LONG).show()
+                failed()
             } finally {
                 busy = false
             }
         }
     }
     suspend fun rename(r: Request, wanted: String) {
-        val changed = checkNotNull(retriever.renameFile(r.file.uri) { rename(context, it, wanted) })
+        val changed = retriever.renameFile(r.file.uri) { rename(context, it, wanted) } ?: return failed()
         request = null
         if (changed.uri != r.file.uri) r.deleted()
     }
@@ -329,7 +332,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
             if (sourceOf(r.file.uri) == FileSource.MEDIA) {
                 LaunchedEffect(r) {
                     run {
-                        val sender = checkNotNull(MediaDeleter(context).request(listOf(r.file.uri)))
+                        val sender = MediaDeleter(context).request(listOf(r.file.uri)) ?: return@run failed()
                         pending = r to ""
                         request = null
                         consent.launch(IntentSenderRequest.Builder(sender).build())
@@ -343,17 +346,15 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                     confirmButton = {
                         TextButton(enabled = !busy, onClick = {
                             run {
-                                withContext(Dispatchers.IO) {
-                                    check(
-                                        if (sourceOf(r.file.uri) ==
-                                            FileSource.FILE
-                                        ) {
-                                            File(checkNotNull(r.file.uri.toUri().path)).delete()
-                                        } else {
-                                            DocumentsContract.deleteDocument(context.contentResolver, r.file.uri.toUri())
-                                        },
-                                    )
+                                val gone = withContext(Dispatchers.IO) {
+                                    val uri = r.file.uri.toUri()
+                                    if (sourceOf(r.file.uri) == FileSource.FILE) {
+                                        uri.path?.let { File(it).delete() } == true
+                                    } else {
+                                        DocumentsContract.deleteDocument(context.contentResolver, uri)
+                                    }
                                 }
+                                if (!gone) return@run failed()
                                 retriever.deletedFiles(listOf(r.file.uri))
                                 request = null
                                 r.deleted()
@@ -369,32 +370,28 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     }
 }
 
-private fun rename(context: Context, file: SourceFile, name: String): SourceFile {
-    require(validFileName(name))
+/** The renamed file, or null when it couldn't be renamed. */
+private fun rename(context: Context, file: SourceFile, name: String): SourceFile? {
+    if (!validFileName(name)) return null
     val resolver = context.contentResolver
     val uri = file.uri.toUri()
     val renamed = when (sourceOf(file.uri)) {
         FileSource.MEDIA -> {
-            check(resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, name) }, null, null) > 0)
+            if (resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, name) }, null, null) <= 0) return null
             uri
         }
 
-        FileSource.TREE -> checkNotNull(DocumentsContract.renameDocument(resolver, uri, name))
+        FileSource.TREE -> DocumentsContract.renameDocument(resolver, uri, name) ?: return null
 
         FileSource.FILE -> {
-            check(Environment.isExternalStorageManager())
-            val old = File(checkNotNull(uri.path))
+            if (!Environment.isExternalStorageManager()) return null
+            val old = File(uri.path ?: return null)
             val next = File(old.parentFile, name)
-            check(!next.exists() && old.renameTo(next))
-            Uri.fromFile(next)
+            if (next.exists() || !old.renameTo(next)) return null
+            return file.copy(uri = Uri.fromFile(next).toString(), name = next.name, modifiedAt = next.lastModified())
         }
 
-        FileSource.OTHER -> error("Unsupported source")
-    }
-    if (renamed.scheme ==
-        "file"
-    ) {
-        return file.copy(uri = renamed.toString(), name = File(checkNotNull(renamed.path)).name, modifiedAt = File(renamed.path!!).lastModified())
+        FileSource.OTHER -> return null
     }
     val modified = if (sourceOf(file.uri) == FileSource.MEDIA) MediaStore.MediaColumns.DATE_MODIFIED else DocumentsContract.Document.COLUMN_LAST_MODIFIED
     resolver.query(renamed, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, modified), null, null, null)?.use { cursor ->
@@ -412,7 +409,8 @@ private fun rename(context: Context, file: SourceFile, name: String): SourceFile
 
 private fun shareOrOpen(context: Context, file: SourceFile, share: Boolean) {
     val raw = file.uri.toUri()
-    val uri = if (raw.scheme == "file") FileProvider.getUriForFile(context, "${context.packageName}.files", File(checkNotNull(raw.path))) else raw
+    val path = raw.path
+    val uri = if (raw.scheme == "file" && path != null) FileProvider.getUriForFile(context, "${context.packageName}.files", File(path)) else raw
     val intent = if (share) {
         Intent(
             Intent.ACTION_SEND,

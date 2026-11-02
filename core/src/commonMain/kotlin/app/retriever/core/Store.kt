@@ -610,7 +610,14 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         val folded = tokens.flatten().map(::foldWord).distinct()
         val sql = "SELECT term, documents FROM $chunkTerms WHERE col = '*' AND term IN (${folded.joinToString { "?" }})"
         val df = driver.executeQuery(null, sql, { c ->
-            QueryResult.Value(buildMap { while (c.next().value) put(c.getString(0)!!, c.getLong(1)!!) })
+            QueryResult.Value(
+                buildMap {
+                    while (c.next().value) {
+                        val term = c.getString(0) ?: continue
+                        put(term, c.getLong(1) ?: continue)
+                    }
+                },
+            )
         }, folded.size) { folded.forEachIndexed { i, t -> bindString(i, t) } }.value
         val prefix = if (endsInPrefix(tokens)) foldWord(tokens.last().last()) else null
         // A range on term, which fts4aux seeks to instead of reading every term: the prefix, then anything after it up to
@@ -985,7 +992,14 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
          */
         fun resetSchema(driver: SqlDriver) {
             val objects = driver.executeQuery(null, "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite%'", { c ->
-                QueryResult.Value(buildList { while (c.next().value) add(Triple(c.getString(0)!!, c.getString(1)!!, c.getString(2).orEmpty())) })
+                QueryResult.Value(
+                    buildList {
+                        while (c.next().value) {
+                            val type = c.getString(0) ?: continue
+                            add(Triple(type, c.getString(1) ?: continue, c.getString(2).orEmpty()))
+                        }
+                    },
+                )
             }, 0).value
             val (virtual, plain) = objects.partition { it.third.startsWith("CREATE VIRTUAL TABLE", ignoreCase = true) }
             for ((type, name) in virtual + plain) driver.execute(null, "DROP ${type.uppercase()} IF EXISTS \"${name.replace("\"", "\"\"")}\"", 0)

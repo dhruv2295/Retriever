@@ -59,7 +59,7 @@ object ModelBuilds {
         if (probe.platform != Platform.ANDROID || probe.sdkInt < 31 || !probe.npuDispatch) return variant.generic
         val device = socKey(probe.socModel)
         return npu.firstOrNull {
-            it.variant == variant && it.fileName !in failed && device.startsWith(socKey(it.soc!!.substringAfter('_')))
+            it.variant == variant && it.fileName !in failed && it.soc?.let { soc -> device.startsWith(socKey(soc.substringAfter('_'))) } == true
         } ?: variant.generic
     }
 
