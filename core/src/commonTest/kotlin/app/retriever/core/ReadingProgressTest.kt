@@ -95,7 +95,15 @@ class ReadingProgressTest {
             ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 5), null, false, false, DeviceWords.ANDROID).detail,
         )
         // A stop still says why; files still waiting keep the short break.
-        assertEquals(ReadingPhase.BUSY, ReadingPolicy.decide(later, StopReason.BUSY, false, false, DeviceWords.ANDROID).phase)
+        val busy = ReadingPolicy.decide(later, StopReason.BUSY, false, false, DeviceWords.ANDROID)
+        assertEquals(ReadingPhase.BUSY, busy.phase)
+        assertEquals("All files processed. The rest of 2 long files waits. Or open Retriever to carry on now.", busy.detail)
+        assertEquals(null, busy.count, "no full bar beside work still to do")
+        val meaningStopped = ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 2), StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID)
+        assertEquals("3 of 5 files have search by description", meaningStopped.count)
+        assertEquals("All files processed. Retriever carries on when your phone is charging.", meaningStopped.detail)
+        // Paused with nothing left keeps the plain count.
+        assertEquals("5 of 5 files processed", ReadingPolicy.decide(ReadingProgress(read = 5), StopReason.PAUSED, false, false, DeviceWords.ANDROID).count)
         assertEquals("Paused, your phone is full", ReadingPolicy.decide(later, StopReason.DISK_FULL, false, false, DeviceWords.ANDROID).title)
         assertEquals("Taking a short break", ReadingPolicy.decide(later.copy(scheduled = 1), null, false, false, DeviceWords.ANDROID).title)
         // A batch on the later parts names them between two files too, with no full bar.

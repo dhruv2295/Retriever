@@ -311,8 +311,11 @@ object ReadingPolicy {
         }
         // Between batches with every file's first pass done, only the hours-long passes are left: a short break beside a
         // full bar read as stuck.
-        val firstPassDone = phase == ReadingPhase.WAITING && progress.waiting == 0L && progress.rereads == 0L &&
+        val allProcessed = progress.waiting == 0L && progress.rereads == 0L
+        val firstPassDone = phase == ReadingPhase.WAITING && allProcessed &&
             (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
+        // A stop over only those passes says why it stopped, then that every file is processed and what is left.
+        val restStopped = phase in STOPS && progress.unfinished && allProcessed
         val title = when (phase) {
             ReadingPhase.WAITING if firstPassDone -> "All files processed"
             ReadingPhase.COUNTING -> "Counting your files…"
@@ -378,7 +381,14 @@ object ReadingPolicy {
 
             else -> null
         }
-        val detail = if (phase == ReadingPhase.DEEPENING) "${Words.notReadYet(progress.laterPasses)}. $sentence" else sentence
+        val meaning = phase == ReadingPhase.MEANING || (restStopped && progress.meaningWaiting > 0)
+        val lead = when {
+            phase == ReadingPhase.DEEPENING -> "${Words.notReadYet(progress.laterPasses)}."
+            restStopped && !meaning -> "All files processed. The rest of ${Words.plural(progress.laterPasses, "long file")} waits."
+            restStopped -> "All files processed."
+            else -> null
+        }
+        val detail = listOfNotNull(lead, sentence).joinToString(" ").ifEmpty { null }
         val action = when (phase) {
             ReadingPhase.PAUSED -> StatusAction.RESUME
             ReadingPhase.CHARGING, ReadingPhase.MANUAL -> StatusAction.READ_FOR_15
@@ -388,8 +398,8 @@ object ReadingPolicy {
             else -> null
         }
         // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
-        // its first reads are all done, and a full bar beside work going on reads as stuck.
-        val meaning = phase == ReadingPhase.MEANING
+        // its first reads are all done, and a full bar beside work going on reads as stuck. A stop over the meaning pass
+        // counts that pass; one over only later parts has none, like deepening.
         val looking = when {
             phase == ReadingPhase.FACES -> faces
             phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L }
@@ -400,7 +410,8 @@ object ReadingPolicy {
             meaning -> progress.contentRead - progress.meaningWaiting to progress.contentRead
             else -> progress.processed to progress.libraryTotal
         }
-        val none = !progress.counted || phase == ReadingPhase.DEEPENING || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
+        val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
+        val none = !progress.counted || laterOnly || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
         val count = when {
             looking != null -> Words.facesOf(done, total)
