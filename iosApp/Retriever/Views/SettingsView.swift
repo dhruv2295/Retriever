@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var confirmingFree = false
     @State private var confirmingClear = false
     @State private var searchesCleared = false
+    @State private var confirmingForget = false
     #if DEBUG
         /// Overrides the app's own log (previews); nil reads model.services?.diagnostics.
         var diagnostics: Diagnostics? = nil
@@ -26,6 +27,13 @@ struct SettingsView: View {
                 Toggle("Save recent searches", isOn: Binding(get: { snap.rememberSearches }, set: model.setRememberSearches))
                 Button(searchesCleared ? "Cleared" : "Clear recent searches", role: .destructive) { confirmingClear = true }
                     .disabled(searchesCleared)
+                // Off forgets every face and name, so it asks first; on starts looking at photos.
+                Toggle(
+                    isOn: Binding(get: { snap.recognizePeople }, set: { on in if on { model.setRecognizePeople(true) } else { confirmingForget = true } })
+                ) {
+                    Text(Words.shared.RECOGNIZE_PEOPLE)
+                    Text(Words.shared.RECOGNIZE_PEOPLE_DETAIL)
+                }
             } header: {
                 Text("Privacy")
             } footer: {
@@ -52,6 +60,12 @@ struct SettingsView: View {
                 problems = await Self.exportProblems(log)
             }
         #endif
+        .alert(Words.shared.FORGET_PEOPLE_TITLE, isPresented: $confirmingForget) {
+            Button(Words.shared.FORGET, role: .destructive) { model.setRecognizePeople(false) }
+            Button(Words.shared.CANCEL, role: .cancel) {}
+        } message: {
+            Text(Words.shared.FORGET_PEOPLE_BODY)
+        }
         .confirmationDialog("Clear recent searches?", isPresented: $confirmingClear, titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
                 model.clearRecentSearches()

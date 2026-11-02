@@ -93,7 +93,8 @@ enum OnThisDay {
     }
 }
 
-/// A section title with a subtitle that is not a doorway (On This Day: each card is).
+/// A section title with a subtitle that is not a doorway (On This Day: each card is). The subtitle is primary too: secondary
+/// grey fails contrast on the grouped list.
 struct DateHeader: View {
     let title: String
     let subtitle: String
@@ -101,7 +102,7 @@ struct DateHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.title3.bold())
-            Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            Text(subtitle).font(.subheadline)
         }
         .foregroundStyle(Color.primary)
         .textCase(nil)
@@ -216,6 +217,88 @@ struct TileStrip: View {
         } else {
             Thumb(file: file, points: side, bucketed: true)
         }
+    }
+}
+
+/// Each person a face and their name, if they have one; a tap opens their photos.
+struct PeopleStrip: View {
+    let people: [Person]
+    @ScaledMetric(relativeTo: .caption) private var side = 72.0
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 12) {
+                ForEach(people, id: \.id) { p in
+                    let title = Words.shared.personTitle(name: p.name)
+                    NavigationLink(value: Route.files(FileQuery(title: title, person: p.id))) {
+                        VStack(spacing: 6) {
+                            FaceAvatar(cover: p.cover, name: p.name, side: side)
+                            Text(p.name ?? " ").font(.caption).lineLimit(1).frame(width: side)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(title), \(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos"))")
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .contentMargins(.horizontal, gutter, for: .scrollContent)
+        .scrollIndicators(.hidden)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+}
+
+/// Two people who may be one (core's ASK_SAME_PERSON), one pair at a time, closest first: both faces, and the answer
+/// that merges them or never asks again. Previous and next leave a pair the person isn't sure about unanswered.
+struct SamePersonCard: View {
+    let pairs: [SamePerson]
+    let answer: (SamePerson, Bool) -> Void
+    @ScaledMetric(relativeTo: .body) private var side = 56.0
+    @State private var shown = 0
+
+    var body: some View {
+        // An answered pair leaves the list, so the same place shows the next one.
+        let at = min(shown, pairs.count - 1)
+        let question = pairs[at]
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                FaceAvatar(cover: question.first.cover, name: question.first.name, side: side)
+                FaceAvatar(cover: question.second.cover, name: question.second.name, side: side)
+                VStack(alignment: .leading) {
+                    Text(Words.shared.SAME_PERSON_ASK).font(.headline)
+                    if pairs.count > 1 {
+                        Text(Words.shared.pairOf(at: Int32(at + 1), of: Int32(pairs.count))).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, 8)
+            }
+            .accessibilityElement(children: .combine)
+            HStack {
+                if pairs.count > 1 {
+                    Button {
+                        shown = at - 1
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel(Words.shared.SAME_PERSON_PREVIOUS)
+                    .disabled(at == 0)
+                    Button {
+                        shown = at + 1
+                    } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .accessibilityLabel(Words.shared.SAME_PERSON_NEXT)
+                    .disabled(at == pairs.count - 1)
+                }
+                Spacer()
+                Button(Words.shared.SAME_PERSON_NO) { answer(question, false) }
+                Button(Words.shared.SAME_PERSON_YES) { answer(question, true) }.buttonStyle(.borderedProminent)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 8)
     }
 }
 

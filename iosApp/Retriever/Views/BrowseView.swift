@@ -43,6 +43,8 @@ struct FileQuery: Hashable {
     var starredOnly = false
     /// Photos and videos taken within these times (ms), oldest first; the sort menu doesn't apply.
     var takenRange: ClosedRange<Int64>?
+    /// One person's photos (core's Person.id), newest first; the sort menu doesn't apply.
+    var person: Int64?
 }
 
 /// Files a page at a time: pictures as a grid, everything else as rows.
@@ -63,6 +65,7 @@ struct FileListView: View {
         _pages = State(
             initialValue: FilePages(files: files) { sort, offset in
                 guard let retriever = services?.retriever else { return [] }
+                if let person = query.person { return try await retriever.personPhotos(id: person, limit: FilePages.pageSize, offset: offset) }
                 if let range = query.takenRange {
                     return try await retriever.filesTakenBetween(from: range.lowerBound, to: range.upperBound, limit: FilePages.pageSize, offset: offset)
                 }
@@ -73,17 +76,26 @@ struct FileListView: View {
 
     /// Large files sorted another way is just every file. On iOS that is Photos plus the folders picked, never "all files".
     static func title(_ query: FileQuery, sort: FileQuery.Sort) -> String {
-        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && sort != .largest
+        query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && query.person == nil && sort != .largest
             ? "Files Retriever can access" : query.title
     }
 
-    private var title: String { Self.title(query, sort: sort) }
+    /// A person's title follows their name, which can change here; until the people load, the name Home opened them with.
+    private var title: String {
+        guard let id = query.person else { return Self.title(query, sort: sort) }
+        return person(id).map { Words.shared.personTitle(name: $0.name) } ?? query.title
+    }
+
+    private func person(_ id: Int64) -> Person? { model?.people.first { $0.id == id } }
 
     /// An unfiltered list that is empty means nothing is included yet; a kind, folder or day that is empty is just that.
-    private var libraryEmpty: Bool { query.kind == nil && query.folder == nil && query.takenRange == nil && !query.starredOnly }
+    private var libraryEmpty: Bool { query.kind == nil && query.folder == nil && query.takenRange == nil && !query.starredOnly && query.person == nil }
+
+    /// The sort menu applies to plain lists only.
+    private var sortable: Bool { !query.starredOnly && query.takenRange == nil && query.person == nil }
 
     private var grid: Bool {
-        query.kind == .photo || query.kind == .screenshot || query.kind == .video || query.takenRange != nil
+        query.kind == .photo || query.kind == .screenshot || query.kind == .video || query.takenRange != nil || query.person != nil
     }
 
     var body: some View {
@@ -113,7 +125,8 @@ struct FileListView: View {
                     LazyVGrid(columns: gridColumns(typeSize, spacing: 4), spacing: 4) {
                         ForEach(visible, id: \.id) { stored in
                             ResultCell(
-                                file: stored.file, starred: starred.contains(stored.file.uri), onOpen: { openFile(stored.file, among: visible.map(\.file)) }
+                                file: stored.file, starred: starred.contains(stored.file.uri), onOpen: { openFile(stored.file, among: visible.map(\.file)) },
+                                notThisPerson: query.person.map { id in { notThisPerson(id, stored) } }
                             )
                             .onAppear { more(after: stored) }
                         }
@@ -135,13 +148,20 @@ struct FileListView: View {
         }
         .navigationTitle(title)
         .safeAreaInset(edge: .top) {
-            if !query.starredOnly && query.takenRange == nil && !visible.isEmpty {
+            if sortable && !visible.isEmpty {
                 Text(sort.caption).font(.footnote).foregroundStyle(Color.primary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(
                     .vertical, 4)
             }
         }
         .toolbar {
-            if !query.starredOnly && query.takenRange == nil {
+            if let id = query.person, let model {
+                ToolbarItem(placement: .topBarTrailing) {
+                    PersonActions(person: person(id), others: model.people.filter { $0.id != id }, rename: { model.renamePerson(id, $0) }) { other in
+                        model.mergePeople(into: id, from: other) { Task { await pages.reload(sort) } }
+                    }
+                }
+            }
+            if sortable {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Picker("Sort by", selection: $sort) {
@@ -162,6 +182,9 @@ struct FileListView: View {
                 .padding().frame(maxWidth: .infinity).background(.bar)
             }
         }
+        .alert(
+            model?.peopleMessage ?? "", isPresented: Binding(get: { model?.peopleMessage != nil }, set: { if !$0 { model?.peopleMessage = nil } })
+        ) { Button("OK") {} }
         .onChange(of: model?.fileRevision) { Task { await pages.load(sort) } }
         .task(id: sort) {
             guard services != nil else { return }
@@ -178,6 +201,10 @@ struct FileListView: View {
     private func more(after stored: Store.StoredFile) {
         guard stored.id == pages.files.last?.id, !pages.failed else { return }
         Task { await pages.loadPage() }
+    }
+
+    private func notThisPerson(_ id: Int64, _ stored: Store.StoredFile) {
+        model?.notThisPerson(id, fileId: stored.id) { pages.remove(stored) }
     }
 }
 
@@ -211,6 +238,19 @@ final class FilePages {
         exhausted = false
         loading = false
         await loadPage()
+    }
+
+    /// From the first page again, in the same order: the rows changed (a person merged).
+    func reload(_ sort: FileQuery.Sort) async {
+        loadedSort = nil
+        await load(sort)
+    }
+
+    /// The row leaves at once, without reloading the pages; the next page starts one row earlier.
+    func remove(_ file: Store.StoredFile) {
+        guard let i = files.firstIndex(where: { $0.id == file.id }) else { return }
+        files.remove(at: i)
+        offset -= 1
     }
 
     func loadPage() async {

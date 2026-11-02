@@ -60,6 +60,7 @@ enum class ReadingPhase {
     READ_NOW,
     SAMPLE,
     MEANING,
+    FACES,
     DEEPENING,
     READING,
     WAITING,
@@ -80,7 +81,7 @@ enum class StatusAction(val label: String) {
     TRY_AGAIN(Words.TRY_AGAIN),
 }
 
-private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING)
+private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
 private val STOPS = setOf(
     ReadingPhase.PAUSED,
     ReadingPhase.POWER_SAVE,
@@ -246,7 +247,8 @@ object ReadingPolicy {
      * none; it shows from the tap, before the reader starts. [pluggedIn]: [DeviceState.pluggedIn]. A live count by the
      * one rule ([ReadingProgress.processed] of [ReadingProgress.libraryTotal]), not a percent: 1% of a big library is
      * minutes of work, and a count moves with every file (and a dip when new files come explains itself). "Counting your
-     * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED].
+     * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED]. [faces]: the running
+     * batch's look for faces ([IndexState.faces]), which files wait for; its own count then, or the line stands still.
      */
     fun decide(
         progress: ReadingProgress,
@@ -256,6 +258,7 @@ object ReadingPolicy {
         words: DeviceWords,
         readNowMinutes: Int = 0,
         pluggedIn: Boolean = false,
+        faces: FacesProgress? = null,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val demo = progress.sample && !progress.notNow
@@ -279,6 +282,8 @@ object ReadingPolicy {
             }
 
             readNowMinutes > 0 && progress.unfinished -> ReadingPhase.READ_NOW
+
+            running && faces != null -> ReadingPhase.FACES
 
             reading && progress.sample -> ReadingPhase.SAMPLE
 
@@ -307,6 +312,7 @@ object ReadingPolicy {
             ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
             ReadingPhase.SAMPLE -> "Processing the demo files"
             ReadingPhase.MEANING -> "Adding search by description"
+            ReadingPhase.FACES -> "Looking for faces in your photos"
             ReadingPhase.DEEPENING -> "Processing the rest of some long files"
             ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
             ReadingPhase.LOOKING -> "Checking for new files…"
@@ -336,6 +342,8 @@ object ReadingPolicy {
             ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
 
             ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
+
+            ReadingPhase.FACES -> "Then Retriever gets back to your files. Search works the whole time."
 
             ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
 
@@ -367,10 +375,19 @@ object ReadingPolicy {
         // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
         // its first reads are all done, and a full bar beside work going on reads as stuck.
         val meaning = phase == ReadingPhase.MEANING
-        val (done, total) = if (meaning) progress.contentRead - progress.meaningWaiting to progress.contentRead else progress.processed to progress.libraryTotal
+        val looking = if (phase == ReadingPhase.FACES) faces else null
+        val (done, total) = when {
+            looking != null -> looking.done to looking.done + looking.pending
+            meaning -> progress.contentRead - progress.meaningWaiting to progress.contentRead
+            else -> progress.processed to progress.libraryTotal
+        }
         val none = !progress.counted || phase == ReadingPhase.DEEPENING || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
-        val count = if (meaning) Words.meaningOf(done, total) else Words.readOf(done, total)
+        val count = when {
+            looking != null -> Words.facesOf(done, total)
+            meaning -> Words.meaningOf(done, total)
+            else -> Words.readOf(done, total)
+        }
         return ReadingStatus(phase, title, detail, action, count, done, total)
     }
 }

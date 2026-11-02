@@ -135,6 +135,12 @@ class SettingsViewModel(
     fun resume() = launchCatching(::fail) { indexer.resume() }
     fun setOnThisDay(on: Boolean) = launchCatching(::fail) { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
 
+    // Off forgets every face and name (Retriever.updatePrefs); on starts looking at photos.
+    fun setRecognizePeople(on: Boolean) = launchCatching(::fail) {
+        retriever.updatePrefs { it.copy(recognizePeople = on) }
+        if (on) indexer.indexNow()
+    }
+
     fun setOnlyWhileCharging(on: Boolean) {
         launchCatching(::fail) {
             retriever.setReadingSchedule(if (on) app.retriever.core.ReadingSchedule.CHARGING else app.retriever.core.ReadingSchedule.BATTERY)

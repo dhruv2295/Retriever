@@ -163,6 +163,8 @@ internal fun testRetriever(
         override suspend fun quickHash(uri: String, size: Long): String? = null
         override suspend fun fullHash(uri: String): String? = null
     },
+    faceReader: FaceReader? = null,
+    now: () -> Long = System::currentTimeMillis,
 ): Retriever {
     val source = FakeSource().apply { next = Changes(files, emptyList(), "tok", isFullScan = true) }
     return Retriever(
@@ -176,8 +178,9 @@ internal fun testRetriever(
         modelReady = modelReady,
         platformReady = { true },
         log = { _, _ -> },
-        now = System::currentTimeMillis,
+        now = now,
         zoneOffsetMs = { 0L },
         fewWaitingLimit = fewWaitingLimit,
+        faceReader = faceReader,
     )
 }

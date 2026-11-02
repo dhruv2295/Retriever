@@ -98,7 +98,7 @@ class IndexEngine(
         val scope = CoroutineScope(currentCoroutineContext())
 
         // While a file embeds on the GPU or NPU the CPU is free, so the next files' decode and OCR run beside it. Never on CPU
-        // inference (the two would share cores) and never while the app shows (its frames come first). The tail
+        // inference (the two would share cores) and never while the app is in use (its frames come first). The tail
         // interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS never
         // gets here (a backgrounded iOS app infers on CPU).
         fun readAhead(state: DeviceState) {
@@ -346,12 +346,13 @@ class IndexEngine(
 
         /**
          * Files read while one embeds: two on a charger, one on battery or under [TWO_AHEAD_MIN_RAM_GB] (two files' decoded
-         * pages beside the model), fewer as the phone warms; none while the app shows or the system says memory is low.
+         * pages beside the model), fewer as the phone warms; one while the app shows untouched on a charger ([idle],
+         * [idleInFront]); none while it is in use or the system says memory is low.
          */
-        fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false): Int = if (visible || lowMemory) {
-            0
-        } else {
-            minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)
+        fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false, idle: Boolean = false): Int = when {
+            lowMemory || (visible && !idle) -> 0
+            visible -> minOf(state.aheadRoom, 1)
+            else -> minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)
         }
 
         const val TWO_AHEAD_MIN_RAM_GB = 6.0

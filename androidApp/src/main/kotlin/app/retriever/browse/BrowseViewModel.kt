@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import app.retriever.core.Kind
+import app.retriever.core.Person
 import app.retriever.core.Retriever
 import app.retriever.core.Store
 import app.retriever.nav.BrowseRoute
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -73,6 +75,47 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
 
     fun retry() = fetch()
 
+    /** Everyone grouped, for a person's title and "Same person as…"; empty off a person's screen. */
+    val people: StateFlow<List<Person>> = (if (route.person == null) flowOf(emptyList()) else retriever.people())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _personFailed = MutableStateFlow(false)
+
+    /** A rename, merge or "Not this person" failed: the screen says so once, then calls [personFailureShown]. */
+    val personFailed: StateFlow<Boolean> = _personFailed
+
+    fun personFailureShown() {
+        _personFailed.value = false
+    }
+
+    private fun personFailed(e: Exception) {
+        Log.e("Retriever", "BrowseViewModel person", e)
+        _personFailed.value = true
+    }
+
+    fun rename(name: String) {
+        val p = route.person ?: return
+        launchCatching(::personFailed) { retriever.renamePerson(p, name) }
+    }
+
+    /** [other] is this person too: their photos join these, and their name when this person has none. */
+    fun sameAs(other: Long) {
+        val p = route.person ?: return
+        launchCatching(::personFailed) {
+            retriever.mergePeople(into = p, from = other)
+            reload()
+        }
+    }
+
+    /** The photo leaves this person at once, without reloading the pages. */
+    fun notThisPerson(file: Store.StoredFile) {
+        val p = route.person ?: return
+        launchCatching(::personFailed) {
+            retriever.notThisPerson(p, file.id)
+            paged.update { it.copy(files = it.files - file) }
+        }
+    }
+
     fun setScrolling(scrolling: Boolean) = retriever.setUiBusy(scrolling)
 
     override fun onCleared() = retriever.setUiBusy(false)
@@ -94,7 +137,9 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
             val offset = ui.files.size
             val from = route.takenFrom
             val to = route.takenTo
+            val person = route.person
             val page = when {
+                person != null -> retriever.personPhotos(person, PAGE, offset)
                 route.starredOnly -> retriever.starredFiles(PAGE, offset)
                 from != null && to != null -> retriever.filesTakenBetween(from, to, PAGE, offset)
                 else -> retriever.files(kind, route.folder, order, PAGE, offset)

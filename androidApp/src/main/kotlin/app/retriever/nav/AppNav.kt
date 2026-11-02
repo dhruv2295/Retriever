@@ -56,6 +56,8 @@ sealed interface Route
     /** The photos and videos taken from [takenFrom] to [takenTo] (ms): a year card of On this day. */
     val takenFrom: Long? = null,
     val takenTo: Long? = null,
+    /** One person's photos (core's Person.id); the title follows their name, which can change there. */
+    val person: Long? = null,
 ) : Route
 
 /**

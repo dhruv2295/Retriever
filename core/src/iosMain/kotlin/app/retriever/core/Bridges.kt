@@ -71,6 +71,23 @@ interface NativeExtractor {
 /** What [NativeExtractor.scan] read: [labels] are classifier labels only, never OCR text; null for a PDF page. */
 class NativeScan(val jpeg: NSData, val text: String, val labels: String?)
 
+/**
+ * People on iOS: Vision finds the faces and their landmarks, [FaceAlign] places each one, SFace gives its fingerprint.
+ * Null when the photo can't be opened; empty when it has no face clear enough. Must be thread-safe.
+ */
+interface NativeFaceReader {
+    fun faces(uri: String): List<NativeFace>?
+}
+
+/** The face's box as fractions of the upright photo; [vector] is SFace's [FACE_DIMS] Float32s. */
+class NativeFace(val left: Float, val top: Float, val right: Float, val bottom: Float, val vector: NSData)
+
+internal class IosFaceReader(private val native: NativeFaceReader) : FaceReader {
+    override suspend fun faces(uri: String): List<FoundFace>? = withContext(Dispatchers.IO) {
+        native.faces(uri)?.map { FoundFace(FaceBox(it.left, it.top, it.right, it.bottom), it.vector.toFloatArray()) }
+    }
+}
+
 /** What the index already holds for a URI, so a source can skip lookups for files that haven't changed. */
 fun interface KnownFiles {
     fun file(uri: String): SourceFile?

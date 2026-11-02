@@ -1,0 +1,27 @@
+-- People (Faces.sq): empty until the person turns it on.
+CREATE TABLE face_reads (
+  file_id INTEGER PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  done INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE persons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT
+);
+
+CREATE TABLE faces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL,
+  box_left REAL NOT NULL,
+  box_top REAL NOT NULL,
+  box_right REAL NOT NULL,
+  box_bottom REAL NOT NULL,
+  vector BLOB NOT NULL,
+  scale REAL NOT NULL,
+  person_id INTEGER
+);
+
+CREATE INDEX faces_by_file ON faces(file_id);
+
+CREATE INDEX faces_by_person ON faces(person_id);

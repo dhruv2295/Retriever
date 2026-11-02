@@ -26,7 +26,8 @@ enum Copy {
         return s.readingStatus
             ?? ReadingPolicy.shared.decide(
                 progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words,
-                readNowMinutes: Int32(max(0, (msLeft / 60_000).rounded(.up))), pluggedIn: [.charging, .full].contains(UIDevice.current.batteryState))
+                readNowMinutes: Int32(max(0, (msLeft / 60_000).rounded(.up))), pluggedIn: [.charging, .full].contains(UIDevice.current.batteryState), faces: nil
+            )
     }
 
     /// The one status line on Home, Reading status and Settings: access, setup and the download first, then reading.

@@ -33,6 +33,7 @@ fun createRetriever(
     extractor: NativeExtractor,
     photos: NativeFileSource,
     folders: NativeFileSource,
+    faces: NativeFaceReader,
     monitor: IosDeviceMonitor,
     modelDir: String,
     cacheDir: String,
@@ -77,6 +78,7 @@ fun createRetriever(
         lastExitCrashed = { true },
         frames = IosFrameSource(),
         words = words,
+        faceReader = IosFaceReader(faces),
     )
 }
 
@@ -174,6 +176,17 @@ private fun <T> observe(flow: Flow<T>, cb: (T) -> Unit): AutoCloseable {
     scope.launch { flow.collect { cb(it) } }
     return AutoCloseable { scope.cancel() }
 }
+
+/** Home's People: [people], the photos still to look at for faces (0 while People is off), and the questions to ask. */
+class PeopleNow(val people: List<Person>, val facesLeft: Long, val samePeople: List<SamePerson>)
+
+/** [Retriever.people] and [Retriever.samePeople] as [PeopleNow]; open it while Home shows, close it when Home goes. */
+fun Retriever.observePeople(cb: (PeopleNow) -> Unit): AutoCloseable = observe(
+    combine(people(), samePeople()) { p, q ->
+        PeopleNow(p, if (prefs.value.recognizePeople) runCatching { facesProgress().pending }.getOrDefault(0L) else 0L, q)
+    },
+    cb,
+)
 
 /** The short read's progress, as [observeAll] delivers its snapshots. */
 fun Retriever.observeTasteProgress(cb: (TasteProgress) -> Unit): AutoCloseable = observe(tasteProgress(), cb)

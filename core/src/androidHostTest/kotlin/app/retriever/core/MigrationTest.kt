@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(10L, IndexDb.Schema.version)
+        assertEquals(11L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -316,13 +316,34 @@ class MigrationTest {
         driver.execute(null, "INSERT INTO chunks (file_id, ordinal, locator, vector, scale, visual) VALUES (1, 1, '0:05', X'01', 1.0, 1)", 0)
         driver.execute(null, "INSERT INTO starred (uri, starred_at, name, size, modified_at) VALUES ('clip', 5, 'clip.mp4', 10, 1)", 0)
 
-        IndexDb.Schema.migrate(driver, 9, IndexDb.Schema.version).value
+        // The schema is today's, so only 9.sqm replays; version 10's own test covers 10.sqm.
+        IndexDb.Schema.migrate(driver, 9, 10).value
 
         val store = Store(driver)
         assertEquals(FileState.PENDING, store.fileByUri("clip")!!.state)
         assertEquals(FileState.INDEXED, store.fileByUri("photo")!!.state)
         assertEquals(1L, count(driver, "SELECT COUNT(*) FROM chunks WHERE file_id = 1"))
         assertEquals(setOf("clip"), store.starredUris())
+    }
+
+    /** Version 11 adds People's tables, empty: every photo waits to be looked at for faces, and nothing else changes. */
+    @Test
+    fun version10GainsEmptyPeopleTablesAndEveryPhotoWaitsForFaces() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        listOf("faces", "persons", "face_reads").forEach { driver.execute(null, "DROP TABLE $it", 0) }
+        driver.execute(
+            null,
+            "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) VALUES " +
+                "(1, 'photo', 'photo.jpg', '', 'image/jpeg', 'PHOTO', 10, 1, 'INDEXED')",
+            0,
+        )
+
+        IndexDb.Schema.migrate(driver, 10, IndexDb.Schema.version).value
+
+        val store = Store(driver)
+        assertEquals(FacesProgress(0, 1), store.facesProgress())
+        assertEquals(emptyList(), store.people(1))
+        assertEquals(FileState.INDEXED, store.fileByUri("photo")!!.state)
     }
 
     @Test

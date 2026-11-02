@@ -85,6 +85,7 @@ struct HomeList: View {
     @ViewBuilder private func sections(_ snap: AppModel.Snap) -> some View {
         starred
         recentlyAdded
+        people
         onThisDay(snap)
         // On an iPad the sidebar holds Browse.
         if sizeClass != .regular { browse(snap) }
@@ -145,6 +146,24 @@ struct HomeList: View {
                 TileStrip(files: files, starred: model.starred, open: { openFile($0, among: files) })
             } header: {
                 SectionLink(title: Words.shared.RECENTLY_ADDED, route: .files(FileQuery(title: Words.shared.RECENTLY_ADDED)))
+            }
+        }
+    }
+
+    /// Shown once People is on: the faces found so far, and how many photos are still to look at.
+    @ViewBuilder private var people: some View {
+        if !photosOff, !model.people.isEmpty || model.facesLeft > 0 {
+            Section {
+                if !model.people.isEmpty { PeopleStrip(people: model.people) }
+                if !model.samePeople.isEmpty {
+                    SamePersonCard(pairs: model.samePeople) { model.answerSamePerson($0, same: $1) }
+                }
+            } header: {
+                if model.facesLeft > 0 {
+                    DateHeader(title: Words.shared.PEOPLE, subtitle: Words.shared.lookingForFaces(left: model.facesLeft))
+                } else {
+                    SectionHeader(Words.shared.PEOPLE)
+                }
             }
         }
     }

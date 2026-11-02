@@ -17,6 +17,7 @@ import app.retriever.core.DeviceState
 import app.retriever.core.Embedder
 import app.retriever.core.EmbedderFactory
 import app.retriever.core.Extractor
+import app.retriever.core.FaceReader
 import app.retriever.core.FileSource
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
@@ -45,6 +46,7 @@ fun testRetriever(
     dispatchers: CoreDispatchers = CoreDispatchers(),
     wrapDriver: (SqlDriver) -> SqlDriver = { it },
     pluggedIn: () -> Boolean = { true },
+    faceReader: FaceReader? = null,
 ): Retriever {
     // DriverManager registers the SQLite driver once per JVM, from the first Robolectric sandbox's class loader; a test in
     // another sandbox (NATIVE graphics) can't see that one, so load the driver class in this sandbox too.
@@ -80,6 +82,7 @@ fun testRetriever(
         now = System::currentTimeMillis,
         zoneOffsetMs = { 0L },
         dispatchers = dispatchers,
+        faceReader = faceReader,
     )
 }
 

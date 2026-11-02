@@ -139,6 +139,7 @@ class SettingsActions(
     val removeExcluded: (String) -> Unit = {},
     val tuneAgain: () -> Unit = {},
     val setRememberSearches: (Boolean) -> Unit = {},
+    val setRecognizePeople: (Boolean) -> Unit = {},
     val setMobileData: (Boolean) -> Unit = {},
     val setDynamicColor: (Boolean) -> Unit = {},
     val setSampleMode: (Boolean) -> Unit = {},
@@ -202,6 +203,7 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             removeExcluded = vm::removeExcluded,
             tuneAgain = vm::tuneAgain,
             setRememberSearches = vm::setRememberSearches,
+            setRecognizePeople = vm::setRecognizePeople,
             setMobileData = vm::setMobileData,
             setDynamicColor = vm::setDynamicColor,
             setSampleMode = vm::setSampleMode,
@@ -393,6 +395,25 @@ fun SettingsContent(
                             }) { Text("Clear") }
                         },
                         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+                    )
+                }
+                // Turning People off forgets the names the person gave, so it asks first; turning it on doesn't.
+                var confirmForget by rememberSaveable { mutableStateOf(false) }
+                SwitchRow(Words.RECOGNIZE_PEOPLE, prefs.recognizePeople, Words.RECOGNIZE_PEOPLE_DETAIL) { on ->
+                    if (on) actions.setRecognizePeople(true) else confirmForget = true
+                }
+                if (confirmForget) {
+                    AlertDialog(
+                        onDismissRequest = { confirmForget = false },
+                        title = { Text(Words.FORGET_PEOPLE_TITLE) },
+                        text = { Text(Words.FORGET_PEOPLE_BODY) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmForget = false
+                                actions.setRecognizePeople(false)
+                            }) { Text(Words.FORGET) }
+                        },
+                        dismissButton = { TextButton(onClick = { confirmForget = false }) { Text(Words.CANCEL) } },
                     )
                 }
 

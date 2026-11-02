@@ -86,7 +86,7 @@ extension AppModel {
         func decided(_ blocker: StopReason?, minutes: Int32 = 0, pluggedIn: Bool = false) {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
-                readNowMinutes: minutes, pluggedIn: pluggedIn)
+                readNowMinutes: minutes, pluggedIn: pluggedIn, faces: nil)
         }
         switch fixture {
         case .readingWhileCharging:
@@ -242,6 +242,6 @@ extension AppModel {
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
-            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false)
+            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false)
     }
 }

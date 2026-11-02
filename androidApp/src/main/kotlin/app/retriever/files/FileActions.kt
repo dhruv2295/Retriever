@@ -146,11 +146,23 @@ internal fun FileActionItems(
     similar: (() -> Unit)? = null,
     copies: List<SourceFile> = emptyList(),
     openCopy: (SourceFile) -> Unit = {},
+    notThisPerson: (() -> Unit)? = null,
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
     Column {
+        if (notThisPerson != null) {
+            DropdownMenuItem(
+                text = { Text(Words.NOT_THIS_PERSON) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_person_remove), contentDescription = null) },
+                onClick = {
+                    dismiss()
+                    notThisPerson()
+                },
+            )
+            HorizontalDivider()
+        }
         for (copy in copies) {
             DropdownMenuItem(
                 text = { Text(Words.openCopyIn(friendlyFolder(copy.folder))) },
@@ -202,14 +214,22 @@ internal fun FilePressMenu(
     similar: (() -> Unit)? = null,
     copies: List<SourceFile> = emptyList(),
     openCopy: (SourceFile) -> Unit = {},
+    notThisPerson: (() -> Unit)? = null,
     content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit,
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
-    val actions = remember(file.uri, on, host, copies) {
+    val actions = remember(file.uri, on, host, copies, notThisPerson) {
         Modifier.semantics {
-            customActions = copies.map { copy ->
+            customActions = listOfNotNull(
+                notThisPerson?.let { act ->
+                    CustomAccessibilityAction(Words.NOT_THIS_PERSON) {
+                        act()
+                        true
+                    }
+                },
+            ) + copies.map { copy ->
                 CustomAccessibilityAction(Words.openCopyIn(friendlyFolder(copy.folder))) {
                     openCopy(copy)
                     true
@@ -223,7 +243,7 @@ internal fun FilePressMenu(
         }
     }
     PressMenu(content = { menu -> content(menu, actions) }, modifier = modifier) { dismiss ->
-        FileActionItems(file, dismiss, on, write, onDeleted, similar, copies, openCopy)
+        FileActionItems(file, dismiss, on, write, onDeleted, similar, copies, openCopy, notThisPerson)
     }
 }
 

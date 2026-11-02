@@ -23,7 +23,8 @@ class StatusLineTest {
         words: DeviceWords = android,
         minutes: Int = 0,
         plugged: Boolean = false,
-    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged)
+        faces: FacesProgress? = null,
+    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces)
 
     private fun row(s: ReadingStatus) = listOf(s.phase.name, s.title, s.count, s.detail, s.action?.label)
 
@@ -60,6 +61,14 @@ class StatusLineTest {
                 "Adding search by description",
                 "1 of 4 files have search by description",
                 "So you can search by what things mean, and by what’s in your photos. On this phone only.",
+                null,
+            ),
+            // Files wait while a batch looks for faces: the line counts photos looked at, or it stands still.
+            decide(running = true, plugged = true, faces = FacesProgress(2_046, 14_659)) to listOf(
+                "FACES",
+                "Looking for faces in your photos",
+                "2,046 of 16,705 photos looked at",
+                "Then Retriever gets back to your files. Search works the whole time.",
                 null,
             ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to
@@ -105,6 +114,7 @@ class StatusLineTest {
         assertTrue(tapped.active)
         assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, minutes = 15).phase, "a stop still wins")
         assertEquals(ReadingPhase.CAUGHT_UP, decide(ReadingProgress(read = 3), minutes = 15).phase, "nothing left to read")
+        assertEquals(ReadingPhase.BUSY, decide(stop = StopReason.BUSY, running = true, faces = FacesProgress(1, 9)).phase, "a stop wins over faces")
     }
 
     /** Processing never shows Pause beside a session's Stop: one ends the 15 minutes, the other stopped everything. */

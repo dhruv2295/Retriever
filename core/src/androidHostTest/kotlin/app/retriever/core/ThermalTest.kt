@@ -45,10 +45,17 @@ class ThermalTest {
     fun readAheadIsTwoOnlyHiddenOnACharger() {
         assertEquals(2, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = false))
         assertEquals(1, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f, pluggedIn = false), visible = false))
-        assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = true))
         assertEquals(1, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f).copy(ramGb = 4.0), visible = false), "under 6 GB: one file's pages at a time")
         assertEquals(2, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f).copy(ramGb = 6.0), visible = false))
         assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = false, lowMemory = true), "the system says memory is low")
+    }
+
+    @Test
+    fun inFrontReadAheadIsOneOnlyWhileUntouched() {
+        assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = true), "in use: its frames come first")
+        assertEquals(1, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = true, idle = true), "untouched on a charger")
+        assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.MODERATE), visible = true, idle = true), "too warm for any")
+        assertEquals(0, IndexEngine.readAheadDepth(state(Thermal.NONE, 0.2f), visible = true, lowMemory = true, idle = true), "the system says memory is low")
     }
 
     @Test

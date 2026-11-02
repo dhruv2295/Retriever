@@ -27,6 +27,7 @@ import app.retriever.indexing.IndexService.Companion.PERIODIC
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -190,6 +191,24 @@ class IndexServiceTest {
 
         service.screenOff() // the screen goes off again while that run rests between batches
         assertEquals(listOf(holding), infos(CONTINUE).filter { !it.state.isFinished }.map { it.id })
+    }
+
+    @Test fun leavingOnAChargerKeepsAnyRunThatHoldsTheService() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
+        retriever.planTaste()
+        retriever.commit(whileCharging = true)
+        val service = IndexService(context, retriever)
+        service.continueLater(10.seconds) // a run started in front, resting between batches with its service
+        val holding = infos(CONTINUE).single { !it.state.isFinished }.id
+        val held = launch(start = CoroutineStart.UNDISPATCHED) { service.holdForeground() }
+
+        service.screenOff(leaving = true)
+        assertEquals(listOf(holding), infos(CONTINUE).filter { !it.state.isFinished }.map { it.id })
+
+        held.cancel()
+        held.join()
+        service.screenOff(leaving = true)
+        assertTrue("without one, leaving starts a charger run", IndexService.CHARGER in infos(CONTINUE).single { !it.state.isFinished }.tags)
     }
 
     @Test fun aHeldRunRestsByWhyItStopped() {

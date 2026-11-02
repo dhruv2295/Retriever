@@ -49,6 +49,9 @@ object Words {
     /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by description". */
     fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by description"
 
+    /** The look for faces' count (ReadingPhase.FACES): "2,046 of 16,705 photos looked at". */
+    fun facesOf(done: Long, total: Long): String = "${formatCount(done)} of ${plural(total, "photo")} looked at"
+
     /**
      * Processing's Details: what the count's processed files are, then what is left. "535 found by what’s inside · 597 by
      * name only · 4 in part · 25,125 to go"; in part and couldn't open only when there are some.
@@ -437,6 +440,36 @@ object Words {
     const val FOLDERS_TO_SKIP = "Folders to skip"
     const val KIND_OFF = "Turned off: Retriever still finds these by name, but forgets what’s inside them. Your files aren’t touched."
     const val SHOW_ON_THIS_DAY = "Show On this day (photos from this date in past years)"
+
+    // People (docs/features/people.md): off until the person turns it on.
+    const val PEOPLE = "People"
+    const val RECOGNIZE_PEOPLE = "Recognize people"
+    const val RECOGNIZE_PEOPLE_DETAIL =
+        "Groups the faces in your photos so you can name people and find them by name. Processed on this phone, never backed up."
+    const val FORGET_PEOPLE_TITLE = "Forget every face and name?"
+    const val FORGET_PEOPLE_BODY = "Retriever forgets the faces it grouped and the names you gave. Your photos aren’t touched."
+    const val FORGET = "Forget"
+    const val NOT_THIS_PERSON = "Not this person"
+    const val ADD_A_NAME = "Add a name"
+    const val NAME = "Name"
+    const val SAVE = "Save"
+    const val SAME_PERSON_AS = "Same person as…"
+
+    // Home's question about two people who may be one (Faces.kt, ASK_SAME_PERSON).
+    const val SAME_PERSON_ASK = "Same person?"
+    const val SAME_PERSON_YES = "Same person"
+    const val SAME_PERSON_NO = "Not the same"
+    const val SAME_PERSON_PREVIOUS = "Previous pair"
+    const val SAME_PERSON_NEXT = "Next pair"
+
+    /** Which of Home's same-person pairs shows, when there is more than one: "2 of 5". */
+    fun pairOf(at: Int, of: Int): String = "$at of $of"
+
+    /** The person's screen title and the rename dialog's: their name, or the ask for one. */
+    fun personTitle(name: String?): String = name ?: ADD_A_NAME
+
+    /** Home's People header line while photos still wait to be looked at. */
+    fun lookingForFaces(left: Long): String = "Looking for faces · ${formatCount(left)} to go"
 
     /** Settings → Storage: a title, then its size and where it is kept. */
     const val RETRIEVERS_DATA = "Retriever’s data"

@@ -40,6 +40,17 @@ class MainActivity : ComponentActivity() {
         Notifications.cancelSample(this)
     }
 
+    // Coming to the front counts as use, so an old touch can't make a just-opened app idle (Retriever.onScreen).
+    override fun onResume() {
+        super.onResume()
+        retriever.inputSeen()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        retriever.inputSeen()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == Notifications.OPEN_STATUS) statusRequest++

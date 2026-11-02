@@ -44,7 +44,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "setup.samplePicking", "setup.sampleStart", "setup.reading", "setup.waitingWifi", "setup.ready", "setup.paused", "setup.sampleDone",
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
-        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
+        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
         "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "home.introReady", "home.introOnItsWay",
         "settings", "search.empty", "search.wordsOnly",
         "search.noModel",
@@ -60,7 +60,9 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let statusAndSettingsRoutes = [
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles", "settings",
     ]
-    private static let homeRoutes = ["home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.introReady", "home.introOnItsWay"]
+    private static let homeRoutes = [
+        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.introReady", "home.introOnItsWay",
+    ]
     private static let homeStatusLineRoutes = [
         "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.readNow", "home.downloading", "home.meaning", "home.noAccess",
         "home.notNow", "home.counting",
