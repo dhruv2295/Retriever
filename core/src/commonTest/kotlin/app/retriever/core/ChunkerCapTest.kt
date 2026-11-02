@@ -39,6 +39,19 @@ class ChunkerCapTest {
     }
 
     @Test
+    fun aFewWordsPastTheCapAreNotLeftAlone() {
+        val words = List(170) { "w" + (it % 100).toString().padStart(2, '0') }
+        // A page just over the cap, an over-long chunk split in half as IndexEngine does, and a short paragraph after a long one.
+        val statement = List(161) { "4,210" }.joinToString(" ")
+        for ((text, maxChars) in listOf(List(170) { "word" }.joinToString(" ") to Chunker.CHARS_PER_CHUNK, statement to statement.length / 2 + 1)) {
+            val chunks = Chunker.chunks(text, maxChars = maxChars)
+            assertTrue(chunks.size > 1 && chunks.all { it.length in maxChars / 4..maxChars }, chunks.map { it.length }.toString())
+            assertEquals(text, chunks.joinToString(" "))
+        }
+        assertEquals(listOf(words.joinToString(" ") + " Thanks"), Chunker.chunks(words.joinToString(" ") + "\n\nThanks"))
+    }
+
+    @Test
     fun markOnlyRunStillSplitsAtTheCap() {
         val chunks = Chunker.chunks("a" + "́".repeat(2000))
         assertEquals(2001, chunks.sumOf { it.length })

@@ -36,6 +36,22 @@ object Chunker {
             }
         }
         if (current.isNotBlank()) out += current.toString()
+        // A last chunk of a few words would embed as little more than the file's name, close to any query: it joins the
+        // one before, or the two split evenly when together they pass the caps.
+        if (out.size > 1 && out.last().length < maxChars / 4) {
+            val last = out.removeAt(out.lastIndex)
+            val words = out.removeAt(out.lastIndex).split(' ') + last.split(' ')
+            val joined = words.joinToString(" ")
+            if (joined.length <= maxChars && words.size <= maxWords) {
+                out += joined
+            } else {
+                var cut = 0
+                var length = 0
+                while (cut < words.size - 1 && length < joined.length / 2) length += words[cut++].length + 1
+                out += words.subList(0, cut).joinToString(" ")
+                out += words.subList(cut, words.size).joinToString(" ")
+            }
+        }
         return out
     }
 

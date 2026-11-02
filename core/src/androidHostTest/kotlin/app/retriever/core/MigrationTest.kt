@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 class MigrationTest {
     @Test
     fun version1FilesGainPartialAndWhatTheOldCapsCutIsReadAgain() {
-        assertEquals(11L, IndexDb.Schema.version)
+        assertEquals(12L, IndexDb.Schema.version)
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         createOldSchema(driver, version = 1)
         driver.execute(
@@ -344,6 +344,33 @@ class MigrationTest {
         assertEquals(FacesProgress(0, 1), store.facesProgress())
         assertEquals(emptyList(), store.people(1))
         assertEquals(FileState.INDEXED, store.fileByUri("photo")!!.state)
+    }
+
+    /** Version 12 reads again a file whose page ended in a chunk of a few words; a page that is short on its own stays. */
+    @Test
+    fun version11FilesWithAFewWordsLeftOnAPageAreReadAgain() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        driver.execute(
+            null,
+            "INSERT INTO files (id, uri, name, folder, mime, kind, size, modified_at, state) VALUES " +
+                "(1, 'statement', 'statement.pdf', '', 'application/pdf', 'PDF', 10, 1, 'INDEXED'), " +
+                "(2, 'letter', 'letter.pdf', '', 'application/pdf', 'PDF', 10, 1, 'INDEXED')",
+            0,
+        )
+        val page = "'" + "x".repeat(400) + "'"
+        driver.execute(
+            null,
+            "INSERT INTO chunks (file_id, ordinal, locator, text, vector, scale) VALUES " +
+                "(1, 1, '3', $page, X'01', 1.0), (1, 2, '3', 'Not', X'01', 1.0), (2, 1, '1', $page, X'01', 1.0), (2, 2, '2', 'Thanks', X'01', 1.0)",
+            0,
+        )
+
+        IndexDb.Schema.migrate(driver, 11, IndexDb.Schema.version).value
+
+        val store = Store(driver)
+        assertEquals(FileState.PENDING, store.fileByUri("statement")!!.state)
+        assertEquals(FileState.INDEXED, store.fileByUri("letter")!!.state)
+        assertEquals(4L, count(driver, "SELECT COUNT(*) FROM chunks"))
     }
 
     @Test

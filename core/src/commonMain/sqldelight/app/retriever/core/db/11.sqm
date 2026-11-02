@@ -1,0 +1,8 @@
+-- Chunker no longer leaves a last chunk of a few words after a full one, which embedded as little more than the file's
+-- name and came close to any query: files with such a chunk are read again (Index.sq, requeue). A full chunk, or the
+-- half of one split for the token window, runs well past 300 characters. Their chunks stay searchable until each is read.
+UPDATE files SET state = 'PENDING', attempts = 0 WHERE state = 'INDEXED' AND id IN (
+  SELECT c.file_id FROM chunks c WHERE c.visual = 0 AND c.text != '' AND length(c.text) < 200 AND EXISTS (
+    SELECT 1 FROM chunks s WHERE s.file_id = c.file_id AND s.locator = c.locator AND s.visual = 0 AND length(s.text) >= 300
+  )
+);
