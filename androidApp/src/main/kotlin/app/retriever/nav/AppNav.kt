@@ -11,6 +11,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -119,7 +120,17 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
             // Home's search pill and the search screen share bounds: opening grows the pill into the screen, and Back
             // (a predictive swipe too) shrinks it back.
             val searchBounds = @Composable { scope: AnimatedVisibilityScope -> Modifier.sharedBounds(rememberSharedContentState("search"), scope) }
-            NavHost(navController, startDestination = start) {
+            // Every other screen, a viewer above all: the new one fades and grows from 92% while the one below fades fast,
+            // and Back (a predictive swipe too) runs it in reverse. Navigation's own 700 ms cross-fade showed both screens
+            // half-drawn for most of a second, and taps wait for it to settle.
+            NavHost(
+                navController,
+                startDestination = start,
+                enterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) },
+                exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) },
+                popEnterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) },
+                popExitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) + scaleOut(defaultEffects, 0.92f) },
+            ) {
                 // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
                 composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
                     // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
