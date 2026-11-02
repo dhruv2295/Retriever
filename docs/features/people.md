@@ -64,6 +64,15 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
   0.70 or more in 99% of splits, strangers at most 0.59 in 160,000 pairs, and the relatives LFW has (the Bushes, father
   and sons and brothers; Venus and Serena Williams) at most 0.63. On the Pixel, with 12,906 photos looked at, ten pairs
   of people on Home reached 0.65; the closest (0.82) was one person with and without glasses.
+- **Or by closest faces.** A person seen over years has a mean like nobody in particular, so a split of them can sit far
+  from it: on the Pixel in November 2026 (338 people, 7,651 faces) a 7-photo split of a 1,450-photo person scored 0.51
+  by means. Home also asks when half the smaller person's faces average 0.55 or more (`ASK_SAME_PERSON_CLOSEST`) to
+  their five most alike faces of the other, as grouping compares a face to a person; that split scored 0.61. Grouped as
+  the app groups (three orders), LFW left 41 people split: means at 0.65 asked about 36 of them, closest faces at 0.55
+  about 23, and neither asked about a stranger (means at most 0.53, closest faces at most 0.44). The tight margin is
+  relatives: father and son scored 0.53 by closest faces, 0.59 by means. On the Pixel this asks about six more pairs.
+  Only pairs whose means are at least 0.4 are compared face by face: on the Pixel no pair below that scored more than
+  0.46, and comparing all 56,953 pairs took 35 seconds. It never joins: no split on the Pixel scored past 0.62.
 - **One pair at a time.** Home shows the pairs closest first, with previous and next, so a pair the person isn't sure
   about can wait without holding up the rest; answering one shows the next in its place. Debug builds number the
   People tiles and name the card's two tiles, so a tester can say which people they mean (Android).
@@ -108,7 +117,8 @@ Everything runs on the phone: nothing is uploaded, and the fingerprints live onl
 - `FacesTest`: alignment, an unclear face not kept, grouping (a face like a few of a big person's faces joins though their mean is far),
   grouping an older library again (names, answers and taken-out faces kept), naming and forgetting, merging, the pass's retries and a full disk; a person's
   picture; "Same person?" (asks the closest pair, sharing up to two photos; never three, named differently or answered
-  No) and forgetting its answers with People; joining pairs at 0.75 or more, never one answered No.
+  No; also by closest faces when a person seen over years has a diffuse mean, never joined that way) and forgetting its
+  answers with People; joining pairs at 0.75 or more, never one answered No.
 - `PeopleTest` (androidHostTest): a named person is searchable and their photos page; turning People off forgets them;
   reading waits while faces are left and reads every file once they are done.
 - `MigrationTest`: schema 10 adds the face tables.

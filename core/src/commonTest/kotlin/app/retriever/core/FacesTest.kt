@@ -263,9 +263,27 @@ class FacesTest {
         )
         assertEquals(
             listOf(SamePerson(ashaBehindAPhone, ashaInGlasses), SamePerson(ashaBehindAPhone, asha)),
-            samePersonQuestions(all, glasses, emptySet(), JOIN_SAME_PERSON),
+            samePersonQuestions(all, glasses, emptySet(), JOIN_SAME_PERSON, closest = null),
             "0.69 is only asked",
         )
+    }
+
+    @Test
+    fun homeAsksWhenAFewFacesMatchSomeOfAPersonSeenOverYears() {
+        fun mix(vararg axes: Int) = FloatArray(FACE_DIMS).also { v -> axes.forEach { v[it] = 1f } }
+        // Asha over years: each photo her and something else, five of them as she looks lately.
+        val asha = Person(1, null, 45, null)
+        val ashaLately = Person(2, null, 3, null)
+        val ravi = Person(3, null, 3, null)
+        val faces = mapOf(
+            1L to (20..59).map { personFace(it.toLong(), mix(3, it)) } + (60L..64L).map { personFace(it, mix(3, 10)) },
+            2L to (65L..67L).map { personFace(it, mix(3, 10, 11)) },
+            3L to (68L..70L).map { personFace(it, mix(3, 70, 71)) },
+        )
+        val people = listOf(asha, ashaLately, ravi)
+        assertEquals(listOf(SamePerson(asha, ashaLately)), samePersonQuestions(people, faces, emptySet()), "means 0.63, closest 0.82; Ravi 0.57, 0.41")
+        assertEquals(emptyList(), samePersonQuestions(people, faces, emptySet(), closest = null), "by means alone neither is asked")
+        assertEquals(emptyList(), samePersonQuestions(people, faces, emptySet(), JOIN_SAME_PERSON, closest = null), "and never joined")
     }
 
     /** One person per list of photos, each photo's faces in it, as grouping that never looked back could leave them. */

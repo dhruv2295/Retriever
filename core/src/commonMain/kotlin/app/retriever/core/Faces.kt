@@ -36,6 +36,15 @@ const val CLOSEST = 5
 const val ASK_SAME_PERSON = 0.65f
 
 /**
+ * Home also asks when half the smaller person's faces are this alike to their [CLOSEST] most alike faces of the other,
+ * as grouping compares. A person seen over years has a mean like nobody in particular: on a real library a 7-photo
+ * split of a 1,450-photo person scored 0.51 by means and 0.61 here. On LFW grouped as the app does (three orders, 41
+ * people left split) this asked about 23 splits and no strangers (at most 0.44); father and son came closest at 0.53.
+ * Never joins: no split on the real library got past 0.62.
+ */
+const val ASK_SAME_PERSON_CLOSEST = 0.55f
+
+/**
  * Two people whose faces' means are at least this close are joined without asking: well past LFW's strangers (0.59) and
  * relatives (0.63). On a real library all five pairs at 0.75 or more were one person, confirmed by its owner.
  */
@@ -169,19 +178,7 @@ internal fun groupFaces(rows: List<FaceRow>, place: (FaceRow) -> Boolean, newPer
         var best: Long? = null
         var bestScore = SAME_PERSON
         for ((p, faces) in people) {
-            top.fill(-1f)
-            for (f in faces) {
-                val cos = dot(r.vector, f)
-                if (cos <= top[CLOSEST - 1]) continue
-                var i = CLOSEST - 1
-                while (i > 0 && top[i - 1] < cos) {
-                    top[i] = top[i - 1]
-                    i--
-                }
-                top[i] = cos
-            }
-            val k = minOf(CLOSEST, faces.size)
-            val score = (0 until k).sumOf { top[it].toDouble() }.toFloat() / k
+            val score = closestAverage(r.vector, faces, top)
             if (score >= bestScore) {
                 best = p
                 bestScore = score
@@ -204,6 +201,23 @@ internal fun groupFaces(rows: List<FaceRow>, place: (FaceRow) -> Boolean, newPer
         }
     }
     return assigned
+}
+
+/** How alike [v] is to the [CLOSEST] most alike of [faces] (all of them when fewer), on average; [top] is scratch space. */
+private fun closestAverage(v: FloatArray, faces: List<FloatArray>, top: FloatArray): Float {
+    top.fill(-1f)
+    for (f in faces) {
+        val cos = dot(v, f)
+        if (cos <= top[CLOSEST - 1]) continue
+        var i = CLOSEST - 1
+        while (i > 0 && top[i - 1] < cos) {
+            top[i] = top[i - 1]
+            i--
+        }
+        top[i] = cos
+    }
+    val k = minOf(CLOSEST, faces.size)
+    return (0 until k).sumOf { top[it].toDouble() }.toFloat() / k
 }
 
 /** The named people a query names, longest names first, and the query without them. */
@@ -315,7 +329,7 @@ internal fun Store.joinSamePeople() = inTransaction {
     val declined = declinedPairs()
     while (true) {
         val grouped = groupedFaces()
-        val pair = samePersonQuestions(people(grouped = grouped), grouped, declined, JOIN_SAME_PERSON).firstOrNull() ?: break
+        val pair = samePersonQuestions(people(grouped = grouped), grouped, declined, JOIN_SAME_PERSON, closest = null).firstOrNull() ?: break
         mergePeople(into = pair.first.id, from = pair.second.id)
     }
 }
@@ -352,18 +366,32 @@ private const val MAX_SHARED_PHOTOS = 2
 private const val EDGE = 0.01f
 
 /**
- * Pairs of people who may be one ([at] or closer), closest first. Never two who share more than [MAX_SHARED_PHOTOS]
- * photos, two named differently, or a pair in [declined] (smaller id first).
+ * Means further apart than this are never one person by their closest faces either: on a real library (338 people,
+ * 56,953 pairs) no pair below it scored more than 0.455 there, and checking only those above takes 828 pairs, not all.
+ */
+private const val CLOSEST_FROM_MEANS = 0.4f
+
+/**
+ * Pairs of people who may be one, closest first: their means [at] or closer, or, with [closest] set, half the smaller
+ * one's faces at least that alike to their [CLOSEST] most alike faces of the other. Never two who share more than
+ * [MAX_SHARED_PHOTOS] photos, two named differently, or a pair in [declined] (smaller id first).
  */
 internal fun samePersonQuestions(
     people: List<Person>,
     faces: Map<Long, List<PersonFace>>,
     declined: Set<Pair<Long, Long>>,
     at: Float = ASK_SAME_PERSON,
+    closest: Float? = ASK_SAME_PERSON_CLOSEST,
 ): List<SamePerson> {
     val shown = people.filter { faces[it.id] != null }
     val sums = shown.associate { p -> p.id to faces.getValue(p.id).let(::sum) }
+    val vectors = shown.associate { p -> p.id to faces.getValue(p.id).map { it.vector } }
     val photos = shown.associate { p -> p.id to faces.getValue(p.id).mapTo(HashSet()) { it.crop.fileId } }
+    val top = FloatArray(CLOSEST)
+    fun closestMedian(a: List<FloatArray>, b: List<FloatArray>): Float {
+        val (small, big) = if (a.size <= b.size) a to b else b to a
+        return small.map { closestAverage(it, big, top) }.sorted()[small.size / 2]
+    }
     val found = ArrayList<Pair<Float, SamePerson>>()
     for ((i, a) in shown.withIndex()) {
         for (b in shown.subList(i + 1, shown.size)) {
@@ -372,7 +400,9 @@ internal fun samePersonQuestions(
             val sa = sums.getValue(a.id)
             val sb = sums.getValue(b.id)
             val cos = dot(sa, sb) / (length(sa) * length(sb))
-            if (cos < at || photos.getValue(a.id).count { it in photos.getValue(b.id) } > MAX_SHARED_PHOTOS) continue
+            val alike = cos >= at ||
+                (closest != null && cos >= CLOSEST_FROM_MEANS && closestMedian(vectors.getValue(a.id), vectors.getValue(b.id)) >= closest)
+            if (!alike || photos.getValue(a.id).count { it in photos.getValue(b.id) } > MAX_SHARED_PHOTOS) continue
             found += cos to if (a.photos >= b.photos) SamePerson(a, b) else SamePerson(b, a)
         }
     }
