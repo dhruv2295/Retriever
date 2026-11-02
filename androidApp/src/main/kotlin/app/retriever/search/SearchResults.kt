@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -376,7 +377,8 @@ private fun ResultGrid(
     val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
     val strong = hits.take(visibleCount)
     val weak = hits.drop(visibleCount)
-    var expanded by remember(query, hits) { mutableStateOf(false) }
+    // Kept across opening a result and coming back, and while the same question's results refine; a new question closes it.
+    var expanded by rememberSaveable(query) { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (stale) 0.6f else 1f, fastEffects)
     LazyVerticalGrid(
         columns = GridCells.Adaptive(RESULT_CELL_MIN),

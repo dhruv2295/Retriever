@@ -7,11 +7,15 @@ import androidx.compose.runtime.NonRestartableComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isSelected
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
@@ -397,6 +401,21 @@ class SearchShotsTest {
     }
 
     @Test fun resultsFirstPartDark() = shot("results_first_part", true)
+
+    @Test fun lessLikelyStaysOpenAfterAResultIsOpenedAndClosesForANewQuestion() {
+        val restore = StateRestorationTester(rule)
+        var ui by mutableStateOf(ready.answered("bill", mixedHits, strongCount = 2))
+        restore.setContent { ShotTheme(false, 1f) { Pane(ui, SearchActions()) } }
+        fun toggle(state: String) = rule.onNodeWithText("Less likely matches", substring = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, state))
+        rule.onNodeWithText("Less likely matches", substring = true).performClick()
+        // Opening a result leaves the screen; coming back restores it, then the same question's results arrive anew.
+        restore.emulateSavedInstanceStateRestore()
+        ui = ready.answered("bill", mixedHits.reversed(), strongCount = 2)
+        toggle("Expanded")
+        ui = ready.answered("rent", mixedHits, strongCount = 2)
+        toggle("Collapsed")
+    }
 
     @Test fun allStrongHasNoLessLikelyHeader() {
         shot("results", false)
