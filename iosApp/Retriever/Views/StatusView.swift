@@ -71,7 +71,9 @@ struct StatusContent: View {
     private var details: some View {
         DisclosureGroup(Words.shared.DETAILS) {
             // What the line's processed files are, then what is left: its parts add up to the count.
-            Text(Words.shared.breakdown(progress: snap.readProgress)).monospacedDigit()
+            ForEach(Words.shared.breakdown(progress: snap.readProgress), id: \.label) { row in
+                LabeledContent(row.label) { Text(row.count).monospacedDigit() }
+            }
         }
     }
 

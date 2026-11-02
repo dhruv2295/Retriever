@@ -290,10 +290,11 @@ object ReadingPolicy {
 
             reading && progress.sample -> ReadingPhase.SAMPLE
 
-            // While first reads remain, the meaning pass only interleaves with them: READING says so in its detail.
-            reading && progress.scheduled == 0L && progress.meaningWaiting > 0 -> ReadingPhase.MEANING
+            // While first reads remain, the meaning pass only interleaves with them: READING says so in its detail. Once
+            // they are done, a running batch is on these passes even between files.
+            (reading || running) && progress.scheduled == 0L && progress.meaningWaiting > 0 -> ReadingPhase.MEANING
 
-            reading && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
+            (reading || running) && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
 
             reading || (running && progress.unfinished) -> ReadingPhase.READING
 
@@ -308,7 +309,12 @@ object ReadingPolicy {
 
             else -> ReadingPhase.CAUGHT_UP
         }
+        // Between batches with every file's first pass done, only the hours-long passes are left: a short break beside a
+        // full bar read as stuck.
+        val firstPassDone = phase == ReadingPhase.WAITING && progress.waiting == 0L && progress.rereads == 0L &&
+            (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
         val title = when (phase) {
+            ReadingPhase.WAITING if firstPassDone -> "All files processed"
             ReadingPhase.COUNTING -> "Counting your files…"
             ReadingPhase.NOT_NOW -> "Only names can be found for now"
             ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
@@ -354,6 +360,12 @@ object ReadingPolicy {
                 progress.meaningWaiting > 0 -> "Also adding search by description."
                 words.ios -> "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
                 else -> "You can close Retriever; it carries on. Search works the whole time."
+            }
+
+            ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) {
+                "Retriever processes the rest of some long files when your ${words.device} allows. Search works now."
+            } else {
+                "Retriever adds search by description when your ${words.device} allows. Search works now."
             }
 
             ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) {

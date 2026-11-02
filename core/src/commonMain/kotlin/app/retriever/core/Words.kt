@@ -20,8 +20,7 @@ expect fun formatCount(n: Long): String
 
 /**
  * The sentences both apps show around numbers, dates and files, in plain words a first-time user knows: "your phone" or
- * "your files", never "library"; "found by name", never "name only" (the one exception is [breakdown]'s "by name only",
- * as demo-flow.md words it); Retriever "processes" files, never reads, analyzes,
+ * "your files", never "library"; "found by name", never "name only"; Retriever "processes" files, never reads, analyzes,
  * indexes, learns or scans them; "processed in part", never "partly read"; "15 minutes", never "session"; nothing about
  * a "schedule". Sizes and dates stay with each platform's formatter.
  */
@@ -52,17 +51,21 @@ object Words {
     /** The look for faces' count (ReadingPhase.FACES): "2,046 of 16,705 photos looked at". */
     fun facesOf(done: Long, total: Long): String = "${formatCount(done)} of ${plural(total, "photo")} looked at"
 
+    /** One row of Processing's Details: a label and its count, drawn side by side. */
+    data class DetailRow(val label: String, val count: String)
+
     /**
-     * Processing's Details: what the count's processed files are, then what is left. "535 found by what’s inside · 597 by
-     * name only · 4 in part · 25,125 to go"; in part and couldn't open only when there are some.
+     * Processing's Details: what the count's processed files are, then what is left. In part, couldn't open and the long
+     * files still being finished only when there are some.
      */
-    fun breakdown(progress: ReadingProgress): String = listOfNotNull(
-        "${formatCount(progress.read)} found by what’s inside",
-        "${formatCount(progress.nameOnly)} by name only",
-        progress.partlyRead.takeIf { it > 0 }?.let { "${formatCount(it)} in part" },
-        progress.couldntRead.takeIf { it > 0 }?.let { "${formatCount(it)} couldn’t be opened" },
-        notReadYet(progress.waiting),
-    ).joinToString(" · ")
+    fun breakdown(progress: ReadingProgress): List<DetailRow> = listOfNotNull(
+        DetailRow(READ, formatCount(progress.read)),
+        DetailRow(FOUND_BY_NAME, formatCount(progress.nameOnly)),
+        progress.partlyRead.takeIf { it > 0 }?.let { DetailRow("Processed in part", formatCount(it)) },
+        progress.couldntRead.takeIf { it > 0 }?.let { DetailRow("Couldn’t be opened", formatCount(it)) },
+        DetailRow("Still to process", formatCount(progress.waiting)),
+        progress.laterPasses.takeIf { it > 0 }?.let { DetailRow("Long files still being finished", formatCount(it)) },
+    )
 
     fun largeFiles(n: Long): String = "${files(n)} over 100${NBSP}MB"
 

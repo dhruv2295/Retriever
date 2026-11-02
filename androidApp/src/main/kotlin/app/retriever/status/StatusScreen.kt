@@ -261,8 +261,13 @@ fun StatusContent(
                 }
 
                 Header(Words.DETAILS)
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(Words.breakdown(counts.progress), style = MaterialTheme.typography.bodyLarge.tabular())
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (row in Words.breakdown(counts.progress)) {
+                        Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(row.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            Text(row.count, style = MaterialTheme.typography.bodyLarge.tabular())
+                        }
+                    }
                 }
 
                 if (skipped > 0) {

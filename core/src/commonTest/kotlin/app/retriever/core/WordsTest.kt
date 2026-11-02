@@ -168,12 +168,22 @@ class WordsTest {
 
     /** Processing's Details is the count's breakdown: its parts add up to the count's X, and "to go" is Y − X. */
     @Test fun theBreakdownIsTheCountsOwnNumbers() {
-        val p = ReadingProgress(read = 535, partlyRead = 4, nameOnly = 597, notScheduled = 25_125)
-        assertEquals("535 found by what’s inside · 597 by name only · 4 in part · ${formatCount(25_125)} to go", Words.breakdown(p))
+        fun rows(p: ReadingProgress) = Words.breakdown(p).map { it.label to it.count }
+        val p = ReadingProgress(read = 535, partlyRead = 4, nameOnly = 597, notScheduled = 25_125, laterPasses = 3)
+        assertEquals(
+            listOf(
+                "Found by what’s inside" to "535",
+                "Found by name" to "597",
+                "Processed in part" to "4",
+                "Still to process" to formatCount(25_125),
+                "Long files still being finished" to "3",
+            ),
+            rows(p),
+        )
         assertEquals(1_136L to 26_261L, p.processed to p.libraryTotal)
         assertEquals(
-            "0 found by what’s inside · 0 by name only · 2 couldn’t be opened · 1 to go",
-            Words.breakdown(ReadingProgress(couldntRead = 2, scheduled = 1)),
+            listOf("Found by what’s inside" to "0", "Found by name" to "0", "Couldn’t be opened" to "2", "Still to process" to "1"),
+            rows(ReadingProgress(couldntRead = 2, scheduled = 1)),
         )
     }
 

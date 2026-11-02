@@ -687,7 +687,8 @@ class SetupStatusShotsTest {
         // The count and Details' breakdown are the same numbers: its parts add up to the count's X, and "to go" is Y − X.
         val p = reading.progress
         rule.onNodeWithText(Words.readOf(p.processed, p.libraryTotal)).assertExists()
-        rule.onNodeWithText(Words.breakdown(p)).assertExists()
+        for (row in Words.breakdown(p)) rule.onNodeWithText(row.label).assertExists()
+        rule.onNodeWithText(Words.breakdown(p).single { it.label == "Still to process" }.count, useUnmergedTree = true).assertExists()
         rule.onAllNodesWithText("% done", substring = true).assertCountEquals(0)
         // Reading now keeps the file's name beside a small tile.
         rule.onNodeWithText(previewFiles.first().name).assertExists()

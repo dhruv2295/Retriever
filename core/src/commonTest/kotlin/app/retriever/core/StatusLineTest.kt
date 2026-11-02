@@ -202,7 +202,7 @@ class StatusLineTest {
             "Home shows core's status as is",
         )
         assertEquals(535L + 4 + 597, s.done)
-        assertEquals("${formatCount(25_125)} to go", Words.breakdown(p).substringAfterLast(" · "))
+        assertEquals(formatCount(25_125), Words.breakdown(p).single { it.label == "Still to process" }.count)
         assertEquals(s.total!! - s.done!!, p.waiting)
     }
 

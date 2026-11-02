@@ -81,6 +81,29 @@ class ReadingProgressTest {
         assertEquals("Taking a short break", ReadingPolicy.decide(pending, null, false, false, IOS).title)
     }
 
+    /** Every file's first pass done, long files' later parts left: hours of work, never a short break beside a full bar. */
+    @Test fun onlyLaterPartsLeftSaysEveryFileIsProcessed() {
+        val later = ReadingProgress(read = 10, partlyRead = 2, laterPasses = 2)
+        val between = ReadingPolicy.decide(later, null, false, false, DeviceWords.ANDROID)
+        assertEquals(ReadingPhase.WAITING, between.phase)
+        assertEquals("All files processed", between.title)
+        assertEquals("Retriever processes the rest of some long files when your phone allows. Search works now.", between.detail)
+        assertEquals("12 of 12 files processed", between.count)
+        assertEquals("All files processed", ReadingPolicy.decide(later, StopReason.BUDGET, false, false, DeviceWords.ANDROID).title)
+        assertEquals(
+            "Retriever adds search by description when your phone allows. Search works now.",
+            ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 5), null, false, false, DeviceWords.ANDROID).detail,
+        )
+        // A stop still says why; files still waiting keep the short break.
+        assertEquals(ReadingPhase.BUSY, ReadingPolicy.decide(later, StopReason.BUSY, false, false, DeviceWords.ANDROID).phase)
+        assertEquals("Paused, your phone is full", ReadingPolicy.decide(later, StopReason.DISK_FULL, false, false, DeviceWords.ANDROID).title)
+        assertEquals("Taking a short break", ReadingPolicy.decide(later.copy(scheduled = 1), null, false, false, DeviceWords.ANDROID).title)
+        // A batch on the later parts names them between two files too, with no full bar.
+        val running = ReadingPolicy.decide(later, null, true, false, DeviceWords.ANDROID)
+        assertEquals(ReadingPhase.DEEPENING, running.phase)
+        assertEquals(null, running.done)
+    }
+
     @Test fun aFilesReadingSaysHowFarItWasReadAndAlreadyReadContentStaysRead() {
         fun label(
             state: FileState?,

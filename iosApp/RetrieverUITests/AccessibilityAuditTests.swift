@@ -501,7 +501,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
     /// Status lines the live resize loses; each is relaunched at AX5 below and checked to grow.
     private static let grown = [
-        ("status.paused", "Resume"), ("status.tailFiles", "Taking a short break"), ("status.reading", "Photo 1.jpg"),
+        ("status.paused", "Resume"), ("status.tailFiles", "All files processed"), ("status.reading", "Photo 1.jpg"),
         ("home.charging", "Starred"), ("home.firstDay", "Choose when to process"), ("home.noAccess", "Allow access"),
         // The live count's sentence pushes these buttons lower, where the resize loses them.
         ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
