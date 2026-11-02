@@ -557,6 +557,12 @@ class Retriever(
             val t = tick()
             // No device check sees a full disk: the batch that stopped for it says so until the next one runs.
             val diskFull = state.lastStop?.takeIf { it == StopReason.DISK_FULL && !state.running }
+            // Every file processed: photos may still wait for faces, read only then (never a query per file read).
+            val facesWaiting = if (counts.progress.waiting == 0L && faceReader != null && p.recognizePeople && Kind.PHOTO in p.kinds) {
+                store.facesProgress().takeIf { it.pending > 0 }
+            } else {
+                null
+            }
             ReadingPolicy.decide(
                 counts.progress,
                 if (p.paused) StopReason.PAUSED else t.blocker ?: diskFull,
@@ -566,6 +572,7 @@ class Retriever(
                 t.readNowMinutes,
                 t.pluggedIn,
                 state.faces,
+                facesWaiting,
             )
         }
     }

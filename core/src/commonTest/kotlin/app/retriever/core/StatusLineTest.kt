@@ -24,7 +24,8 @@ class StatusLineTest {
         minutes: Int = 0,
         plugged: Boolean = false,
         faces: FacesProgress? = null,
-    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces)
+        facesWaiting: FacesProgress? = null,
+    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces, facesWaiting)
 
     private fun row(s: ReadingStatus) = listOf(s.phase.name, s.title, s.count, s.detail, s.action?.label)
 
@@ -115,6 +116,15 @@ class StatusLineTest {
         assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, minutes = 15).phase, "a stop still wins")
         assertEquals(ReadingPhase.CAUGHT_UP, decide(ReadingProgress(read = 3), minutes = 15).phase, "nothing left to read")
         assertEquals(ReadingPhase.BUSY, decide(stop = StopReason.BUSY, running = true, faces = FacesProgress(1, 9)).phase, "a stop wins over faces")
+    }
+
+    /** Every file processed, faces left: a stop counts the photos, not "26,376 of 26,376 files processed" beside work to do. */
+    @Test fun aStopAfterEveryFileCountsTheFacesLeft() {
+        val allFiles = ReadingProgress(read = 5, meaningWaiting = 1)
+        val busy = decide(allFiles, stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8))
+        assertEquals(listOf("BUSY", "2 of 10 photos looked at"), listOf(busy.phase.name, busy.count))
+        assertEquals(2L to 10L, busy.done to busy.total)
+        assertEquals("3 of 5 files processed", decide(stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8)).count, "files left come first")
     }
 
     /** Processing never shows Pause beside a session's Stop: one ends the 15 minutes, the other stopped everything. */

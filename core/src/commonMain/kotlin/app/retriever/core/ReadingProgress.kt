@@ -249,6 +249,8 @@ object ReadingPolicy {
      * minutes of work, and a count moves with every file (and a dip when new files come explains itself). "Counting your
      * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED]. [faces]: the running
      * batch's look for faces ([IndexState.faces]), which files wait for; its own count then, or the line stands still.
+     * [facesWaiting]: photos still to look at once every file is processed. A stop or wait then counts them, not a full
+     * file count beside work still to do.
      */
     fun decide(
         progress: ReadingProgress,
@@ -259,6 +261,7 @@ object ReadingPolicy {
         readNowMinutes: Int = 0,
         pluggedIn: Boolean = false,
         faces: FacesProgress? = null,
+        facesWaiting: FacesProgress? = null,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val demo = progress.sample && !progress.notNow
@@ -375,7 +378,11 @@ object ReadingPolicy {
         // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
         // its first reads are all done, and a full bar beside work going on reads as stuck.
         val meaning = phase == ReadingPhase.MEANING
-        val looking = if (phase == ReadingPhase.FACES) faces else null
+        val looking = when {
+            phase == ReadingPhase.FACES -> faces
+            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L }
+            else -> null
+        }
         val (done, total) = when {
             looking != null -> looking.done to looking.done + looking.pending
             meaning -> progress.contentRead - progress.meaningWaiting to progress.contentRead
