@@ -102,11 +102,9 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
     }
 }
 
-/** Scores are descending, one per file in a lane. Ties always stay together. */
-internal fun likelyCount(scores: List<Double>): Int {
-    if (scores.size <= 3) return scores.size
-    // The largest drop after the first three sets a query-relative margin; no absolute confidence claim or discarded hits.
-    val gaps = scores.zipWithNext { a, b -> a - b }
-    val split = (2 until gaps.size).maxByOrNull { gaps[it] } ?: return scores.size
-    return if (gaps[split] > 0 && gaps[split] > gaps.average()) split + 1 else scores.size
-}
+/**
+ * Files found only by meaning that stay visible, best cosine first whatever their modality; the rest fold into the tail,
+ * none discarded. On the public eval (eval/REPORT.md, "Visible cut") a split at the largest score drop did no better than
+ * a fixed count, and a count per modality kept fewer right files visible than one count over all of them.
+ */
+const val LIKELY_MEANING_FILES = 20

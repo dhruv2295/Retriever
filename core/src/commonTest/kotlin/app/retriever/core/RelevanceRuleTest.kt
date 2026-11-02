@@ -134,16 +134,18 @@ class RelevanceRuleTest {
     }
 
     @Test
-    fun theShippedSettingKeepsAllHitsWithARelativeTail() = runTest {
+    fun theShippedSettingKeepsAllHitsAndTheBestTwentyVisibleWhateverTheirModality() = runTest {
         // RELEVANCE_RULE_ENABLED is false (theFitFailedItsGateSoTheRuleShipsOff); this test changes with it.
         assertEquals(null, RelevanceRule.shipped)
-        val (store, _) = store(background(5_000, 0.5, 0.02) + F("outlier.pdf", 0.62f))
-        val r = SearchEngine(store, AxisEmbedder(sig)).search("anything", vector)
-        assertEquals(20, r.hits.size)
-        assertTrue(r.strongCount in 1..r.hits.size)
+        // Page images (no text) score above every text chunk, so they fill the visible part on their own.
+        val (store, _) = store(background(5_000, 0.5, 0.02) + List(30) { F("page$it.pdf", 0.7f + it / 1000f, text = null) })
+        val r = SearchEngine(store, AxisEmbedder(sig)).search(SearchRequest("anything", limit = 100, mode = vector))
+        assertEquals(100, r.hits.size)
+        assertEquals(LIKELY_MEANING_FILES, r.strongCount)
+        assertTrue(strongNames(r).all { it.startsWith("page") }, strongNames(r).toString())
         val photo = SearchEngine(store, AxisEmbedder(sig)).searchImage(byteArrayOf(1))
-        assertEquals(r.hits.size, photo.hits.size)
-        assertTrue(photo.strongCount in 1..photo.hits.size)
+        assertEquals(20, photo.hits.size)
+        assertEquals(LIKELY_MEANING_FILES, photo.strongCount)
     }
 
     @Test

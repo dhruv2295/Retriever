@@ -255,10 +255,7 @@ class RetrievalEval(
             val strong = HashSet<Int>()
             val candidates = scores.indices.sortedByDescending { scores[it] }.take(SearchEngine.CANDIDATES)
             if (minStrong == null) {
-                candidates.groupBy { group.chunks[it].modality }.values.forEach { rows ->
-                    val files = rows.distinctBy { group.chunks[it].file }
-                    strong += files.take(likelyCount(files.map { scores[it].toDouble() })).map { group.chunks[it].file }
-                }
+                strong += candidates.map { group.chunks[it].file }.distinct().take(LIKELY_MEANING_FILES)
             }
             for (i in candidates) {
                 val c = group.chunks[i]

@@ -164,8 +164,8 @@
             }
 
             // (g) Nothing here is about swimming. The relevance rule ships off until it is fitted on public data, so the
-            // nearest files still come back, none dropped: the largest score drop after each modality's first three files
-            // only folds the rest into the tail (likelyCount), so at least three stay strong. With the rule on, the shipped
+            // nearest files still come back, none dropped: the best LIKELY_MEANING_FILES by cosine stay strong and the rest
+            // fold into the tail, so at least three stay strong. With the rule on, the shipped
             // split applies.
             let none = try await s.retriever.search(q: "kids swimming in a pool", kinds: nil, limit: 20)
             check(

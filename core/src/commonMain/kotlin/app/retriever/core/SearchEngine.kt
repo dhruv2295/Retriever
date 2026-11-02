@@ -491,10 +491,7 @@ class SearchEngine(
         val exact = HashSet<Long>()
         val perLane = lanes.map { lane ->
             val relativeStrong = if (lane.source == Source.MEANING && lane.minStrong == null) {
-                lane.hits.groupBy { it.modality }.values.flatMap { candidates ->
-                    val files = candidates.sortedByDescending { it.cos }.distinctBy { it.fileId }
-                    files.take(likelyCount(files.map { it.cos.toDouble() })).map { it.fileId }
-                }.toSet()
+                lane.hits.sortedByDescending { it.cos }.distinctBy { it.fileId }.take(LIKELY_MEANING_FILES).map { it.fileId }.toSet()
             } else {
                 emptySet()
             }

@@ -102,6 +102,59 @@ class RelevanceReplayTest {
         }.toList().flatten()
     }
 
+    /**
+     * -Drelevance.cuts: each strong/weak cut over search's own meaning candidates (the best [SearchEngine.CANDIDATES]
+     * chunks, split per modality as toHits does). Per dataset and query kind: how often a match query's right file,
+     * when among the candidates, stays visible, and how many files stay visible.
+     */
+    private fun cuts(dump: RelevanceDump.Dump, manifest: List<DumpFile>, queries: List<DumpQuery>) {
+        // Each rule takes the candidates per modality, best first, to the files it keeps visible.
+        val rules = LinkedHashMap<String, (List<List<Pair<Long, Double>>>) -> Set<Long>>()
+        for (n in listOf(5, 10, 20)) rules["top $n per modality"] = { groups -> groups.flatMap { g -> g.take(n).map { it.first } }.toSet() }
+        for (n in listOf(10, 15, LIKELY_MEANING_FILES, 30)) {
+            rules["top $n overall"] = { groups -> groups.flatten().sortedByDescending { it.second }.map { it.first }.distinct().take(n).toSet() }
+        }
+        rules["none"] = { groups -> groups.flatten().map { it.first }.toSet() }
+        val sig = Signature(dump.signature)
+        val table = VectorTable.empty()
+        var chunkId = 0L
+        dump.files.forEachIndexed { i, f ->
+            for (c in f.chunks) table.append(++chunkId, i + 1L, c.bytes, c.scale, f.kind, c.modality, 0)
+        }
+        val idOf = dump.files.withIndex().associate { (i, f) -> f.id to i + 1L }
+        val dataset = manifest.associate { it.file to it.dataset }
+        val vectors = dump.queries.associate { it.id to Vector(it.bytes, it.scale, sig) }
+        val engine = SearchEngine(Store(testDriver()), NoEmbedder(sig))
+        // Per query and rule: the right file visible (null: not a match query, or not among the candidates), files visible.
+        val results = queries.parallelStream().map { q ->
+            val excluded = q.excludeFiles.toSet()
+            val admitted = if (excluded.isEmpty() && q.excludeDataset == null) {
+                null
+            } else {
+                dump.files.filter { it.id !in excluded && dataset[it.id] != q.excludeDataset }.map { idOf.getValue(it.id) }.toLongArray().apply { sort() }
+            }
+            val s = engine.scan(checkNotNull(vectors[q.id]), SearchEngine.CANDIDATES, table, fileIds = admitted)
+            val groups = s.rows.indices.groupBy { table.modality(s.rows[it]) }.values.map { rows ->
+                rows.distinctBy { table.fileId(s.rows[it]) }.map { table.fileId(s.rows[it]) to s.cos[it].toDouble() }
+            }
+            val relevant = q.relevant.mapNotNull { idOf[it] }.toSet()
+            val candidate = groups.any { g -> g.any { it.first in relevant } }
+            q to rules.mapValues { (_, rule) ->
+                val visible = rule(groups)
+                (if (q.kind == "match" && candidate) visible.any { it in relevant } else null) to visible.size
+            }
+        }.toList()
+        println("dataset\tquery kind\trule\tqueries\tright visible\tmean visible")
+        results.groupBy { (q, _) -> q.dataset to (q.construction ?: q.kind) }.toSortedMap(compareBy({ it.first }, { it.second })).forEach { (k, rs) ->
+            for (rule in rules.keys) {
+                val outcomes = rs.map { it.second.getValue(rule) }
+                val judged = outcomes.mapNotNull { it.first }
+                val right = if (judged.isEmpty()) "" else "%.3f of %d".format(judged.count { it }.toDouble() / judged.size, judged.size)
+                println("${k.first}\t${k.second}\t$rule\t${rs.size}\t$right\t${"%.1f".format(outcomes.map { it.second }.average())}")
+            }
+        }
+    }
+
     @Test
     fun replayDump() {
         val dumpPath: String? = System.getProperty("relevance.dump")
@@ -146,6 +199,7 @@ class RelevanceReplayTest {
             }
         }
         println("RelevanceReplay: ${rows.size} rows to $out")
+        if (System.getProperty("relevance.cuts") != null) cuts(dump, manifest, queries)
         // Medians per (dataset, kind or construction, group): a glance, not the fit.
         println("dataset\tquery kind\tgroup\tqueries\tmedian right excess\tmedian best-wrong excess")
         rows.groupBy {

@@ -1,5 +1,41 @@
 # Retrieval eval: EmbeddingGemma 2 M440 on the iOS simulator
 
+# Visible cut (2026-11-02): the best 20 by cosine, any modality
+
+**Decision: meaning-only hits keep the best `LIKELY_MEANING_FILES` = 20 files by cosine visible, whatever their
+modality.** The cut it replaces split each modality at its largest score drop after the third file, whatever the drop's
+size. On a Pixel search two such splits fell on 0.007 drops among scores 0.74-0.78: one hid relevant photos, the other
+kept junk. A count per modality (tried next, on the Pixel) then kept text matches at 0.731-0.748 visible while photos
+at 0.750-0.751 folded into the tail.
+
+Replayed with `RelevanceReplayTest.replayDump -Drelevance.cuts` on a fresh M440 vt70 dump (11,983 files, 11,880
+queries; same library and queries as below). Each rule runs on search's own 100 meaning candidates. "Right visible"
+counts match queries whose right file is among the candidates; "visible" is the mean of files visible. The largest-drop
+rows ran per modality, as `toHits` did, in a first replay of the same dump.
+
+| rule | XM3600 photos: right visible, visible | SciFact: right visible, visible | MIRACL-hi: right visible, visible |
+|---|---|---|---|
+| largest drop per modality (old) | 0.818, 10.9 | 0.965, 5.4 | 0.915, 9.4 |
+| largest drop, only if at least 0.005 | 0.864, 25.7 | 0.974, 17.0 | 0.924, 12.6 |
+| largest drop, only if at least 0.01 | 0.962, 65.3 | 0.990, 44.7 | 0.940, 27.0 |
+| largest drop, only if at least 0.02 | 0.997, 92.4 | 0.996, 68.5 | 0.991, 61.9 |
+| top 5 per modality | 0.797, 9.3 | 0.964, 5.1 | 0.895, 7.6 |
+| top 10 per modality | 0.872, 17.5 | 0.980, 10.1 | 0.964, 14.1 |
+| top 20 per modality | 0.929, 31.7 | 0.992, 20.1 | 0.987, 25.6 |
+| top 10 overall | 0.855, 10.0 | 0.980, 10.0 | 0.960, 10.0 |
+| top 15 overall | 0.892, 15.0 | 0.985, 15.0 | 0.973, 15.0 |
+| **top 20 overall (shipped)** | **0.914, 20.0** | **0.992, 20.0** | **0.984, 20.0** |
+| top 30 overall | 0.942, 30.0 | 0.995, 30.0 | 0.989, 30.0 |
+| none | 1.000, 98.5 | 1.000, 77.1 | 1.000, 92.9 |
+
+At equal files visible the largest drop matches a fixed count (old 0.818 at 10.9 against top 5 per modality 0.797 at
+9.3 and top 10 overall 0.855 at 10.0), so the drop carries no information a count lacks; gating it on an absolute size
+buys right files only by leaving most files visible. One count over all modalities matches or beats a count per
+modality at the same size (15 overall: 0.892 for photos at 15.0 against 10 per modality: 0.872 at 17.5), so cosines are
+comparable enough across modalities for this model. Top 20 overall keeps the right file visible 9.6 points more often
+for photos, 2.7 for SciFact and 6.9 for Hindi than the old rule, at 9, 15 and 11 more files visible. No-match queries
+also show 20, as the old rule showed at least three: neither claims a match.
+
 # Relevance rule fit (wave 5): fitted on public data, kept off
 
 **Decision: `RELEVANCE_RULE_ENABLED` stays false for every group, and `RELEVANCE_MARGIN` stays the 0.0 placeholder.**
