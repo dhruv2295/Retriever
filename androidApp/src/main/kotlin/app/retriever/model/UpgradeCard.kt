@@ -19,17 +19,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.core.DeviceWords
@@ -38,7 +34,6 @@ import app.retriever.core.Words
 import app.retriever.ui.Format
 import app.retriever.ui.components.Muted
 import app.retriever.ui.tabular
-import java.text.NumberFormat
 
 /** What the upgrade card can ask for; every default does nothing, so a test passes only what it checks. */
 class UpgradeActions(
@@ -110,10 +105,7 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
                     val read = p.contentRead.coerceAtLeast(1)
                     val fraction = ((p.contentRead - p.meaningWaiting).toFloat() / read).coerceIn(0f, 1f)
                     Text(Words.addingMeaning(p), style = MaterialTheme.typography.bodyMedium.tabular())
-                    LinearProgressIndicator(
-                        progress = { fraction },
-                        modifier = Modifier.fillMaxWidth().semantics { progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f) },
-                    )
+                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 }
 
                 UpgradeStage.UNAVAILABLE, UpgradeStage.DONE -> Unit
@@ -149,7 +141,6 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
         is ModelState.Downloading -> {
             val context = LocalContext.current
             val progress = m.progress.coerceIn(0f, 1f)
-            val percent = percentFormat()
             if (m.indeterminate || ui.sizeBytes <= 0) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             } else {
@@ -161,13 +152,7 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
                     ),
                     style = MaterialTheme.typography.bodyMedium.tabular(),
                 )
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().semantics {
-                        contentDescription = Words.downloading(percent.format(progress))
-                        progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f)
-                    },
-                )
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             TextButton(onClick = actions.cancel) { Text(Words.CANCEL) }
         }
@@ -212,10 +197,4 @@ private fun openStorageManager(context: Context) {
         context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))
     } catch (_: ActivityNotFoundException) {
     }
-}
-
-@Composable
-private fun percentFormat(): NumberFormat {
-    val locale = LocalConfiguration.current.locales[0]
-    return remember(locale) { NumberFormat.getPercentInstance(locale) }
 }

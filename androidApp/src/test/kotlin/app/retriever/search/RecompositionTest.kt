@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import app.retriever.ShotTheme
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
+import app.retriever.core.ReadingProgress
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.home.HomeBody
@@ -67,7 +68,7 @@ class RecompositionTest {
     )
 
     private val ui = SearchUi(setUp = true).answered("bill", hits)
-    private val home = HomeUi(libraryChosen = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), contentRead = 4)
+    private val home = HomeUi(libraryChosen = true, counts = mapOf(Kind.PDF to 1L, Kind.PHOTO to 2L, Kind.DOC to 1L), progress = ReadingProgress(read = 4))
 
     private fun show(): Pair<MutableState<SearchUi>, MutableState<HomeUi>> {
         val u = mutableStateOf(ui)
@@ -96,7 +97,7 @@ class RecompositionTest {
         val (_, h) = show()
         assertTrue("tiles never composed: $runs", tileRuns() >= hits.size)
         runs.clear()
-        h.value = home.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), contentRead = 6, waiting = 9)
+        h.value = home.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), progress = ReadingProgress(read = 6, scheduled = 9))
         rule.waitForIdle()
         assertEquals("tiles recomposed on a count change: $runs", emptyMap<String, Int>(), runs)
     }
@@ -133,7 +134,7 @@ class RecompositionTest {
         rule.waitForIdle()
         assertEquals("starred never composed: $runs", 1, runs["StarredSection"])
         runs.clear()
-        h.value = h.value.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), contentRead = 6, waiting = 9)
+        h.value = h.value.copy(counts = mapOf(Kind.PDF to 2L, Kind.PHOTO to 3L, Kind.DOC to 1L), progress = ReadingProgress(read = 6, scheduled = 9))
         rule.waitForIdle()
         assertEquals("starred recomposed on a count change: $runs", null, runs["StarredSection"])
     }

@@ -85,7 +85,7 @@ class HomeViewModelTest {
         assertEquals(setOf(Kind.PDF), ui.home!!.newDocs.map { it.kind }.toSet())
         assertEquals(mapOf(Kind.PDF to 3L, Kind.PHOTO to 4L), ui.counts)
         assertEquals(0, ui.starred)
-        assertFalse(ui.paused)
+        assertFalse(retriever.prefs.value.paused)
         // Robolectric allows all-files access until told otherwise.
         assertTrue(ui.hasAccess)
         // Access is asked again on return to the screen, not once at start: taken away in Settings meanwhile.
@@ -95,7 +95,7 @@ class HomeViewModelTest {
         runCurrent()
         assertFalse(vm.ui.value.hasAccess)
         retriever.pause()
-        assertTrue(vm.ui.first { it.paused }.paused)
+        assertTrue(retriever.prefs.value.paused)
     }
 
     @Test fun noHomeListHoldsAnOtherFile() = runTest {
@@ -132,9 +132,9 @@ class HomeViewModelTest {
     @Test fun resumeLiftsAPause() = runTest {
         retriever.pause()
         val vm = vm()
-        vm.ui.first { it.paused }
+        assertTrue(retriever.prefs.value.paused)
         vm.resume().join()
-        assertFalse(vm.ui.first { !it.paused }.paused)
+        assertFalse(retriever.prefs.value.paused)
     }
 
     @Test fun countsAreSubscribedToOncePerViewModel() = runTest {
@@ -329,5 +329,23 @@ class HomeViewModelTest {
         assertTrue(r.prefs.value.showOnThisDay)
         // The cards that were found are still there: no second look.
         assertEquals(listOf(2024), vm.ui.value.memories.map { it.year })
+    }
+
+    @Test fun undoingTheHideBringsOnThisDayBackWithItsCards() = runTest {
+        val noon = ZonedDateTime.of(2026, 10, 17, 12, 0, 0, 0, newYork)
+        val r = testRetriever(listOf(taken("a.jpg", Kind.PHOTO, noon.minusYears(2))), dispatchers = core)
+        r.indexBatch(1.minutes)
+        val vm = vm(r)
+        vm.now = { noon }
+        vm.onResume()
+        vm.ui.first { it.memories.isNotEmpty() }
+
+        vm.hideOnThisDay()
+        runCurrent()
+        assertFalse(r.prefs.value.showOnThisDay)
+        vm.showOnThisDay()
+        runCurrent()
+        assertTrue(r.prefs.value.showOnThisDay)
+        assertEquals(listOf(2024), vm.ui.first { it.showOnThisDay }.memories.map { it.year })
     }
 }

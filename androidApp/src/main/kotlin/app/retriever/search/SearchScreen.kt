@@ -164,7 +164,10 @@ fun HomeHost(
     val search by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
-    HomeShell(search, actions, onNavigate, modifier, pillModifier) { padding, state, side -> HomeScreen(actions, state, padding, side) }
+    val snackbar = remember { SnackbarHostState() }
+    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar) { padding, state, side ->
+        HomeScreen(actions, state, padding, side, snackbar)
+    }
 }
 
 /**
@@ -254,6 +257,8 @@ fun HomeShell(
     placeholder: String = Words.SEARCH_FIELD,
     /** Under the pill, pinned with it: the demo's Continue. */
     footer: (@Composable () -> Unit)? = null,
+    /** Where the page says what it just did, with Undo. */
+    snackbar: SnackbarHostState = remember { SnackbarHostState() },
     /** The page: the padding the bars leave, its list state, and the side gutter. */
     content: @Composable (PaddingValues, LazyStaggeredGridState, Dp) -> Unit,
 ) {
@@ -270,6 +275,7 @@ fun HomeShell(
     val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> if (uri != null) open(SearchRoute(photo = uri.toString())) }
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (footer == null) {
                 TopAppBar(title = {}, actions = {

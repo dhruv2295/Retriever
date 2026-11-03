@@ -40,26 +40,12 @@ import java.time.ZonedDateTime
 data class HomeUi(
     /** null until the store has answered. */
     val counts: Map<Kind, Long>? = null,
-    val contentRead: Long = 0L,
-    val partlyRead: Long = 0L,
-    val nameOnly: Long = 0L,
-    val laterPasses: Long = 0L,
-    val rereads: Long = 0L,
-    val meaningWaiting: Long = 0L,
+    val progress: ReadingProgress = ReadingProgress(),
     val readingStatus: ReadingStatus? = null,
-    val skipped: Long = 0L,
     val caughtUpDismissed: Boolean = false,
-    val waiting: Long = 0L,
-    val trial: Boolean = false,
-    /** Files outside the first run's short read that nobody has chosen to read yet; 0 once the scope is everything. */
-    val rest: Long = 0L,
-    /** Core's [ReadingProgress.counted] and [ReadingProgress.notNow]. */
-    val counted: Boolean = true,
-    val notNow: Boolean = false,
     /** Words from the person's own files for the search bar's "Try:"; null until core has answered (the view model's start). */
     val suggestions: List<String>? = emptyList(),
     val home: HomeFacts? = null,
-    val paused: Boolean = false,
     /** Some access to files; false once it was taken away in Settings. */
     val hasAccess: Boolean = true,
     val starred: Int = 0,
@@ -81,36 +67,7 @@ data class HomeUi(
     /** Pairs of people who may be one, closest first, for Home to ask about one at a time. */
     val samePeople: List<SamePerson> = emptyList(),
 ) {
-    val progress: ReadingProgress get() = ReadingProgress(
-        (contentRead - partlyRead).coerceAtLeast(0),
-        partlyRead,
-        waiting,
-        rest,
-        nameOnly,
-        skipped,
-        laterPasses,
-        trial,
-        rereads,
-        meaningWaiting,
-        counted = counted,
-        notNow = notNow,
-    )
-
-    fun withCounts(c: Store.Counts): HomeUi = copy(
-        counts = c.byKind,
-        contentRead = c.progress.contentRead,
-        partlyRead = c.progress.partlyRead,
-        skipped = c.progress.couldntRead,
-        nameOnly = c.progress.nameOnly,
-        laterPasses = c.progress.laterPasses,
-        rereads = c.progress.rereads,
-        meaningWaiting = c.progress.meaningWaiting,
-        waiting = c.progress.scheduled,
-        rest = c.waiting,
-        trial = c.trial,
-        counted = c.progress.counted,
-        notNow = c.progress.notNow,
-    )
+    fun withCounts(c: Store.Counts): HomeUi = copy(counts = c.byKind, progress = c.progress)
 
     /**
      * Every source of Home's sections has answered once: the facts, and On this day where it can show.
@@ -209,7 +166,6 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
             retriever.prefs.collect { p ->
                 _ui.update {
                     it.copy(
-                        paused = p.paused,
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
                         introDue = p.homeIntroDue,
@@ -240,10 +196,14 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         launchCatching { today.value = now().toLocalDate() }
     }
 
-    /** Long press on a year card. The switch in Status brings it back. */
-    fun hideOnThisDay() {
-        _ui.update { it.copy(showOnThisDay = false) }
-        launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = false) } }
+    /** Long press on a year card; the Undo, or the switch in Status, brings it back. */
+    fun hideOnThisDay() = setShowOnThisDay(false)
+
+    fun showOnThisDay() = setShowOnThisDay(true)
+
+    private fun setShowOnThisDay(on: Boolean) {
+        _ui.update { it.copy(showOnThisDay = on) }
+        launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
     }
 
     fun decideLater() = launchCatching {

@@ -9,6 +9,7 @@ import app.retriever.core.HomeFacts
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingProgress
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
@@ -41,7 +42,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
         SourceFile("demo:$name", name, "Documents", "application/octet-stream", kind, 1_200_000, 1_760_000_000_000 - days * 86_400_000L)
 
     private val ready = SearchUi(setUp = true)
-    private val readyHome = HomeUi(libraryChosen = true, counts = counts, contentRead = 3_100, waiting = 2_230)
+    private val readyHome = HomeUi(libraryChosen = true, counts = counts, progress = ReadingProgress(read = 3_100, scheduled = 2_230))
 
     private val photoHits = (1..12).map { i ->
         SearchEngine.Hit(file("IMG_20250914_%02d.jpg".format(i), Kind.PHOTO), i.toLong(), 0L, "", null, 1.0 / i)
@@ -101,7 +102,7 @@ abstract class AdaptiveShotsTest(private val size: String) {
             largeCount = 0,
             largeBytes = 0,
         )
-        val home = readyHome.copy(waiting = 0, contentRead = 5_330, home = facts)
+        val home = readyHome.copy(progress = ReadingProgress(read = 5_330), home = facts)
         val actions = SearchActions()
         HomeShell(ready, actions, open = {}) { padding, state, side ->
             HomeBody(home, false, actions, state, padding, side)

@@ -28,12 +28,16 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -87,6 +91,7 @@ import app.retriever.ui.Format
 import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.contentPaddingFor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -118,6 +123,7 @@ fun HomeScreen(
     state: LazyStaggeredGridState,
     padding: PaddingValues,
     side: Dp,
+    snackbar: SnackbarHostState,
     vm: HomeViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
     retriever: Retriever = koinInject(),
@@ -130,6 +136,7 @@ fun HomeScreen(
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
     val onResume = remember(vm) { vm::onResume }
+    val scope = rememberCoroutineScope()
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
     ReportDrawnWhen { ui.counts != null }
     // The card's Notify me asks core for the one notice, and Android for notifications where they are off.
@@ -141,7 +148,7 @@ fun HomeScreen(
     }
     // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
     // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val homeActions = remember(context, requestReading, prefs.notifyWhenCaughtUp) {
+    val homeActions = remember(context, requestReading, prefs.notifyWhenCaughtUp, snackbar, scope) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
@@ -150,7 +157,17 @@ fun HomeScreen(
             dismissCaughtUp = vm::dismissCaughtUp,
             commit = { charging -> requestReading { vm.commit(charging) } },
             decideLater = vm::decideLater,
-            hideOnThisDay = vm::hideOnThisDay,
+            hideOnThisDay = {
+                vm.hideOnThisDay()
+                scope.launch {
+                    snackbar.currentSnackbarData?.dismiss()
+                    if (snackbar.showSnackbar("On this day hidden", "Undo", duration = SnackbarDuration.Short) ==
+                        SnackbarResult.ActionPerformed
+                    ) {
+                        vm.showOnThisDay()
+                    }
+                }
+            },
             answerSamePerson = vm::answerSamePerson,
             dismissIntro = vm::dismissIntro,
             // Hidden once asked: the card has nothing more to promise.

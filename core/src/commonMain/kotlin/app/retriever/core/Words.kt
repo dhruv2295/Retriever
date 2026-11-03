@@ -534,9 +534,6 @@ object Words {
 
     fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up processing for this ${words.device}."
 
-    /** A download bar as a screen reader says it; [percent]: the platform's percent format. */
-    fun downloading(percent: String): String = "Downloading, $percent"
-
     /** The meaning pass: files read so far that have search by description, of all files read. */
     fun addingMeaning(progress: ReadingProgress): String =
         "Adding search by description · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"

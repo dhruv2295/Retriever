@@ -7,11 +7,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -52,7 +51,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.retriever.BuildConfig
 import app.retriever.R
@@ -64,7 +62,6 @@ import app.retriever.core.SamePerson
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.core.YearMemory
-import app.retriever.files.FilePressMenu
 import app.retriever.nav.BrowseRoute
 import app.retriever.nav.DuplicatesRoute
 import app.retriever.nav.FoldersRoute
@@ -122,18 +119,14 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
     }
 }
 
-/** Tap opens; a long press opens the file menu Search and Browse use, its actions also offered to a screen reader. */
-private fun Modifier.openOrMenu(menu: () -> Unit, actions: Modifier, onOpen: () -> Unit) =
-    combinedClickable(onClickLabel = "Open", onLongClickLabel = "More options", onLongClick = menu, onClick = onOpen).then(actions)
-
-/** The newest photos, videos, screenshots and documents as one strip of small tiles, newest first; the header opens them all. */
+/** A header over one strip of [FileTile]s, newest first; the header opens the whole list, a tile opens the file among the strip's. */
 @Composable
-internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchActions) {
+private fun FileStrip(title: String, files: List<SourceFile>, onHeader: () -> Unit, actions: SearchActions, load: Boolean = true) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(Words.RECENTLY_ADDED) { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }
+        SectionHeader(title, onClick = onHeader)
         LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.uri }, contentType = { "tile" }) { f ->
-                FileTile(f, TILE, morph = actions.morph) {
+                FileTile(f, TILE, morph = actions.morph, load = load) {
                     Opener.queue(files)
                     actions.onOpenFile(it)
                 }
@@ -141,6 +134,11 @@ internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchAction
         }
     }
 }
+
+/** The newest photos, videos, screenshots and documents as one strip of small tiles, newest first; the header opens them all. */
+@Composable
+internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchActions) =
+    FileStrip(Words.RECENTLY_ADDED, files, { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }, actions)
 
 /**
  * Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos.
@@ -235,19 +233,22 @@ internal fun BrowseSection(kinds: List<BrowseKind>, folders: Long, go: (Route) -
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(Words.MORE_ON_PHONE)
         val columns = if (LocalDensity.current.fontScale > LARGE_TEXT) 2 else 3
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-            val gap = 8.dp
-            // Whole dp, rounded down: a fraction rounded up per tile would push the last one onto its own row.
-            val cell = ((maxWidth - gap * (columns - 1)) / columns).value.toInt().dp
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(gap), verticalArrangement = Arrangement.spacedBy(gap), maxItemsInEachRow = columns) {
-                for (k in kinds) {
-                    val kind = k.kinds.firstOrNull { it == Kind.PDF } ?: k.kinds.first()
-                    BrowseTile(kindIcon(k.kinds.first()), k.title, Format.count(k.files), {
-                        go(BrowseRoute(kind = kind.name, title = k.title))
-                    }, Modifier.width(cell))
-                }
-                if (folders > 0) BrowseTile(R.drawable.ic_folder, "Folders", Format.count(folders), { go(FoldersRoute) }, Modifier.width(cell))
+        val n = kinds.size + if (folders > 0) 1 else 0
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            Arrangement.spacedBy(8.dp),
+            Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = columns,
+        ) {
+            for (k in kinds) {
+                val kind = k.kinds.firstOrNull { it == Kind.PDF } ?: k.kinds.first()
+                BrowseTile(kindIcon(k.kinds.first()), k.title, Format.count(k.files), {
+                    go(BrowseRoute(kind = kind.name, title = k.title))
+                }, Modifier.weight(1f))
             }
+            if (folders > 0) BrowseTile(R.drawable.ic_folder, "Folders", Format.count(folders), { go(FoldersRoute) }, Modifier.weight(1f))
+            // The last row keeps the others' width.
+            repeat((columns - n % columns) % columns) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -359,64 +360,7 @@ private fun dayText(context: Context, date: LocalDate, zone: ZoneId, year: Boole
     DateUtils.FORMAT_SHOW_DATE or if (year) DateUtils.FORMAT_SHOW_YEAR else DateUtils.FORMAT_NO_YEAR,
 )
 
-/** The most recently starred files as 112 dp tiles; the header opens the whole Starred list. */
+/** The most recently starred files as the same small tiles; the header opens the whole Starred list. */
 @Composable
-internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) {
-    val tile = tileSize()
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Starred") { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }
-        val colors = MaterialTheme.colorScheme
-        LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(home.starred, key = { it.uri }, contentType = { "starred" }) { f ->
-                val shape = RoundedCornerShape(12.dp)
-                // Documents and audio have no picture; without access none can load.
-                val picture = hasAccess && f.kind != Kind.DOC && f.kind != Kind.AUDIO
-                FilePressMenu(f) { menu, menuActions ->
-                    Box(
-                        Modifier
-                            .size(tile)
-                            .clip(shape)
-                            .semantics(mergeDescendants = true) { contentDescription = "${Words.kindLabel(f.kind)}, ${f.name}, starred" }
-                            .openOrMenu(menu, menuActions) {
-                                Opener.queue(home.starred)
-                                actions.onOpenFile(f)
-                            },
-                    ) {
-                        if (picture) {
-                            ThumbnailImage(
-                                f,
-                                tile,
-                                Modifier.fillMaxSize(),
-                                container = if (f.kind ==
-                                    Kind.PDF
-                                ) {
-                                    colors.surfaceContainerLowest
-                                } else {
-                                    Color.Unspecified
-                                },
-                                morph = actions.morph,
-                            )
-                        } else {
-                            Column(Modifier.fillMaxSize().background(colors.surfaceContainer).padding(8.dp), Arrangement.Center, Alignment.CenterHorizontally) {
-                                Icon(painterResource(kindIcon(f.kind)), contentDescription = null, Modifier.size(28.dp), tint = colors.primary)
-                                Text(
-                                    f.name,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = colors.onSurface,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.MiddleEllipsis,
-                                )
-                            }
-                        }
-                        Box(
-                            Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp).background(colors.surface.copy(alpha = 0.8f), CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(painterResource(R.drawable.ic_star), contentDescription = null, Modifier.size(16.dp), tint = colors.primary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) =
+    FileStrip("Starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, load = hasAccess)

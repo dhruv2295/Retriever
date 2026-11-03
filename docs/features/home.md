@@ -26,8 +26,12 @@ person's own files when there are none. Design and reasons: `retriever-flow/clar
   show) have answered (`sectionsReady`, on both platforms), so no section lands above one already shown. The
   suggestions belong to the search bar now and don't hold Home back. A failed On this day lookup counts as an answer with no memories, a failed
   recent-searches read as none, and a failed suggestions read as no suggestions.
-- **Long press.** Recently added and Starred tiles carry the same file menu as Search and
-  Browse ("More options", with matching screen-reader actions).
+- **One strip tile.** Starred and Recently added are the same `FileStrip` of 96 dp `FileTile`s: no per-tile names or star
+  badge (the header says Starred), and a document or audio file shows its type card or icon. Without file access Starred
+  keeps the icon instead of loading. Their long press is Search's and Browse's file menu ("File actions", with matching
+  screen-reader actions).
+- **Hiding On this day can be undone.** A long press on a year tile hides the section and a snackbar offers Undo
+  (`HomeViewModel.showOnThisDay`); the switch in Status also brings it back.
 - **Fixed order, hide at zero.** Sections never move because a count changed; one with nothing to say is not drawn.
   Sections carry no reading subtitles; how far reading has got is the status line's job.
 - **User-facing kinds only, enforced in SQL.** No Home picture or "newest" list can hold an OTHER file; the Starred strip

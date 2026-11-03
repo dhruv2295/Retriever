@@ -235,7 +235,7 @@ internal fun Results(
 
         empty -> Message(dim) {
             val words = asked.split(Regex("\\s+"))
-            val waiting = if (scope != null) ui.unread > 0 else home.waiting > 0
+            val waiting = if (scope != null) ui.unread > 0 else home.progress.scheduled > 0
             val message = listOfNotNull(
                 Words.NO_MATCHES_DETAIL,
                 Words.MORE_WAITING.takeIf { waiting },

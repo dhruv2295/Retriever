@@ -31,6 +31,7 @@ import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
 import app.retriever.core.ReadExtent
 import app.retriever.core.ReadingPolicy
+import app.retriever.core.ReadingProgress
 import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SourceFile
@@ -84,8 +85,7 @@ class SearchShotsTest {
     private val readyHome = HomeUi(
         libraryChosen = true,
         counts = counts,
-        contentRead = 3_100,
-        waiting = 2_230,
+        progress = ReadingProgress(read = 3_100, scheduled = 2_230),
         suggestions = listOf("wifi password", "electricity bill", "notes from the meeting"),
     )
 
@@ -129,7 +129,7 @@ class SearchShotsTest {
             "home_before_setup" -> Screen(SearchUi(), HomeUi(counts = emptyMap()), IndexState(), none)
 
             "home_caught_up" -> IndexState(lastStop = StopReason.DONE).let {
-                Screen(ready, readyHome.copy(waiting = 0, contentRead = 5_330).live(it), it, none)
+                Screen(ready, readyHome.copy(progress = ReadingProgress(read = 5_330)).live(it), it, none)
             }
 
             "recent" -> Pane(ready.copy(recent = listOf("wifi password", "electricity bill", "passport photo")), none)

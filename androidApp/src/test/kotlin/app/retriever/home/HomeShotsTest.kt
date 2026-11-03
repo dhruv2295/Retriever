@@ -127,6 +127,9 @@ class HomeShotsTest {
 
     private val reading = ReadingProgress(read = 1_200, scheduled = 2_100, nameOnly = 372)
     private val afterDemo = ReadingProgress(read = 28, scheduled = 25_763, nameOnly = 2)
+    private val allRead = ReadingProgress(read = 3_300, nameOnly = 372)
+    private val firstDay = ReadingProgress(notScheduled = 3_300, nameOnly = 372, sample = true)
+    private val notNow = afterDemo.copy(scheduled = 0, notScheduled = 25_763, sample = true, notNow = true)
 
     private fun line(p: ReadingProgress = reading, stop: StopReason? = null, on: Boolean = stop == null, minutes: Int = 0, pluggedIn: Boolean = true) =
         ReadingPolicy.decide(p, stop, on, on, DeviceWords.ANDROID, minutes, pluggedIn)
@@ -134,9 +137,7 @@ class HomeShotsTest {
     private val base = HomeUi(
         libraryChosen = true,
         counts = counts,
-        contentRead = 1_200,
-        waiting = 2_100,
-        nameOnly = 372,
+        progress = reading,
         home = facts,
         starred = 3,
         memories = memories,
@@ -151,11 +152,8 @@ class HomeShotsTest {
         "default" to (base to UpgradeUi()),
         "first_day" to (
             base.copy(
-                contentRead = 0,
-                waiting = 0,
-                rest = 3_300,
-                trial = true,
-                readingStatus = line(ReadingProgress(notScheduled = 3_300, nameOnly = 372, sample = true), on = false),
+                progress = firstDay,
+                readingStatus = line(firstDay, on = false),
             ) to
                 UpgradeUi()
             ),
@@ -164,13 +162,8 @@ class HomeShotsTest {
         "unplugged_demo" to (base.copy(readingStatus = line(afterDemo, stop = StopReason.UNPLUGGED, pluggedIn = false)) to UpgradeUi()),
         "not_now" to (
             base.copy(
-                contentRead = 28,
-                nameOnly = 2,
-                waiting = 0,
-                rest = 25_763,
-                trial = true,
-                notNow = true,
-                readingStatus = line(afterDemo.copy(scheduled = 0, notScheduled = 25_763, sample = true, notNow = true), on = false),
+                progress = notNow,
+                readingStatus = line(notNow, on = false),
             ) to
                 UpgradeUi()
             ),
@@ -181,7 +174,7 @@ class HomeShotsTest {
         "downloading" to (base to downloading),
         "meaning" to (base.copy(readingStatus = line(ReadingProgress(read = 3_300, meaningWaiting = 1_100, nameOnly = 372))) to UpgradeUi()),
         "all_read" to
-            (base.copy(contentRead = 3_300, waiting = 0, readingStatus = line(ReadingProgress(read = 3_300, nameOnly = 372), on = false)) to UpgradeUi()),
+            (base.copy(progress = allRead, readingStatus = line(allRead, on = false)) to UpgradeUi()),
         "no_access" to (base.copy(hasAccess = false) to UpgradeUi()),
     )
 
@@ -356,7 +349,7 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.READ_FOR_15).performClick()
         ui = states.getValue("read_now").first
         rule.onNodeWithText("Stop").performClick()
-        ui = base.copy(paused = true, readingStatus = line(stop = StopReason.PAUSED))
+        ui = base.copy(readingStatus = line(stop = StopReason.PAUSED))
         rule.onNodeWithText("Resume").performClick()
         ui = base
         upgrade = downloading
@@ -519,7 +512,7 @@ class HomeShotsTest {
         val opened = mutableListOf<SourceFile>()
         val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onOpenFile = { opened += it }, onNavigate = { went += it })) } }
-        rule.onNodeWithContentDescription("Audio, Voice note.m4a, starred").performClick()
+        rule.onNode(described("Voice note.m4a, Audio, ")).performClick()
         rule.onNode(hasContentDescription("Starred") and isHeading()).performClick()
         assertEquals(listOf(facts.starred[2]), opened)
         assertEquals(listOf<Route>(BrowseRoute(title = "Starred", starredOnly = true)), went)
@@ -574,7 +567,7 @@ class HomeShotsTest {
     // --- The one-time card after setup ---
 
     /** Setup just finished: the first search's 30 files done, the rest scheduled. */
-    private val intro = base.copy(introDue = true, planned = 30, contentRead = 28, nameOnly = 2, waiting = 25_763, rest = 0)
+    private val intro = base.copy(introDue = true, planned = 30, progress = afterDemo)
 
     private val size = 387_710_976L
     private val upgrades = mapOf(

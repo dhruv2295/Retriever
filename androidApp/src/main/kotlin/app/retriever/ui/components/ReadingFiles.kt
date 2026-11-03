@@ -156,10 +156,17 @@ private const val RECENT_SHOWN = 6
 /**
  * One file's preview at a fixed [size], the same everywhere it shows: the demo's pile, Recently read.
  * With [onOpen] it opens on tap, offers the file menu on long press and says "name, kind, date"; without, it is
- * decoration and says nothing. A photo opened from it grows from it in [morph].
+ * decoration and says nothing. A photo opened from it grows from it in [morph]; [load] false keeps the icon (no access).
  */
 @Composable
-internal fun FileTile(file: SourceFile, size: Dp, modifier: Modifier = Modifier, morph: PhotoMorph? = null, onOpen: ((SourceFile) -> Unit)? = null) {
+internal fun FileTile(
+    file: SourceFile,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
+    load: Boolean = true,
+    onOpen: ((SourceFile) -> Unit)? = null,
+) {
     val image = Modifier.size(size).clip(MaterialTheme.shapes.medium)
     if (onOpen == null) {
         ThumbnailImage(file, size, modifier.then(image).clearAndSetSemantics {})
@@ -178,6 +185,7 @@ internal fun FileTile(file: SourceFile, size: Dp, modifier: Modifier = Modifier,
             size,
             image.then(click).semantics { contentDescription = "${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}" }
                 .testTag("recent:${file.uri}"),
+            load = load,
             morph = morph,
         )
     }
