@@ -47,9 +47,10 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 - **Re-ask on indexing.** If an answer is empty and files finish being read, the same question is asked again once, after
   a 2 s settle, so a list being read never reshuffles but an empty one fills. Core's `counts()` is watched only while an
   empty answer is on screen, not for every write of a reading run behind other screens or in the background.
+- **Dragging the results puts the keyboard away** (a user drag only, not the scroll to the top a new answer does); the query stays.
 - **Hooks to other features.** `setUiBusy` (indexing yields while the person types or scrolls and while a search runs, see
   `indexing-pipeline.md`); `warmSearch` on first focus (opens the model and refills FTS if pending); recent searches and
-  launcher shortcuts (`Shortcuts.kt`, `AppShortcuts.swift`, recorded only with "remember searches"); `Prefs.noMatchSeen`
+  launcher shortcuts (`RecentShortcuts.kt`, `AppShortcuts.swift`, recorded only with "remember searches"); `Prefs.noMatchSeen`
   counts no-match sightings; the mascot moods `SEARCHING`, `NO_MATCH`, `NO_MATCH_QUIET` and `TROUBLE` for the states
   (`docs/motion-api.md`); a row opens in the app's own viewer, not another app.
 
@@ -59,7 +60,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 - `androidApp/src/main/kotlin/app/retriever/search/SearchViewModel.kt`: `SearchUi`, the two pipelines, retries
 - `androidApp/src/main/kotlin/app/retriever/search/SearchScreen.kt`: bar, tab content, suggestions
 - `androidApp/src/main/kotlin/app/retriever/search/SearchResults.kt`: chips, understood line, states, rows
-- `androidApp/src/main/kotlin/app/retriever/search/Shortcuts.kt`: launcher shortcuts and `LaunchQuery`
+- `androidApp/src/main/kotlin/app/retriever/search/RecentShortcuts.kt`: launcher shortcuts (`RecentShortcuts`)
 - `iosApp/Retriever/Search/SearchModel.swift`: the model; `iosApp/Retriever/Views/SearchView.swift`, `ResultViews.swift`: views
 
 ## Invariants

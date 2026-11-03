@@ -1,8 +1,6 @@
 package app.retriever.search
 
 import android.app.Application
-import android.content.Intent
-import android.content.pm.ShortcutManager
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -58,7 +56,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import kotlin.math.sqrt
 import kotlin.time.Duration.Companion.minutes
@@ -78,14 +75,13 @@ class SearchViewModelTest {
 
     /** No model: search answers from file names. */
     private val retriever = testRetriever(pdfs + photos, dispatchers = core)
-    private val launchQuery = LaunchQuery()
 
     /** [photo] is what any picked photo reads as; null, unreadable. */
     private fun vm(
         r: Retriever = retriever,
         photo: ByteArray? = null,
         reader: PhotoReader = PhotoReader { uri, label -> photo?.let { PickedPhoto(Similar(uri, label), it) } },
-    ) = SearchViewModel(r, launchQuery, RecentShortcuts(app), reader)
+    ) = SearchViewModel(r, RecentShortcuts(app), reader)
 
     /** The answer to the question asked now, as the screen would show it. */
     private val SearchUi.result get() = phase.answerFor(question)
@@ -484,32 +480,6 @@ class SearchViewModelTest {
         assertTrue(vm.ui.value.done)
         // The same question answered better: the screen keeps its place.
         assertEquals(answer, vm.ui.value.answer)
-    }
-
-    @Test fun aSearchHandedInFromOutsideRuns() = runTest {
-        retriever.indexBatch(1.minutes)
-        val vm = vm()
-        launchQuery.from(Intent().putExtra(LaunchQuery.EXTRA, " bill "))
-        vm.ui.first { it.launched == 1 }
-        assertEquals("bill", vm.ui.value.query)
-        assertEquals(null, launchQuery.pending.value)
-        vm.ui.first { it.done }
-    }
-
-    @Test fun aShortcutLaunchIsReportedUsedOnce() = runTest {
-        retriever.indexBatch(1.minutes)
-        val vm = vm()
-        vm.submit("bill")
-        advanceUntilIdle()
-        val manager = shadowOf(app.getSystemService(ShortcutManager::class.java))
-        assertEquals(0, manager.reportedShortcutsUsed.count())
-        launchQuery.from(Intent().putExtra(LaunchQuery.EXTRA, "bill"))
-        vm.ui.first { it.launched == 1 }
-        assertEquals(listOf("recent-0"), manager.reportedShortcutsUsed.toList())
-        // A search that came from no shortcut is not one.
-        launchQuery.from(Intent().putExtra(LaunchQuery.EXTRA, "something else"))
-        vm.ui.first { it.launched == 2 }
-        assertEquals(1, manager.reportedShortcutsUsed.count())
     }
 
     private fun shortcuts() = ShortcutManagerCompat.getDynamicShortcuts(app).map { it.shortLabel.toString() }

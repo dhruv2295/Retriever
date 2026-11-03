@@ -40,7 +40,6 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -87,8 +86,6 @@ data class SearchUi(
     val onlyStarred: Boolean = false,
     /** Search the words as typed, without turning "screenshots last week" into filters. */
     val literal: Boolean = false,
-    /** Counts the searches handed in from outside, so the screen opens each one once. */
-    val launched: Int = 0,
     /** Something the person asked for failed; the screen says so once and calls [SearchViewModel.errorShown]. */
     val error: String? = null,
     /** The demo's planned files: every search stays inside them (the demo screen). Null: the whole library. */
@@ -115,14 +112,9 @@ const val PHOTOS_FOR_PHOTO_SEARCH = 5
 /** Files read in a burst ask an empty answer again once, after the burst. */
 private const val INDEXED_SETTLE_MS = 2_000L
 
-/** [launchQuery] hands in searches from shortcuts; [recentShortcuts] gets the latest searches after they change. */
+/** [recentShortcuts] gets the latest searches after they change. */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-class SearchViewModel(
-    private val retriever: Retriever,
-    private val launchQuery: LaunchQuery,
-    private val recentShortcuts: RecentShortcuts,
-    private val photos: PhotoReader,
-) : ViewModel() {
+class SearchViewModel(private val retriever: Retriever, private val recentShortcuts: RecentShortcuts, private val photos: PhotoReader) : ViewModel() {
     private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly))
     val ui: StateFlow<SearchUi> = _ui.asStateFlow()
     private val retries = MutableStateFlow(0)
@@ -155,14 +147,6 @@ class SearchViewModel(
                     retriever.counts().map { it.byState[FileState.INDEXED] }.distinctUntilChanged().drop(1).debounce(INDEXED_SETTLE_MS)
                 }
             }.collect { retries.update { it + 1 } }
-        }
-        viewModelScope.launch {
-            launchQuery.pending.filterNotNull().collect { q ->
-                launchQuery.consume()
-                recentShortcuts.used(q)
-                photo = null
-                _ui.update { it.copy(query = q, chip = null, similar = null, onlyStarred = false, literal = false, launched = it.launched + 1) }
-            }
         }
         viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
         viewModelScope.launch { retriever.modelMissing.collect { m -> _ui.update { it.copy(modelMissing = m) } } }

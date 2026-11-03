@@ -94,13 +94,16 @@ private val defaultEffects = spring<Float>(1f, 1600f)
 private val fastEffects = spring<Float>(1f, 3800f)
 
 @Composable
-fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
+fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRequest: Pair<Int, String>? = null) {
     val koin = getKoin()
     val setUp by retriever.setUp.collectAsStateWithLifecycle()
     if (setUp == null) return
     val navController = rememberNavController()
     androidx.compose.runtime.LaunchedEffect(statusRequest) {
         if (statusRequest > 0) navController.navigate(StatusRoute) { launchSingleTop = true }
+    }
+    androidx.compose.runtime.LaunchedEffect(searchRequest) {
+        searchRequest?.let { navController.navigate(SearchRoute(it.second, run = true)) }
     }
     // Only from a settled screen: a double tap during a transition would push twice or pop Home off the stack.
     val settled = { navController.currentBackStackEntry?.lifecycle?.currentState == Lifecycle.State.RESUMED }

@@ -7,27 +7,6 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import app.retriever.MainActivity
 import app.retriever.R
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
-/** A search handed to the app from outside (a shortcut, or `am start --es query`); the search screen takes it and calls [consume]. */
-class LaunchQuery {
-    private val _pending = MutableStateFlow<String?>(null)
-    val pending: StateFlow<String?> = _pending.asStateFlow()
-
-    fun from(intent: Intent?) {
-        intent?.getStringExtra(EXTRA)?.trim()?.takeIf { it.isNotEmpty() }?.let { _pending.value = it }
-    }
-
-    fun consume() {
-        _pending.value = null
-    }
-
-    companion object {
-        const val EXTRA = "query"
-    }
-}
 
 private const val MAX_RECENT = 3
 
@@ -41,7 +20,7 @@ class RecentShortcuts(private val context: Context) {
                 .setIcon(IconCompat.createWithResource(context, R.mipmap.ic_launcher))
                 .setRank(rank)
                 .setIntent(
-                    Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(LaunchQuery.EXTRA, q),
+                    Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(EXTRA, q),
                 )
                 .build()
         }.toList()
@@ -51,7 +30,12 @@ class RecentShortcuts(private val context: Context) {
     /** Tells the launcher this shortcut's search ran, so it ranks it up. A search that did not come from a shortcut matches none. */
     fun used(query: String) {
         ShortcutManagerCompat.getDynamicShortcuts(context)
-            .firstOrNull { it.intent.getStringExtra(LaunchQuery.EXTRA) == query }
+            .firstOrNull { it.intent.getStringExtra(EXTRA) == query }
             ?.let { ShortcutManagerCompat.reportShortcutUsed(context, it.id) }
+    }
+
+    companion object {
+        /** The intent extra holding a shortcut's words; `am start --es query` uses it too. */
+        const val EXTRA = "query"
     }
 }

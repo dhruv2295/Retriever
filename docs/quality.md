@@ -132,7 +132,7 @@ Release builds are signed with the debug key until the first store upload (see t
   `Configuration.setVisible` (fixed in AGP 9.5.0, still a release candidate) and KGP 2.4.21 registers the plain enum
   `KotlinNativeBundleArtifactsTypes` as an attribute. Retriever's own scripts emit none (`--warning-mode=all`).
 - **Predictive back for the Settings notices overlay:** optional polish.
-- **Intent hardening for LaunchQuery:** a length cap, and no recents until the user acts. No real hole today.
+- **Intent hardening for the query extra:** a length cap, and no recents until the user acts. No real hole today.
 - **Privacy manifest `nm -u` re-check:** at release preparation and on every dependency bump.
 - **Enhanced Security:** one trial build after the current wave (arm64e may not link with Kotlin/Native and MediaPipe).
 - **i18n** (`strings.xml` with plurals, a String Catalog): with a second UI language or at the end of the copy freeze.

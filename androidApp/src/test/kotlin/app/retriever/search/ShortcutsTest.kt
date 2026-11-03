@@ -1,13 +1,13 @@
 package app.retriever.search
 
-import android.content.Intent
+import android.content.pm.ShortcutManager
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -16,14 +16,14 @@ class ShortcutsTest {
     private val context = ApplicationProvider.getApplicationContext<android.app.Application>()
 
     @Test
-    fun queryExtraReachesLaunchQuery() {
-        val launch = LaunchQuery()
-        launch.from(Intent().putExtra("query", "  boarding pass "))
-        assertEquals("boarding pass", launch.pending.value)
-        launch.consume()
-        assertNull(launch.pending.value)
-        launch.from(Intent().putExtra("query", "  "))
-        assertNull(launch.pending.value)
+    fun usedReportsOnlyAShortcutsOwnSearch() {
+        val manager = shadowOf(context.getSystemService(ShortcutManager::class.java))
+        val shortcuts = RecentShortcuts(context)
+        shortcuts.push(listOf("bill"))
+        shortcuts.used("something else")
+        assertEquals(0, manager.reportedShortcutsUsed.count())
+        shortcuts.used("bill")
+        assertEquals(listOf("recent-0"), manager.reportedShortcutsUsed.toList())
     }
 
     @Test

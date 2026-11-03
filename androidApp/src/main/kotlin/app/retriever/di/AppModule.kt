@@ -69,7 +69,6 @@ import app.retriever.model.Calibrator
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
 import app.retriever.model.UpgradeFlow
-import app.retriever.search.LaunchQuery
 import app.retriever.search.RecentShortcuts
 import app.retriever.search.SearchViewModel
 import app.retriever.search.photoReader
@@ -233,7 +232,6 @@ val appModule = module {
     worker { IndexWorker(androidContext(), get(), get(), get(), get(PlatformReady), get(), get()) }
     single { StorageService(androidContext(), get(), get(), get(ModelDir)) }
     single { MediaDeleter(androidContext()) }
-    singleOf(::LaunchQuery)
     singleOf(::RecentShortcuts)
     singleOf(::Calibrator)
     single { photoReader(androidContext()) }

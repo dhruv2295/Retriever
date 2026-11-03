@@ -25,6 +25,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -81,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -123,6 +125,7 @@ import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
+import kotlinx.coroutines.flow.filterIsInstance
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -184,6 +187,7 @@ fun SearchScreen(
     vm: SearchViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
     retriever: Retriever = koinInject(),
+    recentShortcuts: RecentShortcuts = koinInject(),
 ) {
     val home = if (route.scoped) {
         val ids by retriever.scopeIds.collectAsStateWithLifecycle()
@@ -208,7 +212,11 @@ fun SearchScreen(
         started = true
         when {
             route.photo != null -> actions.onPhoto(route.photo.toUri())
-            route.run -> actions.onSubmit(route.query)
+
+            route.run -> {
+                recentShortcuts.used(route.query)
+                actions.onSubmit(route.query)
+            }
         }
     }
     SearchContent(ui, home, actions, onBack, modifier, query = route.query, typing = !route.run && route.photo == null)
@@ -264,14 +272,6 @@ fun HomeShell(
 ) {
     val homeList = rememberLazyStaggeredGridState()
     ScrollingEffect({ homeList.isScrollInProgress }, actions.onScrolling)
-    // A search handed in from outside (a shortcut) opens its results, once. Saveable, so coming back does not reopen them.
-    var shownLaunch by rememberSaveable { mutableIntStateOf(0) }
-    LaunchedEffect(ui.launched) {
-        if (ui.launched > shownLaunch) {
-            shownLaunch = ui.launched
-            open(SearchRoute(ui.query, run = true))
-        }
-    }
     val pickPhoto = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> if (uri != null) open(SearchRoute(photo = uri.toString())) }
     Scaffold(
         modifier = modifier,
@@ -366,14 +366,6 @@ fun SearchContent(
     LaunchedEffect(text) { snapshotFlow { text.text.toString() }.collect { actions.onQuery(it) } }
     // A search by photo replaces the words.
     LaunchedEffect(ui.similar) { if (ui.similar != null) text.clearText() }
-    // A search handed in from outside (a shortcut) while this screen shows: its words, once.
-    var shownLaunch by rememberSaveable { mutableIntStateOf(ui.launched) }
-    LaunchedEffect(ui.launched) {
-        if (ui.launched > shownLaunch) {
-            shownLaunch = ui.launched
-            text.setTextAndPlaceCursorAtEnd(ui.query)
-        }
-    }
     // The grid keeps its place by item key, so a new answer sharing a key (a section header, a file) would open
     // part way down, past its best matches. Saveable, so coming back from a viewer keeps the place.
     var shownAnswer by rememberSaveable { mutableIntStateOf(ui.answer) }
@@ -397,6 +389,9 @@ fun SearchContent(
         keyboard?.hide()
         Unit
     }
+    // The person's own drag, not the scroll to the top a new answer does while they type.
+    val dismiss by rememberUpdatedState(done)
+    LaunchedEffect(grid) { grid.interactionSource.interactions.filterIsInstance<DragInteraction.Start>().collect { dismiss() } }
     val similar = ui.similar
     Surface(modifier.fillMaxSize(), color = SearchBarDefaults.colors().containerColor) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {

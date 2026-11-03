@@ -15,6 +15,7 @@ import app.retriever.core.Words
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
 import app.retriever.indexing.Notifications
+import app.retriever.search.RecentShortcuts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
@@ -78,6 +79,13 @@ class AppLaunchTest {
             scenario.onActivity { assertEquals(1, it.statusRequest) }
             scenario.recreate()
             scenario.onActivity { assertEquals(0, it.statusRequest) }
+        }
+        // A shortcut's words reach the nav host as a request, and a recreation does not run them again.
+        val search = Intent(app, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(RecentShortcuts.EXTRA, " bill ")
+        ActivityScenario.launch<MainActivity>(search).use { scenario ->
+            scenario.onActivity { assertEquals(1 to "bill", it.searchRequest) }
+            scenario.recreate()
+            scenario.onActivity { assertNull(it.searchRequest) }
         }
     }
 }
