@@ -3,6 +3,7 @@
 package app.retriever.viewer
 
 import android.content.Context
+import android.util.Size
 import androidx.compose.animation.core.SnapSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -31,9 +32,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.core.net.toUri
 import app.retriever.R
 import app.retriever.core.motion.MascotMood
@@ -117,8 +120,15 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, op
         val s = photoSource(context, item)
         if (s != null) value = s else failed = true
     }
-    // Read on the first frame, so the shared element is there for the transition to match.
-    val preview = remember(item.uri) { item.file?.let { Thumbnails.largestCached(context, it) } }
+    // The tile's picture on the first frame, so the shared element is there for the transition to match; then a
+    // screen-sized one decoded while it flies, so the sharp tiles replace a picture as sharp as they are. Not cached:
+    // it would push out the tile thumbnails the close lands on.
+    val screenPx = LocalWindowInfo.current.containerSize.let { maxOf(it.width, it.height) }
+    val preview by produceState(item.file?.let { Thumbnails.largestCached(context, it) }, item.uri) {
+        withContext(Dispatchers.IO) {
+            runCatching { context.contentResolver.loadThumbnail(item.uri.toUri(), Size(screenPx, screenPx), null) }.getOrNull()
+        }?.let { value = it.asImageBitmap() }
+    }
     val moving = morph?.shared?.isTransitionActive == true
     if (failed) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -147,15 +157,16 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, op
                 },
             )
         }
-        if (preview != null) {
+        val shown = preview
+        if (shown != null) {
             // Sized as the photo fits the screen, so the crop that matched the tile is no crop at all once it lands.
             val cover by animateFloatAsState(if (moving || !sharp) 1f else 0f, tween(150), label = "previewFade")
             Image(
-                preview,
+                shown,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .aspectRatio(preview.width.toFloat() / preview.height)
+                    .aspectRatio(shown.width.toFloat() / shown.height)
                     .photoMorph(rememberPhotoKey(morph.takeIf { current }, item.uri))
                     .graphicsLayer { alpha = cover },
             )
