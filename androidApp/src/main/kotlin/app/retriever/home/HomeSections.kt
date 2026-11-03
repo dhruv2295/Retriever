@@ -133,7 +133,7 @@ internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchAction
         SectionHeader(Words.RECENTLY_ADDED) { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }
         LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.uri }, contentType = { "tile" }) { f ->
-                FileTile(f, TILE) {
+                FileTile(f, TILE, morph = actions.morph) {
                     Opener.queue(files)
                     actions.onOpenFile(it)
                 }
@@ -394,6 +394,7 @@ internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: Search
                                 } else {
                                     Color.Unspecified
                                 },
+                                morph = actions.morph,
                             )
                         } else {
                             Column(Modifier.fillMaxSize().background(colors.surfaceContainer).padding(8.dp), Arrangement.Center, Alignment.CenterHorizontally) {

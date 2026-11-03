@@ -60,6 +60,7 @@ import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.Muted
+import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.ThumbCell
 import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.contentPaddingFor
@@ -94,7 +95,7 @@ internal fun sortCaption(sort: String): String = when (sort) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
     val vm = koinViewModel<BrowseViewModel>()
     val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
@@ -154,6 +155,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             onOpen = onOpen,
             starred = starred,
             onStar = onStar,
+            morph = morph,
         )
     }
 }
@@ -179,6 +181,8 @@ fun BrowseContent(
     onScrolling: (Boolean) -> Unit = {},
     /** A person's photos: the menu can take one out of their group. */
     onNotThisPerson: ((Store.StoredFile) -> Unit)? = null,
+    /** Where a tapped photo grows into the viewer from its cell. */
+    morph: PhotoMorph? = null,
 ) {
     val files = ui.files
     Column(modifier.padding(top = padding.calculateTopPadding())) {
@@ -266,6 +270,7 @@ fun BrowseContent(
                                     onLongClick = menu,
                                     onLongClickLabel = "More options",
                                     modifier = actions,
+                                    morph = morph,
                                 )
                             }
                         }

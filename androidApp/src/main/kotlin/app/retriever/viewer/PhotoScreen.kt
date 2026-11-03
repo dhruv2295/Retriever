@@ -4,8 +4,12 @@ package app.retriever.viewer
 
 import android.content.Context
 import androidx.compose.animation.core.SnapSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -23,9 +27,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import app.retriever.R
@@ -34,7 +41,10 @@ import app.retriever.nav.PhotoRoute
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
+import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.Thumbnails
+import app.retriever.ui.components.photoMorph
+import app.retriever.ui.components.rememberPhotoKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.saket.telephoto.subsamplingimage.SubSamplingImage
@@ -50,7 +60,7 @@ import java.io.IOException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modifier, queue: ViewerQueue = koinInject()) {
+fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null, queue: ViewerQueue = koinInject()) {
     val context = LocalContext.current
     val stars = koinViewModel<StarHolder>().stars
     val snackbar = remember { SnackbarHostState() }
@@ -65,14 +75,14 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
             ViewerTopBar(current.name, current.uri, stars, onBack, subtitle = positionLabel(pager.currentPage, items.size))
         },
     ) { padding ->
-        PhotoPager(items, pager, Modifier.padding(padding)) { Opener.view(context, it.uri, it.mime) }
+        PhotoPager(items, pager, Modifier.padding(padding), morph) { Opener.view(context, it.uri, it.mime) }
     }
 }
 
 @Composable
-internal fun PhotoPager(items: List<PhotoItem>, pager: PagerState, modifier: Modifier = Modifier, openWith: (PhotoItem) -> Unit) {
+internal fun PhotoPager(items: List<PhotoItem>, pager: PagerState, modifier: Modifier = Modifier, morph: PhotoMorph? = null, openWith: (PhotoItem) -> Unit) {
     HorizontalPager(pager, modifier.fillMaxSize().background(Color.Black), key = { items[it].uri }, beyondViewportPageCount = 0) { page ->
-        PhotoPage(items[page], current = page == pager.settledPage, openWith = openWith)
+        PhotoPage(items[page], current = page == pager.settledPage, morph, openWith = openWith)
     }
 }
 
@@ -93,15 +103,23 @@ internal suspend fun photoSource(context: Context, item: PhotoItem): SubSampling
     return if (readable) SubSamplingImageSource.contentUriOrNull(uri, preview = item.file?.let { Thumbnails.largestCached(context, it) }) else null
 }
 
-/** One photo: its picture from memory or a spinner until the first tiles draw, then the zoomable image, or a plain failure. */
+/**
+ * One photo: its tile's picture from memory (a spinner without one) until the full image is sharp, then the zoomable
+ * image, or a plain failure. The open page's picture is the tile's shared element: it grows from the tile into the
+ * photo, cropped as the tile was and uncropped as it lands, and shrinks back into it on Back.
+ */
 @Composable
-internal fun PhotoPage(item: PhotoItem, current: Boolean, openWith: (PhotoItem) -> Unit) {
+internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, openWith: (PhotoItem) -> Unit) {
     val context = LocalContext.current
     var failed by remember(item.uri) { mutableStateOf(false) }
+    var sharp by remember(item.uri) { mutableStateOf(false) }
     val source by produceState<SubSamplingImageSource?>(null, item.uri) {
         val s = photoSource(context, item)
         if (s != null) value = s else failed = true
     }
+    // Read on the first frame, so the shared element is there for the transition to match.
+    val preview = remember(item.uri) { item.file?.let { Thumbnails.largestCached(context, it) } }
+    val moving = morph?.shared?.isTransitionActive == true
     if (failed) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
@@ -114,7 +132,49 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, openWith: (PhotoItem) 
         }
         return
     }
-    val shown = source ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // While a picture grows or shrinks, the tiles stay hidden under it.
+        source?.let {
+            PhotoTiles(
+                it,
+                item.name,
+                current,
+                onFailed = { failed = true },
+                onSharp = { s -> sharp = s },
+                Modifier.graphicsLayer {
+                    alpha =
+                        if (moving) 0f else 1f
+                },
+            )
+        }
+        if (preview != null) {
+            // Sized as the photo fits the screen, so the crop that matched the tile is no crop at all once it lands.
+            val cover by animateFloatAsState(if (moving || !sharp) 1f else 0f, tween(150), label = "previewFade")
+            Image(
+                preview,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .aspectRatio(preview.width.toFloat() / preview.height)
+                    .photoMorph(rememberPhotoKey(morph.takeIf { current }, item.uri))
+                    .graphicsLayer { alpha = cover },
+            )
+        } else if (!sharp) {
+            CircularProgressIndicator()
+        }
+    }
+}
+
+/** The zoomable photo, drawn in tiles; [onSharp] says whether it is in full quality. */
+@Composable
+private fun PhotoTiles(
+    shown: SubSamplingImageSource,
+    name: String,
+    current: Boolean,
+    onFailed: () -> Unit,
+    onSharp: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val zoom = rememberZoomableState(ZoomSpec(maxZoomFactor = 4f))
     // A page swiped away is put back to fit, so it is not still zoomed when swiped to again.
     LaunchedEffect(current) { if (!current) zoom.resetZoom(SnapSpec()) }
@@ -123,15 +183,10 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, openWith: (PhotoItem) 
         zoomableState = zoom,
         errorReporter = remember {
             object : SubSamplingImageErrorReporter {
-                override fun onImageLoadingFailed(e: IOException, imageSource: SubSamplingImageSource) {
-                    failed =
-                        true
-                }
+                override fun onImageLoadingFailed(e: IOException, imageSource: SubSamplingImageSource) = onFailed()
             }
         },
     )
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        SubSamplingImage(image, contentDescription = item.name, modifier = Modifier.fillMaxSize().zoomable(zoom))
-        if (!image.isImageDisplayed) CircularProgressIndicator()
-    }
+    LaunchedEffect(image) { snapshotFlow { image.isImageDisplayedInFullQuality }.collect(onSharp) }
+    SubSamplingImage(image, contentDescription = name, modifier = modifier.fillMaxSize().zoomable(zoom))
 }

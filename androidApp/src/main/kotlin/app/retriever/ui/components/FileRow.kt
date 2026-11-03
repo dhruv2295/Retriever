@@ -198,6 +198,7 @@ fun ThumbCell(
     readNote: String? = null,
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null,
+    morph: PhotoMorph? = null,
 ) {
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }
     Box(
@@ -222,7 +223,15 @@ fun ThumbCell(
         contentAlignment = Alignment.Center,
     ) {
         val colors = MaterialTheme.colorScheme
-        ThumbnailImage(file, requestSize, Modifier.fillMaxSize(), container = colors.surfaceContainer, locator = locator, tint = colors.onSurfaceVariant)
+        ThumbnailImage(
+            file,
+            requestSize,
+            Modifier.fillMaxSize(),
+            container = colors.surfaceContainer,
+            locator = locator,
+            tint = colors.onSurfaceVariant,
+            morph = morph,
+        )
         if (badge != null) {
             Row(
                 Modifier

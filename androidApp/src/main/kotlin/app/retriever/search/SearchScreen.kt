@@ -119,6 +119,7 @@ import app.retriever.nav.SearchRoute
 import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
+import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.adaptiveCell
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
@@ -145,16 +146,24 @@ data class SearchActions(
     val onStar: (SourceFile, Boolean) -> Unit = { _, _ -> },
     val onWordsAsTyped: () -> Unit = {},
     val onErrorShown: () -> Unit = {},
+    /** Where a tapped photo grows into the viewer from its tile; null when it just opens. */
+    val morph: PhotoMorph? = null,
 )
 
 internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
 /** Home: its page, and the search pill that opens [SearchScreen]. */
 @Composable
-fun HomeHost(onNavigate: (Route) -> Unit, modifier: Modifier = Modifier, pillModifier: Modifier = Modifier, vm: SearchViewModel = koinViewModel()) {
+fun HomeHost(
+    onNavigate: (Route) -> Unit,
+    modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
+    vm: SearchViewModel = koinViewModel(),
+) {
     val search by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
+    val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     HomeShell(search, actions, onNavigate, modifier, pillModifier) { padding, state, side -> HomeScreen(actions, state, padding, side) }
 }
 
@@ -168,6 +177,7 @@ fun SearchScreen(
     onNavigate: (Route) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
     vm: SearchViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
     retriever: Retriever = koinInject(),
@@ -187,7 +197,7 @@ fun SearchScreen(
     val context = LocalContext.current
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
-    val actions = remember(context, onNavigate) { vm.actions(context, onNavigate) }
+    val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     // What the route asks for, once: the screen kept behind a viewer has it already.
     var started by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {

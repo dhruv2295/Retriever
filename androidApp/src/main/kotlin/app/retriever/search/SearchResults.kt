@@ -89,6 +89,7 @@ import app.retriever.nav.SettingsRoute
 import app.retriever.ui.Format
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
+import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.ThumbCell
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.delay
@@ -259,7 +260,7 @@ internal fun Results(
                 HitActions({ hit ->
                     Opener.queue(hitsNow.map { it.file })
                     actions.onOpenHit(hit)
-                }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star)
+                }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star, actions.morph)
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
             ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, edge, cell, act)
@@ -301,6 +302,7 @@ private class HitActions(
     val findSimilar: ((SourceFile) -> Unit)?,
     val starred: () -> Set<String>,
     val star: (SourceFile, Boolean) -> Unit,
+    val morph: PhotoMorph?,
 )
 
 /**
@@ -473,6 +475,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     readNote = Words.extent(extents[hit.fileId]),
                     onLongClick = menu,
                     onLongClickLabel = "More options",
+                    morph = act.morph,
                 )
                 listOfNotNull(hit.reason, hit.copiesNote).joinToString(" · ").ifEmpty { null }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             }

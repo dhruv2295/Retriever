@@ -5,7 +5,6 @@ import androidx.activity.compose.ReportDrawn
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -19,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.compose.DefaultNavTransitions
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -33,6 +33,7 @@ import app.retriever.settings.SettingsScreen
 import app.retriever.setup.SetupFlow
 import app.retriever.setup.SetupScreen
 import app.retriever.status.StatusScreen
+import app.retriever.ui.components.PhotoMorph
 import app.retriever.viewer.DocScreen
 import app.retriever.viewer.PdfPageScreen
 import app.retriever.viewer.PhotoScreen
@@ -92,7 +93,6 @@ data class DocRoute(val fileId: Long, val uri: String, val name: String, val mim
 private val defaultEffects = spring<Float>(1f, 1600f)
 private val fastEffects = spring<Float>(1f, 3800f)
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
     val koin = getKoin()
@@ -120,16 +120,40 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
             // Home's search pill and the search screen share bounds: opening grows the pill into the screen, and Back
             // (a predictive swipe too) shrinks it back.
             val searchBounds = @Composable { scope: AnimatedVisibilityScope -> Modifier.sharedBounds(rememberSharedContentState("search"), scope) }
-            // Every other screen, a viewer above all: the new one fades and grows from 92% while the one below fades fast,
-            // and Back (a predictive swipe too) runs it in reverse. Navigation's own 700 ms cross-fade showed both screens
-            // half-drawn for most of a second, and taps wait for it to settle.
+            // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it) over the list, which stays put
+            // under the viewer's fading backdrop; Back, a predictive swipe too, shrinks it into its tile.
+            val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
+            // Every other screen: the new one fades and grows from 92% while the one below fades fast, and Back (a
+            // predictive swipe too) runs it in reverse. Navigation's own 700 ms cross-fade showed both screens half-drawn for
+            // most of a second, and taps wait for it to settle.
             NavHost(
                 navController,
                 startDestination = start,
                 enterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) },
-                exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) },
-                popEnterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) },
+                exitTransition = {
+                    when {
+                        reduceMotion -> ExitTransition.None
+                        targetState.destination.hasRoute<PhotoRoute>() -> ExitTransition.KeepUntilTransitionsFinished
+                        else -> fadeOut(fastEffects)
+                    }
+                },
+                popEnterTransition = {
+                    when {
+                        reduceMotion || initialState.destination.hasRoute<PhotoRoute>() -> EnterTransition.None
+                        else -> fadeIn(defaultEffects)
+                    }
+                },
                 popExitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) + scaleOut(defaultEffects, 0.92f) },
+                // A back swipe from a photo fades its backdrop as the photo follows the finger to its tile; Navigation's
+                // default shrinks the whole viewer to 70%, an opaque black card until the swipe ends.
+                predictivePopEnterTransition = { edge ->
+                    val fromPhoto = initialState.destination.hasRoute<PhotoRoute>()
+                    if (fromPhoto) EnterTransition.None else DefaultNavTransitions.predictivePopEnterTransition(this, edge)
+                },
+                predictivePopExitTransition = { edge ->
+                    val fromPhoto = initialState.destination.hasRoute<PhotoRoute>()
+                    if (fromPhoto) fadeOut(defaultEffects) else DefaultNavTransitions.predictivePopExitTransition(this, edge)
+                },
             ) {
                 // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
                 composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
@@ -151,19 +175,23 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0) {
                             else -> fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f)
                         }
                     },
-                ) { HomeHost(go, pillModifier = searchBounds(this)) }
+                ) { HomeHost(go, pillModifier = searchBounds(this), morph = morph(this)) }
                 // The rest of the screen fades in with the pill's growth.
                 composable<SearchRoute>(enterTransition = { fadeIn(defaultEffects) }, popExitTransition = { fadeOut(defaultEffects) }) {
-                    SearchScreen(it.toRoute<SearchRoute>(), go, back, searchBounds(this))
+                    SearchScreen(it.toRoute<SearchRoute>(), go, back, searchBounds(this), morph(this))
                 }
-                composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back) }
+                composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back, morph = morph(this)) }
                 composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
                 composable<FoldersRoute> { FoldersScreen(go, back) }
                 composable<DuplicatesRoute> { DuplicatesScreen(go, back) }
                 composable<StatusRoute> { StatusScreen(back, onNavigate = go, onOpenSettings = { go(SettingsRoute) }) }
                 composable<PlayerRoute> { PlayerScreen(it.toRoute<PlayerRoute>(), back, replace) }
                 composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back, replace) }
-                composable<PhotoRoute> { PhotoScreen(it.toRoute<PhotoRoute>(), back) }
+                // Only the backdrop and bar fade: the photo itself is the tile, growing.
+                composable<PhotoRoute>(
+                    enterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) },
+                    popExitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(defaultEffects) },
+                ) { PhotoScreen(it.toRoute<PhotoRoute>(), back, morph = morph(this)) }
                 composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back, replace) }
             }
         }

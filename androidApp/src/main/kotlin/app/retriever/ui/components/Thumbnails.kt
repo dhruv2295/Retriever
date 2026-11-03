@@ -30,6 +30,8 @@ import android.os.Build
 import android.os.CancellationSignal
 import android.util.LruCache
 import android.util.Size
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -256,10 +258,34 @@ object Thumbnails {
 }
 
 /**
+ * The nav host's shared transition and one screen's place in it. A photo's tile on a list screen and its picture in the
+ * viewer share a key, so the one grows into the other and shrinks back on Back.
+ */
+class PhotoMorph(val shared: SharedTransitionScope, val screen: AnimatedVisibilityScope)
+
+/** [uri]'s picture in a [PhotoMorph]. */
+class PhotoKey(val morph: PhotoMorph, val state: SharedTransitionScope.SharedContentState)
+
+/** Null without a [morph]: nothing to share with. */
+@Composable
+fun rememberPhotoKey(morph: PhotoMorph?, uri: String): PhotoKey? {
+    if (morph == null) return null
+    val state = morph.shared.rememberSharedContentState("photo:$uri")
+    return remember(morph, state) { PhotoKey(morph, state) }
+}
+
+/** Marks a photo's picture as the one that grows into the viewer and shrinks back. */
+fun Modifier.photoMorph(key: PhotoKey?): Modifier {
+    if (key == null) return this
+    return with(key.morph.shared) { this@photoMorph.sharedElement(key.state, key.morph.screen) }
+}
+
+/**
  * A file's picture in a cell: the placeholder at its final size, the picture fading in over 150 ms (instantly when the
  * system's animations are off, which Compose's motion scale already applies), and a picture that is in memory already
  * drawn at once. [longEdge] picks the request bucket, so every screen asks for the same few sizes; [locator] the PDF page
- * or video moment; [load] false keeps the icon (no access). [tint] colours the placeholder's icon.
+ * or video moment; [load] false keeps the icon (no access). [tint] colours the placeholder's icon. A photo's picture
+ * grows into the viewer in [morph].
  */
 @Composable
 fun ThumbnailImage(
@@ -271,6 +297,7 @@ fun ThumbnailImage(
     container: Color = Color.Unspecified,
     locator: String = "",
     tint: Color = Color.Unspecified,
+    morph: PhotoMorph? = null,
 ) {
     val context = LocalContext.current
     val px = Thumbnails.bucket(with(LocalDensity.current) { longEdge.roundToPx() })
@@ -281,7 +308,8 @@ fun ThumbnailImage(
     // Read in the layer, not here: the cell recomposes when the fade ends, not on each of its frames.
     val fade = animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     val covered by remember { derivedStateOf { fade.value >= 1f } }
-    Box(modifier.background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
+    val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT) rememberPhotoKey(morph, file.uri) else null
+    Box(modifier.photoMorph(key).background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
         // A document's page leaves the cell's colour around it, so the type card underneath goes once the page is in.
         if (shown == null || !covered) KindFace(file, iconSize, tint.takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) })
         if (shown != null) {
