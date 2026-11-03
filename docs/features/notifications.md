@@ -15,8 +15,8 @@ have left the app. Android only; iOS posts no local notifications (its progress 
 - **One low-importance channel** (`indexing`, `IMPORTANCE_LOW`, created in `Application.onCreate`): silent, no heads-up.
   Channel creation is idempotent, the documented pattern.
 - **Progress** is the foreground notification of `IndexWorker`'s `ForegroundInfo`, built by `Notifications.progress`:
-  ongoing, alert-once, a determinate progress bar from `IndexState`, the current file name, a tap that opens the app and a
-  Pause action. The worker refreshes it at most once a second from `Retriever.state`, and cancels its own post when the run
+  ongoing, alert-once, the status line's count and detail (no file names), a determinate bar of the same done and total
+  (none when the status has no total), a tap that opens Status and a Pause action. The worker refreshes it at most once a second from `Retriever.state`, and cancels its own post when the run
   ends, because posts made without a foreground service outlive the worker.
 - **Pause** is a `PendingIntent.getBroadcast` to `PauseReceiver`, which uses `goAsync` and calls `IndexService.pause()`. It
   does not cancel by work id: that would cancel the periodic request for good.

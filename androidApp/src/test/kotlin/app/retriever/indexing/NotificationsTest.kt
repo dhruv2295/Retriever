@@ -56,7 +56,9 @@ class NotificationsTest {
         assertEquals(false, channel.shouldVibrate())
         assertNotNull(n.publicVersion)
         assertEquals(Notifications.OPEN_STATUS, shadowOf(n.contentIntent).savedIntent.action)
-        assertEquals(0, n.extras.getInt(Notification.EXTRA_PROGRESS_MAX))
+        // The status line's bar, as on Home: silent, since the notification alerts only once.
+        assertEquals(250, n.extras.getInt(Notification.EXTRA_PROGRESS_MAX))
+        assertEquals(243, n.extras.getInt(Notification.EXTRA_PROGRESS))
     }
 
     /** A words-only phone with every file processed after setup; [asked]: Home card's Notify me. */

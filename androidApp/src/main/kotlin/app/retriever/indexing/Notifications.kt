@@ -59,6 +59,11 @@ object Notifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openApp(context, status = true))
             .addAction(0, "Pause", cancel)
+            .apply {
+                val done = status?.done
+                val total = status?.total
+                if (done != null && total != null && total > 0) setProgress(total.toInt(), done.toInt(), false)
+            }
             .build()
     }
 
