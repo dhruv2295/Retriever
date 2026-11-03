@@ -6,7 +6,8 @@ The first screen once the app is set up, and where you start looking for somethi
 "Retriever", one status line (core's `ReadingPolicy.line`: what is happening and whether to do anything), Starred,
 Recently added, On this day, Browse, the optional search-by-meaning offer under "Optional", and Free up space last. The search bar sits
 at the bottom and asks "What are you looking for?"; its suggestions are recent searches, or "Try:" words from the
-person's own files when there are none. Design and reasons: `retriever-flow/clarity-proposal.md`; as built:
+person's own files when there are none. On the whole library one chip is instead a kind and date it has three files of
+("photos from last week", worded as the parser reads it), since a photo has no words to suggest. Design and reasons: `retriever-flow/clarity-proposal.md`; as built:
 `clarity.md`. The search bar and results are in `search-ui.md`.
 
 ## Mechanism and why

@@ -17,6 +17,9 @@ words as typed. When the filters find nothing the facade searches again without 
   "N days ago", ISO dates, `d/m/y` (day first unless the second number is over 12), "15 march [2024]", "march 2023",
   "march 15", a bare month or year only beside a connector (`in`, `from`, `on`, `during`, `of`) or a kind word, so
   "march for climate" and "i may" stay words. A month or day without a year is its most recent past occurrence.
+  Weekdays (English and Hindi): "last sunday" is the one before today, "this sunday" or a bare one the most recent up
+  to today. A bare weekday is a date only beside a kind word ("photos from friday"), because in a query like "what did
+  we decide for dinner on Friday" it is what a screenshot says, not when it was taken.
   Weeks start on Monday. The first date phrase wins; a connector right before it is consumed with it.
 - **Kind words:** screenshots, photos, pdfs, videos, audio, documents (documents also covers PDFs). A kind word counts
   only when it is plural or ends its phrase ("wifi screenshot", "pdf from march"); "photo id" or "video call notes"

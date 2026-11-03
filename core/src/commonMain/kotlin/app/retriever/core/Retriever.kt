@@ -1598,7 +1598,8 @@ class Retriever(
             terms.refresh(store.readContentVersions(ContentSuggestions.FILES, fileIds.orEmpty()), store::file) { id ->
                 store.contentHead(id, ContentSuggestions.CHUNKS)
             }
-            emit(terms.suggestions())
+            val found = terms.suggestions()
+            emit(if (fileIds == null) recentChip()?.let { found.take(2) + it } ?: found else found)
             // Indexing writes many times a second; the next recount waits, then takes the latest state.
             delay(1.seconds)
         }
@@ -1611,6 +1612,21 @@ class Retriever(
         .onCompletion { sharedSuggestions = sharedSuggestions - fileIds }
         .shareIn(background, SharingStarted.WhileSubscribed(SUGGESTIONS_KEPT_MS, replayExpirationMillis = 0), replay = 1)
         .also { sharedSuggestions = sharedSuggestions + (fileIds to it) }
+
+    /**
+     * A filter search the library answers ("photos from last week"): the first period and kind with three files, worded
+     * as the parser reads it. Text chips are only words, and a photo has none; this one shows dates and kinds work.
+     */
+    private fun recentChip(): String? {
+        for (date in listOf("last week", "last month")) {
+            for (kind in listOf("photos", "screenshots", "pdfs", "videos")) {
+                val chip = "$kind from $date"
+                val p = QueryParser.parse(chip, now(), zoneOffsetMs)
+                if (store.captured(p.kinds, p.from ?: continue, p.to ?: continue, false, 3).size == 3) return chip
+            }
+        }
+        return null
+    }
 
     /** The kinds whose insides are read: the Settings switches, cut to what this phone can read. Others are found by name. */
     fun readInside(): Set<Kind> = _prefs.value.kinds intersect readableKinds

@@ -95,6 +95,23 @@ class QueryParserTest {
         assertEquals(null, parse("29 february").from) // 2026 is not a leap year
     }
 
+    @Test fun weekdays() {
+        val p = parse("photo from last sunday") // today is Saturday 17 Oct
+        assertEquals(setOf(Kind.PHOTO), p.kinds)
+        assertEquals(oct17 - 6 * day, p.from) // Sunday 11 Oct
+        assertEquals(oct17 - 5 * day, p.to)
+        assertEquals(listOf("Photos", "last Sunday"), p.understood)
+        assertEquals("", p.text)
+        assertEquals(oct17 - 7 * day, parse("last saturday").from) // today's weekday: the week before
+        assertEquals(oct17, parse("this saturday").from)
+        assertEquals(oct17 - day, parse("screenshots from friday").from)
+        assertEquals(oct17 - 4 * day, parse("पिछले मंगलवार").from)
+        // Alone, a weekday may be what a file says, not when it was made.
+        val dinner = parse("what did we decide for dinner on Friday")
+        assertEquals("what did we decide for dinner on Friday", dinner.text)
+        assertNull(dinner.from)
+    }
+
     @Test fun nothingToParse() {
         val p = parse("  mortgage   statement ")
         assertEquals(ParsedQuery("mortgage statement"), p)

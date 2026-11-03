@@ -74,7 +74,7 @@ space, its last section (`home.md`).
 Changed in place (same names, so call sites compile): `SEARCH_FIELD` "What are you looking for?", `GO_TO_HOME` "Skip
 for now", `SEARCH_BY_NAME` "Skip the try", `WHOLE_PHONE_READY`, `SHARED_FILES_AND_FOLDERS` "Files and folders on
 this phone", `SAMPLE_PICKING`, `READ` "Found by what's inside", `CHOOSE_WHEN` "Choose when to process", `READING_STATUS`
-"Reading" (the screen title), `MORE_ON_PHONE` "Browse", `NO_MATCHES` "Nothing found", `NO_MATCHES_DETAIL`,
+"Reading" (the screen title), `MORE_ON_PHONE` "Browse", `NO_MATCHES` "Nothing found", `noMatchesDetail` (how to ask again: describe it or ask what it says, or a word in it, by search mode; then a date),
 `MORE_WAITING`, `notificationsAsk`, `sampleNote`, `readCount` ("read in part"), `extent`, `coverage`, `kindProgress`
 ("Found by name", "N to go"), `readingLabel` (File info's value under `FOUND_BY`, e.g. "Name and what's inside").
 

@@ -87,7 +87,8 @@ class WordsTest {
     @Test fun noSharedSentenceUsesARetiredWord() {
         val sentences = demoAndChoice + listOf(
             Words.SEARCH_FIELD, Words.HELLO_BODY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
-            Words.READING_STATUS, Words.MORE_ON_PHONE, Words.KIND_OFF, Words.NO_MATCHES, Words.NO_MATCHES_DETAIL, Words.MORE_WAITING,
+            Words.READING_STATUS, Words.MORE_ON_PHONE, Words.KIND_OFF, Words.NO_MATCHES, Words.MORE_WAITING,
+            Words.noMatchesDetail(true), Words.noMatchesDetail(false),
             Words.readCount(3, 1), Words.notReadYet(3), Words.readNowBody(iphone), Words.onDevice(android),
         ) + StopReason.entries.map { ReadingPolicy.stopCopy(it, android) } + ReadExtent.entries.mapNotNull(Words::extent) +
             listOf(true, false).map { readingLabel(Kind.OTHER, null, it) }

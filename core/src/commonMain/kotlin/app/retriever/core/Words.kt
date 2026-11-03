@@ -405,9 +405,13 @@ object Words {
     /** The result menu's way to the other copy, by its folder's own name: "Open the copy in Downloads". */
     fun openCopyIn(folder: String): String = "Open the copy in $folder"
     const val NO_MATCHES = "Nothing found"
-    const val NO_MATCHES_DETAIL = "Try a word from the file’s name."
 
-    /** Said after [NO_MATCHES_DETAIL] only while files are still to be processed. */
+    /** How to ask again: by what a file shows or says when meaning search is on ([byMeaning]), else by its words; and when. */
+    fun noMatchesDetail(byMeaning: Boolean): String =
+        (if (byMeaning) "Describe what’s in it, or ask what it says." else "Try a word it contains or from its name.") +
+            " Add when, like “last week”."
+
+    /** Said after [noMatchesDetail] only while files are still to be processed. */
     const val MORE_WAITING = "Retriever is still processing your files, so search again later."
     const val SEARCH_FAILED = "Search couldn’t finish"
     const val SHOWING_NAME_MATCHES = "Showing name matches"

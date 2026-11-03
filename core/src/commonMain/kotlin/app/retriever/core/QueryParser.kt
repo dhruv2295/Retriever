@@ -57,6 +57,11 @@ object QueryParser {
     private val MONTH_INDEX: Map<String, Int> =
         MONTHS.withIndex().associate { it.value to it.index + 1 } + ("sept" to 9)
 
+    private val WEEKDAY_NAMES = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    private val WEEKDAYS: Map<String, Int> = (
+        WEEKDAY_NAMES.map { it.lowercase() } + listOf("सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार")
+        ).withIndex().associate { it.value to it.index % 7 }
+
     private val THIS = setOf("this", "इस")
     private val LAST = setOf("last", "previous", "पिछले", "पिछला", "पिछली")
     private val WEEK = setOf("week", "हफ्ते", "हफ्ता", "सप्ताह")
@@ -140,6 +145,7 @@ object QueryParser {
         if (b != null && (a in THIS || a in LAST)) {
             val back = if (a in LAST) 1 else 0
             val label = (if (back == 1) "last " else "this ")
+            WEEKDAYS[b]?.let { return weekday(today, it, back, 2, label) }
             when (b) {
                 in WEEK -> {
                     val monday = today - (today + 3).mod(7L) - 7L * back
@@ -185,6 +191,7 @@ object QueryParser {
             }
             if (nearFilter(w, i)) return namedDate(today, month, null, null, 1)
         }
+        WEEKDAYS[a]?.let { if (besideKind(w, i)) return weekday(today, it, 0, 1, "") }
         if (isYear(a) && nearFilter(w, i)) return Hit(1, a, daysFromCivil(a.toInt(), 1, 1), daysFromCivil(a.toInt() + 1, 1, 1))
         return null
     }
@@ -193,6 +200,18 @@ object QueryParser {
     private fun nearFilter(w: List<String>, i: Int): Boolean {
         val prev = w.getOrNull(i - 1)
         return prev in CONNECTORS || prev in KINDS || w.getOrNull(i + 1) in KINDS
+    }
+
+    /** A bare weekday is a date only beside a kind word ("photos from friday"); else it may be what a file says ("dinner on friday"). */
+    private fun besideKind(w: List<String>, i: Int): Boolean {
+        val prev = w.getOrNull(i - 1)
+        return prev in KINDS || (prev in CONNECTORS && w.getOrNull(i - 2) in KINDS) || w.getOrNull(i + 1) in KINDS
+    }
+
+    /** The most recent [day] (Monday 0) up to today; with [back] 1 ("last"), the one before today. */
+    private fun weekday(today: Long, day: Int, back: Int, used: Int, label: String): Hit {
+        val ago = (today + 3 - day).mod(7L).let { if (it == 0L && back == 1) 7L else it }
+        return Hit(used, label + WEEKDAY_NAMES[day], today - ago, today - ago + 1)
     }
 
     private fun isYear(s: String) = s.length == 4 && s.toIntOrNull()?.let { it in 1990..2100 } == true

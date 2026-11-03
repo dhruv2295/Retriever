@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -129,6 +130,16 @@ class FacadeW5Test {
     fun suggestionsNeverInventContentForAnUnreadFile() = test {
         val f = Fx(listOf(testFile("wifi password.png", Kind.SCREENSHOT)))
         assertTrue(f.r.suggestions().first().isEmpty())
+    }
+
+    @Test
+    fun aLibraryOfPhotosIsOfferedItsRecentOnes() = test {
+        val lastWeek = assertNotNull(QueryParser.parse("last week", now).from) + 36 * 3_600_000L
+        val f = Fx(emptyList())
+        f.store.upsertFiles(List(3) { testFile("IMG_$it.jpg", Kind.PHOTO, takenAt = lastWeek) })
+        assertEquals(listOf("photos from last week"), f.r.suggestions().first())
+        // The chip finds what it promises.
+        assertEquals(3, f.r.search("photos from last week").hits.size)
     }
 
     @Test

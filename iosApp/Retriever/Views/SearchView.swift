@@ -483,7 +483,8 @@ private struct NoMatches: View {
         let waiting = ((pinned ?? model.snap)?.pending ?? 0) > 0
         StateView(
             mood: waiting ? .walking : mood, title: Words.shared.NO_MATCHES,
-            message: [Words.shared.NO_MATCHES_DETAIL, waiting ? Words.shared.MORE_WAITING : nil].compactMap { $0 }.joined(separator: " "))
+            message: [Words.shared.noMatchesDetail(byMeaning: model.meaningSearch), waiting ? Words.shared.MORE_WAITING : nil]
+                .compactMap { $0 }.joined(separator: " "))
     }
 }
 
