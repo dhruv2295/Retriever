@@ -25,7 +25,12 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
   time with `loadMore`. A generation counter drops a late page from a replaced sort, and a failed page sets `error` and
   waits for `retry` instead of failing on every scroll. `loading` is the first page only, so the empty state draws only
   once a page has come back. Pages are de-duplicated by file id because rows can shift between OFFSET pages while the
-  indexer works.
+  indexer works. A rename, delete or "Same person as" merge refreshes in place: the loaded rows stay on screen while one
+  read from offset 0 (at least as many rows as are loaded) replaces them, so the list keeps its scroll position and the
+  viewer's morph its cell; a failed refresh is redone by `retry`. Only a sort change clears and starts from the top.
+- **The photo grid pinches and has month headers.** Pinching steps the column count one at a time between 2 and 8
+  (kept across rotation; until then the width's own adaptive count). A person's photos (by taken date) and a grid under
+  Newest (by date modified) are split under pinned month headers; a day, Largest and Name stay flat.
 - **Coverage on each row, not a global promise.** `Words.coverage` (core) gives a list row one honest line: "Name only"
   for name-only files, "Waiting to read" for waiting ones, "Couldn’t read" for skipped ones, and the partial-read note for a file processed only
   in part. Search results do the same through their own reason line.
@@ -73,7 +78,8 @@ Home reaches both through headers and tiles (`home.md`); Starred is a Browse rou
 
 - `BrowseViewModelTest`: `loadsTheRouteFromTheSavedStateOnCreation`, `sortSurvivesRecreationAndRestartsPaging`,
   `failedPageShowsTheErrorAndRetryResumesPaging`, `starredListFiltersInTheViewModel`,
-  `aYearCardListsOnlyThePhotosAndVideosOfItsDay`; screenshots `BrowseShotsTest`.
+  `aYearCardListsOnlyThePhotosAndVideosOfItsDay`, `aDeleteRefreshesTheLoadedRowsInPlace`,
+  `monthRunsSplitADateOrderedGrid`; screenshots `BrowseShotsTest`.
 - `StatusViewModelTest`: `pauseAndResumeShowInTheOneUiState`, `theHeaderSharesHomesOnceOnlyCelebration`,
   `firstEmissionHasNoCountsYet`, `failedActionLandsInStateInsteadOfCrashing`, `noCountsDrawsNeitherZeroOfZeroNorCaughtUp`;
   screenshots in `SetupStatusShotsTest`.

@@ -125,40 +125,38 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
     var showMenu by remember { mutableStateOf(false) }
     val name = path.substringAfterLast('/').ifEmpty { "Top level" }
 
-    Box {
-        ListItem(
-            // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
-            headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            supportingContent = {
-                val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
-                Text(
-                    if (parent.isEmpty()) Words.files(count) else "${Words.files(count)} · $parent",
-                    maxLines = 1,
-                    overflow = TextOverflow.MiddleEllipsis,
-                )
-            },
-            leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
-            trailingContent = {
-                Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options for $name")
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text(EXCLUDE_LABEL) },
-                            onClick = {
-                                showMenu = false
-                                onExclude()
-                            },
-                        )
-                    }
+    ListItem(
+        // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
+        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
+            Text(
+                if (parent.isEmpty()) Words.files(count) else "${Words.files(count)} · $parent",
+                maxLines = 1,
+                overflow = TextOverflow.MiddleEllipsis,
+            )
+        },
+        leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
+        trailingContent = {
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options for $name")
                 }
-            },
-            modifier = Modifier
-                .heightIn(min = 56.dp)
-                .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),
-        )
-    }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(EXCLUDE_LABEL) },
+                        onClick = {
+                            showMenu = false
+                            onExclude()
+                        },
+                    )
+                }
+            }
+        },
+        modifier = Modifier
+            .heightIn(min = 56.dp)
+            .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),
+    )
 }
 
 private const val EXCLUDE_LABEL = "Stop searching this folder"

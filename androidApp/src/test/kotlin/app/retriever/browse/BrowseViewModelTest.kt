@@ -7,8 +7,10 @@ import app.retriever.core.CoreDispatchers
 import app.retriever.core.FACE_DIMS
 import app.retriever.core.FaceBox
 import app.retriever.core.FaceReader
+import app.retriever.core.FileState
 import app.retriever.core.FoundFace
 import app.retriever.core.Kind
+import app.retriever.core.Store
 import app.retriever.duplicates.retrieverOver
 import app.retriever.nav.BrowseRoute
 import app.retriever.starred.Starring
@@ -104,6 +106,33 @@ class BrowseViewModelTest {
         val second = BrowseViewModel(retriever, saved)
         assertEquals("NAME", second.uiState.value.sort)
         assertEquals(listOf("a.pdf", "b.pdf"), second.uiState.first { it.files.isNotEmpty() }.files.map { it.file.name })
+    }
+
+    @Test fun aDeleteRefreshesTheLoadedRowsInPlace() = runTest {
+        val many = List(250) { testFile("p$it.pdf", Kind.PDF).copy(modifiedAt = 1_000L - it) }
+        val retriever = testRetriever(many).also { it.indexBatch(1.minutes) }
+        val vm = BrowseViewModel(retriever, args())
+        vm.uiState.first { it.files.size == 200 }
+        vm.loadMore()
+        vm.uiState.first { it.files.size == 250 }
+
+        val seen = mutableListOf<Int>()
+        val watch = backgroundScope.launch { vm.uiState.collect { seen += it.files.size } }
+        retriever.deletedFiles(listOf("content://test/p3.pdf"))
+        val after = vm.uiState.first { it.files.size == 249 }
+        watch.cancel()
+        assertTrue("the list never empties: $seen", seen.none { it == 0 })
+        assertFalse(after.files.any { it.file.name == "p3.pdf" })
+        assertTrue(after.exhausted)
+    }
+
+    @Test fun monthRunsSplitADateOrderedGrid() {
+        val day = 86_400_000L
+        fun at(name: String, t: Long) = Store.StoredFile(1L + name.hashCode(), testFile(name, Kind.PHOTO).copy(modifiedAt = t), 0, FileState.INDEXED, true)
+        val oct = java.time.ZonedDateTime.of(2026, 10, 15, 12, 0, 0, 0, java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val files = listOf(at("a", oct), at("b", oct - day), at("c", oct - 30 * day))
+        assertEquals(listOf(null to files), monthRuns(files, null))
+        assertEquals(listOf(listOf("a", "b"), listOf("c")), monthRuns(files) { it.file.modifiedAt }.map { (_, run) -> run.map { it.file.name } })
     }
 
     @Test fun failedPageShowsTheErrorAndRetryResumesPaging() = runTest {

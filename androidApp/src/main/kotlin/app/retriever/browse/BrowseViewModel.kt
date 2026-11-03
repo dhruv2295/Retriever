@@ -50,8 +50,11 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
     private var generation = 0
     private var busy = false
 
+    /** The next fetch re-reads every loaded row from offset 0 and swaps them in, so a retry after a failed refresh redoes it. */
+    private var replacing = false
+
     init {
-        viewModelScope.launch { retriever.fileRevision.collect { if (it > 0) reload() } }
+        viewModelScope.launch { retriever.fileRevision.collect { if (it > 0) reload(keep = true) } }
         reload()
     }
 
@@ -61,10 +64,19 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
         reload()
     }
 
-    private fun reload() {
+    /**
+     * A sort change starts again from the top. A rename, delete or merge ([keep]) leaves the rows on screen until their
+     * fresh copy lands, so the list keeps its scroll position and the viewer's morph its cell.
+     */
+    private fun reload(keep: Boolean = false) {
         generation++
         busy = false
-        paged.update { BrowseUi(sort = saved[SORT] ?: route.sort, inside = retriever.readInside()) }
+        replacing = keep
+        if (keep) {
+            paged.update { it.copy(error = null, exhausted = false, inside = retriever.readInside()) }
+        } else {
+            paged.update { BrowseUi(sort = saved[SORT] ?: route.sort, inside = retriever.readInside()) }
+        }
         fetch()
     }
 
@@ -103,7 +115,7 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
         val p = route.person ?: return
         launchCatching(::personFailed) {
             retriever.mergePeople(into = p, from = other)
-            reload()
+            reload(keep = true)
         }
     }
 
@@ -125,6 +137,9 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
         if (busy || ui.exhausted) return
         busy = true
         val gen = generation
+        val replace = replacing
+        val offset = if (replace) 0 else ui.files.size
+        val limit = if (replace) maxOf(PAGE, ui.files.size) else PAGE
         val order = Store.Sort.entries.firstOrNull { it.name == ui.sort } ?: Store.Sort.NEWEST
         paged.update { it.copy(error = null, loading = it.files.isEmpty()) }
         launchCatching(onError = {
@@ -134,20 +149,20 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
                 paged.update { s -> s.copy(loading = false, error = "Couldn't load these files.") }
             }
         }) {
-            val offset = ui.files.size
             val from = route.takenFrom
             val to = route.takenTo
             val person = route.person
             val page = when {
-                person != null -> retriever.personPhotos(person, PAGE, offset)
-                route.starredOnly -> retriever.starredFiles(PAGE, offset)
-                from != null && to != null -> retriever.filesTakenBetween(from, to, PAGE, offset)
-                else -> retriever.files(kind, route.folder, order, PAGE, offset)
+                person != null -> retriever.personPhotos(person, limit, offset)
+                route.starredOnly -> retriever.starredFiles(limit, offset)
+                from != null && to != null -> retriever.filesTakenBetween(from, to, limit, offset)
+                else -> retriever.files(kind, route.folder, order, limit, offset)
             }
             if (gen != generation) return@launchCatching
             // ponytail: OFFSET paging over a table the indexer changes; rows can shift between pages.
             // Dedupe so a shifted row never repeats a lazy-list key; keyset paging if skips matter.
-            paged.update { it.copy(files = (it.files + page).distinctBy { f -> f.id }, loading = false, exhausted = page.size < PAGE) }
+            paged.update { it.copy(files = (if (replace) page else it.files + page).distinctBy { f -> f.id }, loading = false, exhausted = page.size < limit) }
+            replacing = false
             busy = false
         }
     }

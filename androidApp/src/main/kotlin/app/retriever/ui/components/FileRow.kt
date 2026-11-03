@@ -285,13 +285,16 @@ fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, side: Dp
     }
 }
 
+/** How many columns a `GridCells.Adaptive(min)` grid fits across [width]. */
+fun adaptiveColumns(width: Dp, min: Dp, spacing: Dp): Int = ((width + spacing) / (min + spacing)).toInt().coerceAtLeast(1)
+
 /**
  * The width of one column of a `GridCells.Adaptive(min)` grid with [spacing] between columns, across this box less
  * [padding] (both sides together): the grid's own rule, worked out once above it for every cell.
  */
 fun BoxWithConstraintsScope.adaptiveCell(min: Dp, spacing: Dp, padding: Dp = 0.dp): Dp {
     val width = maxWidth - padding
-    val columns = ((width + spacing) / (min + spacing)).toInt().coerceAtLeast(1)
+    val columns = adaptiveColumns(width, min, spacing)
     return (width - spacing * (columns - 1)) / columns
 }
 

@@ -69,6 +69,10 @@ object Format {
         return formatter.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
     }
 
+    /** "October 2026", in the phone's time zone: a month header over a date-ordered grid. */
+    fun month(ms: Long): String =
+        DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault(Locale.Category.FORMAT)).format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+
     /** "p. 12" becomes "Page 12", a time stays as it is, anything else has no label. */
     fun locatorLabel(locator: String): String? = Locator.pageOf(locator)?.let { "Page $it" } ?: locator.takeIf { Locator.msOf(it) != null }
 

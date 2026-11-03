@@ -1,5 +1,8 @@
 package app.retriever.browse
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,12 +35,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
@@ -56,19 +64,23 @@ import app.retriever.nav.Route
 import app.retriever.nav.StatusRoute
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.starWithUndo
+import app.retriever.ui.Format
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.ThumbCell
-import app.retriever.ui.components.adaptiveCell
+import app.retriever.ui.components.adaptiveColumns
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.components.gutter
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 
 /** Start the next page when the last visible item is this close to the end. */
 private const val LOAD_AHEAD = 20
@@ -146,6 +158,12 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             starredOnly = route.starredOnly,
             filtered = route.kind != null || route.folder != null || route.takenFrom != null || route.person != null,
             onNotThisPerson = if (route.person != null) vm::notThisPerson else null,
+            // Month headers follow the list's own order: a person's by taken date, Newest by date modified.
+            dateOf = when {
+                route.person != null -> TAKEN_OR_MODIFIED
+                route.takenFrom == null && !route.starredOnly && ui.sort == Store.Sort.NEWEST.name -> MODIFIED
+                else -> null
+            },
             onManageAccess = { onNavigate(StatusRoute) },
             padding = padding,
             onSort = vm::setSort,
@@ -183,6 +201,8 @@ fun BrowseContent(
     onNotThisPerson: ((Store.StoredFile) -> Unit)? = null,
     /** Where a tapped photo grows into the viewer from its cell. */
     morph: PhotoMorph? = null,
+    /** The date a date-ordered grid is in, which splits it under month headers; null keeps it flat. */
+    dateOf: ((Store.StoredFile) -> Long)? = null,
 ) {
     val files = ui.files
     Column(modifier.padding(top = padding.calculateTopPadding())) {
@@ -245,33 +265,54 @@ fun BrowseContent(
             val listPadding = contentPaddingFor(padding, includeTop = false)
             if (kind in GRID_KINDS) {
                 val state = rememberLazyGridState()
+                // null is the width's own column count; a pinch picks another, kept across rotation.
+                var chosen by rememberSaveable { mutableStateOf<Int?>(null) }
+                val runs = remember(files, dateOf) { monthRuns(files, dateOf) }
                 ScrollingEffect({ state.isScrollInProgress }, onScrolling)
                 LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
                 BoxWithConstraints(Modifier.fillMaxSize()) {
                     val direction = LocalLayoutDirection.current
                     val sides = listPadding.calculateLeftPadding(direction) + listPadding.calculateRightPadding(direction)
-                    val cell = adaptiveCell(110.dp, 4.dp, padding = 8.dp + sides)
+                    val width = maxWidth - 8.dp - sides
+                    val columns = chosen ?: adaptiveColumns(width, 110.dp, 4.dp)
+                    val cell = (width - 4.dp * (columns - 1)) / columns
+                    val pinch by rememberUpdatedState { step: Int -> chosen = (columns + step).coerceIn(2, 8) }
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(110.dp),
+                        columns = GridCells.Fixed(columns),
                         state = state,
                         contentPadding = listPadding,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).pinchSteps { pinch(it) },
                     ) {
-                        items(files, key = { it.id }, contentType = { "file" }) { stored ->
-                            val on = stored.file.uri in starred
-                            StarMenu(stored.file, on, { onStar(stored.file, !on) }, onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
-                                ThumbCell(
-                                    file = stored.file,
-                                    onClick = { onOpen(stored.file) },
-                                    requestSize = cell,
-                                    readNote = Words.coverage(stored, ui.inside),
-                                    onLongClick = menu,
-                                    onLongClickLabel = "More options",
-                                    modifier = actions,
-                                    morph = morph,
-                                )
+                        runs.forEach { (month, run) ->
+                            if (month != null) {
+                                stickyHeader(key = "m${run.first().id}", contentType = "month") {
+                                    Text(
+                                        month,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        modifier = Modifier.fillMaxWidth().background(
+                                            MaterialTheme.colorScheme.surface,
+                                        ).padding(horizontal = 4.dp, vertical = 8.dp),
+                                    )
+                                }
+                            }
+                            items(run, key = { it.id }, contentType = { "file" }) { stored ->
+                                val on = stored.file.uri in starred
+                                FilePressMenu(stored.file, starred = on, onStar = {
+                                    onStar(stored.file, it)
+                                }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
+                                    ThumbCell(
+                                        file = stored.file,
+                                        onClick = { onOpen(stored.file) },
+                                        requestSize = cell,
+                                        readNote = Words.coverage(stored, ui.inside),
+                                        onLongClick = menu,
+                                        onLongClickLabel = "More options",
+                                        modifier = actions,
+                                        morph = morph,
+                                    )
+                                }
                             }
                         }
                         if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
@@ -289,7 +330,7 @@ fun BrowseContent(
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            StarMenu(stored.file, on, { onStar(stored.file, !on) }) { menu, actions ->
+                            FilePressMenu(stored.file, starred = on, onStar = { onStar(stored.file, it) }) { menu, actions ->
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
@@ -325,16 +366,41 @@ private fun LoadMoreEffect(count: Int, lastVisible: () -> Int?, onLoadMore: () -
     }
 }
 
-/** A file list's long-press menu, the shared one; a star here offers Undo through [toggle]. */
-@Composable
-private fun StarMenu(
-    file: SourceFile,
-    on: Boolean,
-    toggle: () -> Unit,
-    notThisPerson: (() -> Unit)? = null,
-    content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit,
-) {
-    FilePressMenu(file, starred = on, onStar = { toggle() }, notThisPerson = notThisPerson, content = content)
+private val TAKEN_OR_MODIFIED: (Store.StoredFile) -> Long = { it.file.takenAt ?: it.file.modifiedAt }
+private val MODIFIED: (Store.StoredFile) -> Long = { it.file.modifiedAt }
+
+/** [files] split into runs of one month each, labelled; one unlabelled run when [dateOf] is null. */
+internal fun monthRuns(files: List<Store.StoredFile>, dateOf: ((Store.StoredFile) -> Long)?): List<Pair<String?, List<Store.StoredFile>>> {
+    if (dateOf == null) return listOf(null to files)
+    val zone = ZoneId.systemDefault()
+    val runs = mutableListOf<Pair<YearMonth, MutableList<Store.StoredFile>>>()
+    for (f in files) {
+        val month = YearMonth.from(Instant.ofEpochMilli(dateOf(f)).atZone(zone))
+        if (runs.lastOrNull()?.first == month) runs.last().second += f else runs += month to mutableListOf(f)
+    }
+    return runs.map { (_, run) -> Format.month(dateOf(run.first())) to run }
+}
+
+/**
+ * Two fingers spreading or pinching step the grid one column fewer or more, once per gesture. Read in the Initial pass so
+ * the grid's own scrolling does not take the gesture first; one finger is left alone.
+ */
+private fun Modifier.pinchSteps(onStep: (Int) -> Unit) = pointerInput(Unit) {
+    awaitEachGesture {
+        var zoom = 1f
+        var stepped = false
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.count { it.pressed } >= 2) {
+                zoom *= event.calculateZoom()
+                if (!stepped && (zoom > 1.25f || zoom < 0.8f)) {
+                    onStep(if (zoom > 1f) -1 else 1)
+                    stepped = true
+                }
+                event.changes.forEach { it.consume() }
+            }
+        } while (event.changes.any { it.pressed })
+    }
 }
 
 private fun Store.Sort.label(): String = when (this) {
