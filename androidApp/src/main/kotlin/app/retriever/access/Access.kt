@@ -78,6 +78,8 @@ data class CoverageLine(val text: String, val fix: Fix? = null) {
     val gap: Boolean get() = fix == Fix.ALLOW_MEDIA || fix == Fix.ALL_FILES
 }
 
+internal const val ONLY_PICKED_PHOTOS = "Only the photos you picked"
+
 /** What Retriever may read: all files, or the media permissions plus the folders the person picked. */
 data class Access(
     val allFiles: Boolean,
@@ -109,7 +111,7 @@ data class Access(
             when {
                 photos == Photos.ALL && videos -> add(CoverageLine("Photos and videos"))
                 photos == Photos.ALL -> add(CoverageLine("Photos"))
-                photos == Photos.SELECTED -> add(CoverageLine("Only the photos you picked", Fix.CHOOSE_PHOTOS))
+                photos == Photos.SELECTED -> add(CoverageLine(ONLY_PICKED_PHOTOS, Fix.CHOOSE_PHOTOS))
             }
             if (videos && photos != Photos.ALL) add(CoverageLine("Videos"))
             if (audio) add(CoverageLine("Music and recordings"))

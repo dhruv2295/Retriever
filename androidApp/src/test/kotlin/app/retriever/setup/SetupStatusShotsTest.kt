@@ -548,7 +548,7 @@ class SetupStatusShotsTest {
     // --- Home's sheet for an install that chose Not now before this version ---
 
     @Test fun chooseSheet() {
-        shot("home_choose_light") { CommitStage(25_763, commit = {}, decideLater = {}) }
+        shot("home_choose_light") { CommitStage(25_763, commit = {}) }
         rule.onNodeWithText(Words.chooseTitle(DeviceWords.ANDROID)).assertExists()
         rule.onNodeWithText(Words.chooseBody(25_763)).assertExists()
         rule.onNodeWithText(Words.RECOMMENDED).assertExists()
@@ -560,7 +560,7 @@ class SetupStatusShotsTest {
 
     /** Before the phone's files are all counted, no number that still grows. */
     @Test fun chooseBeforeTheCount() {
-        shot("home_choose_uncounted_light") { CommitStage(null, commit = {}, decideLater = {}) }
+        shot("home_choose_uncounted_light") { CommitStage(null, commit = {}) }
         rule.onNodeWithText(Words.chooseBody(null)).assertExists()
     }
 
@@ -575,24 +575,22 @@ class SetupStatusShotsTest {
         assertEquals(100f, (top(Words.ACCESS_TITLE) - before) / rule.density.density, 2f)
     }
 
-    @Test fun threeOptionsCallTheirActions() {
+    @Test fun twoOptionsCallTheirActions() {
         val calls = mutableListOf<String>()
-        shot("home_choose_buttons") { CommitStage(25_763, commit = { calls += "commit($it)" }, decideLater = { calls += "later" }) }
+        shot("home_choose_buttons") { CommitStage(25_763, commit = { calls += "commit($it)" }) }
         rule.onNodeWithText("While charging").performClick()
         assertEquals(emptyList<String>(), calls)
         rule.onNodeWithText(Words.START_PROCESSING).performClick()
         rule.onNodeWithText(Words.READ_15_NOW).performClick()
         rule.onNodeWithText(Words.START_PROCESSING).performClick()
-        rule.onNodeWithText(Words.NOT_NOW).performClick()
-        rule.onNodeWithText(Words.GO_TO_HOME).performClick()
-        assertEquals(listOf("commit(true)", "commit(false)", "later"), calls)
+        assertEquals(listOf("commit(true)", "commit(false)"), calls)
     }
 
-    /** Radio rows: one selectable group, each row a radio button, so a screen reader says "1 of 3, selected". */
+    /** Radio rows: one selectable group, each row a radio button, so a screen reader says "1 of 2, selected". */
     @Test fun theOptionsAreRadioRows() {
-        rule.setContent { ShotTheme(false) { CommitStage(25_763, commit = {}, decideLater = {}) } }
+        rule.setContent { ShotTheme(false) { CommitStage(25_763, commit = {}) } }
         rule.onNodeWithText("While charging").assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsSelected()
-        rule.onNodeWithText(Words.NOT_NOW).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsNotSelected()
+        rule.onNodeWithText(Words.READ_15_NOW).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsNotSelected()
     }
 
     private val prefs = Prefs(excludedFolders = setOf("Android/media/WhatsApp/Stickers"))

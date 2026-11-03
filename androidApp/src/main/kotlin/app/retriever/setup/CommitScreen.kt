@@ -29,14 +29,14 @@ import app.retriever.core.Words
  * the confirmation authorizes processing. [rest]: files still to process, null until counted.
  */
 @Composable
-fun CommitStage(rest: Long?, commit: (whileCharging: Boolean) -> Unit, decideLater: () -> Unit, modifier: Modifier = Modifier) {
+fun CommitStage(rest: Long?, commit: (whileCharging: Boolean) -> Unit, modifier: Modifier = Modifier) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(Words.chooseTitle(DeviceWords.ANDROID), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
         Text(Words.chooseBody(rest), style = MaterialTheme.typography.bodyLarge)
         Text(Words.choosePace(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
-        val labels = listOf(ReadingSchedule.CHARGING.title, Words.READ_15_NOW, Words.NOT_NOW)
-        val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.chargingAndNowBody(DeviceWords.ANDROID), Words.NOT_NOW_BODY)
+        val labels = listOf(ReadingSchedule.CHARGING.title, Words.READ_15_NOW)
+        val details = listOf(Words.whileChargingBody(DeviceWords.ANDROID), Words.chargingAndNowBody(DeviceWords.ANDROID))
         Column(Modifier.selectableGroup()) {
             labels.forEachIndexed { i, label ->
                 ListItem(
@@ -53,14 +53,8 @@ fun CommitStage(rest: Long?, commit: (whileCharging: Boolean) -> Unit, decideLat
                 )
             }
         }
-        Button(onClick = {
-            when (selected) {
-                0 -> commit(true)
-                1 -> commit(false)
-                else -> decideLater()
-            }
-        }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (selected == 2) Words.GO_TO_HOME else Words.START_PROCESSING)
+        Button(onClick = { commit(selected == 0) }, modifier = Modifier.fillMaxWidth()) {
+            Text(Words.START_PROCESSING)
         }
     }
 }

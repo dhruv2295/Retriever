@@ -163,7 +163,8 @@ one to two minutes. Device check: time 30 files on the Pixel.
 ## Skip path
 - Welcome → **Skip the demo** → screen 3 (no demo line) → notification ask → Home.
 - Demo → **Continue** early → screen 3 ("Demo stopped at 12 of 30.") → the unfinished demo files join the rest.
-- "Not now" on screen 3 is the only way out without a choice, and Home keeps offering it.
+- "Not now" on screen 3 is the only way out without a choice, and Home keeps offering it. Android's Home sheet for the
+  legacy Not-now install lists only the two schedules; leaving the sheet is how a person stays on Not now.
 
 ## What changes in code (high level)
 

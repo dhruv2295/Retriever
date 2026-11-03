@@ -206,11 +206,6 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         launchCatching { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
     }
 
-    fun decideLater() = launchCatching {
-        retriever.decideLater()
-        indexer.cancel()
-    }
-
     fun dismissCaughtUp() = launchCatching { retriever.dismissCaughtUp() }
 
     /** The one-time card's Notify me: one notice once everything is searchable. */

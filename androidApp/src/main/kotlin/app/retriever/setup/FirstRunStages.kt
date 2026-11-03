@@ -47,12 +47,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.zIndex
 import app.retriever.R
+import app.retriever.access.ONLY_PICKED_PHOTOS
 import app.retriever.access.Photos
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.SampleFile
 import app.retriever.core.SamplePile
 import app.retriever.core.Words
+import app.retriever.motion.motionAllowed
 import app.retriever.ui.Format
 import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
@@ -69,7 +71,7 @@ internal fun ColumnScope.Hello(ui: SetupUi, reduceMotion: Boolean) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp),
         )
-        HelloExamples(ui.textOnly, animate = !reduceMotion && helloMotion())
+        HelloExamples(ui.textOnly, animate = !reduceMotion && motionAllowed(LocalContext.current))
     }
 }
 
@@ -162,7 +164,13 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
     Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(Words.INCLUDE_TITLE, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Column {
-            AccessRow(R.drawable.ic_image, Words.PHOTOS_AND_VIDEOS, a.allFiles || (a.photos != Photos.NONE && a.videos), actions.allowMedia)
+            AccessRow(
+                R.drawable.ic_image,
+                Words.PHOTOS_AND_VIDEOS,
+                a.allFiles || (a.photos != Photos.NONE && a.videos),
+                actions.allowMedia,
+                ONLY_PICKED_PHOTOS.takeIf { !a.allFiles && a.photos == Photos.SELECTED },
+            )
             AccessRow(kindIcon(Kind.AUDIO), Words.kindLabelPlural(Kind.AUDIO), a.allFiles || a.audio, actions.allowMedia)
             AccessRow(R.drawable.ic_folder_open, Words.ADD_FOLDER, false, actions.addFolder, a.folders.joinToString(" · ") { it.name }.ifEmpty { null })
         }

@@ -109,7 +109,6 @@ class HomeActions(
     val stopReadNow: () -> Unit = {},
     val dismissCaughtUp: () -> Unit = {},
     val commit: (whileCharging: Boolean) -> Unit = {},
-    val decideLater: () -> Unit = {},
     val hideOnThisDay: () -> Unit = {},
     val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
@@ -156,7 +155,6 @@ fun HomeScreen(
             stopReadNow = vm::stopReadNow,
             dismissCaughtUp = vm::dismissCaughtUp,
             commit = { charging -> requestReading { vm.commit(charging) } },
-            decideLater = vm::decideLater,
             hideOnThisDay = {
                 vm.hideOnThisDay()
                 scope.launch {
@@ -343,9 +341,6 @@ internal fun HomeBody(
                 CommitStage(ui.progress.rest, commit = {
                     choosing = false
                     home.commit(it)
-                }, decideLater = {
-                    choosing = false
-                    home.decideLater()
                 })
             }
         }

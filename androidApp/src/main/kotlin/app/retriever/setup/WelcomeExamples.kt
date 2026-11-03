@@ -1,7 +1,5 @@
 package app.retriever.setup
 
-import android.animation.ValueAnimator
-import android.os.PowerManager
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -23,7 +21,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -34,7 +31,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -43,7 +39,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.core.Words
-import app.retriever.motion.motionAllowed
 import kotlinx.coroutines.delay
 import kotlin.time.TimeSource
 
@@ -122,14 +117,6 @@ private fun ExampleCard(@DrawableRes art: Int, e: Words.HelloExample, modifier: 
             }
         }
     }
-}
-
-/** Remove animations, Battery Saver and heat all stop the loop. */
-@Composable
-@ReadOnlyComposable
-internal fun helloMotion(): Boolean {
-    val power = LocalContext.current.getSystemService(PowerManager::class.java)
-    return motionAllowed(ValueAnimator.areAnimatorsEnabled(), power.isPowerSaveMode, power.currentThermalStatus)
 }
 
 private val EXAMPLE_ART = mapOf(

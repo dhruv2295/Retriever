@@ -130,7 +130,7 @@ private class StepHistory {
 internal fun motionAllowed(animatorsOn: Boolean, powerSave: Boolean, thermalStatus: Int): Boolean =
     animatorsOn && !powerSave && thermalStatus < PowerManager.THERMAL_STATUS_MODERATE
 
-private fun motionAllowed(context: Context): Boolean {
+internal fun motionAllowed(context: Context): Boolean {
     val power = context.getSystemService(PowerManager::class.java)
     return motionAllowed(ValueAnimator.areAnimatorsEnabled(), power.isPowerSaveMode, power.currentThermalStatus)
 }
