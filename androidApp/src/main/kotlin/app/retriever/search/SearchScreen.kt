@@ -141,7 +141,8 @@ data class SearchActions(
     val onClearRecent: () -> Unit = {},
     val onRetry: () -> Unit = {},
     val onOpenHit: (SearchEngine.Hit) -> Unit = {},
-    val onOpenFile: (SourceFile) -> Unit = {},
+    /** A file and the tile list it was tapped in, which its photo viewer grows from. */
+    val onOpenFile: (SourceFile, String) -> Unit = { _, _ -> },
     val onNavigate: (Route) -> Unit = {},
     val onScrolling: (Boolean) -> Unit = {},
     val onFocus: (Boolean) -> Unit = {},
@@ -236,9 +237,9 @@ fun SearchViewModel.actions(context: Context, onNavigate: (Route) -> Unit) = Sea
     onOpenHit = { hit ->
         opened()
         // The words asked at the tap (none for a search by photo), so the reader highlights them.
-        Opener.open(context, hit.file, hit.locator, onNavigate, fileId = hit.fileId, query = ui.value.question.text)
+        Opener.open(context, hit.file, hit.locator, onNavigate, fileId = hit.fileId, query = ui.value.question.text, origin = SEARCH_ORIGIN)
     },
-    onOpenFile = { Opener.open(context, it, "", onNavigate) },
+    onOpenFile = { file, origin -> Opener.open(context, file, "", onNavigate, origin = origin) },
     onNavigate = onNavigate,
     onScrolling = this::setScrolling,
     onFocus = this::setFocused,

@@ -105,6 +105,9 @@ internal fun sortCaption(sort: String): String = when (sort) {
     else -> "Newest first · by date modified"
 }
 
+/** The grid's photo-morph origin: a cell and the viewer it opens share it. */
+private const val BROWSE_ORIGIN = "browse"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
@@ -115,7 +118,10 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
     val context = LocalContext.current
     val files by rememberUpdatedState(ui.files)
     // The list is mapped at the tap, so loading more rows never rebuilds the callback.
-    val onOpen = remember(context, onNavigate) { { file: SourceFile -> Opener.open(context, file, navigate = onNavigate, siblings = files.map { it.file }) } }
+    val onOpen =
+        remember(context, onNavigate) {
+            { file: SourceFile -> Opener.open(context, file, navigate = onNavigate, siblings = files.map { it.file }, origin = BROWSE_ORIGIN) }
+        }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // As on a search result: starring says so, with Undo, which also brings an unstarred file back to this list.
@@ -311,6 +317,7 @@ fun BrowseContent(
                                         onLongClickLabel = "More options",
                                         modifier = actions,
                                         morph = morph,
+                                        origin = BROWSE_ORIGIN,
                                     )
                                 }
                             }

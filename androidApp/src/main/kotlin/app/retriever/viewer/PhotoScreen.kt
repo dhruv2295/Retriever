@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
@@ -91,11 +92,12 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
     ImmersiveBars(chrome)
     Scaffold(
         modifier = modifier,
-        snackbarHost = { SnackbarHost(snackbar) },
+        // The content runs edge to edge; a snackbar still sits above the navigation bar.
+        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
         contentWindowInsets = WindowInsets(0),
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            PhotoPager(items, pager, morph = morph, onTap = { chrome = !chrome }) { Opener.view(context, it.uri, it.mime) }
+            PhotoPager(items, pager, morph = morph, origin = route.origin, onTap = { chrome = !chrome }) { Opener.view(context, it.uri, it.mime) }
             AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut()) {
                 // Light content on a dark scrim, so the bar reads over any photo in either theme.
                 RetrieverTheme(dark = true) {
@@ -139,11 +141,12 @@ internal fun PhotoPager(
     pager: PagerState,
     modifier: Modifier = Modifier,
     morph: PhotoMorph? = null,
+    origin: String = "",
     onTap: () -> Unit = {},
     openWith: (PhotoItem) -> Unit,
 ) {
     HorizontalPager(pager, modifier.fillMaxSize().background(Color.Black), key = { items[it].uri }, beyondViewportPageCount = 0) { page ->
-        PhotoPage(items[page], current = page == pager.settledPage, morph, onTap, openWith = openWith)
+        PhotoPage(items[page], current = page == pager.settledPage, morph, origin, onTap, openWith = openWith)
     }
 }
 
@@ -170,7 +173,7 @@ internal suspend fun photoSource(context: Context, item: PhotoItem): SubSampling
  * photo, cropped as the tile was and uncropped as it lands, and shrinks back into it on Back.
  */
 @Composable
-internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, onTap: () -> Unit, openWith: (PhotoItem) -> Unit) {
+internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, origin: String, onTap: () -> Unit, openWith: (PhotoItem) -> Unit) {
     val context = LocalContext.current
     var failed by remember(item.uri) { mutableStateOf(false) }
     var sharp by remember(item.uri) { mutableStateOf(false) }
@@ -230,7 +233,7 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, on
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .aspectRatio(shown.width.toFloat() / shown.height)
-                    .photoMorph(rememberPhotoKey(morph.takeIf { current }, item.uri))
+                    .photoMorph(rememberPhotoKey(morph.takeIf { current }, origin, item.uri))
                     .graphicsLayer {
                         alpha = cover
                         corner?.let {

@@ -199,6 +199,7 @@ fun ThumbCell(
     onLongClick: (() -> Unit)? = null,
     onLongClickLabel: String? = null,
     morph: PhotoMorph? = null,
+    origin: String = "",
 ) {
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }
     Box(
@@ -231,6 +232,7 @@ fun ThumbCell(
             locator = locator,
             tint = colors.onSurfaceVariant,
             morph = morph,
+            origin = origin,
             shape = RoundedCornerShape(12.dp),
         )
         if (badge != null || file.kind == Kind.VIDEO) {

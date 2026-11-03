@@ -119,23 +119,19 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
     }
 }
 
-/** A header over one strip of [FileTile]s, newest first; the header opens the whole list, a tile opens the file among the strip's. */
+/**
+ * A header over one strip of [FileTile]s, newest first; the header opens the whole list, a tile opens the file among the
+ * strip's. [origin] keys its photos' morph apart from the other strip's, which may hold the same photo.
+ */
 @Composable
-private fun FileStrip(
-    title: String,
-    files: List<SourceFile>,
-    onHeader: () -> Unit,
-    actions: SearchActions,
-    load: Boolean = true,
-    noMorph: Set<String> = emptySet(),
-) {
+private fun FileStrip(title: String, origin: String, files: List<SourceFile>, onHeader: () -> Unit, actions: SearchActions, load: Boolean = true) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(title, onClick = onHeader)
         LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.uri }, contentType = { "tile" }) { f ->
-                FileTile(f, TILE, morph = actions.morph.takeIf { f.uri !in noMorph }, load = load) {
+                FileTile(f, TILE, morph = actions.morph, origin = origin, load = load) {
                     Opener.queue(files)
-                    actions.onOpenFile(it)
+                    actions.onOpenFile(it, origin)
                 }
             }
         }
@@ -145,7 +141,7 @@ private fun FileStrip(
 /** The newest photos, videos, screenshots and documents as one strip of small tiles, newest first; the header opens them all. */
 @Composable
 internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchActions) =
-    FileStrip(Words.RECENTLY_ADDED, files, { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }, actions)
+    FileStrip(Words.RECENTLY_ADDED, "recent", files, { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }, actions)
 
 /**
  * Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos.
@@ -369,8 +365,5 @@ private fun dayText(context: Context, date: LocalDate, zone: ZoneId, year: Boole
 
 /** The most recently starred files as the same small tiles; the header opens the whole Starred list. */
 @Composable
-internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) {
-    // A photo in Recently added too grows from there only: two tiles with its key leave Back no single tile to shrink into.
-    val recent = remember(home.recentlyAdded) { home.recentlyAdded.mapTo(HashSet()) { it.uri } }
-    FileStrip("Starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, hasAccess, recent)
-}
+internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) =
+    FileStrip("Starred", "starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, hasAccess)

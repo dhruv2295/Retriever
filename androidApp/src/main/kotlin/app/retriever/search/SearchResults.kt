@@ -275,6 +275,9 @@ internal fun Results(
 
 internal const val SEARCHING_MASCOT_TAG = "searching-mascot"
 
+/** The results grid's photo-morph origin: a hit's cell and its viewer share it. */
+internal const val SEARCH_ORIGIN = "search"
+
 /** True once [on] has held for [ms] (restarting when [key] changes), so a quick search shows no flicker. */
 @Composable
 internal fun heldFor(ms: Long, on: Boolean, key: Any? = null): Boolean {
@@ -476,6 +479,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     onLongClick = menu,
                     onLongClickLabel = "More options",
                     morph = act.morph,
+                    origin = SEARCH_ORIGIN,
                 )
                 listOfNotNull(hit.reason, hit.copiesNote).joinToString(" · ").ifEmpty { null }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             }

@@ -23,6 +23,12 @@ viewer. Another app is used only for kinds Retriever cannot render (archives, pa
   already in memory (`Thumbnails.largestCached`) is the source's `preview`, drawn at once in place of a spinner until the
   tiles load; a photo restored without its list has none. A tap toggles the bar (over a dark scrim) and the system
   bars, so the photo fills the screen; a failed or loading page takes the tap too, so the bar can always come back.
+  The snackbar keeps the navigation-bar inset while the content runs edge to edge.
+- **The tile grows into the photo.** A photo tile and the viewer's picture are one shared element keyed
+  `photo:$origin:$uri` (`rememberPhotoKey`), as Jetsnack keys a snack by its origin. Each morphing list names its
+  origin (`recent` and `starred` on Home, `search`, `browse`), `Opener.open` puts it in `PhotoRoute.origin`, and the
+  viewer keys the opened page with it, so a photo in both Home strips grows from the tile that was tapped and shrinks
+  back into it. A page reached by swiping morphs only if that list has a tile for it.
 - **The list for swiping.** A route cannot carry hundreds of uris (the saved-state Bundle would hit
   `TransactionTooLarge`). `Opener.open` hands the list to a Koin `ViewerQueue` before navigating; the route carries only
   the opened photo. After process death `ViewerQueue.itemsFor` falls back to that one photo.

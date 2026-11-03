@@ -135,6 +135,8 @@ class ResultPiecesTest {
         assertEquals(DocRoute(0, doc.uri, doc.name, doc.mime), Opener.routeFor(doc))
         val photo = file("a.jpg", Kind.PHOTO, "image/jpeg")
         assertEquals(PhotoRoute(photo.uri, photo.name, photo.mime), Opener.routeFor(photo))
+        // The tile list it was tapped in rides along, so the viewer grows from that tile.
+        assertEquals(PhotoRoute(photo.uri, photo.name, photo.mime, "starred"), Opener.routeFor(photo, origin = "starred"))
         val shot = file("s.png", Kind.SCREENSHOT, "image/png")
         assertEquals(PhotoRoute(shot.uri, shot.name, shot.mime), Opener.routeFor(shot))
         assertNull(Opener.routeFor(file("x.zip", Kind.OTHER, "application/zip")))

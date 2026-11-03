@@ -270,11 +270,14 @@ class PhotoMorph(val shared: SharedTransitionScope, val screen: AnimatedVisibili
 /** [uri]'s picture in a [PhotoMorph]. */
 class PhotoKey(val morph: PhotoMorph, val state: SharedTransitionScope.SharedContentState)
 
-/** Null without a [morph]: nothing to share with. */
+/**
+ * Null without a [morph]: nothing to share with. [origin] names the tile list ("recent", "starred", ...), so a photo in
+ * two lists on one screen has two keys and the viewer, keyed with its route's origin, grows from the tile that was tapped.
+ */
 @Composable
-fun rememberPhotoKey(morph: PhotoMorph?, uri: String): PhotoKey? {
+fun rememberPhotoKey(morph: PhotoMorph?, origin: String, uri: String): PhotoKey? {
     if (morph == null) return null
-    val state = morph.shared.rememberSharedContentState("photo:$uri")
+    val state = morph.shared.rememberSharedContentState("photo:$origin:$uri")
     return remember(morph, state) { PhotoKey(morph, state) }
 }
 
@@ -289,7 +292,8 @@ fun Modifier.photoMorph(key: PhotoKey?): Modifier {
  * system's animations are off, which Compose's motion scale already applies), and a picture that is in memory already
  * drawn at once. [longEdge] picks the request bucket, so every screen asks for the same few sizes; [locator] the PDF page
  * or video moment; [load] false keeps the icon (no access). [tint] colours the placeholder's icon. A photo's picture
- * grows into the viewer in [morph], clipped to [shape] in flight: the shared element draws over its parents' clips.
+ * grows into the viewer in [morph] from the list named [origin], clipped to [shape] in flight: the shared element draws
+ * over its parents' clips.
  */
 @Composable
 fun ThumbnailImage(
@@ -302,6 +306,7 @@ fun ThumbnailImage(
     locator: String = "",
     tint: Color = Color.Unspecified,
     morph: PhotoMorph? = null,
+    origin: String = "",
     shape: Shape = RectangleShape,
 ) {
     val context = LocalContext.current
@@ -313,7 +318,7 @@ fun ThumbnailImage(
     // Read in the layer, not here: the cell recomposes when the fade ends, not on each of its frames.
     val fade = animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     val covered by remember { derivedStateOf { fade.value >= 1f } }
-    val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT) rememberPhotoKey(morph, file.uri) else null
+    val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT) rememberPhotoKey(morph, origin, file.uri) else null
     Box(
         modifier.photoMorph(key).clip(shape).background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }),
         contentAlignment = Alignment.Center,

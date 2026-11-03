@@ -156,7 +156,7 @@ private const val RECENT_SHOWN = 6
 /**
  * One file's preview at a fixed [size], the same everywhere it shows: the demo's pile, Recently read.
  * With [onOpen] it opens on tap, offers the file menu on long press and says "name, kind, date"; without, it is
- * decoration and says nothing. A photo opened from it grows from it in [morph]; [load] false keeps the icon (no access).
+ * decoration and says nothing. A photo opened from it grows from it in [morph], keyed by [origin]; [load] false keeps the icon (no access).
  */
 @Composable
 internal fun FileTile(
@@ -164,6 +164,7 @@ internal fun FileTile(
     size: Dp,
     modifier: Modifier = Modifier,
     morph: PhotoMorph? = null,
+    origin: String = "",
     load: Boolean = true,
     onOpen: ((SourceFile) -> Unit)? = null,
 ) {
@@ -187,6 +188,7 @@ internal fun FileTile(
                 .testTag("recent:${file.uri}"),
             load = load,
             morph = morph,
+            origin = origin,
             shape = MaterialTheme.shapes.medium,
         )
     }

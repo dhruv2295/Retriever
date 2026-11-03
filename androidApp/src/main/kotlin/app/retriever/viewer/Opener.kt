@@ -17,7 +17,10 @@ import app.retriever.nav.Route
 import org.koin.mp.KoinPlatform
 
 object Opener {
-    /** [siblings]: the list the file was opened from; a photo's viewer swipes through its photos and the others step to its neighbours. Empty keeps the last list [queue]d. */
+    /**
+     * [siblings]: the list the file was opened from; a photo's viewer swipes through its photos and the others step to its neighbours. Empty keeps the last list [queue]d.
+     * [origin]: the tile list a photo was tapped in, which its viewer grows from (see [PhotoRoute.origin]).
+     */
     fun open(
         context: Context,
         file: SourceFile,
@@ -26,8 +29,9 @@ object Opener {
         fileId: Long = 0,
         query: String = "",
         siblings: List<SourceFile> = emptyList(),
+        origin: String = "",
     ) {
-        val route = routeFor(file, locator, fileId, query)
+        val route = routeFor(file, locator, fileId, query, origin)
         if (route == null) return view(context, file.uri, file.mime)
         if (siblings.isNotEmpty()) queue(siblings)
         navigate(route)
@@ -55,11 +59,11 @@ object Opener {
     /**
      * The in-app screen for a file, at the match when there is one; null when another app should open it (files Retriever reads only by name). [fileId] 0 means the reader looks the file up.
      */
-    fun routeFor(file: SourceFile, locator: String = "", fileId: Long = 0, query: String = ""): Route? = when (file.kind) {
+    fun routeFor(file: SourceFile, locator: String = "", fileId: Long = 0, query: String = "", origin: String = ""): Route? = when (file.kind) {
         Kind.PDF -> Locator.pageOf(locator).let { PdfRoute(file.uri, it ?: 1, file.name, matched = it != null, query = query) }
         Kind.AUDIO, Kind.VIDEO -> PlayerRoute(file.uri, file.mime, Locator.msOf(locator) ?: 0, file.name)
         Kind.DOC -> DocRoute(fileId, file.uri, file.name, file.mime, locator, query)
-        Kind.PHOTO, Kind.SCREENSHOT -> PhotoRoute(file.uri, file.name, file.mime)
+        Kind.PHOTO, Kind.SCREENSHOT -> PhotoRoute(file.uri, file.name, file.mime, origin)
         Kind.OTHER -> null
     }
 }

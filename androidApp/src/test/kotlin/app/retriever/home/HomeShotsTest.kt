@@ -482,12 +482,12 @@ class HomeShotsTest {
     }
 
     @Test fun recentlyAddedMergesTheNewestAndOpensThem() {
-        val opened = mutableListOf<SourceFile>()
+        val opened = mutableListOf<Pair<SourceFile, String>>()
         val went = mutableListOf<Route>()
-        rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onOpenFile = { opened += it }, onNavigate = { went += it })) } }
+        rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onOpenFile = { f, o -> opened += f to o }, onNavigate = { went += it })) } }
         rule.onNode(described("Electricity bill October.pdf")).performClick()
         rule.onNode(hasContentDescription(Words.RECENTLY_ADDED) and isHeading()).performClick()
-        assertEquals(listOf(facts.newDocs[0]), opened)
+        assertEquals(listOf(facts.newDocs[0] to "recent"), opened)
         assertEquals(listOf<Route>(BrowseRoute(title = Words.RECENTLY_ADDED)), went)
     }
 
@@ -509,12 +509,12 @@ class HomeShotsTest {
     }
 
     @Test fun starredOpensAFileAndItsList() {
-        val opened = mutableListOf<SourceFile>()
+        val opened = mutableListOf<Pair<SourceFile, String>>()
         val went = mutableListOf<Route>()
-        rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onOpenFile = { opened += it }, onNavigate = { went += it })) } }
+        rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onOpenFile = { f, o -> opened += f to o }, onNavigate = { went += it })) } }
         rule.onNode(described("Voice note.m4a, Audio, ")).performClick()
         rule.onNode(hasContentDescription("Starred") and isHeading()).performClick()
-        assertEquals(listOf(facts.starred[2]), opened)
+        assertEquals(listOf(facts.starred[2] to "starred"), opened)
         assertEquals(listOf<Route>(BrowseRoute(title = "Starred", starredOnly = true)), went)
     }
 

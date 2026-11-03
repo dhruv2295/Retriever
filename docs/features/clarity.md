@@ -107,8 +107,9 @@ fixture's two `textOnlyNote` rows pin it. `seeAll(files, pending)` says "See the
 - **Home** (both): "Retriever", the status line (dog 24 dp / 28 pt, bar only while reading or downloading, its one
   button on its own row; the whole line opens Processing), Starred, Recently added, On this day, Browse, then the
   "Optional" offer as a flat row with a tonal (Android) or bordered (iOS) Download and Not now, then Free up space (Large
-  files and Find duplicate files as list rows with icons, counts and chevrons, each hidden when it has nothing). Strip tiles are 112 dp
-  grown with the font scale on Android; Browse is three a row, two at large text (cell width rounded down to whole dp).
+  files and Find duplicate files as list rows with icons, counts and chevrons, each hidden when it has nothing). Starred and Recently
+  added are strips of 96 dp `FileTile`s on Android (On this day's year tiles are 112 dp grown with the font scale);
+  Browse is a `FlowRow` three a row, two at large text, each tile `weight(1f)` and spacers keeping the last row's widths.
   On iOS, Browse rows put the count under the name at accessibility sizes, and the add-a-folder nudge shows in the
   status section only when no line or note is there.
 - **Search bar**: placeholder "What are you looking for?" (wraps to two lines at large text on Android), "Try:" words

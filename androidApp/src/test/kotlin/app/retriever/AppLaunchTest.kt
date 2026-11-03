@@ -80,12 +80,17 @@ class AppLaunchTest {
             scenario.recreate()
             scenario.onActivity { assertEquals(0, it.statusRequest) }
         }
-        // A shortcut's words reach the nav host as a request, and a recreation does not run them again.
+        // A shortcut's words, trimmed, reach the nav host as a request, and a recreation does not run them again.
         val search = Intent(app, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(RecentShortcuts.EXTRA, " bill ")
         ActivityScenario.launch<MainActivity>(search).use { scenario ->
             scenario.onActivity { assertEquals(1 to "bill", it.searchRequest) }
             scenario.recreate()
             scenario.onActivity { assertNull(it.searchRequest) }
+        }
+        // Blank words are no request.
+        for (blank in listOf("", "   ")) {
+            val empty = Intent(app, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(RecentShortcuts.EXTRA, blank)
+            ActivityScenario.launch<MainActivity>(empty).use { scenario -> scenario.onActivity { assertNull(it.searchRequest) } }
         }
     }
 }
