@@ -28,10 +28,16 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 - **Timing is shared** (`SearchTiming`): names after 20 ms, the full search after 200 ms of no typing, indexing held off
   1.5 s after a key, words-only answers asked again after 2 s up to 5 times, a progress bar after 300 ms, the mascot's
   searching pose after 400 ms, the quiet no-match mascot after 3 sightings, 60 results.
-- **Android.** `SearchViewModel` holds one `StateFlow<SearchUi>` collected with `collectAsStateWithLifecycle`. Two
-  `debounce`d `collectLatest` pipelines (names, full) read `keys(wait)`, a `combine` of the settled text, the other
-  question fields and a retry counter, so a stale pass is cancelled by the next key. A pass checks `k != keyNow()` before it
-  writes, so an old answer never lands. The bar is the Material 3 `SearchBar` with `ExpandedFullScreenSearchBar` (adapted
+- **Android.** `SearchViewModel` derives one `StateFlow<SearchUi>` (`combine` of its sources, `stateIn` eagerly)
+  collected with `collectAsStateWithLifecycle`. The fields the person edits are one `MutableStateFlow` (`Input`).
+  `asks(wait)` is the question (the photo by identity) once it held for `wait` ms; a chip or filter tap waits too. It
+  is not made distinct after the wait, so a key typed and taken back asks the settled question again and a pass ends
+  what the key started. Two separate sources answer it: names (`asks(NAMES_MS)`, `mapLatest`) and the full search
+  (`asks(FULL_MS)` combined with the retry count and `fileRevision`, `flatMapLatest` into a `flow` that runs the pass,
+  waits out a half-typed word, asks a words-only answer again and then reads the extents), so a names answer never
+  waits for a full search in flight and the next question cancels the old pass. Their steps, with an `Asked` step for
+  every new question, `merge` into one `scan` (`Shown`) that applies core's reducer and drops any step for a question
+  that is no longer asked, so an old answer never lands. Each source renders as it arrives. The bar is the Material 3 `SearchBar` with `ExpandedFullScreenSearchBar` (adapted
   from the androidx `SearchBarSamples`, Apache-2.0). Results are a `LazyColumn`; `SearchUi.answer` counts answers to new
   questions so the list starts at its top for a new question and refreshes in place for a better answer to the same one.
   `SearchUi` is a flat state, so Home-only fields can invalidate the pane; `RecompositionTest` pins that counts, Home
@@ -57,7 +63,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 ## Owner files
 
 - `core/src/commonMain/kotlin/app/retriever/core/SearchPhase.kt`: `Question`, `SearchPhase`, reducers, `SearchTiming`
-- `androidApp/src/main/kotlin/app/retriever/search/SearchViewModel.kt`: `SearchUi`, the two pipelines, retries
+- `androidApp/src/main/kotlin/app/retriever/search/SearchViewModel.kt`: `SearchUi`, the input, names and full sources, the `Shown` scan
 - `androidApp/src/main/kotlin/app/retriever/search/SearchScreen.kt`: bar, tab content, suggestions
 - `androidApp/src/main/kotlin/app/retriever/search/SearchResults.kt`: chips, understood line, states, rows
 - `androidApp/src/main/kotlin/app/retriever/search/RecentShortcuts.kt`: launcher shortcuts (`RecentShortcuts`)
@@ -74,7 +80,9 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
 5. **A failure is a state, not a toast,** and belongs to one question.
 6. **Clearing the words drops the chip, the starred scope and the literal flag with them;** typing different words
    clears the literal flag and a photo search.
-7. **Only the newest key writes.** Every asynchronous step re-checks that its key is still current.
+7. **Only the newest question writes.** A new question cancels the passes for the old one (`mapLatest`,
+   `flatMapLatest`; core stops a dropped search within milliseconds), and the `scan` drops any step for a question that
+   is no longer asked.
 8. **Indexing is held while the person types or scrolls** and released when the screen is cleared (`onCleared`).
 
 ## Tests
@@ -90,7 +98,7 @@ The engine behind it is in `search-engine.md`, the parser in `query-parser.md`.
   `anEmptyAnswerIsAskedAgainOnceFilesAreRead`, `aReplacedSearchThatFailsIsNoFailure`,
   `theNamesAnswerFirstAndTheFullOneRefreshesInPlace`, `clearingAndRetypingTheSameWordsAnswersFromNamesFirst`,
   `noMatchesGoesQuietAfterItWasSeenEnough`, `typingHoldsReadingOffForAMoment`, `aViewModelClearedMidTypingLeavesReadingFree`,
-  `theCountsAreWatchedOnlyWhileAnAnswerIsEmpty`.
+  `theCountsAreWatchedOnlyWhileAnAnswerIsEmpty`, `aKeyTakenBackLeavesTheAnswerDone`.
   Layout: `RecompositionTest.countsAndHomeChangesLeaveTheTilesAlone`, `RecompositionTest.starringOneFileRecomposesOnlyThatFile`,
   `RecompositionTest.typingLeavesTheKindChipsAlone`.
 - iOS, `iosApp/RetrieverTests/SearchModelTests.swift`: `testANewQueryIsSearchingNeverEmpty`,

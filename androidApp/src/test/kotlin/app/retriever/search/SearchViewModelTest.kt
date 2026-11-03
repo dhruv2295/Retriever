@@ -295,10 +295,12 @@ class SearchViewModelTest {
         vm.setChip(Kind.PDF)
         assertEquals("bill", (vm.ui.first { it.done }.phase as SearchPhase.Results).question.text)
         vm.setQuery("")
+        runCurrent()
         assertEquals(null, vm.ui.value.chip)
         // An empty field that stays empty (the screen coming back) keeps a filter picked since.
         vm.setChip(Kind.PHOTO)
         vm.setQuery("")
+        runCurrent()
         assertEquals(Kind.PHOTO, vm.ui.value.chip)
     }
 
@@ -320,6 +322,7 @@ class SearchViewModelTest {
         vm.ui.first { it.recent.isNotEmpty() }
         retriever.clearRecentQueries()
         vm.refreshRecent().join()
+        runCurrent()
         assertEquals(emptyList<String>(), vm.ui.value.recent)
     }
 
@@ -329,6 +332,7 @@ class SearchViewModelTest {
         vm.setQuery("bill")
         vm.ui.first { it.hits?.size == 60 }
         vm.findSimilar(photos.first()).join()
+        runCurrent()
         assertTrue(vm.ui.value.similar != null)
         vm.opened()
         advanceUntilIdle()
@@ -361,6 +365,7 @@ class SearchViewModelTest {
         assertEquals(listOf("bill"), again.ui.first { it.recent.isNotEmpty() }.recent)
 
         again.removeRecent("bill").join()
+        runCurrent()
         assertEquals(emptyList<String>(), again.ui.value.recent)
         assertEquals(emptyList<String>(), retriever.recentQueries())
     }
@@ -404,6 +409,22 @@ class SearchViewModelTest {
         val full = vm.ui.first { it.done }
         assertTrue(full.empty)
         assertEquals(before.answer + 1, full.answer)
+    }
+
+    /** A key typed and taken back before typing paused asks nothing new: the answer stays done, with no bar. */
+    @Test fun aKeyTakenBackLeavesTheAnswerDone() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = vm()
+        vm.setQuery("bill")
+        val before = vm.ui.first { it.done }
+        vm.setQuery("bills")
+        advanceTimeBy(50)
+        vm.setQuery("bill")
+        advanceTimeBy(300)
+        runCurrent()
+        assertTrue(vm.ui.value.done)
+        assertFalse(vm.ui.value.searching)
+        assertEquals(before.answer, vm.ui.value.answer)
     }
 
     /** "bill z": a word too short to match its beginning finds nothing yet; the hits stay until typing pauses. */
@@ -512,14 +533,17 @@ class SearchViewModelTest {
         vm.ui.first { it.starredUris.isEmpty() }
         // Clearing the words drops the filter, as it does the kind.
         vm.setQuery("")
+        runCurrent()
         assertFalse(vm.ui.value.onlyStarred)
     }
 
     @Test fun aFailedActionIsSaidOnce() = runTest {
         val vm = vm(reader = { _, _ -> throw SecurityException("no grant") })
         vm.searchPhoto("content://test/revoked.jpg").join()
+        runCurrent()
         assertEquals("That didn't work. Try again.", vm.ui.value.error)
         vm.errorShown()
+        runCurrent()
         assertEquals(null, vm.ui.value.error)
     }
 
@@ -534,6 +558,7 @@ class SearchViewModelTest {
         vm.ui.first { it.literal && it.done && !it.result!!.relaxed && it.result!!.parsed?.understood == emptyList<String>() }
         // New words are understood afresh.
         vm.setQuery("screenshots bill 1")
+        runCurrent()
         assertFalse(vm.ui.value.literal)
     }
 
@@ -751,6 +776,7 @@ class SearchViewModelTest {
     @Test fun openingADocumentHitCarriesItsIdAndTheQueryToTheReader() = runTest {
         val vm = vm()
         vm.setQuery("  security deposit ")
+        runCurrent()
         val lease = testFile("lease.docx", Kind.DOC)
         val routes = mutableListOf<Route>()
         vm.actions(app) { routes += it }.onOpenHit(SearchEngine.Hit(lease, 9, 3, "p. 2", null, 1.0, false))

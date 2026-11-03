@@ -13,6 +13,7 @@ import app.retriever.core.Kind
 import app.retriever.core.Question
 import app.retriever.core.ReadExtent
 import app.retriever.core.Retriever
+import app.retriever.core.SearchEngine
 import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
@@ -31,17 +32,25 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.scan
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,8 +88,6 @@ data class SearchUi(
     /** The meaning upgrade's stage, for the hint under few results; the screen fills it in. */
     val upgrade: UpgradeStage = UpgradeStage.UNAVAILABLE,
     val recent: List<String> = emptyList(),
-    /** [recent] has answered once (or failed to), so Home's sections can draw with its chip row in place. */
-    val recentLoaded: Boolean = false,
     val starredUris: Set<String> = emptySet(),
     /** Only starred files. */
     val onlyStarred: Boolean = false,
@@ -112,175 +119,247 @@ const val PHOTOS_FOR_PHOTO_SEARCH = 5
 /** Files read in a burst ask an empty answer again once, after the burst. */
 private const val INDEXED_SETTLE_MS = 2_000L
 
+/** What the person set. [photo] carries the bytes of the photo [SearchUi.similar] shows. */
+private data class Input(
+    val query: String = "",
+    val chip: Kind? = null,
+    val photo: PickedPhoto? = null,
+    val onlyStarred: Boolean = false,
+    val literal: Boolean = false,
+    val scope: List<Long>? = null,
+) {
+    val question get() = Question(if (photo != null) "" else query.trim(), chip, photo?.similar?.uri, onlyStarred, literal, scope)
+}
+
+/** A question as a search asks it: [photo] by identity, so picking the same photo again searches its new bytes. */
+private data class Ask(val question: Question, val photo: PickedPhoto?) {
+    val blank get() = photo == null && question.text.isEmpty()
+}
+
+/** What a search said about [question], in the order it said it. */
+private sealed interface Step {
+    val question: Question
+
+    /** The fields ask something new; steps for any other question are old from here on. */
+    data class Asked(override val question: Question) : Step
+
+    data class Names(override val question: Question, val result: SearchEngine.SearchResult) : Step
+
+    /** A full pass started: the first, a words-only answer asked again, or a retry. */
+    data class Started(override val question: Question) : Step
+
+    /** Nothing yet for a word still being typed: the answer on screen stays until typing pauses. */
+    data class Waiting(override val question: Question) : Step
+
+    data class Full(override val question: Question, val result: SearchEngine.SearchResult, val askAgain: Boolean) : Step
+
+    data class Read(override val question: Question, val extents: Map<Long, ReadExtent>) : Step
+
+    data class Failed(override val question: Question) : Step
+}
+
+/** What the steps so far put on screen. [first] is the question whose first answer counted in [answer]. */
+private data class Shown(
+    val asked: Question? = null,
+    val phase: SearchPhase = SearchPhase.Idle,
+    val first: Question? = null,
+    val answer: Int = 0,
+    val searching: Boolean = false,
+    val vectorLane: Boolean = true,
+    val extents: Map<Long, ReadExtent> = emptyMap(),
+    val quietNoMatch: Boolean = false,
+    /** This step put up a "no matches" for its question; [quiet] says whether it was seen often enough before. */
+    val noMatch: Boolean = false,
+) {
+    fun after(step: Step, quiet: () -> Boolean): Shown {
+        val next = take(step)
+        val q = next.asked
+        val noMatch = q != null && next.phase.showsEmpty(q) && !phase.showsEmpty(q)
+        return next.copy(noMatch = noMatch, quietNoMatch = if (noMatch) quiet() else quietNoMatch)
+    }
+
+    private fun take(step: Step): Shown {
+        val q = step.question
+        if (step is Step.Asked) {
+            // Retyping the same words is a new search: its first answer counts again.
+            return if (q.text.isEmpty() && q.similarTo == null) Shown(q, answer = answer, quietNoMatch = quietNoMatch) else copy(asked = q, searching = true)
+        }
+        if (q != asked) return this
+        return when (step) {
+            is Step.Started -> copy(searching = true)
+
+            is Step.Waiting -> copy(searching = false)
+
+            is Step.Read -> copy(extents = step.extents)
+
+            is Step.Failed -> copy(phase = SearchPhase.Failed(q), searching = false)
+
+            // A names answer that comes after the full one (or its failure) says nothing new.
+            is Step.Names -> if ((phase is SearchPhase.Results || phase is SearchPhase.Failed) && !phase.isStale(q)) {
+                this
+            } else {
+                answered(phase.onNames(q, step.result), step.result).copy(searching = true)
+            }
+
+            is Step.Full -> answered(phase.onFull(q, step.result, step.askAgain), step.result).copy(searching = false, vectorLane = step.result.vectorLane)
+        }
+    }
+
+    /** An empty names answer leaves the earlier words' answer up: it answers nothing here, so the screen keeps its place. */
+    private fun answered(next: SearchPhase, r: SearchEngine.SearchResult): Shown {
+        val q = asked
+        if (q == null || next !is SearchPhase.Results || next.isStale(q)) return copy(phase = next)
+        val ids = r.hits.mapTo(HashSet()) { it.fileId }
+        return copy(phase = next, first = q, answer = if (first == q) answer else answer + 1, extents = extents.filterKeys { it in ids })
+    }
+}
+
 /** [recentShortcuts] gets the latest searches after they change. */
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class SearchViewModel(private val retriever: Retriever, private val recentShortcuts: RecentShortcuts, private val photos: PhotoReader) : ViewModel() {
-    private val _ui = MutableStateFlow(SearchUi(textOnly = retriever.textOnly))
-    val ui: StateFlow<SearchUi> = _ui.asStateFlow()
+    private val input = MutableStateFlow(Input())
     private val retries = MutableStateFlow(0)
-    private var photo: PickedPhoto? = null
-
-    /** The question whose first answer is on screen, and the one whose full answer is. */
-    private var shown: Question? = null
-    private var complete: Question? = null
+    private val recent = MutableStateFlow(emptyList<String>())
+    private val error = MutableStateFlow<String?>(null)
     private var typing: Job? = null
     private var scrolling = false
 
-    /** Words-only answers to [wordsOnlyFor] asked again so far. */
-    private var wordsOnlyFor: Question? = null
-    private var wordsOnly = 0
+    /**
+     * The question once it held for [wait] ms. Not made distinct after the wait: a key typed and taken back settles on the
+     * question already answered, and asks it again so a pass ends what the key started.
+     */
+    private fun asks(wait: Long) = input.map { Ask(it.question, it.photo) }.distinctUntilChanged().debounce(wait)
+
+    /** File names alone, in memory, a moment after typing; a search by photo has none. */
+    private val names: Flow<Step> = asks(SearchTiming.NAMES_MS).mapLatest { a ->
+        val q = a.question
+        if (a.blank || a.photo != null) return@mapLatest null
+        // The quick answer failing is no news: the full one is on its way.
+        logged { retriever.searchNames(q.text, q.kind?.let(::setOf), SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope) }?.let { Step.Names(q, it) }
+    }.filterNotNull()
+
+    /** The full search once typing paused, asked again on Retry, when files change and when files read may fill an empty answer. */
+    private val full: Flow<Step> = combine(asks(SearchTiming.FULL_MS), retries, retriever.fileRevision) { a, _, _ -> a }.flatMapLatest(::fullSearch)
+
+    private val shown: StateFlow<Shown> = merge(input.map { Step.Asked(it.question) }.distinctUntilChanged(), names, full)
+        .scan(Shown()) { s, step -> s.after(step) { retriever.prefs.value.noMatchSeen >= SearchTiming.NO_MATCH_QUIET_AFTER } }
+        .onEach { if (it.noMatch) launchCatching { retriever.updatePrefs { p -> p.copy(noMatchSeen = p.noMatchSeen + 1) } } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Shown())
+
+    /** The short read's progress, only while a screen scopes the search to it. */
+    private val library = combine(
+        retriever.setUp,
+        retriever.modelMissing,
+        retriever.starred,
+        input.map { it.scope != null }.distinctUntilChanged().flatMapLatest { if (it) retriever.tasteProgress() else flowOf(null) },
+    ) { setUp, missing, starred, p ->
+        SearchUi(
+            textOnly = retriever.textOnly,
+            setUp = setUp == true,
+            modelMissing = missing,
+            starredUris = starred,
+            unread = p?.pending ?: 0,
+            sampleDone = p?.done ?: 0,
+            samplePlanned = p?.planned ?: 0,
+            photosRead = p?.byKind[Kind.PHOTO]?.first ?: 0,
+        )
+    }
+
+    val ui: StateFlow<SearchUi> = combine(input, shown, recent, error, library) { i, s, recent, error, lib ->
+        lib.copy(
+            query = i.query,
+            chip = i.chip,
+            similar = i.photo?.similar,
+            onlyStarred = i.onlyStarred,
+            literal = i.literal,
+            scope = i.scope,
+            phase = s.phase,
+            answer = s.answer,
+            extents = s.extents,
+            searching = s.searching,
+            vectorLane = s.vectorLane,
+            quietNoMatch = s.quietNoMatch,
+            recent = recent,
+            error = error,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, SearchUi(textOnly = retriever.textOnly))
 
     init {
-        viewModelScope.launch { retriever.fileRevision.collect { if (it > 0) retry() } }
-        // Two phases per key: the file names a moment after typing, the full search once the typing has paused.
-        viewModelScope.launch { keys(SearchTiming.NAMES_MS).collectLatest { search(it, namesOnly = true) } }
-        viewModelScope.launch { keys(SearchTiming.FULL_MS).collectLatest { search(it, namesOnly = false) } }
         // Files read since an answer found nothing may hold the match: ask the same question again. Only an empty
         // answer, so a list being read never reshuffles; and core's counts are watched only while one is on screen, not
         // for every write of a reading run behind other screens or in the background. Reading waits while a search
         // runs, so the count read on subscribing is the one the answer saw, and is dropped.
         viewModelScope.launch {
-            _ui.map { it.phase.showsEmpty(it.question) }.distinctUntilChanged().flatMapLatest { empty ->
+            ui.map { it.phase.showsEmpty(it.question) }.distinctUntilChanged().flatMapLatest { empty ->
                 if (!empty) {
                     emptyFlow()
                 } else {
                     retriever.counts().map { it.byState[FileState.INDEXED] }.distinctUntilChanged().drop(1).debounce(INDEXED_SETTLE_MS)
                 }
-            }.collect { retries.update { it + 1 } }
+            }.collect { retry() }
         }
-        viewModelScope.launch { retriever.setUp.collect { s -> _ui.update { it.copy(setUp = s == true) } } }
-        viewModelScope.launch { retriever.modelMissing.collect { m -> _ui.update { it.copy(modelMissing = m) } } }
-        viewModelScope.launch { retriever.starred.collect { s -> _ui.update { it.copy(starredUris = s) } } }
-        // The short read's progress, only while a screen scopes the search to it.
-        viewModelScope.launch {
-            _ui.map { it.scope != null }.distinctUntilChanged().flatMapLatest { if (it) retriever.tasteProgress() else emptyFlow() }.collect { p ->
-                _ui.update { it.copy(unread = p.pending, sampleDone = p.done, samplePlanned = p.planned, photosRead = p.byKind[Kind.PHOTO]?.first ?: 0) }
-            }
-        }
-        // Loaded even when the read fails, so Home's sections never wait on it.
-        launchCatching(onError = {
-            Log.e("Retriever", "recent searches failed", it)
-            _ui.update { u -> u.copy(recentLoaded = true) }
-        }) { loadRecent() }
+        launchCatching { loadRecent() }
     }
 
-    /** A question as asked: [photo] carries the photo's bytes, [retry] asks the same question again. */
-    private data class Key(val question: Question, val photo: PickedPhoto?, val retry: Int)
-
-    private fun SearchUi.pickedPhoto() = photo?.takeIf { it.similar === similar }
-
-    private fun keyNow(): Key = _ui.value.let { Key(it.question, it.pickedPhoto(), retries.value) }
-
-    /** The key as it changes: the words wait [wait] ms for more typing, everything else counts at once. */
-    private fun keys(wait: Long) = combine(
-        _ui.map { it.query.trim() }.distinctUntilChanged().debounce(wait),
-        _ui.map { it.question.copy(text = "") to it.pickedPhoto() }.distinctUntilChanged(),
-        retries,
-    ) { text, (rest, similar), retry ->
-        // A search by photo ignores the words, so the query settling to "" must not start it again.
-        Key(if (similar != null) rest else rest.copy(text = text), similar, retry)
-    }.distinctUntilChanged()
-
     /**
-     * [namesOnly] answers from file names alone, in memory. The full search follows; whichever answers a question first
-     * starts a new [SearchUi.answer] (the screen goes to its top), the other one only refreshes the rows in place.
+     * One full pass for [a], cancelled by the next question. Words only, because the model was still opening (it opens on
+     * focus and holds the lock for seconds): asked again in a moment, a few times, for results by meaning; not when there
+     * is no model to wait for.
      */
-    private suspend fun search(k: Key, namesOnly: Boolean) {
-        val q = k.question
-        if (namesOnly && k.photo != null) return
-        if (k.photo == null && q.text.isEmpty()) {
-            // Retyping the same words is a new search: its names answer comes first again.
-            shown = null
-            complete = null
-            _ui.update { it.copy(phase = SearchPhase.Idle, searching = false) }
-            return
-        }
-        if (namesOnly && complete == q) return
-        _ui.update { it.copy(searching = true) }
+    private fun fullSearch(a: Ask): Flow<Step> = flow {
+        if (a.blank) return@flow
+        val q = a.question
         val kinds = q.kind?.let(::setOf)
-        try {
-            val r = when {
-                k.photo != null -> retriever.searchImage(k.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope).let {
-                    it.copy(strongCount = it.hits.size) // a search by photo has no weak tail
+        var askedAgain = 0
+        while (true) {
+            emit(Step.Started(q))
+            val r = logged {
+                if (a.photo != null) {
+                    // A search by photo has no weak tail.
+                    retriever.searchImage(a.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope).let { it.copy(strongCount = it.hits.size) }
+                } else {
+                    retriever.search(q.text, kinds, SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope)
                 }
-
-                namesOnly -> retriever.searchNames(q.text, kinds, SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope)
-
-                else -> retriever.search(q.text, kinds, SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope)
             }
-            // Typing went on, or the full answer already came: this one is old.
-            if (k != keyNow() || (namesOnly && complete == q)) return
-            // Nothing yet for a word still being typed: the answer on screen stays until typing pauses. A key cancels this.
-            if (!namesOnly && r.hits.isEmpty() && k.photo == null && midWord(_ui.value.query)) {
-                _ui.update { it.copy(searching = false) }
+            if (r == null) {
+                emit(Step.Failed(q))
+                return@flow
+            }
+            if (r.hits.isEmpty() && a.photo == null && midWord(input.value.query)) {
+                emit(Step.Waiting(q))
                 delay(SearchTiming.TYPING_MS.milliseconds)
             }
-            val again = !namesOnly && willAskAgain(q, r.vectorLane)
-            val before = _ui.value.phase
-            val phase = if (namesOnly) before.onNames(q, r) else before.onFull(q, r, again)
-            // An empty names answer leaves the earlier words' answer up: it answers nothing here, so the screen keeps its place.
-            val answered = phase is SearchPhase.Results && !phase.isStale(q)
-            val fresh = answered && shown != q
-            if (answered) shown = q
-            if (!namesOnly) complete = q
-            val noMatch = phase.showsEmpty(q) && !before.showsEmpty(q)
-            val quiet = retriever.prefs.value.noMatchSeen >= SearchTiming.NO_MATCH_QUIET_AFTER
-            val ids = r.hits.mapTo(HashSet()) { it.fileId }
-            _ui.update {
-                it.copy(
-                    phase = phase,
-                    answer = if (fresh) it.answer + 1 else it.answer,
-                    extents = if (answered) it.extents.filterKeys { id -> id in ids } else it.extents,
-                    vectorLane = if (namesOnly) it.vectorLane else r.vectorLane,
-                    searching = namesOnly,
-                    quietNoMatch = if (noMatch) quiet else it.quietNoMatch,
-                )
-            }
-            if (noMatch) launchCatching { retriever.updatePrefs { p -> p.copy(noMatchSeen = p.noMatchSeen + 1) } }
-            if (namesOnly) return
-            // After the rows are up; the read notes join them a moment later. A newer key leaves them unshown.
-            launchCatching {
-                val extents = retriever.readExtents(r.hits.map { it.fileId })
-                if (k == keyNow()) _ui.update { it.copy(extents = extents) }
-            }
-            if (again) {
-                wordsOnly++
-                delay(SearchTiming.WORDS_ONLY_WAIT_MS)
-                retries.update { it + 1 }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e("Retriever", "search failed", e)
-            // The quick answer failing is no news: the full one is on its way. A replaced question's failure is no news either.
-            if (!namesOnly && k == keyNow()) _ui.update { it.copy(phase = SearchPhase.Failed(q), searching = false) }
+            val noModelComing = retriever.textOnly || retriever.modelMissing.value || retriever.setUp.value != true
+            val again = !r.vectorLane && !noModelComing && askedAgain < SearchTiming.WORDS_ONLY_RETRIES
+            emit(Step.Full(q, r, again))
+            // After the rows are up; the read notes join them a moment later.
+            logged { retriever.readExtents(r.hits.map { it.fileId }) }?.let { emit(Step.Read(q, it)) }
+            if (!again) return@flow
+            askedAgain++
+            delay(SearchTiming.WORDS_ONLY_WAIT_MS.milliseconds)
         }
     }
 
-    /**
-     * Words only, because the model was still opening (it opens on focus and holds the lock for seconds): ask again in a
-     * moment, a few times, for results by meaning. Not when there is no model to wait for. Cancelled by any new key.
-     */
-    private fun willAskAgain(q: Question, vectorLane: Boolean): Boolean {
-        if (wordsOnlyFor != q) {
-            wordsOnlyFor = q
-            wordsOnly = 0
-        }
-        val noModelComing = retriever.textOnly || retriever.modelMissing.value || retriever.setUp.value != true
-        return !vectorLane && !noModelComing && wordsOnly < SearchTiming.WORDS_ONLY_RETRIES
+    /** [block]'s value, or null when it failed, logged. A cancellation (a newer question) goes through. */
+    private suspend fun <T> logged(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e("Retriever", "search failed", e)
+        null
     }
 
     /** Typing words ends a search by photo; clearing the words drops the filters with them. */
     fun setQuery(q: String) {
-        val before = _ui.value.query
-        _ui.update {
+        val before = input.value.query
+        input.update {
             when {
                 q.isBlank() -> if (it.query.isNotBlank()) it.copy(query = q, chip = null, onlyStarred = false, literal = false) else it.copy(query = q)
-                q.trim() == it.query.trim() -> it.copy(query = q, similar = null)
-                else -> it.copy(query = q, similar = null, literal = false)
+                q.trim() == it.query.trim() -> it.copy(query = q, photo = null)
+                else -> it.copy(query = q, photo = null, literal = false)
             }
         }
-        if (_ui.value.similar == null) photo = null
         if (q != before) typed()
     }
 
@@ -296,14 +375,14 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     }
 
     /** Keeps every search inside [ids] (the first run's planned files); null lifts it. */
-    fun setScope(ids: List<Long>?) = _ui.update { if (it.scope == ids) it else it.copy(scope = ids) }
+    fun setScope(ids: List<Long>?) = input.update { it.copy(scope = ids) }
 
-    fun setChip(kind: Kind?) = _ui.update { it.copy(chip = kind) }
+    fun setChip(kind: Kind?) = input.update { it.copy(chip = kind) }
 
-    fun setOnlyStarred(on: Boolean) = _ui.update { it.copy(onlyStarred = on) }
+    fun setOnlyStarred(on: Boolean) = input.update { it.copy(onlyStarred = on) }
 
     /** The X on the understood filters: search the words as typed. */
-    fun searchWordsAsTyped() = _ui.update { it.copy(literal = true) }
+    fun searchWordsAsTyped() = input.update { it.copy(literal = true) }
 
     fun setStarred(file: SourceFile, on: Boolean) = attempt { retriever.setStarred(file.uri, on) }
 
@@ -320,13 +399,13 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     fun retry() = retries.update { it + 1 }
 
     /** The keyboard's search key, or a suggestion picked. */
-    fun submit(q: String = _ui.value.query) {
+    fun submit(q: String = input.value.query) {
         setQuery(q)
         record(q)
     }
 
     fun opened() {
-        if (_ui.value.similar == null) record(_ui.value.query)
+        input.value.let { if (it.photo == null) record(it.query) }
     }
 
     private fun record(q: String) {
@@ -334,26 +413,28 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
         attempt {
             retriever.recordQuery(q)
             loadRecent()
-            if (retriever.prefs.value.rememberSearches) recentShortcuts.push(_ui.value.recent)
+            if (retriever.prefs.value.rememberSearches) recentShortcuts.push(recent.value)
         }
     }
 
     fun removeRecent(q: String) = attempt {
         retriever.removeRecentQuery(q)
         loadRecent()
-        recentShortcuts.push(_ui.value.recent)
+        recentShortcuts.push(recent.value)
     }
 
     fun clearRecent() = attempt {
         retriever.clearRecentQueries()
         loadRecent()
-        recentShortcuts.push(_ui.value.recent)
+        recentShortcuts.push(recent.value)
     }
 
     /** Settings can clear the searches while this screen stays alive behind it. */
     fun refreshRecent() = launchCatching { loadRecent() }
 
-    private suspend fun loadRecent() = _ui.update { it.copy(recent = retriever.recentQueries(), recentLoaded = true) }
+    private suspend fun loadRecent() {
+        recent.value = retriever.recentQueries()
+    }
 
     fun findSimilar(file: SourceFile) = showSimilar(file.uri, file.name)
 
@@ -362,16 +443,14 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
 
     private fun showSimilar(uri: String, label: String) = attempt {
         val picked = photos.read(uri, label) ?: return@attempt
-        photo = picked
-        _ui.update { it.copy(similar = picked.similar, query = "") }
+        input.update { it.copy(photo = picked, query = "") }
     }
 
-    fun clearSimilar() {
-        photo = null
-        _ui.update { it.copy(similar = null) }
-    }
+    fun clearSimilar() = input.update { it.copy(photo = null) }
 
-    fun errorShown() = _ui.update { it.copy(error = null) }
+    fun errorShown() {
+        error.value = null
+    }
 
     /** Cleared while typing, the typing pause would never end: reading would wait for the UI for good. */
     override fun onCleared() = retriever.setUiBusy(false)
@@ -379,7 +458,7 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     /** Something the person asked for: a failure is logged and said on screen. */
     private fun attempt(block: suspend () -> Unit) = launchCatching(onError = {
         Log.e("Retriever", "SearchViewModel", it)
-        _ui.update { s -> s.copy(error = "That didn't work. Try again.") }
+        error.value = "That didn't work. Try again."
     }) { block() }
 }
 
