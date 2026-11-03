@@ -232,7 +232,7 @@ fun ThumbCell(
             tint = colors.onSurfaceVariant,
             morph = morph,
         )
-        if (badge != null) {
+        if (badge != null || file.kind == Kind.VIDEO) {
             Row(
                 Modifier
                     .align(Alignment.BottomStart)
@@ -246,7 +246,7 @@ fun ThumbCell(
                 if (file.kind == Kind.VIDEO) {
                     Icon(painterResource(R.drawable.ic_play_arrow), contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
                 }
-                Text(badge, style = MaterialTheme.typography.labelMedium.tabular(), color = Color.White, maxLines = 1)
+                if (badge != null) Text(badge, style = MaterialTheme.typography.labelMedium.tabular(), color = Color.White, maxLines = 1)
             }
         }
     }

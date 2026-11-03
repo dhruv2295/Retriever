@@ -25,6 +25,8 @@ import android.os.Build
 import android.util.AtomicFile
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.util.readText
+import androidx.core.util.writeText
 import androidx.sqlite.db.SupportSQLiteDatabase
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
@@ -188,21 +190,12 @@ val appModule = module {
                 UserStateFile(
                     read = {
                         try {
-                            f.readFully().decodeToString()
+                            f.readText()
                         } catch (e: FileNotFoundException) {
                             null
                         }
                     },
-                    write = { text ->
-                        val out = f.startWrite()
-                        try {
-                            out.write(text.encodeToByteArray())
-                            f.finishWrite(out)
-                        } catch (e: Exception) {
-                            f.failWrite(out)
-                            throw e
-                        }
-                    },
+                    write = { f.writeText(it) },
                 )
             }
         }

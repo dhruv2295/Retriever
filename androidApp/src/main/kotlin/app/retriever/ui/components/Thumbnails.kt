@@ -237,7 +237,8 @@ object Thumbnails {
             // drawn as one. A file with neither keeps its type card, and the miss is cached.
             Kind.DOC, Kind.OTHER -> system() ?: withContext(renderDispatcher) { DocPage.render(context, file, n) }
 
-            else -> null
+            // Embedded cover art; a recording has none, and the miss is cached.
+            Kind.AUDIO -> system()
         }
     }
 

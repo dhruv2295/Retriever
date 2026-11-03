@@ -22,7 +22,7 @@ routines, calibration, and still only the text). Not proposal 2's two content li
 |---|---|---|
 | Photo, screenshot, video, PDF | unchanged (MediaStore, `MediaMetadataRetriever`, `PdfRenderer`) | unchanged (PhotoKit, `videoFrameJpeg`, Quick Look or `PDFPage`) |
 | DOC and OTHER: docx, xlsx, pptx, odf, epub, rtf, html, txt, md, csv, json, xml, yaml, code, zip | `loadThumbnail(uri)` first (a provider with `FLAG_SUPPORTS_THUMBNAIL`, such as Drive, gives a real page), else **DocPage** from the file's head (below), else **DocCard** (epub, zip, encrypted, unreadable, unknown, no text) | Quick Look `generateBestRepresentation`, `representationTypes: .all`: a real page or sheet as Files draws it, else the system's icon for the type (INFERRED) |
-| Audio | the kind's icon (unchanged) | SF Symbol until Quick Look answers, then Quick Look's picture |
+| Audio | `loadThumbnail(uri)` (embedded cover art), else the kind's icon; a recording has no art, and the miss is cached | SF Symbol until Quick Look answers, then Quick Look's picture |
 | No access (`load = false`; iOS `folders.resolve` nil) | the kind's icon (unchanged) | SF Symbol (unchanged) |
 
 **DocCard (Android).** `KindFace(file, iconSize)` in Thumbnails.kt: DocCard for DOC and OTHER, else the kind icon;
