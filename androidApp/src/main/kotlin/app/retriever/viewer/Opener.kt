@@ -52,20 +52,11 @@ object Opener {
         }
     }
 
-    /** Lets another app take a copy of the file. */
-    fun share(context: Context, uri: String, mime: String) {
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(mime)
-            .putExtra(Intent.EXTRA_STREAM, uri.toUri())
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(send, null))
-    }
-
     /**
      * The in-app screen for a file, at the match when there is one; null when another app should open it (files Retriever reads only by name). [fileId] 0 means the reader looks the file up.
      */
     fun routeFor(file: SourceFile, locator: String = "", fileId: Long = 0, query: String = ""): Route? = when (file.kind) {
-        Kind.PDF -> Locator.pageOf(locator).let { PdfRoute(file.uri, it ?: 1, file.name, matched = it != null) }
+        Kind.PDF -> Locator.pageOf(locator).let { PdfRoute(file.uri, it ?: 1, file.name, matched = it != null, query = query) }
         Kind.AUDIO, Kind.VIDEO -> PlayerRoute(file.uri, file.mime, Locator.msOf(locator) ?: 0, file.name)
         Kind.DOC -> DocRoute(fileId, file.uri, file.name, file.mime, locator, query)
         Kind.PHOTO, Kind.SCREENSHOT -> PhotoRoute(file.uri, file.name, file.mime)

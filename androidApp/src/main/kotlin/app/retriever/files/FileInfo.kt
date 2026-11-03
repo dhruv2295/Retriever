@@ -138,8 +138,6 @@ private fun measure(context: Context, file: SourceFile): List<Pair<String, Strin
 private fun fullPath(context: Context, file: SourceFile): String = runCatching {
     val uri = file.uri.toUri()
     when (sourceOf(file.uri)) {
-        FileSource.FILE -> uri.path
-
         FileSource.TREE -> uri.lastPathSegment?.replaceFirst("primary:", "Internal storage/")
 
         FileSource.MEDIA -> context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use {

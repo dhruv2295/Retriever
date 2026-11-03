@@ -8,8 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FileActionsTest {
-    private val writable =
-        listOf("content://media/external/images/media/1", "content://provider/tree/root/document/file", "file:///storage/emulated/0/test.txt")
+    private val writable = listOf("content://media/external/images/media/1", "content://provider/tree/root/document/file")
     private val pdf = SourceFile("file:///a.pdf", "a.pdf", "Documents", "application/pdf", Kind.PDF, 2_400_000, 1_760_000_000_000)
 
     @Test fun knownWritableSourcesHaveAllActionsInTheMenuOrder() {

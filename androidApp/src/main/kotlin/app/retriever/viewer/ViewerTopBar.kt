@@ -10,6 +10,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarColors
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +55,7 @@ internal fun ViewerTopBar(
     stars: Starring,
     onBack: () -> Unit,
     subtitle: String? = null,
+    colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(),
     navigationIcon: @Composable () -> Unit = {
         IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
     },
@@ -68,6 +71,7 @@ internal fun ViewerTopBar(
         },
         navigationIcon = navigationIcon,
         actions = { ViewerActions(uri, stars, onBack) },
+        colors = colors,
     )
 }
 

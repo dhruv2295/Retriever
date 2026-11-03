@@ -4,8 +4,6 @@ import android.app.Activity
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.widget.Toast
@@ -36,7 +34,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
@@ -46,14 +43,11 @@ import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.duplicates.MediaDeleter
 import app.retriever.ui.components.PressMenu
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.koin.mp.KoinPlatform
-import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 
 /** The menu's items in the order every surface shows them. [STAR] is carried out by the caller, the rest by [FileActionsHost]. */
@@ -69,12 +63,11 @@ enum class FileAction(private val label: String, @DrawableRes val icon: Int) {
     fun label(starred: Boolean) = if (this == STAR && starred) "Remove from Starred" else label
     fun icon(starred: Boolean) = if (this == STAR && starred) R.drawable.ic_star else icon
 }
-enum class FileSource { MEDIA, TREE, FILE, OTHER }
+enum class FileSource { MEDIA, TREE, OTHER }
 
 internal fun sourceOf(uri: String): FileSource = when {
     uri.startsWith("content://media/") -> FileSource.MEDIA
     uri.startsWith("content://") && "/document/" in uri -> FileSource.TREE
-    uri.startsWith("file://") -> FileSource.FILE
     else -> FileSource.OTHER
 }
 
@@ -252,6 +245,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val actions = org.koin.compose.koinInject<FileActions>()
+    val deleter = org.koin.compose.koinInject<MediaDeleter>()
     var request by actions::request
     var name by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Pair<Request, String>?>(null) }
@@ -332,7 +326,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
             if (sourceOf(r.file.uri) == FileSource.MEDIA) {
                 LaunchedEffect(r) {
                     run {
-                        val sender = MediaDeleter(context).request(listOf(r.file.uri)) ?: return@run failed()
+                        val sender = deleter.request(listOf(r.file.uri)) ?: return@run failed()
                         pending = r to ""
                         request = null
                         consent.launch(IntentSenderRequest.Builder(sender).build())
@@ -346,15 +340,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                     confirmButton = {
                         TextButton(enabled = !busy, onClick = {
                             run {
-                                val gone = withContext(Dispatchers.IO) {
-                                    val uri = r.file.uri.toUri()
-                                    if (sourceOf(r.file.uri) == FileSource.FILE) {
-                                        uri.path?.let { File(it).delete() } == true
-                                    } else {
-                                        DocumentsContract.deleteDocument(context.contentResolver, uri)
-                                    }
-                                }
-                                if (!gone) return@run failed()
+                                if (deleter.delete(listOf(r.file.uri)).isEmpty()) return@run failed()
                                 retriever.deletedFiles(listOf(r.file.uri))
                                 request = null
                                 r.deleted()
@@ -383,14 +369,6 @@ private fun rename(context: Context, file: SourceFile, name: String): SourceFile
 
         FileSource.TREE -> DocumentsContract.renameDocument(resolver, uri, name) ?: return null
 
-        FileSource.FILE -> {
-            if (!Environment.isExternalStorageManager()) return null
-            val old = File(uri.path ?: return null)
-            val next = File(old.parentFile, name)
-            if (next.exists() || !old.renameTo(next)) return null
-            return file.copy(uri = Uri.fromFile(next).toString(), name = next.name, modifiedAt = next.lastModified())
-        }
-
         FileSource.OTHER -> return null
     }
     val modified = if (sourceOf(file.uri) == FileSource.MEDIA) MediaStore.MediaColumns.DATE_MODIFIED else DocumentsContract.Document.COLUMN_LAST_MODIFIED
@@ -408,9 +386,7 @@ private fun rename(context: Context, file: SourceFile, name: String): SourceFile
 }
 
 private fun shareOrOpen(context: Context, file: SourceFile, share: Boolean) {
-    val raw = file.uri.toUri()
-    val path = raw.path
-    val uri = if (raw.scheme == "file" && path != null) FileProvider.getUriForFile(context, "${context.packageName}.files", File(path)) else raw
+    val uri = file.uri.toUri()
     val intent = if (share) {
         Intent(
             Intent.ACTION_SEND,

@@ -11,12 +11,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,7 +31,6 @@ import app.retriever.nav.Route
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
-import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,12 +45,6 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
     val ui by vm.ui.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onStart() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onStop() }
-    // The start time is said once, then gets out of the title's way.
-    var showFrom by rememberSaveable { mutableStateOf(route.startMs > 0) }
-    LaunchedEffect(Unit) {
-        delay(2_000)
-        showFrom = false
-    }
     // A recording has no picture: its controls stay up, or the screen is black until it is touched.
     val audio = route.mime.startsWith("audio/")
 
@@ -68,7 +57,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
                 route.uri,
                 stars,
                 onBack,
-                subtitle = if (showFrom) "Match at ${Locator.time((route.startMs / 1000).toInt())}" else null,
+                subtitle = if (route.startMs > 0) "Match at ${Locator.time((route.startMs / 1000).toInt())}" else null,
             )
         },
         bottomBar = { ViewerStepBar(route.uri, replace) },

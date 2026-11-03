@@ -123,6 +123,8 @@ class ResultPiecesTest {
 
     @Test fun routeForOpensTheMatch() {
         assertEquals(PdfRoute(pdf.uri, 12, pdf.name, matched = true), Opener.routeFor(pdf, "p. 12"))
+        // The words go along, so the page can mark them.
+        assertEquals(PdfRoute(pdf.uri, 12, pdf.name, matched = true, query = "tax"), Opener.routeFor(pdf, "p. 12", query = "tax"))
         // Opened from a list or found by name: page 1, and nothing says a search matched there.
         assertEquals(PdfRoute(pdf.uri, 1, pdf.name, matched = false), Opener.routeFor(pdf, ""))
         assertEquals(PlayerRoute(video.uri, video.mime, 37_000, video.name), Opener.routeFor(video, "0:37"))

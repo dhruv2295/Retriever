@@ -80,7 +80,7 @@ data class SearchRoute(val query: String = "", val run: Boolean = false, val pho
 @Serializable data class PlayerRoute(val uri: String, val mime: String, val startMs: Long, val title: String) : Route
 
 /** [matched]: a search matched on [page]; false when the PDF opens at its start (from a list, or found by name). */
-@Serializable data class PdfRoute(val uri: String, val page: Int, val title: String, val matched: Boolean = false) : Route
+@Serializable data class PdfRoute(val uri: String, val page: Int, val title: String, val matched: Boolean = false, val query: String = "") : Route
 
 /** The route carries the opened photo, so a screen restored after process death still shows it. */
 @Serializable data class PhotoRoute(val uri: String, val name: String, val mime: String) : Route

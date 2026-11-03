@@ -126,7 +126,10 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
                 }
                 if (bar) {
                     MatchBar(ui.matches, at, { step ->
-                        stepMatch(ui.matches, at, step)?.let {
+                        // From the reader's place after a hand scroll; while the last match is on screen, from it, since the
+                        // end of the list can't scroll a match to the top.
+                        val from = if (list.layoutInfo.visibleItemsInfo.any { it.index == at }) at else list.firstVisibleItemIndex
+                        stepMatch(ui.matches, from, step)?.let {
                             at = it
                             scope.launch { list.animateScrollToItem(it) }
                         }

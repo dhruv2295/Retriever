@@ -18,6 +18,7 @@
 package app.retriever.viewer
 
 import android.graphics.pdf.PdfRenderer
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
@@ -58,10 +59,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -77,6 +80,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.R
 import app.retriever.core.Retriever
+import app.retriever.core.highlightTerms
 import app.retriever.core.motion.MascotMood
 import app.retriever.di.AppScope
 import app.retriever.nav.FoldersRoute
@@ -179,6 +183,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
         }
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (route.page - 1).coerceAtLeast(0))
+    val terms = remember(route.query) { highlightTerms(route.query) }
     // Before Android 15 the pages and the indexer's PDF reads share PdfRenderer's process-wide lock.
     ScrollingEffect({ listState.isScrollInProgress }, retriever::setUiBusy)
     val current by remember { derivedStateOf { listState.firstVisibleItemIndex } }
@@ -253,7 +258,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(s.count, key = { it }) { i ->
-                        PdfPage(s.renderer, i, s.count, s.placeholder, widthPx, matched = i == route.matchedIndex(), onClick = { zoomed = i })
+                        PdfPage(s.renderer, i, s.count, s.placeholder, widthPx, terms, matched = i == route.matchedIndex(), onClick = { zoomed = i })
                     }
                 }
                 zoomed?.let {
@@ -263,6 +268,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
                         it,
                         s.placeholder,
                         widthPx,
+                        terms,
                         // The empty pointerInput keeps touches off the list beneath while the page is still rendering.
                         Modifier
                             .fillMaxSize()
@@ -292,7 +298,7 @@ internal fun PdfFailed(onOpen: () -> Unit, modifier: Modifier = Modifier) {
 /** One page full screen: pinch, double tap and fling are Telephoto's; once the zoom settles the page is re-rendered at its [zoomBucket]. */
 @OptIn(FlowPreview::class)
 @Composable
-private fun PdfZoomPage(renderer: PdfRenderer, index: Int, placeholder: IntSize, widthPx: Int, modifier: Modifier = Modifier) {
+private fun PdfZoomPage(renderer: PdfRenderer, index: Int, placeholder: IntSize, widthPx: Int, terms: List<String>, modifier: Modifier = Modifier) {
     val zoom = rememberZoomableState(ZoomSpec(maxZoomFactor = 3f))
     var bucket by remember { mutableIntStateOf(1) }
     LaunchedEffect(zoom) {
@@ -300,32 +306,88 @@ private fun PdfZoomPage(renderer: PdfRenderer, index: Int, placeholder: IntSize,
             .debounce(200)
             .collect { bucket = maxOf(bucket, zoomBucket(it)) }
     }
+    // The words are searched on the first render only; a sharper bucket keeps its marks.
+    var marks by remember { mutableStateOf<List<Rect>?>(null) }
     val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, index, bucket) {
-        value = withContext(pdfDispatcher) { runCatching { renderPage(renderer, index, widthPx * bucket) }.getOrNull() }
+        val page = withContext(pdfDispatcher) {
+            runCatching {
+                renderPage(
+                    renderer,
+                    index,
+                    widthPx * bucket,
+                    if (marks ==
+                        null
+                    ) {
+                        terms
+                    } else {
+                        emptyList()
+                    },
+                )
+            }.getOrNull()
+        }
+        if (marks == null) marks = page?.marks
+        value = page?.bitmap
     }
+    val mark = MaterialTheme.colorScheme.primaryContainer
     val size = bitmap?.let { Size(it.width.toFloat(), it.height.toFloat()) } ?: Size(placeholder.width.toFloat(), placeholder.height.toFloat())
     LaunchedEffect(size) { zoom.setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(size)) }
     Box(modifier.semantics { contentDescription = "Page ${index + 1}, zoomed" }) {
-        bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().zoomable(zoom)) }
+        bitmap?.let {
+            Image(
+                it,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().zoomable(zoom).drawWithContent {
+                    drawContent()
+                    val fit = minOf(this.size.width / it.width, this.size.height / it.height)
+                    val shown = Size(it.width * fit, it.height * fit)
+                    drawMarks(marks.orEmpty(), Offset((this.size.width - shown.width) / 2, (this.size.height - shown.height) / 2), shown, mark)
+                },
+            )
+        }
             ?: CircularProgressIndicator(Modifier.align(Alignment.Center))
     }
 }
 
 @Composable
-private fun PdfPage(renderer: PdfRenderer, index: Int, count: Int, placeholder: IntSize, widthPx: Int, matched: Boolean, onClick: () -> Unit) {
-    val bitmap: ImageBitmap? by produceState<ImageBitmap?>(null, index, widthPx) {
-        value = withContext(pdfDispatcher) { runCatching { renderPage(renderer, index, widthPx) }.getOrNull() }
+private fun PdfPage(
+    renderer: PdfRenderer,
+    index: Int,
+    count: Int,
+    placeholder: IntSize,
+    widthPx: Int,
+    terms: List<String>,
+    matched: Boolean,
+    onClick: () -> Unit,
+) {
+    val page: RenderedPage? by produceState<RenderedPage?>(null, index, widthPx) {
+        value = withContext(pdfDispatcher) { runCatching { renderPage(renderer, index, widthPx, terms) }.getOrNull() }
     }
-    PdfPageFrame(bitmap, placeholder, "Page ${index + 1} of $count", matched, Modifier.clickable(onClickLabel = "Zoom page", onClick = onClick))
+    PdfPageFrame(
+        page?.bitmap,
+        placeholder,
+        "Page ${index + 1} of $count",
+        matched,
+        Modifier.clickable(onClickLabel = "Zoom page", onClick = onClick),
+        page?.marks.orEmpty(),
+    )
 }
 
 @Composable
-internal fun PdfPageFrame(shown: ImageBitmap?, placeholder: IntSize, label: String, matched: Boolean, modifier: Modifier = Modifier) {
+internal fun PdfPageFrame(
+    shown: ImageBitmap?,
+    placeholder: IntSize,
+    label: String,
+    matched: Boolean,
+    modifier: Modifier = Modifier,
+    marks: List<Rect> = emptyList(),
+) {
     // Motion row 25: the matched page's border starts in the tonal container and fades out once.
     var settled by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { settled = true }
     // Read while drawing, so the fade redraws the page and does not recompose it on every frame.
     val ring = animateColorAsState(if (settled) Color.Transparent else MaterialTheme.colorScheme.primaryContainer, tween(900), label = "matchedPulse")
+    val mark = MaterialTheme.colorScheme.primaryContainer
     Box(
         modifier
             .fillMaxWidth()
@@ -345,7 +407,17 @@ internal fun PdfPageFrame(shown: ImageBitmap?, placeholder: IntSize, label: Stri
             )
             .semantics { contentDescription = label + if (matched) ", where your search matched" else "" },
     ) {
-        shown?.let { Image(it, contentDescription = null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize()) }
+        shown?.let {
+            Image(
+                it,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().drawWithContent {
+                    drawContent()
+                    drawMarks(marks, Offset.Zero, size, mark)
+                },
+            )
+        }
         if (matched) {
             Text(
                 "Matched here",
@@ -360,8 +432,21 @@ internal fun PdfPageFrame(shown: ImageBitmap?, placeholder: IntSize, label: Stri
     }
 }
 
-/** Renders at [widthPx], shrinking a very large page so neither side passes [MAX_PAGE_PX]. */
-private fun renderPage(renderer: PdfRenderer, index: Int, widthPx: Int): ImageBitmap = renderer.openPage(index).use { page ->
+/** A rendered page and where the searched words sit on it, as fractions of the page. */
+private class RenderedPage(val bitmap: ImageBitmap, val marks: List<Rect>)
+
+/** Fills each of [marks] (fractions of the page) over the page drawn at [origin] in [shown]. */
+private fun DrawScope.drawMarks(marks: List<Rect>, origin: Offset, shown: Size, color: Color) {
+    for (m in marks) {
+        drawRect(color, origin + Offset(m.left * shown.width, m.top * shown.height), Size(m.width * shown.width, m.height * shown.height), alpha = 0.4f)
+    }
+}
+
+/**
+ * Renders at [widthPx], shrinking a very large page so neither side passes [MAX_PAGE_PX], and on Android 15 and later
+ * finds [terms] in the page's text layer. A scanned page has none, so it gets no marks.
+ */
+private fun renderPage(renderer: PdfRenderer, index: Int, widthPx: Int, terms: List<String>): RenderedPage = renderer.openPage(index).use { page ->
     val scale = renderScale(page.width, page.height, widthPx)
     val bitmap = createBitmap(
         (page.width * scale).toInt().coerceAtLeast(1),
@@ -369,5 +454,13 @@ private fun renderPage(renderer: PdfRenderer, index: Int, widthPx: Int): ImageBi
     )
     bitmap.eraseColor(AndroidColor.WHITE)
     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-    bitmap.asImageBitmap()
+    val marks = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && terms.isNotEmpty()) {
+        // Bounds are in page points, and one match can span lines.
+        terms.flatMap { page.searchText(it) }.flatMap { it.bounds }.map {
+            Rect(it.left / page.width, it.top / page.height, it.right / page.width, it.bottom / page.height)
+        }
+    } else {
+        emptyList()
+    }
+    RenderedPage(bitmap.asImageBitmap(), marks)
 }

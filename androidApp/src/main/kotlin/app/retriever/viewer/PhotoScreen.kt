@@ -4,12 +4,18 @@ package app.retriever.viewer
 
 import android.content.Context
 import android.util.Size
+import android.view.WindowInsetsController
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.SnapSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,12 +27,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -36,6 +45,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.core.net.toUri
 import app.retriever.R
@@ -43,6 +53,7 @@ import app.retriever.core.motion.MascotMood
 import app.retriever.nav.PhotoRoute
 import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
+import app.retriever.ui.RetrieverTheme
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.Thumbnails
@@ -71,21 +82,64 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
     val items = remember(route.uri) { queue.itemsFor(route) }
     val pager = rememberPagerState(items.indexOfFirst { it.uri == route.uri }.coerceAtLeast(0)) { items.size }
     val current = items[pager.currentPage]
+    // A tap hides the bar and the system bars, so the photo has the whole screen.
+    var chrome by rememberSaveable { mutableStateOf(true) }
+    ImmersiveBars(chrome)
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            ViewerTopBar(current.name, current.uri, stars, onBack, subtitle = positionLabel(pager.currentPage, items.size))
-        },
+        contentWindowInsets = WindowInsets(0),
     ) { padding ->
-        PhotoPager(items, pager, Modifier.padding(padding), morph) { Opener.view(context, it.uri, it.mime) }
+        Box(Modifier.padding(padding)) {
+            PhotoPager(items, pager, morph = morph, onTap = { chrome = !chrome }) { Opener.view(context, it.uri, it.mime) }
+            AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut()) {
+                // Light content on a dark scrim, so the bar reads over any photo in either theme.
+                RetrieverTheme(dark = true) {
+                    ViewerTopBar(
+                        current.name,
+                        current.uri,
+                        stars,
+                        onBack,
+                        subtitle = positionLabel(pager.currentPage, items.size),
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black.copy(alpha = 0.5f)),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Shows or hides the status and navigation bars, light icons over the black pager, as they were again on leaving. */
+@Composable
+private fun ImmersiveBars(shown: Boolean) {
+    val controller = LocalView.current.windowInsetsController ?: return
+    val bars = android.view.WindowInsets.Type.systemBars()
+    LaunchedEffect(shown) {
+        controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (shown) controller.show(bars) else controller.hide(bars)
+    }
+    DisposableEffect(controller) {
+        val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        val before = controller.systemBarsAppearance and light
+        controller.setSystemBarsAppearance(0, light)
+        onDispose {
+            controller.setSystemBarsAppearance(before, light)
+            controller.show(bars)
+        }
     }
 }
 
 @Composable
-internal fun PhotoPager(items: List<PhotoItem>, pager: PagerState, modifier: Modifier = Modifier, morph: PhotoMorph? = null, openWith: (PhotoItem) -> Unit) {
+internal fun PhotoPager(
+    items: List<PhotoItem>,
+    pager: PagerState,
+    modifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
+    onTap: () -> Unit = {},
+    openWith: (PhotoItem) -> Unit,
+) {
     HorizontalPager(pager, modifier.fillMaxSize().background(Color.Black), key = { items[it].uri }, beyondViewportPageCount = 0) { page ->
-        PhotoPage(items[page], current = page == pager.settledPage, morph, openWith = openWith)
+        PhotoPage(items[page], current = page == pager.settledPage, morph, onTap, openWith = openWith)
     }
 }
 
@@ -112,7 +166,7 @@ internal suspend fun photoSource(context: Context, item: PhotoItem): SubSampling
  * photo, cropped as the tile was and uncropped as it lands, and shrinks back into it on Back.
  */
 @Composable
-internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, openWith: (PhotoItem) -> Unit) {
+internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, onTap: () -> Unit, openWith: (PhotoItem) -> Unit) {
     val context = LocalContext.current
     var failed by remember(item.uri) { mutableStateOf(false) }
     var sharp by remember(item.uri) { mutableStateOf(false) }
@@ -130,19 +184,21 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, op
         }?.let { value = it.asImageBitmap() }
     }
     val moving = morph?.shared?.isTransitionActive == true
+    // A page with no zoomable photo yet takes the tap itself, so a hidden bar can always come back.
+    val tapToToggle = Modifier.clickable(interactionSource = null, indication = null, onClick = onTap)
     if (failed) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().then(tapToToggle), contentAlignment = Alignment.Center) {
             EmptyState(
                 "Couldn't show this photo",
                 "It may have been moved or deleted.",
                 R.drawable.ic_warning_amber,
-                action = "Open with" to { openWith(item) },
+                action = "Open in another app" to { openWith(item) },
                 mood = MascotMood.TROUBLE,
             )
         }
         return
     }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().then(if (source == null) tapToToggle else Modifier), contentAlignment = Alignment.Center) {
         // While a picture grows or shrinks, the tiles stay hidden under it.
         source?.let {
             PhotoTiles(
@@ -151,6 +207,7 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, op
                 current,
                 onFailed = { failed = true },
                 onSharp = { s -> sharp = s },
+                onTap,
                 Modifier.graphicsLayer {
                     alpha =
                         if (moving) 0f else 1f
@@ -184,6 +241,7 @@ private fun PhotoTiles(
     current: Boolean,
     onFailed: () -> Unit,
     onSharp: (Boolean) -> Unit,
+    onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val zoom = rememberZoomableState(ZoomSpec(maxZoomFactor = 4f))
@@ -199,5 +257,5 @@ private fun PhotoTiles(
         },
     )
     LaunchedEffect(image) { snapshotFlow { image.isImageDisplayedInFullQuality }.collect(onSharp) }
-    SubSamplingImage(image, contentDescription = name, modifier = modifier.fillMaxSize().zoomable(zoom))
+    SubSamplingImage(image, contentDescription = name, modifier = modifier.fillMaxSize().zoomable(zoom, onClick = { onTap() }))
 }

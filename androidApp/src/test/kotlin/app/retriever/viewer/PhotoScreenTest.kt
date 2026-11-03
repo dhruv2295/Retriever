@@ -2,6 +2,8 @@ package app.retriever.viewer
 
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
@@ -35,13 +37,13 @@ class PhotoScreenTest {
     private val files = (1..5).map { SourceFile("file:///missing/$it.jpg", "p$it.jpg", "DCIM", "image/jpeg", Kind.PHOTO, 1, 1) }
     private val trouble = rule.onAllNodesWithText("Couldn't show this photo")
 
-    private fun show(start: Int): PagerState {
+    private fun show(start: Int, onTap: () -> Unit = {}): PagerState {
         lateinit var pager: PagerState
         rule.setContent {
             ShotTheme(false) {
                 val items = files.map { PhotoItem(it.uri, it.name, it.mime) }
                 pager = rememberPagerState(start) { items.size }
-                PhotoPager(items, pager) {}
+                PhotoPager(items, pager, onTap = onTap) {}
             }
         }
         return pager
@@ -63,6 +65,16 @@ class PhotoScreenTest {
     @Test fun aMissingPhotoShowsTheTroubleState() {
         show(0)
         rule.waitUntil(5_000) { trouble.fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** A page with no photo to zoom still takes the tap, so a hidden bar can come back there. */
+    @Test fun aTapOnAPageThatFailedTogglesTheBar() {
+        var taps = 0
+        show(0) { taps++ }
+        rule.waitUntil(5_000) { trouble.fetchSemanticsNodes().isNotEmpty() }
+        rule.onRoot().performTouchInput { click(topCenter + Offset(0f, 10f)) }
+        rule.waitForIdle()
+        assertEquals(1, taps)
     }
 
     /** A photo whose thumbnail is in memory shows it while its tiles load; one opened without its list has none. */

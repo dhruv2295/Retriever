@@ -66,9 +66,8 @@ internal suspend fun loadDoc(query: String, locator: String, read: suspend () ->
     if (chunks.isEmpty()) return if (state == FileState.PENDING) DocUi.NotReadYet else DocUi.Empty
     // The hit's own page or time first; within it, the paragraph that holds the query's words.
     val here = if (locator.isEmpty()) emptyList() else chunks.indices.filter { chunks[it].locator == locator }
-    val pool = here.ifEmpty { chunks.indices.toList() }
-    val match = pool.firstOrNull { nameMatchRanges(chunks[it].text, query).isNotEmpty() } ?: here.firstOrNull() ?: 0
     val matches = chunks.indices.filter { nameMatchRanges(chunks[it].text, query).isNotEmpty() }
+    val match = (if (here.isEmpty()) matches.firstOrNull() else here.firstOrNull { matches.binarySearch(it) >= 0 }) ?: here.firstOrNull() ?: 0
     return DocUi.Text(chunks.map { it.text }, match, query, matches)
 }
 
