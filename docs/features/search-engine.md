@@ -74,7 +74,7 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `aFolderWordPinsNothing`, `oneLetterSkipsTheChunkKeywordQuery`.
 - `StoreSearchIndexTest.kt` (class `SearchEngineTest`): `mergedSearchRanksSemanticMatchFirst`, `keywordSearchFindsExactNumber`,
   `kindFilterExcludesOtherKinds`, `anotherModelsIndexDegradesToKeywordOnly`, `aClosedEmbedderPropagatesSoTheCallerCanRetireIt`,
-  `eachFileAppearsAtMostOnce`, `refreshPicksUpNewFilesAndDropsDeletedOnes`.
+  `eachFileAppearsAtMostOnce`, `refreshPicksUpNewFilesAndDropsDeletedOnes`, `aSearchDroppedDuringTheEmbedNeverScans`.
 - `FusionTest.aLiteralMatchAtEqualRankShowsTheWordsSnippet`, `ScopeBeforeCapTest` (`nameLanesScopeBeforeTheCap`,
   `keywordLaneScopesStarredBeforeTheCap`, `coldNameLaneScopesStarredBeforeItsFtsCap`, `keywordLaneScopesContentBeforeTheCap`), `DeadVectorsTest` (`deletedVectorsDoNotHideLiveOnes`,
   `takenAtBackfillMovesALoadedVectorToItsCaptureDay`), `RecentAndLimitTest.searchHonoursLimit`.
@@ -86,7 +86,8 @@ SQLite is not guaranteed to ship it; matchinfo plus Kotlin BM25 is the shortest 
   `RelevanceRuleTest.theSnippetIsTheSentenceSharingTheMostQueryWords` pins `bestSentence`.
 - `SearchBenchTest.searchStaysFastAtFiftyThousandFiles`, `keywordLanesRunBesideTheEmbed`: lane limits at scale.
 - `VectorScanTest` (commonTest, so also on the iOS simulator): `theNativeKernelScoresBitForBitAsDotInt8`,
-  `appendsLeaveEarlierBlocksAndViewsAsTheyWere`, `aViewKeepsTheFirstBlockWhileItGrows`, `parallelSlicesFindWhatOneScanFinds`.
+  `appendsLeaveEarlierBlocksAndViewsAsTheyWere`, `aViewKeepsTheFirstBlockWhileItGrows`, `parallelSlicesFindWhatOneScanFinds`,
+  `aCancelledScanStopsAtTheNextBlock`.
 - `EvalTest` and the corpus eval: see `eval.md`.
 
 Missing, as far as this note knows: a facade test that a sync swapping `names` mid-search leaves the old snapshot valid
@@ -113,7 +114,10 @@ until that search ends; a check that the same snippet renders the same bold span
 - FTS5 `bm25()` would replace `Store.bm25`, but the platform SQLite cannot be assumed to ship FTS5. Keep FTS4 and
   matchinfo unless the driver bundles its own SQLite.
 - Search and the batch share `Dispatchers.Default`; a query waits behind at most one native embed call
-  (`indexing-pipeline.md`, `awaitUi`).
+  (`indexing-pipeline.md`, `awaitUi`). A search whose caller is cancelled (the person typed on) stops after the embed,
+  after the word lanes, before fusion, and at the next 16,383-row block of the scan; the embed call itself and each
+  SQLite query run to their end. The facade's `searchWith` lets the cancellation through (only `EmbedderClosedException`
+  falls back to keywords), and its `finally` still drops the searching count and finishes a wanted release.
 - Wave 7 A4 (exact name first) is the behaviour in invariant 9; the relevance rule stays off and has no further
   research this wave.
 

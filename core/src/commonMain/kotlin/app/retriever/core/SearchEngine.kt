@@ -1,8 +1,11 @@
 package app.retriever.core
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.concurrent.Volatile
@@ -145,7 +148,10 @@ class SearchEngine(
     suspend fun search(query: String, mode: Mode = Mode.MERGED, limit: Int = 20, kinds: Set<Kind>? = null): SearchResult =
         search(SearchRequest(query, kinds, limit = limit, mode = mode))
 
-    /** The keyword and name lanes run beside the query embed; the scan and fusion follow it. */
+    /**
+     * The keyword and name lanes run beside the query embed; the scan and fusion follow it. A search the caller dropped
+     * (the person typed on) stops at the next step instead of running to the end on the shared dispatcher.
+     */
     suspend fun search(req: SearchRequest): SearchResult = coroutineScope {
         val q = req.text.trim()
         if (q.isEmpty()) return@coroutineScope SearchResult(emptyList(), false)
@@ -153,9 +159,12 @@ class SearchEngine(
         val embedder = embedder.takeIf { req.mode != Mode.KEYWORD && store.signature() == it.signature }
         val words = if (req.mode == Mode.VECTOR) null else async { wordLanes(q, f) }
         val qv = embedder?.let { embedQuery(it, q) }
+        ensureActive()
         // Awaited before the scan, so the two never use the database at once.
         val wordLanes = words?.await().orEmpty()
+        ensureActive()
         val lanes = listOfNotNull(qv?.let { meaningLane(it, f) }) + wordLanes
+        ensureActive()
         val (hits, strong) = toHits(lanes, f, req.limit, folded(q))
         SearchResult(hits, qv != null, strong)
     }
@@ -279,7 +288,7 @@ class SearchEngine(
      * marks, whose day is in [days] and whose file is in [fileIds] (sorted; null: no such filter); a min-heap over
      * primitive arrays, so no boxing or full sort. [histogram], when given, counts every admitted row's cosine by
      * modality for [RelevanceRule]. Rows [dead] marks are skipped before either. Only blocks [fromBlock] until [toBlock]
-     * are read.
+     * are read. A cancelled [job] stops it at the next block (16,383 rows, a few ms).
      */
     internal fun scan(
         q: Vector,
@@ -292,6 +301,7 @@ class SearchEngine(
         dead: BooleanArray? = null,
         fromBlock: Int = 0,
         toBlock: Int = table.blockCount,
+        job: Job? = null,
     ): Scan {
         val size = table.size
         val firstDay = days?.first ?: 0
@@ -305,6 +315,7 @@ class SearchEngine(
         val scores = FloatArray(if (kernel != null) VectorTable.BLOCK else 0)
         val unfiltered = allowed == null && days == null && fileIds == null && histogram == null && dead == null
         for (b in fromBlock until toBlock) {
+            job?.ensureActive()
             val block = table.block(b)
             val base = b * VectorTable.BLOCK
             val count = minOf(VectorTable.BLOCK, size - base)
@@ -356,13 +367,16 @@ class SearchEngine(
         threads: Int = cpuCores,
     ): Scan {
         val slices = minOf(threads, table.size / SLICE_ROWS)
-        if (slices < 2) return traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, histogram, dead) }
+        val job = currentCoroutineContext()[Job]
+        if (slices < 2) return traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, histogram, dead, job = job) }
         val blocks = table.blockCount
         val parts = coroutineScope {
             List(slices) { s ->
                 async {
                     val counts = histogram?.let { IntArray(it.size) }
-                    val top = traced("vec.scan") { scan(q, n, table, allowed, days, fileIds, counts, dead, blocks * s / slices, blocks * (s + 1) / slices) }
+                    val top = traced("vec.scan") {
+                        scan(q, n, table, allowed, days, fileIds, counts, dead, blocks * s / slices, blocks * (s + 1) / slices, job)
+                    }
                     top to counts
                 }
             }.awaitAll()

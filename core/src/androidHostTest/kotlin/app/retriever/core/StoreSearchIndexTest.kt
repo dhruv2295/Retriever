@@ -4,7 +4,10 @@ import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.retriever.core.db.IndexDb
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -324,6 +327,22 @@ class SearchEngineTest {
         engine(store, embedder = embedder).batch()
         embedder.close()
         assertFailsWith<EmbedderClosedException> { SearchEngine(store, embedder).search("48213") }
+    }
+
+    /** The person typed on while the query embedded: the search stops there, before loading and scanning the vectors. */
+    @Test
+    fun aSearchDroppedDuringTheEmbedNeverScans() = runTest {
+        val store = newStore()
+        var dropped = false
+        val embedder = FakeEmbedder { if (dropped) currentCoroutineContext().cancel() }
+        store.upsertFiles(CORPUS.keys.map { testFile(it) })
+        engine(store, embedder = embedder).batch()
+        val search = SearchEngine(store, embedder)
+        dropped = true
+        // Two queries: the second would otherwise reuse the first one's vector without embedding.
+        assertFailsWith<CancellationException> { search.search("48213", SearchEngine.Mode.VECTOR) }
+        assertFailsWith<CancellationException> { search.search("chai", SearchEngine.Mode.MERGED) }
+        assertEquals(0, search.fullLoads)
     }
 
     @Test

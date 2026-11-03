@@ -1,12 +1,15 @@
 package app.retriever.core
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 
@@ -119,6 +122,13 @@ class VectorScanTest {
         assertEquals(1_000, view.size)
         assertEquals(before, engine.scan(q, 100, view).pairs(), "a published view never sees the copy")
         assertEquals(all.top(q, 100), engine.scan(q, 100, table).pairs())
+    }
+
+    /** A search dropped mid-scan stops at the next block instead of scoring every row first. */
+    @Test
+    fun aCancelledScanStopsAtTheNextBlock() {
+        val table = flat(VectorTable.BLOCK + 1).table()
+        assertFailsWith<CancellationException> { engine.scan(query(), 100, table, job = Job().apply { cancel() }) }
     }
 
     @Test
