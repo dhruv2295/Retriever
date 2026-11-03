@@ -1764,6 +1764,9 @@ class Retriever(
         cancelBatch()
         // Holding the model lock keeps searches keyword-only meanwhile, so two copies of the model never load.
         return indexLock.withLock {
+            // Names first: finding files by name needs no model, and a first tune holds reading for a minute or, where the GPU
+            // falls back to WebGPU, far longer. The reading itself waits, so it can't slow what the tune measures.
+            io { sync.syncUnlessRunning()?.let(::synced) }
             model.lock.withLock {
                 io {
                     model.closeLocked()

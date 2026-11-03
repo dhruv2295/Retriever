@@ -18,7 +18,8 @@ from real read times.
   1200 ms or less and 6 GB or more, else LIGHT. Calibration measures at the reference 70 vision tokens, so Tune again keeps
   the stored tokens (changing them would make every vector stale).
 - **Runs where the model runs.** `Retriever.calibrate` cancels the batch, then holds `indexLock` and `ModelHost.lock`, so
-  searches answer from keywords and two copies of the model never load. The whole run is a `countedOpen`, and
+  searches answer from keywords and two copies of the model never load. Under `indexLock` it syncs the library first, so
+  files are found by name for however long the tune takes; reading waits, so it can't slow what the tune measures. The whole run is a `countedOpen`, and
   `ModelHost.measurable` leaves out a GPU that crashed twice. An NPU failure marks the build failed and rethrows.
 - **A turned-down GPU gets one more measure.** Tune logs each failed backend's error and stores the GPU's as
   `DeviceProfile.gpuError`. When a phone sits on CPU with that error (a measure, not a crash), Android's next charging run
@@ -61,6 +62,9 @@ from real read times.
 - If the CPU reference itself fails, every other backend fails the agreement check with the same message.
 - The backend is picked by image time, not query time. Device queue: measure both.
 - Later (Wave 7, A2): limit Tune's sample scan so Tune again does not walk the whole library to pick its samples.
+- One embed call can't be cut short: the budget is checked between calls. Where the GPU falls back to WebGPU (an
+  emulator), one image took 2 minutes and its failure probe ran on past 11, so that tune never ended. Names stay
+  searchable meanwhile; text reading and meaning wait.
 - Tier thresholds are measured on few devices; the memory floor (`MIN_MODEL_RAM_GB`) is inferred and needs a device check.
 
 ## Rendering and configuration pace

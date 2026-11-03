@@ -133,6 +133,22 @@ class FacadeW5Test {
     }
 
     @Test
+    fun namesAreFoundWhileTheFirstTuneRuns() = test {
+        val f = Fx(listOf(testFile("wifi password.png", Kind.SCREENSHOT)))
+        val tuning = CompletableDeferred<Unit>()
+        val done = CompletableDeferred<Unit>()
+        f.factory.beforeEmbed = {
+            tuning.complete(Unit)
+            done.await()
+        }
+        val tune = launch(Dispatchers.Default) { f.r.calibrate(Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList()), tuneAgain = false) }
+        tuning.await()
+        assertEquals(setOf("wifi password.png"), names(f.r.searchNames("wifi")))
+        done.complete(Unit)
+        tune.join()
+    }
+
+    @Test
     fun aLibraryOfPhotosIsOfferedItsRecentOnes() = test {
         val lastWeek = assertNotNull(QueryParser.parse("last week", now).from) + 36 * 3_600_000L
         val f = Fx(emptyList())
