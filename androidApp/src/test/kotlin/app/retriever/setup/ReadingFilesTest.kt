@@ -43,6 +43,7 @@ import app.retriever.core.SamplePile
 import app.retriever.core.SourceFile
 import app.retriever.core.StatusAction
 import app.retriever.core.Words
+import app.retriever.decidedStatus
 import app.retriever.status.StatusActions
 import app.retriever.status.StatusContent
 import app.retriever.ui.Format
@@ -273,14 +274,15 @@ class ReadingFilesTest {
         val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF)))
         rule.setContent {
             ShotTheme(false, 1f) {
+                val counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0)
                 StatusContent(
-                    app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                    counts,
                     Prefs(),
                     index.value,
                     emptyList(),
                     false,
                     false,
-                    Modifier,
+                    readingStatus = decidedStatus(counts, Prefs(), index.value),
                 )
             }
         }
@@ -350,14 +352,15 @@ class ReadingFilesTest {
         var opened: SourceFile? = null
         rule.setContent {
             ShotTheme(false, 1f) {
+                val counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0)
                 StatusContent(
-                    app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0),
+                    counts,
                     Prefs(),
                     index.value,
                     emptyList(),
                     false,
                     false,
-                    Modifier,
+                    readingStatus = decidedStatus(counts, Prefs(), index.value),
                     actions = StatusActions(openFile = { opened = it }),
                 )
             }
@@ -383,7 +386,6 @@ class ReadingFilesTest {
                 emptyList(),
                 false,
                 batteryHint,
-                Modifier,
                 readingStatus = ReadingStatus(ReadingPhase.PAUSED, "Paused", "Search still works.", StatusAction.RESUME),
             )
         }
@@ -418,7 +420,6 @@ class ReadingFilesTest {
                     emptyList(),
                     false,
                     true,
-                    Modifier,
                     readingStatus = ReadingStatus(
                         ReadingPhase.CHARGING,
                         "Waits until you charge",

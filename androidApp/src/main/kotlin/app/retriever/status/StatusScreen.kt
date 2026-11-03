@@ -1,6 +1,8 @@
 package app.retriever.status
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
@@ -63,15 +65,12 @@ import app.retriever.access.Access
 import app.retriever.access.Fix
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
-import app.retriever.core.DeviceWords
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
-import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.SourceFile
 import app.retriever.core.StatusAction
-import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
@@ -150,7 +149,12 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
                 if (skippedOpen) vm.loadSkipped()
             },
             retrySkipped = vm::retrySkipped,
-            openBatterySettings = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+            openBatterySettings = {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+                } catch (_: ActivityNotFoundException) {
+                }
+            },
             chooseMorePhotos = { photosLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray()) },
             allowAllFiles = { openAllFilesSettings(context) },
             addFolder = { folderLauncher.launch(null) },
@@ -174,23 +178,18 @@ fun StatusContent(
     skippedFiles: List<Store.StoredFile>,
     skippedOpen: Boolean,
     batteryHint: Boolean,
+    readingStatus: ReadingStatus?,
     modifier: Modifier = Modifier,
     actions: StatusActions = StatusActions(),
     access: Access = Access.ALL,
     folderError: String? = null,
     error: String? = null,
     celebration: Celebration = Celebration(),
-    readingStatus: ReadingStatus? = null,
 ) {
     val progress = counts?.progress
     val skipped = progress?.couldntRead ?: 0
     val unfinished = progress?.unfinished == true
     val failure = error ?: index.lastError
-    val status =
-        readingStatus
-            ?: progress?.let {
-                ReadingPolicy.decide(it, if (prefs.paused) StopReason.PAUSED else index.lastStop, index.running, index.currentFile != null, DeviceWords.ANDROID)
-            }
 
     Scaffold(
         modifier = modifier,
@@ -226,7 +225,7 @@ fun StatusContent(
                     // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp), settles = !index.running)
                     // Only the state is announced, not each file: the count is in the detail, the bar is the same numbers.
-                    val title = status?.title ?: "Checking your files…"
+                    val title = readingStatus?.title ?: "Checking your files…"
                     Text(
                         title,
                         style = MaterialTheme.typography.headlineSmall,
@@ -239,23 +238,23 @@ fun StatusContent(
                     if (failure != null) {
                         Text(failure, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     } else {
-                        status?.detail?.let { Muted(it) }
+                        readingStatus?.detail?.let { Muted(it) }
                     }
-                    status?.count?.let { Text(it, style = MaterialTheme.typography.bodyLarge.tabular()) }
-                    val done = status?.done
-                    val total = status?.total
+                    readingStatus?.count?.let { Text(it, style = MaterialTheme.typography.bodyLarge.tabular()) }
+                    val done = readingStatus?.done
+                    val total = readingStatus?.total
                     if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth().padding(vertical = 4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        when (status?.action) {
+                        when (readingStatus?.action) {
                             StatusAction.RESUME -> Button(onClick = actions.resume) { Text(StatusAction.RESUME.label) }
                             StatusAction.READ_FOR_15 -> Button(onClick = actions.readNow) { Text(Words.READ_FOR_15) }
                             StatusAction.STOP -> OutlinedButton(onClick = actions.stopReadNow) { Text(StatusAction.STOP.label) }
                             else -> Unit
                         }
-                        if (status?.offersPause(counts.progress) == true) OutlinedButton(onClick = actions.pause) { Text(Words.PAUSE) }
+                        if (readingStatus?.offersPause(counts.progress) == true) OutlinedButton(onClick = actions.pause) { Text(Words.PAUSE) }
                     }
                     // Laid out from the batch's start, before core names its first file, so the row never blinks in.
-                    if (status?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 48.dp)
+                    if (readingStatus?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 48.dp)
                     // What was read stays on show through a pause or a wait; only the sentence above changes.
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, index.running, actions.openFile)
                 }

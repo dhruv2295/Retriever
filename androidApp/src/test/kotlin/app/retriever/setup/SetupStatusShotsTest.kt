@@ -53,6 +53,7 @@ import app.retriever.core.Store
 import app.retriever.core.TasteProgress
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.decidedStatus
 import app.retriever.home.HomeUi
 import app.retriever.search.SearchActions
 import app.retriever.search.SearchPane
@@ -625,7 +626,7 @@ class SetupStatusShotsTest {
         access: Access = Access.ALL,
         tall: Boolean = false,
         prefs: Prefs = this.prefs,
-        readingStatus: ReadingStatus? = null,
+        readingStatus: ReadingStatus = decidedStatus(counts, prefs, index),
     ) = shot(name, dark, fontScale, tall) {
         StatusContent(
             counts, prefs, index, skippedFiles, open, batteryHint = true,
@@ -670,7 +671,16 @@ class SetupStatusShotsTest {
     @Test fun statusHoldsNoPreferenceAndLinksToSettings() {
         var opened = 0
         shot("status_links_settings_light", tall = true) {
-            StatusContent(caughtUp, prefs, idle, skippedFiles, false, batteryHint = false, actions = StatusActions(openSettings = { opened++ }))
+            StatusContent(
+                caughtUp,
+                prefs,
+                idle,
+                skippedFiles,
+                false,
+                batteryHint = false,
+                actions = StatusActions(openSettings = { opened++ }),
+                readingStatus = decidedStatus(caughtUp, prefs, idle),
+            )
         }
         listOf("Only read while charging", "Screenshots", "PDFs", "Tune again", "Folders Retriever skips", "Read inside", "Sample mode")
             .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }

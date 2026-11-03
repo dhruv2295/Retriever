@@ -135,7 +135,6 @@ class SettingsActions(
     val openStatus: () -> Unit = {},
     val setOnThisDay: (Boolean) -> Unit = {},
     val setSearchInside: (Kind, Boolean) -> Unit = { _, _ -> },
-    val setOnlyWhileCharging: (Boolean) -> Unit = {},
     val removeExcluded: (String) -> Unit = {},
     val tuneAgain: () -> Unit = {},
     val setRememberSearches: (Boolean) -> Unit = {},
@@ -199,7 +198,6 @@ fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsVi
             readNow = { requestReading { vm.readNow() } },
             stopReadNow = vm::stopReadNow, resume = vm::resume, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
             setSearchInside = vm::setSearchInside,
-            setOnlyWhileCharging = vm::setOnlyWhileCharging,
             removeExcluded = vm::removeExcluded,
             tuneAgain = vm::tuneAgain,
             setRememberSearches = vm::setRememberSearches,
@@ -550,8 +548,8 @@ private fun SearchByMeaning(ui: SettingsUi, actions: SettingsActions) {
         )
     } else {
         UpgradeCard(ui.upgrade, actions.upgrade, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
     }
-    SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

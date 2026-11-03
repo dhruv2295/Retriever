@@ -124,7 +124,7 @@ class FirstFrameStatusViewModelTest {
 
     @Test fun noCountsDrawsNeitherZeroOfZeroNorCaughtUp() {
         rule.setContent {
-            ShotTheme(dark = false) { StatusContent(null, Prefs(), IndexState(), emptyList(), skippedOpen = false, batteryHint = false) }
+            ShotTheme(dark = false) { StatusContent(null, Prefs(), IndexState(), emptyList(), skippedOpen = false, batteryHint = false, readingStatus = null) }
         }
         rule.onNodeWithText(app.retriever.core.Words.READING_STATUS).assertExists()
         rule.onNodeWithText("All done", substring = true).assertDoesNotExist()

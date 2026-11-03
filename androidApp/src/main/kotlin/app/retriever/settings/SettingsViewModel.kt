@@ -141,13 +141,6 @@ class SettingsViewModel(
         if (on) indexer.indexNow()
     }
 
-    fun setOnlyWhileCharging(on: Boolean) {
-        launchCatching(::fail) {
-            retriever.setReadingSchedule(if (on) app.retriever.core.ReadingSchedule.CHARGING else app.retriever.core.ReadingSchedule.BATTERY)
-            indexer.schedulePeriodic(on)
-        }
-    }
-
     // Turning it off clears the saved searches (Retriever.updatePrefs does that) and the launcher shortcuts built from them.
     fun setRememberSearches(on: Boolean) {
         launchCatching(::fail) {
@@ -213,8 +206,6 @@ class SettingsViewModel(
     }
 
     init {
-        // A download started before the process was killed carries on in DownloadManager: show and finish it.
-        launchCatching(::fail) { models.sync(retriever.requiredBuild.value) }
         launchCatching(::fail) { models.state.drop(1).filter { it == ModelState.Done }.collect { loadStorage() } }
     }
 }

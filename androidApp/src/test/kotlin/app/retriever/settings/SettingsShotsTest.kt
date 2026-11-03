@@ -189,7 +189,6 @@ class SettingsShotsTest {
                     actions = SettingsActions(
                         setReadingSchedule = { seen += "schedule=${it.name}" },
                         setRememberSearches = { seen += "remember=$it" },
-                        setMobileData = { seen += "mobile=$it" },
                         setDynamicColor = { seen += "dynamic=$it" },
                         setSearchInside = { k, on -> seen += "${k.name}=$on" },
                         askFreeUpSpace = { seen += "ask" },
@@ -199,13 +198,25 @@ class SettingsShotsTest {
         }
         rule.onNodeWithText(Words.WHEN_TO_READ).performScrollTo().performClick()
         rule.onNodeWithText("Also on battery").performClick()
-        for (label in listOf("Save recent searches", "Use mobile data for downloads", "Wallpaper colours", "PDFs", "Remove search download")) {
+        for (label in listOf("Save recent searches", "Wallpaper colours", "PDFs", "Remove search download")) {
             rule.onNodeWithText(label).performScrollTo().performClick()
         }
         assertEquals(
-            listOf("schedule=BATTERY", "remember=false", "mobile=true", "dynamic=false", "${Kind.PDF.name}=false", "ask"),
+            listOf("schedule=BATTERY", "remember=false", "dynamic=false", "${Kind.PDF.name}=false", "ask"),
             seen,
         )
+    }
+
+    @Test fun theMobileDataSwitchSitsWithTheOfferedDownload() {
+        val seen = mutableListOf<String>()
+        show(offered, SettingsActions(setMobileData = { seen += "mobile=$it" }))
+        rule.onNodeWithText("Use mobile data for downloads").performScrollTo().performClick()
+        assertEquals(listOf("mobile=true"), seen)
+    }
+
+    @Test fun theMobileDataSwitchGoesOnceTheDownloadIsDone() {
+        show(ready)
+        assertEquals(0, rule.onAllNodesWithTextCount("Use mobile data for downloads"))
     }
 
     @Test fun switchesShowThePrefs() {

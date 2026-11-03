@@ -7,8 +7,8 @@ The shared counts, current schedule and UI contract are in [Reading](reading.md)
 
 The switches and the few actions that change how Retriever behaves. The groups, in order: "How Retriever works and your
 privacy", **Reading** (see [Reading](reading.md)), **Search by meaning** (the optional download: the same upgrade card as
-Try and Home with what it adds and its size, then its progress with Cancel; once done, "Downloaded · 388 MB" and Remove
-search download; mobile data for downloads; absent on text-only phones), **Included files** (Manage access, Process these
+Try and Home with what it adds and its size, then its progress with Cancel and the mobile-data switch; once done,
+"Downloaded · 388 MB" and Remove search download, with no mobile-data switch; absent on text-only phones), **Included files** (Manage access, Process these
 file types, Excluded folders), **Privacy** (Save recent searches, Clear recent searches, Android's Processing
 notifications), **Storage** ("Retriever’s data" with "47.6 MB · kept on this phone" beneath, and Temporary files the same
 way; no action, only facts), **Appearance** (Show On this day, Android's wallpaper colours) and **About**. Large files and

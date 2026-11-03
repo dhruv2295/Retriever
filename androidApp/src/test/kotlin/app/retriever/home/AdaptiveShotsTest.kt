@@ -122,7 +122,15 @@ abstract class AdaptiveShotsTest(private val size: String) {
     }
 
     @Test fun statusReading() = shot("adaptive_status_reading_$size") {
-        StatusContent(reading, prefs, running, skippedFiles, skippedOpen = false, batteryHint = true)
+        StatusContent(
+            reading,
+            prefs,
+            running,
+            skippedFiles,
+            skippedOpen = false,
+            batteryHint = true,
+            readingStatus = app.retriever.decidedStatus(reading, prefs, running),
+        )
     }
 }
 
