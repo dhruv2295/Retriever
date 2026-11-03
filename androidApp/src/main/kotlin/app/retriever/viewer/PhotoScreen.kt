@@ -6,7 +6,9 @@ import android.content.Context
 import android.util.Size
 import android.view.WindowInsetsController
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.SnapSpec
+import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -47,6 +50,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import app.retriever.R
 import app.retriever.core.motion.MascotMood
@@ -184,6 +188,8 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, on
         }?.let { value = it.asImageBitmap() }
     }
     val moving = morph?.shared?.isTransitionActive == true
+    // The picture leaves the tile's rounded corners and squares off as it lands; on Back it rounds again into the tile.
+    val corner = morph?.screen?.transition?.animateDp(label = "photoCorner") { if (it == EnterExitState.Visible) 0.dp else 12.dp }
     // A page with no zoomable photo yet takes the tap itself, so a hidden bar can always come back.
     val tapToToggle = Modifier.clickable(interactionSource = null, indication = null, onClick = onTap)
     if (failed) {
@@ -225,7 +231,13 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, on
                 modifier = Modifier
                     .aspectRatio(shown.width.toFloat() / shown.height)
                     .photoMorph(rememberPhotoKey(morph.takeIf { current }, item.uri))
-                    .graphicsLayer { alpha = cover },
+                    .graphicsLayer {
+                        alpha = cover
+                        corner?.let {
+                            shape = RoundedCornerShape(it.value)
+                            clip = true
+                        }
+                    },
             )
         } else if (!sharp) {
             CircularProgressIndicator()

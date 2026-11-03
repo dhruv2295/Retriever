@@ -121,12 +121,19 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
 
 /** A header over one strip of [FileTile]s, newest first; the header opens the whole list, a tile opens the file among the strip's. */
 @Composable
-private fun FileStrip(title: String, files: List<SourceFile>, onHeader: () -> Unit, actions: SearchActions, load: Boolean = true) {
+private fun FileStrip(
+    title: String,
+    files: List<SourceFile>,
+    onHeader: () -> Unit,
+    actions: SearchActions,
+    load: Boolean = true,
+    noMorph: Set<String> = emptySet(),
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader(title, onClick = onHeader)
         LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.uri }, contentType = { "tile" }) { f ->
-                FileTile(f, TILE, morph = actions.morph, load = load) {
+                FileTile(f, TILE, morph = actions.morph.takeIf { f.uri !in noMorph }, load = load) {
                     Opener.queue(files)
                     actions.onOpenFile(it)
                 }
@@ -362,5 +369,8 @@ private fun dayText(context: Context, date: LocalDate, zone: ZoneId, year: Boole
 
 /** The most recently starred files as the same small tiles; the header opens the whole Starred list. */
 @Composable
-internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) =
-    FileStrip("Starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, load = hasAccess)
+internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) {
+    // A photo in Recently added too grows from there only: two tiles with its key leave Back no single tile to shrink into.
+    val recent = remember(home.recentlyAdded) { home.recentlyAdded.mapTo(HashSet()) { it.uri } }
+    FileStrip("Starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, hasAccess, recent)
+}

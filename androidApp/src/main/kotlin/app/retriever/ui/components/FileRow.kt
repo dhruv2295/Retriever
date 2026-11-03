@@ -231,6 +231,7 @@ fun ThumbCell(
             locator = locator,
             tint = colors.onSurfaceVariant,
             morph = morph,
+            shape = RoundedCornerShape(12.dp),
         )
         if (badge != null || file.kind == Kind.VIDEO) {
             Row(

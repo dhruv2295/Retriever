@@ -1,6 +1,5 @@
 package app.retriever.nav
 
-import android.animation.ValueAnimator
 import androidx.activity.compose.ReportDrawn
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.EnterTransition
@@ -116,8 +115,6 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
     }
     // Core's machine decides; SetupFlow is built here, after setUp settles, so it seeds from the stored setup.
     val start: Route = remember { if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute }
-    // Reduce motion: setup gives way to Home with no fade or growth.
-    val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     app.retriever.files.FileActionsHost(retriever) {
         SharedTransitionLayout {
             // Home's search pill and the search screen share bounds: opening grows the pill into the screen, and Back
@@ -128,25 +125,17 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
             val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
             // Every other screen: the new one fades and grows from 92% while the one below fades fast, and Back (a
             // predictive swipe too) runs it in reverse. Navigation's own 700 ms cross-fade showed both screens half-drawn for
-            // most of a second, and taps wait for it to settle.
+            // most of a second, and taps wait for it to settle. With the system's animations off, Compose snaps these to
+            // their end.
             NavHost(
                 navController,
                 startDestination = start,
-                enterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) },
+                enterTransition = { fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f) },
                 exitTransition = {
-                    when {
-                        reduceMotion -> ExitTransition.None
-                        targetState.destination.hasRoute<PhotoRoute>() -> ExitTransition.KeepUntilTransitionsFinished
-                        else -> fadeOut(fastEffects)
-                    }
+                    if (targetState.destination.hasRoute<PhotoRoute>()) ExitTransition.KeepUntilTransitionsFinished else fadeOut(fastEffects)
                 },
-                popEnterTransition = {
-                    when {
-                        reduceMotion || initialState.destination.hasRoute<PhotoRoute>() -> EnterTransition.None
-                        else -> fadeIn(defaultEffects)
-                    }
-                },
-                popExitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) + scaleOut(defaultEffects, 0.92f) },
+                popEnterTransition = { if (initialState.destination.hasRoute<PhotoRoute>()) EnterTransition.None else fadeIn(defaultEffects) },
+                popExitTransition = { fadeOut(fastEffects) + scaleOut(defaultEffects, 0.92f) },
                 // A back swipe from a photo fades its backdrop as the photo follows the finger to its tile; Navigation's
                 // default shrinks the whole viewer to 70%, an opaque black card until the swipe ends.
                 predictivePopEnterTransition = { edge ->
@@ -158,8 +147,7 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
                     if (fromPhoto) fadeOut(defaultEffects) else DefaultNavTransitions.predictivePopExitTransition(this, edge)
                 },
             ) {
-                // Setup to Home is a fade through (motion row 11): the old screen fades fast, the new one fades and grows from 92%.
-                composable<SetupRoute>(exitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(fastEffects) }) {
+                composable<SetupRoute> {
                     // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
                     ReportDrawn()
                     // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
@@ -170,15 +158,7 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
                         }
                     })
                 }
-                composable<HomeRoute>(
-                    enterTransition = {
-                        when {
-                            !initialState.destination.hasRoute<SetupRoute>() -> null
-                            reduceMotion -> EnterTransition.None
-                            else -> fadeIn(defaultEffects) + scaleIn(defaultEffects, 0.92f)
-                        }
-                    },
-                ) { HomeHost(go, pillModifier = searchBounds(this), morph = morph(this)) }
+                composable<HomeRoute> { HomeHost(go, pillModifier = searchBounds(this), morph = morph(this)) }
                 // The rest of the screen fades in with the pill's growth.
                 composable<SearchRoute>(enterTransition = { fadeIn(defaultEffects) }, popExitTransition = { fadeOut(defaultEffects) }) {
                     SearchScreen(it.toRoute<SearchRoute>(), go, back, searchBounds(this), morph(this))
@@ -192,8 +172,8 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
                 composable<PdfRoute> { PdfPageScreen(it.toRoute<PdfRoute>(), back, replace) }
                 // Only the backdrop and bar fade: the photo itself is the tile, growing.
                 composable<PhotoRoute>(
-                    enterTransition = { if (reduceMotion) EnterTransition.None else fadeIn(defaultEffects) },
-                    popExitTransition = { if (reduceMotion) ExitTransition.None else fadeOut(defaultEffects) },
+                    enterTransition = { fadeIn(defaultEffects) },
+                    popExitTransition = { fadeOut(defaultEffects) },
                 ) { PhotoScreen(it.toRoute<PhotoRoute>(), back, morph = morph(this)) }
                 composable<DocRoute> { DocScreen(it.toRoute<DocRoute>(), back, replace) }
             }

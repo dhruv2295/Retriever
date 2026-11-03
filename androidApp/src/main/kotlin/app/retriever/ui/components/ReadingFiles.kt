@@ -187,6 +187,7 @@ internal fun FileTile(
                 .testTag("recent:${file.uri}"),
             load = load,
             morph = morph,
+            shape = MaterialTheme.shapes.medium,
         )
     }
 }

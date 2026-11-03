@@ -51,8 +51,11 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -286,7 +289,7 @@ fun Modifier.photoMorph(key: PhotoKey?): Modifier {
  * system's animations are off, which Compose's motion scale already applies), and a picture that is in memory already
  * drawn at once. [longEdge] picks the request bucket, so every screen asks for the same few sizes; [locator] the PDF page
  * or video moment; [load] false keeps the icon (no access). [tint] colours the placeholder's icon. A photo's picture
- * grows into the viewer in [morph].
+ * grows into the viewer in [morph], clipped to [shape] in flight: the shared element draws over its parents' clips.
  */
 @Composable
 fun ThumbnailImage(
@@ -299,6 +302,7 @@ fun ThumbnailImage(
     locator: String = "",
     tint: Color = Color.Unspecified,
     morph: PhotoMorph? = null,
+    shape: Shape = RectangleShape,
 ) {
     val context = LocalContext.current
     val px = Thumbnails.bucket(with(LocalDensity.current) { longEdge.roundToPx() })
@@ -310,7 +314,10 @@ fun ThumbnailImage(
     val fade = animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     val covered by remember { derivedStateOf { fade.value >= 1f } }
     val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT) rememberPhotoKey(morph, file.uri) else null
-    Box(modifier.photoMorph(key).background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }), contentAlignment = Alignment.Center) {
+    Box(
+        modifier.photoMorph(key).clip(shape).background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }),
+        contentAlignment = Alignment.Center,
+    ) {
         // A document's page leaves the cell's colour around it, so the type card underneath goes once the page is in.
         if (shown == null || !covered) KindFace(file, iconSize, tint.takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) })
         if (shown != null) {
