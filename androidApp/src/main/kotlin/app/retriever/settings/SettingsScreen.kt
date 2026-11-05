@@ -279,19 +279,14 @@ fun SettingsContent(
                         onAction = { if (it == StatusAction.STOP) actions.stopReadNow() else actions.resume() },
                     )
                 }
-                ListItem(
-                    headlineContent = { Text(Words.WHEN_TO_READ) },
-                    supportingContent = {
-                        Text(
-                            prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
-                                ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
-                                ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
-                                ReadingSchedule.MANUAL -> "Only when you choose ${Words.READ_FOR_15}."
-                            },
-                        )
+                OpenRow(
+                    Words.WHEN_TO_READ,
+                    prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
+                        ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
+                        ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
+                        ReadingSchedule.MANUAL -> "Only when you choose ${Words.READ_FOR_15}."
                     },
-                    modifier = Modifier.clickable(role = Role.Button) { schedulesOpen = true },
-                )
+                ) { schedulesOpen = true }
                 if (schedulesOpen) {
                     AlertDialog(
                         onDismissRequest = { schedulesOpen = false },
@@ -313,30 +308,13 @@ fun SettingsContent(
                         confirmButton = { TextButton(onClick = { schedulesOpen = false }) { Text(Words.DONE) } },
                     )
                 }
-                ListItem(
-                    headlineContent = { Text(Words.READ_FOR_15) },
-                    supportingContent = { Text(Words.readNowBody(DeviceWords.ANDROID)) },
-                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.readNow),
+                ActionRow(Words.READ_FOR_15, { Text(Words.readNowBody(DeviceWords.ANDROID)) }, onClick = actions.readNow)
+                OpenRow(
+                    "Processing notifications",
+                    if (ui.notificationsOn) "On" else "Off. Processing still runs; you just don’t see how far it’s got.",
+                    actions.openNotificationSettings,
                 )
-                ListItem(
-                    headlineContent = { Text("Processing notifications") },
-                    supportingContent = { Text(if (ui.notificationsOn) "On" else "Off. Processing still runs; you just don’t see how far it’s got.") },
-                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotificationSettings),
-                )
-                if (!ui.textOnly && !ui.modelMissing) {
-                    var adjust by rememberSaveable { mutableStateOf(false) }
-                    ListItem(
-                        headlineContent = {
-                            Text("Adjust processing for this device")
-                        },
-                        supportingContent = { Text("Run the setup check again.") },
-                        modifier = Modifier.clickable {
-                            adjust =
-                                !adjust
-                        },
-                    )
-                    if (adjust) TuneRow(ui.tune, actions.tuneAgain)
-                }
+                if (!ui.textOnly && !ui.modelMissing) TuneRow(ui.tune, actions.tuneAgain)
                 // Text-only phones can't run it, so they have no section for it.
                 if (!ui.textOnly) {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -345,7 +323,7 @@ fun SettingsContent(
                 }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("Included files")
-                ListItem(headlineContent = { Text(Words.WHAT_IT_CAN_SEE) }, modifier = Modifier.clickable(role = Role.Button, onClick = actions.openAccess))
+                OpenRow(Words.WHAT_IT_CAN_SEE, onClick = actions.openAccess)
                 Text(
                     Words.PROCESS_THESE_KINDS,
                     style = MaterialTheme.typography.labelLarge,
@@ -381,7 +359,7 @@ fun SettingsContent(
                 Header("Privacy")
                 SwitchRow("Save recent searches", prefs.rememberSearches, "Saved on this device. Also used for search shortcuts.", actions.setRememberSearches)
                 var confirmClear by rememberSaveable { mutableStateOf(false) }
-                ListItem(headlineContent = { Text("Clear recent searches") }, modifier = Modifier.clickable(role = Role.Button) { confirmClear = true })
+                ActionRow("Clear recent searches", destructive = true) { confirmClear = true }
                 if (confirmClear) {
                     AlertDialog(
                         onDismissRequest = { confirmClear = false },
@@ -429,10 +407,7 @@ fun SettingsContent(
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header("About")
                 ValueRow("Version", BuildConfig.VERSION_NAME)
-                ListItem(
-                    headlineContent = { Text("Open-source notices") },
-                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.openNotices),
-                )
+                OpenRow("Open-source notices", onClick = actions.openNotices)
 
                 // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
                 if (BuildConfig.DEBUG) {
@@ -445,11 +420,7 @@ fun SettingsContent(
                                 supportingContent = { Text("${DateUtils.getRelativeTimeSpanString(p.atMillis)}. ${p.description}") },
                             )
                         }
-                        ListItem(
-                            headlineContent = { Text("Share", color = MaterialTheme.colorScheme.primary) },
-                            supportingContent = { Text("Nothing is sent unless you pick an app.") },
-                            modifier = Modifier.clickable(role = Role.Button, onClick = actions.shareProblems),
-                        )
+                        ActionRow("Share", { Text("Nothing is sent unless you pick an app.") }, onClick = actions.shareProblems)
                     }
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Header("For testing")
@@ -500,25 +471,26 @@ private fun HowItWorks() {
 
 @Composable
 private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
-    ListItem(
-        headlineContent = { Text("Run setup check") },
-        supportingContent = {
+    ActionRow(
+        "Run setup check",
+        {
             Text(
                 when (tune) {
                     TuneState.Running -> "Tuning… a few minutes at most"
                     is TuneState.Failed -> "Tune failed: ${tune.message}"
                     is TuneState.Done -> "Processing is set up"
-                    TuneState.Idle -> "Processing speed adjusts to your phone."
+                    TuneState.Idle -> "Adjusts processing speed to this phone."
                 },
                 color = if (tune is TuneState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        trailingContent = if (tune == TuneState.Running) {
+        enabled = tune != TuneState.Running,
+        trailing = if (tune == TuneState.Running) {
             { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp) }
         } else {
             null
         },
-        modifier = Modifier.clickable(enabled = tune != TuneState.Running, role = Role.Button, onClick = onTune),
+        onClick = onTune,
     )
 }
 
@@ -541,11 +513,7 @@ private fun SearchByMeaning(ui: SettingsUi, actions: SettingsActions) {
     if (ui.upgrade.stage == UpgradeStage.DONE) {
         val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
         ListItem(headlineContent = { Text(Words.UPGRADE_TITLE) }, supportingContent = { Text(Words.downloaded(size)) })
-        ListItem(
-            headlineContent = { Text(Words.REMOVE_DOWNLOAD, color = MaterialTheme.colorScheme.error) },
-            supportingContent = { Text(Words.NAMES_STILL_WORK) },
-            modifier = Modifier.clickable(role = Role.Button, onClick = actions.askFreeUpSpace),
-        )
+        ActionRow(Words.REMOVE_DOWNLOAD, { Text(Words.NAMES_STILL_WORK) }, destructive = true, onClick = actions.askFreeUpSpace)
     } else {
         UpgradeCard(ui.upgrade, actions.upgrade, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
@@ -575,6 +543,35 @@ fun NoticesContent(text: String?, modifier: Modifier = Modifier, onBack: () -> U
 @Composable
 private fun ValueRow(label: String, value: String) {
     ListItem(headlineContent = { Text(label) }, trailingContent = { Text(value, style = MaterialTheme.typography.bodyMedium.tabular()) })
+}
+
+/** Opens something (a choice, a screen, the system's settings): the chevron says there is more behind the row. */
+@Composable
+private fun OpenRow(label: String, supporting: String? = null, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(label) },
+        supportingContent = supporting?.let { { Text(it) } },
+        trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) },
+        modifier = Modifier.clickable(role = Role.Button, onClick = onClick),
+    )
+}
+
+/** Does it at once: the label is the action, in the accent colour, or the error colour when it removes something. */
+@Composable
+private fun ActionRow(
+    label: String,
+    supporting: @Composable (() -> Unit)? = null,
+    destructive: Boolean = false,
+    enabled: Boolean = true,
+    trailing: @Composable (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(label, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) },
+        supportingContent = supporting,
+        trailingContent = trailing,
+        modifier = Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+    )
 }
 
 @Composable
