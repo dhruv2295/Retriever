@@ -94,6 +94,9 @@ content leaves the phone; only the model download uses the network.
 7. The model is used only when its size and sha256 marker match (`model-download.md`).
 8. Indexing never delays a query by more than one native call.
 9. `useLegacyPackaging = true` in `androidApp/build.gradle.kts` stays: NPU dispatch reads `nativeLibraryDir`.
+10. LiteRT loads the first dispatch library in its directory, and the APK carries Tensor's and MediaTek's. An NPU open
+    points it at `no_backup/npu-dispatch/<library>/`, which holds a link to the build's own vendor's library alone
+    (`ModelBuilds.dispatchLibrary`); with the whole `nativeLibraryDir`, a Tensor G6 loaded MediaTek's and failed.
 
 ## Tests
 

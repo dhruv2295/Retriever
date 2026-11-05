@@ -29,6 +29,7 @@ import app.retriever.core.EmbedderFactory
 import app.retriever.core.InputTooLongException
 import app.retriever.core.Modality
 import app.retriever.core.ModelBuild
+import app.retriever.core.ModelBuilds
 import app.retriever.core.ModelVariant
 import app.retriever.core.Part
 import app.retriever.core.Prefix
@@ -52,6 +53,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
 
 // LiteRT-LM reports it as INVALID_ARGUMENT "Input sequence length (N) exceeds maximum supported signature length".
 private fun Throwable.isInputTooLong(): Boolean =
@@ -188,7 +190,7 @@ private class MediaPipeEmbedder(
         if (textDelegate == Delegate.NPU) {
             val libs = context.applicationInfo.nativeLibraryDir
             base.setDelegateOptions(
-                NpuOptions.builder().setDispatchLibraryDirectory(libs).setCompilerPluginLibraryDirectory(libs).build(),
+                NpuOptions.builder().setDispatchLibraryDirectory(dispatchDir(libs)).setCompilerPluginLibraryDirectory(libs).build(),
             )
         }
         cache.mkdirs()
@@ -204,6 +206,20 @@ private class MediaPipeEmbedder(
         // builds the audio encoder's 91 MB cache and native heap didn't drop (emulator, M740), so it isn't worth a reopen.
         if (model.audio && modelHasAudio) builder.setAudioDelegate(Delegate.CPU)
         return UniversalEmbedder.createFromOptions(context, builder.build())
+    }
+
+    /**
+     * LiteRT loads the first dispatch library it finds in the directory, and the APK carries every vendor's: on a
+     * Tensor G6 it took MediaTek's and the NPU build never ran. A directory holding a link to this build's vendor's
+     * library alone leaves it no choice. Relinked on every open: an app update moves [libs].
+     */
+    private fun dispatchDir(libs: String): String {
+        val name = ModelBuilds.dispatchLibrary(modelBuild.soc.orEmpty()) ?: return libs
+        val dir = File(context.noBackupFilesDir, "npu-dispatch/${name.substringBeforeLast('.')}").apply { mkdirs() }
+        val link = File(dir, name).toPath()
+        Files.deleteIfExists(link)
+        Files.createSymbolicLink(link, File(libs, name).toPath())
+        return dir.path
     }
 
     override suspend fun embedRaw(parts: List<Part>): FloatArray = mutex.withLock {

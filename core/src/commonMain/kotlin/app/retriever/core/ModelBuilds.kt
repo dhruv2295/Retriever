@@ -67,12 +67,15 @@ object ModelBuilds {
      * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present.
      * Qualcomm has no build here: the Maven AAR has the dispatch library and compiler plugin but no QNN libraries, so Snapdragon stays on GPU with the generic build.
      */
-    fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean {
-        val m = socManufacturer.lowercase()
+    fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean = dispatchLibrary(socManufacturer)?.let(hasLib) == true
+
+    /** The vendor's NPU dispatch library; [vendor] is a SoC manufacturer or an NPU build's [ModelBuild.soc]. */
+    fun dispatchLibrary(vendor: String): String? {
+        val m = vendor.lowercase()
         return when {
-            "google" in m -> hasLib("libLiteRtDispatch_GoogleTensor.so")
-            "mediatek" in m -> hasLib("libLiteRtDispatch_MediaTek.so")
-            else -> false
+            "google" in m -> "libLiteRtDispatch_GoogleTensor.so"
+            "mediatek" in m -> "libLiteRtDispatch_MediaTek.so"
+            else -> null
         }
     }
 

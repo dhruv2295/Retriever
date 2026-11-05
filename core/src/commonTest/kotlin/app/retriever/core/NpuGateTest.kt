@@ -20,6 +20,11 @@ class NpuGateTest {
         assertFalse(ready("Google"))
         assertTrue(ready("Mediatek", "libLiteRtDispatch_MediaTek.so"))
         assertFalse(ready("Mediatek", "libLiteRtDispatch_GoogleTensor.so"))
+        // The embedder links only the build's own vendor's library: with both in one directory, a Tensor G6 loaded MediaTek's.
+        for (b in ModelBuilds.npu) {
+            val vendor = if ("Google" in b.soc.orEmpty()) "GoogleTensor" else "MediaTek"
+            assertEquals("libLiteRtDispatch_$vendor.so", ModelBuilds.dispatchLibrary(b.soc.orEmpty()))
+        }
     }
 
     @Test

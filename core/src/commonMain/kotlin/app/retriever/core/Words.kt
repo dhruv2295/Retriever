@@ -290,7 +290,8 @@ object Words {
 
         DescriptionState.NO_SPACE -> "Find them by name or words now. There isn’t enough free space to download search by description."
 
-        DescriptionState.NOT_STARTED -> "Find them by name or words now. Search by description needs a one-time download."
+        // Not "one-time": after a chip build fails on its first run, this is the second download.
+        DescriptionState.NOT_STARTED -> "Find them by name or words now. Search by description needs a download."
 
         DescriptionState.DOWNLOADING, DescriptionState.PREPARING ->
             "Find them by name or words now. Search by description arrives when setup finishes."
