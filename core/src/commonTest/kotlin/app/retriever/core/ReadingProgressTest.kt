@@ -52,6 +52,17 @@ class ReadingProgressTest {
         assertEquals(StopReason.MANUAL, ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.MANUAL), device, false, false, 0, fewWaiting = true))
     }
 
+    @Test fun alsoOnBatteryReadsDownToTheFloorThenWaitsForTheCharger() {
+        val battery = Prefs().withSchedule(ReadingSchedule.BATTERY)
+        val floor = ReadingPolicy.BATTERY_FLOOR
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor), false, false, 0))
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false, false, 0))
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.deepenBlocker(battery, device.copy(batteryPct = floor - 1), false, false, 0))
+        // A few new files still go on down to the low-battery line; the charger lifts the floor.
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false, false, 0, fewWaiting = true))
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = 40, charging = true, pluggedIn = true), false, false, 0))
+    }
+
     @Test fun laterPartsStayOnTheChargerWithTheScreenOff() {
         val plugged = device.copy(charging = true, pluggedIn = true)
         assertNull(ReadingPolicy.deepenBlocker(Prefs(), plugged, false, false, 0))

@@ -278,6 +278,16 @@ object Words {
     fun otherFilesBody(words: DeviceWords): String =
         "When your ${words.device} is charging and you’re not using it. With lots of files, this can take a few nights."
 
+    /** [otherFilesBody] for Also on battery ([ReadingSchedule.BATTERY]). */
+    fun otherFilesOnBatteryBody(words: DeviceWords): String =
+        "When you’re not using your ${words.device}: on battery down to ${ReadingPolicy.BATTERY_FLOOR}%, and while charging. " +
+            "With lots of files, this can take a few days."
+
+    /** Settings' line for Also on battery. */
+    fun onBatteryBody(words: DeviceWords): String =
+        "Also on battery down to ${ReadingPolicy.BATTERY_FLOOR}%, so the rest of your charge is left for your day. " +
+            "It stops when ${words.powerSave} is on or your ${words.device} is warm."
+
     /** What the recent files can do now; promises no time. */
     fun recentFilesBody(state: DescriptionState): String = when (state) {
         DescriptionState.READY -> "Find them by describing them."

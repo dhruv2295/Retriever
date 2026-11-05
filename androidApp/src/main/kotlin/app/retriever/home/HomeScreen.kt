@@ -263,6 +263,7 @@ internal fun HomeBody(
                 val state = upgrade.description
                 HomeIntroCard(
                     state,
+                    ui.readsOnBattery,
                     ui.planned,
                     ui.progress.rest,
                     Format.downloadSize(context, upgrade.sizeBytes),

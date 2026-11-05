@@ -137,6 +137,9 @@ object ReadingPolicy {
     const val LOW_BATTERY = 20
     const val BATTERY_RECOVERED = 23
 
+    /** Also on battery: the catch-up reads off the charger only down to this, so a day's charge is left for the day. */
+    const val BATTERY_FLOOR = 75
+
     /**
      * New files after the first pass: up to this many are processed at once, on battery and while the phone is in use. At
      * about 1.5 s a photo that is a couple of minutes; only the one-time catch-up waits for the charger.
@@ -161,8 +164,15 @@ object ReadingPolicy {
         device.screenOn && !visible && !fewWaiting -> StopReason.BUSY
         sampleSession -> null
         prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
-        prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn && !fewWaiting -> StopReason.UNPLUGGED
+        !device.pluggedIn && !fewWaiting && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
         else -> null
+    }
+
+    /** Off the charger, the schedule waits for one: While charging always, Also on battery under [BATTERY_FLOOR]. */
+    private fun belowSchedule(prefs: Prefs, device: DeviceState) = when (prefs.automaticReading) {
+        ReadingSchedule.CHARGING -> true
+        ReadingSchedule.BATTERY -> device.batteryPct in 0 until BATTERY_FLOOR
+        ReadingSchedule.MANUAL -> false
     }
 
     /**
@@ -173,7 +183,7 @@ object ReadingPolicy {
         sampleSession && visible -> null
         prefs.readNowUntil > now -> null
         device.screenOn && !visible -> StopReason.BUSY
-        prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn -> StopReason.UNPLUGGED
+        !device.pluggedIn && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
         else -> null
     }
 

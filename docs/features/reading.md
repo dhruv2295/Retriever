@@ -21,9 +21,11 @@ work prevents completion; exhausted passes show their limit. Revoked, deleted, e
 
 ## Schedule and state
 
-New installs default to While charging, including in the foreground. Legacy preferences keep their saved choice, even
-when the old default was omitted from JSON. Retuning never changes the schedule. Settings also offers Also on battery
-and When I start it. Resume lifts the persistent pause and reapplies that schedule.
+New Android installs default to Also on battery, saved at Get started (`SetupFlow.getStarted`); iOS keeps While
+charging, as it reads hidden only on external power. Also on battery reads off the charger down to
+`ReadingPolicy.BATTERY_FLOOR` (75%), then waits for the charger as While charging does, in the foreground too. Legacy
+preferences keep their saved choice, even when the old default was omitted from JSON. Retuning never changes the
+schedule. Settings also offers When I start it. Resume lifts the persistent pause and reapplies that schedule.
 
 The schedule governs the one-time catch-up only. New files after it don't wait: with 1 to `ReadingPolicy.FEW_WAITING`
 (100) files waiting, about two minutes of work, they are read at once, on battery and while the phone is in use

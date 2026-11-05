@@ -9,6 +9,7 @@ import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Person
 import app.retriever.core.ReadingProgress
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SamePerson
@@ -58,6 +59,8 @@ data class HomeUi(
     val showOnThisDay: Boolean = true,
     /** Setup just finished: the one-time card about what happens next, core's [app.retriever.core.Prefs.homeIntroDue]. */
     val introDue: Boolean = false,
+    /** The card's "other files" line follows the schedule: Also on battery reads off the charger too. */
+    val readsOnBattery: Boolean = false,
     /** Setup's first search's files, core's [app.retriever.core.SetupInputs.planned]. */
     val planned: Long = 0,
     /** Grouped faces, most photos first; empty while Recognize people is off. */
@@ -117,6 +120,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
                 introDue = retriever.prefs.value.homeIntroDue,
+                readsOnBattery = retriever.prefs.value.automaticReading == ReadingSchedule.BATTERY,
                 suggestions = null,
             ),
         )
@@ -169,6 +173,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
                         introDue = p.homeIntroDue,
+                        readsOnBattery = p.automaticReading == ReadingSchedule.BATTERY,
                     )
                 }
             }

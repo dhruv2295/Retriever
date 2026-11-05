@@ -44,6 +44,7 @@ internal fun HomeIntroCard(
     planned: Long,
     rest: Long?,
     size: String,
+    readsOnBattery: Boolean,
     onRecentAction: () -> Unit,
     onNotify: (() -> Unit)?,
     onGotIt: () -> Unit,
@@ -70,7 +71,11 @@ internal fun HomeIntroCard(
                         }
                     }
                 }
-                IntroRow(R.drawable.ic_bolt, Words.otherFiles(rest), Words.otherFilesBody(DeviceWords.ANDROID))
+                IntroRow(
+                    R.drawable.ic_bolt,
+                    Words.otherFiles(rest),
+                    if (readsOnBattery) Words.otherFilesOnBatteryBody(DeviceWords.ANDROID) else Words.otherFilesBody(DeviceWords.ANDROID),
+                )
                 IntroRow(R.drawable.ic_add, Words.NEW_FILES, Words.NEW_FILES_BODY)
             }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {

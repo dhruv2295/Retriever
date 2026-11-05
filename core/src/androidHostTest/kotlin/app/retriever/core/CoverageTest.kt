@@ -91,7 +91,8 @@ class CoverageTest {
                 store,
                 listOf(file),
                 FakeExtractor(mapOf(file.name to (1..20).map { textPiece("part $it") })),
-                monitor = FakeMonitor(DeviceState(8.0, charging = false, 50, Thermal.NONE, screenOn = uiVisible)),
+                // Above ReadingPolicy.BATTERY_FLOOR, where Also on battery reads off the charger.
+                monitor = FakeMonitor(DeviceState(8.0, charging = false, 80, Thermal.NONE, screenOn = uiVisible)),
             )
             store.setProfile(PROFILE)
             r.uiVisible = uiVisible

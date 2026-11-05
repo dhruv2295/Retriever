@@ -285,7 +285,7 @@ fun SettingsContent(
                         Text(
                             prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
                                 ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
-                                ReadingSchedule.BATTERY -> "Also on battery, above 20%. It stops when Battery Saver is on or your phone is warm."
+                                ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
                                 ReadingSchedule.MANUAL -> "Only when you choose ${Words.READ_FOR_15}."
                             },
                         )

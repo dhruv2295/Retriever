@@ -3,6 +3,7 @@ package app.retriever.setup
 import android.util.Log
 import app.retriever.access.Access
 import app.retriever.access.AccessService
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
 import app.retriever.core.SampleFile
 import app.retriever.core.SetupInputs
@@ -150,6 +151,8 @@ class SetupFlow(
     /** Hello's Get started: the access screen next, with the model's download started where it runs and is missing. */
     fun getStarted() = launch {
         if (_ui.value.downloadsOnGetStarted) startDownload()
+        // Android reads off the charger too, down to ReadingPolicy.BATTERY_FLOOR; iOS reads hidden only on external power.
+        if (retriever.prefs.value.schedule == null) retriever.setReadingSchedule(ReadingSchedule.BATTERY)
         retriever.setSetupMark(SetupMark.GREETED)
     }
 
