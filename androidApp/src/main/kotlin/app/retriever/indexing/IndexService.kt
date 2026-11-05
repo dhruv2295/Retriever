@@ -83,7 +83,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
 
             NextRun.WHEN_CHARGING -> continueWhenCharging()
 
-            NextRun.WHEN_IDLE -> if (retriever.hasPendingTaste() && !context.getSystemService(PowerManager::class.java).isInteractive) {
+            NextRun.WHEN_IDLE -> if (retriever.hasPendingTaste() && !retriever.deviceState().screenOn) {
                 continueTrial()
             } else if (retriever.deviceState().pluggedIn) {
                 // Android defers a cached app's screen-off broadcast and IDLE can take an hour, so a Pixel on its charger
@@ -100,7 +100,7 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     /** [leaving]: the app just left view (onStop), rather than the screen-off broadcast, which Android may deliver much later. */
     suspend fun screenOff(leaving: Boolean = false) {
         ownership.withLock {
-            if (directTrial?.isActive == true && (!retriever.uiVisible || !context.getSystemService(PowerManager::class.java).isInteractive)) {
+            if (directTrial?.isActive == true && (!retriever.uiVisible || !retriever.deviceState().screenOn)) {
                 continueTrial(leaving)
                 directTrial?.cancel()
                 return

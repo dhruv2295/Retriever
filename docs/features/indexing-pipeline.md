@@ -24,7 +24,8 @@ shared code. See `background-android.md` and `background-ios.md` for the schedul
 - **Phone policy in one place.** `ReadingPolicy.blocker` (through the facade's `readingBlocker`, the engine's
   `policyStop`) is asked before every file and every embed: Pause, Battery Saver, heat (`DeviceState.hot`: Android's
   thermal headroom at 0.95 or SEVERE; without a headroom, MODERATE), a battery at 20% or less off the charger, busy
-  (screen on while the app is hidden), and the charger when the schedule requires it; a few new files and Process for 15
+  (screen on and unlocked while the app is hidden: Android counts a Pixel's charging screen saver over the lock screen
+  as interactive, so a locked phone counts as put down), and the charger when the schedule requires it; a few new files and Process for 15
   minutes carry on while the phone is in use. The engine's own `IndexEngine.stopReason` (Pause, Battery Saver, heat, the
   charger for tests) is a subset of it. Battery Saver also pauses hidden reading before sync, so waiting never walks
   folders. A visible app reads on battery.

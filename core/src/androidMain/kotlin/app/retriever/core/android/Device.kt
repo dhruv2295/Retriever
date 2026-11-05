@@ -19,6 +19,7 @@
 package app.retriever.core.android
 
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -67,6 +68,7 @@ internal class HeadroomPoll(private val now: () -> Long, private val read: () ->
 class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
+    private val keyguardManager = context.getSystemService(KeyguardManager::class.java)
     private val ramGb by lazy { nominalRamGb(memoryBytes(context)) }
     private val headroom = HeadroomPoll(SystemClock::elapsedRealtime) { powerManager.getThermalHeadroom(ThermalRest.POLL.inWholeSeconds.toInt()) }
 
@@ -75,7 +77,9 @@ class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
         charging = batteryManager.isCharging,
         batteryPct = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
         thermal = thermal(powerManager.currentThermalStatus),
-        screenOn = powerManager.isInteractive,
+        // Android counts a screen saver as interactive, and a Pixel on its charger shows one, over the lock screen, instead of
+        // turning the screen off: reading waited as if the phone were in use. Locked is put down.
+        screenOn = powerManager.isInteractive && !keyguardManager.isKeyguardLocked,
         powerSave = powerManager.isPowerSaveMode,
         // A null receiver reads the sticky broadcast without registering.
         pluggedIn = (context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0,

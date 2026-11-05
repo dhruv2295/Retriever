@@ -139,6 +139,7 @@ data class DeviceState(
     val charging: Boolean,
     val batteryPct: Int,
     val thermal: Thermal,
+    /** The phone is in use: on Android its screen is on and unlocked (a lit lock screen or charging screen saver is not use). */
     val screenOn: Boolean = false,
     val powerSave: Boolean = false,
     val pluggedIn: Boolean = charging,
