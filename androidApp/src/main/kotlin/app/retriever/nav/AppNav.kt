@@ -1,26 +1,37 @@
 package app.retriever.nav
 
 import androidx.activity.compose.ReportDrawn
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope.ResizeMode
+import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
-import androidx.navigation.compose.DefaultNavTransitions
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import androidx.navigationevent.NavigationEvent
 import app.retriever.browse.BrowseScreen
 import app.retriever.core.Retriever
 import app.retriever.duplicates.DuplicatesScreen
@@ -93,6 +104,30 @@ data class DocRoute(val fileId: Long, val uri: String, val name: String, val mim
 // M3's default effects spring for the photo's shared-element transition.
 private val defaultEffects = spring<Float>(1f, 1600f)
 
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.matchesSearchPill(): Boolean {
+    val from = initialState.destination
+    val to = targetState.destination
+    return (from.hasRoute<SearchRoute>() && (to.hasRoute<HomeRoute>() || to.hasRoute<SetupRoute>())) ||
+        ((from.hasRoute<HomeRoute>() || from.hasRoute<SetupRoute>()) && to.hasRoute<SearchRoute>())
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.pageEnter(direction: SlideDirection): EnterTransition {
+    val fade = fadeIn(tween(300))
+    return if (matchesSearchPill()) fade else slideIntoContainer(direction, tween(300)) { it / 8 } + fade
+}
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.pageExit(direction: SlideDirection): ExitTransition {
+    val fade = fadeOut(tween(300))
+    return if (matchesSearchPill()) fade else slideOutOfContainer(direction, tween(300)) { it / 8 } + fade
+}
+
+private fun predictiveDirection(edge: Int): SlideDirection = when (edge) {
+    NavigationEvent.EDGE_LEFT -> SlideDirection.Right
+    NavigationEvent.EDGE_RIGHT -> SlideDirection.Left
+    else -> SlideDirection.End
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRequest: Pair<Int, String>? = null) {
     val koin = getKoin()
@@ -118,6 +153,30 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
     val start: Route = remember { if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute }
     app.retriever.files.FileActionsHost(retriever) {
         SharedTransitionLayout {
+            val searchBounds = @Composable { scope: AnimatedVisibilityScope, expanded: Boolean ->
+                val contentState = rememberSharedContentState("search")
+                val corner by scope.transition.animateDp(transitionSpec = { tween(300) }, label = "searchCorner") { state ->
+                    val fullscreen = if (expanded) state == EnterExitState.Visible else state != EnterExitState.Visible
+                    if (fullscreen) 0.dp else SearchBarDefaults.InputFieldHeight / 2
+                }
+                val radius = if (contentState.isMatchFound) {
+                    corner
+                } else if (expanded) {
+                    0.dp
+                } else {
+                    SearchBarDefaults.InputFieldHeight / 2
+                }
+                val shape = RoundedCornerShape(radius)
+                Modifier.sharedBounds(
+                    contentState,
+                    scope,
+                    enter = fadeIn(tween(300)),
+                    exit = fadeOut(tween(300)),
+                    boundsTransform = { _, _ -> tween(300) },
+                    resizeMode = ResizeMode.RemeasureToBounds,
+                    clipInOverlayDuringTransition = OverlayClip(shape),
+                ).clip(shape)
+            }
             // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it) over the list, which stays put
             // under the viewer's fading backdrop; Back, a predictive swipe too, shrinks it into its tile.
             val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
@@ -126,46 +185,56 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
             NavHost(
                 navController,
                 startDestination = start,
-                enterTransition = { slideIntoContainer(SlideDirection.Start, tween(300)) { it / 8 } + fadeIn(tween(300)) },
+                enterTransition = { pageEnter(SlideDirection.Start) },
                 exitTransition = {
                     if (targetState.destination.hasRoute<PhotoRoute>()) {
                         ExitTransition.KeepUntilTransitionsFinished
                     } else {
-                        slideOutOfContainer(SlideDirection.Start, tween(300)) { it / 8 } + fadeOut(tween(300))
+                        pageExit(SlideDirection.Start)
                     }
                 },
                 popEnterTransition = {
                     if (initialState.destination.hasRoute<PhotoRoute>()) {
                         EnterTransition.None
                     } else {
-                        slideIntoContainer(SlideDirection.End, tween(300)) { it / 8 } + fadeIn(tween(300))
+                        pageEnter(SlideDirection.End)
                     }
                 },
-                popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(300)) { it / 8 } + fadeOut(tween(300)) },
+                popExitTransition = { pageExit(SlideDirection.End) },
                 // A back swipe from a photo fades its backdrop as the photo follows the finger to its tile; Navigation's
                 // default shrinks the whole viewer to 70%, an opaque black card until the swipe ends.
                 predictivePopEnterTransition = { edge ->
                     val fromPhoto = initialState.destination.hasRoute<PhotoRoute>()
-                    if (fromPhoto) EnterTransition.None else DefaultNavTransitions.predictivePopEnterTransition(this, edge)
+                    val direction = predictiveDirection(edge)
+                    if (fromPhoto) {
+                        EnterTransition.None
+                    } else {
+                        pageEnter(direction)
+                    }
                 },
                 predictivePopExitTransition = { edge ->
                     val fromPhoto = initialState.destination.hasRoute<PhotoRoute>()
-                    if (fromPhoto) fadeOut(defaultEffects) else DefaultNavTransitions.predictivePopExitTransition(this, edge)
+                    val direction = predictiveDirection(edge)
+                    if (fromPhoto) {
+                        fadeOut(defaultEffects)
+                    } else {
+                        pageExit(direction)
+                    }
                 },
             ) {
                 composable<SetupRoute> {
                     // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
                     ReportDrawn()
                     // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
-                    SetupScreen(onNavigate = go, onDone = {
+                    SetupScreen(onNavigate = go, pillModifier = searchBounds(this, false), onDone = {
                         navController.navigate(HomeRoute) {
                             popUpTo(navController.graph.id) { inclusive = true }
                             launchSingleTop = true
                         }
                     })
                 }
-                composable<HomeRoute> { HomeHost(go, morph = morph(this)) }
-                composable<SearchRoute> { SearchScreen(it.toRoute<SearchRoute>(), go, back, morph = morph(this)) }
+                composable<HomeRoute> { HomeHost(go, pillModifier = searchBounds(this, false), morph = morph(this)) }
+                composable<SearchRoute> { SearchScreen(it.toRoute<SearchRoute>(), go, back, searchBounds(this, true), morph(this)) }
                 composable<BrowseRoute> { BrowseScreen(it.toRoute<BrowseRoute>(), go, back, morph = morph(this)) }
                 composable<SettingsRoute> { SettingsScreen(back, onStatus = { go(StatusRoute) }) }
                 composable<FoldersRoute> { FoldersScreen(go, back) }

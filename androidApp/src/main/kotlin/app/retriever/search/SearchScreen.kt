@@ -88,10 +88,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -158,12 +160,18 @@ internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
 /** Home: its page, and the search pill that opens [SearchScreen]. */
 @Composable
-fun HomeHost(onNavigate: (Route) -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null, vm: SearchViewModel = koinViewModel()) {
+fun HomeHost(
+    onNavigate: (Route) -> Unit,
+    modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
+    vm: SearchViewModel = koinViewModel(),
+) {
     val search by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     val snackbar = remember { SnackbarHostState() }
-    HomeShell(search, actions, onNavigate, modifier, snackbar = snackbar) { padding, state, side ->
+    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar) { padding, state, side ->
         HomeScreen(actions, state, padding, side, snackbar)
     }
 }
@@ -240,6 +248,7 @@ fun HomeShell(
     actions: SearchActions,
     open: (SearchRoute) -> Unit,
     modifier: Modifier = Modifier,
+    pillModifier: Modifier = Modifier,
     /** The pill's words; the demo's names its files. */
     placeholder: String = Words.SEARCH_FIELD,
     /** Under the pill, pinned with it: the demo's Continue. */
@@ -275,7 +284,7 @@ fun HomeShell(
             ) {
                 // Matching a photo needs the model a words-only phone leaves out, and on the first run photos to match.
                 val photo = if (ui.canSearchByPhoto) ({ pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) else null
-                SearchPill(placeholder, photo) { open(SearchRoute()) }
+                SearchPill(placeholder, photo, pillModifier) { open(SearchRoute()) }
                 footer?.invoke()
             }
         },
@@ -287,13 +296,14 @@ fun HomeShell(
 /** The collapsed search bar's look, as a button: focus and the keyboard belong to the search screen's field. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, onOpen: () -> Unit) {
+private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, modifier: Modifier = Modifier, onOpen: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         onClick = onOpen,
-        shape = SearchBarDefaults.inputFieldShape,
+        shape = RectangleShape,
         color = SearchBarDefaults.colors().containerColor,
-        modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = SearchBarDefaults.InputFieldHeight),
+        modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = SearchBarDefaults.InputFieldHeight)
+            .clip(SearchBarDefaults.inputFieldShape).then(modifier),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = muted)
