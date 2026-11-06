@@ -10,14 +10,10 @@ plugins {
     alias(libs.plugins.ktlint) apply false
 }
 
-// ktlintCheck / ktlintFormat read .editorconfig. -PktlintFiles=a.kt,b.kts limits a run to those files (the pre-commit hook).
-val onlyFiles = providers.gradleProperty("ktlintFiles").map { it.split(',').map(::file).toSet() }
+// ktlintCheck / ktlintFormat read .editorconfig.
 allprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
         version.set(rootProject.libs.versions.ktlint)
-        filter {
-            onlyFiles.orNull?.let { files -> include { it.file in files } }
-        }
     }
 }

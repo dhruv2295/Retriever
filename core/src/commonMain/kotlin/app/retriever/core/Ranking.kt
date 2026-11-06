@@ -27,7 +27,7 @@ fun rrfMerge(lists: List<List<Long>>, k: Int = 60, weights: List<Double>? = null
 
 /**
  * The one switch for the relevance rule. Off: every hit found by meaning counts as strong, on every model. Fitted on
- * public data on 2026-10-17 and kept off, for every group: no margin passed (eval/REPORT.md, "Relevance rule fit").
+ * public data on 2026-10-17 and kept off, for every group: no margin passed; see the calibration results below.
  */
 const val RELEVANCE_RULE_ENABLED = false
 
@@ -41,8 +41,7 @@ const val RELEVANCE_RULE_ENABLED = false
 const val RELEVANCE_MARGIN = 0.0
 
 /**
- * When a file found only by meaning counts as a strong match, judged against the query's own cosines (relevance-method.md
- * section 3.1). The scan fills one histogram of cosines per [Modality] (text-to-image cosines sit in another band from
+ * When a file found only by meaning counts as a strong match, judged against the query's own cosines. The scan fills one histogram of cosines per [Modality] (text-to-image cosines sit in another band from
  * text-to-text ones); a hit is strong when (cos - median) / (IQR / 1.349) - sqrt(2 ln n) >= [margin], n being the rows of
  * its group: how far it sits above the largest cosine n draws of pure noise would reach. A group under [minRows] rows is
  * too thin to estimate, so every hit in it is strong. No cosine constant: the scale comes from each query.
@@ -104,7 +103,7 @@ class RelevanceRule(val margin: Double = RELEVANCE_MARGIN, val minRows: Int = MI
 
 /**
  * Files found only by meaning that stay visible, best cosine first whatever their modality; the rest fold into the tail,
- * none discarded. On the public eval (eval/REPORT.md, "Visible cut") a split at the largest score drop did no better than
+ * none discarded. On the public eval a split at the largest score drop did no better than
  * a fixed count, and a count per modality kept fewer right files visible than one count over all of them.
  */
 const val LIKELY_MEANING_FILES = 20

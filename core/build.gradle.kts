@@ -1,4 +1,3 @@
-import com.android.build.api.dsl.KotlinMultiplatformAndroidLibraryTarget
 import com.android.build.api.dsl.Lint
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -25,7 +24,7 @@ val lintGate: Lint.() -> Unit = {
     abortOnError = true
     checkReleaseBuilds = true
     // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
-    // -Poutdated turns the checks on to list newer versions (docs/quality.md, Dependency versions).
+    // -Poutdated turns the checks on to list newer versions.
     val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
     if (providers.gradleProperty("outdated").isPresent) enable += versionChecks else disable += versionChecks
 }
@@ -37,7 +36,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().con
 }
 
 kotlin {
-    targets.withType<KotlinMultiplatformAndroidLibraryTarget>().configureEach {
+    android {
         namespace = "app.retriever.core"
         compileSdk = libs.versions.compileSdk.get().toInt()
         minSdk = libs.versions.minSdk.get().toInt()

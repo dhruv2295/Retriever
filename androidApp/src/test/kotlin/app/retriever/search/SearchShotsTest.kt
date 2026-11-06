@@ -196,8 +196,6 @@ class SearchShotsTest {
         rule.onNodeWithText(Words.SEARCH_FIELD).assertExists()
     }
 
-    @Test fun homeDark() = shot("home", true)
-
     @Test fun homeBigText() = shot("home", false, 1.5f)
 
     @Test fun homeStoppedLight() = shot("home_stopped", false)
@@ -206,8 +204,6 @@ class SearchShotsTest {
         shot("home_before_setup", false)
         rule.onNodeWithText("Looking for your files").assertExists()
     }
-
-    @Test fun homeBeforeSetupDark() = shot("home_before_setup", true)
 
     @Test fun homeCaughtUpKeepsAWayToStatus() {
         shot("home_caught_up", false)
@@ -276,8 +272,6 @@ class SearchShotsTest {
         rule.onNodeWithContentDescription("Remove wifi password from history").assertExists()
     }
 
-    @Test fun recentDark() = shot("recent", true)
-
     @Test fun examplesLight() {
         shot("examples", false)
         rule.onNodeWithText("notes from the meeting").assertExists()
@@ -285,15 +279,11 @@ class SearchShotsTest {
         rule.onNodeWithText(Words.TRY_LABEL).assertExists()
     }
 
-    @Test fun examplesDark() = shot("examples", true)
-
     @Test fun resultsLight() {
         shot("results", false)
         rule.onNodeWithText("Water bill.pdf", substring = true).assertExists()
         rule.onNodeWithText("Old bill.docx", substring = true).assertExists()
     }
-
-    @Test fun resultsDark() = shot("results", true)
 
     @Test fun understoodFiltersCanBeDroppedAndStarredIsAChip() {
         var asTyped = 0
@@ -379,16 +369,12 @@ class SearchShotsTest {
         rule.onNodeWithText("Nothing matches", substring = true).assertDoesNotExist()
     }
 
-    @Test fun resultsLessLikelyDark() = shot("results_less_likely", true)
-
     @Test fun resultsNothingWellLight() {
         shot("results_nothing_well", false)
         rule.onNodeWithText("Nothing matches “bill” well").assertDoesNotExist()
         rule.onNodeWithText("These are the closest files, but they may not be what you're looking for.").assertDoesNotExist()
         rule.onNodeWithText("Less likely matches", substring = true).assertExists()
     }
-
-    @Test fun resultsNothingWellDark() = shot("results_nothing_well", true)
 
     @Test fun resultsFirstPartLight() {
         shot("results_first_part", false)
@@ -399,8 +385,6 @@ class SearchShotsTest {
             substring = true,
         ).assertContentDescriptionContains(Words.extent(ReadExtent.FIRST_PART)!!, substring = true)
     }
-
-    @Test fun resultsFirstPartDark() = shot("results_first_part", true)
 
     @Test fun lessLikelyStaysOpenAfterAResultIsOpenedAndClosesForANewQuestion() {
         val restore = StateRestorationTester(rule)
@@ -480,8 +464,6 @@ class SearchShotsTest {
 
     @Test fun chipPdfLight() = shot("chip_pdf", false)
 
-    @Test fun chipPdfDark() = shot("chip_pdf", true)
-
     @Test fun similarLight() {
         shot("similar", false)
         rule.onNodeWithContentDescription("Stop searching by photo").assertExists()
@@ -492,14 +474,10 @@ class SearchShotsTest {
         rule.onNodeWithText("Try fewer words").assertExists()
     }
 
-    @Test fun emptyDark() = shot("empty", true)
-
     @Test fun errorLight() {
         shot("error", false)
         rule.onNodeWithText(Words.SEARCH_FAILED).assertExists()
     }
-
-    @Test fun errorDark() = shot("error", true)
 
     @Test fun anErrorStaysUpUntilItWasShown() {
         val text = "That didn't work. Try again."

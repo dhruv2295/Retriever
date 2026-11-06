@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Rebuilds eval/corpus from eval/src: screenshots, PDFs and docs are rendered, the photos are copied (see prompts.md).
+# Rebuilds eval/corpus from eval/src: screenshots, PDFs and docs are rendered, the photos are copied (synthetic fixtures; see README.md).
 set -eu
 cd "${0:A:h}"
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"

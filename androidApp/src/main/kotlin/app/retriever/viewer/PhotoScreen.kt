@@ -90,17 +90,17 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
     // A tap hides the bar and the system bars, so the photo has the whole screen.
     var chrome by rememberSaveable { mutableStateOf(true) }
     ImmersiveBars(chrome)
-    Scaffold(
-        modifier = modifier,
-        // The content runs edge to edge; a snackbar still sits above the navigation bar.
-        snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
-        contentWindowInsets = WindowInsets(0),
-    ) { padding ->
-        Box(Modifier.padding(padding)) {
-            PhotoPager(items, pager, morph = morph, origin = route.origin, onTap = { chrome = !chrome }) { Opener.view(context, it.uri, it.mime) }
-            AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut()) {
-                // Light content on a dark scrim, so the bar reads over any photo in either theme.
-                RetrieverTheme(dark = true) {
+    RetrieverTheme(dark = true) {
+        Scaffold(
+            modifier = modifier,
+            // The content runs edge to edge; a snackbar still sits above the navigation bar.
+            snackbarHost = { SnackbarHost(snackbar, Modifier.navigationBarsPadding()) },
+            contentWindowInsets = WindowInsets(0),
+        ) { padding ->
+            Box(Modifier.padding(padding)) {
+                PhotoPager(items, pager, morph = morph, origin = route.origin, onTap = { chrome = !chrome }) { Opener.view(context, it.uri, it.mime) }
+                AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut()) {
+                    // Light content on a dark scrim, so the bar reads over any photo in either theme.
                     ViewerTopBar(
                         current.name,
                         current.uri,

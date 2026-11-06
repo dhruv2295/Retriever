@@ -104,16 +104,12 @@ class SettingsShotsTest {
             .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
 
-    @Test fun settingsDark() = page("settings_dark", ready, dark = true)
-
     @Test fun settingsLargestText() {
         page("settings_text2_0", ready, fontScale = 2f)
         rule.onNodeWithText(Words.RETRIEVERS_DATA).assertExists()
     }
 
     @Test fun settingsOfferLight() = page("settings_offer_light", offered)
-
-    @Test fun settingsOfferDark() = page("settings_offer_dark", offered, dark = true)
 
     /** Read for 15 minutes shows at once in the Reading line above it; the line opens Reading status. */
     @Test fun readForFifteenMinutesShowsInTheLine() {

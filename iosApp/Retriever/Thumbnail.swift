@@ -1,5 +1,5 @@
 // Adapted from mazzzystar/Queryable Queryable/Queryable/PhotoHelper/CachedImageManager.swift
-// (Apple Sample Code License; Queryable took it from Apple sample code).
+// (Swift Playgrounds Software License Agreement; see THIRD_PARTY_NOTICES.md).
 // Modified for Retriever: one async load per cell through an NSCache, off the main actor and cancelled with the cell,
 // the PHCachingImageManager setup (no network, cache off for high quality), the matched PDF page or video moment instead
 // of the first frame, and

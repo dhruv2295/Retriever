@@ -459,7 +459,9 @@ private fun HowItWorks() {
         Muted(
             "${Words.wholeDeviceNote(
                 DeviceWords.ANDROID,
-            )} ${Words.onDevice(DeviceWords.ANDROID)}. The only time it uses the internet is the one-time download for search by description.",
+            )} ${Words.onDevice(
+                DeviceWords.ANDROID,
+            )}. Search and text-recognition models may need an internet download. Your file provider may also use the internet to open cloud files.",
             Modifier.padding(16.dp),
         )
         Muted(

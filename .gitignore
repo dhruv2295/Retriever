@@ -8,3 +8,12 @@ local.properties
 spike-results/
 output/
 eval/corpus/
+.DS_Store
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+keystore.properties
+iosApp/Configuration/Local.xcconfig

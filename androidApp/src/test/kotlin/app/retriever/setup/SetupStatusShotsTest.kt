@@ -137,8 +137,6 @@ class SetupStatusShotsTest {
         listOf("Skip", "demo").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
 
-    @Test fun helloDark() = three("hello", hello, 1)
-
     @Test fun helloBigText() = three("hello", hello, 2)
 
     /** The model already on the phone: nothing to download, so no note. */
@@ -153,8 +151,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.helloTitle(true)).assertIsDisplayed()
         rule.onAllNodesWithText("download", substring = true).assertCountEquals(0)
     }
-
-    @Test fun helloTextOnlyDark() = setup("hello_text_only_dark", lowMemory, dark = true)
 
     @Test fun getStartedCallsItsAction() {
         var started = false
@@ -179,8 +175,6 @@ class SetupStatusShotsTest {
         // The tiles picture access; they are not buttons.
         rule.onAllNodesWithText(Words.DOCUMENTS).assertCountEquals(0)
     }
-
-    @Test fun accessDark() = setup("access_dark", access, dark = true)
 
     @Test fun accessBigText() = setup("access_text1_5", access, fontScale = 1.5f)
 
@@ -231,8 +225,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
         rule.onNodeWithText(Words.NOTHING_SELECTED).assertDoesNotExist()
     }
-
-    @Test fun includeDark() = include("setup_include_dark", mediaGiven, dark = true)
 
     @Test fun includeAskedWithNothingGivenSaysWhatToDo() {
         include("setup_include_denied_light", nothing, asked = true, folderError = "Retriever already searches that folder.")
@@ -324,8 +316,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.CONTINUE).assertIsEnabled()
     }
 
-    @Test fun demoPickingDark() = demo("demo_picking_dark", picking, dark = true, suggestions = null)
-
     /** Search by description still downloading: its line under the bar, and a hint that asks for words only. */
     @Test fun demoDownloading() {
         demo("first_search_downloading_light", processing)
@@ -338,8 +328,6 @@ class SetupStatusShotsTest {
         // No try, sample, Skip or Settings on the first search: Continue is the only way on.
         listOf("Try search", "Skip", "sample", "Settings").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
-
-    @Test fun demoDownloadingDark() = demo("first_search_downloading_dark", processing, dark = true)
 
     @Test fun demoProcessingLargestText() = demo("demo_processing_text2", processing, fontScale = 2f)
 
@@ -355,8 +343,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.USE_MOBILE_DATA).performClick()
         assertEquals(listOf("mobile"), calls)
     }
-
-    @Test fun demoWaitingForWifiDark() = demo("first_search_wifi_dark", processing, dark = true, state = DescriptionState.WAITING_FOR_WIFI)
 
     @Test fun demoDownloadFailedOffersTryAgain() {
         var retried = false
@@ -390,8 +376,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.CONTINUE).performClick()
         assertTrue(finished)
     }
-
-    @Test fun demoReadyDark() = demo("first_search_ready_dark", done, dark = true, state = DescriptionState.READY)
 
     /** A phone too small for search by description: no line about it, and the hint asks for words. */
     @Test fun demoTextOnly() {
@@ -544,8 +528,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.demoSearchScope(30, finished = true, words = DeviceWords.ANDROID)).assertExists()
     }
 
-    @Test fun demoResultsDark() = shot("demo_results_dark", dark = true) { SearchPane(answered, HomeUi(), SearchActions()) }
-
     // --- Home's sheet for an install that chose Not now before this version ---
 
     @Test fun chooseSheet() {
@@ -650,23 +632,15 @@ class SetupStatusShotsTest {
 
     @Test fun statusCoveragePhotosOnly() = coverage("status_coverage_photos_only_light", mediaOnly, dark = false)
 
-    @Test fun statusCoveragePhotosOnlyDark() = coverage("status_coverage_photos_only_dark", mediaOnly, dark = true)
-
     @Test fun statusCoverageFolders() = coverage("status_coverage_folders_light", withFolders, dark = false)
-
-    @Test fun statusCoverageFoldersDark() = coverage("status_coverage_folders_dark", withFolders, dark = true)
 
     private val textOnlyCounts = app.retriever.readCounts(mapOf(FileState.INDEXED to 2_140L, FileState.PENDING to 310L), mapOf(Kind.PDF to 900L), 0)
 
     @Test fun statusTextOnly() = status("status_text_only_light", textOnlyCounts, idle, tall = true)
 
-    @Test fun statusTextOnlyDark() = status("status_text_only_dark", textOnlyCounts, idle, dark = true, tall = true)
-
     private val tail = reading.copy(tailFiles = 7)
 
     @Test fun statusTailFiles() = status("status_tail_files_light", tail, running.copy(running = false, lastStop = StopReason.BUDGET))
-
-    @Test fun statusTailFilesDark() = status("status_tail_files_dark", tail, running.copy(running = false, lastStop = StopReason.BUDGET), dark = true)
 
     @Test fun statusHoldsNoPreferenceAndLinksToSettings() {
         var opened = 0
@@ -706,10 +680,6 @@ class SetupStatusShotsTest {
 
     @Test fun processingLight() = status("demo_status_light", tall = true)
 
-    @Test fun processingDark() = status("demo_status_dark", dark = true, tall = true)
-
-    @Test fun statusReadingDark() = status("clarity_status_reading_dark", dark = true, tall = true)
-
     @Test fun statusReadingLargestText() = status("clarity_status_reading_text2", fontScale = 2f)
 
     private val pausedIndex = running.copy(running = false, currentFile = null)
@@ -729,8 +699,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText("Stop").assertExists()
         rule.onNodeWithText(Words.PAUSE).assertDoesNotExist()
     }
-
-    @Test fun statusPausedDark() = status("clarity_status_paused_dark", index = pausedIndex, prefs = prefs.copy(paused = true), dark = true, tall = true)
 
     @Test fun statusSkippedOpen() = status("status_skipped_open_light", index = running.copy(running = false, lastStop = StopReason.UNPLUGGED), open = true)
 

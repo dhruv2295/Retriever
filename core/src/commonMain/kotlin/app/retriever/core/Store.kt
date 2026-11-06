@@ -976,7 +976,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         }
         private val NON_WORD = Regex("[^\\p{L}\\p{M}\\p{N}]+")
 
-        /** Keyword matches ranked per query; see eval/REPORT.md, "Search speed at scale (wave 4)". */
+        /** Keyword matches ranked per query. */
         internal const val FTS_CAP = 5_000L
 
         /**

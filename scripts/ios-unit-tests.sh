@@ -7,7 +7,7 @@
 # unit tests seed the index the UI routes read. Exits non-zero on a build or test failure; the simulators are shut down
 # at the end. A full run is long, so run it in the background:
 #   nohup scripts/ios-unit-tests.sh ... >build/test-ios.log 2>&1 &   then read build/ios-tests/summary.txt (written last; "RESULT: PASS|FAIL").
-set -uo pipefail
+set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="$(basename "$ROOT")"
 # Each checkout (main or a worktree) gets its own simulators, so parallel jobs never share one; the lock only
@@ -21,13 +21,22 @@ WORKERS="${IOS_TEST_WORKERS:-3}"; [ "$WORKERS" -ge 3 ] 2>/dev/null || WORKERS=3;
 DURATIONS="${XDG_CACHE_HOME:-$HOME/Library/Caches}/retriever-ios-test-durations.json"
 OUT="$ROOT/build/ios-tests"; DERIVED="$ROOT/build/ios-unit-tests"; PROJ="$ROOT/iosApp/iosApp.xcodeproj"
 mkdir -p "$OUT" "$(dirname "$DURATIONS")"; rm -f "$OUT"/summary.txt "$OUT"/w*.log "$OUT"/w*.status; rm -rf "$OUT"/w*.xcresult
+missing=0
+for fixture in docs/Document_01.pdf docs/Doc_A.docx photos/IMG_1001.jpg photos/IMG_1003.jpg media/talk-and-show.mp4; do
+  if [ ! -s "$ROOT/eval/corpus/$fixture" ]; then echo "Missing test fixture: eval/corpus/$fixture" >&2; missing=1; fi
+done
+if [ "$missing" = 1 ]; then
+  echo "Generate the required fixtures with eval/make-corpus.sh and eval/make-media.sh, then run this script again." >&2
+  echo "RESULT: FAIL (missing test fixtures)" >"$OUT/summary.txt"
+  exit 1
+fi
 FILTERS=("$@"); [ "${#FILTERS[@]}" -gt 0 ] || FILTERS=(RetrieverTests RetrieverUITests)
 UNIT=(); UI=()
 for f in "${FILTERS[@]}"; do case "$f" in RetrieverUITests*) UI+=("$f");; *) UNIT+=("$f");; esac; done
 
 sim() { # sim <k>: the UDID of this checkout's k-th test simulator, created if missing
   local n="Retriever-tests-$NAME-$1" u
-  u="$(xcrun simctl list devices | grep -F "    $n (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')"
+  u="$(xcrun simctl list devices | sed -nE "/    $n \(/s/.*\(([0-9A-F-]{36})\).*/\1/p" | head -1 || true)"
   [ -n "$u" ] || u="$(xcrun simctl create "$n" "$DEVICE_TYPE")"; echo "$u"
 }
 S1="$(sim 1)"
@@ -62,6 +71,7 @@ def walk(n):
         for v in n: walk(v)
 if os.path.exists(tests_path): walk(json.load(open(tests_path)))
 tests = sorted(set(found))
+if not tests: sys.exit("No UI tests matched the requested filters")
 try: dur = json.load(open(dur_path))
 except Exception: dur = {}
 bins = [[0.0, []] for _ in range(max(1, min(workers, len(tests))))]
@@ -74,13 +84,15 @@ PY
 fi
 [ -s "$PLAN" ] || echo "1 0" >"$PLAN"   # unit tests only
 
-run_worker() { # run_worker <k> <ui tests...>
-  local k="$1"; shift; local u log="$OUT/w$k.log"; u="$(sim "$k")"
-  { xcrun simctl list devices | grep -F "$u" | grep -q '(Booted)' || xcrun simctl boot "$u"
+run_worker() ( # run_worker <k> <ui tests...>
+  local k="$1"; shift; local u="" log="$OUT/w$k.log" status=0
+  trap 'code=$?; [ "$code" -eq 0 ] || status=1; echo "$status" >"$OUT/w$k.status"; [ -z "$u" ] || xcrun simctl shutdown "$u" 2>/dev/null || true' EXIT
+  { u="$(sim "$k")"
+    xcrun simctl list devices | grep -F "$u" | grep -q '(Booted)' || xcrun simctl boot "$u"
     xcrun simctl bootstatus "$u" -b >/dev/null; xcrun simctl ui "$u" appearance light
     # A new simulator's first boot can drop this write, so check it survives a reboot before the UI tests.
     for attempt in 1 2 3; do
-      [ "$attempt" -lt 3 ] || { echo "Reduce Motion did not stick"; echo 1 >"$OUT/w$k.status"; return; }
+      [ "$attempt" -lt 3 ] || { echo "Reduce Motion did not stick"; return 1; }
       xcrun simctl spawn "$u" defaults write com.apple.Accessibility ReduceMotionEnabled -bool YES
       xcrun simctl shutdown "$u"; xcrun simctl boot "$u"; xcrun simctl bootstatus "$u" -b >/dev/null
       [ "$(xcrun simctl spawn "$u" defaults read com.apple.Accessibility ReduceMotionEnabled 2>/dev/null)" != 1 ] || break
@@ -101,7 +113,7 @@ for n in ('Audit copy A.txt','Audit copy B.txt'):
     f=d/n; f.exists() or f.write_bytes(b'Retriever accessibility audit duplicate fixture.\n'*30000)"
       touch "$data/.ui-test-seeded"
     fi
-    local status=0 sel=()
+    local sel=()
     # Unit tests: the requested ones on simulator 1; on the others only as the seeding step the UI routes need.
     if [ "$k" = 1 ] && [ "${#UNIT[@]}" -gt 0 ]; then for f in "${UNIT[@]}"; do sel+=("-only-testing:$f"); done
     elif [ "$#" -gt 0 ]; then sel=(-only-testing:RetrieverTests); fi
@@ -126,24 +138,28 @@ for n in ('Audit copy A.txt','Audit copy B.txt'):
       done
       cat "$OUT"/w$k-ui-*.log
     fi
-    xcrun simctl shutdown "$u" 2>/dev/null
-    echo "$status" >"$OUT/w$k.status"
   } >"$log" 2>&1
-}
+)
 
 while read -r k _ tests; do run_worker "$k" $tests & done <"$PLAN"
 wait
 
 # Results: failing tests by name, and fresh durations for the next split.
 python3 - "$OUT" "$DURATIONS" <<'PY'
-import json, subprocess, sys, glob, os
+import json, subprocess, sys, os
 out, dur_path = sys.argv[1], sys.argv[2]
 try: dur = json.load(open(dur_path))
 except Exception: dur = {}
-fails, counts = [], {"passed": 0, "failed": 0, "skipped": 0}
-for r in sorted(glob.glob(os.path.join(out, "w*.xcresult"))):
-    try: tree = json.loads(subprocess.run(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", r], capture_output=True, text=True).stdout)
-    except Exception: continue
+fails, issues, counts = [], [], {"passed": 0, "failed": 0, "skipped": 0}
+plan = [line.split() for line in open(os.path.join(out, "plan.txt"))]
+results = [os.path.join(out, f"w{p[0]}-{kind}.xcresult") for p in plan for kind in (["unit", "ui"] if len(p) > 2 else ["unit"])]
+for r in results:
+    try:
+        tree = json.loads(subprocess.run(["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", r], capture_output=True, text=True, check=True).stdout)
+        if not tree.get("testNodes"): raise ValueError("no test results")
+    except Exception as e:
+        issues.append(f"{os.path.basename(r)}: could not read test results ({e})")
+        continue
     def walk(n, path):
         name = n.get("name", "")
         here = path + [name.replace("()", "")]
@@ -157,12 +173,14 @@ for r in sorted(glob.glob(os.path.join(out, "w*.xcresult"))):
         for c in n.get("children", []): walk(c, here if n.get("nodeType") in ("Unit test bundle", "UI test bundle", "Test Suite") else path)
     for n in tree.get("testNodes", []): walk(n, [])
 json.dump(dur, open(dur_path, "w"), indent=1)
-bad = [s for s in glob.glob(os.path.join(out, "w*.status")) if open(s).read().strip() != "0"]
+bad = [os.path.join(out, f"w{p[0]}.status") for p in plan]
+bad = [s for s in bad if not os.path.exists(s) or open(s).read().strip() != "0"]
 with open(os.path.join(out, "summary.txt"), "w") as f:
     f.write(f"passed {counts['passed']} failed {counts['failed']} skipped {counts['skipped']}\n")
     for x in fails: f.write(f"FAILED {x}\n")
-    for s in bad: f.write(f"worker {os.path.basename(s)} exited non-zero; see {s[:-7]}.log\n")
-    f.write("RESULT: " + ("PASS" if not fails and not bad and counts["passed"] else "FAIL") + "\n")
+    for issue in issues: f.write(f"ERROR {issue}\n")
+    for s in bad: f.write(f"worker {os.path.basename(s)} failed or did not report completion; see {s[:-7]}.log\n")
+    f.write("RESULT: " + ("PASS" if not fails and not issues and not bad and counts["passed"] else "FAIL") + "\n")
 print(open(os.path.join(out, "summary.txt")).read())
 PY
 grep -q "RESULT: PASS" "$OUT/summary.txt"

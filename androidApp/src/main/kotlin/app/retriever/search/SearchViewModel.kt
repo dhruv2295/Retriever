@@ -25,6 +25,7 @@ import app.retriever.core.midWord
 import app.retriever.core.onFull
 import app.retriever.core.onNames
 import app.retriever.core.showsEmpty
+import app.retriever.nav.SearchRoute
 import app.retriever.ui.components.DocPage
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.Dispatchers
@@ -223,6 +224,21 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     private val error = MutableStateFlow<String?>(null)
     private var typing: Job? = null
     private var scrolling = false
+    private var started = false
+
+    /** Once per ViewModel: a retained screen keeps its edits; after process death its route restores the original search. */
+    fun start(route: SearchRoute) {
+        if (started) return
+        started = true
+        when {
+            route.photo != null -> searchPhoto(route.photo)
+
+            route.run -> {
+                recentShortcuts.used(route.query)
+                submit(route.query)
+            }
+        }
+    }
 
     /**
      * The question once it held for [wait] ms. Not made distinct after the wait: a key typed and taken back settles on the
@@ -442,7 +458,11 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     fun searchPhoto(uri: String) = showSimilar(uri, "your photo")
 
     private fun showSimilar(uri: String, label: String) = attempt {
-        val picked = photos.read(uri, label) ?: return@attempt
+        val picked = photos.read(uri, label)
+        if (picked == null) {
+            error.value = "Couldn't open this photo. Choose another one."
+            return@attempt
+        }
         input.update { it.copy(photo = picked, query = "") }
     }
 

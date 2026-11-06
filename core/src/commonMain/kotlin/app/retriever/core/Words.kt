@@ -185,7 +185,7 @@ object Words {
     const val DOWNLOADS = "Downloads"
 
     /** The privacy line above Hello's and the access screen's button. */
-    fun onDevice(words: DeviceWords): String = "Everything happens on your ${words.device}"
+    fun onDevice(words: DeviceWords): String = "Your files are processed on your ${words.device}"
     const val GET_STARTED = "Get started"
 
     /** Under Get started on a phone that will download search by description; [size]: the platform's format. */
@@ -459,7 +459,7 @@ object Words {
     const val KIND_OFF = "Turned off: Retriever still finds these by name, but forgets what’s inside them. Your files aren’t touched."
     const val SHOW_ON_THIS_DAY = "Show On this day (photos from this date in past years)"
 
-    // People (docs/features/people.md): off until the person turns it on.
+    // People (README.md): off until the person turns it on.
     const val PEOPLE = "People"
     const val RECOGNIZE_PEOPLE = "Recognize people"
     const val RECOGNIZE_PEOPLE_DETAIL =

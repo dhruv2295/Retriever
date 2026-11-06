@@ -1,5 +1,5 @@
-"""Fit m by conformal risk control on the m440-vt70 calibration split and validate (relevance-method.md 3-4).
-Reads the RelevanceReplayTest TSVs in <dir> (eval/REPORT.md, "Relevance rule fit", says how to make them) and prints
+"""Fit m by conformal risk control on the m440-vt70 calibration split and validate.
+Reads the RelevanceReplayTest TSVs in <dir> (see README.md) and prints
 markdown tables. Usage: python3 -I eval/relevance-fit.py build/fit"""
 import csv, math, sys, json
 from collections import defaultdict

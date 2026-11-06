@@ -53,7 +53,12 @@ internal fun HelloExamples(textOnly: Boolean, animate: Boolean) {
     var typed by remember { mutableIntStateOf(if (animate) 0 else examples[0].query.length) }
     val card = remember { Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(animate) {
-        if (!animate) return@LaunchedEffect
+        if (!animate) {
+            index = 0
+            typed = examples[0].query.length
+            card.snapTo(1f)
+            return@LaunchedEffect
+        }
         while (true) {
             for ((i, e) in examples.withIndex()) {
                 val start = TimeSource.Monotonic.markNow()

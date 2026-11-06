@@ -7,7 +7,7 @@ import kotlin.math.sqrt
 import kotlin.time.Duration
 import kotlin.time.TimeSource
 
-// People (docs/features/people.md): the platform finds each face and turns it into SFace's fingerprint; core keeps them,
+// People (README.md): the platform finds each face and turns it into SFace's fingerprint; core keeps them,
 // groups them into people, and finds a named person's photos. Only while the person has it on (Prefs.recognizePeople).
 
 /** SFace's fingerprint length. */
@@ -18,7 +18,7 @@ const val FACE_DIMS = 128
  * start a person at it. Against the old rule (0.5 to the person's mean), on LFW (5,420 faces, 311 people, three orders)
  * faces placed with someone else fell from 5–13 to 2, with 98% of one person's pairs still together against 99.6%;
  * at 0.5 two whole people merged. On a real library a 1,493-face person no longer split off its glasses and selfies,
- * and a group started from two wrong faces let them go (docs/features/people.md).
+ * and a group started from two wrong faces let them go (README.md).
  */
 const val SAME_PERSON = 0.55f
 

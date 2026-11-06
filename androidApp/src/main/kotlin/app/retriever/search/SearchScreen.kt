@@ -158,18 +158,12 @@ internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
 
 /** Home: its page, and the search pill that opens [SearchScreen]. */
 @Composable
-fun HomeHost(
-    onNavigate: (Route) -> Unit,
-    modifier: Modifier = Modifier,
-    pillModifier: Modifier = Modifier,
-    morph: PhotoMorph? = null,
-    vm: SearchViewModel = koinViewModel(),
-) {
+fun HomeHost(onNavigate: (Route) -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null, vm: SearchViewModel = koinViewModel()) {
     val search by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     val snackbar = remember { SnackbarHostState() }
-    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar) { padding, state, side ->
+    HomeShell(search, actions, onNavigate, modifier, snackbar = snackbar) { padding, state, side ->
         HomeScreen(actions, state, padding, side, snackbar)
     }
 }
@@ -188,7 +182,6 @@ fun SearchScreen(
     vm: SearchViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
     retriever: Retriever = koinInject(),
-    recentShortcuts: RecentShortcuts = koinInject(),
 ) {
     val home = if (route.scoped) {
         val ids by retriever.scopeIds.collectAsStateWithLifecycle()
@@ -206,20 +199,7 @@ fun SearchScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
-    // What the route asks for, once: the screen kept behind a viewer has it already.
-    var started by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        if (started) return@LaunchedEffect
-        started = true
-        when {
-            route.photo != null -> actions.onPhoto(route.photo.toUri())
-
-            route.run -> {
-                recentShortcuts.used(route.query)
-                actions.onSubmit(route.query)
-            }
-        }
-    }
+    LaunchedEffect(vm) { vm.start(route) }
     SearchContent(ui, home, actions, onBack, modifier, query = route.query, typing = !route.run && route.photo == null)
 }
 
@@ -260,8 +240,6 @@ fun HomeShell(
     actions: SearchActions,
     open: (SearchRoute) -> Unit,
     modifier: Modifier = Modifier,
-    /** The pill's own: the nav host's shared bounds, so the pill grows into the search screen. */
-    pillModifier: Modifier = Modifier,
     /** The pill's words; the demo's names its files. */
     placeholder: String = Words.SEARCH_FIELD,
     /** Under the pill, pinned with it: the demo's Continue. */
@@ -297,7 +275,7 @@ fun HomeShell(
             ) {
                 // Matching a photo needs the model a words-only phone leaves out, and on the first run photos to match.
                 val photo = if (ui.canSearchByPhoto) ({ pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) else null
-                SearchPill(placeholder, photo, pillModifier) { open(SearchRoute()) }
+                SearchPill(placeholder, photo) { open(SearchRoute()) }
                 footer?.invoke()
             }
         },
@@ -309,13 +287,13 @@ fun HomeShell(
 /** The collapsed search bar's look, as a button: focus and the keyboard belong to the search screen's field. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, onOpen: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         onClick = onOpen,
         shape = SearchBarDefaults.inputFieldShape,
         color = SearchBarDefaults.colors().containerColor,
-        modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = SearchBarDefaults.InputFieldHeight).then(modifier),
+        modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = SearchBarDefaults.InputFieldHeight),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(painterResource(R.drawable.ic_search), contentDescription = null, tint = muted)

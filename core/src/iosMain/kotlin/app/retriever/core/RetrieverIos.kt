@@ -201,20 +201,17 @@ fun Retriever.observeHome(cb: (HomeFacts) -> Unit): AutoCloseable = observe(home
 fun Retriever.observeSuggestions(fileIds: Set<Long>?, cb: (List<String>) -> Unit): AutoCloseable = observe(suggestions(fileIds), cb)
 
 /** Everything the UI watches, as one callback on a background thread; Swift hops to the main actor itself. */
-fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    scope.launch {
-        combine(
-            setUp,
-            prefs,
-            requiredBuild,
-            counts(),
-            combine(state, starred, modelMissing, readingStatus(), setup) { i, st, m, reading, setup ->
-                Triple(i, st, m) to (reading to setup)
-            },
-        ) { s, p, b, c, (live, rest) ->
-            RetrieverSnapshot(s, p, b, c, live.first, live.second, live.third, rest.first, rest.second)
-        }.collect { cb(it) }
-    }
-    return AutoCloseable { scope.cancel() }
-}
+fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable = observe(
+    combine(
+        setUp,
+        prefs,
+        requiredBuild,
+        counts(),
+        combine(state, starred, modelMissing, readingStatus(), setup) { i, st, m, reading, setup ->
+            Triple(i, st, m) to (reading to setup)
+        },
+    ) { s, p, b, c, (live, rest) ->
+        RetrieverSnapshot(s, p, b, c, live.first, live.second, live.third, rest.first, rest.second)
+    },
+    cb,
+)

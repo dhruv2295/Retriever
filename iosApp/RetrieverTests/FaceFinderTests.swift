@@ -4,7 +4,7 @@ import XCTest
 
 @testable import Retriever
 
-/// Person.jpg is a generated picture of no real person (docs/features/people.md). Vision's face landmarks don't run on the
+/// Person.jpg is a generated picture of no real person (README.md). Vision's face landmarks don't run on the
 /// simulator, so the tests that detect run on a device; the alignment and SFace run everywhere.
 final class FaceFinderTests: XCTestCase {
     private var folder: URL!

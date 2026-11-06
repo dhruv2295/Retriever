@@ -31,6 +31,7 @@ import app.retriever.core.isStale
 import app.retriever.core.showsEmpty
 import app.retriever.nav.DocRoute
 import app.retriever.nav.Route
+import app.retriever.nav.SearchRoute
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
@@ -103,6 +104,32 @@ class SearchViewModelTest {
     }
 
     @After fun tearDown() = Dispatchers.resetMain()
+
+    @Test fun aPhotoRouteRestartsWithANewViewModelButNotARetainedOne() = runTest {
+        var reads = 0
+        val reader = PhotoReader { uri, label ->
+            reads++
+            PickedPhoto(Similar(uri, label), byteArrayOf(1))
+        }
+        val route = SearchRoute(photo = "content://picked/photo")
+        val retained = vm(reader = reader)
+        retained.start(route)
+        assertEquals(route.photo, retained.ui.first { it.similar != null }.similar?.uri)
+        retained.start(route)
+        runCurrent()
+        assertEquals(1, reads)
+        val restored = vm(reader = reader)
+        restored.start(route)
+        assertEquals(route.photo, restored.ui.first { it.similar != null }.similar?.uri)
+        assertEquals(2, reads)
+    }
+
+    @Test fun anUnreadablePickedPhotoSaysHowToRecover() = runTest {
+        val vm = vm()
+        vm.searchPhoto("content://revoked/photo")
+        assertEquals("Couldn't open this photo. Choose another one.", vm.ui.first { it.error != null }.error)
+        assertEquals(null, vm.ui.value.similar)
+    }
 
     /** Try: names cover the whole library; the words inside, only the sample. */
     @Test fun scopeKeepsTheWordsInsideThePlannedFilesAndNamesEverywhere() = runTest {

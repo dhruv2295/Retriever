@@ -209,7 +209,11 @@ private val CELL_V = Regex("<v>([\\s\\S]*?)</v>")
 private val CELL_IS = Regex("<is>([\\s\\S]*?)</is>")
 
 /** Order of the xlsx entries [xlsxText] reads: the shared strings first, then the sheets by number; null for the rest. */
-fun xlsxOrder(entryName: String): Int? = if (entryName == "xl/sharedStrings.xml") 0 else XLSX_PART.matchEntire(entryName)?.groupValues?.get(1)?.toInt()?.plus(1)
+fun xlsxOrder(entryName: String): Int? = if (entryName == "xl/sharedStrings.xml") {
+    0
+} else {
+    XLSX_PART.matchEntire(entryName)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it < Int.MAX_VALUE }?.plus(1)
+}
 
 /**
  * The text of an xlsx read as the raw XML of sharedStrings.xml followed by the sheets (see [xlsxOrder]): one line
@@ -233,7 +237,7 @@ fun xlsxText(raw: String): String {
 }
 
 /** pptx slide number for ordering, null for every other entry. */
-fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toInt()
+fun slideOrder(entryName: String): Int? = SLIDE.matchEntire(entryName)?.groupValues?.get(1)?.toIntOrNull()
 
 private val RTF_SKIPPED = setOf(
     "fonttbl", "colortbl", "stylesheet", "info", "pict", "object",
@@ -328,9 +332,9 @@ fun stripRtf(rtf: String): String {
 
                     word == "uc" && param != null -> uc = param
 
-                    word == "bin" && param != null -> if (param > 0) i = minOf(i + param, rtf.length)
+                    // Clamp before adding: a negative or overflowing length must never rewind the cursor.
+                    word == "bin" && param != null -> i += param.coerceIn(0, rtf.length - i)
 
-                    // a negative count would rewind the cursor for ever
                     word in RTF_SKIPPED -> skip = true
 
                     else -> {

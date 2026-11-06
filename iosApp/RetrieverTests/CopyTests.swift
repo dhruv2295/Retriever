@@ -123,7 +123,7 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(
             Words.shared.demoSearchScope(done: 12, finished: false, words: Copy.words),
             "Finds any file on your iPhone by its name. Looks inside the 12 demo files processed so far.")
-        XCTAssertEqual(Words.shared.onDevice(words: Copy.words), "Everything happens on your \(Copy.device)")
+        XCTAssertEqual(Words.shared.onDevice(words: Copy.words), "Your files are processed on your \(Copy.device)")
         XCTAssertTrue(Words.shared.otherFilesBody(words: Copy.words).contains("When your \(Copy.device) is charging"))
         XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))
         // Hello names the download only under Get started, and only where it happens.

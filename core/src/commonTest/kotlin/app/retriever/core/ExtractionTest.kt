@@ -115,6 +115,14 @@ class ExtractionTest {
     }
 
     @Test
+    fun oversizedArchivePartNumbersAreIgnored() {
+        assertEquals(null, slideOrder("ppt/slides/slide99999999999999999999.xml"))
+        assertEquals(null, xlsxOrder("xl/worksheets/sheet99999999999999999999.xml"))
+        assertEquals(null, xlsxOrder("xl/worksheets/sheet2147483647.xml"))
+        assertEquals(Int.MAX_VALUE, xlsxOrder("xl/worksheets/sheet2147483646.xml"))
+    }
+
+    @Test
     fun zipBudgetStopsManyEntriesAtFourCaps() {
         var cuts = 0
         val budget = ZipBudget(onCut = { cuts++ })

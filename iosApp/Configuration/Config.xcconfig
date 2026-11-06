@@ -1,4 +1,5 @@
-TEAM_ID=YOUR_TEAM_ID
+TEAM_ID=
+#include? "Local.xcconfig"
 
 PRODUCT_NAME=Retriever
 PRODUCT_BUNDLE_IDENTIFIER=app.retriever

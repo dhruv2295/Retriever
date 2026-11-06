@@ -92,7 +92,7 @@ internal fun interface RowScorer {
 
 /**
  * A native [RowScorer] the scan runs a block at a time, or null to call [dotInt8] per row. Null on Android and the JVM,
- * whose compilers vectorise [dotInt8] (eval/REPORT.md); iOS has a C kernel, since Kotlin/Native compiles it to scalar code.
+ * whose compilers vectorise [dotInt8]; iOS has a C kernel, since Kotlin/Native compiles it to scalar code.
  */
 internal expect val dotRows: RowScorer?
 

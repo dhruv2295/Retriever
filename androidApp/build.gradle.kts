@@ -27,13 +27,12 @@ android {
         versionName = "0.2"
     }
 
-    // litertlm ships only arm64-v8a and x86_64, so a 32-bit device must not install the app. x86_64 is for emulators.
+    // Local release testing uses the debug key; choose an upload key in Android Studio for store builds.
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Placeholder: the debug key, so local release installs work. Use a real upload key before any store release.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -78,7 +77,7 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
-        // -Poutdated turns the checks on to list newer versions (docs/quality.md, Dependency versions).
+        // -Poutdated turns the checks on to list newer versions.
         val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
         if (providers.gradleProperty("outdated").isPresent) enable += versionChecks else disable += versionChecks
         // No baseline: it is empty, so a new lint issue fails the build.

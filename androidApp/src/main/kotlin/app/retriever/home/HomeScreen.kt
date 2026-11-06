@@ -55,7 +55,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.openAllFilesSettings
@@ -134,17 +135,13 @@ fun HomeScreen(
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val context = LocalContext.current
-    val onResume = remember(vm) { vm::onResume }
     val scope = rememberCoroutineScope()
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
     ReportDrawnWhen { ui.counts != null }
     // The card's Notify me asks core for the one notice, and Android for notifications where they are off.
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     // All-files access is switched in Settings, so the "can't see your files" line clears on return without a restart.
-    LifecycleResumeEffect(Unit) {
-        onResume()
-        onPauseOrDispose {}
-    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
     // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
     // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
     val homeActions = remember(context, requestReading, prefs.notifyWhenCaughtUp, snackbar, scope) {

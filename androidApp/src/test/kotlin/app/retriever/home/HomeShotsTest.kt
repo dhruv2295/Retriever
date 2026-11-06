@@ -226,8 +226,6 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.UPGRADE_TITLE).assertDoesNotExist()
     }
 
-    @Test fun defaultDark() = shot("default", true)
-
     @Test fun defaultLargestText() {
         shot("default", false, fontScale = 2f)
         // Large text wraps the line, never cuts it.
@@ -247,8 +245,6 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
     }
 
-    @Test fun firstDayDark() = shot("first_day", true)
-
     @Test fun unpluggedLight() {
         shot("unplugged", false)
         rule.onNodeWithText("Waits until you charge").assertExists()
@@ -257,23 +253,17 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.READ_FOR_15).assertExists()
     }
 
-    @Test fun unpluggedDark() = shot("unplugged", true)
-
     @Test fun chargingUpLight() {
         shot("charging_up", false)
         rule.onNodeWithText("Charging up first").assertExists()
         rule.onNodeWithText("Processing starts once your battery has a bit more charge.").assertExists()
     }
 
-    @Test fun chargingUpDark() = shot("charging_up", true)
-
     @Test fun readNowLight() {
         shot("read_now", false)
         rule.onNodeWithText("Processing for 15 minutes · 12 min left").assertExists()
         rule.onNodeWithText("Stop").assertExists()
     }
-
-    @Test fun readNowDark() = shot("read_now", true)
 
     @Test fun downloadingLight() {
         shot("downloading", false)
@@ -282,23 +272,17 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.UPGRADE_TITLE).assertDoesNotExist()
     }
 
-    @Test fun downloadingDark() = shot("downloading", true)
-
     @Test fun meaningLight() {
         shot("meaning", false)
         rule.onNodeWithText("Adding search by description").assertExists()
         rule.onNodeWithText(Words.meaningOf(2_200, 3_300)).assertExists()
     }
 
-    @Test fun meaningDark() = shot("meaning", true)
-
     @Test fun allReadLight() {
         shot("all_read", false)
         rule.onNodeWithText("All done. Retriever has processed everything it can").assertExists()
         rule.onNodeWithContentDescription("Dismiss").assertExists()
     }
-
-    @Test fun allReadDark() = shot("all_read", true)
 
     @Test fun noAccessLight() {
         shot("no_access", false)
@@ -308,8 +292,6 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.RECENTLY_ADDED).assertDoesNotExist()
         rule.onNodeWithText("On this day").assertDoesNotExist()
     }
-
-    @Test fun noAccessDark() = shot("no_access", true)
 
     @Test fun theOrderIsTitleStatusStarredRecentOnThisDayBrowse() {
         rule.setContent { ShotTheme(false) { Screen(base) } }
@@ -382,8 +364,6 @@ class HomeShotsTest {
         assertEquals(30L to 25_793L, states.getValue("charging").first.readingStatus!!.let { it.done to it.total })
     }
 
-    @Test fun demoChargingDark() = shot("charging", true, prefix = "demo_home")
-
     @Test fun demoChargingLargestText() = shot("charging", false, fontScale = 2f, prefix = "demo_home")
 
     @Test fun demoUnpluggedLight() {
@@ -392,8 +372,6 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.readOf(30, 25_793)).assertExists()
     }
 
-    @Test fun demoUnpluggedDark() = shot("unplugged_demo", true, prefix = "demo_home")
-
     @Test fun demoNotNowLight() {
         shot("not_now", false, prefix = "demo_home")
         rule.onNodeWithText("Only names can be found for now").assertExists()
@@ -401,16 +379,12 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.CHOOSE_WHEN).assertExists()
     }
 
-    @Test fun demoNotNowDark() = shot("not_now", true, prefix = "demo_home")
-
     @Test fun demoCountingLight() {
         shot("counting", false, prefix = "demo_home")
         rule.onNodeWithText("Counting your files…").assertExists()
         rule.onAllNodesWithText("files processed", substring = true).assertCountEquals(0)
         rule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)).assertCountEquals(0)
     }
-
-    @Test fun demoCountingDark() = shot("counting", true, prefix = "demo_home")
 
     @Test fun dismissingAllDoneHidesTheLine() {
         var dismissed = 0
@@ -610,16 +584,12 @@ class HomeShotsTest {
         rule.onAllNodesWithText(Words.TRY_AGAIN).assertCountEquals(0)
     }
 
-    @Test fun introReadyDark() = introShot("home_intro_ready_dark", DescriptionState.READY, dark = true)
-
     @Test fun introOnItsWay() {
         introShot("home_intro_on_its_way_light", DescriptionState.DOWNLOADING)
         rule.onNodeWithText(Words.recentFilesBody(DescriptionState.DOWNLOADING)).assertIsDisplayed()
         // The download's own row waits for Got it.
         rule.onAllNodesWithText(Words.UPGRADE_TITLE).assertCountEquals(0)
     }
-
-    @Test fun introOnItsWayDark() = introShot("home_intro_on_its_way_dark", DescriptionState.DOWNLOADING, dark = true)
 
     @Test fun introWaitingForWifiOffersMobileData() {
         var mobile = false

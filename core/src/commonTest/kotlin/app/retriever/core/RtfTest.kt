@@ -63,4 +63,10 @@ Body only.}"""
         val text = stripRtf("{\\rtf1 a\\bin-10 b}")
         assertTrue("a" in text, text)
     }
+
+    @Test
+    fun oversizedBinaryCountStopsAtTheEndOfInput() {
+        assertEquals("before", stripRtf("{\\rtf1 before\\bin2147483647 binary payload}"))
+        assertEquals("beforeafter", stripRtf("{\\rtf1 before\\bin3 abcafter}"))
+    }
 }

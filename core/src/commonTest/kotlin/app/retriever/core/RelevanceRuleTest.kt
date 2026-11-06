@@ -120,7 +120,7 @@ class RelevanceRuleTest {
     }
 
     /**
-     * Provenance (eval/REPORT.md, "Relevance rule fit"; eval/relevance-fit.py over the replays of the public XM3600 +
+     * Provenance (eval/relevance-fit.py over the replays of the public XM3600 +
      * SciFact + MIRACL-hi library): conformal risk control at alpha 0.10 on M440/92dcbea1/vt70's calibration split (2,478
      * listed right files) gave m = -1.74. On the test split it calls 78% of text and 54% of photo no-match queries
      * strong (gate: at most 12%), and no m, even one picked on the test split, reaches strong recall 0.80 at 12%

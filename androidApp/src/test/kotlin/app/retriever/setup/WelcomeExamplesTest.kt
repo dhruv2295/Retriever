@@ -1,6 +1,7 @@
 package app.retriever.setup
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -26,7 +27,14 @@ class WelcomeExamplesTest {
 
     /** Remove animations: the first example simply shows, whole, with its card. */
     @Test fun withMotionOffTheFirstExampleShowsWhole() {
-        rule.setContent { MaterialTheme { HelloExamples(textOnly = false, animate = false) } }
+        val animate = mutableStateOf(false)
+        rule.mainClock.autoAdvance = false
+        rule.setContent { MaterialTheme { HelloExamples(textOnly = false, animate = animate.value) } }
+        rule.mainClock.advanceTimeByFrame()
+        animate.value = true
+        rule.mainClock.advanceTimeBy(300)
+        animate.value = false
+        rule.mainClock.advanceTimeByFrame()
         val text = typed(examples[0].query)
         assertEquals(examples[0].query, text.text)
         assertTrue(text.spanStyles.none { it.item.color == Color.Transparent })

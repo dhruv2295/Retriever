@@ -603,7 +603,7 @@ class SearchEngine(
         /** Scans that may each find dead rows before [meaningLane] reloads in full instead. */
         private const val MAX_PASSES = 3
 
-        /** The fewest rows a slice of [scanSliced] gets, so a scan splits from twice this (eval/REPORT.md, "Scan in blocks"). */
+        /** The fewest rows a slice of [scanSliced] gets, so a scan splits from twice this. */
         const val SLICE_ROWS = 65_536
         const val SNIPPET = 160
         private const val DAY_MS = 86_400_000L

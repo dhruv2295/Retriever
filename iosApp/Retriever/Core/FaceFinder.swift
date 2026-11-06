@@ -3,7 +3,7 @@ import RetrieverCore
 import Vision
 import os
 
-/// People on iOS, for core's IosFaceReader (docs/features/people.md): Vision finds each face and its landmarks, core's
+/// People on iOS, for core's IosFaceReader (README.md): Vision finds each face and its landmarks, core's
 /// FaceAlign turns and scales it onto SFace's template, and SFace (Faces/SFace.mlpackage) gives its fingerprint. The
 /// model loads on the first photo, so nothing loads while People is off. The same limits as Android's reader, so both
 /// group the same faces.

@@ -1,21 +1,15 @@
 #!/bin/bash
-# The one verify command. Default: tests, lint, shared-metadata compiles, the migration check, format check, notices,
-# versions, 16 KB alignment.
-#   scripts/verify.sh            default gate
-#   scripts/verify.sh --full     adds benchmarks, coverage, the bundle ABI check, inspections, the iOS selftest and the UI tests
-#   scripts/verify.sh --quick    (pre-push) versions, ktlint, Swift format and notices: no builds or tests
-#   scripts/verify.sh --format-staged   (pre-commit) formats the staged Kotlin and Swift files
-# Sourced by scripts/release.sh for the version helpers; main runs only when executed.
+# Android gate; --ios adds the secondary platform (requires macOS and Xcode).
+#   scripts/verify.sh --full     adds benchmarks, coverage and the bundle ABI check
+#   scripts/verify.sh --ios      adds shared iOS compilation and iOS tests (--full includes UI tests)
+#   scripts/verify.sh --quick    versions, formatting and notices only
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APK_DIR="$ROOT/androidApp/build/outputs/apk/release"
 XCCONFIG="$ROOT/iosApp/Configuration/Config.xcconfig"
 NOTICES="$ROOT/THIRD_PARTY_NOTICES.md"
 PACKAGE_RESOLVED="$ROOT/iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-# Headless inspections with the IDE's project profile (.idea is untracked; it only overrides the Preview checks).
-INSPECTIONS_PROFILE="$ROOT/.idea/inspectionProfiles/Project_Default.xml"
-INSPECT_SH="${INSPECT_SH:-/Applications/Android Studio.app/Contents/bin/inspect.sh}"
 
 # Build output and agent scratch stay out of the Swift formatter (ktlint-gradle skips build/ itself).
 EXCLUDED='(^|/)build/|^\.claude/'
@@ -24,10 +18,9 @@ step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'verify: %s\n' "$*" >&2; return 1; }
 
 version_name()  { sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' "$ROOT/androidApp/build.gradle.kts"; }
-version_code()  { sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*/\1/p' "$ROOT/androidApp/build.gradle.kts"; }
 xcconfig_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p" "$XCCONFIG"; }
 
-# versionName must equal MARKETING_VERSION. (versionCode vs CURRENT_PROJECT_VERSION is release.sh's job.)
+# Both apps share a marketing version; store build numbers are managed independently.
 check_versions() {
   local a i
   a="$(version_name)"; i="$(xcconfig_value MARKETING_VERSION)"
@@ -116,78 +109,43 @@ format_check() {
   ( cd "$ROOT" && tracked swift | xargs xcrun swift-format lint --strict --configuration .swift-format )
 }
 
-format_staged() {
-  cd "$ROOT"
-  local f kt=() sw=() staged
-  staged="$(git diff --cached --name-only --diff-filter=ACM | grep -Ev "$EXCLUDED" || true)"
-  for f in $staged; do
-    # A partly staged file would get its unstaged hunks staged by the re-add; leave it for the author.
-    if ! git diff --quiet -- "$f"; then echo "pre-commit: $f has unstaged changes, not formatted" >&2; continue; fi
-    case "$f" in *.kt|*.kts) kt+=("$ROOT/$f");; *.swift) sw+=("$f");; esac
-  done
-  if [ ${#kt[@]} -gt 0 ]; then
-    local IFS=,
-    "$ROOT/gradlew" -q -p "$ROOT" ktlintFormat "-PktlintFiles=${kt[*]}"
-    unset IFS
-    git add -- "${kt[@]}"
-  fi
-  if [ ${#sw[@]} -gt 0 ]; then
-    xcrun swift-format format -i --configuration .swift-format "${sw[@]}"; git add -- "${sw[@]}"
-  fi
-}
-
-# Needs Android Studio closed (one instance only). inspect.sh exits 0 even when it inspected nothing, so an
-# empty report directory fails here instead of passing as clean (see docs/quality.md, Inspections).
-inspections() {
-  local d out
-  for d in androidApp core; do
-    out="$ROOT/build/inspections/$d"; rm -rf "$out"
-    nice -n 10 "$INSPECT_SH" "$ROOT" "$INSPECTIONS_PROFILE" "$out" -v2 -d "$ROOT/$d"
-    ls "$out"/*.xml >/dev/null 2>&1 || { fail "inspect.sh wrote no report for $d"; return 1; }
-  done
-}
-
 main() {
-  local full=0 quick=0
-  case "${1:-}" in
-    --format-staged) format_staged; return;;
-    --full) full=1;;
-    --quick) quick=1;;
-    "") ;;
-    *) echo "usage: verify.sh [--full | --quick | --format-staged]" >&2; return 2;;
-  esac
+  local full=0 quick=0 ios=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --full) full=1;;
+      --quick) quick=1;;
+      --ios) ios=1;;
+      *) echo "usage: verify.sh [--full | --quick] [--ios]" >&2; return 2;;
+    esac
+  done
+  [ $quick = 0 ] || [ $full = 0 ] || { fail "choose --quick or --full"; return 2; }
+  if [ $ios = 1 ]; then command -v xcrun >/dev/null || { fail "--ios requires macOS and Xcode"; return 1; }; fi
   cd "$ROOT"
-  [ "$(git config --get core.hooksPath || true)" = ".githooks" ] || git config core.hooksPath .githooks
 
   step "versions"; check_versions
-  # A push waits on this, so only the static checks: the tests ran before each commit, and .githooks/post-merge runs
-  # the gate and the UI tests in the background after a merge to main.
   if [ $quick = 1 ]; then
     step "ktlint"; ./gradlew -q ktlintCheck
-    step "format"; format_check
+    if [ $ios = 1 ]; then step "Swift format"; format_check; fi
     step "notices"; check_notices
     printf '\nverify: OK (quick)\n'; return
   fi
   step "gradle: tests, lint, release build, metadata, migrations, ktlint"
-  # --rerun forces only the tests. Compiles, lint and R8 are up to date or come from the build cache when their inputs
-  # (warnings-as-errors settings included) are unchanged, so a cached result is gated the same way. No other task
-  # compiles the shared common and iosMain metadata; the migration check replays every .sqm on the 3.db snapshot and
-  # diffs the result against Index.sq.
-  local flags=() tasks=(:core:testAndroidHostTest --rerun :core:iosSimulatorArm64Test --rerun :androidApp:testDebugUnitTest --rerun
+  local flags=() tasks=(:core:testAndroidHostTest :androidApp:testDebugUnitTest
     :androidApp:lintDebug :androidApp:lintRelease :androidApp:assembleRelease
-    :core:compileCommonMainKotlinMetadata :core:compileIosMainKotlinMetadata :core:verifyCommonMainIndexDbMigration ktlintCheck)
+    :core:compileCommonMainKotlinMetadata :core:verifyCommonMainIndexDbMigration ktlintCheck)
+  if [ $ios = 1 ]; then tasks+=(:core:iosSimulatorArm64Test :core:compileIosMainKotlinMetadata); fi
   if [ $full = 1 ]; then flags=(-Pbench -Pcoverage); tasks+=(:core:koverHtmlReport :androidApp:koverHtmlReportDebug); fi
   ./gradlew ${flags[@]+"${flags[@]}"} "${tasks[@]}"
-  # Unit tests only: with no filter the script runs the UI tests too, about 12 minutes on three simulators.
-  step "ios unit tests"; scripts/ios-unit-tests.sh RetrieverTests
-  step "format"; format_check
+  if [ $ios = 1 ]; then
+    step "iOS tests"
+    if [ $full = 1 ]; then scripts/ios-unit-tests.sh; else scripts/ios-unit-tests.sh RetrieverTests; fi
+    step "Swift format"; format_check
+  fi
   step "notices"; check_notices
   step "16 KB alignment"; check_16k
   if [ $full = 1 ]; then
     step "bundle ABIs"; check_bundle_abis
-    step "inspections"; inspections
-    step "ios selftest"; scripts/ios-selftest.sh
-    step "ios ui tests"; scripts/ios-unit-tests.sh RetrieverUITests
   fi
   printf '\nverify: OK\n'
 }

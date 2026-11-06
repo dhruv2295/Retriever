@@ -1,4 +1,4 @@
--- People (docs/features/people.md): written only while the person has it on, and emptied when they turn it off. The
+-- People (README.md): written only while the person has it on, and emptied when they turn it off. The
 -- database is kept out of backups on both platforms, so none of this leaves the phone. Added in 10.sqm.
 
 -- A photo the faces pass has begun (attempts, counted before each try) or finished (done). Its row goes when the

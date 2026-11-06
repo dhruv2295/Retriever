@@ -99,7 +99,7 @@ struct SettingsView: View {
         Section {
             DisclosureGroup(Words.shared.HOW_IT_WORKS) {
                 Text(
-                    "Retriever processes your files on this \(Copy.device). Your searches, stars and what it finds inside never leave it. The only thing it downloads is search by description, if you choose it."
+                    "Retriever processes your files on this \(Copy.device). Your searches, stars and what it finds inside stay here. Downloading search by description and opening files stored in iCloud may use the internet."
                 )
                 Text(Copy.backgroundNote)
                 Text("Long files are processed a bit at a time: you can find them by their beginning first, and the rest follows.")

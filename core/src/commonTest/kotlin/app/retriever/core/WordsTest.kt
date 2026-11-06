@@ -71,7 +71,7 @@ class WordsTest {
     }
 
     @Test fun theDeviceIsNamedWhereItIsMeant() {
-        assertEquals("Everything happens on your iPhone", Words.onDevice(iphone))
+        assertEquals("Your files are processed on your iPhone", Words.onDevice(iphone))
         assertEquals("When your phone is charging and you’re not using it. With lots of files, this can take a few nights.", Words.otherFilesBody(android))
         assertEquals("Uses some battery. Stops early if your phone gets warm. Then carries on while charging.", Words.readNowBody(android))
         assertEquals(

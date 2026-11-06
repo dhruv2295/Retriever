@@ -38,9 +38,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -371,7 +369,7 @@ private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun Message(dim: Boolean = false, content: @Composable () -> Unit) {
     val alpha by animateFloatAsState(if (dim) 0.6f else 1f, fastEffects)
     Box(
-        Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.verticalScroll(rememberScrollState()).padding(vertical = 32.dp),
+        Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.padding(vertical = 32.dp),
         contentAlignment = Alignment.TopCenter,
     ) { content() }
 }
