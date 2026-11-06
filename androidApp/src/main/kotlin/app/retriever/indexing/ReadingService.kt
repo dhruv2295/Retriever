@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -98,7 +99,9 @@ class ReadingService :
                 // Undispatched, so a screen-off from here on sees it.
                 val held = launch(start = CoroutineStart.UNDISPATCHED) { index.holdForeground() }
                 if (!trial) IndexWorker.prepare(retriever, models, calibrator)
-                var next = retriever.indexBatch(8.minutes, waitForLock = trial)
+                // Waits for a batch still running (a job's, a direct trial's): a lock lost after indexBatch's short wait read as
+                // DONE and ended the service.
+                var next = retriever.indexBatch(8.minutes, waitForLock = true)
 
                 // On a charger or in front, batches follow each other here, resting as restBefore says; heat polls until the
                 // phone cools. Read for 15 minutes holds the service on battery too, for the session it promised.
@@ -114,10 +117,11 @@ class ReadingService :
                     if (next == NextRun.AFTER_COOLDOWN && lastStop == StopReason.HOT && !retriever.deviceState().cooled) continue
                     if (next == NextRun.WHEN_IDLE && retriever.readingBlocker() == StopReason.BUSY) continue
                     index.notifySampleIfReady()
-                    next = retriever.indexBatch(8.minutes)
+                    next = retriever.indexBatch(8.minutes, waitForLock = true)
                 }
                 progress.cancel()
-                held.cancel()
+                // Joined: the follow-up scheduled next must not find this run still held and leave the reading to it.
+                held.cancelAndJoin()
                 index.notifySampleIfReady()
                 index.notifyCaughtUpIfReady()
                 if (!retriever.prefs.value.paused) index.schedule(next)

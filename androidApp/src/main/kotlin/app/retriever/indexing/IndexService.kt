@@ -139,6 +139,9 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     // Whatever started them (in front, Index now, a follow-up): a tag can't tell which runs hold the service.
     private val foregroundRuns = AtomicInteger()
 
+    /** A run holds the foreground service: it reads and schedules by itself, so a job that comes meanwhile leaves it be. */
+    fun foregroundHeld() = foregroundRuns.get() > 0
+
     /** ReadingService's, from the moment it holds the foreground service until it cancels this. */
     suspend fun holdForeground() {
         foregroundRuns.incrementAndGet()

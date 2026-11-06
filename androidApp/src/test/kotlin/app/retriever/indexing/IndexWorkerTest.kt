@@ -33,6 +33,7 @@ import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -51,6 +52,7 @@ import org.junit.runner.RunWith
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.worker
 import org.koin.androidx.workmanager.factory.KoinWorkerFactory
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
@@ -283,6 +285,20 @@ class IndexWorkerTest {
         } finally {
             retriever.cancelBatch()
             direct.cancel()
+        }
+    }
+
+    /** A media or periodic job while ReadingService holds a run: taking the lock ended the held run's service overnight. */
+    @Test fun aRunLeavesTheReadingToAHeldRun() = runBlocking {
+        val retriever = testRetriever(files = listOf(testFile("report.pdf", Kind.DOC)))
+        val worker = worker(retriever)
+        val held = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { GlobalContext.get().get<IndexService>().holdForeground() }
+        try {
+            assertEquals(ListenableWorker.Result.success(), worker.doWork())
+            assertEquals("not synced: the held run's next batch does", 0L, listed(retriever))
+            assertTrue(queued(CONTINUE).isEmpty())
+        } finally {
+            held.cancel()
         }
     }
 

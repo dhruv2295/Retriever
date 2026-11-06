@@ -61,6 +61,10 @@ class IndexWorker(
         // First, so a paused or not-yet-permitted run keeps watching too. Only the media run, and only its first attempt:
         // any other run (or a retry) appending would grow a chain behind the waiting trigger.
         if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
+        // ReadingService's held run reads batch after batch, each syncing first, and schedules what follows. A media or
+        // periodic job that took the index lock from it ended its foreground service: a Pixel on its charger went on throttled
+        // jobs at 3 a.m. and read nothing more until morning.
+        if (index.foregroundHeld()) return@withContext Result.success()
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
         val started = TimeSource.Monotonic.markNow()
