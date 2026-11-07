@@ -2,8 +2,11 @@ package app.retriever.duplicates
 
 import android.app.Application
 import android.app.PendingIntent
+import android.content.ContentProvider
 import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Intent
+import android.database.MatrixCursor
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
@@ -51,6 +54,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
@@ -121,8 +125,10 @@ class DuplicatesViewModelTest {
     @Test
     @Config(shadows = [NoFileAccess::class, DeleteRequestShadow::class])
     fun aConfirmationWaitsForACollectorAndIsDeliveredOnlyOnce() = runTest {
-        val a = older.copy(uri = "content://media/external/images/media/1")
-        val b = newer.copy(uri = "content://media/external/images/media/2")
+        // The index keeps MediaStore's Files address; Android's confirmation refuses it and needs the photo's own.
+        val a = older.copy(uri = "content://media/external/file/1")
+        val b = newer.copy(uri = "content://media/external/file/2")
+        Robolectric.setupContentProvider(PhotosOnly::class.java, MediaStore.AUTHORITY)
         val retriever = retrieverOver(files = listOf(a, b))
         retriever.indexBatch(1.minutes)
         val vm = DuplicatesViewModel(retriever, IndexService(app, retriever), AccessService(app), MediaDeleter(app))
@@ -131,7 +137,7 @@ class DuplicatesViewModelTest {
         DeleteRequestShadow.created.await()
         runCurrent()
         assertTrue(vm.state.value.deleting)
-        assertEquals(listOf(Uri.parse(b.uri)), DeleteRequestShadow.uris)
+        assertEquals(listOf(Uri.parse("content://media/external/images/media/2")), DeleteRequestShadow.uris)
         assertEquals(DeleteRequestShadow.request.intentSender, vm.confirm.first())
         val afterRecreation = backgroundScope.async { vm.confirm.first() }
         runCurrent()
@@ -191,6 +197,22 @@ class DuplicatesViewModelTest {
         assertEquals(1, s.failed)
         assertEquals(setOf(newer.uri), s.selected)
     }
+}
+
+/** MediaStore's answer to the one thing the deleter asks: every file here is a photo. */
+class PhotosOnly : ContentProvider() {
+    override fun onCreate() = true
+
+    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?) =
+        MatrixCursor(arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE)).apply { addRow(arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE)) }
+
+    override fun getType(uri: Uri): String? = null
+
+    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
+    override fun delete(uri: Uri, selection: String?, args: Array<out String>?) = 0
+
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?) = 0
 }
 
 /** The system owns the confirmation activity; the ViewModel test only needs its pending request. */

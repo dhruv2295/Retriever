@@ -42,6 +42,7 @@ import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.duplicates.MediaDeleter
+import app.retriever.duplicates.mediaItemUri
 import app.retriever.ui.components.PressMenu
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
@@ -310,7 +311,8 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                 TextButton(enabled = !busy && pending == null && validFileName(name) && name != r.file.name, onClick = {
                     if (sourceOf(r.file.uri) == FileSource.MEDIA) {
                         run {
-                            val sender = MediaStore.createWriteRequest(context.contentResolver, listOf(r.file.uri.toUri())).intentSender
+                            val item = mediaItemUri(context.contentResolver, r.file.uri) ?: return@run failed()
+                            val sender = MediaStore.createWriteRequest(context.contentResolver, listOf(item)).intentSender
                             pending = r to name
                             consent.launch(IntentSenderRequest.Builder(sender).build())
                         }
@@ -363,7 +365,9 @@ private fun rename(context: Context, file: SourceFile, name: String): SourceFile
     val uri = file.uri.toUri()
     val renamed = when (sourceOf(file.uri)) {
         FileSource.MEDIA -> {
-            if (resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, name) }, null, null) <= 0) return null
+            // Through the address the write request granted; the index keeps the Files one.
+            val item = mediaItemUri(resolver, file.uri) ?: return null
+            if (resolver.update(item, ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, name) }, null, null) <= 0) return null
             uri
         }
 
