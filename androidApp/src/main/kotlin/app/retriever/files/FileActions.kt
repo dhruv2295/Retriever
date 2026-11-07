@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.access.AccessService
 import app.retriever.core.DeviceWords
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
@@ -247,6 +248,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     val scope = rememberCoroutineScope()
     val actions = org.koin.compose.koinInject<FileActions>()
     val deleter = org.koin.compose.koinInject<MediaDeleter>()
+    val access = org.koin.compose.koinInject<AccessService>()
     var request by actions::request
     var name by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Pair<Request, String>?>(null) }
@@ -324,35 +326,30 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
             dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
         )
 
-        FileAction.DELETE -> {
-            if (sourceOf(r.file.uri) == FileSource.MEDIA) {
-                LaunchedEffect(r) {
+        // Asked here for every file, as Duplicates does: with all-files access Android deletes a photo without asking.
+        FileAction.DELETE -> AlertDialog(
+            onDismissRequest = { if (!busy) request = null },
+            title = { Text("Delete this file?") },
+            text = { Text(Words.deleteConfirm(DeviceWords.ANDROID)) },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
                     run {
-                        val sender = deleter.request(listOf(r.file.uri)) ?: return@run failed()
-                        pending = r to ""
-                        request = null
-                        consent.launch(IntentSenderRequest.Builder(sender).build())
+                        if (sourceOf(r.file.uri) == FileSource.MEDIA && !access.access().allFiles) {
+                            val sender = deleter.request(listOf(r.file.uri)) ?: return@run failed()
+                            pending = r to ""
+                            request = null
+                            consent.launch(IntentSenderRequest.Builder(sender).build())
+                        } else {
+                            if (deleter.delete(listOf(r.file.uri)).isEmpty()) return@run failed()
+                            retriever.deletedFiles(listOf(r.file.uri))
+                            request = null
+                            r.deleted()
+                        }
                     }
-                }
-            } else {
-                AlertDialog(
-                    onDismissRequest = { if (!busy) request = null },
-                    title = { Text("Delete this file?") },
-                    text = { Text(Words.deleteConfirm(DeviceWords.ANDROID)) },
-                    confirmButton = {
-                        TextButton(enabled = !busy, onClick = {
-                            run {
-                                if (deleter.delete(listOf(r.file.uri)).isEmpty()) return@run failed()
-                                retriever.deletedFiles(listOf(r.file.uri))
-                                request = null
-                                r.deleted()
-                            }
-                        }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
-                    },
-                    dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
-                )
-            }
-        }
+                }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
+            },
+            dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
+        )
 
         else -> Unit
     }
