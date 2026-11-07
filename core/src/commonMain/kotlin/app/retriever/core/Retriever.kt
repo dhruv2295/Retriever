@@ -659,6 +659,7 @@ class Retriever(
         if (waitForLock) {
             indexLock.lock()
         } else if (withTimeoutOrNull(LOCK_WAIT) { indexLock.lock() } == null) {
+            log("Batch skipped: another batch held the index for ${LOCK_WAIT.inWholeSeconds} s", null)
             changedSinceSync = true
             return NextRun.DONE
         }
@@ -806,7 +807,10 @@ class Retriever(
                 null
             } else {
                 // A missing model file returns here, like the untuned case above.
-                val (opened, b) = model.open() ?: return end(StopReason.DONE)
+                val (opened, b) = model.open() ?: run {
+                    log("Batch stopped: the model didn't open", null)
+                    return end(StopReason.DONE)
+                }
                 used = opened
                 build = b
                 if (store.signature() != opened.signature) {
