@@ -1,11 +1,7 @@
 package app.retriever.status
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
-import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,6 +72,7 @@ import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
 import app.retriever.home.rememberCelebrating
+import app.retriever.indexing.openBatterySettings
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
 import app.retriever.ui.components.CountBar
@@ -149,12 +146,7 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
                 if (skippedOpen) vm.loadSkipped()
             },
             retrySkipped = vm::retrySkipped,
-            openBatterySettings = {
-                try {
-                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
-                } catch (_: ActivityNotFoundException) {
-                }
-            },
+            openBatterySettings = { openBatterySettings(context) },
             chooseMorePhotos = { photosLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray()) },
             allowAllFiles = { openAllFilesSettings(context) },
             addFolder = { folderLauncher.launch(null) },

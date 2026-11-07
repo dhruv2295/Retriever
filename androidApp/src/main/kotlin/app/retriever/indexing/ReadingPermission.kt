@@ -2,7 +2,13 @@ package app.retriever.indexing
 
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
@@ -71,5 +77,47 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
             pending = action
             asking = true
         }
+    }
+}
+
+/**
+ * Asked as the full read starts, unless Retriever already runs unrestricted. Android keeps a background job on the two
+ * slowest cores (cpuset background: cores 0-1 of 7 on a Pixel); only the reading service gets the fast ones, and it may
+ * start on a charger without the app in front only once battery optimization is off.
+ */
+@Composable
+fun rememberBatteryAsk(): () -> Unit {
+    val context = LocalContext.current
+    var asking by rememberSaveable { mutableStateOf(false) }
+    if (asking) {
+        AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Process faster while charging?") },
+            text = {
+                Text(
+                    "Android runs apps in the background on its slowest cores. With Retriever's battery use set to " +
+                        "Unrestricted, it uses the fast ones whenever your phone charges, and finishes much sooner. " +
+                        "In settings, open Battery and choose Unrestricted.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = false
+                    openBatterySettings(context)
+                }) { Text("Open settings") }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(Words.NOT_NOW) } },
+        )
+    }
+    return remember(context) {
+        { if (!context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)) asking = true }
+    }
+}
+
+/** Retriever's page in Android's settings, where Battery holds the Unrestricted choice. */
+fun openBatterySettings(context: Context) {
+    try {
+        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
+    } catch (_: ActivityNotFoundException) {
     }
 }

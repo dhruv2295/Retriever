@@ -134,6 +134,7 @@ fun HomeScreen(
     val prefs by retriever.prefs.collectAsStateWithLifecycle()
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     val requestReading = app.retriever.indexing.rememberReadingPermission()
+    val askBattery = app.retriever.indexing.rememberBatteryAsk()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
@@ -144,14 +145,19 @@ fun HomeScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
     // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
     // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val homeActions = remember(context, requestReading, prefs.notifyWhenCaughtUp, snackbar, scope) {
+    val homeActions = remember(context, requestReading, askBattery, prefs.notifyWhenCaughtUp, snackbar, scope) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
             readNow = { requestReading { vm.readNow() } },
             stopReadNow = vm::stopReadNow,
             dismissCaughtUp = vm::dismissCaughtUp,
-            commit = { charging -> requestReading { vm.commit(charging) } },
+            commit = { charging ->
+                requestReading {
+                    vm.commit(charging)
+                    askBattery()
+                }
+            },
             hideOnThisDay = {
                 vm.hideOnThisDay()
                 scope.launch {
