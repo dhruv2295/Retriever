@@ -766,7 +766,7 @@ class Retriever(
             val ids = loadScope()
             val pending = if (ids == null) store.pendingByKind().values.sum() else store.pendingIn(ids).size.toLong()
 
-            // An open app deepens once nothing is pending; in the background only on the charger with the screen off, even
+            // An open app deepens once nothing is pending; in the background only on the charger, even
             // when a few new files are read on battery (ReadingPolicy.deepenBlocker).
             fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), monitor.state(), uiVisible, sampleSession(), now())
             fun canDeepen(): Boolean = (mayDeepen || (uiVisible && sampleSession())) && !keywordOnly && deepenBlocker() == null
@@ -777,7 +777,7 @@ class Retriever(
                 else -> store.tailCountsIn(ids).first
             }
             // People (Faces.kt) before the model opens, which faces never need, and under the deepen pass's rule (in the
-            // background only on the charger with the screen off). Faces go first: a photo takes them ~0.3 s against reading's
+            // background only on the charger). Faces go first: a photo takes them ~0.3 s against reading's
             // ~1.5 s, so People is whole in about a fifth of a first read; reading waits while they may run.
             val reader = faceReader
             val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }

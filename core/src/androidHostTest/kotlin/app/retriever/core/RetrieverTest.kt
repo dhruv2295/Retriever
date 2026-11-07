@@ -275,7 +275,7 @@ class RetrieverTest {
     fun hotAndBusyAndPausedStopTheBatch() = test {
         val f = fx(monitor = FakeMonitor(DeviceState(8.0, true, 80, Thermal.SEVERE)))
         assertEquals(NextRun.AFTER_COOLDOWN, f.r.indexBatch(1.minutes))
-        f.monitor.state = DeviceState(8.0, true, 80, Thermal.NONE, screenOn = true)
+        f.monitor.state = DeviceState(8.0, false, 80, Thermal.NONE, screenOn = true)
         assertEquals(NextRun.WHEN_IDLE, f.r.indexBatch(1.minutes))
         f.r.pause()
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))

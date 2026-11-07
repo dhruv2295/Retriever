@@ -146,7 +146,11 @@ object ReadingPolicy {
      */
     const val FEW_WAITING = 100
 
-    /** Process for 15 minutes is the person asking now: it carries on while they use the phone (on the CPU, see `onScreen`). */
+    /**
+     * Process for 15 minutes is the person asking now: it carries on while they use the phone (on the CPU, see `onScreen`).
+     * So does any reading on the charger, where use costs no battery: waiting for the phone to be put down left a first read
+     * days long.
+     */
     fun blocker(
         prefs: Prefs,
         device: DeviceState,
@@ -161,7 +165,7 @@ object ReadingPolicy {
         device.hot -> StopReason.HOT
         !device.charging && (lowBattery || device.batteryPct in 0..LOW_BATTERY) -> if (device.pluggedIn) StopReason.CHARGING_UP else StopReason.LOW_BATTERY
         prefs.readNowUntil > now -> null
-        device.screenOn && !visible && !fewWaiting -> StopReason.BUSY
+        device.screenOn && !visible && !fewWaiting && !device.pluggedIn -> StopReason.BUSY
         sampleSession -> null
         prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
         !device.pluggedIn && !fewWaiting && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
@@ -176,13 +180,13 @@ object ReadingPolicy {
     }
 
     /**
-     * Embedding long files' later parts is the big, one-time work: it keeps the charger-and-screen-off rule even when few new
-     * files wait. Null when it may run now.
+     * Embedding long files' later parts is the big, one-time work: off the charger it waits for one even when few new files
+     * wait, and in the background for the phone to be put down. Null when it may run now.
      */
     fun deepenBlocker(prefs: Prefs, device: DeviceState, visible: Boolean, sampleSession: Boolean, now: Long): StopReason? = when {
         sampleSession && visible -> null
         prefs.readNowUntil > now -> null
-        device.screenOn && !visible -> StopReason.BUSY
+        device.screenOn && !visible && !device.pluggedIn -> StopReason.BUSY
         !device.pluggedIn && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
         else -> null
     }

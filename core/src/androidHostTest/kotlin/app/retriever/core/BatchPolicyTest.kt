@@ -72,7 +72,7 @@ class BatchPolicyTest {
     fun aStateThatWouldStopTheBatchStopsItBeforeTheModelOpens() = test {
         val cases = listOf(
             plugged.copy(thermal = Thermal.SEVERE) to NextRun.AFTER_COOLDOWN,
-            plugged.copy(screenOn = true) to NextRun.WHEN_IDLE,
+            unplugged.copy(screenOn = true) to NextRun.WHEN_IDLE,
             unplugged to NextRun.WHEN_CHARGING,
         )
         for ((state, next) in cases) {
@@ -154,7 +154,7 @@ class BatchPolicyTest {
     @Test
     fun trialPausesForOtherAppsAndResumesWhenVisibleOrScreenOff() = test {
         for (visible in listOf(true, false)) {
-            val f = Fx(state = plugged.copy(screenOn = true))
+            val f = Fx(state = unplugged.copy(screenOn = true))
             f.r.planTaste()
             assertEquals(NextRun.WHEN_IDLE, f.r.taste())
             assertEquals(StopReason.BUSY, f.r.state.value.lastStop)
