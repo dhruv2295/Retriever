@@ -152,6 +152,8 @@ class SetupFlowTest {
         f.continueFromAccess()
         val sample = f.ui.first { it.stage == SetupStage.SAMPLE && it.setup.planned > 0 }
         assertFalse(sample.setup.decided)
+        assertEquals("the reader is woken for it", 1, WorkManager.getInstance(app).getWorkInfosForUniqueWork(IndexService.INDEX).get().size)
+        r.taste() // what the reader runs
         val p = r.tasteProgress().first { it.planned > 0 && it.pending == 0 }
         assertEquals(p.planned, p.done)
         // Every planned file in plan order, the read ones first.

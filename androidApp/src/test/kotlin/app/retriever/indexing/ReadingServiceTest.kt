@@ -20,7 +20,7 @@ import app.retriever.core.Signature
 import app.retriever.core.SourceFile
 import app.retriever.core.Tier
 import app.retriever.core.db.IndexDb
-import app.retriever.indexing.IndexService.Companion.CONTINUE
+import app.retriever.indexing.IndexService.Companion.INDEX
 import app.retriever.model.Calibrator
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
@@ -112,7 +112,7 @@ class ReadingServiceTest {
 
     private fun awaitStopped(service: ReadingService) = runBlocking { withTimeout(10.seconds) { while (!stopped(service)) delay(10) } }
 
-    private fun queued() = WorkManager.getInstance(context).getWorkInfosForUniqueWork(CONTINUE).get()
+    private fun queued() = WorkManager.getInstance(context).getWorkInfosForUniqueWork(INDEX).get()
 
     /** On a charger the service starts the next batch itself instead of a follow-up, then stops once there's nothing left. */
     @Test fun aHeldRunGoesOnBatchAfterBatchThenStops() {
@@ -139,7 +139,7 @@ class ReadingServiceTest {
         assertEquals(true, retriever.setUp.value)
     }
 
-    @Test fun aTrialHandoffWaitsForTheDirectBatch() = runBlocking {
+    @Test fun aHeldRunWaitsForABatchStillRunning() = runBlocking {
         val entered = CompletableDeferred<Unit>()
         var calls = 0
         val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0, wrapDriver = {
@@ -158,7 +158,7 @@ class ReadingServiceTest {
             withTimeout(10.seconds) { entered.await() }
             val service = start(retriever, trial = true)
             delay(500)
-            assertFalse("the handoff must wait for the core lock", stopped(service))
+            assertFalse("the service waits for the core lock", stopped(service))
             retriever.cancelBatch()
             direct.await()
             awaitStopped(service)

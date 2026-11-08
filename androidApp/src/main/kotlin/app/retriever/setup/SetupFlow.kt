@@ -180,21 +180,12 @@ class SetupFlow(
         }
     }
 
-    /** Once per process: the sample runs here, in sight; hidden, it stops and the worker carries on within the plan. */
+    /** Once per process: the reader starts the sample in front, in ReadingService, which finishes it after leaving too. */
     private fun readSample() {
         if (sampleRead) return
         sampleRead = true
         index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
-        scope.launch {
-            try {
-                if (!index.readTrial()) index.indexNow()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e("Retriever", "short read failed", e)
-                index.indexNow()
-            }
-        }
+        index.indexNow()
     }
 }
 

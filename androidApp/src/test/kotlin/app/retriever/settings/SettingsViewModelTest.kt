@@ -181,10 +181,10 @@ class SettingsViewModelTest {
         runInterruptible(Dispatchers.IO) { reading.await() }
 
         vm.setSampleMode(true)
-        // The save runs on a real thread; restart() has run once its index-now request is queued.
+        // The save runs on a real thread; restart() has run once its reader is queued.
         val work = WorkManager.getInstance(app)
         var tries = 0
-        while (work.getWorkInfosForUniqueWork(IndexService.NOW).get().isEmpty() && tries++ < 1000) {
+        while (work.getWorkInfosForUniqueWork(IndexService.INDEX).get().isEmpty() && tries++ < 1000) {
             advanceUntilIdle()
             Thread.sleep(5)
         }
@@ -192,6 +192,6 @@ class SettingsViewModelTest {
         batch.await()
 
         assertEquals(StopReason.BUDGET, retriever.state.value.lastStop) // the batch was cancelled, not finished
-        assertEquals(1, work.getWorkInfosForUniqueWork(IndexService.NOW).get().size)
+        assertEquals(1, work.getWorkInfosForUniqueWork(IndexService.INDEX).get().size)
     }
 }

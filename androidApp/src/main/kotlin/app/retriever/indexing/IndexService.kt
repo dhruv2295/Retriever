@@ -1,145 +1,129 @@
 package app.retriever.indexing
 
-import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.await
-import androidx.work.workDataOf
 import app.retriever.IndexWorker
 import app.retriever.core.NextRun
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.ThermalRest
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
-/** Background indexing: the one owner of IndexWorker's unique work, for the screens, the worker and the receivers. */
+/**
+ * Background reading has one reader at a time and many wake-ups. ReadingService reads where Android lets it start (fast
+ * cores); otherwise one unique work, [INDEX], reads a batch per job (slow cores) and queues its own next run. Everything
+ * else (new media, the periodic check, the charger or idle coming back, the receivers, setup) only wakes [INDEX] and never
+ * reads. Four works that each read fought over the index lock, cancelled each other's batches and left a Pixel reading a
+ * third of the night.
+ */
 class IndexService(private val context: Context, private val retriever: Retriever) {
     private val work get() = WorkManager.getInstance(context)
-    private val trialLock = Mutex()
 
-    // Serializes ownership changes, not extraction: leaving must persist the successor before cancelling the direct job.
-    private val ownership = Mutex()
-    private var directTrial: Job? = null
+    /** Every run waits while storage is low, so a batch doesn't start only to stop at once on a full disk (core's DISK_FULL). */
+    private fun storageNotLow() = Constraints.Builder().setRequiresStorageNotLow(true)
 
-    /** A comeback leaves a held run or an already-persisted trial worker in charge; otherwise it reads directly. */
-    suspend fun readTrial(): Boolean = trialLock.withLock {
-        coroutineScope {
-            val reading = ownership.withLock {
-                if (!retriever.uiVisible || !retriever.hasPendingTaste()) return@coroutineScope false
-                if (foregroundRuns.get() > 0 ||
-                    work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { TRIAL in it.tags && !it.state.isFinished }
-                ) {
-                    return@coroutineScope true
-                }
-                retriever.cancelBatch()
-                launch(start = CoroutineStart.LAZY) {
-                    var next: NextRun
-                    do {
-                        next = retriever.taste()
-                    } while (next == NextRun.SOON && retriever.uiVisible && retriever.hasPendingTaste())
-                    ownership.withLock { if (isActive) schedule(next) }
-                }.also {
-                    directTrial = it
-                    it.start()
-                }
-            }
-            try {
-                reading.join()
-            } finally {
-                ownership.withLock { if (directTrial === reading) directTrial = null }
-            }
-            true
-        }
+    private fun reader(delay: Duration = Duration.ZERO) = OneTimeWorkRequestBuilder<IndexWorker>()
+        .setInitialDelay(delay.toJavaDuration())
+        .setConstraints(storageNotLow().build())
+        .addTag(READER)
+        .build()
+
+    /** Wakes the reader. KEEP leaves a running or queued reader be; [indexNow] also makes a running batch sync again. */
+    internal fun kick() {
+        work.enqueueUniqueWork(INDEX, ExistingWorkPolicy.KEEP, reader())
     }
 
-    suspend fun schedule(next: NextRun) {
+    /** A person asked for reading now: a queued run waiting out a rest is replaced, and a running batch starts over. */
+    private fun kickNow() {
+        retriever.cancelBatch()
+        work.enqueueUniqueWork(INDEX, ExistingWorkPolicy.REPLACE, reader())
+    }
+
+    /**
+     * The reader's next run, after [delay]. From inside a running reader APPEND queues it behind that run, which REPLACE
+     * would cancel; from ReadingService, with no reader left, it simply enqueues.
+     */
+    fun follow(delay: Duration) {
+        work.enqueueUniqueWork(INDEX, ExistingWorkPolicy.APPEND_OR_REPLACE, reader(delay))
+    }
+
+    /** A wake-up that runs once [constraints] hold. */
+    private fun wakeWhen(name: String, constraints: Constraints) {
+        work.enqueueUniqueWork(name, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().setConstraints(constraints).build())
+    }
+
+    /** What a batch's end asks for. A rest is the reader's own next run; a wait for the charger or idle is a wake-up. */
+    fun schedule(next: NextRun) {
         when (next) {
-            NextRun.SOON -> if (retriever.hasPendingTaste()) continueTrial() else continueLater(10.seconds)
+            NextRun.SOON -> follow(10.seconds)
 
-            NextRun.AFTER_COOLDOWN, NextRun.RETRY -> continueLater(ThermalRest.RECHECK)
+            NextRun.AFTER_COOLDOWN, NextRun.RETRY -> follow(ThermalRest.RECHECK)
 
-            NextRun.WHEN_CHARGING -> continueWhenCharging()
+            NextRun.WHEN_CHARGING -> wakeWhen(CHARGING, storageNotLow().setRequiresCharging(true).build())
 
-            NextRun.WHEN_IDLE -> if (retriever.hasPendingTaste() && !retriever.deviceState().screenOn) {
-                continueTrial()
-            } else if (retriever.deviceState().pluggedIn) {
-                // Android defers a cached app's screen-off broadcast and IDLE can take an hour, so a Pixel on its charger
-                // sat unread with the screen off. A check that finds the phone still in use stops within one file.
-                continueLater(BUSY_RECHECK)
-            } else {
-                continueWhenIdle()
+            // In use on battery. The screen-off receiver usually wakes it first, while the app is alive; with the app gone,
+            // plugging in wakes it too, as on a charger in use is no reason to wait.
+            NextRun.WHEN_IDLE -> {
+                wakeWhen(IDLE, storageNotLow().setRequiresDeviceIdle(true).build())
+                wakeWhen(CHARGING, storageNotLow().setRequiresCharging(true).build())
             }
 
             NextRun.DONE -> Unit
         }
     }
 
-    /** [leaving]: the app just left view (onStop), rather than the screen-off broadcast, which Android may deliver much later. */
-    suspend fun screenOff(leaving: Boolean = false) {
-        ownership.withLock {
-            if (directTrial?.isActive == true && (!retriever.uiVisible || !retriever.deviceState().screenOn)) {
-                continueTrial(leaving)
-                directTrial?.cancel()
-                return
-            }
-        }
-        if (retriever.state.value.running) return
-        if (retriever.hasPendingTaste()) {
-            continueTrial(leaving)
-        } else if (startsOnCharger(retriever.deviceState().pluggedIn, retriever.readingBlocker(), retriever.hasWork())) {
-            // A run holding the foreground service carries on by itself on a charger, resting between batches, and so does a
-            // charger run not started yet. Replacing a held run ended its service, and its successor, started seconds after
-            // leaving, was refused one: a Pixel 8 Pro then read on 8-minute jobs all night.
-            if (foregroundRuns.get() == 0 && !chargerRunAlive()) continueOnCharger(leaving)
-        } else if (retriever.state.value.lastStop == StopReason.BUSY) {
-            continueLater(10.seconds)
-        }
-    }
-
-    suspend fun powerSaveChanged() {
-        if (context.getSystemService(PowerManager::class.java).isPowerSaveMode) return
-        if (retriever.hasPendingTaste()) continueTrial() else indexNow()
-    }
-
-    /** Short user-started work uses expedited WorkManager, avoiding device-idle maintenance windows. */
-    internal suspend fun continueTrial(leaving: Boolean = false) = continueInForeground(TRIAL, leaving)
-
     /**
-     * The app just left with the phone on a charger and files to read: a run that asks for a foreground service while
-     * Android still allows it (just after leaving a visible state) and holds it for as long as the charger does, batch
-     * after batch. Refused, it is an ordinary run with follow-ups, as before.
+     * ReadingService may start from here: in front, Android 11 (no background start limit), or battery optimization off
+     * (develop/background-work/services/fgs/restrictions-bg-start). Elsewhere Android refuses it. Hidden, not for an hour
+     * after Android refused it ([foregroundRefused]): every follow-up would start it, be refused and read nothing.
      */
-    internal suspend fun continueOnCharger(leaving: Boolean = false) = continueInForeground(CHARGER, leaving)
+    fun mayStartForeground() = retriever.uiVisible ||
+        (
+            SystemClock.elapsedRealtime() - refusedAt > REFUSAL_REST.inWholeMilliseconds &&
+                (
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                        context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+                    )
+            )
 
-    private suspend fun chargerRunAlive() = work.getWorkInfosForUniqueWorkFlow(CONTINUE).first().any { CHARGER in it.tags && !it.state.isFinished }
+    @Volatile private var refusedAt = -REFUSAL_REST.inWholeMilliseconds
 
-    // Whatever started them (in front, Index now, a follow-up): a tag can't tell which runs hold the service.
+    /** Android 15+ ended or refused the service: dataSync's 6 hours a day are used up until the app comes to the front. */
+    fun foregroundRefused() {
+        refusedAt = SystemClock.elapsedRealtime()
+        follow(10.seconds)
+    }
+
+    /** Plugged in, the screen off after being in use, or Battery Saver off: whatever held reading back may have let go. */
+    fun deviceChanged() {
+        if (!context.getSystemService(PowerManager::class.java).isPowerSaveMode) kick()
+    }
+
+    fun screenOff() {
+        if (retriever.state.value.lastStop == StopReason.BUSY) kick()
+    }
+
+    // Counted, not a flag: a service start that overlaps the end of the previous hold.
     private val foregroundRuns = AtomicInteger()
 
-    /** A run holds the foreground service: it reads and schedules by itself, so a job that comes meanwhile leaves it be. */
+    /** ReadingService reads and schedules by itself: a reader that wakes meanwhile leaves it be. */
     fun foregroundHeld() = foregroundRuns.get() > 0
 
     /** ReadingService's, from the moment it holds the foreground service until it cancels this. */
@@ -152,50 +136,10 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         }
     }
 
-    /**
-     * The run starts ReadingService ([FOREGROUND]) only where an exemption lets Android start one from the background: the
-     * app [leaving] or visible, battery optimization turned off, or Android 11, which has no such limit
-     * (develop/background-work/services/fgs/restrictions-bg-start). Leaving's exemption lasts only seconds, so the worker
-     * starts it before anything else, the model's check and tune included. Refused, the run reads as a plain expedited job.
-     */
-    private suspend fun continueInForeground(tag: String, leaving: Boolean) {
-        val ask = leaving || retriever.uiVisible || Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
-        val request = OneTimeWorkRequestBuilder<IndexWorker>()
-            // Expedited work takes only network and storage constraints; core checks battery, heat and Battery Saver per file.
-            .setConstraints(storageNotLow().build())
-            .setInputData(workDataOf(FOREGROUND to ask))
-            .addTag(tag)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
-        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request).await()
-    }
-
-    /** Every run waits while storage is low, so a batch doesn't start only to stop at once on a full disk (core's DISK_FULL). */
-    private fun storageNotLow() = Constraints.Builder().setRequiresStorageNotLow(true)
-
-    /** KEEP drops this while a batch runs; the change flag makes that batch sync again at its end instead. */
+    /** "Index now" and changed inputs. */
     fun indexNow() {
         retriever.notifyChanged()
-        work.enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<IndexWorker>().setConstraints(storageNotLow().build()).build())
-    }
-
-    // Every follow-up REPLACEs: the last decision wins, so a timed run never waits behind a charger- or idle-gated one.
-    // Called from a running follow-up, it cancels that worker too, once its batch is over.
-    fun continueLater(delay: Duration) {
-        val request = OneTimeWorkRequestBuilder<IndexWorker>().setInitialDelay(delay.toJavaDuration()).setConstraints(storageNotLow().build()).build()
-        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request)
-    }
-
-    /** After a batch stopped for being unplugged: Android starts this as soon as the charger is back. */
-    fun continueWhenCharging() = continueWhen(storageNotLow().setRequiresCharging(true).build())
-
-    /** After a batch stopped because the phone was in use; the screen-off receiver usually comes first. */
-    fun continueWhenIdle() = continueWhen(storageNotLow().setRequiresDeviceIdle(true).build())
-
-    private fun continueWhen(constraints: Constraints) {
-        val request = OneTimeWorkRequestBuilder<IndexWorker>().setConstraints(constraints).build()
-        work.enqueueUniqueWork(CONTINUE, ExistingWorkPolicy.REPLACE, request)
+        kick()
     }
 
     /**
@@ -238,19 +182,14 @@ class IndexService(private val context: Context, private val retriever: Retrieve
         if (retriever.claimCaughtUpNotice()) Notifications.caughtUp(context, retriever.counts().first().progress.processed, retriever.textOnly)
     }
 
-    /** Stops the current and follow-up runs; the periodic run stays scheduled. */
+    /** Stops the reader and its queued runs; the wake-ups stay armed and find reading paused. */
     fun cancel() {
-        for (name in listOf(NOW, CONTINUE)) work.cancelUniqueWork(name)
+        retriever.cancelBatch()
+        work.cancelUniqueWork(INDEX)
     }
 
-    /**
-     * Changed settings apply at once: the running batch stops within one file and comes back SOON, which queues its
-     * follow-up, and a fresh run starts when none is running.
-     */
-    fun restart() {
-        retriever.cancelBatch()
-        indexNow()
-    }
+    /** Changed settings apply at once: the running batch stops within one file and a fresh run starts. */
+    fun restart() = kickNow()
 
     /** The user's Pause: a running batch stops within one file, and later runs wait until [resume]. */
     suspend fun pause() {
@@ -261,13 +200,13 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     /** "Index now": lifts a user pause and starts a batch. */
     suspend fun resume() {
         retriever.resume()
-        indexNow()
+        kickNow()
     }
 
     /** Read for 15 minutes, from Home's line, Reading status or Settings: core's line says so from the tap. */
     suspend fun readNow() {
         retriever.readNow()
-        indexNow()
+        kickNow()
     }
 
     /** Stop on a Read for 15 minutes: the running batch stops within one file, and the person's own schedule takes over. */
@@ -277,22 +216,18 @@ class IndexService(private val context: Context, private val retriever: Retrieve
     }
 
     internal companion object {
-        /** Leaving on a charger with reading allowed (Pause, schedule, heat, power) and something to read starts a foreground run. */
-        fun startsOnCharger(pluggedIn: Boolean, blocker: StopReason?, hasWork: Boolean) = pluggedIn && blocker == null && hasWork
-
         /**
          * A run holding a foreground service starts its next batch at once (or rests from heat in place) while the app shows
-         * or the phone charges, unless paused. On a charger it also waits out the phone being in use, so it never hands back to
-         * WorkManager's throttled jobs; anything else ends it, and WorkManager schedules what follows.
+         * ([visible] also covers an unfinished first-run sample) or the phone charges, unless paused. On a charger it also waits out the phone
+         * being in use, so it never hands back to WorkManager's throttled jobs; anything else ends it, and the reader follows.
          */
         fun holdsForeground(next: NextRun, paused: Boolean, visible: Boolean, pluggedIn: Boolean) = !paused && (visible || pluggedIn) &&
             (next == NextRun.SOON || next == NextRun.AFTER_COOLDOWN || (next == NextRun.WHEN_IDLE && pluggedIn))
 
         /**
          * The wait before a held run's next batch. Heat polls (the run then checks [app.retriever.core.DeviceState.cooled]);
-         * a model open refused for memory rests as a WorkManager follow-up would; a model closed mid-batch (SOON with no stop
-         * reason) keeps the old 10 s spacing; a phone in use is checked every [BUSY_POLL]; a batch that ran out of time goes on
-         * at once.
+         * a model open refused for memory rests as the reader would; a model closed mid-batch (SOON with no stop reason) keeps
+         * the old 10 s spacing; a phone in use is checked every [BUSY_POLL]; a batch that ran out of time goes on at once.
          */
         fun restBefore(next: NextRun, lastStop: StopReason?): Duration = when {
             next == NextRun.AFTER_COOLDOWN -> if (lastStop == StopReason.HOT) ThermalRest.POLL else ThermalRest.RECHECK
@@ -301,23 +236,17 @@ class IndexService(private val context: Context, private val retriever: Retrieve
             else -> Duration.ZERO
         }
 
-        /** Cached: Android 14+ freezes the process 10 s later, whatever it is running. */
-        fun aboutToFreeze(importance: Int) = importance >= ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED
-
-        /** How often a phone in use on its charger is checked for being put down. */
-        val BUSY_RECHECK = 5.minutes
-
-        /** The same check inside a charger run that holds its foreground service: it carries on within seconds of the screen going off. */
+        /** How often a held run checks a phone in use on its charger for being put down. */
         val BUSY_POLL = 15.seconds
 
-        const val CHARGER = "charger"
-        const val TRIAL = "trial"
+        val REFUSAL_REST = 1.hours
 
-        /** Input data: the run may ask for a foreground service (see continueInForeground). */
-        const val FOREGROUND = "foreground"
-        const val NOW = "index-now"
-        const val CONTINUE = "index-continue"
+        /** The one work that reads. Earlier versions' NOW and CONTINUE runs, still queued after an update, only wake it. */
+        const val INDEX = "index"
+        const val READER = "reader"
         const val PERIODIC = "index-periodic"
         const val MEDIA = "index-media"
+        const val CHARGING = "index-charging"
+        const val IDLE = "index-idle"
     }
 }

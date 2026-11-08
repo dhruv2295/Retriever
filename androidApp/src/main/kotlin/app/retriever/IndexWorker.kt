@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt (Apache-2.0). Modified for Retriever: the per-photo loop, input data, setProgress, coordinator pause and sample branch are replaced by one Retriever.indexBatch, foreground services for visible or expedited trial work, and follow-up scheduling by NextRun.
+// Adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumIndexingWorker.kt (Apache-2.0). Modified for Retriever: the per-photo loop, input data, setProgress, coordinator pause and sample branch are replaced by one Retriever.indexBatch, ReadingService where Android allows it, wake-up runs that only start the reader, and follow-up scheduling by NextRun.
 
 package app.retriever
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -34,10 +33,7 @@ import app.retriever.model.Calibrator
 import app.retriever.model.ModelRepository
 import app.retriever.model.ModelState
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -56,78 +52,59 @@ class IndexWorker(
 ) : CoroutineWorker(context, params) {
     // A stop (constraints, time limit, Pause) cancels doWork, and with it the batch inside indexBatch:
     // the cancelBatch() the platform's onStopped would call (it is final in CoroutineWorker).
+    //
+    // WorkManager may start a run in-process before its JobScheduler job (GreedyScheduler). Android can freeze a cached app
+    // meanwhile, but the job, once started, attaches to the running work and keeps the process up until it ends
+    // (Processor.startWork adds its token, SystemJobService holds the job): the run resumes. Stopping such runs to dodge the
+    // freeze stopped batches a job would have kept, then queued another in-process run that was stopped too.
     override suspend fun doWork(): Result = withContext(indexingDispatcher) {
         // Owned threads may stay at background priority; shared IO/Default threads must never be demoted.
-        // First, so a paused or not-yet-permitted run keeps watching too. Only the media run, and only its first attempt:
-        // any other run (or a retry) appending would grow a chain behind the waiting trigger.
-        if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
-        // ReadingService's held run reads batch after batch, each syncing first, and schedules what follows. A media or
-        // periodic job that took the index lock from it ended its foreground service: a Pixel on its charger went on throttled
-        // jobs at 3 a.m. and read nothing more until morning.
+        if (IndexService.READER !in tags) {
+            // A wake-up never reads. Only the media run's first attempt re-arms: a retry appending would grow a chain behind
+            // the waiting trigger. indexNow, so a batch already past its sync syncs again for the new photo.
+            if (IndexService.MEDIA in tags && runAttemptCount == 0) index.watchMedia(rearm = true)
+            index.indexNow()
+            return@withContext Result.success()
+        }
+        // ReadingService reads batch after batch, each syncing first, and schedules what follows.
         if (index.foregroundHeld()) return@withContext Result.success()
         // A fresh process (WorkManager woke it) has default flows until this read.
         retriever.refreshSetUp()
         val started = TimeSource.Monotonic.markNow()
-        val trial = IndexService.TRIAL in tags
         // Before setup finishes a batch only syncs the file list, so names are findable before reading starts.
         if (!platformReady()) {
-            // Before access too, which the person may not have given yet; a trial runs in front, where the upgrade does this.
-            // No GPU retest yet: it reads the newest photos.
-            if (!trial) prepare(retriever, models, calibrator, retestGpu = false)
+            // Before access too, which the person may not have given yet; the sample runs in front, where the upgrade does
+            // this. No GPU retest yet: it reads the newest photos.
+            if (!retriever.hasPendingTaste()) prepare(retriever, models, calibrator, retestGpu = false)
             retriever.clearUnavailableLibrary()
-            return@withContext Result.success()
+            // A tune takes a minute, and the sample's wake-up meanwhile was dropped (KEEP): go on to read it if setup finished.
+            if (!platformReady()) return@withContext Result.success()
         }
-        // A run that goes on batch after batch holds ReadingService, not this job, which ends now. A trial handoff starts it
-        // before waiting for the direct batch to stop. A trial or charger run asks only when IndexService saw an exemption that
-        // lets Android start it (FOREGROUND). A run that can't read content now (paused, unplugged, Battery Saver) only syncs
-        // names, which needs no notification.
-        val ask = inputData.getBoolean(IndexService.FOREGROUND, false)
-        if ((ask || (!retriever.state.value.running && retriever.uiVisible)) && retriever.readingBlocker() == null &&
-            ReadingService.start(applicationContext, foregroundInfo().notification, trial)
+        val sample = retriever.hasPendingTaste()
+        // Where Android allows it, ReadingService reads on the fast cores and this job ends now. A run that can't read
+        // content now (paused, unplugged, Battery Saver) only syncs names, which needs no notification.
+        if (index.mayStartForeground() && retriever.readingBlocker() == null &&
+            ReadingService.start(applicationContext, foregroundInfo().notification, sample)
         ) {
             return@withContext Result.success()
         }
         try {
-            val next = coroutineScope {
-                if (!trial) prepare(retriever, models, calibrator)
-                val guard = launch { stopBeforeFreeze() }
-                // Inside the job's guarantee, or JobScheduler counts the run as timed out (see ReadingService): trial and charger
-                // runs are expedited, with 3 minutes.
-                val budget = if (trial || IndexService.CHARGER in tags) EXPEDITED_BUDGET else 8.minutes
-                val next = retriever.indexBatch((budget - started.elapsedNow()).coerceAtLeast(10.seconds), waitForLock = trial)
-                guard.cancel()
-                next
-            }
+            if (!sample) prepare(retriever, models, calibrator)
+            // Inside the job's 10-minute guarantee, or JobScheduler counts the run as timed out (see ReadingService).
+            val next = retriever.indexBatch((BUDGET - started.elapsedNow()).coerceAtLeast(10.seconds), waitForLock = true)
             index.notifySampleIfReady()
             index.notifyCaughtUpIfReady()
             if (!retriever.prefs.value.paused) index.schedule(next)
         } finally {
-            if (isStopped && Build.VERSION.SDK_INT >= 31) Log.i("Retriever", "Index run stopped, reason $stopReason")
+            if (isStopped && Build.VERSION.SDK_INT >= 31) Log.w("Retriever", "Index run stopped, reason $stopReason")
         }
-        // Never Result.retry(): NOW work waiting in WorkManager's backoff (up to 5 h) would make indexNow's KEEP drop every
-        // Resume, setting change and first-run commit until it ran. A failed batch rests through CONTINUE instead.
+        // Never Result.retry(): a reader waiting in WorkManager's backoff (up to 5 h) would make kick's KEEP drop every wake-up
+        // until it ran. A failed batch rests through the reader's own next run instead.
         Result.success()
     }
 
-    /**
-     * This worker can run with no job keeping the process alive: WorkManager may run it in-process with no job behind it
-     * (GreedyScheduler). Once the app is hidden and holds no foreground service, Android ranks it cached and freezes it 10 s
-     * later, mid-batch or mid model open, and nothing restarts it: a Pixel 8 Pro read nothing for hours that way. Stopping
-     * the batch first lets the normal follow-up run as a real job.
-     */
-    private suspend fun stopBeforeFreeze() {
-        while (true) {
-            delay(2.seconds)
-            val state = ActivityManager.RunningAppProcessInfo().also(ActivityManager::getMyMemoryState)
-            if (IndexService.aboutToFreeze(state.importance)) {
-                Log.w("Retriever", "Cached with no job or service: stopping the batch before Android freezes the app")
-                retriever.cancelBatch()
-                return
-            }
-        }
-    }
-
-    // Android 11 implements expedited work as a foreground service and needs its notification before doWork.
+    // Nothing is expedited now, but an update can leave an earlier version's expedited run queued: Android 11 runs one as a
+    // foreground service and needs its notification before doWork.
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo()
 
     // dataSync on every level: Play's foreground service declaration lists local file processing under it, while
@@ -144,8 +121,8 @@ class IndexWorker(
     )
 
     internal companion object {
-        /** An expedited run's batch: its job's guarantee is 3 minutes, sync and model setup included. */
-        val EXPEDITED_BUDGET = 2.minutes + 30.seconds
+        /** A run's time, sync and model setup included, with room inside the job's 10-minute guarantee. */
+        val BUDGET = 8.minutes
 
         /**
          * A model download that finished with the app closed is checked and tuned here, so search by description is ready

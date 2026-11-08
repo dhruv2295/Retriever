@@ -70,19 +70,13 @@ class RetrieverApp :
         }
         Notifications.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-        // Screen-off hands a direct trial to durable work, or resumes a batch held back by another app. Plugging in resumes an
-        // open app's batch at once: WorkManager's charging constraint waits for the level to rise, up to 15 minutes.
+        // While the process lives these wake the reader at once: WorkManager's charging constraint waits for the level to rise,
+        // up to 15 minutes, and idle can take an hour.
         ContextCompat.registerReceiver(
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    scope.launch {
-                        when (intent.action) {
-                            PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> index.powerSaveChanged()
-                            Intent.ACTION_POWER_CONNECTED -> resumeHeld(StopReason.UNPLUGGED)
-                            else -> index.screenOff()
-                        }
-                    }
+                    if (intent.action == Intent.ACTION_SCREEN_OFF) index.screenOff() else index.deviceChanged()
                 }
             },
             IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
@@ -114,8 +108,17 @@ class RetrieverApp :
             if (retriever.uiVisible) retriever.warmSearch()
         }
         // The setup is null until start() settles it, which a cold start's first onStart beats.
-        // A batch held back for the charger, a busy phone or Battery Saver runs now, if the saved schedule allows it.
-        scope.launch { if (resumable() && !index.readTrial()) resumeHeld(StopReason.UNPLUGGED, StopReason.BUSY, StopReason.POWER_SAVE) }
+        // An unfinished sample, or a batch held back for the charger, a busy phone or Battery Saver, runs now, in front, if
+        // the saved schedule allows it.
+        // A background batch still running restarts, so the reader moves it to ReadingService's fast cores, which then carry on
+        // after leaving.
+        scope.launch {
+            if (retriever.state.value.running && !index.foregroundHeld()) {
+                index.restart()
+            } else if (resumable() && (retriever.hasPendingTaste() || (retriever.state.value.lastStop in HELD && retriever.readingBlocker() == null))) {
+                index.indexNow()
+            }
+        }
         scope.launch {
             // Picks setup and the upgrade up where they stopped, whichever screen the user comes back to. Built once
             // the setup settles, so they seed from what is stored.
@@ -125,22 +128,19 @@ class RetrieverApp :
         }
     }
 
-    /** With the app open, a batch whose last stop was one of [stops] runs now, unless something else still blocks it. */
-    private suspend fun resumeHeld(vararg stops: StopReason) {
-        if (resumable() && retriever.state.value.lastStop in stops && retriever.readingBlocker() == null) index.indexNow()
-    }
-
     private suspend fun resumable() = libraryChosen() && retriever.uiVisible
 
+    // A run reading in front holds ReadingService, which carries on by itself after leaving while it may.
     override fun onStop(owner: LifecycleOwner) {
         warmUp?.cancel()
         retriever.uiVisible = false
         // A hidden app is never busy: a screen that set it and was left without clearing it can't hold batches back.
         retriever.setUiBusy(false)
-        scope.launch {
-            if (!retriever.uiVisible) index.screenOff(leaving = true)
-            retriever.releaseIfIdle()
-        }
+        scope.launch { retriever.releaseIfIdle() }
+    }
+
+    private companion object {
+        val HELD = setOf(StopReason.UNPLUGGED, StopReason.BUSY, StopReason.POWER_SAVE)
     }
 
     /**

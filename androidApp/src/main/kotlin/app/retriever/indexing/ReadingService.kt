@@ -67,7 +67,7 @@ class ReadingService :
         } catch (e: Exception) {
             // Android 15's 6 h a day used up: plain jobs take over.
             Log.w("Retriever", "Unable to run as foreground service: ${e.message}")
-            index.continueLater(10.seconds)
+            index.foregroundRefused()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -83,7 +83,7 @@ class ReadingService :
     // Android 15+: dataSync's 6 h a day ran out. The service must stop within seconds; plain jobs carry on.
     override fun onTimeout(startId: Int, fgsType: Int) {
         run?.cancel()
-        index.continueLater(10.seconds)
+        index.foregroundRefused()
         stopSelf()
     }
 
@@ -96,19 +96,20 @@ class ReadingService :
         try {
             coroutineScope {
                 val progress = launch { showProgress() }
-                // Undispatched, so a screen-off from here on sees it.
+                // Undispatched, so a reader that wakes from here on sees it.
                 val held = launch(start = CoroutineStart.UNDISPATCHED) { index.holdForeground() }
                 if (!trial) IndexWorker.prepare(retriever, models, calibrator)
-                // Waits for a batch still running (a job's, a direct trial's): a lock lost after indexBatch's short wait read as
-                // DONE and ended the service.
+                // Waits for a batch still running (a job's): a lock lost after indexBatch's short wait read as DONE and ended
+                // the service.
                 var next = retriever.indexBatch(8.minutes, waitForLock = true)
 
                 // On a charger or in front, batches follow each other here, resting as restBefore says; heat polls until the
-                // phone cools. Read for 15 minutes holds the service on battery too, for the session it promised.
-                fun holds() = IndexService.holdsForeground(
+                // phone cools. The first-run sample holds it after leaving too, so it finishes on the fast cores, and Read for
+                // 15 minutes holds it on battery, for the session it promised.
+                suspend fun holds() = IndexService.holdsForeground(
                     next,
                     retriever.prefs.value.paused,
-                    retriever.uiVisible,
+                    retriever.uiVisible || retriever.hasPendingTaste(),
                     retriever.deviceState().pluggedIn || retriever.prefs.value.readNowUntil > System.currentTimeMillis(),
                 )
                 while (holds()) {
@@ -130,7 +131,7 @@ class ReadingService :
             throw e
         } catch (e: Exception) {
             Log.w("Retriever", "Held run failed", e)
-            index.continueLater(ThermalRest.RECHECK)
+            index.follow(ThermalRest.RECHECK)
         }
     }
 
