@@ -101,12 +101,15 @@ store and key). Back it up: Play App Signing holds the key users' installs check
 only be replaced through a reset request in the Play Console.
 
 Uploads go to Play's internal testing track through the
-[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, with a Play Console service
-account's JSON key kept outside the repo. The first bundle has to be uploaded by hand in the Play Console.
+[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, as a Google Cloud service
+account invited into the Play Console. The first bundle has to be uploaded by hand in the Play Console. Set
+`retrieverPlayServiceAccount=<service account email>` in `~/.gradle/gradle.properties`, give your Google account
+the Service Account Token Creator role on it, and sign in once with `gcloud auth application-default login`:
+the plugin then acts as the service account and no key file exists. Without that property it reads a JSON key
+from the `ANDROID_PUBLISHER_CREDENTIALS` environment variable instead.
 
 ```sh
-ANDROID_PUBLISHER_CREDENTIALS="$(cat ~/.config/retriever/play-service-account.json)" \
-  ./gradlew :androidApp:publishReleaseBundle
+./gradlew :androidApp:publishReleaseBundle
 ```
 
 While the Play app is still a draft, add `--release-status draft` and roll the release out in the Console.
