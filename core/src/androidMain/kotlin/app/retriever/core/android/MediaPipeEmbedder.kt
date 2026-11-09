@@ -18,6 +18,7 @@ package app.retriever.core.android
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.storage.StorageManager
 import android.util.Log
 import androidx.core.graphics.createBitmap
 import app.retriever.core.AUDIO_SAMPLE_RATE
@@ -54,6 +55,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 
 // LiteRT-LM reports it as INVALID_ARGUMENT "Input sequence length (N) exceeds maximum supported signature length".
@@ -184,6 +186,16 @@ private class MediaPipeEmbedder(
         build(delegate, Delegate.CPU)
     }
 
+    // allocateBytes clears other apps' cached data to make the room, which usableSpace can't count, and throws when the
+    // phone can't spare it.
+    private fun cacheRoom(): Long = try {
+        val storage = context.getSystemService(StorageManager::class.java)
+        storage.allocateBytes(storage.getUuidForPath(cache), modelBuild.sizeBytes)
+        modelBuild.sizeBytes
+    } catch (_: IOException) {
+        0L
+    }
+
     private fun build(textDelegate: Delegate, visionDelegate: Delegate): UniversalEmbedder {
         val base = BaseOptions.builder()
             .setModelAssetPath(modelFile.absolutePath)
@@ -197,7 +209,7 @@ private class MediaPipeEmbedder(
         cache.mkdirs()
         val builder = UniversalEmbedderOptions.builder()
             .setBaseOptions(base.build())
-            .setCacheDir(cacheDirFor(modelBuild, cache.absolutePath, cache.usableSpace))
+            .setCacheDir(cacheDirFor(modelBuild, cache.absolutePath, cacheRoom()))
             .setL2Normalize(true)
             .setMaxInputLength(maxTokens)
             .setTextDelegate(textDelegate)
