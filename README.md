@@ -86,7 +86,7 @@ there before each store upload, and tag the commit after it, e.g. `git tag -a v0
 
 Release builds are signed with the Play upload key when these Gradle properties are set, in
 `~/.gradle/gradle.properties` (outside the repo) or as `ORG_GRADLE_PROJECT_<name>` environment variables;
-without them they fall back to the debug key, which Play rejects:
+without them they fall back to the debug key for local testing, and publish tasks refuse to run:
 
 ```properties
 retrieverUploadStoreFile=/Users/you/.android-keys/retriever-upload.jks
@@ -97,7 +97,8 @@ retrieverUploadKeyPassword=...
 
 Create the key once with `keytool -genkeypair -v -keystore ~/.android-keys/retriever-upload.jks -alias upload
 -keyalg RSA -keysize 2048 -validity 10000` (it asks for the password; a PKCS12 keystore uses the same one for
-store and key). Back it up: it is the upload key, and Play App Signing holds the key users' installs check.
+store and key). Back it up: Play App Signing holds the key users' installs check, and a lost upload key can
+only be replaced through a reset request in the Play Console.
 
 Uploads go to Play's internal testing track through the
 [Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, with a Play Console service

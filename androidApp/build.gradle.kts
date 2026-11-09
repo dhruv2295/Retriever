@@ -54,7 +54,10 @@ android {
     }
 
     // Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still
-    // works; Play rejects a debug-signed upload, so that build can't reach the store by mistake.
+    // works. Play rejects a debug-signed upload, so publish tasks stop here instead.
+    if (signingConfigs.findByName("upload") == null && gradle.startParameter.taskNames.any { it.contains("publish", ignoreCase = true) }) {
+        throw GradleException("Publishing needs the upload key: set the retrieverUpload* properties (README, Release)")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
