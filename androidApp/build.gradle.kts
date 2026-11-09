@@ -82,6 +82,9 @@ android {
         }
     }
 
+    // People's face model, fetched from Play when People is turned on (AndroidFaceReader.ready).
+    assetPacks += listOf(":facepack")
+
     buildFeatures {
         compose = true
         buildConfig = true

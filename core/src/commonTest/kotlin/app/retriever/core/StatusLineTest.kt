@@ -25,7 +25,8 @@ class StatusLineTest {
         plugged: Boolean = false,
         faces: FacesProgress? = null,
         facesWaiting: FacesProgress? = null,
-    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces, facesWaiting)
+        people: PeopleModel? = null,
+    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces, facesWaiting, people)
 
     private fun row(s: ReadingStatus) = listOf(s.phase.name, s.title, s.count, s.detail, s.action?.label)
 
@@ -70,6 +71,14 @@ class StatusLineTest {
                 "Looking for faces in your photos",
                 "2,046 of 16,705 photos looked at",
                 "All your files are processed. Search works the whole time.",
+                null,
+            ),
+            // Before it, Play delivers People's model: no count of files beside a download.
+            decide(running = true, plugged = true, people = PeopleModel.GETTING) to listOf(
+                "FACES",
+                "Getting People ready",
+                null,
+                "A one-time download for People. Search works the whole time.",
                 null,
             ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to

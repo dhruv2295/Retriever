@@ -67,11 +67,33 @@ data class FaceBox(val left: Float, val top: Float, val right: Float, val bottom
 /** A face the platform found: where it is, and SFace's raw fingerprint (its length says how clear the face is; normalised here). */
 class FoundFace(val box: FaceBox, val vector: FloatArray)
 
+/** Whether what People reads faces with is on this device ([FaceReader.ready]). */
+enum class PeopleModel {
+    READY,
+
+    /** Downloading now. */
+    GETTING,
+
+    /** Waits for Wi-Fi: mobile data isn't allowed for downloads, or Play asks for it. */
+    WAITING_FOR_WIFI,
+
+    /** Couldn't be got now (no network, no Play); asked again on a later batch. */
+    UNAVAILABLE,
+}
+
 /** Finds the faces in a photo; the platform's face detector and SFace. */
 interface FaceReader {
     /** Every face clear enough to know again in the photo at [uri]; empty when it has none, null when it can't be opened. */
     @Throws(Throwable::class)
     suspend fun faces(uri: String): List<FoundFace>?
+
+    /**
+     * Whether [faces] can run. Anything but [PeopleModel.READY] has started getting what it needs, once, over mobile data
+     * only when [mobileData] (Prefs.allowMobileData): Android's Play build fetches SFace when People is turned on. A
+     * platform that ships everything answers READY.
+     */
+    @Throws(Throwable::class)
+    suspend fun ready(mobileData: Boolean): PeopleModel = PeopleModel.READY
 }
 
 /** A person's picture: the face at [box] in the photo at [uri]. */

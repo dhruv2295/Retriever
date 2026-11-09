@@ -64,6 +64,7 @@ import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -88,6 +89,8 @@ data class IndexState(
     val detail: String? = null,
     /** While a batch looks for faces, how far it has got: files wait meanwhile, so their count stands still. */
     val faces: FacesProgress? = null,
+    /** People's model when the last faces pass found it missing ([FaceReader.ready]); null once it is there. */
+    val people: PeopleModel? = null,
 )
 
 /**
@@ -418,6 +421,8 @@ class Retriever(
             }
             _prefs.value = new
             if (before.recognizePeople != new.recognizePeople) peopleChanged()
+            // Its model starts downloading now, not when the faces pass first runs, which waits for every file.
+            if (!before.recognizePeople && new.recognizePeople) faceReader?.let { r -> background.launch { r.ready(new.allowMobileData) } }
             // Files of a switched-off kind pass by unread in milliseconds: that pace would under-read them once back on.
             (new.kinds - before.kinds).takeIf { it.isNotEmpty() }?.let { k -> speedBook.update { it.copy(paces = it.paces - k) } }
             // Stars of dropped files stay, hidden until the folder is put back.
@@ -573,6 +578,7 @@ class Retriever(
                 t.pluggedIn,
                 state.faces,
                 facesWaiting,
+                state.people,
             )
         }
     }
@@ -718,6 +724,7 @@ class Retriever(
         var build: ModelBuild? = null
         var watchdog: Job? = null
         val processedBefore = _state.value.processed
+        var facesLooked = 0
         fun end(reason: StopReason): NextRun {
             stop = reason
             return nextRunFor(reason, changedSinceSync)
@@ -791,8 +798,21 @@ class Retriever(
                 // With tails: without them the counts leave the meaning pass out (Store.outcome) and this read 0.
                 (keywordOnly || store.countsNow().progress.meaningWaiting == 0L)
             ) {
+                when (peopleModel(reader, minOf(PEOPLE_WAIT, budget - started.elapsedNow()))) {
+                    PeopleModel.READY -> Unit
+
+                    // Still downloading: rest and look again (ThermalRest.RECHECK), as for heat, instead of holding the batch.
+                    PeopleModel.GETTING -> {
+                        stop = StopReason.DONE
+                        return NextRun.AFTER_COOLDOWN
+                    }
+
+                    // Wi-Fi, a network or Play to come: the next wake-up (the charger, the periodic run, the app) asks again.
+                    PeopleModel.WAITING_FOR_WIFI, PeopleModel.UNAVAILABLE -> return end(StopReason.DONE)
+                }
                 _state.update { it.copy(faces = store.facesProgress()) }
                 val faces = FacePass(store, reader, log, onLooked = {
+                    facesLooked++
                     _state.update { s -> s.copy(faces = s.faces?.let { FacesProgress(it.done + 1, (it.pending - 1).coerceAtLeast(0)) }) }
                 }, onCurrent = ::onCurrent, onGrouped = ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
                 _state.update { it.copy(faces = null) }
@@ -890,7 +910,8 @@ class Retriever(
             val device = monitor.state()
             val why = stop?.name ?: if (error != null) "error" else "cancelled"
             log(
-                "Batch ended: $why after ${started.elapsedNow().inWholeSeconds} s, ${_state.value.processed - processedBefore} files; " +
+                "Batch ended: $why after ${started.elapsedNow().inWholeSeconds} s, ${_state.value.processed - processedBefore} files, " +
+                    "$facesLooked photos looked at for faces; " +
                     "thermal ${device.thermal}, headroom ${device.headroom}, screen ${if (device.screenOn) "on" else "off"}, plugged ${device.pluggedIn}",
                 null,
             )
@@ -914,6 +935,24 @@ class Retriever(
 
     private fun reconcileRecentFiles() {
         _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
+    }
+
+    /**
+     * People's model, waited for while it downloads, at most [wait]; the status line says so meanwhile ([IndexState.people]).
+     * A Play install fetches it when People is turned on, so it is usually there by the time the files are read.
+     */
+    private suspend fun peopleModel(reader: FaceReader, wait: Duration): PeopleModel {
+        val mobileData = store.prefs().allowMobileData
+        val start = TimeSource.Monotonic.markNow()
+        var model = reader.ready(mobileData)
+        while (model == PeopleModel.GETTING && start.elapsedNow() < wait) {
+            _state.update { it.copy(people = model) }
+            delay(PEOPLE_POLL)
+            model = reader.ready(mobileData)
+        }
+        _state.update { it.copy(people = model.takeUnless { m -> m == PeopleModel.READY }) }
+        if (model != PeopleModel.READY) log("People's model isn't here yet: $model", null)
+        return model
     }
 
     private fun onCurrent(file: SourceFile) {
@@ -1857,6 +1896,11 @@ class Retriever(
 
     internal companion object {
         const val RECENT_FILES = 24
+
+        /** A faces pass waits this long for People's model downloading; then it rests and looks again. */
+        val PEOPLE_WAIT = 2.minutes
+
+        val PEOPLE_POLL = 2.seconds
 
         /** Reads again of a watched read failing in a row (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
         private const val WATCH_RETRIES = 5

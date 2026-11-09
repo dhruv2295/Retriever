@@ -47,6 +47,37 @@ class PeopleTest {
     }
 
     /**
+     * Play delivers People's model when People is turned on. A faces pass without it looks at no photo, so none uses up
+     * an attempt, and the next pass runs once the model is there.
+     */
+    @Test
+    fun facesWaitForPeoplesModel() = runBlocking {
+        val photos = (1..3).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+        var model = PeopleModel.WAITING_FOR_WIFI
+        var looked = 0
+        val reader = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> = emptyList<FoundFace>().also { looked++ }
+
+            override suspend fun ready(mobileData: Boolean) = model
+        }
+        val store = newStore()
+        val r = testRetriever(store, photos, FakeExtractor(), faceReader = reader)
+        store.setProfile(PROFILE)
+        r.uiVisible = true
+        r.updatePrefs { it.copy(recognizePeople = true) }
+        assertEquals(NextRun.SOON, r.indexBatch(1.minutes), "the photos are read first")
+        r.indexBatch(1.minutes)
+        assertEquals(0, looked)
+        assertEquals(FacesProgress(0, 3), r.facesProgress(), "no photo used up an attempt")
+        assertEquals(PeopleModel.WAITING_FOR_WIFI, r.state.value.people)
+
+        model = PeopleModel.READY
+        assertEquals(NextRun.DONE, r.indexBatch(1.minutes))
+        assertEquals(FacesProgress(3, 0), r.facesProgress())
+        assertEquals(null, r.state.value.people)
+    }
+
+    /**
      * Files go first: faces wait until every file is read and has search by description. Turned on mid-read on a Pixel 11,
      * faces first held 10,000 files and the search by description behind 23,413 photos for hours.
      */

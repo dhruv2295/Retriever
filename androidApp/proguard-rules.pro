@@ -28,3 +28,7 @@
 
 # protobuf-javalite (via mediapipe tasks-core) ships no rules; its message schema looks fields up by their source name.
 -keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite { <fields>; }
+
+# Play asset delivery's ktx (People's face model pack) names this Play services annotation, which nothing here ships; an
+# annotation only, never loaded.
+-dontwarn com.google.android.gms.common.annotation.NoNullnessRewrite

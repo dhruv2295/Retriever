@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Retriever"
-include(":core", ":androidApp")
+include(":core", ":androidApp", ":facepack")

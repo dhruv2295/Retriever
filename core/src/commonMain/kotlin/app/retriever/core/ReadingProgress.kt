@@ -264,7 +264,7 @@ object ReadingPolicy {
      * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED]. [faces]: the running
      * batch's look for faces ([IndexState.faces]), which runs once the files are done; its own count then.
      * [facesWaiting]: photos still to look at once every file is processed. A stop or wait then counts them, not a full
-     * file count beside work still to do.
+     * file count beside work still to do. [people]: People's model when a faces pass found it missing ([IndexState.people]).
      */
     fun decide(
         progress: ReadingProgress,
@@ -276,6 +276,7 @@ object ReadingPolicy {
         pluggedIn: Boolean = false,
         faces: FacesProgress? = null,
         facesWaiting: FacesProgress? = null,
+        people: PeopleModel? = null,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val demo = progress.sample && !progress.notNow
@@ -300,7 +301,8 @@ object ReadingPolicy {
 
             readNowMinutes > 0 && progress.unfinished -> ReadingPhase.READ_NOW
 
-            running && faces != null -> ReadingPhase.FACES
+            // A faces pass first waits for People's model while it downloads (Retriever.peopleModel).
+            running && (faces != null || people == PeopleModel.GETTING) -> ReadingPhase.FACES
 
             reading && progress.sample -> ReadingPhase.SAMPLE
 
@@ -339,7 +341,7 @@ object ReadingPolicy {
             ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
             ReadingPhase.SAMPLE -> "Processing the demo files"
             ReadingPhase.MEANING -> "Adding search by description"
-            ReadingPhase.FACES -> "Looking for faces in your photos"
+            ReadingPhase.FACES -> if (faces == null) "Getting People ready" else "Looking for faces in your photos"
             ReadingPhase.DEEPENING -> "Processing the rest of some long files"
             ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
             ReadingPhase.LOOKING -> "Checking for new files…"
@@ -371,7 +373,11 @@ object ReadingPolicy {
             ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
 
             // Faces come last (Retriever.runBatch): every file is processed by now.
-            ReadingPhase.FACES -> "All your files are processed. Search works the whole time."
+            ReadingPhase.FACES -> if (faces == null) {
+                "A one-time download for People. Search works the whole time."
+            } else {
+                "All your files are processed. Search works the whole time."
+            }
 
             ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
 
@@ -401,6 +407,7 @@ object ReadingPolicy {
         // bar beside 2,750 photos still waiting.
         val meaning = phase == ReadingPhase.MEANING || ((restStopped || firstPassDone) && progress.meaningWaiting > 0)
         val lead = when {
+            people == PeopleModel.WAITING_FOR_WIFI && facesWaiting != null && !running -> "People's download waits for Wi-Fi."
             phase == ReadingPhase.DEEPENING -> "${Words.notReadYet(progress.laterPasses)}."
             restStopped && !meaning -> "All files processed. The rest of ${Words.plural(progress.laterPasses, "long file")} waits."
             restStopped -> "All files processed."
@@ -430,7 +437,7 @@ object ReadingPolicy {
             else -> progress.processed to progress.libraryTotal
         }
         val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
-        val none = !progress.counted || laterOnly || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
+        val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && faces == null) || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
         val count = when {
             looking != null -> Words.facesOf(done, total)

@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
+import android.net.ConnectivityManager
+import android.util.Log
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.core.FACE_DIMS
@@ -13,26 +15,63 @@ import app.retriever.core.FaceAlign
 import app.retriever.core.FaceBox
 import app.retriever.core.FaceReader
 import app.retriever.core.FoundFace
+import app.retriever.core.PeopleModel
 import app.retriever.core.mlKitExecutor
+import com.google.android.play.core.assetpacks.AssetPackManagerFactory
+import com.google.android.play.core.assetpacks.model.AssetPackStatus
+import com.google.android.play.core.ktx.requestFetch
+import com.google.android.play.core.ktx.requestPackStates
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.face.FaceLandmark
 import org.tensorflow.lite.Interpreter
-import java.io.FileInputStream
+import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
  * People on Android: ML Kit finds each face and its eyes, nose and mouth corners; the face is turned and scaled onto
- * SFace's template ([FaceAlign]) and SFace (assets/sface.tflite, float16 weights) gives its fingerprint. Both load on
- * the first photo, so nothing loads while People is off.
+ * SFace's template ([FaceAlign]) and SFace (sface.tflite, float16 weights) gives its fingerprint. Both load on the first
+ * photo, so nothing loads while People is off. SFace is 17 MB and People is off by default, so Play delivers it as the
+ * on-demand [PACK] when People is turned on ([ready]).
  */
 class AndroidFaceReader(private val context: Context) : FaceReader {
+    private val packs by lazy { AssetPackManagerFactory.getInstance(context) }
+
+    private fun packed(): File? = packs.getPackLocation(PACK)?.assetsPath()?.let { File(it, MODEL) }?.takeIf { it.isFile }
+
+    override suspend fun ready(mobileData: Boolean): PeopleModel {
+        if (packed() != null) return PeopleModel.READY
+        return try {
+            when (packs.requestPackStates(listOf(PACK)).packStates()[PACK]?.status()) {
+                // Completed with no location yet: Play is still moving the files into place.
+                AssetPackStatus.COMPLETED, AssetPackStatus.PENDING, AssetPackStatus.DOWNLOADING, AssetPackStatus.TRANSFERRING -> PeopleModel.GETTING
+
+                AssetPackStatus.WAITING_FOR_WIFI, AssetPackStatus.REQUIRES_USER_CONFIRMATION -> PeopleModel.WAITING_FOR_WIFI
+
+                // Not installed, failed or cancelled: fetch it, as the model download does, over Wi-Fi unless allowed.
+                else -> if (!mobileData && context.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered) {
+                    PeopleModel.WAITING_FOR_WIFI
+                } else {
+                    packs.requestFetch(listOf(PACK))
+                    PeopleModel.GETTING
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // No Play (an install from elsewhere), or no network: a later batch asks again.
+            Log.w("Retriever", "People's model couldn't be fetched", e)
+            PeopleModel.UNAVAILABLE
+        }
+    }
     private val detector by lazy {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -44,21 +83,23 @@ class AndroidFaceReader(private val context: Context) : FaceReader {
         )
     }
 
-    private val sface by lazy {
-        // Stored uncompressed (AGP leaves .tflite alone), so the model is mapped, not read into the heap.
-        val model = context.assets.openFd(MODEL).use { fd ->
-            FileInputStream(fd.fileDescriptor).channel.use { it.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength) }
+    /** The pack's file, mapped rather than read into the heap. */
+    private val sface: Interpreter? by lazy {
+        packed()?.let { file ->
+            val model = RandomAccessFile(file, "r").channel.use { it.map(FileChannel.MapMode.READ_ONLY, 0, it.size()) }
+            Interpreter(model, Interpreter.Options().setNumThreads(2))
         }
-        Interpreter(model, Interpreter.Options().setNumThreads(2))
     }
 
     override suspend fun faces(uri: String): List<FoundFace>? {
+        // The faces pass asks only once ready() says READY; a pack gone since then reads as a photo that can't be opened.
+        val sface = sface ?: return null
         val photo = ImageBytes.bitmap(context, uri.toUri(), MAX_SIDE) ?: return null
         val found = detector.process(InputImage.fromBitmap(photo, 0)).awaitResult()
         // Recycled only once ML Kit returns: after a cancellation its native task may still hold the pixels.
         return found.mapNotNull { face ->
             val points = points(face) ?: return@mapNotNull null
-            fingerprint(photo, points)?.let { FoundFace(box(face, photo), it) }
+            fingerprint(photo, points, sface)?.let { FoundFace(box(face, photo), it) }
         }.also { photo.recycle() }
     }
 
@@ -77,7 +118,7 @@ class AndroidFaceReader(private val context: Context) : FaceReader {
         return listOf(eyes[0], eyes[1], nose, mouth[0], mouth[1]).flatMap { listOf(it.x, it.y) }.toFloatArray()
     }
 
-    private fun fingerprint(photo: Bitmap, points: FloatArray): FloatArray? {
+    private fun fingerprint(photo: Bitmap, points: FloatArray, sface: Interpreter): FloatArray? {
         val t = FaceAlign.transform(points) ?: return null
         val size = FaceAlign.SIZE
         val crop = createBitmap(size, size)
@@ -109,6 +150,9 @@ class AndroidFaceReader(private val context: Context) : FaceReader {
 
     private companion object {
         const val MODEL = "sface.tflite"
+
+        /** The on-demand asset pack (:facepack) that holds [MODEL] in a Play install. */
+        const val PACK = "facepack"
 
         /** The photo's longer side as decoded: a face 5% of it wide is still ~60 px. */
         const val MAX_SIDE = 1280

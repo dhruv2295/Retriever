@@ -84,6 +84,7 @@ kotlin {
             implementation(libs.mlkit.text.recognition.japanese)
             implementation(libs.mlkit.text.recognition.korean)
             implementation(libs.mlkit.face.detection)
+            implementation(libs.play.asset.delivery)
             implementation(libs.litert)
         }
     }
