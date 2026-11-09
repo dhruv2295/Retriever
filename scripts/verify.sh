@@ -7,7 +7,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APK_DIR="$ROOT/androidApp/build/outputs/apk/release"
-XCCONFIG="$ROOT/iosApp/Configuration/Config.xcconfig"
 NOTICES="$ROOT/THIRD_PARTY_NOTICES.md"
 PACKAGE_RESOLVED="$ROOT/iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 
@@ -16,17 +15,6 @@ EXCLUDED='(^|/)build/|^\.claude/'
 
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'verify: %s\n' "$*" >&2; return 1; }
-
-version_name()  { sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' "$ROOT/androidApp/build.gradle.kts"; }
-xcconfig_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p" "$XCCONFIG"; }
-
-# Both apps share a marketing version; store build numbers are managed independently.
-check_versions() {
-  local a i
-  a="$(version_name)"; i="$(xcconfig_value MARKETING_VERSION)"
-  [ -n "$a" ] && [ -n "$i" ] || { fail "cannot read versionName ('$a') or MARKETING_VERSION ('$i')"; return 1; }
-  [ "$a" = "$i" ] || { fail "versionName $a != MARKETING_VERSION $i"; return 1; }
-}
 
 # Reads "group" lines from stdin; fails on any group missing from the notices file.
 check_groups_in_notices() {
@@ -123,7 +111,6 @@ main() {
   if [ $ios = 1 ]; then command -v xcrun >/dev/null || { fail "--ios requires macOS and Xcode"; return 1; }; fi
   cd "$ROOT"
 
-  step "versions"; check_versions
   if [ $quick = 1 ]; then
     step "ktlint"; ./gradlew -q ktlintCheck
     if [ $ios = 1 ]; then step "Swift format"; format_check; fi

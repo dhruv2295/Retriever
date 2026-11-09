@@ -2,7 +2,21 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.play.publisher)
 }
+
+// iOS's Config.xcconfig holds the one version and build number for both apps.
+val xcconfig =
+    providers
+        .fileContents(rootProject.layout.projectDirectory.file("iosApp/Configuration/Config.xcconfig"))
+        .asText
+        .get()
+        .lines()
+        .mapNotNull { line -> line.split("=", limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }
+        .toMap()
+
+// Play upload key, from ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env vars (docs: README, Release).
+val uploadKey = listOf("StoreFile", "StorePassword", "KeyAlias", "KeyPassword").map { providers.gradleProperty("retrieverUpload$it").orNull }
 
 if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
 
@@ -23,28 +37,41 @@ android {
         applicationId = "app.retriever"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.compileSdk.get().toInt()
-        versionCode = 4
-        versionName = "0.2"
+        versionCode = xcconfig["CURRENT_PROJECT_VERSION"]?.toIntOrNull() ?: throw GradleException("Config.xcconfig has no CURRENT_PROJECT_VERSION")
+        versionName = xcconfig["MARKETING_VERSION"] ?: throw GradleException("Config.xcconfig has no MARKETING_VERSION")
     }
 
-    // Local release testing uses the debug key; choose an upload key in Android Studio for store builds.
+    signingConfigs {
+        val (storeFile, storePassword, keyAlias, keyPassword) = uploadKey
+        if (storeFile != null && storePassword != null && keyAlias != null && keyPassword != null) {
+            create("upload") {
+                this.storeFile = file(storeFile)
+                this.storePassword = storePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
+    // Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still
+    // works; Play rejects a debug-signed upload, so that build can't reach the store by mistake.
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("upload") ?: signingConfigs.getByName("debug")
         }
     }
 
     // Every variant builds one APK per ABI, no universal APK: arm64-v8a for phones, x86_64 for ChromeOS and emulators
     // (installDebug picks the device's). AGP can't build an App Bundle with splits on (issuetracker 402800800), and Play
-    // splits a bundle by ABI itself, so a bundle build turns them off: run bundle tasks apart from assemble ones. The
-    // 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict in any build
-    // type, so there are no filters.
+    // splits a bundle by ABI itself, so a bundle or Play publish build turns them off: run those apart from assemble
+    // tasks. The 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict
+    // in any build type, so there are no filters.
     splits {
         abi {
-            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) || it.contains("publish", ignoreCase = true) }
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = false
@@ -92,6 +119,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+// Uploads go to the internal testing track (the plugin's default), signed in with the service-account JSON in the
+// ANDROID_PUBLISHER_CREDENTIALS env var. The bundle carries the R8 mapping and baseline profile.
+play {
+    defaultToAppBundles = true
 }
 
 // litertlm-android (also pulled in by mediapipe tasks-retrieval) drags in kotlin-reflect (~2 MB), reached only from

@@ -79,15 +79,43 @@ results are in `build/ios-tests/summary.txt`. Model-backed simulator checks are 
 ./gradlew :androidApp:installRelease   # test the optimized build locally
 ```
 
-Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and R8 mapping. CLI release
-builds use the debug key so you can install and test the optimized app locally. Use Android Studio's
-**Generate Signed Bundle / APK** with your upload key for a store build. Keep that key and the matching
-R8 mapping outside Git. Choose the next Android version
-code before upload; iOS uses `iosApp/Configuration/Config.xcconfig` for its version and build number.
+Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and R8 mapping.
+`iosApp/Configuration/Config.xcconfig` holds the version and build number for both apps: Android reads
+`MARKETING_VERSION` as `versionName` and `CURRENT_PROJECT_VERSION` as `versionCode`. Bump the build number
+there before each store upload, and tag the commit after it, e.g. `git tag -a v0.2-5 -m "Retriever 0.2 (5)"`.
 
-Before store submission, complete the store privacy disclosures and Android declarations for all-files
-access and foreground file processing. Check model download, processing and background recovery on
-physical hardware. A successful build alone does not establish store approval or device performance.
+Release builds are signed with the Play upload key when these Gradle properties are set, in
+`~/.gradle/gradle.properties` (outside the repo) or as `ORG_GRADLE_PROJECT_<name>` environment variables;
+without them they fall back to the debug key, which Play rejects:
+
+```properties
+retrieverUploadStoreFile=/Users/you/.android-keys/retriever-upload.jks
+retrieverUploadStorePassword=...
+retrieverUploadKeyAlias=upload
+retrieverUploadKeyPassword=...
+```
+
+Create the key once with `keytool -genkeypair -v -keystore ~/.android-keys/retriever-upload.jks -alias upload
+-keyalg RSA -keysize 2048 -validity 10000` (it asks for the password; a PKCS12 keystore uses the same one for
+store and key). Back it up: it is the upload key, and Play App Signing holds the key users' installs check.
+
+Uploads go to Play's internal testing track through the
+[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, with a Play Console service
+account's JSON key kept outside the repo. The first bundle has to be uploaded by hand in the Play Console.
+
+```sh
+ANDROID_PUBLISHER_CREDENTIALS="$(cat ~/.config/retriever/play-service-account.json)" \
+  ./gradlew :androidApp:publishReleaseBundle
+```
+
+While the Play app is still a draft, add `--release-status draft` and roll the release out in the Console.
+The bundle carries the R8 mapping and the baseline profile, so Play deobfuscates crashes itself.
+
+The Play Console needs declarations for all-files access (`MANAGE_EXTERNAL_STORAGE`, on-device file search),
+the `dataSync` foreground service (local file processing, with a video), and photo and video access
+(`READ_MEDIA_IMAGES`/`VIDEO`, searching the whole library is the core feature), plus a privacy policy URL and
+the Data safety form. Check model download, processing and background recovery on physical hardware. A
+successful build alone does not establish store approval or device performance.
 
 ## Optional experiments
 
