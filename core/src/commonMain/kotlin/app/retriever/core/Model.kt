@@ -81,6 +81,16 @@ data class ModelBuild(val variant: ModelVariant, val fileName: String, val sizeB
     val isNpu: Boolean get() = soc != null
 }
 
+/** LiteRT-LM's cache directory value that keeps the compiled weights in memory, never on disk. */
+const val NO_DISK_CACHE = ":nocache"
+
+/**
+ * Where the runtime may write [build]'s caches, given [freeBytes] free there. XNNPack aborts the app, with no error to
+ * catch, when a cache write fails, and one CPU setup's caches take ~290 MB for M440's 388 MB. With less free than the
+ * model's size they stay in memory: every open packs the weights again, slower but never out of space.
+ */
+fun cacheDirFor(build: ModelBuild, dir: String, freeBytes: Long): String = if (freeBytes < build.sizeBytes) NO_DISK_CACHE else dir
+
 /** Conservative opening before optional tuning; an NPU build can run only on its own delegate. */
 internal fun ModelBuild.initialProfile() = DeviceProfile(Tier.LIGHT, variant, if (isNpu) Backend.NPU else Backend.CPU, 70, 5, false, false)
 

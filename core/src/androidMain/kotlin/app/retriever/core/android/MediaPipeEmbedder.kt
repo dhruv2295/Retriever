@@ -34,6 +34,7 @@ import app.retriever.core.ModelVariant
 import app.retriever.core.Part
 import app.retriever.core.Prefix
 import app.retriever.core.Signature
+import app.retriever.core.cacheDirFor
 import app.retriever.core.hasNonFinite
 import app.retriever.core.lowerNewThreads
 import app.retriever.core.probeKindFor
@@ -196,7 +197,7 @@ private class MediaPipeEmbedder(
         cache.mkdirs()
         val builder = UniversalEmbedderOptions.builder()
             .setBaseOptions(base.build())
-            .setCacheDir(cache.absolutePath)
+            .setCacheDir(cacheDirFor(modelBuild, cache.absolutePath, cache.usableSpace))
             .setL2Normalize(true)
             .setMaxInputLength(maxTokens)
             .setTextDelegate(textDelegate)

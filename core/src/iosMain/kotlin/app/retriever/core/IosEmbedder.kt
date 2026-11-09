@@ -28,6 +28,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import platform.CoreGraphics.CGSizeMake
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileSystemFreeSize
+import platform.Foundation.NSNumber
 import platform.UIKit.UIGraphicsImageRenderer
 
 class IosEmbedderFactory(
@@ -58,9 +60,18 @@ class IosEmbedderFactory(
         val vision = profile.visionBackend ?: profile.backend
         val stem = build.fileName.substringBeforeLast('.')
         val cache = "$cacheDir/$stem-${profile.backend.name}-vision${vision.name}-vt${profile.visionTokens}-t${profile.maxTokens}"
-        NSFileManager.defaultManager.createDirectoryAtPath(cache, true, null, null)
+        val files = NSFileManager.defaultManager
+        files.createDirectoryAtPath(cache, true, null, null)
+        val free = (files.attributesOfFileSystemForPath(cache, null)?.get(NSFileSystemFreeSize) as? NSNumber)?.longLongValue ?: 0L
         val gpu = profile.backend == Backend.GPU
-        val native = opener.open("$modelDir/${build.fileName}", gpu, vision == Backend.GPU, profile.visionTokens, profile.maxTokens, cache)
+        val native = opener.open(
+            "$modelDir/${build.fileName}",
+            gpu,
+            vision == Backend.GPU,
+            profile.visionTokens,
+            profile.maxTokens,
+            cacheDirFor(build, cache, free),
+        )
         if (native == null) {
             val message = opener.lastMessage ?: "the model didn't open"
             // Too little memory now, or a GPU open in the background (which ends a background GPU grant): no reason to

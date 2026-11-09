@@ -81,4 +81,12 @@ class ModelBuildsTest {
         assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
         assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
     }
+
+    // A TestFlight iPhone short of space aborted in XNNPack writing the weight cache, at every launch.
+    @Test
+    fun aPhoneShortOfSpaceKeepsTheWeightCacheInMemory() {
+        val build = ModelVariant.M440.generic
+        assertEquals("/caches/embed", cacheDirFor(build, "/caches/embed", build.sizeBytes))
+        assertEquals(NO_DISK_CACHE, cacheDirFor(build, "/caches/embed", build.sizeBytes - 1))
+    }
 }
