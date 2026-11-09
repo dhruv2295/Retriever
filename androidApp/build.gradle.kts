@@ -23,7 +23,7 @@ android {
         applicationId = "app.retriever"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.compileSdk.get().toInt()
-        versionCode = 3
+        versionCode = 4
         versionName = "0.2"
     }
 
