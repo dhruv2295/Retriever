@@ -45,8 +45,11 @@ object Words {
      */
     fun readOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} processed"
 
-    /** The meaning pass's count (ReadingPhase.MEANING): "1,938 of 3,142 files have search by description". */
-    fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by description"
+    /**
+     * The meaning pass's count (ReadingPhase.MEANING), "1,204 files to go": what is left, not "X of Y" over only the
+     * files read, which beside Home's count of every file read as a smaller library.
+     */
+    fun meaningToGo(left: Long): String = "${files(left)} to go"
 
     /** The look for faces' count (ReadingPhase.FACES): "2,046 of 16,705 photos looked at". */
     fun facesOf(done: Long, total: Long): String = "${formatCount(done)} of ${plural(total, "photo")} looked at"
@@ -492,8 +495,8 @@ object Words {
     /** The person's screen title and the rename dialog's: their name, or the ask for one. */
     fun personTitle(name: String?): String = name ?: ADD_A_NAME
 
-    /** Home's People header line while photos still wait to be looked at. */
-    fun lookingForFaces(left: Long): String = "Looking for faces · ${formatCount(left)} to go"
+    /** Home's People header line while photos wait: true whether the look runs or waits for the files, which go first. */
+    fun facesToGo(left: Long): String = "${plural(left, "photo")} to look at"
 
     /** Settings → Storage: a title, then its size and where it is kept. */
     const val RETRIEVERS_DATA = "Retriever’s data"
@@ -555,7 +558,6 @@ object Words {
 
     fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up processing for this ${words.device}."
 
-    /** The meaning pass: files read so far that have search by description, of all files read. */
-    fun addingMeaning(progress: ReadingProgress): String =
-        "Adding search by description · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"
+    /** The meaning pass in Settings, counted as the status line counts it ([meaningToGo]). */
+    fun addingMeaning(progress: ReadingProgress): String = "Adding search by description · ${meaningToGo(progress.meaningWaiting)}"
 }

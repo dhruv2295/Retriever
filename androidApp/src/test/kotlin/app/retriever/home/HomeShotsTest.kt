@@ -275,7 +275,7 @@ class HomeShotsTest {
     @Test fun meaningLight() {
         shot("meaning", false)
         rule.onNodeWithText("Adding search by description").assertExists()
-        rule.onNodeWithText(Words.meaningOf(2_200, 3_300)).assertExists()
+        rule.onNodeWithText(Words.meaningToGo(1_100)).assertExists()
     }
 
     @Test fun allReadLight() {
@@ -471,7 +471,7 @@ class HomeShotsTest {
         // Turned on: the section itself, counting the photos left to look at.
         ui = ui.copy(peopleOffer = false, facesLeft = 1_200)
         rule.onNodeWithText(Words.PEOPLE_OFFER_TITLE).assertDoesNotExist()
-        rule.onNodeWithText(Words.lookingForFaces(1_200)).assertExists()
+        rule.onNodeWithText(Words.facesToGo(1_200)).assertExists()
     }
 
     @Test fun recentlyAddedMergesTheNewestAndOpensThem() {

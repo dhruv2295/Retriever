@@ -776,9 +776,10 @@ class Retriever(
                 ids == null -> store.tailChunkCount()
                 else -> store.tailCountsIn(ids).first
             }
-            // People (Faces.kt) before the model opens, which faces never need, and under the deepen pass's rule (in the
-            // background only on the charger). Faces go first: a photo takes them ~0.3 s against reading's
-            // ~1.5 s, so People is whole in about a fifth of a first read; reading waits while they may run.
+            // People (Faces.kt) once every file is read and has search by description, which is what the person came for;
+            // under the deepen pass's rule (in the background only on the charger), before the model opens, which faces
+            // never need. Faces used to go first: turned on mid-read on a Pixel 11 (23,413 photos at 0.4-0.6 s each),
+            // they held the files and the search by description behind them for hours, and the status line said only faces.
             val reader = faceReader
             val facesOn = reader != null && ids == null && store.prefs().let { it.recognizePeople && Kind.PHOTO in it.kinds }
             if (facesOn && store.regroupDue()) {
@@ -786,7 +787,9 @@ class Retriever(
                 peopleChanged()
             }
             var facesLeft = facesOn && store.facesProgress().pending > 0
-            if (reader != null && facesLeft && deepenBlocker() == null) {
+            if (reader != null && facesLeft && pending == 0L && deepenBlocker() == null &&
+                (keywordOnly || store.countsNow(includeTails = false).progress.meaningWaiting == 0L)
+            ) {
                 _state.update { it.copy(faces = store.facesProgress()) }
                 val faces = FacePass(store, reader, log, onLooked = {
                     _state.update { s -> s.copy(faces = s.faces?.let { FacesProgress(it.done + 1, (it.pending - 1).coerceAtLeast(0)) }) }

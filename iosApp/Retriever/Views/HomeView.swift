@@ -162,7 +162,7 @@ struct HomeList: View {
                 }
             } header: {
                 if model.facesLeft > 0 {
-                    DateHeader(title: Words.shared.PEOPLE, subtitle: Words.shared.lookingForFaces(left: model.facesLeft))
+                    DateHeader(title: Words.shared.PEOPLE, subtitle: Words.shared.facesToGo(left: model.facesLeft))
                 } else {
                     SectionHeader(Words.shared.PEOPLE)
                 }

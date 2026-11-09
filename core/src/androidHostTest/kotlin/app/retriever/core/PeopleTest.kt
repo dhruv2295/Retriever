@@ -28,7 +28,8 @@ class PeopleTest {
         store.setProfile(PROFILE)
         r.uiVisible = true
         r.updatePrefs { it.copy(recognizePeople = true) }
-        assertEquals(NextRun.DONE, r.indexBatch(1.minutes), "faces are looked at while the photos still wait to be read")
+        assertEquals(NextRun.SOON, r.indexBatch(1.minutes), "the photos are read first, and faces follow at once")
+        assertEquals(NextRun.DONE, r.indexBatch(1.minutes))
         assertEquals(FacesProgress(6, 0), r.facesProgress())
 
         val asha = r.peopleNow().single() // the second person is in 2 photos, below the minimum
@@ -45,9 +46,12 @@ class PeopleTest {
         assertEquals(emptyList(), r.search("asha", null, 10).parsed?.people.orEmpty())
     }
 
-    /** Faces go first: reading waits until every photo has been looked at, then carries on. */
+    /**
+     * Files go first: faces wait until every file is read and has search by description. Turned on mid-read on a Pixel 11,
+     * faces first held 10,000 files and the search by description behind 23,413 photos for hours.
+     */
     @Test
-    fun facesGoBeforeReading() = runBlocking {
+    fun filesGoBeforeFaces() = runBlocking {
         val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
         var retriever: Retriever? = null
         val counts = mutableListOf<FacesProgress?>()
@@ -65,15 +69,17 @@ class PeopleTest {
         r.uiVisible = true
         r.updatePrefs { it.copy(recognizePeople = true) }
 
+        assertEquals(NextRun.SOON, r.indexBatch(1.minutes), "read, with faces left: the next batch looks at once")
+        assertEquals(0L, store.pendingByKind().values.sum(), "every file is read first")
+        assertEquals(FacesProgress(0, 12), r.facesProgress(), "no photo is looked at while files wait")
+
         r.indexBatch(500.milliseconds)
         val looked = r.facesProgress().done
         assertTrue(looked in 1L..11L, "a short batch looks at some photos, not all: $looked")
-        assertEquals(12L, store.pendingByKind().values.sum(), "reading waits while faces are left")
         assertEquals(listOf(FacesProgress(0, 12), FacesProgress(1, 11)), counts.take(2), "the status line counts photos as they're looked at")
-        assertEquals(null, r.state.value.faces, "and goes back to files once the batch ends")
+        assertEquals(null, r.state.value.faces, "and leaves the faces count once the batch ends")
 
         r.indexBatch(1.minutes)
         assertEquals(FacesProgress(12, 0), r.facesProgress())
-        assertEquals(0L, store.pendingByKind().values.sum(), "once faces are done the batch reads every file")
     }
 }

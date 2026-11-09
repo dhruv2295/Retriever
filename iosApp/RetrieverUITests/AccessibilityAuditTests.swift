@@ -275,7 +275,7 @@ final class AccessibilityAuditTests: XCTestCase {
                     // demo's 30 carry over to Not now's whole-phone count. Counting has no count and no bar.
                     let liveCounts = [
                         "home.charging": "1,204 of 5,310 files processed", "home.unplugged": "1,204 of 5,310 files processed",
-                        "home.meaning": "1,938 of 3,142 files have search by description", "home.notNow": "30 of 25,793 files processed",
+                        "home.meaning": "1,204 files to go", "home.notNow": "30 of 25,793 files processed",
                         "status.reading": "1,204 of 5,310 files processed",
                     ]
                     if let count = liveCounts[route] {

@@ -262,7 +262,7 @@ object ReadingPolicy {
      * one rule ([ReadingProgress.processed] of [ReadingProgress.libraryTotal]), not a percent: 1% of a big library is
      * minutes of work, and a count moves with every file (and a dip when new files come explains itself). "Counting your
      * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED]. [faces]: the running
-     * batch's look for faces ([IndexState.faces]), which files wait for; its own count then, or the line stands still.
+     * batch's look for faces ([IndexState.faces]), which runs once the files are done; its own count then.
      * [facesWaiting]: photos still to look at once every file is processed. A stop or wait then counts them, not a full
      * file count beside work still to do.
      */
@@ -369,7 +369,8 @@ object ReadingPolicy {
 
             ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
 
-            ReadingPhase.FACES -> "Then Retriever gets back to your files. Search works the whole time."
+            // Faces come last (Retriever.runBatch): every file is processed by now.
+            ReadingPhase.FACES -> "All your files are processed. Search works the whole time."
 
             ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
 
@@ -427,9 +428,10 @@ object ReadingPolicy {
         val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
         val none = !progress.counted || laterOnly || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
+        // For the meaning pass the bar shows how far it is, and the words what is left (Words.meaningToGo).
         val count = when {
             looking != null -> Words.facesOf(done, total)
-            meaning -> Words.meaningOf(done, total)
+            meaning -> Words.meaningToGo(total - done)
             else -> Words.readOf(done, total)
         }
         return ReadingStatus(phase, title, detail, action, count, done, total)

@@ -118,7 +118,7 @@ class SetupTest {
     @Test fun newSentences() {
         assertEquals("3 of 7 photos processed", Words.kindRead(3, 7, Kind.PHOTO))
         assertEquals("1 of 2 PDFs processed", Words.kindRead(1, 2, Kind.PDF))
-        assertEquals("Adding search by description · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
+        assertEquals("Adding search by description · 6 files to go", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
         fun demo(pending: Int) = TasteProgress(emptyMap(), emptySet(), 3, pending, 30)
         val plain = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
         assertEquals("$plain We can also let you know when the demo is done.", Words.notificationsAsk(demoRunning = true, demo(pending = 10)))

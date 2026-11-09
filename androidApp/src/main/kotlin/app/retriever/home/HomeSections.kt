@@ -182,7 +182,7 @@ internal fun PeopleSection(
     answer: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(Words.PEOPLE, subtitle = if (facesLeft > 0) Words.lookingForFaces(facesLeft) else null)
+        SectionHeader(Words.PEOPLE, subtitle = if (facesLeft > 0) Words.facesToGo(facesLeft) else null)
         if (people.isNotEmpty()) {
             LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 itemsIndexed(people, key = { _, p -> p.id }, contentType = { _, _ -> "person" }) { i, p ->

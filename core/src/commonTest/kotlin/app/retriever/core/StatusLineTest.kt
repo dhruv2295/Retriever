@@ -60,16 +60,16 @@ class StatusLineTest {
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to listOf(
                 "MEANING",
                 "Adding search by description",
-                "1 of 4 files have search by description",
+                "3 files to go",
                 "So you can search by what things mean, and by what’s in your photos. On this phone only.",
                 null,
             ),
-            // Files wait while a batch looks for faces: the line counts photos looked at, or it stands still.
+            // Faces come once the files are done: the line counts photos looked at.
             decide(running = true, plugged = true, faces = FacesProgress(2_046, 14_659)) to listOf(
                 "FACES",
                 "Looking for faces in your photos",
                 "2,046 of 16,705 photos looked at",
-                "Then Retriever gets back to your files. Search works the whole time.",
+                "All your files are processed. Search works the whole time.",
                 null,
             ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to

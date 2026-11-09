@@ -182,7 +182,7 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(try line(.tuning).phase, .tuning)
         XCTAssertEqual(try line(.meaningPass).phase, .meaning)
         XCTAssertEqual(try line(.meaningPass).title, "Adding search by description")
-        XCTAssertEqual(try line(.meaningPass).count, "1,938 of 3,142 files have search by description")
+        XCTAssertEqual(try line(.meaningPass).count, "1,204 files to go")
         XCTAssertEqual(try line(.firstDay).phase, .notNow)
         XCTAssertEqual(try line(.firstDay).action, .chooseWhen)
         // The demo's 30 carry over to the whole phone's count.
