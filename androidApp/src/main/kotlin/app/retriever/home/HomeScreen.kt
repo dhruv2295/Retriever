@@ -64,6 +64,7 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.DownloadState
+import app.retriever.core.Kind
 import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingStatus
@@ -98,7 +99,8 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
 // Home: where you start looking for something, with one calm line on how well Retriever knows the phone so far.
-// Order: title, status line, Starred, Recently added, On this day, Browse, the optional download, then Free up space.
+// Order: title, status line, Starred, Recently added, People (or its offer), On this day, Browse, the optional download,
+// then Free up space.
 // Colour tokens only.
 
 private val FullLine = StaggeredGridItemSpan.FullLine
@@ -113,6 +115,8 @@ class HomeActions(
     val commit: (whileCharging: Boolean) -> Unit = {},
     val hideOnThisDay: () -> Unit = {},
     val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
+    val turnOnPeople: () -> Unit = {},
+    val dismissPeopleOffer: () -> Unit = {},
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
     val dismissIntro: () -> Unit = {},
     val notify: (() -> Unit)? = null,
@@ -171,6 +175,8 @@ fun HomeScreen(
                 }
             },
             answerSamePerson = vm::answerSamePerson,
+            turnOnPeople = vm::turnOnPeople,
+            dismissPeopleOffer = vm::dismissPeopleOffer,
             dismissIntro = vm::dismissIntro,
             // Hidden once asked: the card has nothing more to promise.
             notify = if (prefs.notifyWhenCaughtUp) {
@@ -325,6 +331,9 @@ internal fun HomeBody(
             item(key = "people", span = FullLine, contentType = "people") {
                 PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePeople, home.answerSamePerson)
             }
+        } else if (ui.hasAccess && ui.peopleOffer && !ui.introDue && (counts[Kind.PHOTO] ?: 0L) > 0L) {
+            // Not beside the one-time card, which already asks for a decision.
+            item(key = "people-offer", span = FullLine) { PeopleOffer(home.turnOnPeople, home.dismissPeopleOffer) }
         }
         val day = ui.memoriesDay
         if (ui.hasAccess && ui.showOnThisDay && day != null && ui.memories.isNotEmpty()) {

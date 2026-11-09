@@ -345,7 +345,8 @@ final class SearchModel {
                     noMatchSeen: p.noMatchSeen + 1, showOnThisDay: p.showOnThisDay, readingCycle: p.readingCycle,
                     dismissedReadingCycle: p.dismissedReadingCycle,
                     searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed, homeIntroDue: p.homeIntroDue,
-                    notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: p.recognizePeople)
+                    notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: p.recognizePeople,
+                    peopleOfferDismissed: p.peopleOfferDismissed)
             }
         }
     }

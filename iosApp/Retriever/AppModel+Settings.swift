@@ -20,7 +20,8 @@ extension AppModel {
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
-                homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople)
+                homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
+                peopleOfferDismissed: p.peopleOfferDismissed)
         }
     }
 

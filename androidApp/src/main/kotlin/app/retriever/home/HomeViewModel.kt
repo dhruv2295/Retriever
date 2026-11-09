@@ -69,6 +69,8 @@ data class HomeUi(
     val facesLeft: Long = 0,
     /** Pairs of people who may be one, closest first, for Home to ask about one at a time. */
     val samePeople: List<SamePerson> = emptyList(),
+    /** People is off, photos are read, and the person hasn't said Not now: Home offers it where People would be. */
+    val peopleOffer: Boolean = false,
 ) {
     fun withCounts(c: Store.Counts): HomeUi = copy(counts = c.byKind, progress = c.progress)
 
@@ -174,6 +176,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         caughtUpDismissed = p.caughtUpDismissed,
                         introDue = p.homeIntroDue,
                         readsOnBattery = p.automaticReading == ReadingSchedule.BATTERY,
+                        peopleOffer = !p.recognizePeople && !p.peopleOfferDismissed && Kind.PHOTO in p.kinds,
                     )
                 }
             }
@@ -224,6 +227,14 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
         _ui.update { it.copy(samePeople = it.samePeople - question) }
         launchCatching { retriever.answerSamePerson(question, same) }
     }
+
+    /** The offer's Turn on, as Settings' switch: People appears at once, saying how many photos are left to look at. */
+    fun turnOnPeople() = launchCatching {
+        retriever.updatePrefs { it.copy(recognizePeople = true) }
+        indexer.indexNow()
+    }
+
+    fun dismissPeopleOffer() = launchCatching { retriever.updatePrefs { it.copy(peopleOfferDismissed = true) } }
 
     val celebration = celebrationOf(retriever)
 

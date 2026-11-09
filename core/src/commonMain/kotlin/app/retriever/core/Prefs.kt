@@ -41,6 +41,8 @@ data class Prefs(
     val notifyWhenCaughtUp: Boolean = false,
     /** People: faces in photos are grouped and can be named and searched. Off until the person turns it on. */
     val recognizePeople: Boolean = false,
+    /** Home's offer to turn People on was answered Not now; Settings still has the switch. */
+    val peopleOfferDismissed: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

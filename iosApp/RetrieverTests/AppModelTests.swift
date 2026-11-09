@@ -270,7 +270,7 @@ final class AppModelTests: XCTestCase {
                 notificationsDismissed: prefs.notificationsDismissed, noMatchSeen: prefs.noMatchSeen, showOnThisDay: prefs.showOnThisDay,
                 readingCycle: prefs.readingCycle, dismissedReadingCycle: prefs.dismissedReadingCycle, searchTried: tried,
                 upgradeOfferDismissed: dismissed, homeIntroDue: intro, notifyWhenCaughtUp: prefs.notifyWhenCaughtUp,
-                recognizePeople: prefs.recognizePeople)
+                recognizePeople: prefs.recognizePeople, peopleOfferDismissed: prefs.peopleOfferDismissed)
         }
         model.snap?.prefs = with(tried: false, dismissed: false)
         XCTAssertTrue(model.upgradeOnHome, "offered at once, before any search")

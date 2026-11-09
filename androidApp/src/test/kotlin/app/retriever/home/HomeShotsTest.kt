@@ -455,6 +455,25 @@ class HomeShotsTest {
         assertEquals(1, dismissed)
     }
 
+    /** People is off by default, and only a Settings switch turned it on: nobody found it. Home offers it in People's place. */
+    @Test fun peopleIsOfferedWherePeopleAppearsUntilAnswered() {
+        val answers = mutableListOf<String>()
+        var ui by mutableStateOf(base.copy(peopleOffer = true))
+        val actions = HomeActions(turnOnPeople = { answers += "on" }, dismissPeopleOffer = { answers += "not now" })
+        RuntimeEnvironment.setQualifiers("+h3000dp")
+        rule.setContent { ShotTheme(false) { Screen(ui, homeActions = actions) } }
+        rule.waitForIdle()
+        rule.shot("clarity_home_people_offer_light")
+        assertTrue("in People's place, above Browse", top(Words.PEOPLE_OFFER_TITLE) < top(Words.MORE_ON_PHONE))
+        rule.onNodeWithText(Words.TURN_ON).performClick()
+        rule.onNodeWithText(Words.NOT_NOW).performClick()
+        assertEquals(listOf("on", "not now"), answers)
+        // Turned on: the section itself, counting the photos left to look at.
+        ui = ui.copy(peopleOffer = false, facesLeft = 1_200)
+        rule.onNodeWithText(Words.PEOPLE_OFFER_TITLE).assertDoesNotExist()
+        rule.onNodeWithText(Words.lookingForFaces(1_200)).assertExists()
+    }
+
     @Test fun recentlyAddedMergesTheNewestAndOpensThem() {
         val opened = mutableListOf<Pair<SourceFile, String>>()
         val went = mutableListOf<Route>()

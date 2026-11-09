@@ -462,6 +462,12 @@ object Words {
     // People (README.md): off until the person turns it on.
     const val PEOPLE = "People"
     const val RECOGNIZE_PEOPLE = "Recognize people"
+
+    /** Home's offer while People is off: the same consent as Settings' switch, said where People will appear. */
+    const val PEOPLE_OFFER_TITLE = "Find photos of people"
+    const val PEOPLE_OFFER_BODY =
+        "Retriever can group the faces in your photos, so you can name someone and find them by name. Faces are read on this phone and never leave it."
+    const val TURN_ON = "Turn on"
     const val RECOGNIZE_PEOPLE_DETAIL =
         "Groups the faces in your photos so you can name people and find them by name. Processed on this phone, never backed up."
     const val FORGET_PEOPLE_TITLE = "Forget every face and name?"
