@@ -56,11 +56,14 @@ internal class ModelHost(
         if (textOnly) return null
         checkUnfinishedOpens()
         val build = requiredBuild.value
-        val stored = store.profile() ?: build.initialProfile()
         if (!modelReady(build)) {
             closeLocked() // the file went away under an open model: stop answering by meaning, as a reopen would
             return null
         }
+        val saved = store.profile()
+        // A chip build runs only on its NPU: a profile moved to the generic build's backend comes back with it.
+        val stored = saved?.takeIf { build.isNpu && it.backend != Backend.NPU }?.copy(backend = Backend.NPU)?.also(store::setProfile)
+            ?: saved ?: build.initialProfile()
         val resolved = factory.profileNow(stored.copy(model = build.variant, audio = false), visible())
         val backend = resolved.backend
         val key = EmbedderKey(build, backend, resolved.visionBackend, stored.visionTokens, stored.maxTokens)
@@ -81,8 +84,9 @@ internal class ModelHost(
             throw e
         } catch (t: Throwable) {
             if (build.isNpu) {
-                markNpuFailed(build, t)
-                return null
+                if (npuFailedOnce(build, t)) return null
+                // Below the limit it rests like a model that can't run right now, and the next open tries the chip again.
+                throw EmbedderClosedException("The NPU build didn't open", t, broken = false)
             }
             // Open and warm-up can throw untyped backend failures too. A CPU failure or an explicit temporary
             // refusal says nothing about the GPU: rethrow it so the batch rests or retries.
@@ -90,6 +94,7 @@ internal class ModelHost(
             // Demoted, the next open is on CPU: try it now, so a batch carries on instead of ending.
             return if (demoteGpu(t)) openLocked() else null
         }
+        if (build.isNpu && build.fileName in npuFailures()) store.setMeta(NPU_FAILURES, Json.encodeToString(npuFailures() - build.fileName))
         embedder = e
         embedderKey = key
         factory.keepOnly(e)
@@ -146,8 +151,9 @@ internal class ModelHost(
 
     /**
      * [used] threw [EmbedderClosedException]. If it is still the shared embedder, its backend broke (it closed
-     * itself): retire it and fall back, NPU build to generic or GPU to CPU. If not, release() or a reopen
-     * closed it, which is no failure. True when it broke.
+     * itself): retire it and fall back, GPU to CPU, or NPU build to generic once it failed [NPU_TRIES] times in a row.
+     * If not, release() or a reopen closed it, which is no failure. True when it broke for good; false when a reopen
+     * may run.
      */
     suspend fun broke(used: Embedder?, build: ModelBuild?, cause: Throwable): Boolean = lock.withLock {
         if (used == null || build == null || embedder !== used) return@withLock false
@@ -158,11 +164,8 @@ internal class ModelHost(
             log("The model can't run right now; it reopens on the next batch", cause)
             return@withLock false
         }
-        if (build.isNpu) {
-            markNpuFailed(build, cause)
-        } else if (onGpu) {
-            demoteGpu(cause)
-        }
+        if (build.isNpu) return@withLock npuFailedOnce(build, cause)
+        if (onGpu) demoteGpu(cause)
         true
     }
 
@@ -177,12 +180,32 @@ internal class ModelHost(
         return true
     }
 
-    fun npuFailed(): Set<String> = store.meta(NPU_FAILED)?.let { runCatching { Json.decodeFromString<Set<String>>(it) }.getOrNull() } ?: emptySet()
+    /** Chip builds that failed [NPU_TRIES] times in a row: the generic build stands in for them. */
+    fun npuFailed(): Set<String> = npuFailures().filterValues { it >= NPU_TRIES }.keys
+
+    private fun npuFailures(): Map<String, Int> =
+        store.meta(NPU_FAILURES)?.let { runCatching { Json.decodeFromString<Map<String, Int>>(it) }.getOrNull() } ?: emptyMap()
+
+    /**
+     * Counts a failure of [build]; true once that makes [NPU_TRIES] in a row and the generic build takes over. One failure
+     * proves little: a Tensor phone that loaded MediaTek's library failed its first tune and was sent to download the
+     * generic build for good, and kept that verdict after the library was fixed.
+     */
+    fun npuFailedOnce(build: ModelBuild, cause: Throwable?): Boolean {
+        val n = (npuFailures()[build.fileName] ?: 0) + 1
+        if (n >= NPU_TRIES) {
+            markNpuFailed(build, cause)
+            return true
+        }
+        log("NPU build ${build.fileName} failed ($n of $NPU_TRIES); the next open tries it again", cause)
+        store.setMeta(NPU_FAILURES, Json.encodeToString(npuFailures() + (build.fileName to n)))
+        return false
+    }
 
     /** The chip's build can't run here: require the generic file from now on, for this and every later launch. */
-    fun markNpuFailed(build: ModelBuild, cause: Throwable?) {
+    private fun markNpuFailed(build: ModelBuild, cause: Throwable?) {
         log("NPU build ${build.fileName} failed; falling back to ${ModelBuilds.fallback(build).fileName}", cause)
-        store.setMeta(NPU_FAILED, Json.encodeToString(npuFailed() + build.fileName))
+        store.setMeta(NPU_FAILURES, Json.encodeToString(npuFailures() + (build.fileName to NPU_TRIES)))
         // ponytail: picks the generic build's first backend uncalibrated; the unfinished-open counter demotes a crashing GPU.
         store.profile()?.takeIf { it.backend == Backend.NPU }?.let {
             store.setProfile(it.copy(backend = factory.backends(ModelBuilds.fallback(build)).first()))
@@ -220,7 +243,9 @@ internal class ModelHost(
     fun setUnfinishedOpens(n: Int) = store.setMeta(UNFINISHED_OPENS, n.toString())
 
     internal companion object {
-        const val NPU_FAILED = "npu_failed"
+        // Replaces "npu_failed", whose one-failure verdicts are left unread so every flagged phone tries its chip again.
+        const val NPU_FAILURES = "npu_failures"
+        const val NPU_TRIES = 3
         const val UNFINISHED_OPENS = "unfinished_opens"
         const val GPU_UNSAFE = "gpu_unsafe"
     }

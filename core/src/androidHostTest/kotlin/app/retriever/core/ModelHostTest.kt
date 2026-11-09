@@ -58,7 +58,7 @@ class ModelHostTest {
         assertNotNull(f.host.open())
         assertEquals(Backend.CPU, f.store.profile()!!.backend)
         assertEquals(listOf(Backend.GPU, Backend.CPU), f.factory.opened.map { it.first.backend })
-        assertNull(f.store.meta("npu_failed"))
+        assertNull(f.store.meta("npu_failures"))
         f.host.release()
         assertNotNull(f.host.open())
         assertEquals(Backend.CPU, f.factory.opened.last().first.backend, "the next open uses CPU")
@@ -158,23 +158,41 @@ class ModelHostTest {
         f.store.setMeta("unfinished_opens", "2")
 
         assertNotNull(f.host.open())
-        assertNull(f.store.meta("npu_failed"))
+        assertNull(f.store.meta("npu_failures"))
         assertTrue(f.required.value.isNpu)
     }
 
     @Test
-    fun anNpuBuildThatFailsToOpenMarksTheGenericBuild() = runTest {
+    fun anNpuBuildThatFailsToOpenThreeTimesMarksTheGenericBuild() = runTest {
         val factory = FakeFactory { if (it.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU) }
         factory.fail = { _, b -> if (b.isNpu) IllegalStateException("no dispatch library") else null }
         val f = Fx(g5, factory, PROFILE.copy(backend = Backend.NPU))
         val npu = f.required.value
         assertTrue(npu.isNpu)
 
+        // Until then each failure rests like a model that can't run right now, and the chip build stays.
+        repeat(ModelHost.NPU_TRIES - 1) {
+            assertFalse(assertFailsWith<EmbedderClosedException> { f.host.open() }.broken)
+            assertTrue(f.required.value.isNpu)
+        }
         assertNull(f.host.open())
-        assertTrue(npu.fileName in f.store.meta("npu_failed")!!)
+        assertEquals(setOf(npu.fileName), f.host.npuFailed())
         assertEquals(ModelVariant.M440.generic, f.required.value)
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
         assertEquals(ModelVariant.M440.generic, f.host.open()!!.second)
+    }
+
+    /** The 6 Nov Pixel: one failed tune under the wrong vendor's library left it on GPU, flagged under the old key. */
+    @Test
+    fun aChipBuildFlaggedByTheOldOneFailureRuleOpensOnTheNpuAgain() = runTest {
+        val factory = FakeFactory { if (it.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU) }
+        val f = Fx(g5, factory, PROFILE.copy(backend = Backend.GPU))
+        val npu = f.required.value
+        f.store.setMeta("npu_failed", """["${npu.fileName}"]""")
+
+        assertEquals(npu, f.host.open()!!.second)
+        assertEquals(Backend.NPU, f.factory.opened.single().first.backend)
+        assertEquals(Backend.NPU, f.store.profile()!!.backend)
     }
 
     @Test
@@ -196,7 +214,7 @@ class ModelHostTest {
 
         assertFalse(f.host.broke(e, build, EmbedderClosedException("GPU refused in the background", broken = false)))
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
-        assertNull(f.store.meta("npu_failed"))
+        assertNull(f.store.meta("npu_failures"))
         assertNotNull(f.host.open())
         assertEquals(2, f.factory.opened.size)
         assertEquals(Backend.GPU, f.factory.opened.last().first.backend)

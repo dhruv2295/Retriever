@@ -1791,7 +1791,7 @@ class Retriever(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (build.isNpu) model.markNpuFailed(build, e)
+            if (build.isNpu) model.npuFailedOnce(build, e)
             throw e
         }
         log(

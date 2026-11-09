@@ -407,7 +407,7 @@ class RetrieverTest {
     }
 
     @Test
-    fun npuFailureFallsBackToGenericForGood() = test {
+    fun threeNpuFailuresFallBackToGenericForGood() = test {
         val g5 = DeviceProbe(Platform.ANDROID, 35, "Google", "Tensor G5", 8.0, false, npuDispatch = true)
         val npuBuild = ModelBuilds.npu.single { it.variant == ModelVariant.M440 && it.soc == "Google_Tensor_G5" }
         val factory = FakeFactory { if (it.isNpu) listOf(Backend.NPU) else listOf(Backend.GPU, Backend.CPU) }
@@ -417,9 +417,13 @@ class RetrieverTest {
         f.r.refreshSetUp()
         assertEquals(npuBuild, f.r.requiredBuild.value)
 
+        repeat(ModelHost.NPU_TRIES - 1) {
+            assertEquals(NextRun.AFTER_COOLDOWN, f.r.indexBatch(1.minutes), "a failure below the limit rests and tries again")
+            assertEquals(npuBuild, f.r.requiredBuild.value)
+        }
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         assertEquals(ModelVariant.M440.generic, f.r.requiredBuild.value)
-        assertTrue(npuBuild.fileName in f.store.meta("npu_failed")!!)
+        assertTrue(npuBuild.fileName in f.store.meta("npu_failures")!!)
         assertEquals(Backend.GPU, f.store.profile()!!.backend)
 
         val again = f.retriever()
@@ -492,7 +496,7 @@ class RetrieverTest {
         f.factory.beforeEmbed = { if (++embeds == 2) throw EmbedderClosedException("GPU inference failed") }
         assertEquals(NextRun.SOON, f.r.indexBatch(1.minutes))
         assertEquals(Backend.CPU, f.store.profile()!!.backend)
-        assertEquals(null, f.store.meta("npu_failed"))
+        assertEquals(null, f.store.meta("npu_failures"))
         assertEquals(null, f.r.state.value.lastError)
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         assertEquals(Backend.CPU, f.factory.opened.last().first.backend)
@@ -521,7 +525,7 @@ class RetrieverTest {
         var embeds = 0
         factory.beforeEmbed = { if (++embeds == 2) f.r.release() }
         assertEquals(NextRun.SOON, f.r.indexBatch(1.minutes))
-        assertEquals(null, f.store.meta("npu_failed"))
+        assertEquals(null, f.store.meta("npu_failures"))
         assertTrue(f.r.requiredBuild.value.isNpu)
     }
 
