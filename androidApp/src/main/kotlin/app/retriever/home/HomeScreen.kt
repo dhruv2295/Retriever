@@ -31,6 +31,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -288,17 +289,24 @@ internal fun HomeBody(
                 val shown = status.action != StatusAction.DISMISS || !ui.caughtUpDismissed
                 if (shown) {
                     val celebrating = rememberCelebrating(status.action == StatusAction.DISMISS, celebration)
-                    StatusLine(
-                        status,
-                        when {
-                            celebrating -> MascotMood.CAUGHT_UP
-                            status.active -> MascotMood.WALKING
-                            else -> MascotMood.RESTING
-                        },
-                        onOpen = { actions.onNavigate(StatusRoute) },
-                        onAction = { onAction(it, status.phase) },
-                        more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
-                    )
+                    // On a card like Home's other blocks; Settings keeps it a plain row in its list.
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    ) {
+                        StatusLine(
+                            status,
+                            when {
+                                celebrating -> MascotMood.CAUGHT_UP
+                                status.active -> MascotMood.WALKING
+                                else -> MascotMood.RESTING
+                            },
+                            onOpen = { actions.onNavigate(StatusRoute) },
+                            onAction = { onAction(it, status.phase) },
+                            more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
+                        )
+                    }
                 }
             }
         }
@@ -329,7 +337,7 @@ internal fun HomeBody(
             item(key = "optional", span = FullLine) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader(Words.OPTIONAL)
-                    UpgradeCard(upgrade, upgradeActions, compact = true)
+                    UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp), compact = true)
                 }
             }
         }
@@ -403,7 +411,7 @@ internal fun StatusLine(
         )
         // Spelled out and below the words, so it never squeezes them at large text; aligned with the title.
         status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
-            FlowRow(Modifier.padding(start = 56.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(Modifier.padding(start = 56.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = { onAction(action) }) { Text(action.label) }
                 more?.invoke()
             }

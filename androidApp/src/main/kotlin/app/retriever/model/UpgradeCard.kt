@@ -20,7 +20,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -57,7 +56,7 @@ fun UpgradeFlow.actions(dismissible: Boolean) = UpgradeActions(
 
 /**
  * The offer, then the download, the tune and the meaning pass, one step at a time; nothing once done or unavailable.
- * [compact]: Home's optional row, flat and with a tonal Download, so it never reads as something you must do.
+ * [compact]: Home's optional row, with a tonal Download, so it never reads as something you must do.
  */
 @Composable
 fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Modifier, compact: Boolean = false) {
@@ -65,7 +64,7 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
     val context = LocalContext.current
     val size = Format.downloadSize(context, ui.sizeBytes)
     Surface(
-        color = if (compact) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
         modifier = modifier.fillMaxWidth(),
     ) {
