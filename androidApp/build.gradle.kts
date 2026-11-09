@@ -124,16 +124,11 @@ android {
     }
 }
 
-// Uploads go to the internal testing track (the plugin's default). With retrieverPlayServiceAccount set, the plugin
-// signs in as gcloud's application-default login acting as that service account, so no key file exists; without it,
-// it reads a service-account JSON from ANDROID_PUBLISHER_CREDENTIALS. The bundle carries the R8 mapping and baseline
-// profile.
+// Uploads go to the internal testing track (the plugin's default), signed in with the service-account JSON key at
+// retrieverPlayCredentials. The bundle carries the R8 mapping and baseline profile.
 play {
     defaultToAppBundles = true
-    providers.gradleProperty("retrieverPlayServiceAccount").orNull?.let {
-        useApplicationDefaultCredentials = true
-        impersonateServiceAccount = it
-    }
+    providers.gradleProperty("retrieverPlayCredentials").orNull?.let { serviceAccountCredentials.set(file(it)) }
 }
 
 // litertlm-android (also pulled in by mediapipe tasks-retrieval) drags in kotlin-reflect (~2 MB), reached only from

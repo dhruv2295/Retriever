@@ -84,29 +84,21 @@ Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and 
 `MARKETING_VERSION` as `versionName` and `CURRENT_PROJECT_VERSION` as `versionCode`. Bump the build number
 there before each store upload, and tag the commit after it, e.g. `git tag -a v0.2-5 -m "Retriever 0.2 (5)"`.
 
-Release builds are signed with the Play upload key when these Gradle properties are set, in
-`~/.gradle/gradle.properties` (outside the repo) or as `ORG_GRADLE_PROJECT_<name>` environment variables;
-without them they fall back to the debug key for local testing, and publish tasks refuse to run:
+Store builds need the Play upload key and a Play Console service account's JSON key, both kept outside the
+repo and named in `~/.gradle/gradle.properties`. Without the upload key, release builds use the debug key
+for local testing and publish tasks refuse to run.
 
 ```properties
-retrieverUploadStoreFile=/Users/you/.android-keys/retriever-upload.jks
+retrieverUploadStoreFile=/path/to/upload-keystore
 retrieverUploadStorePassword=...
-retrieverUploadKeyAlias=upload
+retrieverUploadKeyAlias=...
 retrieverUploadKeyPassword=...
+retrieverPlayCredentials=/path/to/service-account.json
 ```
 
-Create the key once with `keytool -genkeypair -v -keystore ~/.android-keys/retriever-upload.jks -alias upload
--keyalg RSA -keysize 2048 -validity 10000` (it asks for the password; a PKCS12 keystore uses the same one for
-store and key). Back it up: Play App Signing holds the key users' installs check, and a lost upload key can
-only be replaced through a reset request in the Play Console.
-
 Uploads go to Play's internal testing track through the
-[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, as a Google Cloud service
-account invited into the Play Console. The first bundle has to be uploaded by hand in the Play Console. Set
-`retrieverPlayServiceAccount=<service account email>` in `~/.gradle/gradle.properties`, give your Google account
-the Service Account Token Creator role on it, and sign in once with `gcloud auth application-default login`:
-the plugin then acts as the service account and no key file exists. Without that property it reads a JSON key
-from the `ANDROID_PUBLISHER_CREDENTIALS` environment variable instead.
+[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin. The first bundle has to be
+uploaded by hand in the Play Console.
 
 ```sh
 ./gradlew :androidApp:publishReleaseBundle
