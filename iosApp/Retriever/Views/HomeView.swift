@@ -1,5 +1,6 @@
-// Home, under the search field: one status line, then Starred, Recently added, On This Day and Browse, the optional
-// search-by-meaning offer, and Free up space last. One inset-grouped List; a section with nothing in it is hidden.
+// Home, under the search field: one status line, then Starred, Recently added, People (or its offer), On This Day and
+// Browse, the optional search-by-meaning offer, and Free up space last. One inset-grouped List; a section with nothing in
+// it is hidden.
 
 import Photos
 import RetrieverCore
@@ -86,6 +87,7 @@ struct HomeList: View {
         starred
         recentlyAdded
         people
+        peopleOffer(snap)
         onThisDay(snap)
         // On an iPad the sidebar holds Browse.
         if sizeClass != .regular { browse(snap) }
@@ -164,6 +166,24 @@ struct HomeList: View {
                 } else {
                     SectionHeader(Words.shared.PEOPLE)
                 }
+            }
+        }
+    }
+
+    /// While People is off, in its place. Not beside the one-time card, which already asks for a decision; nothing until the
+    /// prefs have loaded.
+    static func offersPeople(_ snap: AppModel.Snap, dismissed: Bool, introDue: Bool) -> Bool {
+        !snap.recognizePeople && !dismissed && !introDue && snap.kinds.contains(.photo) && (snap.byKind[.photo] ?? 0) > 0
+    }
+
+    @ViewBuilder private func peopleOffer(_ snap: AppModel.Snap) -> some View {
+        if !photosOff,
+            Self.offersPeople(snap, dismissed: snap.prefs?.peopleOfferDismissed ?? true, introDue: snap.prefs?.homeIntroDue ?? false)
+        {
+            Section {
+                PeopleOfferCard(model: model)
+            } header: {
+                SectionHeader(Words.shared.PEOPLE)
             }
         }
     }

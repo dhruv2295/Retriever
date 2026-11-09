@@ -42,6 +42,21 @@ final class HomeModelTests: XCTestCase {
         XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, paused: true), started: true), "an empty paused library is not looking")
     }
 
+    /// People is off by default, and only a Settings switch turned it on: nobody found it. Home offers it until answered.
+    func testPeopleIsOfferedWhileOffUntilAnswered() {
+        var snap = AppModel.Snap(setUp: true, byKind: [.photo: 40], indexed: 40)
+        XCTAssertTrue(HomeList.offersPeople(snap, dismissed: false, introDue: false))
+        XCTAssertFalse(HomeList.offersPeople(snap, dismissed: true, introDue: false), "Not now")
+        XCTAssertFalse(HomeList.offersPeople(snap, dismissed: false, introDue: true), "the one-time card asks first")
+        snap.recognizePeople = true
+        XCTAssertFalse(HomeList.offersPeople(snap, dismissed: false, introDue: false), "turned on: People itself shows")
+        snap.recognizePeople = false
+        snap.kinds.remove(.photo)
+        XCTAssertFalse(HomeList.offersPeople(snap, dismissed: false, introDue: false), "photos aren't read")
+        XCTAssertFalse(
+            HomeList.offersPeople(AppModel.Snap(setUp: true, byKind: [.pdf: 3], indexed: 3), dismissed: false, introDue: false), "no photos")
+    }
+
     func testThumbnailSizesShareBuckets() {
         XCTAssertEqual([100, 256, 300, 384, 500, 720, 2_000].map(Thumbnails.bucket), [256, 256, 384, 384, 512, 768, 768])
     }
@@ -115,12 +130,13 @@ final class HomeModelTests: XCTestCase {
 
     func testCaughtUpHomeShowsEverySection() async throws {
         let model = withMedia(AppModel(fixture: .caughtUp), 7, starred: 2)
-        // Starred, Recently added, Browse and Free up space have headers; the status line leads without one.
+        // Starred, Recently added, People's offer, Browse and Free up space have headers; the status line leads without one.
         let layout = try await layout(model)
-        XCTAssertEqual(layout.headers, 4)
+        XCTAssertEqual(layout.headers, 5)
         // The status line ("All done", its x on the same row); one strip of starred files; one strip of recently added;
-        // Photos, Videos, Screenshots, Documents and All folders; Large files and Find duplicate files. No chips or download card.
-        XCTAssertEqual(layout.items, [1, 1, 1, 5, 2])
+        // the People offer (People is off); Photos, Videos, Screenshots, Documents and All folders; Large files and Find
+        // duplicate files. No chips or download card.
+        XCTAssertEqual(layout.items, [1, 1, 1, 1, 5, 2])
     }
 
     func testFreeUpSpaceShowsARowOnlyWhenItHasSomethingAndNoSectionWhenNeitherHas() async throws {
@@ -134,10 +150,10 @@ final class HomeModelTests: XCTestCase {
         }
         model.home = facts(large: 4, copies: 0)
         let largeOnly = try await layout(model)
-        XCTAssertEqual(largeOnly.items, [1, 1, 1, 5, 1], "Large files alone: no copies are possible")
+        XCTAssertEqual(largeOnly.items, [1, 1, 1, 1, 5, 1], "Large files alone: no copies are possible")
         model.home = facts(large: 0, copies: 0)
         let neither = try await layout(model)
-        XCTAssertEqual(neither.items, [1, 1, 1, 5], "nothing to free: no section")
+        XCTAssertEqual(neither.items, [1, 1, 1, 1, 5], "nothing to free: no section")
     }
 
     func testWithoutPhotosAccessTheNoteFollowsTheLineAndFolderFilesStay() async throws {

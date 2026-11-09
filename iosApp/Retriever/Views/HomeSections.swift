@@ -220,6 +220,28 @@ struct TileStrip: View {
     }
 }
 
+/// People while it is off: the Settings switch, asked for where the section will appear, since off by default and only in
+/// Settings, nobody found it. Turn on fills this spot with People and its faces count; Not now leaves only the switch.
+struct PeopleOfferCard: View {
+    let model: AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Words.shared.PEOPLE_OFFER_TITLE).font(.headline).fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            Text(Words.shared.PEOPLE_OFFER_BODY).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            // As the optional download's offer: never the strongest button on screen, stacked at accessibility sizes.
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+            layout {
+                Button(Words.shared.TURN_ON) { model.setRecognizePeople(true) }.buttonStyle(.bordered)
+                Button(Words.shared.NOT_NOW, action: model.dismissPeopleOffer).buttonStyle(.borderless)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// Each person a face and their name, if they have one; a tap opens their photos.
 struct PeopleStrip: View {
     let people: [Person]

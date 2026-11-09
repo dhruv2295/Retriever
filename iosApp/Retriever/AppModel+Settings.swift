@@ -7,7 +7,8 @@ extension AppModel {
     /// Changes the settings given and leaves the rest as they are.
     func edit(
         kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
-        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil, people: Bool? = nil
+        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil, people: Bool? = nil,
+        peopleOfferDismissed: Bool? = nil
     ) async throws {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
@@ -21,7 +22,7 @@ extension AppModel {
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
                 homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
-                peopleOfferDismissed: p.peopleOfferDismissed)
+                peopleOfferDismissed: peopleOfferDismissed ?? p.peopleOfferDismissed)
         }
     }
 
@@ -99,6 +100,11 @@ extension AppModel {
             try? await edit(people: on)
             if on { wake() }
         }
+    }
+
+    /// Home's People offer answered Not now: Settings keeps the switch.
+    func dismissPeopleOffer() {
+        Task { try? await edit(peopleOfferDismissed: true) }
     }
 
     func clearRecentSearches() {
