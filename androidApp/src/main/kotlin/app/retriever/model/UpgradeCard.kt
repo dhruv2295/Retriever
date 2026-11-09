@@ -101,10 +101,12 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
                 }
 
                 UpgradeStage.MEANING -> ui.progress?.let { p ->
-                    val read = p.contentRead.coerceAtLeast(1)
-                    val fraction = ((p.contentRead - p.meaningWaiting).toFloat() / read).coerceIn(0f, 1f)
                     Text(Words.addingMeaning(p), style = MaterialTheme.typography.bodyMedium.tabular())
-                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    if (Words.meaningCounted(p)) {
+                        val read = p.contentRead.coerceAtLeast(1)
+                        val fraction = ((p.contentRead - p.meaningWaiting).toFloat() / read).coerceIn(0f, 1f)
+                        LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    }
                 }
 
                 UpgradeStage.UNAVAILABLE, UpgradeStage.DONE -> Unit

@@ -558,6 +558,16 @@ object Words {
 
     fun tuneFailed(words: DeviceWords): String = "Couldn’t finish setting up processing for this ${words.device}."
 
-    /** The meaning pass in Settings, counted as the status line counts it ([meaningToGo]). */
-    fun addingMeaning(progress: ReadingProgress): String = "Adding search by description · ${meaningToGo(progress.meaningWaiting)}"
+    /**
+     * The meaning pass in Settings. While first reads remain the status line counts those, and a second count here didn't
+     * add up with it (19.7k of 28k processed beside 3,609 to go): only what is happening, with no bar ([meaningCounted]).
+     * Once they are done, the status line's own count.
+     */
+    fun addingMeaning(progress: ReadingProgress): String =
+        if (meaningCounted(progress)) "Adding search by description · ${meaningToGo(progress.meaningWaiting)}" else MEANING_CATCHING_UP
+
+    /** The status line's own rule for counting the meaning pass (ReadingPhase.MEANING): every first read is done. */
+    fun meaningCounted(progress: ReadingProgress): Boolean = progress.scheduled == 0L
+
+    const val MEANING_CATCHING_UP = "Search by description works now. Files processed before it was ready get it as Retriever carries on."
 }

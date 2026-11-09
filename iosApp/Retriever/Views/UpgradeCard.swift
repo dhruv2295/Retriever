@@ -97,7 +97,11 @@ struct UpgradeCard: View {
             let progress = snap.readProgress
             let read = Double(max(progress.contentRead, 1))
             Text(Words.shared.addingMeaning(progress: progress)).font(.subheadline).monospacedDigit()
-            ProgressView(value: Double(progress.contentRead - progress.meaningWaiting) / read).accessibilityHidden(true)
+                .fixedSize(horizontal: false, vertical: true)
+            // While files are still read, the status line's count is the one count: no second bar here.
+            if Words.shared.meaningCounted(progress: progress) {
+                ProgressView(value: Double(progress.contentRead - progress.meaningWaiting) / read).accessibilityHidden(true)
+            }
         }
     }
 }
