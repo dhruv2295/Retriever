@@ -97,8 +97,8 @@ retrieverPlayCredentials=/path/to/service-account.json
 ```
 
 Uploads go to Play's internal testing track through the
-[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin. The first bundle has to be
-uploaded by hand in the Play Console.
+[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, once the app exists in the
+Play Console and the service account is invited to it.
 
 ```sh
 ./gradlew :androidApp:publishReleaseBundle
