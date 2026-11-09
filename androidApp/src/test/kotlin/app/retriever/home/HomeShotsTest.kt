@@ -275,7 +275,7 @@ class HomeShotsTest {
     @Test fun meaningLight() {
         shot("meaning", false)
         rule.onNodeWithText("Adding search by description").assertExists()
-        rule.onNodeWithText(Words.meaningToGo(1_100)).assertExists()
+        rule.onNodeWithText(Words.meaningOf(2_200, 3_300)).assertExists()
     }
 
     @Test fun allReadLight() {

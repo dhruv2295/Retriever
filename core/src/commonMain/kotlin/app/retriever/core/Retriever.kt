@@ -788,12 +788,13 @@ class Retriever(
             }
             var facesLeft = facesOn && store.facesProgress().pending > 0
             if (reader != null && facesLeft && pending == 0L && deepenBlocker() == null &&
-                (keywordOnly || store.countsNow(includeTails = false).progress.meaningWaiting == 0L)
+                // With tails: without them the counts leave the meaning pass out (Store.outcome) and this read 0.
+                (keywordOnly || store.countsNow().progress.meaningWaiting == 0L)
             ) {
                 _state.update { it.copy(faces = store.facesProgress()) }
                 val faces = FacePass(store, reader, log, onLooked = {
                     _state.update { s -> s.copy(faces = s.faces?.let { FacesProgress(it.done + 1, (it.pending - 1).coerceAtLeast(0)) }) }
-                }, onGrouped = ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
+                }, onCurrent = ::onCurrent, onGrouped = ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
                 _state.update { it.copy(faces = null) }
                 if (faces != StopReason.DONE) return end(faces)
                 facesLeft = false

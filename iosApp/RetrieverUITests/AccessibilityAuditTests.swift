@@ -275,7 +275,7 @@ final class AccessibilityAuditTests: XCTestCase {
                     // demo's 30 carry over to Not now's whole-phone count. Counting has no count and no bar.
                     let liveCounts = [
                         "home.charging": "1,204 of 5,310 files processed", "home.unplugged": "1,204 of 5,310 files processed",
-                        "home.meaning": "1,204 files to go", "home.notNow": "30 of 25,793 files processed",
+                        "home.meaning": "1,938 of 3,142 files have search by description", "home.notNow": "30 of 25,793 files processed",
                         "status.reading": "1,204 of 5,310 files processed",
                     ]
                     if let count = liveCounts[route] {
@@ -488,6 +488,8 @@ final class AccessibilityAuditTests: XCTestCase {
                     if route.hasPrefix("home."), element.label == "All folders" { return true }
                     // The upgrade row below them moves the same way; testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize checks it.
                     if route == "home.upgrade", Self.upgradeText.contains(where: element.label.hasPrefix) { return true }
+                    // The People offer sits as low on every Home route where People is off; testHomePeopleOfferGrows... checks it.
+                    if route.hasPrefix("home."), Self.peopleOfferText.contains(where: element.label.hasPrefix) { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
                     // Home's one-time card pushes the status line below it off screen as the text grows; that line is
                     // audited whole on its own routes (home.charging, home.downloading). The card's own rows still count.
@@ -612,14 +614,25 @@ final class AccessibilityAuditTests: XCTestCase {
     /// Label prefixes, top to bottom (the growth test only scrolls down); the body joins its size with a no-break space.
     private static let upgradeText = ["Find files by describing them", "One download of", "Download", "Not now"]
 
+    private static let peopleOfferText = ["Find photos of people", "Retriever can group the faces", "Turn on", "Not now"]
+
     /// Home's optional upgrade row grows at AX5, the growth the live-resize audit loses when the rows above scroll it away.
     func testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize() {
+        assertGrowsAtTheLargestAccessibilitySize(route: "home.upgrade", labels: Self.upgradeText)
+    }
+
+    /// The People offer, as low on Home while People is off, grows at AX5 too.
+    func testHomePeopleOfferGrowsAtTheLargestAccessibilitySize() {
+        assertGrowsAtTheLargestAccessibilitySize(route: "home.caughtUp", labels: Self.peopleOfferText)
+    }
+
+    private func assertGrowsAtTheLargestAccessibilitySize(route: String, labels: [String]) {
         var normal: [String: CGFloat] = [:]
         for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
             let app = XCUIApplication()
-            app.launchArguments = ["-mutedMedia", "-route", "home.upgrade", "-UIPreferredContentSizeCategoryName", category]
+            app.launchArguments = ["-mutedMedia", "-route", route, "-UIPreferredContentSizeCategoryName", category]
             launch(app)
-            for label in Self.upgradeText {
+            for label in labels {
                 let element = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
                 // At AX5 the body is taller than the space above the search field, so wait only for its top to show.
                 let window = app.windows.firstMatch.frame

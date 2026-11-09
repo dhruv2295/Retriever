@@ -352,6 +352,21 @@ class ReadingContractTest {
         assertEquals(0, r.counts().first().sessionRead)
     }
 
+    /**
+     * A Pixel's 3,609 photos read without the model never got search by description: their chunks queued behind 28,000
+     * later pages of PDFs and documents that already had it, sorted first by kind.
+     */
+    @Test fun aFileWithNoMeaningYetGetsItsVectorBeforeMorePagesOfAFileThatHasIt() {
+        val store = newStore()
+        val files = listOf(testFile("long.pdf", Kind.PDF), testFile("beach.jpg", Kind.PHOTO))
+        store.upsertFiles(files)
+        val (pdf, photo) = files.map { store.fileByUri(it.uri)!!.id }
+        val vector = Vector.of(FloatArray(DIMS) { 1f }, SIG)
+        store.replaceChunks(pdf, listOf(Store.NewChunk(1, "", "page one", vector), Store.NewChunk(2, "", "page two", null)))
+        store.replaceChunks(photo, listOf(Store.NewChunk(1, "", "sand and sea", null)))
+        assertEquals(listOf(photo, pdf), store.tailChunks(10).map { it.fileId })
+    }
+
     /** Merge review: a file that only waits for meaning is Read in the counts, so its row and File info carry no Partly read extent. */
     @Test fun aFileWaitingOnlyForMeaningHasNoPartlyReadExtent() {
         val store = newStore()

@@ -331,7 +331,8 @@ object ReadingPolicy {
         // A stop over only those passes says why it stopped, then that every file is processed and what is left.
         val restStopped = phase in STOPS && progress.unfinished && allProcessed
         val title = when (phase) {
-            ReadingPhase.WAITING if firstPassDone -> "All files processed"
+            // Not "All files processed" over a count of photos still waiting for search by description.
+            ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) "Adding search by description" else "All files processed"
             ReadingPhase.COUNTING -> "Counting your files…"
             ReadingPhase.NOT_NOW -> "Only names can be found for now"
             ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
@@ -396,7 +397,9 @@ object ReadingPolicy {
 
             else -> null
         }
-        val meaning = phase == ReadingPhase.MEANING || (restStopped && progress.meaningWaiting > 0)
+        // Between batches too: a Pixel's line flipped from "24,373 of 27,128" to "28,028 of 28,028 files processed", a full
+        // bar beside 2,750 photos still waiting.
+        val meaning = phase == ReadingPhase.MEANING || ((restStopped || firstPassDone) && progress.meaningWaiting > 0)
         val lead = when {
             phase == ReadingPhase.DEEPENING -> "${Words.notReadYet(progress.laterPasses)}."
             restStopped && !meaning -> "All files processed. The rest of ${Words.plural(progress.laterPasses, "long file")} waits."
@@ -414,10 +417,11 @@ object ReadingPolicy {
         }
         // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
         // its first reads are all done, and a full bar beside work going on reads as stuck. A stop over the meaning pass
-        // counts that pass; one over only later parts has none, like deepening.
+        // counts that pass; one over only later parts has none, like deepening. Faces come after the files and their search
+        // by description (Retriever.runBatch), so a stop counts them only once both are done.
         val looking = when {
             phase == ReadingPhase.FACES -> faces
-            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L }
+            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L && progress.meaningWaiting == 0L }
             else -> null
         }
         val (done, total) = when {
@@ -428,10 +432,9 @@ object ReadingPolicy {
         val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
         val none = !progress.counted || laterOnly || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
-        // For the meaning pass the bar shows how far it is, and the words what is left (Words.meaningToGo).
         val count = when {
             looking != null -> Words.facesOf(done, total)
-            meaning -> Words.meaningToGo(total - done)
+            meaning -> Words.meaningOf(done, total)
             else -> Words.readOf(done, total)
         }
         return ReadingStatus(phase, title, detail, action, count, done, total)

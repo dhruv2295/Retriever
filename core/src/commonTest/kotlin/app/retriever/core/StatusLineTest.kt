@@ -60,7 +60,7 @@ class StatusLineTest {
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to listOf(
                 "MEANING",
                 "Adding search by description",
-                "3 files to go",
+                "1 of 4 files have search by description",
                 "So you can search by what things mean, and by what’s in your photos. On this phone only.",
                 null,
             ),
@@ -120,11 +120,15 @@ class StatusLineTest {
 
     /** Every file processed, faces left: a stop counts the photos, not "26,376 of 26,376 files processed" beside work to do. */
     @Test fun aStopAfterEveryFileCountsTheFacesLeft() {
-        val allFiles = ReadingProgress(read = 5, meaningWaiting = 1)
+        val allFiles = ReadingProgress(read = 4, partlyRead = 1, laterPasses = 1)
         val busy = decide(allFiles, stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8))
         assertEquals(listOf("BUSY", "2 of 10 photos looked at"), listOf(busy.phase.name, busy.count))
         assertEquals(2L to 10L, busy.done to busy.total)
         assertEquals("3 of 5 files processed", decide(stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8)).count, "files left come first")
+        // A Pixel paused for heat showed "6,417 of 23,414 photos looked at" while 3,392 photos still waited for search by
+        // description, which goes first.
+        val meaningLeft = decide(ReadingProgress(read = 5, meaningWaiting = 1), stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8))
+        assertEquals("4 of 5 files have search by description", meaningLeft.count, "then the search by description")
     }
 
     /** Processing never shows Pause beside a session's Stop: one ends the 15 minutes, the other stopped everything. */

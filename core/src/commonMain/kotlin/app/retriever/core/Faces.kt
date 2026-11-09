@@ -465,13 +465,15 @@ internal fun Store.forgetAllFaces() = inTransaction {
 /**
  * Looks at photos for faces until none are left, [budget] runs out, or [stop] names a reason; groups what it found as
  * it goes. Each try is counted first, so a photo that stops the app is left out after [MAX_FACE_ATTEMPTS]. [onLooked]
- * follows each photo, for the status line's count.
+ * follows each photo, for the status line's count; [onCurrent] comes before it, so Processing shows the photo being looked
+ * at as it shows a file being read (without it, a fresh process said "Getting started…" for the whole pass).
  */
 internal class FacePass(
     private val store: Store,
     private val reader: FaceReader,
     private val log: (String, Throwable?) -> Unit,
     private val onLooked: () -> Unit = {},
+    private val onCurrent: (SourceFile) -> Unit = {},
     private val onGrouped: () -> Unit,
 ) {
     suspend fun run(budget: Duration, stop: () -> StopReason?, awaitUi: suspend () -> Unit): StopReason {
@@ -486,6 +488,7 @@ internal class FacePass(
                     stop()?.let { return it }
                     if (start.elapsedNow() >= budget) return StopReason.BUDGET
                     store.setFaceAttempts(p.id, p.attempts + 1)
+                    store.file(p.id)?.let(onCurrent)
                     val found = try {
                         reader.faces(p.uri)
                     } catch (e: CancellationException) {

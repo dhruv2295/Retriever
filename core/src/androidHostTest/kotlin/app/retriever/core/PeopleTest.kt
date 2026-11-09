@@ -55,9 +55,11 @@ class PeopleTest {
         val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
         var retriever: Retriever? = null
         val counts = mutableListOf<FacesProgress?>()
+        val shown = mutableListOf<String?>()
         val slow = object : FaceReader {
             override suspend fun faces(uri: String): List<FoundFace> {
                 counts += retriever?.state?.value?.faces
+                shown += retriever?.state?.value?.currentFile?.uri
                 delay(100.milliseconds)
                 return emptyList()
             }
@@ -72,11 +74,19 @@ class PeopleTest {
         assertEquals(NextRun.SOON, r.indexBatch(1.minutes), "read, with faces left: the next batch looks at once")
         assertEquals(0L, store.pendingByKind().values.sum(), "every file is read first")
         assertEquals(FacesProgress(0, 12), r.facesProgress(), "no photo is looked at while files wait")
+        // A photo read before the model came still waits for search by description; it goes before faces too.
+        store.replaceChunks(store.fileByUri(photos[0].uri)!!.id, listOf(Store.NewChunk(1, "", "sand and sea", null)))
+        assertEquals(1L, store.countsNow().progress.meaningWaiting)
+        r.indexBatch(1.minutes)
+        assertEquals(0L, store.countsNow().progress.meaningWaiting)
+        assertEquals(FacesProgress(0, 12), r.facesProgress(), "no photo is looked at while one waits for search by description")
 
         r.indexBatch(500.milliseconds)
         val looked = r.facesProgress().done
         assertTrue(looked in 1L..11L, "a short batch looks at some photos, not all: $looked")
         assertEquals(listOf(FacesProgress(0, 12), FacesProgress(1, 11)), counts.take(2), "the status line counts photos as they're looked at")
+        // Processing shows the photo being looked at, not "Getting started…" for the whole pass.
+        assertTrue(shown.isNotEmpty() && shown.all { uri -> photos.any { it.uri == uri } }, "the current file is each photo looked at: $shown")
         assertEquals(null, r.state.value.faces, "and leaves the faces count once the batch ends")
 
         r.indexBatch(1.minutes)

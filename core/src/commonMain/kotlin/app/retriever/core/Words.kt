@@ -46,10 +46,10 @@ object Words {
     fun readOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} processed"
 
     /**
-     * The meaning pass's count (ReadingPhase.MEANING), "1,204 files to go": what is left, not "X of Y" over only the
-     * files read, which beside Home's count of every file read as a smaller library.
+     * The meaning pass's count (ReadingPhase.MEANING), "1,938 of 3,142 files have search by description". It shows only once
+     * every file is read ([meaningCounted]), so no count of every file stands beside it.
      */
-    fun meaningToGo(left: Long): String = "${files(left)} to go"
+    fun meaningOf(done: Long, total: Long): String = "${formatCount(done)} of ${files(total)} ${if (total == 1L) "has" else "have"} search by description"
 
     /** The look for faces' count (ReadingPhase.FACES): "2,046 of 16,705 photos looked at". */
     fun facesOf(done: Long, total: Long): String = "${formatCount(done)} of ${plural(total, "photo")} looked at"
@@ -563,8 +563,11 @@ object Words {
      * add up with it (19.7k of 28k processed beside 3,609 to go): only what is happening, with no bar ([meaningCounted]).
      * Once they are done, the status line's own count.
      */
-    fun addingMeaning(progress: ReadingProgress): String =
-        if (meaningCounted(progress)) "Adding search by description · ${meaningToGo(progress.meaningWaiting)}" else MEANING_CATCHING_UP
+    fun addingMeaning(progress: ReadingProgress): String = if (meaningCounted(progress)) {
+        "Adding search by description · ${formatCount(progress.contentRead - progress.meaningWaiting)} of ${files(progress.contentRead)}"
+    } else {
+        MEANING_CATCHING_UP
+    }
 
     /** The status line's own rule for counting the meaning pass (ReadingPhase.MEANING): every first read is done. */
     fun meaningCounted(progress: ReadingProgress): Boolean = progress.scheduled == 0L

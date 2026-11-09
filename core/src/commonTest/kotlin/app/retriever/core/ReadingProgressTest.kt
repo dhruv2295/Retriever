@@ -103,17 +103,17 @@ class ReadingProgressTest {
         assertEquals("Retriever processes the rest of some long files when your phone allows. Search works now.", between.detail)
         assertEquals("12 of 12 files processed", between.count)
         assertEquals("All files processed", ReadingPolicy.decide(later, StopReason.BUDGET, false, false, DeviceWords.ANDROID).title)
-        assertEquals(
-            "Retriever adds search by description when your phone allows. Search works now.",
-            ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 5), null, false, false, DeviceWords.ANDROID).detail,
-        )
+        val meaningLeft = ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 2), null, false, false, DeviceWords.ANDROID)
+        assertEquals("Retriever adds search by description when your phone allows. Search works now.", meaningLeft.detail)
+        assertEquals("3 of 5 files have search by description", meaningLeft.count, "not a full bar of files processed")
+        assertEquals("Adding search by description", meaningLeft.title, "nor All files processed over that count")
         // A stop still says why; files still waiting keep the short break.
         val busy = ReadingPolicy.decide(later, StopReason.BUSY, false, false, DeviceWords.ANDROID)
         assertEquals(ReadingPhase.BUSY, busy.phase)
         assertEquals("All files processed. The rest of 2 long files waits. Or open Retriever to carry on now.", busy.detail)
         assertEquals(null, busy.count, "no full bar beside work still to do")
         val meaningStopped = ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 2), StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID)
-        assertEquals("2 files to go", meaningStopped.count)
+        assertEquals("3 of 5 files have search by description", meaningStopped.count)
         assertEquals("All files processed. Retriever carries on when your phone is charging.", meaningStopped.detail)
         // Paused with nothing left keeps the plain count.
         assertEquals("5 of 5 files processed", ReadingPolicy.decide(ReadingProgress(read = 5), StopReason.PAUSED, false, false, DeviceWords.ANDROID).count)
