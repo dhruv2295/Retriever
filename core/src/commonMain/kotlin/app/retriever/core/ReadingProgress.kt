@@ -330,8 +330,8 @@ object ReadingPolicy {
             (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
         // A stop over only those passes says why it stopped, then that every file is processed and what is left.
         val restStopped = phase in STOPS && progress.unfinished && allProcessed
+        // Between batches with the meaning pass left, its title, not "All files processed" over photos still waiting.
         val title = when (phase) {
-            // Not "All files processed" over a count of photos still waiting for search by description.
             ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) "Adding search by description" else "All files processed"
             ReadingPhase.COUNTING -> "Counting your files…"
             ReadingPhase.NOT_NOW -> "Only names can be found for now"
