@@ -72,9 +72,10 @@ android {
     // splits a bundle by ABI itself, so a bundle or Play publish build turns them off: run those apart from assemble
     // tasks. The 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict
     // in any build type, so there are no filters.
+    val forPlay = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) || it.contains("publish", ignoreCase = true) }
     splits {
         abi {
-            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) || it.contains("publish", ignoreCase = true) }
+            isEnable = !forPlay
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = false
@@ -97,6 +98,9 @@ android {
             // ML Kit and androidx ship 32-bit libraries, litertlm doesn't: Play derives an App Bundle's ABIs from its lib/
             // folders, so leaving these in would offer the app to 32-bit phones that can't load the model.
             excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
+            // A Play bundle is for phones: x86_64 was 26 MB of its 91 MB, for emulators (which install the APKs) and x86
+            // Chromebooks (which run arm64 apps translated). The APKs built by hand keep it.
+            if (forPlay) excludes += "lib/x86_64/**"
         }
     }
 
