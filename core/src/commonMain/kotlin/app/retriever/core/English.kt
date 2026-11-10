@@ -303,6 +303,44 @@ internal object English : Strings {
 
     override fun matches(labels: List<String>) = "Matches: " + labels.joinToString(", ")
 
+    private val monthNames = listOf(
+        "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
+    )
+    private val weekdayNames = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "today"
+
+        DateFilter.Yesterday -> "yesterday"
+
+        is DateFilter.DaysAgo -> "${plural(date.days.toLong(), "day")} ago"
+
+        is DateFilter.Period -> (if (date.last) "last " else "this ") + date.unit.name.lowercase()
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "last "
+            Which.THIS -> "this "
+            Which.BARE -> ""
+        } + weekdayNames[date.day]
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Day -> "${date.day} ${monthNames[date.month - 1].take(3)}" + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString(" and ", transform = ::kindsInSentence)
+        val of = if (people.isEmpty()) "" else " of " + people.joinToString(" and ")
+        val from = date?.let { " from ${dateLabel(it)}" }.orEmpty()
+        return if (what.isEmpty()) "Nothing$of$from" else "No $what$of$from"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?) = "$missing, so here " + if (scope == null) "is everything." else "are all your $scope."
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${kindsInSentence(kind).lowercase()} from ${dateLabel(date)}"
+
     override val downloadForDescription = "Download for search by description"
 
     override val readingStatus = "Processing"

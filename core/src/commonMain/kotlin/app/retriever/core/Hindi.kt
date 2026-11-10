@@ -350,8 +350,9 @@ internal object Hindi : Strings {
 
     override val noMatches = "कुछ नहीं मिला"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
-        (if (byMeaning) "बताएं कि उसमें क्या है, या पूछें कि उसमें क्या लिखा है." else "उसमें मौजूद या उसके नाम का कोई शब्द आज़माएं.")
+    override fun noMatchesDetail(byMeaning: Boolean) =
+        (if (byMeaning) "बताएं कि उसमें क्या है, या पूछें कि उसमें क्या लिखा है." else "उसमें मौजूद या उसके नाम का कोई शब्द आज़माएं.") +
+            " कब का है, यह भी जोड़ें, जैसे “पिछले हफ़्ते”."
 
     override val moreWaiting = "Retriever अभी आपकी फ़ाइलें प्रोसेस कर रहा है, इसलिए थोड़ी देर बाद फिर से खोजें."
     override val searchFailed = "खोज पूरी नहीं हो सकी"
@@ -359,6 +360,63 @@ internal object Hindi : Strings {
     override val searchingWithoutModel = "नाम और पहले से प्रोसेस हुए टेक्स्ट में खोजा जा रहा है"
 
     override fun matches(labels: List<String>) = "मिलान: " + labels.joinToString(", ")
+
+    private val monthNames = listOf("जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर")
+    private val weekdayNames = listOf("सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार")
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "आज"
+
+        DateFilter.Yesterday -> "कल"
+
+        is DateFilter.DaysAgo -> "${formatCount(date.days.toLong())} दिन पहले"
+
+        is DateFilter.Period -> (if (date.last) "पिछले " else "इस ") + when (date.unit) {
+            PeriodUnit.WEEK -> "हफ़्ते"
+            PeriodUnit.MONTH -> "महीने"
+            PeriodUnit.YEAR -> "साल"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "पिछले "
+            Which.THIS -> "इस "
+            Which.BARE -> ""
+        } + weekdayNames[date.day]
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Day -> "${date.day} ${monthNames[date.month - 1]}" + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    /** The date as it leads a sentence: "आज", "पिछले हफ़्ते", "सोमवार को", "2024 में". */
+    private fun inDate(date: DateFilter): String = when (date) {
+        DateFilter.Today, DateFilter.Yesterday, is DateFilter.DaysAgo, is DateFilter.Period -> dateLabel(date)
+        is DateFilter.Weekday, is DateFilter.Day -> "${dateLabel(date)} को"
+        else -> "${dateLabel(date)} में"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val names = people.joinToString(" और ")
+        val what = if (kinds.isEmpty()) {
+            if (names.isEmpty()) "कुछ नहीं मिला" else "$names से जुड़ी कोई फ़ाइल नहीं मिली"
+        } else {
+            kinds.joinToString(" और ") { kind ->
+                val feminine = kind == Kind.PHOTO || kind == Kind.PDF || kind == Kind.OTHER
+                val of = if (names.isEmpty()) "" else "$names ${if (feminine) "की" else "का"} "
+                "${of}कोई ${kindLabel(kind)} नहीं ${if (feminine) "मिली" else "मिला"}"
+            }
+        }
+        return listOf(date?.let(::inDate).orEmpty(), what).filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    override fun relaxedNote(missing: String, scope: String?) = "$missing, इसलिए यहाँ " +
+        if (scope == null) "सब कुछ दिखाया जा रहा है." else "${scopeOblique(scope)} में मौजूद सब कुछ दिखाया जा रहा है."
+
+    /** की before feminine फ़ोटो and PDF, के before the masculine plurals (स्क्रीनशॉट, वीडियो, दस्तावेज़). */
+    override fun filterQuery(kind: Kind, date: DateFilter) =
+        "${dateLabel(date)} ${if (kind == Kind.PHOTO || kind == Kind.PDF) "की" else "के"} ${kindLabelPlural(kind)}"
 
     override val downloadForDescription = "विवरण से खोज के लिए डाउनलोड करें"
 

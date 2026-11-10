@@ -355,8 +355,9 @@ internal object Spanish : Strings {
 
     override val noMatches = "No se encontró nada"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
-        (if (byMeaning) "Describe lo que contiene o pregunta qué dice." else "Prueba con una palabra del contenido o del nombre del archivo.")
+    override fun noMatchesDetail(byMeaning: Boolean) =
+        (if (byMeaning) "Describe lo que contiene o pregunta qué dice." else "Prueba con una palabra del contenido o del nombre del archivo.") +
+            " Añade una fecha o un periodo, como «la semana pasada»."
 
     override val moreWaiting = "Retriever aún está procesando tus archivos, así que vuelve a buscar más tarde."
     override val searchFailed = "No se pudo completar la búsqueda"
@@ -364,6 +365,56 @@ internal object Spanish : Strings {
     override val searchingWithoutModel = "Buscando en los nombres y en el texto ya procesado"
 
     override fun matches(labels: List<String>) = "Coincidencias: " + labels.joinToString(", ")
+
+    private val monthNames = listOf(
+        "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    )
+    private val weekdayNames = listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "hoy"
+
+        DateFilter.Yesterday -> "ayer"
+
+        is DateFilter.DaysAgo -> if (date.days == 1) "hace 1 día" else "hace ${formatCount(date.days.toLong())} días"
+
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "la semana pasada" else "esta semana"
+            PeriodUnit.MONTH -> if (date.last) "el mes pasado" else "este mes"
+            PeriodUnit.YEAR -> if (date.last) "el año pasado" else "este año"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "el ${weekdayNames[date.day]} pasado"
+            Which.THIS -> "este ${weekdayNames[date.day]}"
+            Which.BARE -> weekdayNames[date.day]
+        }
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " de $it" } ?: "")
+
+        is DateFilter.Day -> "${date.day} de ${monthNames[date.month - 1]}" + (date.year?.let { " de $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    /** "de" with the date, contracted where Spanish contracts it: "del mes pasado", "del lunes". */
+    private fun fromDate(date: DateFilter): String = when (date) {
+        is DateFilter.Period -> if (date.last && date.unit != PeriodUnit.WEEK) "del " + dateLabel(date).removePrefix("el ") else "de ${dateLabel(date)}"
+        is DateFilter.Weekday -> if (date.which == Which.THIS) "de ${dateLabel(date)}" else "del " + dateLabel(date).removePrefix("el ")
+        is DateFilter.Day -> "del ${dateLabel(date)}"
+        else -> "de ${dateLabel(date)}"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString(" ni ", transform = ::kindsInSentence)
+        val of = if (people.isEmpty()) "" else " de " + people.joinToString(" y ")
+        val from = date?.let { " ${fromDate(it)}" }.orEmpty()
+        return if (what.isEmpty()) "No hay nada$of$from" else "No hay $what$of$from"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?) = "$missing, así que aquí tienes " + if (scope == null) "todo." else "tus $scope."
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${kindsInSentence(kind)} ${fromDate(date)}"
 
     override val downloadForDescription = "Descargar para buscar por descripción"
 

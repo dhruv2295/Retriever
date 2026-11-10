@@ -67,7 +67,8 @@ class QueryParserTest {
         assertEquals(oct17 - day, p.from)
         assertEquals("", p.text)
         assertEquals(oct17 - 2 * day, parse("परसों की फोटो").from)
-        assertEquals("की फोटो", parse("परसों की फोटो").text)
+        assertEquals(setOf(Kind.PHOTO), parse("परसों की फोटो").kinds)
+        assertEquals("", parse("परसों की फोटो").text)
         val w = parse("बिजली बिल पिछले हफ्ते")
         assertEquals("बिजली बिल", w.text)
         assertEquals(oct17 - 12 * day, w.from)
@@ -154,11 +155,169 @@ class QueryParserTest {
         val oct1 = 1790812800000L
         val nov1 = 1793491200000L
         val berlin = { at: Long -> if (at in 1774746000000L until 1792890000000L) 2 * hour else hour }
-        val march = QueryParser.parse("photos from march", apr1 + 9 * day, berlin)
+        val march = QueryParser.parse("photos from march", apr1 + 9 * day, zoneOffsetMs = berlin)
         assertEquals(mar1 - hour, march.from)
         assertEquals(apr1 - 2 * hour, march.to)
-        val october = QueryParser.parse("photos from last month", nov1 + 9 * day, berlin)
+        val october = QueryParser.parse("photos from last month", nov1 + 9 * day, zoneOffsetMs = berlin)
         assertEquals(oct1 - 2 * hour, october.from)
         assertEquals(nov1 - hour, october.to)
+    }
+
+    private fun parse(q: String, language: Language) = QueryParser.parse(q, now, language)
+
+    private val lastWeek = oct17 - 12 * day
+
+    @Test fun spanish() {
+        val es = Language.ES
+        parse("capturas de pantalla de la semana pasada", es).let {
+            assertEquals(setOf(Kind.SCREENSHOT), it.kinds)
+            assertEquals(lastWeek, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals(oct17 - day, parse("fotos de ayer", es).from)
+        assertEquals(1710460800000L, parse("factura 15 de marzo de 2024", es).from)
+        assertEquals("factura", parse("factura 15 de marzo de 2024", es).text)
+        assertEquals(parse("last month").from, parse("ultimo mes", es).from)
+        assertEquals(oct17 - 5 * day, parse("el lunes pasado", es).from)
+        assertEquals(oct17 - 3 * day, parse("hace 3 días", es).from)
+        assertEquals("mañana", parse("mañana", es).text)
+        assertNull(parse("ayer", Language.EN).from, "Spanish words only with Spanish")
+    }
+
+    @Test fun portuguese() {
+        val pt = Language.PT_BR
+        assertEquals(lastWeek, parse("fotos da semana passada", pt).from)
+        parse("capturas de tela de ontem", pt).let {
+            assertEquals(setOf(Kind.SCREENSHOT), it.kinds)
+            assertEquals(oct17 - day, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals(oct17 - 3 * day, parse("ha 3 dias", pt).from)
+        assertEquals(parse("last month").from, parse("mes passado", pt).from)
+        assertEquals(1772323200000L, parse("imagens de março", pt).from)
+    }
+
+    @Test fun german() {
+        val de = Language.DE
+        parse("Bilder von letzter Woche", de).let {
+            assertEquals(setOf(Kind.PHOTO), it.kinds)
+            assertEquals(lastWeek, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals(setOf(Kind.DOC, Kind.PDF), parse("Dokumente aus dem März", de).kinds)
+        assertEquals(1772323200000L, parse("Dokumente aus dem März", de).from)
+        assertEquals(oct17 - 3 * day, parse("vor 3 Tagen", de).from)
+        assertEquals(1710460800000L, parse("15. März 2024", de).from)
+        assertEquals("hier", parse("hier", de).text, "German hier is here, not yesterday")
+    }
+
+    @Test fun french() {
+        val fr = Language.FR
+        for (q in listOf("l'année dernière", "l’année dernière")) assertEquals(parse("last year").from, parse(q, fr).from, q)
+        for (q in listOf("aujourd'hui", "aujourd’hui")) assertEquals(oct17, parse(q, fr).from, q)
+        parse("captures d'écran d'hier", fr).let {
+            assertEquals(setOf(Kind.SCREENSHOT), it.kinds)
+            assertEquals(oct17 - day, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals(1772323200000L, parse("photos de mars", fr).from)
+        assertEquals(oct17 - 3 * day, parse("il y a 3 jours", fr).from)
+        assertEquals(parse("last month").from, parse("le mois dernier", fr).from)
+    }
+
+    @Test fun hindiKindsAndDates() {
+        parse("पिछले हफ़्ते की फ़ोटो").let {
+            assertEquals(setOf(Kind.PHOTO), it.kinds)
+            assertEquals(lastWeek, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals("शादी", parse("शादी की तस्वीरें").text)
+        assertEquals(oct17 - 3 * day, parse("3 दिन पहले").from)
+        assertEquals(1772323200000L, parse("मार्च में").from)
+    }
+
+    @Test fun japaneseIsSplitWithoutRewriting() {
+        parse("先週の写真").let {
+            assertEquals(setOf(Kind.PHOTO), it.kinds)
+            assertEquals(lastWeek, it.from)
+            assertEquals("", it.text)
+        }
+        assertEquals("犬", parse("犬の写真").text)
+        parse("写真集").let {
+            assertEquals("写真集", it.text, "a photo book is not a photo filter")
+            assertEquals(emptySet(), it.kinds)
+        }
+        assertEquals("先週末", parse("先週末").text)
+        assertEquals(oct17 - day, parse("昨日のスクショ").from)
+        assertEquals(oct17 - 3 * day, parse("3日前").from)
+        assertEquals(1710460800000L, parse("2024年3月15日の書類").from)
+        assertEquals(setOf(Kind.DOC, Kind.PDF), parse("2024年3月15日の書類").kinds)
+    }
+
+    /** Every language's no-match hint suggests a time to add: what it suggests must work. */
+    @Test fun eachHintsExampleIsUnderstood() {
+        for (language in Language.entries) {
+            val hint = language.strings.noMatchesDetail(false)
+            val example = Regex("[“„«「]\\u00A0?([^”“»」]+?)\\u00A0?[”“»」]").findAll(hint).last().groupValues[1]
+            assertEquals(true, parse(example, language).date != null, "$language: \"$example\" from \"$hint\"")
+        }
+    }
+
+    @Test fun eachLanguageSaysWhatWasNotFound() {
+        val week = DateFilter.Period(PeriodUnit.WEEK, last = true)
+        assertEquals("No photos from last week", Language.EN.strings.noneFound(listOf(Kind.PHOTO), emptyList(), week))
+        assertEquals("Keine Fotos von letzter Woche", Language.DE.strings.noneFound(listOf(Kind.PHOTO), emptyList(), week))
+        assertEquals("No hay nada del mes pasado", Language.ES.strings.noneFound(emptyList(), emptyList(), DateFilter.Period(PeriodUnit.MONTH, last = true)))
+        assertEquals("Pas de photos avec Asha", Language.FR.strings.noneFound(listOf(Kind.PHOTO), listOf("Asha"), null))
+    }
+
+    @Test fun localizedVariantsKeepTheirSearchContent() {
+        assertEquals("शादी", parse("तस्वीरें शादी", Language.HI).text)
+        assertEquals(listOf(Kind.PHOTO), parse("तस्वीरें शादी", Language.HI).kindFilters)
+        assertEquals(parse("this month").date, parse("Fotos aus diesem Monat", Language.DE).date)
+        assertEquals("", parse("PDFs des letzten Jahres", Language.DE).text)
+        assertEquals(parse("last year").date, parse("PDFs des letzten Jahres", Language.DE).date)
+        assertEquals(parse("pdf march").date, parse("Dokumente aus dem Maerz", Language.DE).date)
+        assertEquals(DateFilter.DaysAgo(3), parse("3 dias atras", Language.PT_BR).date)
+        assertEquals(DateFilter.DaysAgo(3), parse("3 dias atras", Language.ES).date)
+        assertEquals(parse("this week").date, parse("nessa semana", Language.PT_BR).date)
+        assertEquals(DateFilter.Today, parse("aujourdhui", Language.FR).date)
+        assertEquals("", parse("きのうのスクショ", Language.JA).text)
+        assertEquals(DateFilter.Yesterday, parse("きのうのスクショ", Language.JA).date)
+        assertEquals("日曜大工", parse("日曜大工", Language.JA).text)
+        assertEquals("print receipt", parse("print receipt", Language.PT_BR).text)
+    }
+
+    @Test fun localizedNoResultsCopyAgreesWithKindsAndScopes() {
+        val hi = Language.HI.strings
+        assertEquals("शुक्रवार को आशा की कोई फ़ोटो नहीं मिली", hi.noneFound(listOf(Kind.PHOTO), listOf("आशा"), DateFilter.Weekday(4, Which.BARE)))
+        assertEquals("आशा का कोई दस्तावेज़ नहीं मिला", hi.noneFound(listOf(Kind.DOC), listOf("आशा"), null))
+        assertEquals("आशा की कोई फ़ोटो नहीं मिली और आशा का कोई स्क्रीनशॉट नहीं मिला", hi.noneFound(listOf(Kind.PHOTO, Kind.SCREENSHOT), listOf("आशा"), null))
+        assertEquals("आशा से जुड़ी कोई फ़ाइल नहीं मिली", hi.noneFound(emptyList(), listOf("आशा"), null))
+        assertEquals("कुछ नहीं मिला", hi.noneFound(emptyList(), emptyList(), null))
+        assertEquals("कुछ नहीं मिला, इसलिए यहाँ स्टार वाली फ़ाइलों में मौजूद सब कुछ दिखाया जा रहा है.", hi.relaxedNote("कुछ नहीं मिला", hi.starredScope(null)))
+        val pt = Language.PT_BR.strings
+        assertEquals("Sem fotos, então aqui estão todas as suas fotos com estrela.", pt.relaxedNote("Sem fotos", pt.starredScope("fotos")))
+        assertEquals("Sem fotos, então aqui estão todos os seus PDFs.", pt.relaxedNote("Sem fotos", "PDFs"))
+        val de = Language.DE.strings
+        assertEquals("Keine Fotos, deshalb siehst du hier alle markierten Fotos.", de.relaxedNote("Keine Fotos", de.starredScope("Fotos")))
+        assertEquals("Keine Fotos, deshalb siehst du hier alle anderen Dateien.", de.relaxedNote("Keine Fotos", de.kindsInSentence(Kind.OTHER)))
+        assertEquals("Pas d’autres fichiers avec Hugo d’hier", Language.FR.strings.noneFound(listOf(Kind.OTHER), listOf("Hugo"), DateFilter.Yesterday))
+        assertEquals("直近の土曜日", Language.JA.strings.dateLabel(DateFilter.Weekday(5, Which.THIS)))
+    }
+
+    /** Home's suggested search is worded per language and must filter as it says. */
+    @Test fun eachLanguagesSuggestedSearchFiltersAsItSays() {
+        val dates = listOf(DateFilter.Period(PeriodUnit.WEEK, last = true), DateFilter.Period(PeriodUnit.MONTH, last = true))
+        for (language in Language.entries) {
+            for (date in dates) {
+                for (kind in listOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.PDF, Kind.VIDEO)) {
+                    val q = language.strings.filterQuery(kind, date)
+                    val p = parse(q, language)
+                    assertEquals(Triple(listOf(kind), date, ""), Triple(p.kindFilters, p.date, p.text), "$language: $q")
+                }
+            }
+        }
+        assertEquals("pdfs from last week", Language.EN.strings.filterQuery(Kind.PDF, dates[0]))
     }
 }

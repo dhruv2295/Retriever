@@ -206,6 +206,18 @@ interface Strings {
     val searchingWithoutModel: String
 
     fun matches(labels: List<String>): String
+
+    /** Both apps: a date the search words asked for, as its filter chip says it ("last week", "15 Mar 2024"). */
+    fun dateLabel(date: DateFilter): String
+
+    /** Both apps: the filters found nothing: "No PDFs and photos of Asha from last week", "Nothing from yesterday". */
+    fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String
+
+    /** Both apps: [noneFound] with what is shown instead; [scope] is what the search kept ("starred files"), null for everything. */
+    fun relaxedNote(missing: String, scope: String?): String
+
+    /** Both apps: a search Home offers to tap, worded so [QueryParser] reads it back as [kind] and [date] ("photos from last week"). */
+    fun filterQuery(kind: Kind, date: DateFilter): String
     val downloadForDescription: String
 
     val readingStatus: String

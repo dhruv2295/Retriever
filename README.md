@@ -51,7 +51,11 @@ unless meant to, and the other sheets are what a native speaker reviews. Regener
 `./gradlew :core:testAndroidHostTest --tests '*CopySnapshotTest' -Dcopy.write=fixtures`. `HardCodedCopyTest` fails on
 a new sentence written into either app's source; `core/fixtures/copy-allowlist.txt` lists the ones no person sees.
 
-To add a language: copy `English.kt` to a new object, add it to `Language`, add `values-xx/strings.xml` (Android
+Search filters ("photos from last week") read every language's words from `QueryWords.kt`: English, Hindi and
+Japanese always, the Latin-script others only as the app's language, since their words collide. Filters are kept as
+what they mean (`DateFilter`) and said in the current language. `core/fixtures/query-en.txt` pins English parsing.
+
+To add a language: copy `English.kt` to a new object, add its search words to `QueryWords`, add it to `Language`, add `values-xx/strings.xml` (Android
 `generateLocaleConfig` picks it up), the iOS catalogs' entries and the Xcode project's `knownRegions`, then write
 its sheet. The current translations are machine translations awaiting native review.
 

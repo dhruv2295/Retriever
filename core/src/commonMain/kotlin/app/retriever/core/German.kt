@@ -353,8 +353,9 @@ internal object German : Strings {
 
     override val noMatches = "Nichts gefunden"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
-        (if (byMeaning) "Beschreibe den Inhalt oder frag, was darin steht." else "Probier ein Wort aus dem Inhalt oder dem Namen.")
+    override fun noMatchesDetail(byMeaning: Boolean) =
+        (if (byMeaning) "Beschreibe den Inhalt oder frag, was darin steht." else "Probier ein Wort aus dem Inhalt oder dem Namen.") +
+            " Ergänze eine Zeitangabe, etwa „letzte Woche“."
 
     override val moreWaiting = "Retriever verarbeitet deine Dateien noch, also such später noch einmal."
     override val searchFailed = "Die Suche konnte nicht abgeschlossen werden"
@@ -362,6 +363,72 @@ internal object German : Strings {
     override val searchingWithoutModel = "Retriever sucht in Dateinamen und bereits verarbeitetem Text."
 
     override fun matches(labels: List<String>) = "Treffer: " + labels.joinToString(", ")
+
+    private val monthNames = listOf(
+        "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember",
+    )
+    private val weekdayNames = listOf("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "heute"
+
+        DateFilter.Yesterday -> "gestern"
+
+        is DateFilter.DaysAgo -> if (date.days == 1) "vor 1 Tag" else "vor ${formatCount(date.days.toLong())} Tagen"
+
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "letzte Woche" else "diese Woche"
+            PeriodUnit.MONTH -> if (date.last) "letzten Monat" else "diesen Monat"
+            PeriodUnit.YEAR -> if (date.last) "letztes Jahr" else "dieses Jahr"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "letzten ${weekdayNames[date.day]}"
+            Which.THIS -> "diesen ${weekdayNames[date.day]}"
+            Which.BARE -> weekdayNames[date.day]
+        }
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Day -> "${date.day}. ${monthNames[date.month - 1]}" + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    /** "von" with the date in the dative: "von letzter Woche", "vom letzten Monat", "aus 2024". */
+    private fun fromDate(date: DateFilter): String = when (date) {
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "von letzter Woche" else "von dieser Woche"
+            PeriodUnit.MONTH -> if (date.last) "vom letzten Monat" else "von diesem Monat"
+            PeriodUnit.YEAR -> if (date.last) "vom letzten Jahr" else "von diesem Jahr"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "vom letzten ${weekdayNames[date.day]}"
+            Which.THIS -> "von diesem ${weekdayNames[date.day]}"
+            Which.BARE -> "vom ${weekdayNames[date.day]}"
+        }
+
+        is DateFilter.Month, is DateFilter.Day -> "vom ${dateLabel(date)}"
+
+        is DateFilter.Year -> "aus ${date.year}"
+
+        else -> "von ${dateLabel(date)}"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString(" und ", transform = ::kindsInSentence)
+        val of = if (people.isEmpty()) "" else " von " + people.joinToString(" und ")
+        val from = date?.let { " ${fromDate(it)}" }.orEmpty()
+        return if (what.isEmpty()) "Nichts$of$from" else "Keine $what$of$from"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?): String {
+        val inflected = scope?.replaceFirst("markierte ", "markierten ")?.replaceFirst("andere Dateien", "anderen Dateien")
+        return "$missing, deshalb siehst du hier " + if (scope == null) "alles." else "alle $inflected."
+    }
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${kindsInSentence(kind)} ${fromDate(date)}"
 
     override val downloadForDescription = "Suche per Beschreibung laden"
 

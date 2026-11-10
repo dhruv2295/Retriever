@@ -360,8 +360,9 @@ internal object French : Strings {
 
     override val noMatches = "Aucun résultat"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
-        (if (byMeaning) "Décrivez ce qu’il contient, ou demandez ce qu’il dit." else "Essayez un mot qu’il contient ou tiré de son nom.")
+    override fun noMatchesDetail(byMeaning: Boolean) =
+        (if (byMeaning) "Décrivez ce qu’il contient, ou demandez ce qu’il dit." else "Essayez un mot qu’il contient ou tiré de son nom.") +
+            " Précisez une date ou une période, par exemple «${NBSP}la semaine dernière$NBSP»."
 
     override val moreWaiting = "Retriever traite encore vos fichiers$NBSP: refaites la recherche plus tard."
     override val searchFailed = "La recherche n’a pas pu aboutir"
@@ -369,6 +370,59 @@ internal object French : Strings {
     override val searchingWithoutModel = "Recherche par nom et dans le texte déjà traité"
 
     override fun matches(labels: List<String>) = "Correspondances$NBSP: " + labels.joinToString(", ")
+
+    private val monthNames = listOf(
+        "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+    )
+    private val weekdayNames = listOf("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+    /** "de" before a kind or date, elided before a vowel: "d’avril", "d’autres fichiers", "de mars". */
+    private fun de(word: String) = if (foldLatin(word).firstOrNull() in setOf('a', 'e', 'i', 'o', 'u', 'œ', 'æ')) "d’$word" else "de $word"
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "aujourd’hui"
+
+        DateFilter.Yesterday -> "hier"
+
+        is DateFilter.DaysAgo -> if (date.days == 1) "il y a 1${NBSP}jour" else "il y a ${formatCount(date.days.toLong())}${NBSP}jours"
+
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "la semaine dernière" else "cette semaine"
+            PeriodUnit.MONTH -> if (date.last) "le mois dernier" else "ce mois-ci"
+            PeriodUnit.YEAR -> if (date.last) "l’année dernière" else "cette année"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "${weekdayNames[date.day]} dernier"
+            Which.THIS -> "ce ${weekdayNames[date.day]}"
+            Which.BARE -> weekdayNames[date.day]
+        }
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Day -> (if (date.day == 1) "1er" else "${date.day}") + " ${monthNames[date.month - 1]}" + (date.year?.let { " $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    /** "de" with the date: "de la semaine dernière", "du mois dernier", "d’hier", "du 15 mars". */
+    private fun fromDate(date: DateFilter): String = when (date) {
+        DateFilter.Yesterday -> "d’hier"
+        is DateFilter.Period -> if (date.last && date.unit == PeriodUnit.MONTH) "du mois dernier" else de(dateLabel(date))
+        is DateFilter.Day -> "du ${dateLabel(date)}"
+        else -> de(dateLabel(date))
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString(" ni ") { de(kindsInSentence(it)) }
+        val of = if (people.isEmpty()) "" else " avec " + people.joinToString(" et ")
+        val from = date?.let { " ${fromDate(it)}" }.orEmpty()
+        return if (what.isEmpty()) "Rien$of$from" else "Pas $what$of$from"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?) = "$missing, alors voici " + if (scope == null) "tout." else "vos $scope."
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${kindsInSentence(kind)} ${fromDate(date)}"
 
     override val downloadForDescription = "Télécharger la recherche par description"
 

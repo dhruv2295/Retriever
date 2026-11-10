@@ -321,8 +321,8 @@ internal object Japanese : Strings {
 
     override val noMatches = "見つかりませんでした"
 
-    // No "add when, like last week": QueryParser reads only English time words.
-    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "中身を説明するか、書かれている内容について尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。")
+    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "中身を説明するか、書かれている内容について尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。") +
+        "「先週」のように時期を加えることもできます。"
 
     override val moreWaiting = "Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
     override val searchFailed = "検索を完了できませんでした"
@@ -330,6 +330,44 @@ internal object Japanese : Strings {
     override val searchingWithoutModel = "名前と処理済みのテキストを検索しています"
 
     override fun matches(labels: List<String>) = "一致：" + labels.joinToString("、")
+
+    private val weekdayNames = listOf("月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日")
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "今日"
+
+        DateFilter.Yesterday -> "昨日"
+
+        is DateFilter.DaysAgo -> "${formatCount(date.days.toLong())}日前"
+
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "先週" else "今週"
+            PeriodUnit.MONTH -> if (date.last) "先月" else "今月"
+            PeriodUnit.YEAR -> if (date.last) "去年" else "今年"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.LAST -> "この前の"
+            Which.THIS -> "直近の"
+            Which.BARE -> ""
+        } + weekdayNames[date.day]
+
+        is DateFilter.Month -> (date.year?.let { "${it}年" } ?: "") + "${date.month}月"
+
+        is DateFilter.Day -> (date.year?.let { "${it}年" } ?: "") + "${date.month}月${date.day}日"
+
+        is DateFilter.Year -> "${date.year}年"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString("や", transform = ::kindLabelPlural).ifEmpty { "ファイル" }
+        val lead = listOfNotNull(date?.let { dateLabel(it) + "の" }, people.takeIf { it.isNotEmpty() }?.joinToString("と")?.let { "${it}の" }).joinToString("")
+        return "$lead${what}は見つかりませんでした"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?) = "$missing。代わりに" + if (scope == null) "すべてを表示しています。" else "${scope}をすべて表示しています。"
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${dateLabel(date)}の${kindLabelPlural(kind)}"
 
     override val downloadForDescription = "「説明で検索」をダウンロード"
 

@@ -4,6 +4,8 @@ import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.lang.reflect.ParameterizedType
+import java.lang.reflect.WildcardType
 import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,7 +64,8 @@ class CopySnapshotTest {
         .flatMap { m ->
             val getter = m.parameterCount == 0 && m.name.startsWith("get")
             val name = if (getter) m.name.removePrefix("get") else m.name
-            inputs(m.parameterTypes.map { samples(it, m) }).mapNotNull { args ->
+            val types = m.genericParameterTypes
+            inputs(m.parameterTypes.mapIndexed { i, t -> if (isKindList(types[i])) KIND_LISTS else samples(t, m) }).mapNotNull { args ->
                 val out = try {
                     show(m.invoke(target, *args.toTypedArray()))
                 } catch (e: InvocationTargetException) {
@@ -73,8 +76,34 @@ class CopySnapshotTest {
             }
         }
 
+    /** Kotlin's List<Kind> reaches Java as List<? extends Kind>. */
+    private fun isKindList(t: java.lang.reflect.Type) = t is ParameterizedType && t.rawType == List::class.java &&
+        t.actualTypeArguments.firstOrNull().let { (it as? WildcardType)?.upperBounds?.firstOrNull() ?: it } == Kind::class.java
+
     private companion object {
         val NOT_COPY = setOf("equals", "hashCode", "toString", "getStrings", "getLanguage")
+        val KIND_LISTS = listOf(listOf(Kind.PDF), emptyList(), listOf(Kind.PHOTO, Kind.SCREENSHOT), listOf(Kind.DOC))
+        val DATES = listOf(
+            null,
+            DateFilter.Today,
+            DateFilter.Yesterday,
+            DateFilter.DaysAgo(1),
+            DateFilter.DaysAgo(3),
+            DateFilter.Period(PeriodUnit.WEEK, last = true),
+            DateFilter.Period(PeriodUnit.WEEK, last = false),
+            DateFilter.Period(PeriodUnit.MONTH, last = true),
+            DateFilter.Period(PeriodUnit.MONTH, last = false),
+            DateFilter.Period(PeriodUnit.YEAR, last = true),
+            DateFilter.Period(PeriodUnit.YEAR, last = false),
+            DateFilter.Weekday(0, Which.LAST),
+            DateFilter.Weekday(5, Which.THIS),
+            DateFilter.Weekday(4, Which.BARE),
+            DateFilter.Month(4, null),
+            DateFilter.Month(3, 2024),
+            DateFilter.Day(1, 8, null),
+            DateFilter.Day(15, 3, 2024),
+            DateFilter.Year(2024),
+        )
     }
 
     /** Every combination of the leading parameters while that stays small, then each later one varied alone. */
@@ -93,6 +122,8 @@ class CopySnapshotTest {
         Long::class.javaPrimitiveType -> listOf(0L, 1L, 2L, 1234L)
 
         Int::class.javaPrimitiveType -> listOf(0, 1, 2, 57)
+
+        DateFilter::class.java -> DATES
 
         Int::class.javaObjectType -> listOf(null, 0, 57)
 

@@ -1325,11 +1325,11 @@ class Retriever(
         scope: List<Long>?,
         run: suspend (SearchRequest) -> SearchEngine.SearchResult,
     ): SearchEngine.SearchResult {
-        val parsed = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs)
+        val parsed = if (literal) ParsedQuery(q.trim()) else QueryParser.parse(q, now(), zoneOffsetMs = zoneOffsetMs)
         // A named person's name keeps the photos they are in, as a kind word keeps its kind.
         val (rest, named) = if (literal || !prefs.value.recognizePeople) parsed.text to emptyList() else namedIn(parsed.text, store.namedPersons())
         val names = named.map { it.second }
-        val p = if (named.isEmpty()) parsed else parsed.copy(text = rest, understood = parsed.understood + names, people = names)
+        val p = if (named.isEmpty()) parsed else parsed.copy(text = rest, people = names)
         val starred = starredIds(onlyStarred)
         val ids = named.fold(starred) { kept, (person, _) -> store.personFileIds(person).filterTo(HashSet()) { kept == null || it in kept } }
         // Nothing to search, so nothing by meaning is missing.
@@ -1668,10 +1668,10 @@ class Retriever(
      * as the parser reads it. Text chips are only words, and a photo has none; this one shows dates and kinds work.
      */
     private fun recentChip(): String? {
-        for (date in listOf("last week", "last month")) {
-            for (kind in listOf("photos", "screenshots", "pdfs", "videos")) {
-                val chip = "$kind from $date"
-                val p = QueryParser.parse(chip, now(), zoneOffsetMs)
+        for (date in listOf(DateFilter.Period(PeriodUnit.WEEK, last = true), DateFilter.Period(PeriodUnit.MONTH, last = true))) {
+            for (kind in listOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.PDF, Kind.VIDEO)) {
+                val chip = Words.strings.filterQuery(kind, date)
+                val p = QueryParser.parse(chip, now(), zoneOffsetMs = zoneOffsetMs)
                 if (store.captured(p.kinds, p.from ?: continue, p.to ?: continue, false, 3).size == 3) return chip
             }
         }

@@ -72,7 +72,7 @@ my documents | my | [PDF, DOC] | null | null | [Documents] | No documents | No d
 audio recording from today | audio recording | [] | 1792195200000 | 1792281600000 | [today] | Nothing from today | Nothing from today, so here is everything. | Nothing from today, so here are all your PDFs.
 photos of asha | of asha | [PHOTO] | null | null | [Photos] | No photos | No photos, so here is everything. | No photos, so here are all your PDFs.
 कल |  | [] | 1792108800000 | 1792195200000 | [yesterday] | Nothing from yesterday | Nothing from yesterday, so here is everything. | Nothing from yesterday, so here are all your PDFs.
-परसों की फोटो | की फोटो | [] | 1792022400000 | 1792108800000 | [2 days ago] | Nothing from 2 days ago | Nothing from 2 days ago, so here is everything. | Nothing from 2 days ago, so here are all your PDFs.
+परसों की फोटो |  | [PHOTO] | 1792022400000 | 1792108800000 | [Photos, 2 days ago] | No photos from 2 days ago | No photos from 2 days ago, so here is everything. | No photos from 2 days ago, so here are all your PDFs.
 बिजली बिल पिछले हफ्ते | बिजली बिल | [] | 1791158400000 | 1791763200000 | [last week] | Nothing from last week | Nothing from last week, so here is everything. | Nothing from last week, so here are all your PDFs.
 पिछले महीने |  | [] | 1788220800000 | 1790812800000 | [last month] | Nothing from last month | Nothing from last month, so here is everything. | Nothing from last month, so here are all your PDFs.
 पिछले मंगलवार |  | [] | 1791849600000 | 1791936000000 | [last Tuesday] | Nothing from last Tuesday | Nothing from last Tuesday, so here is everything. | Nothing from last Tuesday, so here are all your PDFs.

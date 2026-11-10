@@ -350,8 +350,9 @@ internal object PortugueseBrazil : Strings {
 
     override val noMatches = "Nada encontrado"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
-        (if (byMeaning) "Descreva o que há no arquivo ou pergunte o que ele diz." else "Tente uma palavra do conteúdo ou do nome.")
+    override fun noMatchesDetail(byMeaning: Boolean) =
+        (if (byMeaning) "Descreva o que há no arquivo ou pergunte o que ele diz." else "Tente uma palavra do conteúdo ou do nome.") +
+            " Diga também quando, como “semana passada”."
 
     override val moreWaiting = "O Retriever ainda está processando seus arquivos, então busque de novo mais tarde."
     override val searchFailed = "Não foi possível concluir a busca"
@@ -359,6 +360,79 @@ internal object PortugueseBrazil : Strings {
     override val searchingWithoutModel = "Buscando nos nomes e no texto já processado"
 
     override fun matches(labels: List<String>) = "Corresponde a: " + labels.joinToString(", ")
+
+    private val monthNames = listOf(
+        "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+    )
+    private val weekdayNames = listOf("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo")
+
+    /** Monday to Friday are feminine (a segunda-feira), Saturday and Sunday masculine. */
+    private fun feminineDay(day: Int) = day < 5
+
+    override fun dateLabel(date: DateFilter) = when (date) {
+        DateFilter.Today -> "hoje"
+
+        DateFilter.Yesterday -> "ontem"
+
+        is DateFilter.DaysAgo -> if (date.days == 1) "há 1 dia" else "há ${formatCount(date.days.toLong())} dias"
+
+        is DateFilter.Period -> when (date.unit) {
+            PeriodUnit.WEEK -> if (date.last) "semana passada" else "esta semana"
+            PeriodUnit.MONTH -> if (date.last) "mês passado" else "este mês"
+            PeriodUnit.YEAR -> if (date.last) "ano passado" else "este ano"
+        }
+
+        is DateFilter.Weekday -> {
+            val name = weekdayNames[date.day]
+            val f = feminineDay(date.day)
+            when (date.which) {
+                Which.LAST -> "$name " + if (f) "passada" else "passado"
+                Which.THIS -> (if (f) "esta " else "este ") + name
+                Which.BARE -> name
+            }
+        }
+
+        is DateFilter.Month -> monthNames[date.month - 1] + (date.year?.let { " de $it" } ?: "")
+
+        is DateFilter.Day -> "${date.day} de ${monthNames[date.month - 1]}" + (date.year?.let { " de $it" } ?: "")
+
+        is DateFilter.Year -> "${date.year}"
+    }
+
+    /** "de" with the date, contracted as Portuguese does: "da semana passada", "do mês passado", "deste ano". */
+    private fun fromDate(date: DateFilter): String = when (date) {
+        is DateFilter.Period -> when {
+            !date.last -> "d" + dateLabel(date)
+            date.unit == PeriodUnit.WEEK -> "da ${dateLabel(date)}"
+            else -> "do ${dateLabel(date)}"
+        }
+
+        is DateFilter.Weekday -> when (date.which) {
+            Which.THIS -> "d" + dateLabel(date)
+            else -> (if (feminineDay(date.day)) "da " else "do ") + dateLabel(date)
+        }
+
+        is DateFilter.DaysAgo -> "de ${date.days} " + (if (date.days == 1) "dia" else "dias") + " atrás"
+
+        is DateFilter.Day -> "de ${dateLabel(date)}"
+
+        else -> "de ${dateLabel(date)}"
+    }
+
+    override fun noneFound(kinds: List<Kind>, people: List<String>, date: DateFilter?): String {
+        val what = kinds.joinToString(" nem ", transform = ::kindsInSentence)
+        val of = if (people.isEmpty()) "" else " de " + people.joinToString(" e ")
+        val from = date?.let { " ${fromDate(it)}" }.orEmpty()
+        return if (what.isEmpty()) "Nada$of$from" else "Sem $what$of$from"
+    }
+
+    override fun relaxedNote(missing: String, scope: String?): String {
+        val feminine = scope?.startsWith("foto", ignoreCase = true) == true || scope?.startsWith("captura", ignoreCase = true) == true
+        val all = if (feminine) "todas as suas" else "todos os seus"
+        return "$missing, então aqui " + if (scope == null) "está tudo." else "estão $all $scope."
+    }
+
+    override fun filterQuery(kind: Kind, date: DateFilter) = "${kindsInSentence(kind)} ${fromDate(date)}"
 
     override val downloadForDescription = "Baixar a busca por descrição"
 

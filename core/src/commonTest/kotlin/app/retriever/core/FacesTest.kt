@@ -126,8 +126,8 @@ class FacesTest {
 
     @Test
     fun missingNamesThePeople() {
-        assertEquals("No photos of Asha", ParsedQuery("", setOf(Kind.PHOTO), understood = listOf("Photos", "Asha"), people = listOf("Asha")).missing())
-        val today = ParsedQuery("", understood = listOf("today", "Asha"), dateLabel = "today", people = listOf("Asha"))
+        assertEquals("No photos of Asha", ParsedQuery("", setOf(Kind.PHOTO), kindFilters = listOf(Kind.PHOTO), people = listOf("Asha")).missing())
+        val today = ParsedQuery("", date = DateFilter.Today, people = listOf("Asha"))
         assertEquals("Nothing of Asha from today", today.missing())
     }
 
