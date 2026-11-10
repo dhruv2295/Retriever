@@ -224,7 +224,9 @@ val appModule = module {
             dispatchers = CoreDispatchers(indexing = indexingDispatcher, readAhead = readAheadDispatcher),
             frames = AndroidFrameSource(androidContext()),
             lastExitCrashed = androidContext().let { app -> { ExitReasons.lastExitCrashed(app) } },
-            faceReader = AndroidFaceReader(androidContext()),
+            faceReader = androidContext().let { app ->
+                AndroidFaceReader(app) { app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered }
+            },
         )
     }
 

@@ -67,7 +67,10 @@ data class FaceBox(val left: Float, val top: Float, val right: Float, val bottom
 /** A face the platform found: where it is, and SFace's raw fingerprint (its length says how clear the face is; normalised here). */
 class FoundFace(val box: FaceBox, val vector: FloatArray)
 
-/** Whether what People reads faces with is on this device ([FaceReader.ready]). */
+/**
+ * Whether what People reads faces with is on this device ([FaceReader.ready]). Declared from most to least ready, so a
+ * reader that needs several parts reports the least ready of them (`maxOf`).
+ */
 enum class PeopleModel {
     READY,
 

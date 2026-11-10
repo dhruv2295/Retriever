@@ -17,6 +17,8 @@
         android:maxSdkVersion="32" />
     <!-- Model download, and indexing progress shown as a foreground notification. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Downloads wait for Wi-Fi unless mobile data is allowed: the model, and People's face model and detector. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
