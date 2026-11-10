@@ -135,19 +135,24 @@ struct AppStack<Root: View>: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            root.navigationDestination(for: Route.self) { route in
-                destination(route).navigationBarBackButtonHidden(sizeClass == .regular && route == sidebarPage)
+            pageEnvironment(root).navigationDestination(for: Route.self) { route in
+                pageEnvironment(destination(route)).navigationBarBackButtonHidden(sizeClass == .regular && route == sidebarPage)
             }
         }
-        .environment(model)
-        .environment(\.services, model.services)
-        .environment(
-            \.openFile,
-            OpenFile { file, locator, words, among in
-                path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
-            }
-        )
+    }
 
+    /// Set on each page, not on the stack: in a split view's detail column a pushed page doesn't inherit what is set
+    /// around the stack, so a list pushed from the sidebar on iPad had the default, do-nothing openFile.
+    private func pageEnvironment(_ page: some View) -> some View {
+        page
+            .environment(model)
+            .environment(\.services, model.services)
+            .environment(
+                \.openFile,
+                OpenFile { file, locator, words, among in
+                    path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
+                }
+            )
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {
