@@ -2,6 +2,7 @@ package app.retriever.viewer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,7 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
+import app.retriever.ui.components.gutter
 import app.retriever.ui.components.nameHighlighted
 import app.retriever.ui.tabular
 import kotlinx.coroutines.launch
@@ -112,11 +114,12 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
             val mark = MaterialTheme.colorScheme.primaryContainer
             val style = remember(mark) { SpanStyle(background = mark, fontWeight = FontWeight.Bold) }
             val bar = ui.matches.isNotEmpty()
-            Box(Modifier.fillMaxSize()) {
+            // Lines kept to a readable measure on a tablet or a wide pane; the gutters still scroll the text.
+            BoxWithConstraints(Modifier.fillMaxSize()) {
                 SelectionContainer {
                     LazyColumn(
                         state = list,
-                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp, side = 16.dp),
+                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp, side = 16.dp + gutter(max = 680.dp)),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(ui.paragraphs) { text ->

@@ -73,6 +73,7 @@ import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbnailImage
 import app.retriever.ui.components.kindIcon
+import app.retriever.ui.components.onRightClick
 import app.retriever.ui.tabular
 import app.retriever.viewer.Opener
 import java.time.LocalDate
@@ -356,6 +357,7 @@ internal fun OnThisDaySection(day: LocalDate, memories: List<YearMemory>, go: (R
                         .size(tile)
                         .clip(shape)
                         .semantics(mergeDescendants = true) { contentDescription = "${m.year}, $count from $monthDay" }
+                        .onRightClick(onHide)
                         .combinedClickable(
                             onClickLabel = "Show them",
                             onLongClickLabel = "Hide On this day",

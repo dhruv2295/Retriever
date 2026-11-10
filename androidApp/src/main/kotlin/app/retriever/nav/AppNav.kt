@@ -16,9 +16,18 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.VerticalDragHandle
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,11 +41,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.runtime.serialization.NavBackStackSerializer
 import androidx.navigation3.scene.Scene
+import androidx.navigation3.scene.SceneStrategy
+import androidx.navigation3.scene.SceneStrategyScope
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
@@ -124,9 +136,16 @@ private class Moves(private val stack: NavBackStack<Route>, private val lifecycl
     val replace: (Route) -> Unit = { if (settled) stack[stack.lastIndex] = it }
 }
 
+private val Route.isViewer get() = this is PhotoRoute || this is PdfRoute || this is DocRoute || this is PlayerRoute
+
+/** A file opened while another is open takes its place: beside a list, the detail pane shows the new file. */
 private fun NavBackStack<Route>.goTo(route: Route) {
     val at = indexOf(route)
-    if (at < 0) add(route) else while (lastIndex > at) removeAt(lastIndex)
+    when {
+        at >= 0 -> while (lastIndex > at) removeAt(lastIndex)
+        route.isViewer && lastOrNull()?.isViewer == true -> set(lastIndex, route)
+        else -> add(route)
+    }
 }
 
 // Entry tags the transitions read, since a scene holds entries, not routes.
@@ -134,6 +153,23 @@ private const val TAG = "app.retriever.tag"
 private val pill = mapOf(TAG to "pill")
 private val search = mapOf(TAG to "search")
 private val photo = mapOf(TAG to "photo")
+
+// Search and Browse are lists; a file opened from one shows beside it when the window has room for two panes.
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+private val list = ListDetailSceneStrategy.listPane()
+private const val VIEWER = "app.retriever.viewer"
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+private val viewer = ListDetailSceneStrategy.detailPane() + (VIEWER to true)
+
+/**
+ * Two panes only once a file is open beside its list; until then the list has the whole window, not half of it beside
+ * an empty pane. On a window too narrow for two, [panes] gives no scene and the file opens full screen, as on a phone.
+ */
+private class OpenFileBesideList(private val panes: SceneStrategy<Route>) : SceneStrategy<Route> {
+    override fun SceneStrategyScope<Route>.calculateScene(entries: List<NavEntry<Route>>): Scene<Route>? =
+        if (entries.lastOrNull()?.metadata?.get(VIEWER) == true) with(panes) { calculateScene(entries) } else null
+}
 
 private fun Scene<Route>.tagged(tag: Map<String, String>) = entries.lastOrNull()?.metadata?.get(TAG) == tag[TAG]
 
@@ -162,7 +198,14 @@ private fun predictiveDirection(edge: Int): SlideDirection = when (edge) {
 // Ordinary pages slide and fade symmetrically. A photo grows from its tile over the list, which stays put under the
 // viewer's fading backdrop; Back, a predictive swipe too, shrinks it into its tile. Navigation 3 owns predictive back and
 // system motion scale.
-private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransform = if (targetState.tagged(photo)) {
+private val AnimatedContentTransitionScope<Scene<Route>>.panes get() = initialState.entries.size > 1 || targetState.entries.size > 1
+
+// Opening or closing a file beside its list, the list stays where it is and the panes move themselves.
+private fun panesSwap(): ContentTransform = fadeIn(tween(150)) togetherWith fadeOut(tween(150))
+
+private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransform = if (panes) {
+    panesSwap()
+} else if (targetState.tagged(photo)) {
     fadeIn(defaultEffects) togetherWith ExitTransition.KeepUntilTransitionsFinished
 } else {
     pageEnter(SlideDirection.Start) togetherWith pageExit(SlideDirection.Start)
@@ -170,15 +213,17 @@ private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransfor
 
 // A back swipe from a photo fades its backdrop as the photo follows the finger to its tile; a page's default would
 // shrink the whole viewer, an opaque black card until the swipe ends.
-private fun AnimatedContentTransitionScope<Scene<Route>>.pop(direction: SlideDirection): ContentTransform = if (initialState.tagged(photo)) {
+private fun AnimatedContentTransitionScope<Scene<Route>>.pop(direction: SlideDirection): ContentTransform = if (panes) {
+    panesSwap()
+} else if (initialState.tagged(photo)) {
     EnterTransition.None togetherWith fadeOut(defaultEffects)
 } else {
     pageEnter(direction) togetherWith pageExit(direction)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
-fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRequest: Pair<Int, String>? = null) {
+fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRequest: Pair<Int, String>? = null) {
     val koin = getKoin()
     val setUp by retriever.setUp.collectAsStateWithLifecycle()
     if (setUp == null) return
@@ -186,8 +231,26 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
     val stack = rememberSerializable(serializer = NavBackStackSerializer(Route.serializer())) {
         NavBackStack(if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute)
     }
+    // The panes split at a fold or a dual screen's seam rather than across it (HingePolicy.AvoidSeparating).
+    val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfoV2())
+    val twoPanes = directive.maxHorizontalPartitions > 1
+    val listDetail = rememberListDetailSceneStrategy<Route>(
+        directive = directive,
+        // Back closes the open file and gives the list the window again; the default pops on until the panes change,
+        // which a list alone (still two panes to the scaffold) never does, so it went past the list.
+        backNavigationBehavior = BackNavigationBehavior.PopLatest,
+        // From the Material 3 adaptive list-detail sample: the divider between the panes drags to resize them.
+        paneExpansionDragHandle = { state ->
+            val interactions = remember { MutableInteractionSource() }
+            VerticalDragHandle(
+                modifier = Modifier.paneExpansionDraggable(state, LocalMinimumInteractiveComponentSize.current, interactions),
+                interactionSource = interactions,
+            )
+        },
+    )
+    val beside = remember(listDetail) { OpenFileBesideList(listDetail) }
     LaunchedEffect(statusRequest) { if (statusRequest > 0) stack.goTo(StatusRoute) }
-    LaunchedEffect(searchRequest) { searchRequest?.let { stack.goTo(SearchRoute(it.second, run = true)) } }
+    LaunchedEffect(searchRequest) { searchRequest?.let { stack.goTo(if (it.second.isEmpty()) SearchRoute() else SearchRoute(it.second, run = true)) } }
     app.retriever.files.FileActionsHost(retriever) {
         SharedTransitionLayout {
             val searchBounds = @Composable { scope: AnimatedVisibilityScope, expanded: Boolean ->
@@ -216,14 +279,18 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
             }
             // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it).
             val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
+            // Beside a list a photo opens in its pane, not over the list: nothing to grow from.
+            val listMorph = @Composable { scope: AnimatedVisibilityScope -> if (twoPanes) null else morph(scope) }
             val moves = @Composable {
                 val lifecycle = LocalLifecycleOwner.current.lifecycle
                 remember(lifecycle) { Moves(stack, lifecycle) }
             }
             NavDisplay(
                 backStack = stack,
+                modifier = modifier,
                 onBack = { if (stack.size > 1) stack.removeAt(stack.lastIndex) },
                 entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+                sceneStrategies = listOf(beside),
                 sharedTransitionScope = this,
                 transitionSpec = { push() },
                 popTransitionSpec = { pop(SlideDirection.End) },
@@ -243,14 +310,14 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
                         val scope = LocalNavAnimatedContentScope.current
                         HomeHost(moves().go, pillModifier = searchBounds(scope, false), morph = morph(scope))
                     }
-                    entry<SearchRoute>(metadata = search) { route ->
+                    entry<SearchRoute>(metadata = search + list) { route ->
                         val scope = LocalNavAnimatedContentScope.current
                         val m = moves()
-                        SearchScreen(route, m.go, m.back, searchBounds(scope, true), morph(scope))
+                        SearchScreen(route, m.go, m.back, searchBounds(scope, true), listMorph(scope))
                     }
-                    entry<BrowseRoute> { route ->
+                    entry<BrowseRoute>(metadata = list) { route ->
                         val m = moves()
-                        BrowseScreen(route, m.go, m.back, morph = morph(LocalNavAnimatedContentScope.current))
+                        BrowseScreen(route, m.go, m.back, morph = listMorph(LocalNavAnimatedContentScope.current))
                     }
                     entry<SettingsRoute> {
                         val m = moves()
@@ -268,19 +335,22 @@ fun AppNav(retriever: Retriever = koinInject(), statusRequest: Int = 0, searchRe
                         val m = moves()
                         StatusScreen(m.back, onNavigate = m.go, onOpenSettings = { m.go(SettingsRoute) })
                     }
-                    entry<PlayerRoute> { route ->
+                    entry<PlayerRoute>(metadata = viewer) { route ->
                         val m = moves()
                         PlayerScreen(route, m.back, m.replace)
                     }
-                    entry<PdfRoute> { route ->
+                    entry<PdfRoute>(metadata = viewer) { route ->
                         val m = moves()
                         PdfPageScreen(route, m.back, m.replace)
                     }
                     // Only the backdrop and bar fade: the photo itself is the tile, growing.
-                    entry<PhotoRoute>(metadata = photo) { route ->
-                        PhotoScreen(route, moves().back, morph = morph(LocalNavAnimatedContentScope.current))
+                    entry<PhotoRoute>(metadata = photo + viewer) { route ->
+                        val scope = LocalNavAnimatedContentScope.current
+                        // Home's tiles open a photo full screen even on a wide window; a list's open it beside the list.
+                        val fromList = stack.getOrNull(stack.indexOf(route) - 1).let { it is SearchRoute || it is BrowseRoute }
+                        PhotoScreen(route, moves().back, morph = if (fromList) listMorph(scope) else morph(scope), fullWindow = !(fromList && twoPanes))
                     }
-                    entry<DocRoute> { route ->
+                    entry<DocRoute>(metadata = viewer) { route ->
                         val m = moves()
                         DocScreen(route, m.back, m.replace)
                     }

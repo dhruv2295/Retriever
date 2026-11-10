@@ -24,6 +24,9 @@
     <!-- From google-ai-edge/gallery Android/src/app/src/main/AndroidManifest.xml (Apache-2.0): the
          chip-specific model builds use the NPU where there is one; phones without it still install. -->
     <uses-feature android:name="android.hardware.npu" android:required="false" />
+    <!-- Play assumes a touchscreen unless told otherwise: Chromebooks and desktops without one get the app too, since
+         everything works with a mouse and keyboard (right click opens a file's menu, Ctrl+F searches, Esc goes back). -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <!-- Backups leave out the index (rebuilt from the files) and the model (downloaded again). -->
     <application

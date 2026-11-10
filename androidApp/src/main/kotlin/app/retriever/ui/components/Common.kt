@@ -49,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -96,7 +98,21 @@ fun ConfirmDialog(title: String, message: String, confirmLabel: String, onConfir
     )
 }
 
-/** [content] with a long-press menu that opens where the finger went down, not at the row's left edge. */
+/**
+ * A mouse's or touchpad's right click does what a long press does, as on ChromeOS and in desktop windows. Watched in the
+ * Initial pass and consumed, so the press under it doesn't also click.
+ */
+fun Modifier.onRightClick(action: () -> Unit): Modifier = pointerInput(action) {
+    awaitEachGesture {
+        val press = awaitPointerEvent(PointerEventPass.Initial)
+        if (press.type == PointerEventType.Press && press.buttons.isSecondaryPressed) {
+            press.changes.forEach { it.consume() }
+            action()
+        }
+    }
+}
+
+/** [content] with a long-press menu that opens where the finger went down (or the right click), not at the row's left edge. */
 @Composable
 internal fun PressMenu(
     content: @Composable (onLongClick: () -> Unit) -> Unit,
@@ -108,7 +124,13 @@ internal fun PressMenu(
     // The Initial pass only watches, so the row's own click and long press still get the touch.
     Box(
         modifier.pointerInput(Unit) {
-            awaitEachGesture { press = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).position.round() }
+            awaitEachGesture {
+                press = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).position.round()
+                if (currentEvent.buttons.isSecondaryPressed) {
+                    currentEvent.changes.forEach { it.consume() }
+                    open = true
+                }
+            }
         },
     ) {
         content { open = true }

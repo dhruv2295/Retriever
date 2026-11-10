@@ -43,6 +43,7 @@ import app.retriever.ui.components.ConfirmDialog
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
 import app.retriever.ui.components.gutter
+import app.retriever.ui.components.onRightClick
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -155,6 +156,7 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
         },
         modifier = Modifier
             .heightIn(min = 56.dp)
+            .onRightClick { showMenu = true }
             .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),
     )
 }

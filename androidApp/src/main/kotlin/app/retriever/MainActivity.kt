@@ -2,6 +2,10 @@ package app.retriever
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.KeyboardShortcutGroup
+import android.view.KeyboardShortcutInfo
+import android.view.Menu
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,7 +23,7 @@ class MainActivity : ComponentActivity() {
     internal var statusRequest by androidx.compose.runtime.mutableIntStateOf(0)
         private set
 
-    /** A search handed in from outside (a shortcut, `am start --es query`); the counter lets the same words run again. */
+    /** A search handed in from outside (a shortcut, `am start --es query`), or Ctrl+F's empty one; the counter lets the same words run again. */
     internal var searchRequest by androidx.compose.runtime.mutableStateOf<Pair<Int, String>?>(null)
         private set
     private val retriever: Retriever by inject()
@@ -59,6 +63,30 @@ class MainActivity : ComponentActivity() {
         if (intent.action == Notifications.OPEN_STATUS) statusRequest++
         Notifications.cancelSample(this)
         take(intent)
+    }
+
+    // Ctrl+F opens search from any screen, as on a desktop or with a keyboard case; Meta+/ lists it with the system's own.
+    override fun onKeyShortcut(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_F || !event.isCtrlPressed) return super.onKeyShortcut(keyCode, event)
+        searchRequest = (searchRequest?.first ?: 0) + 1 to ""
+        return true
+    }
+
+    // Esc goes back, as in a desktop window, when nothing on screen took it (an open menu closes itself first).
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_ESCAPE) return super.onKeyUp(keyCode, event)
+        onBackPressedDispatcher.onBackPressed()
+        return true
+    }
+
+    override fun onProvideKeyboardShortcuts(data: MutableList<KeyboardShortcutGroup>, menu: Menu?, deviceId: Int) {
+        data += KeyboardShortcutGroup(
+            "Retriever",
+            listOf(
+                KeyboardShortcutInfo("Search", KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON),
+                KeyboardShortcutInfo("Back", KeyEvent.KEYCODE_ESCAPE, 0),
+            ),
+        )
     }
 
     private fun take(intent: Intent) {
