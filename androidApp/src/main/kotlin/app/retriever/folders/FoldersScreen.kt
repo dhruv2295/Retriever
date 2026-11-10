@@ -46,9 +46,16 @@ import app.retriever.ui.components.gutter
 import app.retriever.ui.components.onRightClick
 import org.koin.androidx.compose.koinViewModel
 
+/** [onSearch] null hides the bar's Search, when the navigation rail has it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, vm: FoldersViewModel = koinViewModel()) {
+fun FoldersScreen(
+    onNavigate: (Route) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onSearch: (() -> Unit)? = null,
+    vm: FoldersViewModel = koinViewModel(),
+) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val (folders, loading, loadFailed, error) = ui
     var confirming by rememberSaveable { mutableStateOf<String?>(null) }
@@ -70,6 +77,10 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
                     IconButton(onClick = onBack) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
                     }
+                },
+                actions = {
+                    // Search is reachable from every place: here in the bar, or the rail's Search on a wide window.
+                    onSearch?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_search), contentDescription = Words.strings.searchAction) } }
                 },
             )
         },

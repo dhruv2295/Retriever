@@ -140,7 +140,7 @@ fun PlayerScreen(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.aspectRatio(
                                 poster.width.toFloat() / poster.height,
-                            ).photoMorph(rememberPhotoKey(morph, route.origin, route.uri)),
+                            ).photoMorph(rememberPhotoKey(morph, route.origin, route.uri), inViewer = true),
                         )
                     }
                 }

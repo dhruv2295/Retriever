@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.SnapSpec
 import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -88,6 +89,8 @@ fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modi
     val items = remember(route.uri) { queue.itemsFor(route) }
     val pager = rememberPagerState(items.indexOfFirst { it.uri == route.uri }.coerceAtLeast(0)) { items.size }
     val current = items[pager.currentPage]
+    val settledId = "photo:${route.origin}:${items[pager.settledPage].uri}"
+    LaunchedEffect(settledId) { morph?.page(route.toString(), settledId) }
     // A tap hides the bar and the system bars, so the photo has the whole screen.
     var chrome by rememberSaveable { mutableStateOf(true) }
     ImmersiveBars(chrome)
@@ -193,7 +196,7 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, or
     }
     val moving = morph?.shared?.isTransitionActive == true
     // The picture leaves the tile's rounded corners and squares off as it lands; on Back it rounds again into the tile.
-    val corner = morph?.screen?.transition?.animateDp(label = "photoCorner") { if (it == EnterExitState.Visible) 0.dp else 12.dp }
+    val corner = morph?.let { animateDpAsState(if (it.open != null) 0.dp else 12.dp, label = "photoCorner") }
     // A page with no zoomable photo yet takes the tap itself, so a hidden bar can always come back.
     val tapToToggle = Modifier.clickable(interactionSource = null, indication = null, onClick = onTap)
     if (failed) {
@@ -234,7 +237,7 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, or
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .aspectRatio(shown.width.toFloat() / shown.height)
-                    .photoMorph(rememberPhotoKey(morph.takeIf { current }, origin, item.uri))
+                    .photoMorph(rememberPhotoKey(morph.takeIf { current }, origin, item.uri), inViewer = true)
                     .graphicsLayer {
                         alpha = cover
                         corner?.let {

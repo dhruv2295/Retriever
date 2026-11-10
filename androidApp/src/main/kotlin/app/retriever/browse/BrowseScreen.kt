@@ -110,10 +110,20 @@ internal fun sortCaption(sort: String): String = when (sort) {
 /** The grid's photo-morph origin: a cell and the viewer it opens share it. */
 private const val BROWSE_ORIGIN = "browse"
 
-/** [onBack] null: a top-level place (the navigation rail's), with no Back arrow. */
+/**
+ * [onBack] null: a top-level place (the navigation rail's), with no Back arrow. [onSearch] null hides the bar's Search,
+ * when the navigation rail has it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: (() -> Unit)?, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
+fun BrowseScreen(
+    route: BrowseRoute,
+    onNavigate: (Route) -> Unit,
+    onBack: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    morph: PhotoMorph? = null,
+    onSearch: (() -> Unit)? = null,
+) {
     val vm = koinViewModel<BrowseViewModel> { parametersOf(route) }
     val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
@@ -156,6 +166,8 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: (() ->
                     }
                 },
                 actions = {
+                    // Search is reachable from every place: here in the bar, or the rail's Search on a wide window.
+                    onSearch?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_search), contentDescription = Words.strings.searchAction) } }
                     if (route.person != null) PersonActions(person, people.filter { it.id != route.person }, vm::rename, vm::sameAs)
                 },
             )

@@ -47,8 +47,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -265,10 +267,31 @@ object Thumbnails {
  * The nav host's shared transition and one screen's place in it. A photo's tile on a list screen and its picture in the
  * viewer share a key, so the one grows into the other and shrinks back on Back.
  */
-class PhotoMorph(val shared: SharedTransitionScope, val screen: AnimatedVisibilityScope)
+class PhotoMorph(val shared: SharedTransitionScope, private val opened: () -> Pair<Any, String>?) {
+    private var paged by mutableStateOf<Pair<Any, String>?>(null)
+
+    /**
+     * The picture in the open viewer, which its tile hands over; null when the tile has it. Read from the back stack
+     * ([opened]: the viewer on top and the picture it opened on), so it is set in the very frame the viewer first
+     * composes and cleared in the frame Back pops it; a swipe to another photo moves it ([page]).
+     */
+    val open: String?
+        get() {
+            val (viewer, id) = opened() ?: return null
+            return paged?.takeIf { it.first == viewer }?.second ?: id
+        }
+
+    /** True while [viewer] is the one on top. */
+    fun showing(viewer: Any) = opened()?.first == viewer
+
+    /** The viewer's pager settled on [id]. */
+    fun page(viewer: Any, id: String) {
+        paged = viewer to id
+    }
+}
 
 /** [uri]'s picture in a [PhotoMorph]. */
-class PhotoKey(val morph: PhotoMorph, val state: SharedTransitionScope.SharedContentState)
+class PhotoKey(val morph: PhotoMorph, val state: SharedTransitionScope.SharedContentState, val id: String)
 
 /**
  * Null without a [morph]: nothing to share with. [origin] names the tile list ("recent", "starred", ...), so a photo in
@@ -277,14 +300,20 @@ class PhotoKey(val morph: PhotoMorph, val state: SharedTransitionScope.SharedCon
 @Composable
 fun rememberPhotoKey(morph: PhotoMorph?, origin: String, uri: String): PhotoKey? {
     if (morph == null) return null
-    val state = morph.shared.rememberSharedContentState("photo:$origin:$uri")
-    return remember(morph, state) { PhotoKey(morph, state) }
+    val id = "photo:$origin:$uri"
+    val state = morph.shared.rememberSharedContentState(id)
+    return remember(morph, state, id) { PhotoKey(morph, state, id) }
 }
 
-/** Marks a photo's picture as the one that grows into the viewer and shrinks back. */
-fun Modifier.photoMorph(key: PhotoKey?): Modifier {
+/**
+ * Marks a photo's picture as the one that grows into the viewer and shrinks back. The viewer is an overlay, so neither
+ * side leaves composition: the picture is the tile's until the viewer opens it, then the viewer's ([inViewer]), and the
+ * shared element moves between them as that changes (Compose's caller-managed visibility).
+ */
+fun Modifier.photoMorph(key: PhotoKey?, inViewer: Boolean = false): Modifier {
     if (key == null) return this
-    return with(key.morph.shared) { this@photoMorph.sharedElement(key.state, key.morph.screen) }
+    val visible = (key.morph.open == key.id) == inViewer
+    return with(key.morph.shared) { this@photoMorph.sharedElementWithCallerManagedVisibility(key.state, visible) }
 }
 
 /**
