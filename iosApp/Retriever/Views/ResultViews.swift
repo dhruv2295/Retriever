@@ -60,6 +60,7 @@ struct ResultCell: View {
             }
         }
         .buttonStyle(.plain)
+        .hoverEffect()
         .accessibilityLabel(label)
         .accessibilityHint(Format.openHint(locator))
         .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy, notThisPerson: notThisPerson)
@@ -206,6 +207,7 @@ struct FileButton: View {
             FileRowView(file: file, locator: locator, snippet: snippet, styledName: styledName, subtitle: subtitle, extent: extent, coverage: coverage)
         }
         .buttonStyle(.plain)
+        .hoverEffect()
         .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy)
     }
 }

@@ -28,6 +28,7 @@ struct SearchView: View {
     @State private var folderNote: String?
     @Environment(\.openFile) private var openFile
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.searchFocus) private var searchFocus
     private let fixedSnap: AppModel.Snap?
     private let trial: Trial?
 
@@ -92,6 +93,7 @@ struct SearchView: View {
             }
         }
         .onChange(of: model.fileRevision) { search.retry() }
+        .onChange(of: searchFocus) { presented = true }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
         .modifier(RefreshHome(model: model, home: trial == nil))
         .task { await search.loadRecent() }

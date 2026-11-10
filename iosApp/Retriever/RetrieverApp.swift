@@ -56,6 +56,37 @@ struct RetrieverApp: App {
                 #endif
         }
         .onChange(of: phase, initial: true) { _, phase in model.setPhase(phase) }
+        .commands { RetrieverCommands() }
+    }
+}
+
+/// What the focused window does for the menu bar's and the keyboard's commands.
+struct WindowCommands {
+    let search: () -> Void
+    let settings: () -> Void
+}
+
+extension FocusedValues {
+    @Entry var windowCommands: WindowCommands?
+}
+
+extension EnvironmentValues {
+    /// ⌘F's count in a window; Home's search field comes up each time it changes.
+    @Entry var searchFocus = 0
+}
+
+/// ⌘F and ⌘, with an iPad's keyboard or on a Mac, listed when ⌘ is held and in iPadOS's menu bar. The commands act on
+/// the focused window through its focusedSceneValue, as Apple's FocusedValues documentation sets out.
+struct RetrieverCommands: Commands {
+    @FocusedValue(\.windowCommands) private var window
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { window?.settings() }.keyboardShortcut(",").disabled(window == nil)
+        }
+        CommandMenu("Search") {
+            Button("Search Your Files") { window?.search() }.keyboardShortcut("f").disabled(window == nil)
+        }
     }
 }
 

@@ -141,6 +141,7 @@ struct OnThisDayStrip: View {
                             .contentShape(.rect(cornerRadius: 22, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(String(card.year)), \(card.count) from \(date)")
                     .accessibilityHint("Shows them")
@@ -190,6 +191,7 @@ struct TileStrip: View {
                     }
                     .menuStyle(.button)
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityLabel(
                         "\(Words.shared.kindLabel(kind: file.kind)), \(file.name), \(Format.date(file.takenAt?.int64Value ?? file.modifiedAt))"
                             + (badge ? ", starred" : "")
@@ -259,6 +261,7 @@ struct PeopleStrip: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("\(title), \(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos"))")
                 }
