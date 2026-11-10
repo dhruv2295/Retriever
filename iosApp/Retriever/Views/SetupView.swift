@@ -395,10 +395,13 @@ struct DemoIntro: View {
 
 /// At the top of the first search once search by description is ready.
 private struct ReadyBanner: View {
+    /// Grows with the checkmark, which would otherwise outgrow its circle at the accessibility sizes.
+    @ScaledMetric(relativeTo: .headline) private var badge: CGFloat = 40
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "checkmark").font(.headline).foregroundStyle(Color(.systemBackground))
-                .frame(width: 40, height: 40)
+                .frame(width: badge, height: badge)
                 .background(.tint, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(Words.shared.DESCRIPTION_READY).font(.subheadline.weight(.semibold))

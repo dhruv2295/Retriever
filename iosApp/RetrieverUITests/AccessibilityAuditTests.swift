@@ -201,7 +201,7 @@ final class AccessibilityAuditTests: XCTestCase {
                         // The search works from the first frame, and Continue is the one way on, enabled throughout. The
                         // field asks for a description only once search by description is ready.
                         let hint = route == "setup.ready" ? "Describe a photo or file" : "Search by name or words"
-                        XCTAssertTrue(app.searchFields[hint].exists, "\(route): \(hint)")
+                        XCTAssertTrue(app.searchFields[hint].exists || Self.searchInSideBar(app), "\(route): \(hint)")
                         XCTAssertEqual(app.staticTexts["Search by description is ready"].exists, route == "setup.ready")
                         let lines = [
                             "setup.waitingWifi": "Waiting for Wi-Fi to download search by description.",
@@ -318,7 +318,8 @@ final class AccessibilityAuditTests: XCTestCase {
             // pinned actions. A group pinned to the top, with the spare height in one band above the actions, sits well
             // above that. The group's test frame spans only its accessible rows, and before the chips arrive their held
             // place is hidden, so its frame ends short there; the rows' equal places below carry the centring over.
-            let top = app.navigationBars.firstMatch.frame.maxY
+            let navigationBar = app.navigationBars.firstMatch
+            let top = navigationBar.exists ? navigationBar.frame.maxY : app.windows.firstMatch.frame.minY
             if !["setup.samplePicking", "setup.sampleStart"].contains(route), group.frame.height + 32 < actions.frame.minY - top {
                 XCTAssertEqual(group.frame.midY, (top + actions.frame.minY) / 2, accuracy: 12, "\(route): spare height split above and below")
             }
@@ -365,11 +366,11 @@ final class AccessibilityAuditTests: XCTestCase {
         defer { app.terminate() }
         let suggestion = app.buttons["wifi password"]
         XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "the chips are there on the first frame")
-        XCTAssertFalse(app.navigationBars.buttons["Back"].exists, "the demo has no Back")
+        XCTAssertFalse(app.buttons["Back"].exists, "the demo has no Back")
         suggestion.tap()
         XCTAssertTrue(suggestion.waitForNonExistence(timeout: 5), "the results replace the demo")
         XCTAssertEqual(app.keyboards.count, 0, "a chip searches without the keyboard")
-        app.navigationBars.buttons["Back"].tap()
+        app.buttons["Back"].firstMatch.tap()
         XCTAssertTrue(suggestion.waitForExistence(timeout: 5), "one Back, and the demo is back")
         XCTAssertTrue(app.buttons["Continue"].exists, "still on the demo")
     }
@@ -481,7 +482,7 @@ final class AccessibilityAuditTests: XCTestCase {
                 if issue.auditType == .dynamicType {
                     if route.hasPrefix("status."), Self.statusText.contains(element.label) { return true }
                     // The cold-launch test below verifies these labels grow and remain fully visible at AX5.
-                    if Self.grown.contains(where: { $0 == (route, element.label) }) { return true }
+                    if (Self.grown + Self.grownOnShortDisplays + Self.seenOnShortDisplays).contains(where: { $0 == (route, element.label) }) { return true }
                     // Every Home route has the same Starred header; home.charging's is checked to grow.
                     if route.hasPrefix("home."), element.label == "Starred" { return true }
                     // Live resizing moves the folders row off-screen; its launch-size growth is checked directly below.
@@ -491,6 +492,7 @@ final class AccessibilityAuditTests: XCTestCase {
                     // The People offer sits as low on every Home route where People is off; testHomePeopleOfferGrows... checks it.
                     if route.hasPrefix("home."), Self.peopleOfferText.contains(where: element.label.hasPrefix) { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
+                    if Self.sampleRoutes.contains(route), Self.demoChips.contains(element.label) { return true }
                     // Home's one-time card pushes the status line below it off screen as the text grows; that line is
                     // audited whole on its own routes (home.charging, home.downloading). The card's own rows still count.
                     if route.hasPrefix("home.intro"), element.frame.minY > app.buttons["Got it"].frame.maxY { return true }
@@ -513,8 +515,31 @@ final class AccessibilityAuditTests: XCTestCase {
         ("settings", "Search by description"), ("settings", "Find files by describing them"), ("settings", "Downloaded · 388\u{00A0}MB"),
     ]
 
-    func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() {
-        for (route, label) in Self.grown {
+    /// On a short display (iPhone Duo folded) the growing text above pushes these below the fold too.
+    private static let grownOnShortDisplays = [("status.skipped", "Couldn’t process 6 files")]
+
+    /// Below the fold at AX5 on a short display and seen there at full size (iPhone Duo folded), but out of the growth
+    /// test's reach: under half the screen scrolls above Duplicates' pinned Delete, and the memory note ends its page.
+    private static let seenOnShortDisplays = [
+        ("browse.duplicates", "2 copies · 1.5\u{00A0}MB each"),
+        ("status.textOnly", "This iPhone has 3\u{00A0}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."),
+    ]
+
+    /// The demo's chips, the same on every sample route: system bordered buttons in .subheadline, seen at full AX5 size on
+    /// iPhone Duo folded, where the live resize pushes them below the fold.
+    private static let demoChips = ["Try:", "wifi password", "boarding pass"]
+
+    /// On a narrow side bar (iPhone Duo folded) the system shows search as a button that opens the field.
+    private static func searchInSideBar(_ app: XCUIApplication) -> Bool {
+        !app.searchFields.firstMatch.exists && app.buttons["Search"].exists
+    }
+
+    func testPausedAndPartialStatusTextGrowsAtTheLargestAccessibilitySize() { assertGrows(Self.grown) }
+
+    func testShortDisplayTextGrowsAtTheLargestAccessibilitySize() { assertGrows(Self.grownOnShortDisplays) }
+
+    private func assertGrows(_ labels: [(String, String)]) {
+        for (route, label) in labels {
             var normal: CGFloat?
             for category in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
                 let app = XCUIApplication()
@@ -531,12 +556,13 @@ final class AccessibilityAuditTests: XCTestCase {
                     }
                     // A full swipe carries a tall AX5 paragraph from below the fold past the top; nudge it in instead.
                     let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                    let up = element.frame.maxY > window.frame.maxY
+                    // Up from the lower half: a row behind a pinned bottom bar is on screen yet not hittable.
+                    let up = element.frame.maxY > window.frame.maxY || element.frame.midY > window.frame.midY
                     from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: up ? -120 : 120)))
                 }
                 XCTAssertTrue(element.exists, label)
                 XCTAssertTrue(element.isHittable, label)
-                XCTAssertTrue(app.windows.firstMatch.frame.contains(element.frame), label)
+                XCTAssertTrue(window.frame.contains(element.frame), label)
                 if let normal { XCTAssertGreaterThan(element.frame.height, normal, label) } else { normal = element.frame.height }
                 app.terminate()
             }
@@ -636,9 +662,17 @@ final class AccessibilityAuditTests: XCTestCase {
                 let element = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
                 // At AX5 the body is taller than the space above the search field, so wait only for its top to show.
                 let window = app.windows.firstMatch.frame
-                for _ in 0..<12 {
+                // Many screens tall at AX5 on a short display (iPhone Duo folded), where a full swipe carries a row from
+                // below the fold past the band; once it is on screen, nudge it in instead.
+                for _ in 0..<30 {
                     if element.exists && element.frame.minY >= window.minY && element.frame.minY < window.maxY * 0.75 { break }
-                    app.swipeUp()
+                    guard element.exists else {
+                        app.swipeUp()
+                        continue
+                    }
+                    let from = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    let up = element.frame.minY >= window.maxY * 0.75
+                    from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: up ? -120 : 120)))
                 }
                 XCTAssertTrue(element.exists, label)
                 let height = element.frame.height
@@ -671,6 +705,7 @@ final class AccessibilityAuditTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-mutedMedia", "-route", "home.reading", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         launch(app)
+        if Self.searchInSideBar(app) { app.buttons["Search"].firstMatch.tap() }
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable)
