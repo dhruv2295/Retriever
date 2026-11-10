@@ -322,7 +322,7 @@ internal object Japanese : Strings {
     override val noMatches = "見つかりませんでした"
 
     // No "add when, like last week": QueryParser reads only English time words.
-    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "写っているものを説明するか、書かれている内容で尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。")
+    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "中身を説明するか、書かれている内容について尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。")
 
     override val moreWaiting = "Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
     override val searchFailed = "検索を完了できませんでした"
@@ -458,7 +458,7 @@ internal object Japanese : Strings {
 
     override fun noAccessDetail(words: DeviceWords) = "処理済みのファイルは引き続き検索できます。" + if (words.ios) "${dev(words)}の「設定」が開きます。" else ""
 
-    override val finishSetupTitle = "準備を完了"
+    override val finishSetupTitle = "準備を完了しましょう"
     override val finishSetupDetail = "Retrieverで検索する対象を選んでください。"
     override val downloadPausedTitle = "ダウンロードを一時停止中"
 
@@ -992,7 +992,7 @@ internal object Japanese : Strings {
 
     override val foldersYouAdded = "追加したフォルダ"
 
-    override fun removeNamed(name: String) = "「$name」を削除"
+    override fun removeNamed(name: String) = "「$name」を対象から外す"
 
     override val allowAccessToAllFiles = "すべてのファイルへのアクセスを許可"
 
@@ -1115,7 +1115,7 @@ internal object Japanese : Strings {
     override val folderRefused = "iOSにより、そのフォルダへのアクセスを保存できませんでした。別のフォルダを試してください。"
 
     override fun backgroundNote(words: DeviceWords) =
-        "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、${dev(words)}の充電中まで待ちます。「$readFor15」はバッテリーを少し使います。"
+        "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、${dev(words)}を充電するまで待ちます。「$readFor15」はバッテリーを少し使います。"
 
     override val screenKeptOn = "Retrieverが15分間ファイルを処理している間、画面はオンのままになります。これは設定でオフにできます。"
 
@@ -1286,7 +1286,7 @@ internal object Japanese : Strings {
     override val onlyWhenYouChooseAnyFile = "「$readFor15」を選んだときだけ処理します。どのファイルも、いつでも名前で見つけられます。"
 
     override fun alsoOnBatteryIosBody(words: DeviceWords) =
-        "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSは${dev(words)}の充電中まで待ちます。${dev(words)}が熱くなっているときや、低電力モードのときは一時停止します。"
+        "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSは${dev(words)}を充電するまで待ちます。${dev(words)}が熱くなっているときや、低電力モードのときは一時停止します。"
 
     override val keepScreenOnToggle = "15分間の処理中は画面をオンのままにする"
 

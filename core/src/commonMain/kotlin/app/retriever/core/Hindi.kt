@@ -812,7 +812,7 @@ internal object Hindi : Strings {
     override val couldntStopSearchingFolder = "उस फ़ोल्डर में खोजना बंद नहीं हो सका. थोड़ी देर में फिर से कोशिश करें."
 
     // HomeScreen
-    override val onThisDayHidden = "आज के दिन छिपाया गया"
+    override val onThisDayHidden = "“आज के दिन” छिपाया गया"
 
     override val undo = "पहले जैसा करें"
 
@@ -843,7 +843,7 @@ internal object Hindi : Strings {
 
     override val showThem = "उन्हें दिखाएं"
 
-    override val hideOnThisDay = "आज के दिन छिपाएं"
+    override val hideOnThisDay = "“आज के दिन” छिपाएं"
 
     override val starredSection = "स्टार वाली फ़ाइलें"
 
@@ -1248,7 +1248,7 @@ internal object Hindi : Strings {
 
     override val showsThem = "उन्हें दिखाता है"
 
-    override val hideOnThisDayIos = "आज के दिन छिपाएं"
+    override val hideOnThisDayIos = "“आज के दिन” छिपाएं"
 
     override fun homeTileSpoken(kind: String, name: String, date: String, starred: Boolean) = "$kind, $name, $date" + if (starred) ", स्टार लगा है" else ""
 

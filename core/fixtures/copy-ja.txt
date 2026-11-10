@@ -1086,18 +1086,18 @@ line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, cou
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, false, 2, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, false, 2, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, false, 2, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), true, false, 0, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), true, false, 0, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=COUNTING, title=Counting, detail=null, action=null, count=null, done=null, total=null), true, false, 0, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
@@ -1134,18 +1134,18 @@ line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, false, 2, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, false, 2, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, false, 2, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), true, false, 0, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), true, false, 0, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(ReadingStatus(phase=READING, title=Reading, detail=null, action=null, count=1 of 2, done=null, total=null), true, false, 0, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
@@ -1187,18 +1187,18 @@ line(null, false, false, 1234, iPhone, null) = ReadingStatus(phase=NO_ACCESS, ti
 line(null, false, false, 2, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(null, false, false, 2, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(null, false, false, 2, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
-line(null, false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
-line(null, false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 0, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 0, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 0, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1234, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1234, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 1234, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 2, android, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 2, iPad, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
+line(null, false, true, 2, iPhone, null) = ReadingStatus(phase=SETTING_UP, title=準備を完了しましょう, detail=Retrieverで検索する対象を選んでください。, action=CONTINUE, count=null, done=null, total=null)
 line(null, true, false, 0, android, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(null, true, false, 0, iPad, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
 line(null, true, false, 0, iPhone, null) = ReadingStatus(phase=NO_ACCESS, title=Retrieverがファイルにアクセスできません, detail=処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。, action=ALLOW_ACCESS, count=null, done=null, total=null)
@@ -1268,7 +1268,7 @@ mobileDataAsk("388 MB") = "モバイルデータで388 MBをダウンロード�
 mobileDataAsk("Downloads") = "モバイルデータでDownloadsをダウンロードしますか？"
 mobileDataAsk("p. 12") = "モバイルデータでp. 12をダウンロードしますか？"
 noMatchesDetail(false) = "含まれている言葉や、名前の一部で試してみてください。"
-noMatchesDetail(true) = "写っているものを説明するか、書かれている内容で尋ねてみてください。"
+noMatchesDetail(true) = "中身を説明するか、書かれている内容について尋ねてみてください。"
 notReadYet(0) = "残り0件"
 notReadYet(1) = "残り1件"
 notReadYet(1234) = "残り1,234件"
@@ -1685,7 +1685,7 @@ strings.FilterStarred = "スター付き"
 strings.FindDuplicates = "重複ファイルを探す"
 strings.FindSimilar = "似たものを探す"
 strings.FinishSetupDetail = "Retrieverで検索する対象を選んでください。"
-strings.FinishSetupTitle = "準備を完了"
+strings.FinishSetupTitle = "準備を完了しましょう"
 strings.FirstLook = "まずは最近のファイルから"
 strings.FolderAccessChanged = "このフォルダへのアクセスが変更されました"
 strings.FolderAdded = "フォルダを追加しました。Retrieverが中身を処理します。"
@@ -2023,12 +2023,12 @@ strings.addingMeaning(2, 2) = "「説明で検索」を追加中 · ファイル
 strings.adjustProcessingFor(android) = "このスマートフォンに合わせて処理を調整"
 strings.adjustProcessingFor(iPad) = "このiPadに合わせて処理を調整"
 strings.adjustProcessingFor(iPhone) = "このiPhoneに合わせて処理を調整"
-strings.alsoOnBatteryIosBody(android) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはスマートフォンの充電中まで待ちます。スマートフォンが熱くなっているときや、低電力モードのときは一時停止します。"
-strings.alsoOnBatteryIosBody(iPad) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはiPadの充電中まで待ちます。iPadが熱くなっているときや、低電力モードのときは一時停止します。"
-strings.alsoOnBatteryIosBody(iPhone) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはiPhoneの充電中まで待ちます。iPhoneが熱くなっているときや、低電力モードのときは一時停止します。"
-strings.backgroundNote(android) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、スマートフォンの充電中まで待ちます。「15分間処理」はバッテリーを少し使います。"
-strings.backgroundNote(iPad) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、iPadの充電中まで待ちます。「15分間処理」はバッテリーを少し使います。"
-strings.backgroundNote(iPhone) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、iPhoneの充電中まで待ちます。「15分間処理」はバッテリーを少し使います。"
+strings.alsoOnBatteryIosBody(android) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはスマートフォンを充電するまで待ちます。スマートフォンが熱くなっているときや、低電力モードのときは一時停止します。"
+strings.alsoOnBatteryIosBody(iPad) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはiPadを充電するまで待ちます。iPadが熱くなっているときや、低電力モードのときは一時停止します。"
+strings.alsoOnBatteryIosBody(iPhone) = "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSはiPhoneを充電するまで待ちます。iPhoneが熱くなっているときや、低電力モードのときは一時停止します。"
+strings.backgroundNote(android) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、スマートフォンを充電するまで待ちます。「15分間処理」はバッテリーを少し使います。"
+strings.backgroundNote(iPad) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、iPadを充電するまで待ちます。「15分間処理」はバッテリーを少し使います。"
+strings.backgroundNote(iPhone) = "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、iPhoneを充電するまで待ちます。「15分間処理」はバッテリーを少し使います。"
 strings.batteryMayStop(false) = "バッテリーを節約するため、スマートフォンが処理を止めることがあります。"
 strings.batteryMayStop(true) = "バッテリーを節約するため、スマートフォンが処理を止めることがあります。ファイルの処理は、引き続き充電中だけ行われます。"
 strings.browseTileSpoken("1:01:05", "1:01:05") = "1:01:05、1:01:05"
@@ -2997,7 +2997,7 @@ strings.noAccessDetail(android) = "処理済みのファイルは引き続き検
 strings.noAccessDetail(iPad) = "処理済みのファイルは引き続き検索できます。iPadの「設定」が開きます。"
 strings.noAccessDetail(iPhone) = "処理済みのファイルは引き続き検索できます。iPhoneの「設定」が開きます。"
 strings.noMatchesDetail(false) = "含まれている言葉や、名前の一部で試してみてください。"
-strings.noMatchesDetail(true) = "写っているものを説明するか、書かれている内容で尋ねてみてください。"
+strings.noMatchesDetail(true) = "中身を説明するか、書かれている内容について尋ねてみてください。"
 strings.noMatchesFor("1:01:05") = "「1:01:05」に一致するものはありません"
 strings.noMatchesFor("388 MB") = "「388 MB」に一致するものはありません"
 strings.noMatchesFor("Downloads") = "「Downloads」に一致するものはありません"
@@ -3010,10 +3010,10 @@ strings.noMatchesMessage(false, false, false) = "含まれている言葉や、�
 strings.noMatchesMessage(false, false, true) = "含まれている言葉や、名前の一部で試してみてください。名前と処理済みのテキストを検索しています。"
 strings.noMatchesMessage(false, true, false) = "含まれている言葉や、名前の一部で試してみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
 strings.noMatchesMessage(false, true, true) = "含まれている言葉や、名前の一部で試してみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。名前と処理済みのテキストを検索しています。"
-strings.noMatchesMessage(true, false, false) = "写っているものを説明するか、書かれている内容で尋ねてみてください。"
-strings.noMatchesMessage(true, false, true) = "写っているものを説明するか、書かれている内容で尋ねてみてください。名前と処理済みのテキストを検索しています。"
-strings.noMatchesMessage(true, true, false) = "写っているものを説明するか、書かれている内容で尋ねてみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
-strings.noMatchesMessage(true, true, true) = "写っているものを説明するか、書かれている内容で尋ねてみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。名前と処理済みのテキストを検索しています。"
+strings.noMatchesMessage(true, false, false) = "中身を説明するか、書かれている内容について尋ねてみてください。"
+strings.noMatchesMessage(true, false, true) = "中身を説明するか、書かれている内容について尋ねてみてください。名前と処理済みのテキストを検索しています。"
+strings.noMatchesMessage(true, true, false) = "中身を説明するか、書かれている内容について尋ねてみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
+strings.noMatchesMessage(true, true, true) = "中身を説明するか、書かれている内容について尋ねてみてください。Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。名前と処理済みのテキストを検索しています。"
 strings.noStarredMatch("1:01:05") = "「1:01:05」に一致するスター付きのファイルはありません"
 strings.noStarredMatch("388 MB") = "「388 MB」に一致するスター付きのファイルはありません"
 strings.noStarredMatch("Downloads") = "「Downloads」に一致するスター付きのファイルはありません"
@@ -3518,10 +3518,10 @@ strings.removeFromHistory("1:01:05") = "「1:01:05」を履歴から削除"
 strings.removeFromHistory("388 MB") = "「388 MB」を履歴から削除"
 strings.removeFromHistory("Downloads") = "「Downloads」を履歴から削除"
 strings.removeFromHistory("p. 12") = "「p. 12」を履歴から削除"
-strings.removeNamed("1:01:05") = "「1:01:05」を削除"
-strings.removeNamed("388 MB") = "「388 MB」を削除"
-strings.removeNamed("Downloads") = "「Downloads」を削除"
-strings.removeNamed("p. 12") = "「p. 12」を削除"
+strings.removeNamed("1:01:05") = "「1:01:05」を対象から外す"
+strings.removeNamed("388 MB") = "「388 MB」を対象から外す"
+strings.removeNamed("Downloads") = "「Downloads」を対象から外す"
+strings.removeNamed("p. 12") = "「p. 12」を対象から外す"
 strings.resultRowSpoken("1:01:05", "1:01:05", "1:01:05", "388 MB", "388 MB", "388 MB") = "1:01:05、1:01:05、1:01:05、388 MB、388 MB、388 MB"
 strings.resultRowSpoken("1:01:05", "1:01:05", "388 MB", "388 MB", "388 MB", "388 MB") = "1:01:05、1:01:05、388 MB、388 MB、388 MB、388 MB"
 strings.resultRowSpoken("1:01:05", "1:01:05", "Downloads", "388 MB", "388 MB", "388 MB") = "1:01:05、1:01:05、Downloads、388 MB、388 MB、388 MB"
