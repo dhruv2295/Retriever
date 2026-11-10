@@ -124,7 +124,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
             val error = s.error
             when {
                 s.scanning -> Column(
-                    Modifier.fillMaxWidth().padding(24.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = gutter()).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Mascot(MascotMood.WALKING, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
