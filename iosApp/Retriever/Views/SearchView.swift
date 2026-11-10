@@ -163,10 +163,7 @@ struct SearchView: View {
         guard visible, searchRequest.wrappedValue else { return }
         searchRequest.wrappedValue = false
         presented = true
-        // Focus asked for while Home is still appearing is dropped, and the state can still read true from the last ⌘F
-        // after a pushed page took the focus.
-        fieldFocused = false
-        Task { fieldFocused = true }
+        fieldFocused = true
     }
 
     private func open(_ hit: SearchEngine.Hit) {
