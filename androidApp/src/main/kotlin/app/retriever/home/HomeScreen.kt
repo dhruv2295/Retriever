@@ -86,8 +86,10 @@ import app.retriever.model.actions
 import app.retriever.model.description
 import app.retriever.model.downloadState
 import app.retriever.motion.Mascot
+import app.retriever.nav.Route
 import app.retriever.nav.SetupRoute
 import app.retriever.nav.StatusRoute
+import app.retriever.nav.route
 import app.retriever.search.SearchActions
 import app.retriever.setup.CommitStage
 import app.retriever.ui.Format
@@ -129,6 +131,8 @@ fun HomeScreen(
     padding: PaddingValues,
     side: Dp,
     snackbar: SnackbarHostState,
+    /** The places a navigation rail shows; Browse leaves those kinds out. */
+    rail: List<Route> = emptyList(),
     vm: HomeViewModel = koinViewModel(),
     upgrade: UpgradeFlow = koinInject(),
     retriever: Retriever = koinInject(),
@@ -196,6 +200,7 @@ fun HomeScreen(
         homeActions,
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
+        rail = rail,
     )
 }
 
@@ -234,6 +239,7 @@ internal fun HomeBody(
     upgrade: UpgradeUi = UpgradeUi(),
     upgradeActions: UpgradeActions = UpgradeActions(),
     offer: Boolean = false,
+    rail: List<Route> = emptyList(),
 ) {
     val context = LocalContext.current
     val download = remember(upgrade, context) { upgrade.downloadState(Format.downloadSize(context, upgrade.sizeBytes)) }
@@ -339,8 +345,10 @@ internal fun HomeBody(
         if (ui.hasAccess && ui.showOnThisDay && day != null && ui.memories.isNotEmpty()) {
             item(key = "day", span = FullLine, contentType = "day") { OnThisDaySection(day, ui.memories, actions.onNavigate, home.hideOnThisDay) }
         }
-        if (facts.browse.isNotEmpty() || facts.folders > 0) {
-            item(key = "browse", span = FullLine, contentType = "browse") { BrowseSection(facts.browse, facts.folders, actions.onNavigate) }
+        // Kinds the navigation rail shows aren't repeated here.
+        val browse = facts.browse.filter { it.route() !in rail }
+        if (browse.isNotEmpty() || facts.folders > 0) {
+            item(key = "browse", span = FullLine, contentType = "browse") { BrowseSection(browse, facts.folders, actions.onNavigate) }
         }
         if (offer && upgrade.stage == UpgradeStage.OFFER) {
             item(key = "optional", span = FullLine) {

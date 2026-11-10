@@ -79,15 +79,7 @@ import java.io.IOException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PhotoScreen(
-    route: PhotoRoute,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    morph: PhotoMorph? = null,
-    /** False in a pane beside a list: the system bars belong to the whole window, so they stay as the list has them. */
-    fullWindow: Boolean = true,
-    queue: ViewerQueue = koinInject(),
-) {
+fun PhotoScreen(route: PhotoRoute, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null, queue: ViewerQueue = koinInject()) {
     val context = LocalContext.current
     val stars = koinViewModel<StarHolder>().stars
     val snackbar = remember { SnackbarHostState() }
@@ -97,7 +89,7 @@ fun PhotoScreen(
     val current = items[pager.currentPage]
     // A tap hides the bar and the system bars, so the photo has the whole screen.
     var chrome by rememberSaveable { mutableStateOf(true) }
-    if (fullWindow) ImmersiveBars(chrome)
+    ImmersiveBars(chrome)
     RetrieverTheme(dark = true) {
         Scaffold(
             modifier = modifier,

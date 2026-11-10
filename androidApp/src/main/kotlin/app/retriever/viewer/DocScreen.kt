@@ -57,7 +57,7 @@ import org.koin.core.parameter.parametersOf
 /** The in-app reader: the text the index holds for a document, opened on the paragraph that matched. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
+fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier, pane: PaneExpand? = null) {
     val context = LocalContext.current
     val ui by koinViewModel<DocViewModel> { parametersOf(route) }.ui.collectAsStateWithLifecycle()
     val stars = koinViewModel<StarHolder>().stars
@@ -68,7 +68,7 @@ fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, mod
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            ViewerTopBar(route.name, route.uri, stars, onBack)
+            ViewerTopBar(route.name, route.uri, stars, onBack, pane = pane)
         },
         bottomBar = { ViewerStepBar(route.uri, replace) },
     ) { padding -> DocContent(ui, padding, openWith) }

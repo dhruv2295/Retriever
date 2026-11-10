@@ -17,10 +17,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDragHandle
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
@@ -28,13 +31,21 @@ import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSerializable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -52,7 +63,11 @@ import androidx.navigation3.scene.SceneStrategyScope
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
+import app.retriever.R
 import app.retriever.browse.BrowseScreen
+import app.retriever.core.BrowseKind
+import app.retriever.core.HomeFacts
+import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.duplicates.DuplicatesScreen
 import app.retriever.folders.FoldersScreen
@@ -63,7 +78,9 @@ import app.retriever.setup.SetupFlow
 import app.retriever.setup.SetupScreen
 import app.retriever.status.StatusScreen
 import app.retriever.ui.components.PhotoMorph
+import app.retriever.ui.components.kindIcon
 import app.retriever.viewer.DocScreen
+import app.retriever.viewer.PaneExpand
 import app.retriever.viewer.PdfPageScreen
 import app.retriever.viewer.PhotoScreen
 import app.retriever.viewer.PlayerScreen
@@ -154,7 +171,9 @@ private val pill = mapOf(TAG to "pill")
 private val search = mapOf(TAG to "search")
 private val photo = mapOf(TAG to "photo")
 
-// Search and Browse are lists; a file opened from one shows beside it when the window has room for two panes.
+// Search and Browse are lists; a document or PDF opened from one shows beside it when the window has room for two panes.
+// Photos and videos take the whole window wherever they open from, as in Google Photos and Apple Photos: the tile was the
+// preview, so opening one means seeing it properly.
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 private val list = ListDetailSceneStrategy.listPane()
 private const val VIEWER = "app.retriever.viewer"
@@ -166,9 +185,31 @@ private val viewer = ListDetailSceneStrategy.detailPane() + (VIEWER to true)
  * Two panes only once a file is open beside its list; until then the list has the whole window, not half of it beside
  * an empty pane. On a window too narrow for two, [panes] gives no scene and the file opens full screen, as on a phone.
  */
-private class OpenFileBesideList(private val panes: SceneStrategy<Route>) : SceneStrategy<Route> {
+private class OpenFileBesideList(private val panes: SceneStrategy<Route>, private val expanded: Boolean) : SceneStrategy<Route> {
     override fun SceneStrategyScope<Route>.calculateScene(entries: List<NavEntry<Route>>): Scene<Route>? =
-        if (entries.lastOrNull()?.metadata?.get(VIEWER) == true) with(panes) { calculateScene(entries) } else null
+        if (!expanded && entries.lastOrNull()?.metadata?.get(VIEWER) == true) with(panes) { calculateScene(entries) } else null
+}
+
+/** A kind Home's Browse lists, as the list it opens. Documents holds PDFs too and opens the PDFs when there are any. */
+fun BrowseKind.route() = BrowseRoute(kind = (kinds.firstOrNull { it == Kind.PDF } ?: kinds.first()).name, title = title)
+
+/** The rail's places: Home, each kind Browse lists, and Settings; seven at most, Material's limit for a rail. */
+private fun railPlaces(facts: HomeFacts?): List<Route> = listOf(HomeRoute) + facts?.browse.orEmpty().take(5).map { it.route() } + SettingsRoute
+
+@Composable
+private fun RailItem(place: Route, selected: Boolean, type: NavigationSuiteType, open: (Route) -> Unit) {
+    val (icon, label) = when (place) {
+        is BrowseRoute -> kindIcon(Kind.entries.firstOrNull { it.name == place.kind } ?: Kind.OTHER) to place.title
+        SettingsRoute -> R.drawable.ic_settings to "Settings"
+        else -> R.drawable.ic_home to "Home"
+    }
+    NavigationSuiteItem(
+        selected = selected,
+        onClick = { open(place) },
+        icon = { Icon(painterResource(icon), contentDescription = null) },
+        label = { Text(label) },
+        navigationSuiteType = type,
+    )
 }
 
 private fun Scene<Route>.tagged(tag: Map<String, String>) = entries.lastOrNull()?.metadata?.get(TAG) == tag[TAG]
@@ -203,20 +244,20 @@ private val AnimatedContentTransitionScope<Scene<Route>>.panes get() = initialSt
 // Opening or closing a file beside its list, the list stays where it is and the panes move themselves.
 private fun panesSwap(): ContentTransform = fadeIn(tween(150)) togetherWith fadeOut(tween(150))
 
-private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransform = if (panes) {
-    panesSwap()
-} else if (targetState.tagged(photo)) {
+private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransform = if (targetState.tagged(photo)) {
     fadeIn(defaultEffects) togetherWith ExitTransition.KeepUntilTransitionsFinished
+} else if (panes) {
+    panesSwap()
 } else {
     pageEnter(SlideDirection.Start) togetherWith pageExit(SlideDirection.Start)
 }
 
 // A back swipe from a photo fades its backdrop as the photo follows the finger to its tile; a page's default would
 // shrink the whole viewer, an opaque black card until the swipe ends.
-private fun AnimatedContentTransitionScope<Scene<Route>>.pop(direction: SlideDirection): ContentTransform = if (panes) {
-    panesSwap()
-} else if (initialState.tagged(photo)) {
+private fun AnimatedContentTransitionScope<Scene<Route>>.pop(direction: SlideDirection): ContentTransform = if (initialState.tagged(photo)) {
     EnterTransition.None togetherWith fadeOut(defaultEffects)
+} else if (panes) {
+    panesSwap()
 } else {
     pageEnter(direction) togetherWith pageExit(direction)
 }
@@ -232,7 +273,8 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
         NavBackStack(if (koin.get<SetupFlow>().showSetup) SetupRoute else HomeRoute)
     }
     // The panes split at a fold or a dual screen's seam rather than across it (HingePolicy.AvoidSeparating).
-    val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfoV2())
+    val adaptive = currentWindowAdaptiveInfoV2()
+    val directive = calculatePaneScaffoldDirective(adaptive)
     val twoPanes = directive.maxHorizontalPartitions > 1
     val listDetail = rememberListDetailSceneStrategy<Route>(
         directive = directive,
@@ -248,114 +290,138 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
             )
         },
     )
-    val beside = remember(listDetail) { OpenFileBesideList(listDetail) }
+    val top = stack.lastOrNull()
+    // A document beside its list can take the whole window (the viewer bar's Full screen) and give the list its pane back.
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(top?.isViewer) { if (top?.isViewer != true) expanded = false }
+    val beside = remember(listDetail, expanded) { OpenFileBesideList(listDetail, expanded) }
+    // The main places in a rail on a wide window, as in Google Photos and the iPad's sidebar; a phone or a short window
+    // (the default's bar) keeps Home's own links. Not during setup, nor beside a photo or video, which take the window.
+    val facts by remember(retriever) { retriever.home() }.collectAsStateWithLifecycle(null)
+    val railType = NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptive)
+    val rail = railType == NavigationSuiteType.WideNavigationRailCollapsed && stack.firstOrNull() == HomeRoute && top !is PhotoRoute && top !is PlayerRoute
+    val places = railPlaces(facts)
+    // Search is Home's, wherever it was opened from.
+    val here = stack.asReversed().firstOrNull { it in places || it is SearchRoute }?.let { if (it is SearchRoute) HomeRoute else it }
+    val openPlace = { place: Route ->
+        while (stack.size > 1) stack.removeAt(stack.lastIndex)
+        if (place != HomeRoute) stack.add(place)
+    }
     LaunchedEffect(statusRequest) { if (statusRequest > 0) stack.goTo(StatusRoute) }
     LaunchedEffect(searchRequest) { searchRequest?.let { stack.goTo(if (it.second.isEmpty()) SearchRoute() else SearchRoute(it.second, run = true)) } }
     app.retriever.files.FileActionsHost(retriever) {
-        SharedTransitionLayout {
-            val searchBounds = @Composable { scope: AnimatedVisibilityScope, expanded: Boolean ->
-                val contentState = rememberSharedContentState("search")
-                val corner by scope.transition.animateDp(transitionSpec = { tween(300) }, label = "searchCorner") { state ->
-                    val fullscreen = if (expanded) state == EnterExitState.Visible else state != EnterExitState.Visible
-                    if (fullscreen) 0.dp else SearchBarDefaults.InputFieldHeight / 2
+        NavigationSuiteScaffold(
+            navigationItems = { places.forEach { RailItem(it, it == here, railType, openPlace) } },
+            navigationSuiteType = if (rail) railType else NavigationSuiteType.None,
+        ) {
+            SharedTransitionLayout {
+                val searchBounds = @Composable { scope: AnimatedVisibilityScope, expanded: Boolean ->
+                    val contentState = rememberSharedContentState("search")
+                    val corner by scope.transition.animateDp(transitionSpec = { tween(300) }, label = "searchCorner") { state ->
+                        val fullscreen = if (expanded) state == EnterExitState.Visible else state != EnterExitState.Visible
+                        if (fullscreen) 0.dp else SearchBarDefaults.InputFieldHeight / 2
+                    }
+                    val radius = if (contentState.isMatchFound) {
+                        corner
+                    } else if (expanded) {
+                        0.dp
+                    } else {
+                        SearchBarDefaults.InputFieldHeight / 2
+                    }
+                    val shape = RoundedCornerShape(radius)
+                    Modifier.sharedBounds(
+                        contentState,
+                        scope,
+                        enter = fadeIn(tween(300)),
+                        exit = fadeOut(tween(300)),
+                        boundsTransform = { _, _ -> tween(300) },
+                        resizeMode = ResizeMode.RemeasureToBounds,
+                        clipInOverlayDuringTransition = OverlayClip(shape),
+                    ).clip(shape)
                 }
-                val radius = if (contentState.isMatchFound) {
-                    corner
-                } else if (expanded) {
-                    0.dp
-                } else {
-                    SearchBarDefaults.InputFieldHeight / 2
+                // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it).
+                val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
+                val paneExpand = @Composable { route: Route ->
+                    val fromList = stack.getOrNull(stack.indexOf(route) - 1).let { it is SearchRoute || it is BrowseRoute }
+                    remember(twoPanes, fromList, expanded) { if (twoPanes && fromList) PaneExpand(expanded) { expanded = !expanded } else null }
                 }
-                val shape = RoundedCornerShape(radius)
-                Modifier.sharedBounds(
-                    contentState,
-                    scope,
-                    enter = fadeIn(tween(300)),
-                    exit = fadeOut(tween(300)),
-                    boundsTransform = { _, _ -> tween(300) },
-                    resizeMode = ResizeMode.RemeasureToBounds,
-                    clipInOverlayDuringTransition = OverlayClip(shape),
-                ).clip(shape)
+                val moves = @Composable {
+                    val lifecycle = LocalLifecycleOwner.current.lifecycle
+                    remember(lifecycle) { Moves(stack, lifecycle) }
+                }
+                NavDisplay(
+                    backStack = stack,
+                    modifier = modifier,
+                    onBack = { if (stack.size > 1) stack.removeAt(stack.lastIndex) },
+                    entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+                    sceneStrategies = listOf(beside),
+                    sharedTransitionScope = this,
+                    transitionSpec = { push() },
+                    popTransitionSpec = { pop(SlideDirection.End) },
+                    predictivePopTransitionSpec = { edge -> pop(predictiveDirection(edge)) },
+                    entryProvider = entryProvider {
+                        entry<SetupRoute>(metadata = pill) {
+                            // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
+                            ReportDrawn()
+                            val scope = LocalNavAnimatedContentScope.current
+                            // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
+                            SetupScreen(onNavigate = moves().go, pillModifier = searchBounds(scope, false), onDone = {
+                                stack.clear()
+                                stack.add(HomeRoute)
+                            })
+                        }
+                        entry<HomeRoute>(metadata = pill) {
+                            val scope = LocalNavAnimatedContentScope.current
+                            HomeHost(moves().go, pillModifier = searchBounds(scope, false), morph = morph(scope), rail = if (rail) places else emptyList())
+                        }
+                        // Opening or closing a file beside a list animates the list's bounds (the pane's motion, then Navigation 3
+                        // moving the entry between scenes). Laid out at each frame's size, the grid's columns and the bars above
+                        // it disagreed with the gutters worked out from the final width, and rows misaligned or went blank until
+                        // it ended; laid out at its final size from the start, the list just jumps there.
+                        entry<SearchRoute>(metadata = search + list) { route ->
+                            val scope = LocalNavAnimatedContentScope.current
+                            val m = moves()
+                            Box(Modifier.skipToLookaheadSize()) { SearchScreen(route, m.go, m.back, searchBounds(scope, true), morph(scope)) }
+                        }
+                        entry<BrowseRoute>(metadata = list) { route ->
+                            val m = moves()
+                            Box(Modifier.skipToLookaheadSize()) { BrowseScreen(route, m.go, m.back, morph = morph(LocalNavAnimatedContentScope.current)) }
+                        }
+                        entry<SettingsRoute> {
+                            val m = moves()
+                            SettingsScreen(m.back, onStatus = { m.go(StatusRoute) })
+                        }
+                        entry<FoldersRoute> {
+                            val m = moves()
+                            FoldersScreen(m.go, m.back)
+                        }
+                        entry<DuplicatesRoute> {
+                            val m = moves()
+                            DuplicatesScreen(m.go, m.back)
+                        }
+                        entry<StatusRoute> {
+                            val m = moves()
+                            StatusScreen(m.back, onNavigate = m.go, onOpenSettings = { m.go(SettingsRoute) })
+                        }
+                        entry<PlayerRoute> { route ->
+                            val m = moves()
+                            PlayerScreen(route, m.back, m.replace)
+                        }
+                        entry<PdfRoute>(metadata = viewer) { route ->
+                            val m = moves()
+                            PdfPageScreen(route, m.back, m.replace, pane = paneExpand(route))
+                        }
+                        // Only the backdrop and bar fade: the photo itself is the tile, growing.
+                        entry<PhotoRoute>(metadata = photo) { route ->
+                            PhotoScreen(route, moves().back, morph = morph(LocalNavAnimatedContentScope.current))
+                        }
+                        entry<DocRoute>(metadata = viewer) { route ->
+                            val m = moves()
+                            DocScreen(route, m.back, m.replace, pane = paneExpand(route))
+                        }
+                    },
+                )
             }
-            // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it).
-            val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
-            // Beside a list a photo opens in its pane, not over the list: nothing to grow from.
-            val listMorph = @Composable { scope: AnimatedVisibilityScope -> if (twoPanes) null else morph(scope) }
-            val moves = @Composable {
-                val lifecycle = LocalLifecycleOwner.current.lifecycle
-                remember(lifecycle) { Moves(stack, lifecycle) }
-            }
-            NavDisplay(
-                backStack = stack,
-                modifier = modifier,
-                onBack = { if (stack.size > 1) stack.removeAt(stack.lastIndex) },
-                entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-                sceneStrategies = listOf(beside),
-                sharedTransitionScope = this,
-                transitionSpec = { push() },
-                popTransitionSpec = { pop(SlideDirection.End) },
-                predictivePopTransitionSpec = { edge -> pop(predictiveDirection(edge)) },
-                entryProvider = entryProvider {
-                    entry<SetupRoute>(metadata = pill) {
-                        // Setup draws its stage on the first frame: a first run's time to full display is that, not all of setup.
-                        ReportDrawn()
-                        val scope = LocalNavAnimatedContentScope.current
-                        // Clear the whole stack: Setup can be opened from Home ("Retriever isn't ready yet").
-                        SetupScreen(onNavigate = moves().go, pillModifier = searchBounds(scope, false), onDone = {
-                            stack.clear()
-                            stack.add(HomeRoute)
-                        })
-                    }
-                    entry<HomeRoute>(metadata = pill) {
-                        val scope = LocalNavAnimatedContentScope.current
-                        HomeHost(moves().go, pillModifier = searchBounds(scope, false), morph = morph(scope))
-                    }
-                    entry<SearchRoute>(metadata = search + list) { route ->
-                        val scope = LocalNavAnimatedContentScope.current
-                        val m = moves()
-                        SearchScreen(route, m.go, m.back, searchBounds(scope, true), listMorph(scope))
-                    }
-                    entry<BrowseRoute>(metadata = list) { route ->
-                        val m = moves()
-                        BrowseScreen(route, m.go, m.back, morph = listMorph(LocalNavAnimatedContentScope.current))
-                    }
-                    entry<SettingsRoute> {
-                        val m = moves()
-                        SettingsScreen(m.back, onStatus = { m.go(StatusRoute) })
-                    }
-                    entry<FoldersRoute> {
-                        val m = moves()
-                        FoldersScreen(m.go, m.back)
-                    }
-                    entry<DuplicatesRoute> {
-                        val m = moves()
-                        DuplicatesScreen(m.go, m.back)
-                    }
-                    entry<StatusRoute> {
-                        val m = moves()
-                        StatusScreen(m.back, onNavigate = m.go, onOpenSettings = { m.go(SettingsRoute) })
-                    }
-                    entry<PlayerRoute>(metadata = viewer) { route ->
-                        val m = moves()
-                        PlayerScreen(route, m.back, m.replace)
-                    }
-                    entry<PdfRoute>(metadata = viewer) { route ->
-                        val m = moves()
-                        PdfPageScreen(route, m.back, m.replace)
-                    }
-                    // Only the backdrop and bar fade: the photo itself is the tile, growing.
-                    entry<PhotoRoute>(metadata = photo + viewer) { route ->
-                        val scope = LocalNavAnimatedContentScope.current
-                        // Home's tiles open a photo full screen even on a wide window; a list's open it beside the list.
-                        val fromList = stack.getOrNull(stack.indexOf(route) - 1).let { it is SearchRoute || it is BrowseRoute }
-                        PhotoScreen(route, moves().back, morph = if (fromList) listMorph(scope) else morph(scope), fullWindow = !(fromList && twoPanes))
-                    }
-                    entry<DocRoute>(metadata = viewer) { route ->
-                        val m = moves()
-                        DocScreen(route, m.back, m.replace)
-                    }
-                },
-            )
         }
     }
 }

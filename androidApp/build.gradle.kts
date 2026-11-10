@@ -179,6 +179,7 @@ dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
+    implementation(libs.compose.material3.navigation.suite)
     implementation(libs.compose.ui)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)

@@ -43,6 +43,9 @@ private const val STAR_IN_BAR_DP = 600
 
 internal fun starFitsInBar(screenWidthDp: Int) = screenWidthDp >= STAR_IN_BAR_DP
 
+/** A viewer shown beside its list: [toggle] gives it the whole window, or the list its pane back. */
+class PaneExpand(val expanded: Boolean, val toggle: () -> Unit)
+
 /**
  * Every viewer's bar: Back (or [navigationIcon]), the filename over an optional [subtitle], then Share, Star and the
  * file menu. [onBack] also closes the viewer when its file is deleted or renamed away.
@@ -59,6 +62,8 @@ internal fun ViewerTopBar(
     navigationIcon: @Composable () -> Unit = {
         IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
     },
+    /** Set for a document or PDF beside its list; null when the viewer has the window anyway. */
+    pane: PaneExpand? = null,
 ) {
     TopAppBar(
         title = {
@@ -70,7 +75,18 @@ internal fun ViewerTopBar(
             }
         },
         navigationIcon = navigationIcon,
-        actions = { ViewerActions(uri, stars, onBack) },
+        actions = {
+            pane?.let { pane ->
+                IconButton(onClick = pane.toggle) {
+                    if (pane.expanded) {
+                        Icon(painterResource(R.drawable.ic_close_fullscreen), contentDescription = "Show beside the list")
+                    } else {
+                        Icon(painterResource(R.drawable.ic_open_in_full), contentDescription = "Full screen")
+                    }
+                }
+            }
+            ViewerActions(uri, stars, onBack)
+        },
         colors = colors,
     )
 }

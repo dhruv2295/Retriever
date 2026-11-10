@@ -144,7 +144,14 @@ private sealed interface PdfState {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier, retriever: Retriever = koinInject()) {
+fun PdfPageScreen(
+    route: PdfRoute,
+    onBack: () -> Unit,
+    replace: (Route) -> Unit,
+    modifier: Modifier = Modifier,
+    pane: PaneExpand? = null,
+    retriever: Retriever = koinInject(),
+) {
     val context = LocalContext.current
     val appScope: CoroutineScope = koinInject(AppScope)
     val stars = koinViewModel<StarHolder>().stars
@@ -208,6 +215,7 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
                         IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
                     }
                 },
+                pane = pane,
             )
         },
         bottomBar = { ViewerStepBar(route.uri, replace) },
