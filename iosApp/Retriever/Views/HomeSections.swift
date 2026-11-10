@@ -25,7 +25,7 @@ struct SectionLink: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityHint("Shows all")
+        .accessibilityHint(Words.shared.strings.showsAll)
         .accessibilityAddTraits(.isHeader)
     }
 }
@@ -85,11 +85,7 @@ enum OnThisDay {
 
     /// "8 photos", "1 video", "5 photos and videos".
     static func countLine(photos: Int, videos: Int) -> String {
-        switch (photos, videos) {
-        case (_, 0): Words.shared.plural(n: Int64(photos), one: "photo", many: "photos")
-        case (0, _): Words.shared.plural(n: Int64(videos), one: "video", many: "videos")
-        default: "\(Copy.count(photos + videos)) photos and videos"
-        }
+        Words.shared.memoryCount(photos: Int64(photos), videos: Int64(videos))
     }
 }
 
@@ -142,10 +138,10 @@ struct OnThisDayStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(String(card.year)), \(card.count) from \(date)")
-                    .accessibilityHint("Shows them")
-                    .contextMenu { Button("Hide On This Day", systemImage: "eye.slash", action: hide) }
-                    .accessibilityAction(named: "Hide On This Day", hide)
+                    .accessibilityLabel(Words.shared.strings.onThisDaySpoken(year: Int32(truncatingIfNeeded: card.year), count: card.count, date: date))
+                    .accessibilityHint(Words.shared.strings.showsThem)
+                    .contextMenu { Button(Words.shared.strings.hideOnThisDayIos, systemImage: "eye.slash", action: hide) }
+                    .accessibilityAction(named: Words.shared.strings.hideOnThisDayIos, hide)
                 }
             }
             .padding(.vertical, 8)
@@ -191,9 +187,9 @@ struct TileStrip: View {
                     .menuStyle(.button)
                     .buttonStyle(.plain)
                     .accessibilityLabel(
-                        "\(Words.shared.kindLabel(kind: file.kind)), \(file.name), \(Format.date(file.takenAt?.int64Value ?? file.modifiedAt))"
-                            + (badge ? ", starred" : "")
-                    )
+                        Words.shared.strings.homeTileSpoken(
+                            kind: Words.shared.kindLabel(kind: file.kind), name: file.name, date: Format.date(file.takenAt?.int64Value ?? file.modifiedAt),
+                            starred: badge))
                     .accessibilityActions { FileActionButtons(file: file, starred: starred.contains(file.uri)) }
                 }
             }
@@ -260,7 +256,7 @@ struct PeopleStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(title), \(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos"))")
+                    .accessibilityLabel(Words.shared.strings.personTileSpoken(name: title, photos: Int64(p.photos)))
                 }
             }
             .padding(.vertical, 8)

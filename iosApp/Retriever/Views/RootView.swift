@@ -147,7 +147,7 @@ struct AppStack<Root: View>: View {
             StatusView(model: model)
         case .setup:
             SetupView(model: model) { path = [] }
-                .navigationTitle("Setup")
+                .navigationTitle(Words.shared.strings.setupTitle)
                 .navigationBarTitleDisplayMode(.inline)
         case .settings:
             SettingsView(model: model)

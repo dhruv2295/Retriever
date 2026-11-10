@@ -1,0 +1,54 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSPhotoLibraryUsageDescription": {
+      "comment": "The Photos access prompt. Machine-translated, awaiting native review.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retriever verarbeitet deine Fotos auf diesem iPhone, damit du sie anhand ihres Inhalts findest. Nichts verlässt dein iPhone."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retriever processes your photos on this iPhone so you can find them by what’s in them. Nothing leaves your iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retriever procesa tus fotos en este iPhone para que puedas encontrarlas por lo que aparece en ellas. Nada sale de tu iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retriever traite vos photos sur cet iPhone pour que vous puissiez les retrouver d’après ce qu’elles montrent. Rien ne quitte votre iPhone."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retriever इस iPhone पर आपकी फ़ोटो प्रोसेस करता है, ताकि आप उन्हें उनमें दिख रही चीज़ों से ढूंढ सकें. कुछ भी आपके iPhone से बाहर नहीं जाता."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retriever はこの iPhone 上で写真を処理し、写っている内容から写真を見つけられるようにします。データが iPhone の外に出ることはありません。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Retriever processa suas fotos neste iPhone para que você possa encontrá-las pelo que aparece nelas. Nada sai do seu iPhone."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

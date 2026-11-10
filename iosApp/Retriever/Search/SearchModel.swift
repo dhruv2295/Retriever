@@ -41,11 +41,11 @@ final class SearchModel {
 
         var title: String {
             switch self {
-            case .all: "All"
-            case .photos: "Photos"
-            case .videos: "Videos"
-            case .documents: "Documents"
-            case .starred: "Starred"
+            case .all: Words.shared.strings.filterAll
+            case .photos: Words.shared.strings.scopePhotos
+            case .videos: Words.shared.kindLabelPlural(kind: .video)
+            case .documents: Words.shared.strings.scopeDocuments
+            case .starred: Words.shared.strings.filterStarred
             }
         }
 
@@ -75,8 +75,10 @@ final class SearchModel {
         var kept: String? {
             switch self {
             case .all: nil
-            case .starred: "starred files"
-            default: title.lowercased()
+            case .starred: Words.shared.strings.starredFiles
+            case .photos: Words.shared.strings.kindsInSentence(kind: .photo)
+            case .videos: Words.shared.strings.kindsInSentence(kind: .video)
+            case .documents: Words.shared.strings.kindsInSentence(kind: .doc)
             }
         }
 

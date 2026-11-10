@@ -70,7 +70,7 @@ struct SearchView: View {
         )
         .searchScopes($search.scope, activation: .onSearchPresentation) {
             // Five titles must fit the bar on an iPhone, so Documents is "Docs" there.
-            ForEach(SearchModel.Scope.allCases) { Text($0 == .documents ? "Docs" : $0.title).tag($0) }
+            ForEach(SearchModel.Scope.allCases) { Text($0 == .documents ? Words.shared.strings.docsShort : $0.title).tag($0) }
         }
         // No recents or examples on the first run: the demo offers its own words.
         .searchSuggestions { if trial == nil { suggestions } }
@@ -80,14 +80,14 @@ struct SearchView: View {
                 // Matching a photo needs the meaning upgrade.
                 if trial?.photoSearch ?? model.meaningSearch {
                     PhotosPicker(selection: $picked, matching: .images) {
-                        Label("Search by photo", systemImage: "photo.badge.magnifyingglass")
+                        Label(Words.shared.strings.searchByPhoto, systemImage: "photo.badge.magnifyingglass")
                     }
                 }
             }
             // At regular width the sidebar lists Settings.
             if sizeClass != .regular, trial == nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: Route.settings) { Label("Settings", systemImage: "gearshape") }
+                    NavigationLink(value: Route.settings) { Label(Words.shared.strings.appSettings, systemImage: "gearshape") }
                 }
             }
         }
@@ -134,14 +134,14 @@ struct SearchView: View {
                     }
                 }
             } else {
-                Section("Recent searches") {
+                Section(Words.shared.strings.recentSearches) {
                     ForEach(search.recent, id: \.self) { q in
                         Label(q, systemImage: "clock.arrow.circlepath")
                             .searchCompletion(q)
-                            .swipeActions { Button("Remove", role: .destructive) { search.removeRecent(q) } }
-                            .contextMenu { Button("Remove from recent searches", systemImage: "trash", role: .destructive) { search.removeRecent(q) } }
+                            .swipeActions { Button(Words.shared.strings.removeSearch, role: .destructive) { search.removeRecent(q) } }
+                            .contextMenu { Button(Words.shared.strings.removeFromRecentSearches, systemImage: "trash", role: .destructive) { search.removeRecent(q) } }
                     }
-                    Button("Clear recent searches", role: .destructive) { search.clearRecent() }
+                    Button(Words.shared.strings.clearRecentSearches, role: .destructive) { search.clearRecent() }
                 }
             }
         }
@@ -230,7 +230,7 @@ private struct ResultsView: View {
                 if let answer = search.answer, answer.key.query == search.query, !answer.hits.isEmpty {
                     list(answer)
                 } else {
-                    StateView(mood: .trouble, title: Words.shared.SEARCH_FAILED, message: "Something went wrong searching.") {
+                    StateView(mood: .trouble, title: Words.shared.SEARCH_FAILED, message: Words.shared.strings.somethingWentWrongSearching) {
                         Button(Words.shared.TRY_AGAIN, action: search.retry).buttonStyle(.primaryAction)
                     }
                 }
@@ -252,7 +252,7 @@ private struct ResultsView: View {
                 } else if search.pondering {
                     VStack(spacing: 8) {
                         MascotView(mood: .searching).frame(maxWidth: 160)
-                        Text("Looking…").font(.subheadline).foregroundStyle(.secondary)
+                        Text(Words.shared.strings.lookingEllipsis).font(.subheadline).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityElement(children: .combine)
@@ -276,41 +276,41 @@ private struct ResultsView: View {
         let scope = answer.key.scope
         if scope.needsPhotos && (photos == .denied || photos == .restricted) {
             StateView(
-                art: "IllusWelcome", title: "Photos access is off",
-                message: "Turn it on in Settings, and Retriever can search your \(scope.title.lowercased()) too."
+                art: "IllusWelcome", title: Words.shared.strings.photosAccessOff,
+                message: Words.shared.strings.turnOnToSearchScope(scope: scope.kept ?? scope.title)
             ) {
-                Button("Open Settings", action: model.openSettings).buttonStyle(.primaryAction)
+                Button(Words.shared.strings.openSettings, action: model.openSettings).buttonStyle(.primaryAction)
             }
         } else if scope.needsPhotos && photos == .limited {
             StateView(
-                mood: .noMatch, title: "No matches in the photos you picked",
-                message: "Retriever can only see the photos you chose. Pick more to search more of them."
+                mood: .noMatch, title: Words.shared.strings.noMatchesInPickedPhotos,
+                message: Words.shared.strings.onlySeesChosenPhotos
             ) {
-                Button("Choose more photos", action: model.chooseMorePhotos).buttonStyle(.primaryAction)
+                Button(Words.shared.strings.chooseMorePhotos, action: model.chooseMorePhotos).buttonStyle(.primaryAction)
             }
         } else if search.photo != nil && !answer.vectorLane {
-            StateView(mood: .walking, title: "Not quite ready", message: "Search by photo works once setup finishes.")
+            StateView(mood: .walking, title: Words.shared.strings.notQuiteReady, message: Words.shared.strings.photoSearchAfterSetup)
         } else if let parsed = answer.parsed, !parsed.understood.isEmpty, parsed.text.trimmingCharacters(in: .whitespaces).isEmpty {
             // Only filters, and even without them nothing in this scope: say what was looked for.
             StateView(
                 mood: search.noMatchMood, title: parsed.missing(),
-                message: scope == .all ? "Nothing like that on this \(Copy.device) yet." : "Nothing in \(scope.title) fits. Try all your files."
+                message: scope == .all ? Words.shared.strings.nothingLikeThatOn(words: Copy.words) : Words.shared.strings.nothingInScopeFits(scope: scope.title)
             ) {
-                if scope != .all { Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction) }
+                if scope != .all { Button(Words.shared.strings.searchAllFiles) { search.scope = .all }.buttonStyle(.primaryAction) }
             }
         } else if scope == .starred && search.photo == nil {
-            StateView(mood: search.noMatchMood, title: "No starred file matches “\(q)”", message: "Only files you've starred show here. Try all your files.") {
-                Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction)
+            StateView(mood: search.noMatchMood, title: Words.shared.strings.noStarredMatch(query: q), message: Words.shared.strings.onlyStarredShowHere) {
+                Button(Words.shared.strings.searchAllFiles) { search.scope = .all }.buttonStyle(.primaryAction)
             }
         } else if scope != .all {
             StateView(
-                mood: search.noMatchMood, title: search.photo != nil ? "Nothing like this photo in \(scope.title)" : "No matches for “\(q)”",
-                message: search.photo != nil ? "Try all your files instead." : "Nothing in \(scope.title) matches. Try all your files."
+                mood: search.noMatchMood, title: search.photo != nil ? Words.shared.strings.nothingLikePhotoIn(scope: scope.title) : Words.shared.strings.noMatchesFor(query: q),
+                message: search.photo != nil ? Words.shared.strings.tryAllFilesInstead : Words.shared.strings.nothingInScopeMatches(scope: scope.title)
             ) {
-                Button("Search all files") { search.scope = .all }.buttonStyle(.primaryAction)
+                Button(Words.shared.strings.searchAllFiles) { search.scope = .all }.buttonStyle(.primaryAction)
             }
         } else if search.photo != nil {
-            StateView(mood: search.noMatchMood, title: "Nothing like this yet", message: "Try another photo.")
+            StateView(mood: search.noMatchMood, title: Words.shared.strings.nothingLikeThisYet, message: Words.shared.strings.tryAnotherPhoto)
         } else {
             NoMatches(mood: search.noMatchMood, pinned: pinned, model: model)
         }
@@ -327,7 +327,7 @@ private struct ResultsView: View {
                 header(answer)
                 sections(Array(answer.hits.prefix(strong)), answer: answer, rows: rows)
                 if !weak.isEmpty {
-                    DisclosureGroup("Less likely matches (\(weak.count))", isExpanded: $expanded) {
+                    DisclosureGroup(Words.shared.strings.lessLikelyMatches(n: Int64(weak.count)), isExpanded: $expanded) {
                         sections(weak, answer: answer, rows: rows, titled: false)
                     }
                 }
@@ -359,15 +359,15 @@ private struct ResultsView: View {
         if let photo = search.photo {
             HStack(spacing: 8) {
                 Image(uiImage: photo.thumb).resizable().scaledToFill().frame(width: 28, height: 28).clipShape(Circle())
-                    .accessibilityLabel("The photo you're searching with")
-                Text("Like this photo").font(.subheadline.weight(.medium))
+                    .accessibilityLabel(Words.shared.strings.photoYoureSearchingWith)
+                Text(Words.shared.strings.likeThisPhoto).font(.subheadline.weight(.medium))
                 Button {
                     search.clearPhoto()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .accessibilityLabel("Stop searching by photo")
+                .accessibilityLabel(Words.shared.strings.stopSearchingByPhoto)
             }
             .padding(.leading, 4)
             .padding(.trailing, 10)
@@ -395,11 +395,11 @@ private struct ResultsView: View {
         } else if !answer.vectorLane {
             HStack(spacing: 10) {
                 Image("IllusReading").resizable().scaledToFit().frame(width: 36).accessibilityHidden(true)
-                Text("Matching exact words for now. Results by description will be back shortly.").font(.footnote).foregroundStyle(.secondary)
+                Text(Words.shared.strings.matchingExactWordsForNow).font(.footnote).foregroundStyle(.secondary)
             }
         }
         if answer.key.scope == .all && (photos == .denied || photos == .restricted) {
-            Text("Photos access is off, so these results leave out your photos.").font(.footnote).foregroundStyle(.secondary)
+            Text(Words.shared.strings.photosOffResults).font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -415,19 +415,19 @@ private struct ResultsView: View {
         mediaSection(after.filter(inGrid), answer: answer, rows: rows, titled: titled)
         docSection(
             after.filter { !inGrid($0) }, answer: answer, rows: rows, titled: titled,
-            title: lead.isEmpty ? "Documents and more" : "More documents")
-        docSection(hits.filter { $0.file.kind == .audio }, answer: answer, rows: rows, titled: titled, title: "Recordings")
+            title: lead.isEmpty ? Words.shared.strings.documentsAndMore : Words.shared.strings.moreDocuments)
+        docSection(hits.filter { $0.file.kind == .audio }, answer: answer, rows: rows, titled: titled, title: Words.shared.strings.recordings)
     }
 
     @ViewBuilder private func mediaSection(_ hits: [SearchEngine.Hit], answer: SearchModel.Answer, rows: Rows, titled: Bool) -> some View {
         if !hits.isEmpty {
-            if titled { SectionTitle("Photos and videos") }
+            if titled { SectionTitle(Words.shared.PHOTOS_AND_VIDEOS) }
             LazyVGrid(columns: gridColumns(typeSize, spacing: 8), spacing: 8) {
                 ForEach(hits, id: \.fileId) { hit in
                     ResultCell(
                         file: hit.file, locator: hit.locator, starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) },
                         extent: answer.extents[hit.fileId], onFindSimilar: rows.similar,
-                        matchReason: [hit.matchReason, copiesNote(hit)].compactMap { $0 }.joined(separator: " · ").nonEmpty,
+                        matchReason: Words.shared.strings.reasonLine(parts: [hit.matchReason, copiesNote(hit)].compactMap { $0 }).nonEmpty,
                         copies: hit.copies.map(\.file), onOpenCopy: { copy in openCopy(copy, of: hit) })
                 }
             }
@@ -436,7 +436,7 @@ private struct ResultsView: View {
 
     @ViewBuilder private func docSection(
         _ hits: [SearchEngine.Hit], answer: SearchModel.Answer, rows: Rows, titled: Bool,
-        title: String = "Documents and more"
+        title: String = Words.shared.strings.documentsAndMore
     ) -> some View {
         if !hits.isEmpty {
             if titled { SectionTitle(title) }
@@ -446,7 +446,7 @@ private struct ResultsView: View {
                         file: hit.file, locator: hit.locator, snippet: hit.snippet, styledName: answer.names[hit.fileId], extent: answer.extents[hit.fileId],
                         starred: rows.starred.contains(hit.file.uri), onOpen: { open(hit) }, onFindSimilar: rows.similar,
                         copies: hit.copies.map(\.file), onOpenCopy: { copy in openCopy(copy, of: hit) })
-                    if let reason = [hit.matchReason, copiesNote(hit)].compactMap({ $0 }).joined(separator: " · ").nonEmpty {
+                    if let reason = Words.shared.strings.reasonLine(parts: [hit.matchReason, copiesNote(hit)].compactMap { $0 }).nonEmpty {
                         Text(reason).font(.caption).foregroundStyle(.secondary)
                     }
                     Divider()
@@ -483,8 +483,7 @@ private struct NoMatches: View {
         let waiting = ((pinned ?? model.snap)?.pending ?? 0) > 0
         StateView(
             mood: waiting ? .walking : mood, title: Words.shared.NO_MATCHES,
-            message: [Words.shared.noMatchesDetail(byMeaning: model.meaningSearch), waiting ? Words.shared.MORE_WAITING : nil]
-                .compactMap { $0 }.joined(separator: " "))
+            message: Words.shared.strings.noMatchesMessage(byMeaning: model.meaningSearch, waiting: waiting, wordsOnly: false))
     }
 }
 

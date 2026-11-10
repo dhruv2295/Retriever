@@ -9,6 +9,7 @@ import app.retriever.core.Kind
 import app.retriever.core.Person
 import app.retriever.core.Retriever
 import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.nav.BrowseRoute
 import app.retriever.starred.Starring
 import app.retriever.ui.launchCatching
@@ -146,7 +147,7 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
             Log.e("Retriever", "BrowseViewModel", it)
             if (gen == generation) {
                 busy = false
-                paged.update { s -> s.copy(loading = false, error = "Couldn't load these files.") }
+                paged.update { s -> s.copy(loading = false, error = Words.strings.couldntLoadTheseFiles) }
             }
         }) {
             val from = route.takenFrom

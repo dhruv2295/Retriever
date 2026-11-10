@@ -18,6 +18,7 @@
 package app.retriever.ui
 
 import android.content.Context
+import android.text.format.DateFormat
 import android.text.format.Formatter
 import androidx.compose.ui.text.TextStyle
 import app.retriever.core.Kind
@@ -51,9 +52,9 @@ object Format {
 
     /** What a search kept when the chips narrow it, as a plural noun ("starred PDFs", "photos"); null when it kept everything. */
     fun scope(chip: Kind?, onlyStarred: Boolean): String? {
-        val kind = chip?.let(Words::kindLabelPlural)?.let { k -> if (k[1].isUpperCase()) k else k.lowercase() }
+        val kind = chip?.let(Words.strings::kindsInSentence)
         return when {
-            onlyStarred -> "starred ${kind ?: "files"}"
+            onlyStarred -> Words.strings.starredScope(kind)
             else -> kind
         }
     }
@@ -70,11 +71,15 @@ object Format {
     }
 
     /** "October 2026", in the phone's time zone: a month header over a date-ordered grid. */
-    fun month(ms: Long): String =
-        DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault(Locale.Category.FORMAT)).format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+    fun month(ms: Long): String {
+        val locale = Locale.getDefault(Locale.Category.FORMAT)
+        // The locale's own order and words: "2026年11月", not "11月 2026".
+        val pattern = DateFormat.getBestDateTimePattern(locale, "MMMMyyyy")
+        return DateTimeFormatter.ofPattern(pattern, locale).format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
+    }
 
     /** "p. 12" becomes "Page 12", a time stays as it is, anything else has no label. */
-    fun locatorLabel(locator: String): String? = Locator.pageOf(locator)?.let { "Page $it" } ?: locator.takeIf { Locator.msOf(it) != null }
+    fun locatorLabel(locator: String): String? = Locator.pageOf(locator)?.let { Words.strings.pageBadge(it) } ?: locator.takeIf { Locator.msOf(it) != null }
 
     fun count(n: Long): String = formatCount(n)
 }

@@ -24,8 +24,8 @@ struct SettingsView: View {
             if !snap.textOnly { searchByMeaning(snap) }
             includedFiles(snap)
             Section {
-                Toggle("Save recent searches", isOn: Binding(get: { snap.rememberSearches }, set: model.setRememberSearches))
-                Button(searchesCleared ? "Cleared" : "Clear recent searches", role: .destructive) { confirmingClear = true }
+                Toggle(Words.shared.strings.saveRecentSearches, isOn: Binding(get: { snap.rememberSearches }, set: model.setRememberSearches))
+                Button(searchesCleared ? Words.shared.strings.cleared : Words.shared.strings.clearRecentSearches, role: .destructive) { confirmingClear = true }
                     .disabled(searchesCleared)
                 // Off forgets every face and name, so it asks first; on starts looking at photos.
                 Toggle(
@@ -35,12 +35,12 @@ struct SettingsView: View {
                     Text(Words.shared.RECOGNIZE_PEOPLE_DETAIL)
                 }
             } header: {
-                Text("Privacy")
+                Text(Words.shared.strings.privacy)
             } footer: {
-                Text("Saved on this \(Copy.device) only. Nothing is sent anywhere.")
+                Text(Words.shared.strings.savedOnDeviceOnly(words: Copy.words))
             }
             storage(snap)
-            Section("Appearance") {
+            Section(Words.shared.strings.appearance) {
                 Toggle(Words.shared.SHOW_ON_THIS_DAY, isOn: Binding(get: { snap.showOnThisDay }, set: model.setShowOnThisDay))
             }
             about
@@ -50,7 +50,7 @@ struct SettingsView: View {
         }
         // Prominent headers are full contrast (the default grey nearly fails), as Home's are.
         .headerProminence(.increased)
-        .navigationTitle("Settings")
+        .navigationTitle(Words.shared.strings.appSettings)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.modelMissing) { await model.loadStorage() }
         #if DEBUG
@@ -66,14 +66,14 @@ struct SettingsView: View {
         } message: {
             Text(Words.shared.FORGET_PEOPLE_BODY)
         }
-        .confirmationDialog("Clear recent searches?", isPresented: $confirmingClear, titleVisibility: .visible) {
-            Button("Clear", role: .destructive) {
+        .confirmationDialog(Words.shared.strings.clearRecentSearchesAsk, isPresented: $confirmingClear, titleVisibility: .visible) {
+            Button(Words.shared.strings.clear, role: .destructive) {
                 model.clearRecentSearches()
                 searchesCleared = true
             }
         }
         .confirmationDialog(Words.shared.REMOVE_DOWNLOAD_ASK, isPresented: $confirmingFree, titleVisibility: .visible) {
-            Button("Remove download", role: .destructive, action: model.freeUpSpace)
+            Button(Words.shared.strings.removeDownloadConfirm, role: .destructive, action: model.freeUpSpace)
         } message: {
             Text(Words.shared.removeDownloadMessage(size: model.storage.map { Copy.downloadSize($0.model) }))
         }
@@ -98,11 +98,9 @@ struct SettingsView: View {
     private var howItWorks: some View {
         Section {
             DisclosureGroup(Words.shared.HOW_IT_WORKS) {
-                Text(
-                    "Retriever processes your files on this \(Copy.device). Your searches, stars and what it finds inside stay here. Downloading search by description and opening files stored in iCloud may use the internet."
-                )
+                Text(Words.shared.strings.privacyBody(words: Copy.words))
                 Text(Copy.backgroundNote)
-                Text("Long files are processed a bit at a time: you can find them by their beginning first, and the rest follows.")
+                Text(Words.shared.strings.longFilesBitAtATime)
             }
         }
     }
@@ -128,14 +126,14 @@ struct SettingsView: View {
                 snap.automaticReading == .charging
                     ? Words.shared.whileChargingBody(words: Copy.words)
                     : snap.automaticReading == .manual
-                        ? "Only when you choose \(Words.shared.READ_FOR_15). You can always find any file by its name."
-                        : "Processes your files while Retriever is open, above 20% battery. When you’re not using it, iOS waits until your \(Copy.device) is charging. Pauses when your \(Copy.device) is warm or in Low Power Mode."
+                        ? Words.shared.strings.onlyWhenYouChooseAnyFile
+                        : Words.shared.strings.alsoOnBatteryIosBody(words: Copy.words)
             ).font(.footnote)
             if #available(iOS 26.0, *) {
                 EmptyView()
             } else {
                 Toggle(
-                    "Keep the screen on while processing for 15 minutes",
+                    Words.shared.strings.keepScreenOnToggle,
                     isOn: Binding(
                         get: { model.keepScreenAwakeForSession },
                         set: {
@@ -144,9 +142,9 @@ struct SettingsView: View {
                         }))
             }
             if model.meaningSearch {
-                DisclosureGroup("Adjust processing for this \(Copy.device)") {
-                    Text("Run the setup check again.")
-                    Button("Run setup check", action: model.tuneAgain)
+                DisclosureGroup(Words.shared.strings.adjustProcessingFor(words: Copy.words)) {
+                    Text(Words.shared.strings.runSetupCheckAgain)
+                    Button(Words.shared.strings.runSetupCheck, action: model.tuneAgain)
                 }
             }
             if let message = model.readingMessage { Text(message).foregroundStyle(.red) }
@@ -159,17 +157,17 @@ struct SettingsView: View {
         }
         Section {
             // No platform reads audio yet, so it has no switch: only the plain fact.
-            LabeledContent("Audio", value: Words.shared.FOUND_BY_NAME)
+            LabeledContent(Words.shared.kindLabelPlural(kind: .audio), value: Words.shared.FOUND_BY_NAME)
             ForEach(snap.textOnly ? AppModel.Snap.insideTextOnly : AppModel.Snap.inside, id: \.self) { kind in
                 Toggle(Self.label(kind), isOn: Binding(get: { snap.kinds.contains(kind) }, set: { model.setKind(kind, $0) }))
             }
         } header: {
             Text(Words.shared.PROCESS_THESE_KINDS)
         } footer: {
-            Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : "\(Words.shared.KIND_OFF) Videos: pictures only, no sound.")
+            Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : Words.shared.strings.kindsFooterVideos)
         }
         Section {
-            if snap.excludedFolders.isEmpty { Text("None").foregroundStyle(.secondary) }
+            if snap.excludedFolders.isEmpty { Text(Words.shared.strings.noneExcluded).foregroundStyle(.secondary) }
             ForEach(snap.excludedFolders.sorted(), id: \.self) { path in
                 let name = path.split(separator: "/").last.map(String.init) ?? path
                 HStack {
@@ -178,24 +176,24 @@ struct SettingsView: View {
                     Button {
                         model.restoreFolder(path)
                     } label: {
-                        Text("Include folder").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        Text(Words.shared.strings.includeFolder).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel("Include “\(name)”")
+                    .accessibilityLabel(Words.shared.strings.includeQuoted(name: name))
                 }
             }
         } header: {
             Text(Words.shared.FOLDERS_TO_SKIP)
         } footer: {
-            Text("Retriever doesn’t look in these. Your files stay where they are.")
+            Text(Words.shared.strings.doesntLookInThese)
         }
     }
 
     /// What Retriever keeps on the device: each a title, then its size. Large files and duplicates are on Home.
     @ViewBuilder private func storage(_ snap: AppModel.Snap) -> some View {
         let sizes = model.storage
-        Section("Storage") {
-            TitleAndDetail(title: Words.shared.RETRIEVERS_DATA, detail: Words.shared.keptOn(size: sizes.map { Copy.bytes($0.index) } ?? "…", words: Copy.words))
+        Section(Words.shared.strings.storage) {
+            TitleAndDetail(title: Words.shared.RETRIEVERS_DATA, detail: Words.shared.keptOn(size: sizes.map { Copy.bytes($0.index) } ?? Words.shared.strings.sizePending, words: Copy.words))
             if !snap.textOnly, let cache = sizes?.cache, cache > 0, !model.modelMissing {
                 TitleAndDetail(title: Words.shared.TEMPORARY_FILES, detail: Words.shared.keptOn(size: Copy.bytes(cache), words: Copy.words))
             }
@@ -211,11 +209,11 @@ struct SettingsView: View {
             } else {
                 UpgradeCard(model: model)
             }
-            Toggle("Use mobile data for downloads", isOn: Binding(get: { model.useMobileData }, set: model.setUseMobileData))
+            Toggle(Words.shared.strings.useMobileDataForDownloads, isOn: Binding(get: { model.useMobileData }, set: model.setUseMobileData))
         } header: {
             Text(Words.shared.SEARCH_BY_MEANING)
         } footer: {
-            Text(model.useMobileData ? "Downloads on Wi-Fi or mobile data." : "Downloads wait for Wi-Fi, so they won't use your data.")
+            Text(model.useMobileData ? Words.shared.strings.downloadsOnWifiOrData : Words.shared.strings.downloadsWaitForWifi)
         }
     }
 
@@ -237,9 +235,9 @@ struct SettingsView: View {
     #endif
 
     private var about: some View {
-        Section("About") {
-            LabeledContent("Version", value: Self.version)
-            NavigationLink("Open-source notices") { Notices() }
+        Section(Words.shared.strings.about) {
+            LabeledContent(Words.shared.strings.version, value: Self.version)
+            NavigationLink(Words.shared.strings.openSourceNotices) { Notices() }
             #if DEBUG
                 if let problems {
                     ShareLink(item: problems.url) { Text("Diagnostics (\(problems.count))") }
@@ -256,13 +254,13 @@ struct SettingsView: View {
 
     private static func label(_ kind: Kind) -> String {
         switch kind {
-        case .photo: "Photos"
-        case .screenshot: "Screenshots"
-        case .pdf: "PDFs"
-        case .doc: "Documents"
-        case .audio: "Audio"
-        case .video: "Videos"
-        default: "Other files"
+        case .photo: Words.shared.kindLabelPlural(kind: .photo)
+        case .screenshot: Words.shared.kindLabelPlural(kind: .screenshot)
+        case .pdf: Words.shared.kindLabelPlural(kind: .pdf)
+        case .doc: Words.shared.kindLabelPlural(kind: .doc)
+        case .audio: Words.shared.kindLabelPlural(kind: .audio)
+        case .video: Words.shared.kindLabelPlural(kind: .video)
+        default: Words.shared.kindLabelPlural(kind: .other)
         }
     }
 }
@@ -289,17 +287,17 @@ private struct Notices: View {
 
     var body: some View {
         ScrollView {
-            Text(text ?? AttributedString("Loading…"))
+            Text(text ?? AttributedString(Words.shared.strings.loading))
                 .font(.footnote)
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle("Open-source notices")
+        .navigationTitle(Words.shared.strings.openSourceNotices)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             let raw =
                 Bundle.main.url(forResource: "THIRD_PARTY_NOTICES", withExtension: "md").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-                ?? "Retriever is built on open-source software. Its licences couldn't be shown just now."
+                ?? Words.shared.strings.noticesUnavailable
             text = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(raw)
         }
     }

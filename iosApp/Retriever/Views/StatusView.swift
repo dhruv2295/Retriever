@@ -29,7 +29,7 @@ struct StatusContent: View {
             Section { details }
             photosSection
             Section {
-                NavigationLink("Settings", value: Route.settings)
+                NavigationLink(Words.shared.strings.appSettings, value: Route.settings)
             } footer: {
                 Text(Copy.backgroundNote).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
@@ -86,7 +86,7 @@ struct StatusContent: View {
                 }
                 .accessibilityElement(children: .combine)
             }
-            Button("Try again", action: model.retrySkipped)
+            Button(Words.shared.TRY_AGAIN, action: model.retrySkipped)
         } label: {
             Text(Words.shared.couldntProcess(files: Int64(snap.skipped)))
         }
@@ -96,15 +96,15 @@ struct StatusContent: View {
         switch model.photos {
         case .limited:
             Section {
-                Button("Choose more photos", action: model.chooseMorePhotos)
+                Button(Words.shared.strings.chooseMorePhotos, action: model.chooseMorePhotos)
             } footer: {
-                Text("Retriever can only see the photos you picked.")
+                Text(Words.shared.strings.onlySeesPickedPhotos)
             }
         case .denied, .restricted:
             Section {
-                Button("Open Settings", action: model.openSettings)
+                Button(Words.shared.strings.openSettings, action: model.openSettings)
             } footer: {
-                Text("Photos access is off, so Retriever can't search your photos.")
+                Text(Words.shared.strings.photosOffCantSearch)
             }
         default:
             EmptyView()

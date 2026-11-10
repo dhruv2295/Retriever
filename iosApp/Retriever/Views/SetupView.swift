@@ -506,7 +506,7 @@ private struct DemoChips: View {
     }
 
     private func chip(_ term: String) -> some View {
-        Button(term) { search.setText(term) }.buttonStyle(.bordered).accessibilityHint("Searches for this")
+        Button(term) { search.setText(term) }.buttonStyle(.bordered).accessibilityHint(Words.shared.strings.searchesForThis)
     }
 }
 
@@ -612,7 +612,7 @@ private struct SampleList: View {
             SampleRows(sample: sample)
                 .navigationTitle(Words.shared.readOf(done: Int64(model.taste.done), total: Int64(model.taste.planned)))
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button(Words.shared.DONE) { dismiss() } } }
         }
     }
 }
@@ -639,7 +639,7 @@ private struct SampleRows: View {
                     row
                 }
                 .tint(.primary)
-                .accessibilityHint("Open file")
+                .accessibilityHint(Words.shared.strings.openFileHint)
             } else {
                 row
             }
@@ -656,7 +656,7 @@ private struct SetupBack: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             if search?.active ?? true {
-                Button("Back", systemImage: "chevron.backward") {
+                Button(Words.shared.strings.back, systemImage: "chevron.backward") {
                     if let search, search.active {
                         search.setText("")
                         search.clearPhoto()

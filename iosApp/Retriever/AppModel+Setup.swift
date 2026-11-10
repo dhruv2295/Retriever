@@ -78,7 +78,7 @@ extension AppModel {
                 try await retriever.finishSetup()
                 IndexTask.schedule()
                 wake()
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
+            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
 
@@ -295,9 +295,9 @@ struct TasteSnap: Equatable, Sendable {
 
     /// For a screen reader only: "6 of 6 screenshots read, 4 of 8 PDFs read".
     var spoken: String {
-        counts.sorted { $0.key.ordinal < $1.key.ordinal }
-            .map { Words.shared.kindRead(read: Int64($0.value.read), planned: Int64($0.value.planned), kind: $0.key) }
-            .joined(separator: ", ")
+        Words.shared.strings.kindsReadSpoken(
+            parts: counts.sorted { $0.key.ordinal < $1.key.ordinal }
+                .map { Words.shared.kindRead(read: Int64($0.value.read), planned: Int64($0.value.planned), kind: $0.key) })
     }
 
     init(counts: [Kind: Count] = [:], pending: Int = 0) {

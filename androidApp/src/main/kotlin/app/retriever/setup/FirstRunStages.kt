@@ -172,7 +172,17 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
                 ONLY_PICKED_PHOTOS.takeIf { !a.allFiles && a.photos == Photos.SELECTED },
             )
             AccessRow(kindIcon(Kind.AUDIO), Words.kindLabelPlural(Kind.AUDIO), a.allFiles || a.audio, actions.allowMedia)
-            AccessRow(R.drawable.ic_folder_open, Words.ADD_FOLDER, false, actions.addFolder, a.folders.joinToString(" · ") { it.name }.ifEmpty { null })
+            AccessRow(
+                R.drawable.ic_folder_open,
+                Words.ADD_FOLDER,
+                false,
+                actions.addFolder,
+                Words.strings.folderNames(
+                    a.folders.map {
+                        it.name
+                    },
+                ).ifEmpty { null },
+            )
         }
         if (asked && !a.ready) Muted(Words.NOTHING_SELECTED)
         folderError?.let { ErrorText(it) }
@@ -189,7 +199,7 @@ private fun AccessRow(icon: Int, label: String, given: Boolean, onClick: () -> U
         trailingContent = {
             Icon(
                 painterResource(if (given) R.drawable.ic_check_circle else R.drawable.ic_keyboard_arrow_right),
-                contentDescription = if (given) "Allowed" else null,
+                contentDescription = if (given) Words.ALLOWED else null,
                 tint = if (given) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },

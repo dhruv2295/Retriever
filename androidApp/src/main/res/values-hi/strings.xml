@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Machine-translated, awaiting native review. The app's own words are in core's hi Strings table. -->
+<resources>
+    <string name="language">hi</string>
+    <string name="shortcut_search_short">खोजें</string>
+    <string name="shortcut_search_long">अपनी फ़ाइलें खोजें</string>
+</resources>

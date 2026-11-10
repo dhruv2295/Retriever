@@ -34,11 +34,11 @@ internal fun PersonActions(person: Person?, others: List<Person>, onRename: (Str
     var picking by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     IconButton(onClick = { renaming = true }) {
-        Icon(painterResource(R.drawable.ic_edit), contentDescription = if (person?.name == null) Words.ADD_A_NAME else "Rename")
+        Icon(painterResource(R.drawable.ic_edit), contentDescription = if (person?.name == null) Words.ADD_A_NAME else Words.strings.rename)
     }
     if (others.isNotEmpty()) {
         IconButton(onClick = { menu = true }) {
-            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options")
+            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptions)
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text(Words.SAME_PERSON_AS) }, onClick = {
                     menu = false
@@ -71,7 +71,7 @@ internal fun PersonActions(person: Person?, others: List<Person>, onRename: (Str
                     items(others, key = { it.id }) { p ->
                         ListItem(
                             headlineContent = { Text(Words.personTitle(p.name)) },
-                            supportingContent = { Text(Words.plural(p.photos.toLong(), "photo")) },
+                            supportingContent = { Text(Words.photos(p.photos.toLong())) },
                             leadingContent = { FaceAvatar(p.cover, p.name, 40.dp) },
                             modifier = Modifier.clickable {
                                 onSameAs(p.id)

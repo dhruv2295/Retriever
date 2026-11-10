@@ -67,15 +67,15 @@ struct HomeList: View {
         let photosOff = photos == .notDetermined || photos == .denied || photos == .restricted
         Section {
             StateView(
-                mood: looking ? .walking : .noMatch, title: looking ? "Looking for your files" : "Nothing to search yet",
+                mood: looking ? .walking : .noMatch, title: looking ? Words.shared.strings.lookingForYourFiles : Words.shared.strings.nothingToSearchYet,
                 message: looking
-                    ? "This takes a minute. You can search by name as soon as they turn up."
-                    : "Add a folder, or let Retriever see your photos, and it'll find what's inside them."
+                    ? Words.shared.strings.takesAMinute
+                    : Words.shared.strings.addFolderOrPhotos
             ) {
                 // Never a dead end: a phone that cannot see its photos still offers the way to fix that.
-                if !looking || photosOff { Button("Add a folder", action: addFolder).buttonStyle(.primaryAction) }
-                if photos == .notDetermined { Button("Allow Photos access", action: model.requestPhotos) }
-                if photos == .denied || photos == .restricted { Button("Turn on Photos access", action: model.openSettings) }
+                if !looking || photosOff { Button(Words.shared.ADD_FOLDER, action: addFolder).buttonStyle(.primaryAction) }
+                if photos == .notDetermined { Button(Words.shared.strings.allowPhotosAccess, action: model.requestPhotos) }
+                if photos == .denied || photos == .restricted { Button(Words.shared.strings.turnOnPhotosAccess, action: model.openSettings) }
             }
         }
         .listRowBackground(Color.clear)
@@ -135,7 +135,7 @@ struct HomeList: View {
             Section {
                 TileStrip(files: home.starred, starred: model.starred, badge: true, open: { openFile($0, among: home.starred) })
             } header: {
-                SectionLink(title: "Starred", route: .files(FileQuery(title: "Starred", starredOnly: true)))
+                SectionLink(title: Words.shared.strings.starredSection, route: .files(FileQuery(title: Words.shared.strings.starredSection, starredOnly: true)))
             }
         }
     }
@@ -196,7 +196,7 @@ struct HomeList: View {
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             } header: {
-                DateHeader(title: "On This Day", subtitle: date)
+                DateHeader(title: Words.shared.strings.onThisDayTitle, subtitle: date)
             }
         }
     }
@@ -316,13 +316,13 @@ private struct HomeStatusSection: View {
                 if let line { StatusLine(status: line, model: model, dismissable: true) }
                 if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
-                    if note.off { card(note, "Open Settings", model.openSettings) } else { card(note, "Choose more photos", model.chooseMorePhotos) }
+                    if note.off { card(note, Words.shared.strings.openSettings, model.openSettings) } else { card(note, Words.shared.strings.chooseMorePhotos, model.chooseMorePhotos) }
                 }
                 if nudge {
                     Button(action: addFolder) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Retriever also searches folders you add.").font(.subheadline).foregroundStyle(Color.secondary)
-                            Text("Add a folder")
+                            Text(Words.shared.strings.alsoSearchesFolders).font(.subheadline).foregroundStyle(Color.secondary)
+                            Text(Words.shared.ADD_FOLDER)
                         }
                     }
                 }
@@ -361,7 +361,7 @@ struct StatusLine: View {
             if dismissable && status.action == .dismiss {
                 Button(action: model.dismissCaughtUp) {
                     Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.borderless).accessibilityLabel("Dismiss")
+                }.buttonStyle(.borderless).accessibilityLabel(Words.shared.strings.statusAction(action: .dismiss))
             }
         }
         if let action = status.action, action != .dismiss {
@@ -455,6 +455,6 @@ private struct HomeRow: View {
             Image(systemName: icon).foregroundStyle(.tint)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([title, detail].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel(Words.shared.strings.titleDetailSpoken(title: title, detail: detail))
     }
 }

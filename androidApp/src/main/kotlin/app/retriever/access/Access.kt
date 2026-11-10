@@ -78,7 +78,7 @@ data class CoverageLine(val text: String, val fix: Fix? = null) {
     val gap: Boolean get() = fix == Fix.ALLOW_MEDIA || fix == Fix.ALL_FILES
 }
 
-internal const val ONLY_PICKED_PHOTOS = "Only the photos you picked"
+internal val ONLY_PICKED_PHOTOS: String get() = Words.strings.onlyPickedPhotos
 
 /** What Retriever may read: all files, or the media permissions plus the folders the person picked. */
 data class Access(
@@ -109,26 +109,17 @@ data class Access(
         if (allFiles) return listOf(CoverageLine(Words.SHARED_FILES_AND_FOLDERS))
         return buildList {
             when {
-                photos == Photos.ALL && videos -> add(CoverageLine("Photos and videos"))
-                photos == Photos.ALL -> add(CoverageLine("Photos"))
+                photos == Photos.ALL && videos -> add(CoverageLine(Words.PHOTOS_AND_VIDEOS))
+                photos == Photos.ALL -> add(CoverageLine(Words.kindLabelPlural(Kind.PHOTO)))
                 photos == Photos.SELECTED -> add(CoverageLine(ONLY_PICKED_PHOTOS, Fix.CHOOSE_PHOTOS))
             }
-            if (videos && photos != Photos.ALL) add(CoverageLine("Videos"))
-            if (audio) add(CoverageLine("Music and recordings"))
-            val missing = listOfNotNull("photos".takeIf { photos == Photos.NONE }, "videos".takeIf { !videos }, "music".takeIf { !audio })
-            if (missing.isNotEmpty()) {
-                val list = if (missing.size == 1) missing[0] else missing.dropLast(1).joinToString(", ") + " and " + missing.last()
-                add(CoverageLine("Not covered: $list", Fix.ALLOW_MEDIA))
+            if (videos && photos != Photos.ALL) add(CoverageLine(Words.kindLabelPlural(Kind.VIDEO)))
+            if (audio) add(CoverageLine(Words.strings.musicAndRecordings))
+            if (photos == Photos.NONE || !videos || !audio) {
+                add(CoverageLine(Words.strings.notCoveredMedia(photos == Photos.NONE, !videos, !audio), Fix.ALLOW_MEDIA))
             }
             add(
-                CoverageLine(
-                    if (folders.isEmpty()) {
-                        "Not covered: documents and downloads"
-                    } else {
-                        "Not covered: documents and downloads outside the folders you added"
-                    },
-                    Fix.ALL_FILES,
-                ),
+                CoverageLine(Words.strings.notCoveredDocuments(folders.isNotEmpty()), Fix.ALL_FILES),
             )
         }
     }
@@ -192,9 +183,9 @@ data class Access(
 
         /** Why a picked tree can't be added, or null when it can: it is, or is inside, a folder already added. */
         fun refusePick(uri: String, existing: List<PickedFolder>): String? {
-            if (!uri.startsWith(TREE_PREFIX)) return "Pick a folder on this phone's storage."
+            if (!uri.startsWith(TREE_PREFIX)) return Words.strings.pickFolderOnPhone
             val id = treeId(uri)
-            return if (existing.any { within(id, treeId(it.uri)) }) "Retriever already searches that folder." else null
+            return if (existing.any { within(id, treeId(it.uri)) }) Words.strings.alreadySearchesFolder else null
         }
 
         /** Added folders inside [uri]: picking their parent takes their place, so no file is listed twice. */

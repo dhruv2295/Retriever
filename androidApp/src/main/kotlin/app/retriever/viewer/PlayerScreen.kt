@@ -25,6 +25,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.retriever.R
 import app.retriever.core.Locator
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.PlayerRoute
 import app.retriever.nav.Route
@@ -57,7 +58,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
                 route.uri,
                 stars,
                 onBack,
-                subtitle = if (route.startMs > 0) "Match at ${Locator.time((route.startMs / 1000).toInt())}" else null,
+                subtitle = if (route.startMs > 0) Words.strings.matchAt(Locator.time((route.startMs / 1000).toInt())) else null,
             )
         },
         bottomBar = { ViewerStepBar(route.uri, replace) },
@@ -65,10 +66,10 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
         if (ui is PlayerUi.Failed) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    "Couldn't play this ${if (audio) "recording" else "video"}",
-                    "It may have been moved or deleted, or this phone can't play it.",
+                    Words.strings.couldntPlay(audio),
+                    Words.strings.maybeMovedOrCantPlay,
                     R.drawable.ic_warning_amber,
-                    action = "Open in another app" to { Opener.view(context, route.uri, route.mime) },
+                    action = Words.strings.openInAnotherApp to { Opener.view(context, route.uri, route.mime) },
                     mood = MascotMood.TROUBLE,
                 )
             }

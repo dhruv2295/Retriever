@@ -9,6 +9,7 @@ import androidx.core.net.toUri
 import app.retriever.core.Kind
 import app.retriever.core.Locator
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.nav.DocRoute
 import app.retriever.nav.PdfRoute
 import app.retriever.nav.PhotoRoute
@@ -52,7 +53,7 @@ object Opener {
         try {
             context.startActivity(intent)
         } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "No app on this phone opens this file", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, Words.strings.noAppOpensFile, Toast.LENGTH_SHORT).show()
         }
     }
 

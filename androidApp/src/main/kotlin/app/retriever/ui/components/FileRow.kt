@@ -95,9 +95,9 @@ fun nameHighlighted(name: String, query: String, style: SpanStyle): AnnotatedStr
 
 private val NAME_MATCH = SpanStyle(fontWeight = FontWeight.Bold)
 
-private fun clickLabel(locator: String): String = Locator.pageOf(locator)?.let { "Open at page $it" }
-    ?: Locator.msOf(locator)?.let { "Play from $locator" }
-    ?: "Open"
+private fun clickLabel(locator: String): String = Locator.pageOf(locator)?.let { Words.strings.openAtPage(it) }
+    ?: Locator.msOf(locator)?.let { Words.strings.playFrom(locator) }
+    ?: Words.strings.openAction
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -141,7 +141,7 @@ fun FileRow(
             // Two lines, cut in the middle, so a long name still ends in its extension.
             Text(title, style = MaterialTheme.typography.bodyLarge, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
             Text(
-                subtitle ?: "${Words.kindLabel(file.kind)} · ${Format.bytes(file.size)} · ${Format.date(file.modifiedAt)}",
+                subtitle ?: Words.strings.kindSizeDate(Words.kindLabel(file.kind), Format.bytes(file.size), Format.date(file.modifiedAt)),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
@@ -209,11 +209,13 @@ fun ThumbCell(
             .background(MaterialTheme.colorScheme.surfaceContainer)
             // Built when a screen reader or a test asks, not for every cell drawn.
             .semantics(mergeDescendants = true) {
-                contentDescription = buildString {
-                    append("${Words.kindLabel(file.kind)}, ${file.name}, ${Format.date(file.modifiedAt)}")
-                    Words.spokenPosition(locator)?.let { append(", $it") }
-                    readNote?.let { append(", $it") }
-                }
+                contentDescription = Words.strings.fileRowSpoken(
+                    Words.kindLabel(file.kind),
+                    file.name,
+                    Format.date(file.modifiedAt),
+                    Words.spokenPosition(locator),
+                    readNote,
+                )
             }
             .combinedClickable(
                 onClickLabel = clickLabel(locator),

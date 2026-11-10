@@ -191,7 +191,7 @@ fun StatusContent(
                     Text(Words.READING_STATUS)
                 },
                 navigationIcon = {
-                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
                 },
             )
         },
@@ -217,7 +217,7 @@ fun StatusContent(
                     // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
                     if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp), settles = !index.running)
                     // Only the state is announced, not each file: the count is in the detail, the bar is the same numbers.
-                    val title = readingStatus?.title ?: "Checking your files…"
+                    val title = readingStatus?.title ?: Words.strings.checkingYourFiles
                     Text(
                         title,
                         style = MaterialTheme.typography.headlineSmall,
@@ -268,13 +268,13 @@ fun StatusContent(
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(if (skippedOpen) "Hide" else "Review files", color = MaterialTheme.colorScheme.primary)
+                                Text(if (skippedOpen) Words.strings.hide else Words.strings.reviewFiles, color = MaterialTheme.colorScheme.primary)
                                 Icon(painterResource(if (skippedOpen) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null)
                             }
                         },
                         modifier = Modifier
                             .clickable(onClick = actions.toggleSkipped)
-                            .semantics { stateDescription = if (skippedOpen) "Expanded" else "Collapsed" },
+                            .semantics { stateDescription = if (skippedOpen) Words.strings.expanded else Words.strings.collapsed },
                     )
                     AnimatedVisibility(skippedOpen) {
                         Column {
@@ -284,7 +284,7 @@ fun StatusContent(
                                     supportingContent = { Text(f.file.folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 )
                             }
-                            TextButton(onClick = actions.retrySkipped, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Try again") }
+                            TextButton(onClick = actions.retrySkipped, modifier = Modifier.padding(horizontal = 8.dp)) { Text(Words.TRY_AGAIN) }
                         }
                     }
                 }
@@ -292,12 +292,9 @@ fun StatusContent(
                 // The OS exemption is a different remedy from the schedule's own wait, but not beside a failure or the person's Pause.
                 if (batteryHint && (progress?.scheduled ?: 0) > 0 && failure == null && !prefs.paused) {
                     ListItem(
-                        headlineContent = { Text("Let Retriever process files while you’re not using it") },
+                        headlineContent = { Text(Words.strings.letProcessWhileAway) },
                         supportingContent = {
-                            Text(
-                                "Your phone may stop it to save battery." +
-                                    if (prefs.automaticReading == ReadingSchedule.CHARGING) " It still processes files only while charging." else "",
-                            )
+                            Text(Words.strings.batteryMayStop(prefs.automaticReading == ReadingSchedule.CHARGING))
                         },
                         leadingContent = { Icon(painterResource(R.drawable.ic_battery_alert), contentDescription = null) },
                         modifier = Modifier.clickable(onClick = actions.openBatterySettings),
@@ -310,8 +307,8 @@ fun StatusContent(
                 actions.openSettings?.let { open ->
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     ListItem(
-                        headlineContent = { Text("Settings") },
-                        supportingContent = { Text("What to process, storage and more") },
+                        headlineContent = { Text(Words.strings.appSettings) },
+                        supportingContent = { Text(Words.strings.settingsRowDetail) },
                         leadingContent = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
                         modifier = Modifier.clickable(role = Role.Button, onClick = open),
                     )
@@ -333,7 +330,7 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
                 Icon(painterResource(R.drawable.ic_check_circle_outlined), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             },
             trailingContent = if (line.fix == Fix.CHOOSE_PHOTOS) {
-                { TextButton(onClick = actions.chooseMorePhotos) { Text("Choose more photos") } }
+                { TextButton(onClick = actions.chooseMorePhotos) { Text(Words.strings.chooseMorePhotos) } }
             } else {
                 null
             },
@@ -342,7 +339,7 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
     if (access.allFiles) return
     if (access.folders.isNotEmpty()) {
         Text(
-            "Folders you added",
+            Words.strings.foldersYouAdded,
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
@@ -352,13 +349,13 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
                 leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
                 trailingContent = {
                     IconButton(onClick = { actions.removeFolder(folder.uri) }) {
-                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Remove ${folder.name}")
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.removeNamed(folder.name))
                     }
                 },
             )
         }
     }
-    TextButton(onClick = actions.addFolder, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Add a folder") }
+    TextButton(onClick = actions.addFolder, modifier = Modifier.padding(horizontal = 8.dp)) { Text(Words.ADD_FOLDER) }
     folderError?.let {
         Text(
             it,
@@ -373,11 +370,11 @@ private fun ColumnScope.Coverage(access: Access, folderError: String?, actions: 
             leadingContent = { Icon(painterResource(R.drawable.ic_block), contentDescription = null) },
             // The same request as Choose more photos; Settings when Android no longer asks.
             trailingContent = if (line.fix == Fix.ALLOW_MEDIA) {
-                { TextButton(onClick = actions.chooseMorePhotos) { Text("Allow") } }
+                { TextButton(onClick = actions.chooseMorePhotos) { Text(Words.ALLOW) } }
             } else {
                 null
             },
         )
     }
-    Button(onClick = actions.allowAllFiles, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Allow access to all files") }
+    Button(onClick = actions.allowAllFiles, modifier = Modifier.padding(horizontal = 16.dp)) { Text(Words.strings.allowAccessToAllFiles) }
 }

@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import app.retriever.R
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.PhotoRoute
 import app.retriever.starred.StarFailureEffect
@@ -198,10 +199,10 @@ internal fun PhotoPage(item: PhotoItem, current: Boolean, morph: PhotoMorph?, or
     if (failed) {
         Box(Modifier.fillMaxSize().then(tapToToggle), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Couldn't show this photo",
-                "It may have been moved or deleted.",
+                Words.strings.couldntShowPhoto,
+                Words.strings.maybeMovedOrDeleted,
                 R.drawable.ic_warning_amber,
-                action = "Open in another app" to { openWith(item) },
+                action = Words.strings.openInAnotherApp to { openWith(item) },
                 mood = MascotMood.TROUBLE,
             )
         }

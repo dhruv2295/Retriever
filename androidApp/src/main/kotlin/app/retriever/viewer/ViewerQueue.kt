@@ -2,6 +2,7 @@ package app.retriever.viewer
 
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.nav.PhotoRoute
 
 /** What the photo viewer needs of a file; [file] when the list had it, for its picture in memory (none after a restore). */
@@ -46,4 +47,4 @@ private fun Kind.viewer() = when (this) {
 class Neighbors(val previous: SourceFile?, val next: SourceFile?, val label: String? = null)
 
 /** "3 of 12" for the photo on screen; null when the list holds only this one, so a lone photo shows no swipe cue. */
-internal fun positionLabel(index: Int, count: Int): String? = if (count > 1) "${index + 1} of $count" else null
+internal fun positionLabel(index: Int, count: Int): String? = if (count > 1) Words.strings.positionOf(index + 1, count) else null

@@ -80,13 +80,13 @@ struct PersonActions: View {
                 name = person?.name ?? ""
                 renaming = true
             } label: {
-                Label(person?.name == nil ? Words.shared.ADD_A_NAME : "Rename", systemImage: "pencil")
+                Label(person?.name == nil ? Words.shared.ADD_A_NAME : Words.shared.strings.rename, systemImage: "pencil")
             }
             if !others.isEmpty {
                 Menu {
                     Button(Words.shared.SAME_PERSON_AS, systemImage: "person.2") { picking = true }
                 } label: {
-                    Label("More options", systemImage: "ellipsis")
+                    Label(Words.shared.strings.moreOptions, systemImage: "ellipsis")
                 }
             }
         }
@@ -109,7 +109,7 @@ struct PersonActions: View {
                         FaceAvatar(cover: p.cover, name: p.name, side: 40)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(Words.shared.personTitle(name: p.name))
-                            Text(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos")).font(.subheadline).foregroundStyle(.secondary)
+                            Text(Words.shared.photos(n: Int64(p.photos))).font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
                 }

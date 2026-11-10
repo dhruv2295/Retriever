@@ -17,6 +17,7 @@ import androidx.lifecycle.viewModelScope
 import app.retriever.R
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,7 +61,7 @@ internal fun StarFailureEffect(stars: Starring, snackbar: SnackbarHostState) {
     val failed by stars.failed.collectAsStateWithLifecycle()
     LaunchedEffect(failed) {
         if (failed) {
-            snackbar.showSnackbar("Couldn't change the star. Try again.")
+            snackbar.showSnackbar(Words.strings.couldntChangeStar)
             stars.failureShown()
         }
     }
@@ -72,7 +73,7 @@ fun StarButton(on: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit)
     IconButton(onClick = onToggle, modifier = modifier) {
         Icon(
             painterResource(if (on) R.drawable.ic_star else R.drawable.ic_star_border),
-            contentDescription = if (on) "Remove from Starred" else "Add to Starred",
+            contentDescription = if (on) Words.strings.removeFromStarred else Words.strings.addToStarred,
         )
     }
 }
@@ -83,7 +84,11 @@ internal fun starWithUndo(onStar: (SourceFile, Boolean) -> Unit, snackbar: Snack
         onStar(file, on)
         scope.launch {
             snackbar.currentSnackbarData?.dismiss()
-            val said = snackbar.showSnackbar(if (on) "Starred" else "Star removed", "Undo", duration = SnackbarDuration.Short)
+            val said = snackbar.showSnackbar(
+                if (on) Words.strings.starAdded else Words.strings.starRemoved,
+                Words.strings.undo,
+                duration = SnackbarDuration.Short,
+            )
             if (said == SnackbarResult.ActionPerformed) onStar(file, !on)
         }
     }

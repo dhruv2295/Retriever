@@ -269,7 +269,7 @@ fun HomeShell(
                 TopAppBar(title = {}, actions = {
                     IconButton(onClick = {
                         actions.onNavigate(SettingsRoute)
-                    }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings") }
+                    }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = Words.strings.appSettings) }
                 })
             }
         },
@@ -316,7 +316,7 @@ private fun SearchPill(placeholder: String, onPhoto: (() -> Unit)?, modifier: Mo
                 overflow = TextOverflow.Ellipsis,
             )
             if (onPhoto != null) {
-                IconButton(onClick = onPhoto) { Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo") }
+                IconButton(onClick = onPhoto) { Icon(painterResource(R.drawable.ic_image_search), contentDescription = Words.strings.searchWithPhoto) }
             }
         }
     }
@@ -395,17 +395,17 @@ fun SearchContent(
                 modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { actions.onFocus(it.hasFocus) },
                 placeholder = { Text(Words.SEARCH_FIELD, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 leadingIcon = {
-                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
                 },
                 trailingIcon = {
                     if (text.text.isNotEmpty() || similar != null) {
                         IconButton(onClick = {
                             text.clearText()
                             actions.onClearSimilar()
-                        }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Clear search") }
+                        }) { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.clearSearch) }
                     } else if (ui.canSearchByPhoto) {
                         IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
-                            Icon(painterResource(R.drawable.ic_image_search), contentDescription = "Search with a photo")
+                            Icon(painterResource(R.drawable.ic_image_search), contentDescription = Words.strings.searchWithPhoto)
                         }
                     }
                 },
@@ -480,22 +480,22 @@ private fun Suggestions(recent: List<String>, examples: List<String>, actions: S
             }
             return@LazyColumn
         }
-        item(key = "recent-header") { GroupHeader("Recent searches") }
+        item(key = "recent-header") { GroupHeader(Words.strings.recentSearches) }
         items(recent, key = { it }) { q ->
             ListItem(
                 headlineContent = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 leadingContent = { Icon(painterResource(R.drawable.ic_history), contentDescription = null) },
                 trailingContent = {
                     IconButton(onClick = { actions.onRemoveRecent(q) }) {
-                        Icon(painterResource(R.drawable.ic_close), contentDescription = "Remove $q from history")
+                        Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.removeFromHistory(q))
                     }
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.animateItem().clickable(onClickLabel = "Search") { pick(q) },
+                modifier = Modifier.animateItem().clickable(onClickLabel = Words.strings.searchAction) { pick(q) },
             )
         }
         item(key = "clear") {
-            TextButton(onClick = actions.onClearRecent, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Clear history") }
+            TextButton(onClick = actions.onClearRecent, modifier = Modifier.padding(horizontal = 8.dp)) { Text(Words.strings.clearHistory) }
         }
     }
 }

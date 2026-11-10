@@ -102,8 +102,7 @@ extension AppModel {
                 continuing = false
                 // Left while iOS answered: Lifecycle stood aside for the read, so hide and free the model now.
                 if !active { services.lifecycle?.enterBackground() }
-                readingMessage =
-                    "iOS couldn’t keep processing while you weren’t using Retriever. Keep it open, or let it process your files while your \(Copy.device) charges."
+                readingMessage = Words.shared.strings.keepProcessingFailed(words: Copy.words)
                 return
             }
             loop?.cancel()

@@ -57,9 +57,9 @@ struct SplitRoot<Home: View>: View {
         NavigationSplitView {
             List(selection: Binding<Dest?>(get: { selection }, set: choose)) {
                 Section {
-                    Label("Search", systemImage: "magnifyingglass").tag(Dest.home)
+                    Label(Words.shared.strings.searchTab, systemImage: "magnifyingglass").tag(Dest.home)
                     Label(Words.shared.READING_STATUS, systemImage: "clock.arrow.circlepath").tag(Dest.page(.status))
-                    Label("Settings", systemImage: "gearshape").tag(Dest.page(.settings))
+                    Label(Words.shared.strings.appSettings, systemImage: "gearshape").tag(Dest.page(.settings))
                 }
                 if !tiles.isEmpty {
                     Section(Words.shared.MORE_ON_PHONE) {

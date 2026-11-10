@@ -106,7 +106,7 @@ sqldelight {
 
 // RelevanceReplayTest runs only when -Drelevance.dump=<dump.bin> is given; forward its properties to the test JVM.
 tasks.withType<Test>().matching { it.name == "testAndroidHostTest" }.configureEach {
-    listOf("relevance.dump", "relevance.data", "relevance.out", "relevance.sample", "relevance.minRows", "relevance.cuts").forEach { key ->
+    listOf("copy.write", "relevance.dump", "relevance.data", "relevance.out", "relevance.sample", "relevance.minRows", "relevance.cuts").forEach { key ->
         providers.systemProperty(key).orNull?.let { systemProperty(key, it) }
     }
 }

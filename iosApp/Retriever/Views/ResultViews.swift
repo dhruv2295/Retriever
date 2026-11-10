@@ -66,11 +66,9 @@ struct ResultCell: View {
     }
 
     private var label: String {
-        var parts = [Words.shared.kindLabel(kind: file.kind), file.name, Format.date(file.modifiedAt)]
-        if let spoken = Words.shared.spokenPosition(locator: locator) { parts.append(spoken) }
-        if let note = Words.shared.extent(extent: extent) { parts.append(note) }
-        if let matchReason { parts.append(matchReason) }
-        return parts.joined(separator: ", ")
+        Words.shared.strings.resultRowSpoken(
+            kind: Words.shared.kindLabel(kind: file.kind), name: file.name, date: Format.date(file.modifiedAt),
+            position: Words.shared.spokenPosition(locator: locator), extent: Words.shared.extent(extent: extent), reason: matchReason)
     }
 
     @ViewBuilder private var badge: some View {
@@ -141,7 +139,7 @@ struct FileRowView: View {
     private var texts: some View {
         VStack(alignment: .leading, spacing: 3) {
             FileName(name: file.name, styled: styledName, wrapLines: typeSize.isAccessibilitySize ? 3 : 2)
-            Text(subtitle ?? "\(file.folder) · \(Format.date(file.modifiedAt))")
+            Text(subtitle ?? Words.shared.strings.folderAndDate(folder: file.folder, date: Format.date(file.modifiedAt)))
                 .font(.footnote)
                 .foregroundStyle(Color.primary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -320,8 +318,8 @@ struct SharedAsset: Transferable {
 
     /// iOS 27's resource may have no file name: one with its type's extension, so the receiver can open it.
     private static func unnamed(_ resource: PHAssetResource) -> String {
-        guard #available(iOS 26.0, *), let ext = resource.contentType.preferredFilenameExtension else { return "Photo.jpg" }
-        return "Photo.\(ext)"
+        guard #available(iOS 26.0, *), let ext = resource.contentType.preferredFilenameExtension else { return Words.shared.strings.sharedPhotoName(ext: nil) }
+        return Words.shared.strings.sharedPhotoName(ext: ext)
     }
 }
 

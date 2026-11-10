@@ -25,10 +25,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import app.retriever.ShotTheme
+import app.retriever.core.DateFilter
 import app.retriever.core.DeviceWords
 import app.retriever.core.IndexState
 import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
+import app.retriever.core.PeriodUnit
 import app.retriever.core.ReadExtent
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingProgress
@@ -112,7 +114,7 @@ class SearchShotsTest {
         hit(6, file("Birthday.mp4", Kind.VIDEO), chunkId = 60, locator = "3:41"),
     )
 
-    private val understood = ParsedQuery("bill", setOf(Kind.SCREENSHOT), 1, 2, listOf("Screenshots", "last week"), dateLabel = "last week")
+    private val understood = ParsedQuery("bill", setOf(Kind.SCREENSHOT), 1, 2, listOf(Kind.SCREENSHOT), DateFilter.Period(PeriodUnit.WEEK, last = true))
 
     @Composable
     private fun State(state: String) {

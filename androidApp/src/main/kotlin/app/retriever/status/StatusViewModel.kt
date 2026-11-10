@@ -10,6 +10,7 @@ import app.retriever.core.IndexState
 import app.retriever.core.Prefs
 import app.retriever.core.Retriever
 import app.retriever.core.Store
+import app.retriever.core.Words
 import app.retriever.home.celebrationOf
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
@@ -85,7 +86,7 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
         error.value = null
         launchCatching(onError = {
             Log.e("Retriever", "StatusViewModel", it)
-            error.value = "That didn't work. Try again."
+            error.value = Words.strings.thatDidntWork
         }) { block() }
     }
 }

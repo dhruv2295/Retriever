@@ -76,22 +76,22 @@ struct TextReader: View {
                 case .loading: ProgressView()
                 case .waiting:
                     StateView(
-                        mood: .noMatch, title: "Not processed yet", message: "Retriever hasn't processed this file yet. You can open the original instead."
+                        mood: .noMatch, title: Words.shared.strings.notProcessedYet, message: Words.shared.strings.notProcessedOpenOriginal
                     ) {
                         openElsewhere
                     }
                 case .empty:
-                    StateView(mood: .noMatch, title: "No text to show", message: "Retriever found no readable text in this file.") { openElsewhere }
+                    StateView(mood: .noMatch, title: Words.shared.strings.noTextToShow, message: Words.shared.strings.noReadableText) { openElsewhere }
                 case .failed:
-                    StateView(mood: .trouble, title: "Couldn't show the text", message: "Something went wrong reading it. Try again in a moment.") {
+                    StateView(mood: .trouble, title: Words.shared.strings.couldntShowText, message: Words.shared.strings.wentWrongReadingIt) {
                         openElsewhere
                     }
                 case .text(let loaded): Reading(loaded: loaded)
                 }
             }
-            .navigationTitle("Text from this file")
+            .navigationTitle(Words.shared.strings.textFromThisFile)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(Words.shared.DONE) { dismiss() } } }
         }
         .presentationDetents([.large])
         .task {
@@ -118,7 +118,7 @@ struct TextReader: View {
     }
 
     private var openElsewhere: some View {
-        Button("Open in another app") {
+        Button(Words.shared.strings.openInAnotherApp) {
             dismiss()
             actions?.select(.open, file: file)
         }
@@ -143,7 +143,7 @@ struct TextReader: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        if loaded.partial { Note("Only the beginning of this file is included.") }
+                        if loaded.partial { Note(Words.shared.strings.onlyBeginningIncluded) }
                         ForEach(loaded.paragraphs.indices, id: \.self) { index in
                             Paragraph(text: loaded.paragraphs[index], ranges: loaded.matches.ranges[index], active: loaded.matches.paragraph(current) == index)
                                 .equatable().id(index)
@@ -164,15 +164,15 @@ struct TextReader: View {
                 Button {
                     current = ReaderMatches.step(current, by: -1, total: loaded.matches.total)
                 } label: {
-                    Label("Previous match", systemImage: "chevron.up").labelStyle(.iconOnly)
+                    Label(Words.shared.strings.previousMatch, systemImage: "chevron.up").labelStyle(.iconOnly)
                 }
                 Spacer()
-                Text("Match \(current + 1) of \(loaded.matches.total)").font(.footnote).monospacedDigit()
+                Text(Words.shared.strings.matchOf(at: Int32(truncatingIfNeeded: current + 1), total: Int32(truncatingIfNeeded: loaded.matches.total))).font(.footnote).monospacedDigit()
                 Spacer()
                 Button {
                     current = ReaderMatches.step(current, by: 1, total: loaded.matches.total)
                 } label: {
-                    Label("Next match", systemImage: "chevron.down").labelStyle(.iconOnly)
+                    Label(Words.shared.strings.nextMatch, systemImage: "chevron.down").labelStyle(.iconOnly)
                 }
             }
             .padding(.horizontal)

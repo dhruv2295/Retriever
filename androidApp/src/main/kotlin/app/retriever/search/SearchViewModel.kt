@@ -60,7 +60,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /** A photo to search by; [uri] names it in the [Question]. Not a data class: equality is identity, so each pick searches. */
 @Immutable
-class Similar(val uri: String, val label: String, val thumb: ImageBitmap? = null)
+class Similar(val uri: String, val label: String?, val thumb: ImageBitmap? = null)
 
 /** Search input owned by the ViewModel; the UI receives only [similar], whose thumbnail is never modified. */
 class PickedPhoto(val similar: Similar, val jpeg: ByteArray)
@@ -455,12 +455,12 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     fun findSimilar(file: SourceFile) = showSimilar(file.uri, file.name)
 
     /** A photo from the picker. */
-    fun searchPhoto(uri: String) = showSimilar(uri, "your photo")
+    fun searchPhoto(uri: String) = showSimilar(uri, null)
 
-    private fun showSimilar(uri: String, label: String) = attempt {
+    private fun showSimilar(uri: String, label: String?) = attempt {
         val picked = photos.read(uri, label)
         if (picked == null) {
-            error.value = "Couldn't open this photo. Choose another one."
+            error.value = Words.strings.couldntOpenPhoto
             return@attempt
         }
         input.update { it.copy(photo = picked, query = "") }
@@ -478,13 +478,13 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     /** Something the person asked for: a failure is logged and said on screen. */
     private fun attempt(block: suspend () -> Unit) = launchCatching(onError = {
         Log.e("Retriever", "SearchViewModel", it)
-        error.value = "That didn't work. Try again."
+        error.value = Words.strings.thatDidntWork
     }) { block() }
 }
 
 /** A picked photo or a file as the search by photo needs it, or null when it can't be read. */
 fun interface PhotoReader {
-    suspend fun read(uri: String, label: String): PickedPhoto?
+    suspend fun read(uri: String, label: String?): PickedPhoto?
 }
 
 /** A JPEG at most 1024 px on its longest side, decoded once here, not in composition: the chip shows it as its avatar. */

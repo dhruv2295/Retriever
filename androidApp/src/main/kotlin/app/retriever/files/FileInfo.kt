@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** "PDF · 2.4 MB". */
-internal fun kindAndSize(file: SourceFile) = "${Words.kindLabel(file.kind)} · ${Format.bytes(file.size)}"
+internal fun kindAndSize(file: SourceFile) = Words.strings.kindAndSize(Words.kindLabel(file.kind), Format.bytes(file.size))
 
 /** The sheet's rows below the header, in reading order. [measured] is whatever dimensions, duration or pages could be read. */
 internal fun infoRows(file: SourceFile, measured: List<Pair<String, String>>, reading: String): List<Pair<String, String>> = buildList {
@@ -78,10 +78,10 @@ internal fun FileInfoSheet(retriever: Retriever, file: SourceFile, onDismiss: ()
                 headlineContent = { SelectionContainer { Text(file.name) } },
                 supportingContent = { Text(kindAndSize(file)) },
             )
-            ListItem(headlineContent = { Text(friendlyFolder(file.folder)) }, overlineContent = { Text("Location") })
+            ListItem(headlineContent = { Text(friendlyFolder(file.folder)) }, overlineContent = { Text(Words.strings.locationLabel) })
             ListItem(
-                modifier = Modifier.clickable(onClickLabel = if (details) "Hide full path" else "Show full path") { details = !details },
-                headlineContent = { Text("Location details") },
+                modifier = Modifier.clickable(onClickLabel = if (details) Words.strings.hideFullPath else Words.strings.showFullPath) { details = !details },
+                headlineContent = { Text(Words.strings.locationDetails) },
                 trailingContent = {
                     Icon(painterResource(if (details) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null)
                 },
@@ -92,8 +92,8 @@ internal fun FileInfoSheet(retriever: Retriever, file: SourceFile, onDismiss: ()
                         headlineContent = { SelectionContainer { Text(shown.path) } },
                         trailingContent = {
                             TextButton(onClick = {
-                                scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Path", shown.path))) }
-                            }) { Text("Copy path") }
+                                scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(Words.strings.pathClipLabel, shown.path))) }
+                            }) { Text(Words.strings.copyPath) }
                         },
                     )
                 }
@@ -111,22 +111,22 @@ private fun measure(context: Context, file: SourceFile): List<Pair<String, Strin
             Kind.PHOTO, Kind.SCREENSHOT -> {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-                if (options.outWidth > 0) add("Dimensions" to "${options.outWidth} × ${options.outHeight}")
+                if (options.outWidth > 0) add(Words.strings.dimensionsLabel to Words.strings.dimensions(options.outWidth, options.outHeight))
             }
 
             Kind.VIDEO, Kind.AUDIO -> MediaMetadataRetriever().use { media ->
                 media.setDataSource(context, uri)
                 media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
-                    add("Duration" to Locator.time((it / 1000).toInt()))
+                    add(Words.strings.durationLabel to Locator.time((it / 1000).toInt()))
                 }
-                val width = media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                val height = media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                if (width != null && height != null) add("Dimensions" to "$width × $height")
+                val width = media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+                val height = media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+                if (width != null && height != null) add(Words.strings.dimensionsLabel to Words.strings.dimensions(width, height))
             }
 
             // A throwaway renderer: the viewer's own is confined to its thread, this one is opened and closed here.
             Kind.PDF -> context.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
-                PdfRenderer(fd).use { add("Pages" to it.pageCount.toString()) }
+                PdfRenderer(fd).use { add(Words.strings.pagesLabel to it.pageCount.toString()) }
             }
 
             else -> Unit
@@ -138,7 +138,7 @@ private fun measure(context: Context, file: SourceFile): List<Pair<String, Strin
 private fun fullPath(context: Context, file: SourceFile): String = runCatching {
     val uri = file.uri.toUri()
     when (sourceOf(file.uri)) {
-        FileSource.TREE -> uri.lastPathSegment?.replaceFirst("primary:", "Internal storage/")
+        FileSource.TREE -> uri.lastPathSegment?.replaceFirst("primary:", Words.strings.internalStorage)
 
         FileSource.MEDIA -> context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.RELATIVE_PATH), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) + file.name else null

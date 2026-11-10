@@ -16,8 +16,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import app.retriever.ShotTheme
+import app.retriever.core.DateFilter
 import app.retriever.core.Kind
 import app.retriever.core.ParsedQuery
+import app.retriever.core.PeriodUnit
 import app.retriever.core.ReadExtent
 import app.retriever.core.SearchEngine
 import app.retriever.core.SourceFile
@@ -105,7 +107,7 @@ class ResultPiecesTest {
     }
 
     @Test fun relaxedNoteNamesWhatWasDroppedAndWhatWasKept() {
-        val parsed = ParsedQuery("", emptySet(), 1, 2, listOf("PDFs", "last week"), dateLabel = "last week")
+        val parsed = ParsedQuery("", emptySet(), 1, 2, listOf(Kind.PDF), DateFilter.Period(PeriodUnit.WEEK, last = true))
         assertEquals("No PDFs from last week, so here is everything.", parsed.relaxedNote(Format.scope(null, false)))
         assertEquals("No PDFs from last week, so here are all your starred files.", parsed.relaxedNote(Format.scope(null, true)))
         assertEquals("No PDFs from last week, so here are all your starred photos.", parsed.relaxedNote(Format.scope(Kind.PHOTO, true)))

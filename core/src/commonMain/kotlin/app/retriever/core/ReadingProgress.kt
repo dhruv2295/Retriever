@@ -31,10 +31,13 @@ data class ReadingProgress(
     val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0 || meaningWaiting > 0
 }
 
-enum class ReadingSchedule(val title: String) {
-    CHARGING("While charging"),
-    BATTERY("Also on battery"),
-    MANUAL("When I start it"),
+enum class ReadingSchedule {
+    CHARGING,
+    BATTERY,
+    MANUAL,
+    ;
+
+    val title: String get() = Words.strings.scheduleTitle(this)
 }
 
 /**
@@ -70,15 +73,18 @@ enum class ReadingPhase {
 }
 
 /** The status line's one button. Each app maps it to its own button and call; [label] is what the button says. */
-enum class StatusAction(val label: String) {
-    CONTINUE(Words.CONTINUE),
-    ALLOW_ACCESS("Allow access"),
-    CHOOSE_WHEN(Words.CHOOSE_WHEN),
-    READ_FOR_15(Words.READ_FOR_15),
-    STOP("Stop"),
-    RESUME("Resume"),
-    DISMISS("Dismiss"),
-    TRY_AGAIN(Words.TRY_AGAIN),
+enum class StatusAction {
+    CONTINUE,
+    ALLOW_ACCESS,
+    CHOOSE_WHEN,
+    READ_FOR_15,
+    STOP,
+    RESUME,
+    DISMISS,
+    TRY_AGAIN,
+    ;
+
+    val label: String get() = Words.strings.statusAction(this)
 }
 
 private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
@@ -192,18 +198,7 @@ object ReadingPolicy {
     }
 
     /** Why reading stopped, as every surface titles it; DONE and BUDGET are the system's turn between batches. */
-    fun stopCopy(stop: StopReason, words: DeviceWords): String = when (stop) {
-        StopReason.PAUSED -> "Paused"
-        StopReason.POWER_SAVE -> "Paused while ${words.powerSave} is on"
-        StopReason.HOT -> "Paused to let your ${words.device} cool down"
-        StopReason.LOW_BATTERY -> "Paused, battery is low"
-        StopReason.CHARGING_UP -> "Charging up first"
-        StopReason.BUSY -> "Waiting until you put your ${words.device} down"
-        StopReason.UNPLUGGED -> "Waits until you charge"
-        StopReason.MANUAL -> "Processing only when you start it"
-        StopReason.DISK_FULL -> "Paused, your ${words.device} is full"
-        StopReason.DONE, StopReason.BUDGET -> "Taking a short break"
-    }
+    fun stopCopy(stop: StopReason, words: DeviceWords): String = Words.strings.stopCopy(stop, words)
 
     /**
      * Home's status line: lost access first, then setup's access step, then the model download or its setup (a stopped
@@ -217,43 +212,46 @@ object ReadingPolicy {
         libraryTotal: Long,
         words: DeviceWords,
         download: DownloadState? = null,
-    ): ReadingStatus? = when {
-        !hasAccess -> ReadingStatus(
-            ReadingPhase.NO_ACCESS,
-            "Retriever can’t see your files",
-            "Search still works on the files it has already processed." + if (words.ios) " This opens your ${words.device}’s Settings." else "",
-            StatusAction.ALLOW_ACCESS,
-        )
-
-        !libraryChosen -> ReadingStatus(ReadingPhase.SETTING_UP, "Finish setting up", "Choose what Retriever can look through.", StatusAction.CONTINUE)
-
-        download != null && (!download.stopped || reading?.active != true) -> when {
-            download.settingUp && download.stopped -> ReadingStatus(ReadingPhase.TUNING, Words.tuneFailed(words), action = StatusAction.TRY_AGAIN)
-
-            download.settingUp -> ReadingStatus(ReadingPhase.TUNING, Words.tuneTitle(words), Words.tuneBody(words))
-
-            download.stopped -> ReadingStatus(
-                ReadingPhase.DOWNLOAD_STOPPED,
-                "Download paused",
-                "It carries on when you’re on Wi-Fi. If your ${words.device} is full, it needs ${Words.keepTogether(download.size)} free.",
-                StatusAction.TRY_AGAIN,
+    ): ReadingStatus? {
+        val c = Words.strings
+        return when {
+            !hasAccess -> ReadingStatus(
+                ReadingPhase.NO_ACCESS,
+                c.noAccessTitle,
+                c.noAccessDetail(words),
+                StatusAction.ALLOW_ACCESS,
             )
 
-            else -> ReadingStatus(
-                ReadingPhase.DOWNLOADING,
-                "Downloading search by description" + (download.percent?.let { " · $it%" } ?: ""),
-                "You can keep using Retriever.",
-                StatusAction.STOP,
-                done = download.percent?.toLong(),
-                total = download.percent?.let { 100L },
-            )
+            !libraryChosen -> ReadingStatus(ReadingPhase.SETTING_UP, c.finishSetupTitle, c.finishSetupDetail, StatusAction.CONTINUE)
+
+            download != null && (!download.stopped || reading?.active != true) -> when {
+                download.settingUp && download.stopped -> ReadingStatus(ReadingPhase.TUNING, Words.tuneFailed(words), action = StatusAction.TRY_AGAIN)
+
+                download.settingUp -> ReadingStatus(ReadingPhase.TUNING, Words.tuneTitle(words), Words.tuneBody(words))
+
+                download.stopped -> ReadingStatus(
+                    ReadingPhase.DOWNLOAD_STOPPED,
+                    c.downloadPausedTitle,
+                    c.downloadPausedDetail(words, Words.keepTogether(download.size)),
+                    StatusAction.TRY_AGAIN,
+                )
+
+                else -> ReadingStatus(
+                    ReadingPhase.DOWNLOADING,
+                    c.downloadingTitle(download.percent),
+                    c.downloadingDetail,
+                    StatusAction.STOP,
+                    done = download.percent?.toLong(),
+                    total = download.percent?.let { 100L },
+                )
+            }
+
+            reading?.phase == ReadingPhase.COUNTING -> reading
+
+            libraryTotal == 0L -> null
+
+            else -> reading
         }
-
-        reading?.phase == ReadingPhase.COUNTING -> reading
-
-        libraryTotal == 0L -> null
-
-        else -> reading
     }
 
     /**
@@ -281,6 +279,7 @@ object ReadingPolicy {
         readersMissing: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
+        val c = Words.strings
         val demo = progress.sample && !progress.notNow
         val phase = when {
             !progress.counted && !demo -> ReadingPhase.COUNTING
@@ -338,79 +337,66 @@ object ReadingPolicy {
         val gettingReaders = readersMissing && running && phase == ReadingPhase.READING
         // Between batches with the meaning pass left, its title, not "All files processed" over photos still waiting.
         val title = if (gettingReaders) {
-            "Getting ready to read your files"
+            c.gettingReadersTitle
         } else {
             when (phase) {
-                ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) "Adding search by description" else "All files processed"
-                ReadingPhase.COUNTING -> "Counting your files…"
-                ReadingPhase.NOT_NOW -> "Only names can be found for now"
+                ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) c.addingDescriptionTitle else c.allFilesProcessedTitle
+                ReadingPhase.COUNTING -> c.countingTitle
+                ReadingPhase.NOT_NOW -> c.notNowTitle
                 ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
-                ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
-                ReadingPhase.SAMPLE -> "Processing the demo files"
-                ReadingPhase.MEANING -> "Adding search by description"
-                ReadingPhase.FACES -> if (faces == null) "Getting People ready" else "Looking for faces in your photos"
-                ReadingPhase.DEEPENING -> "Processing the rest of some long files"
-                ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
-                ReadingPhase.LOOKING -> "Checking for new files…"
-                ReadingPhase.CAUGHT_UP -> "All done. Retriever has processed everything it can"
-                ReadingPhase.LIMITED -> "All done. A few long files were processed only in part"
+                ReadingPhase.READ_NOW -> c.readNowTitle(readNowMinutes)
+                ReadingPhase.SAMPLE -> c.sampleTitle
+                ReadingPhase.MEANING -> c.addingDescriptionTitle
+                ReadingPhase.FACES -> if (faces == null) c.gettingPeopleReadyTitle else c.lookingForFacesTitle
+                ReadingPhase.DEEPENING -> c.deepeningTitle
+                ReadingPhase.READING -> if (pluggedIn) c.chargingReadTitle else c.processingYourFiles
+                ReadingPhase.LOOKING -> c.lookingTitle
+                ReadingPhase.CAUGHT_UP -> c.caughtUpTitle
+                ReadingPhase.LIMITED -> c.limitedTitle
                 else -> stopCopy(blocker ?: StopReason.DONE, words)
             }
         }
         val sentence = if (gettingReaders) {
-            "A one-time download from Google Play services. Search by name works now."
+            c.gettingReadersDetail
         } else {
             when (phase) {
-                ReadingPhase.PAUSED -> "Search still works."
+                ReadingPhase.PAUSED -> c.pausedDetail
 
-                ReadingPhase.POWER_SAVE -> "Carries on when ${words.powerSave} is off."
+                ReadingPhase.POWER_SAVE -> c.powerSaveDetail(words)
 
-                ReadingPhase.HOT -> "Carries on by itself."
+                ReadingPhase.HOT -> c.hotDetail
 
-                ReadingPhase.LOW_BATTERY -> "Plug in and Retriever carries on."
+                ReadingPhase.LOW_BATTERY -> c.lowBatteryDetail
 
-                ReadingPhase.CHARGING_UP -> "Processing starts once your battery has a bit more charge."
+                ReadingPhase.CHARGING_UP -> c.chargingUpDetail
 
-                ReadingPhase.BUSY -> "Or open Retriever to carry on now."
+                ReadingPhase.BUSY -> c.busyDetail
 
-                ReadingPhase.CHARGING -> "Retriever carries on when your ${words.device} is charging."
+                ReadingPhase.CHARGING -> c.chargingDetail(words)
 
-                ReadingPhase.MANUAL -> "You can find any file by its name."
+                ReadingPhase.MANUAL -> c.manualDetail
 
-                ReadingPhase.READ_NOW -> "Uses some battery. " + if (words.ios) "Keep Retriever open." else "Stops on its own."
+                ReadingPhase.READ_NOW -> c.readNowDetail(words)
 
-                ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
+                ReadingPhase.SAMPLE -> c.sampleDetail
 
-                ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
+                ReadingPhase.MEANING -> c.meaningDetail(words)
 
                 // Faces come last (Retriever.runBatch): every file is processed by now.
-                ReadingPhase.FACES -> if (faces == null) {
-                    "A one-time download for People. Search works the whole time."
-                } else {
-                    "All your files are processed. Search works the whole time."
-                }
+                ReadingPhase.FACES -> if (faces == null) c.peopleDownloadDetail else c.facesDetail
 
-                ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
+                ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> c.deepeningDetail
 
                 ReadingPhase.READING -> when {
-                    progress.meaningWaiting > 0 -> "Also adding search by description."
-                    words.ios -> "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
-                    else -> "You can close Retriever; it carries on. Search works the whole time."
+                    progress.meaningWaiting > 0 -> c.readingMeaningDetail
+                    else -> c.readingDetail(words)
                 }
 
-                ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) {
-                    "Retriever processes the rest of some long files when your ${words.device} allows. Search works now."
-                } else {
-                    "Retriever adds search by description when your ${words.device} allows. Search works now."
-                }
+                ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) c.waitingLongFilesDetail(words) else c.waitingMeaningDetail(words)
 
-                ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) {
-                    "Free up some space and Retriever carries on."
-                } else {
-                    "Your ${words.device} decides when Retriever carries on. Nothing is lost."
-                }
+                ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) c.diskFullDetail else c.waitingDetail(words)
 
-                ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
+                ReadingPhase.CAUGHT_UP -> c.caughtUpDetail.takeIf { blocker != StopReason.MANUAL }
 
                 else -> null
             }
@@ -419,13 +405,13 @@ object ReadingPolicy {
         // bar beside 2,750 photos still waiting.
         val meaning = phase == ReadingPhase.MEANING || ((restStopped || firstPassDone) && progress.meaningWaiting > 0)
         val lead = when {
-            people == PeopleModel.WAITING_FOR_WIFI && facesWaiting != null && !running -> "People's download waits for Wi-Fi."
-            phase == ReadingPhase.DEEPENING -> "${Words.notReadYet(progress.laterPasses)}."
-            restStopped && !meaning -> "All files processed. The rest of ${Words.plural(progress.laterPasses, "long file")} waits."
-            restStopped -> "All files processed."
+            people == PeopleModel.WAITING_FOR_WIFI && facesWaiting != null && !running -> c.peopleWaitsForWifi
+            phase == ReadingPhase.DEEPENING -> c.deepeningLead(progress.laterPasses)
+            restStopped && !meaning -> c.longFilesWait(progress.laterPasses)
+            restStopped -> c.allFilesProcessedLead
             else -> null
         }
-        val detail = listOfNotNull(lead, sentence).joinToString(" ").ifEmpty { null }
+        val detail = listOfNotNull(lead, sentence).joinToString(c.sentenceGap).ifEmpty { null }
         val action = when (phase) {
             ReadingPhase.PAUSED -> StatusAction.RESUME
             ReadingPhase.CHARGING, ReadingPhase.MANUAL -> StatusAction.READ_FOR_15
@@ -470,30 +456,31 @@ internal const val SESSION_READ_KEY = "reading_session_read"
  */
 fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): String {
     val extent = stored?.extent
+    val c = Words.strings
     return when {
-        kind == Kind.OTHER -> "Its name. Retriever can’t look inside this kind of file yet."
+        kind == Kind.OTHER -> c.foundByOther
 
         stored?.contentRead == true -> when {
-            stored.state == FileState.PENDING -> "Name and its beginning. The rest is not processed yet."
+            stored.state == FileState.PENDING -> c.foundByBeginningRestPending
 
-            stored.state == FileState.SKIPPED -> "Name and part of what’s inside. Retriever couldn’t finish processing it."
+            stored.state == FileState.SKIPPED -> c.foundByPartCouldntFinish
 
             stored.partial || extent == ReadExtent.FIRST_PART || extent == ReadExtent.FIRST_PART_DEEPENING ||
-                extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> "Name and its beginning"
+                extent == ReadExtent.FIRST_PART_MEANING_LIMITED -> c.foundByBeginning
 
-            extent == ReadExtent.MEANING_LIMITED -> "Name and what’s inside. Search by description couldn’t finish."
+            extent == ReadExtent.MEANING_LIMITED -> c.foundByInsideMeaningLimited
 
-            extent == ReadExtent.DEEPENING -> "Name and what’s inside. Search by description is still to come."
+            extent == ReadExtent.DEEPENING -> c.foundByInsideDeepening
 
-            else -> "Name and what’s inside"
+            else -> c.foundByInside
         }
 
-        !readInside -> "Its name. Processing is off for this kind of file."
+        !readInside -> c.foundByReadingOff
 
-        stored?.state == FileState.SKIPPED -> "Its name. Retriever couldn’t process it after ${Words.plural(stored.attempts.toLong(), "try", "tries")}."
+        stored?.state == FileState.SKIPPED -> c.foundBySkipped(stored.attempts.toLong())
 
-        stored?.state == FileState.INDEXED -> "Its name. Nothing inside could be processed."
+        stored?.state == FileState.INDEXED -> c.foundByNothingInside
 
-        else -> "Its name. Not processed yet."
+        else -> c.foundByNotYet
     }
 }

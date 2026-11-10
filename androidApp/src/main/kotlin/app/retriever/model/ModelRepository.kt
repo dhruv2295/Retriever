@@ -23,6 +23,7 @@ import app.retriever.BuildConfig
 import app.retriever.core.Backend
 import app.retriever.core.ModelBuild
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
 import kotlinx.coroutines.CoroutineScope
@@ -176,8 +177,8 @@ class ModelRepository(
     }
 
     companion object {
-        const val STOPPED = "The download stopped. Check your connection and try again."
-        const val DAMAGED = "The download was damaged. Try again."
+        val STOPPED: String get() = Words.strings.downloadStopped
+        val DAMAGED: String get() = Words.strings.downloadDamaged
     }
 }
 
@@ -209,4 +210,4 @@ fun tuneSummary(backend: Backend, imageMs: Double?): String {
     return "Using $device$speed"
 }
 
-fun spaceMessage(b: ModelBuild): String = "Needs %.1f GB free. Free up some space, then try again.".format(ModelDownload.neededBytes(b) / 1e9)
+fun spaceMessage(b: ModelBuild): String = Words.strings.needsFreeSpace("%.1f".format(ModelDownload.neededBytes(b) / 1e9))

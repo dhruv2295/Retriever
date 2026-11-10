@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 
@@ -92,7 +93,7 @@ fun ConfirmDialog(title: String, message: String, confirmLabel: String, onConfir
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = { Button(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text(Words.CANCEL) } },
     )
 }
 

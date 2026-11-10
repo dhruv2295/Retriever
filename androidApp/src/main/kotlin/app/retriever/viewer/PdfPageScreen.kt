@@ -80,6 +80,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import app.retriever.R
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.core.highlightTerms
 import app.retriever.core.motion.MascotMood
 import app.retriever.di.AppScope
@@ -126,7 +127,7 @@ internal fun renderScale(pageW: Int, pageH: Int, widthPx: Int): Float =
     minOf(widthPx.toFloat() / pageW, MAX_PAGE_PX.toFloat() / pageH, MAX_PAGE_PX.toFloat() / pageW)
 
 /** The bar's second line: where the search matched, then where the reader is. */
-internal fun pdfSubtitle(page: Int, count: Int, matchedPage: Int?): String = (matchedPage?.let { "Match on page $it · " } ?: "") + "Page $page of $count"
+internal fun pdfSubtitle(page: Int, count: Int, matchedPage: Int?): String = Words.strings.pdfSubtitle(page, count, matchedPage)
 
 /** The page "Matched here" marks, or null when no search matched (a PDF opened from a list, or found by name). */
 internal fun PdfRoute.matchedIndex(): Int? = if (matched) page - 1 else null
@@ -203,9 +204,9 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
                 subtitle = (state as? PdfState.Ready)?.let { pdfSubtitle((zoomed ?: current) + 1, it.count, route.page.takeIf { route.matched }) },
                 navigationIcon = {
                     if (zoomed != null) {
-                        IconButton(onClick = { zoomed = null }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Close page") }
+                        IconButton(onClick = { zoomed = null }) { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.closePage) }
                     } else {
-                        IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                        IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
                     }
                 },
             )
@@ -219,29 +220,29 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
 
             PdfState.Locked -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    "This PDF needs a password",
-                    "Retriever can still find it by name. You can open it in another app.",
+                    Words.strings.pdfNeedsPassword,
+                    Words.strings.pdfFindableByName,
                     R.drawable.ic_lock,
-                    action = "Open in another app" to openElsewhere,
+                    action = Words.strings.openInAnotherApp to openElsewhere,
                 )
             }
 
             PdfState.NoAccess -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    "Access to this folder has changed",
-                    "Choose the folder again to open this file.",
+                    Words.strings.folderAccessChanged,
+                    Words.strings.chooseFolderAgain,
                     R.drawable.ic_folder,
-                    action = "Manage access" to { replace(FoldersRoute) },
+                    action = Words.strings.manageAccess to { replace(FoldersRoute) },
                     mood = MascotMood.TROUBLE,
                 )
             }
 
             PdfState.Missing -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    "This file is no longer available",
-                    "It may have been moved or deleted.",
+                    Words.strings.fileNoLongerAvailable,
+                    Words.strings.maybeMovedOrDeleted,
                     R.drawable.ic_warning_amber,
-                    action = "Go back" to onBack,
+                    action = Words.strings.goBack to onBack,
                     mood = MascotMood.TROUBLE,
                 )
             }
@@ -286,10 +287,10 @@ fun PdfPageScreen(route: PdfRoute, onBack: () -> Unit, replace: (Route) -> Unit,
 internal fun PdfFailed(onOpen: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         EmptyState(
-            "Couldn't open this PDF",
-            "It may have been moved or deleted.",
+            Words.strings.couldntOpenPdf,
+            Words.strings.maybeMovedOrDeleted,
             R.drawable.ic_warning_amber,
-            action = "Open in another app" to onOpen,
+            action = Words.strings.openInAnotherApp to onOpen,
             mood = MascotMood.TROUBLE,
         )
     }
@@ -331,7 +332,7 @@ private fun PdfZoomPage(renderer: PdfRenderer, index: Int, placeholder: IntSize,
     val mark = MaterialTheme.colorScheme.primaryContainer
     val size = bitmap?.let { Size(it.width.toFloat(), it.height.toFloat()) } ?: Size(placeholder.width.toFloat(), placeholder.height.toFloat())
     LaunchedEffect(size) { zoom.setContentLocation(ZoomableContentLocation.scaledInsideAndCenterAligned(size)) }
-    Box(modifier.semantics { contentDescription = "Page ${index + 1}, zoomed" }) {
+    Box(modifier.semantics { contentDescription = Words.strings.pageZoomed(index + 1) }) {
         bitmap?.let {
             Image(
                 it,
@@ -366,9 +367,9 @@ private fun PdfPage(
     PdfPageFrame(
         page?.bitmap,
         placeholder,
-        "Page ${index + 1} of $count",
+        Words.strings.pageOf(index + 1, count),
         matched,
-        Modifier.clickable(onClickLabel = "Zoom page", onClick = onClick),
+        Modifier.clickable(onClickLabel = Words.strings.zoomPage, onClick = onClick),
         page?.marks.orEmpty(),
     )
 }
@@ -405,7 +406,7 @@ internal fun PdfPageFrame(
                     Modifier
                 },
             )
-            .semantics { contentDescription = label + if (matched) ", where your search matched" else "" },
+            .semantics { contentDescription = Words.strings.pageSpoken(label, matched) },
     ) {
         shown?.let {
             Image(
@@ -420,7 +421,7 @@ internal fun PdfPageFrame(
         }
         if (matched) {
             Text(
-                "Matched here",
+                Words.strings.matchedHere,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier

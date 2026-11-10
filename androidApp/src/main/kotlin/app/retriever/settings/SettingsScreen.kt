@@ -96,7 +96,7 @@ private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHO
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
 
-internal const val INCLUDED_FILES_FOOTER = Words.KIND_OFF + " A folder to skip is left out of search."
+internal val INCLUDED_FILES_FOOTER: String get() = Words.strings.includedFilesFooter
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
 data class SettingsUi(
@@ -253,9 +253,9 @@ fun SettingsContent(
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(Words.strings.appSettings) },
                 navigationIcon = {
-                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
                 },
             )
         },
@@ -281,11 +281,14 @@ fun SettingsContent(
                 }
                 OpenRow(
                     Words.WHEN_TO_READ,
-                    prefs.automaticReading.title + ". " + when (prefs.automaticReading) {
-                        ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
-                        ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
-                        ReadingSchedule.MANUAL -> "Only when you choose ${Words.READ_FOR_15}."
-                    },
+                    Words.strings.scheduleSummary(
+                        prefs.automaticReading.title,
+                        when (prefs.automaticReading) {
+                            ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
+                            ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
+                            ReadingSchedule.MANUAL -> Words.strings.onlyWhenYouChoose
+                        },
+                    ),
                 ) { schedulesOpen = true }
                 if (schedulesOpen) {
                     AlertDialog(
@@ -310,8 +313,8 @@ fun SettingsContent(
                 }
                 ActionRow(Words.READ_FOR_15, { Text(Words.readNowBody(DeviceWords.ANDROID)) }, onClick = actions.readNow)
                 OpenRow(
-                    "Processing notifications",
-                    if (ui.notificationsOn) "On" else "Off. Processing still runs; you just don’t see how far it’s got.",
+                    Words.strings.processingNotifications,
+                    if (ui.notificationsOn) Words.strings.notificationsOn else Words.strings.notificationsOff,
                     actions.openNotificationSettings,
                 )
                 if (!ui.textOnly && !ui.modelMissing) TuneRow(ui.tune, actions.tuneAgain)
@@ -322,7 +325,7 @@ fun SettingsContent(
                     SearchByMeaning(ui, actions)
                 }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Included files")
+                Header(Words.strings.includedFiles)
                 OpenRow(Words.WHAT_IT_CAN_SEE, onClick = actions.openAccess)
                 Text(
                     Words.PROCESS_THESE_KINDS,
@@ -340,7 +343,7 @@ fun SettingsContent(
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
                 )
-                if (prefs.excludedFolders.isEmpty()) Muted("None", Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                if (prefs.excludedFolders.isEmpty()) Muted(Words.strings.noneExcluded, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 for (folder in prefs.excludedFolders.sorted()) {
                     ListItem(
                         headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -348,29 +351,29 @@ fun SettingsContent(
                             // The visible label repeats on every row, so a screen reader is told which folder.
                             TextButton(
                                 onClick = { actions.removeExcluded(folder) },
-                                modifier = Modifier.semantics { contentDescription = "Include $folder" },
-                            ) { Text("Include folder") }
+                                modifier = Modifier.semantics { contentDescription = Words.strings.includeNamed(folder) },
+                            ) { Text(Words.strings.includeFolder) }
                         },
                     )
                 }
                 Muted(INCLUDED_FILES_FOOTER, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Privacy")
-                SwitchRow("Save recent searches", prefs.rememberSearches, "Saved on this device. Also used for search shortcuts.", actions.setRememberSearches)
+                Header(Words.strings.privacy)
+                SwitchRow(Words.strings.saveRecentSearches, prefs.rememberSearches, Words.strings.savedOnDeviceShortcuts, actions.setRememberSearches)
                 var confirmClear by rememberSaveable { mutableStateOf(false) }
-                ActionRow("Clear recent searches", destructive = true) { confirmClear = true }
+                ActionRow(Words.strings.clearRecentSearches, destructive = true) { confirmClear = true }
                 if (confirmClear) {
                     AlertDialog(
                         onDismissRequest = { confirmClear = false },
-                        title = { Text("Clear recent searches and shortcuts?") },
+                        title = { Text(Words.strings.clearSearchesAndShortcutsAsk) },
                         confirmButton = {
                             TextButton(onClick = {
                                 confirmClear = false
                                 actions.clearRecentSearches()
-                            }) { Text("Clear") }
+                            }) { Text(Words.strings.clear) }
                         },
-                        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+                        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(Words.CANCEL) } },
                     )
                 }
                 // Turning People off forgets the names the person gave, so it asks first; turning it on doesn't.
@@ -394,20 +397,20 @@ fun SettingsContent(
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Storage")
+                Header(Words.strings.storage)
                 Storage(ui)
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("Appearance")
+                Header(Words.strings.appearance)
                 SwitchRow(Words.SHOW_ON_THIS_DAY, prefs.showOnThisDay, onChange = actions.setOnThisDay)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SwitchRow("Wallpaper colours", prefs.dynamicColor, "Off uses Retriever's warm amber.", actions.setDynamicColor)
+                    SwitchRow(Words.strings.wallpaperColours, prefs.dynamicColor, Words.strings.wallpaperColoursOff, actions.setDynamicColor)
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header("About")
-                ValueRow("Version", BuildConfig.VERSION_NAME)
-                OpenRow("Open-source notices", onClick = actions.openNotices)
+                Header(Words.strings.about)
+                ValueRow(Words.strings.version, BuildConfig.VERSION_NAME)
+                OpenRow(Words.strings.openSourceNotices, onClick = actions.openNotices)
 
                 // Unreachable in release. Compose lifts some lambdas out of the branch, so only R8 drops their strings.
                 if (BuildConfig.DEBUG) {
@@ -439,8 +442,8 @@ fun SettingsContent(
             onDismissRequest = actions.dismissFreeUpSpace,
             title = { Text(Words.REMOVE_DOWNLOAD_ASK) },
             text = { Text(Words.removeDownloadMessage(ui.storage?.modelBytes?.let { Format.downloadSize(LocalContext.current, it) })) },
-            confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text("Remove download") } },
-            dismissButton = { TextButton(onClick = actions.dismissFreeUpSpace) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = actions.freeUpSpace) { Text(Words.strings.removeDownloadConfirm) } },
+            dismissButton = { TextButton(onClick = actions.dismissFreeUpSpace) { Text(Words.CANCEL) } },
         )
     }
 }
@@ -453,19 +456,18 @@ private fun HowItWorks() {
         headlineContent = { Text(Words.HOW_IT_WORKS) },
         leadingContent = { Icon(painterResource(R.drawable.ic_lock), contentDescription = null) },
         trailingContent = { Icon(painterResource(if (open) R.drawable.ic_expand_less else R.drawable.ic_expand_more), contentDescription = null) },
-        modifier = Modifier.clickable(role = Role.Button) { open = !open }.semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+        modifier = Modifier.clickable(role = Role.Button) { open = !open }.semantics {
+            stateDescription =
+                if (open) Words.strings.expanded else Words.strings.collapsed
+        },
     )
     if (open) {
         Muted(
-            "${Words.wholeDeviceNote(
-                DeviceWords.ANDROID,
-            )} ${Words.onDevice(
-                DeviceWords.ANDROID,
-            )}. Search and text-recognition models may need an internet download. Your file provider may also use the internet to open cloud files.",
+            Words.strings.howItWorksBody(DeviceWords.ANDROID),
             Modifier.padding(16.dp),
         )
         Muted(
-            "It processes your files at the times you choose under ${Words.WHEN_TO_READ}. Long files are processed a bit at a time: you can find them by their beginning first.",
+            Words.strings.howItWorksTimes,
             Modifier.padding(horizontal = 16.dp),
         )
     }
@@ -474,14 +476,14 @@ private fun HowItWorks() {
 @Composable
 private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
     ActionRow(
-        "Run setup check",
+        Words.strings.runSetupCheck,
         {
             Text(
                 when (tune) {
-                    TuneState.Running -> "Tuning… a few minutes at most"
-                    is TuneState.Failed -> "Tune failed: ${tune.message}"
-                    is TuneState.Done -> "Processing is set up"
-                    TuneState.Idle -> "Adjusts processing speed to this phone."
+                    TuneState.Running -> Words.strings.tuningFewMinutes
+                    is TuneState.Failed -> Words.strings.tuneFailedMessage(tune.message)
+                    is TuneState.Done -> Words.strings.processingIsSetUp
+                    TuneState.Idle -> Words.strings.adjustsProcessingSpeed
                 },
                 color = if (tune is TuneState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -501,7 +503,7 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
 private fun Storage(ui: SettingsUi) {
     ListItem(
         headlineContent = { Text(Words.RETRIEVERS_DATA) },
-        supportingContent = { Text(Words.keptOn(ui.storage?.let { Format.bytes(it.indexBytes) } ?: "…", DeviceWords.ANDROID)) },
+        supportingContent = { Text(Words.keptOn(ui.storage?.let { Format.bytes(it.indexBytes) } ?: Words.strings.sizePending, DeviceWords.ANDROID)) },
     )
     if (ui.textOnly) return
     ui.storage?.cacheBytes?.takeIf { it > 0 }?.let {
@@ -513,12 +515,14 @@ private fun Storage(ui: SettingsUi) {
 @Composable
 private fun SearchByMeaning(ui: SettingsUi, actions: SettingsActions) {
     if (ui.upgrade.stage == UpgradeStage.DONE) {
-        val size = (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) } ?: "…"
+        val size =
+            (ui.storage?.modelBytes?.takeIf { it > 0 } ?: ui.build?.sizeBytes)?.let { Format.downloadSize(LocalContext.current, it) }
+                ?: Words.strings.sizePending
         ListItem(headlineContent = { Text(Words.UPGRADE_TITLE) }, supportingContent = { Text(Words.downloaded(size)) })
         ActionRow(Words.REMOVE_DOWNLOAD, { Text(Words.NAMES_STILL_WORK) }, destructive = true, onClick = actions.askFreeUpSpace)
     } else {
         UpgradeCard(ui.upgrade, actions.upgrade, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        SwitchRow("Use mobile data for downloads", ui.prefs.allowMobileData, "Off: downloads wait for Wi-Fi.", actions.setMobileData)
+        SwitchRow(Words.strings.useMobileDataForDownloads, ui.prefs.allowMobileData, Words.strings.downloadsWaitForWifiShort, actions.setMobileData)
     }
 }
 
@@ -529,15 +533,15 @@ fun NoticesContent(text: String?, modifier: Modifier = Modifier, onBack: () -> U
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Open-source notices") },
+                title = { Text(Words.strings.openSourceNotices) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
                 },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(text ?: "Loading…", style = MaterialTheme.typography.bodySmall)
+            Text(text ?: Words.strings.loading, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

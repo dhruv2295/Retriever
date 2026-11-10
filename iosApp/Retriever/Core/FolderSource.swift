@@ -47,7 +47,7 @@ final class FolderSource: NSObject, NativeFileSource, @unchecked Sendable {
         _ = folders
         let saved = bookmarks
         return lock.withLock { stale }.compactMap { id in
-            saved[id].map { Folder(id: id, name: URL.resourceValues(forKeys: [.nameKey], fromBookmarkData: $0)?.name ?? "A folder") }
+            saved[id].map { Folder(id: id, name: URL.resourceValues(forKeys: [.nameKey], fromBookmarkData: $0)?.name ?? Words.shared.strings.aFolder) }
         }
     }
 

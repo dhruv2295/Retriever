@@ -53,16 +53,16 @@ import org.koin.mp.KoinPlatform
 import kotlin.coroutines.cancellation.CancellationException
 
 /** The menu's items in the order every surface shows them. [STAR] is carried out by the caller, the rest by [FileActionsHost]. */
-enum class FileAction(private val label: String, @DrawableRes val icon: Int) {
-    STAR("Add to Starred", R.drawable.ic_star_border),
-    SHARE("Share", R.drawable.ic_share),
-    OPEN("Open in another app", R.drawable.ic_open_in_new),
-    INFO("File info", R.drawable.ic_info),
-    RENAME("Rename", R.drawable.ic_edit),
-    DELETE(Words.deleteFrom(DeviceWords.ANDROID), R.drawable.ic_delete),
+enum class FileAction(private val label: () -> String, @DrawableRes val icon: Int) {
+    STAR({ Words.strings.addToStarred }, R.drawable.ic_star_border),
+    SHARE({ Words.strings.share }, R.drawable.ic_share),
+    OPEN({ Words.strings.openInAnotherApp }, R.drawable.ic_open_in_new),
+    INFO({ Words.strings.fileInfo }, R.drawable.ic_info),
+    RENAME({ Words.strings.rename }, R.drawable.ic_edit),
+    DELETE({ Words.deleteFrom(DeviceWords.ANDROID) }, R.drawable.ic_delete),
     ;
 
-    fun label(starred: Boolean) = if (this == STAR && starred) "Remove from Starred" else label
+    fun label(starred: Boolean) = if (this == STAR && starred) Words.strings.removeFromStarred else label()
     fun icon(starred: Boolean) = if (this == STAR && starred) R.drawable.ic_star else icon
 }
 enum class FileSource { MEDIA, TREE, OTHER }
@@ -81,7 +81,7 @@ internal fun fileActions(uri: String): List<FileAction> = if (sourceOf(uri) == F
 }
 
 /** The folder's own name, as Folders shows it; "Top level" for a file that sits at the root. */
-internal fun friendlyFolder(folder: String) = folder.substringAfterLast('/').ifEmpty { "Top level" }
+internal fun friendlyFolder(folder: String) = folder.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
 
 internal fun validFileName(name: String): Boolean =
     name.isNotBlank() && name != "." && name != ".." && name.none { it == '/' || it == '\\' || it.isISOControl() }
@@ -116,7 +116,7 @@ private fun rememberStarWriter(uri: String): (Boolean) -> Unit {
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                Toast.makeText(context, "Couldn't change the star. Try again.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, Words.strings.couldntChangeStar, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -172,7 +172,7 @@ internal fun FileActionItems(
         for (action in fileActions(file.uri)) {
             if (action == FileAction.INFO && similar != null) {
                 DropdownMenuItem(
-                    text = { Text("Find similar") },
+                    text = { Text(Words.strings.findSimilar) },
                     leadingIcon = { Icon(painterResource(R.drawable.ic_image_search), contentDescription = null) },
                     onClick = {
                         dismiss()
@@ -255,7 +255,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     var busy by remember { mutableStateOf(false) }
     fun failed() {
         request = null
-        Toast.makeText(context, "Couldn't finish that. The file may have moved or access may have changed.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, Words.strings.couldntFinishThat, Toast.LENGTH_LONG).show()
     }
     fun run(work: suspend () -> Unit) {
         scope.launch {
@@ -307,8 +307,8 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
 
         FileAction.RENAME -> AlertDialog(
             onDismissRequest = { if (!busy) request = null },
-            title = { Text("Rename file") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true) },
+            title = { Text(Words.strings.renameFile) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(Words.strings.fileNameField) }, singleLine = true) },
             confirmButton = {
                 TextButton(enabled = !busy && pending == null && validFileName(name) && name != r.file.name, onClick = {
                     if (sourceOf(r.file.uri) == FileSource.MEDIA) {
@@ -321,15 +321,15 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                     } else {
                         run { rename(r, name) }
                     }
-                }) { Text("Rename") }
+                }) { Text(Words.strings.rename) }
             },
-            dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text(Words.CANCEL) } },
         )
 
         // Asked here for every file, as Duplicates does: with all-files access Android deletes a photo without asking.
         FileAction.DELETE -> AlertDialog(
             onDismissRequest = { if (!busy) request = null },
-            title = { Text("Delete this file?") },
+            title = { Text(Words.strings.deleteThisFile) },
             text = { Text(Words.deleteConfirm(DeviceWords.ANDROID)) },
             confirmButton = {
                 TextButton(enabled = !busy, onClick = {
@@ -348,7 +348,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                     }
                 }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
             },
-            dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { request = null }, enabled = !busy) { Text(Words.CANCEL) } },
         )
 
         else -> Unit
@@ -396,5 +396,5 @@ private fun shareOrOpen(context: Context, file: SourceFile, share: Boolean) {
         Intent(Intent.ACTION_VIEW).setDataAndType(uri, file.mime)
     }
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(intent, if (share) null else "Open in another app"))
+    context.startActivity(Intent.createChooser(intent, if (share) null else Words.strings.openInAnotherApp))
 }

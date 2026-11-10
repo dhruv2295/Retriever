@@ -93,7 +93,7 @@ internal fun HelloExamples(textOnly: Boolean, animate: Boolean) {
             }
         }
         ExampleCard(
-            EXAMPLE_ART.getValue(e.query),
+            EXAMPLE_ART[Words.HELLO_EXAMPLES.indexOf(e).coerceAtLeast(0)],
             e,
             Modifier.graphicsLayer {
                 val v = card.value
@@ -124,11 +124,8 @@ private fun ExampleCard(@DrawableRes art: Int, e: Words.HelloExample, modifier: 
     }
 }
 
-private val EXAMPLE_ART = mapOf(
-    Words.HELLO_EXAMPLES[0].query to R.drawable.example_chat,
-    Words.HELLO_EXAMPLES[1].query to R.drawable.example_sofa,
-    Words.HELLO_EXAMPLES[2].query to R.drawable.example_lease,
-)
+/** By place in [Words.HELLO_EXAMPLES], which every language keeps in the same order; never by the words, which change with it. */
+private val EXAMPLE_ART = listOf(R.drawable.example_chat, R.drawable.example_sofa, R.drawable.example_lease)
 
 internal const val EXAMPLE_MS = 3_500L
 private const val TYPING_MS = 1_150L

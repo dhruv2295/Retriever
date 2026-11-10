@@ -21,7 +21,7 @@ struct FoldersView: View {
         let path: String
         let count: Int
         var id: String { path }
-        var name: String { path.split(separator: "/").last.map(String.init) ?? "Top level" }
+        var name: String { path.split(separator: "/").last.map(String.init) ?? Words.shared.strings.topLevel }
         var parent: String? { path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : nil }
     }
 
@@ -41,34 +41,34 @@ struct FoldersView: View {
                                 } icon: {
                                     Image(systemName: "folder")
                                 }
-                                Text([Words.shared.files(n: Int64(f.count)), f.parent].compactMap { $0 }.joined(separator: " · "))
+                                Text(Words.shared.strings.filesInParent(n: Int64(f.count), parent: f.parent))
                                     .font(.footnote)
                                     .foregroundStyle(Color.primary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .accessibilityElement(children: .combine)
                         }
-                        .swipeActions { Button("Stop searching", systemImage: "eye.slash") { excluding = f }.tint(.orange) }
-                        .contextMenu { Button("Stop searching this folder", systemImage: "eye.slash") { excluding = f } }
+                        .swipeActions { Button(Words.shared.strings.stopSearching, systemImage: "eye.slash") { excluding = f }.tint(.orange) }
+                        .contextMenu { Button(Words.shared.strings.stopSearchingThisFolder, systemImage: "eye.slash") { excluding = f } }
                     }
                 } header: {
-                    Text("Folders with files").foregroundStyle(Color.primary)
+                    Text(Words.shared.strings.foldersWithFiles).foregroundStyle(Color.primary)
                 }
             }
             if failed && !(picked.isEmpty && unreachable.isEmpty) {
-                Section { Button("Couldn't load the folder list. Try again") { Task { await load() } } }
+                Section { Button(Words.shared.strings.couldntLoadFolderList) { Task { await load() } } }
             }
             Section {
                 ForEach(picked) { f in
                     Label(f.name, systemImage: "folder.badge.person.crop")
-                        .swipeActions { Button("Remove", role: .destructive) { removing = f } }
-                        .contextMenu { Button("Remove", systemImage: "trash", role: .destructive) { removing = f } }
+                        .swipeActions { Button(Words.shared.strings.removeFolder, role: .destructive) { removing = f } }
+                        .contextMenu { Button(Words.shared.strings.removeFolder, systemImage: "trash", role: .destructive) { removing = f } }
                 }
                 ForEach(unreachable) { f in
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(f.name)
-                            Text("Retriever can't open this folder any more. Remove it, then add it again.")
+                            Text(Words.shared.strings.cantOpenFolderAnyMore)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -76,20 +76,20 @@ struct FoldersView: View {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
                     }
                     .accessibilityElement(children: .combine)
-                    .swipeActions { Button("Remove", role: .destructive) { removing = f } }
-                    .contextMenu { Button("Remove", systemImage: "trash", role: .destructive) { removing = f } }
+                    .swipeActions { Button(Words.shared.strings.removeFolder, role: .destructive) { removing = f } }
+                    .contextMenu { Button(Words.shared.strings.removeFolder, systemImage: "trash", role: .destructive) { removing = f } }
                 }
                 Button {
                     adding = true
                 } label: {
-                    Label("Add a folder", systemImage: "folder.badge.plus")
+                    Label(Words.shared.ADD_FOLDER, systemImage: "folder.badge.plus")
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
             } header: {
-                Text("Folders you added").foregroundStyle(Color.primary)
+                Text(Words.shared.strings.foldersYouAdded).foregroundStyle(Color.primary)
             } footer: {
-                Text("Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.")
+                Text(Words.shared.strings.alsoSearchesOwnFolder)
                     .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             if !excluded.isEmpty {
@@ -99,7 +99,7 @@ struct FoldersView: View {
                             Button {
                                 model.restoreFolder(path)
                             } label: {
-                                Text("Include folder").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                                Text(Words.shared.strings.includeFolder).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                             }.buttonStyle(.borderless)
                         } label: {
                             Label(path.split(separator: "/").last.map(String.init) ?? path, systemImage: "eye.slash")
@@ -112,14 +112,14 @@ struct FoldersView: View {
             if loading && folders.isEmpty {
                 ProgressView()
             } else if failed && picked.isEmpty && unreachable.isEmpty {
-                StateView(mood: .trouble, title: "Couldn't load folders", message: "Something went wrong reading your folders.") {
-                    Button("Try again") { Task { await load() } }.buttonStyle(.primaryAction)
+                StateView(mood: .trouble, title: Words.shared.strings.couldntLoadFolders, message: Words.shared.strings.wentWrongReadingFolders) {
+                    Button(Words.shared.TRY_AGAIN) { Task { await load() } }.buttonStyle(.primaryAction)
                 }
             } else if folders.isEmpty && picked.isEmpty && unreachable.isEmpty {
-                StateView(mood: .noMatch, title: "No folders yet", message: "Folders appear once Retriever has looked through your files.")
+                StateView(mood: .noMatch, title: Words.shared.strings.noFoldersYet, message: Words.shared.strings.foldersAppearFiles)
             }
         }
-        .navigationTitle("Folders")
+        .navigationTitle(Words.shared.strings.folders)
         .task(id: excluded) { await load() }
         .fileImporter(isPresented: $adding, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
@@ -128,20 +128,20 @@ struct FoldersView: View {
         }
         .alert(note ?? "", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) {}
         .alert(
-            "Stop searching \(excluding?.name ?? "")?", isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
+            Words.shared.strings.stopSearchingAsk(name: excluding?.name ?? ""), isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
             presenting: excluding
         ) { f in
-            Button("Stop searching", role: .destructive) { model.setExcluded(f.path, true) }
-            Button("Cancel", role: .cancel) {}
+            Button(Words.shared.strings.stopSearching, role: .destructive) { model.setExcluded(f.path, true) }
+            Button(Words.shared.CANCEL, role: .cancel) {}
         } message: { f in
-            Text("Retriever will forget the \(Words.shared.files(n: Int64(f.count))) in \(f.name). You can bring it back here.")
+            Text(Words.shared.strings.stopSearchingForget(n: Int64(f.count), name: f.name))
         }
-        .alert("Remove \(removing?.name ?? "")?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) {
+        .alert(Words.shared.strings.removeFolderAsk(name: removing?.name ?? ""), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) {
             f in
-            Button("Remove", role: .destructive) { remove(f) }
-            Button("Cancel", role: .cancel) {}
+            Button(Words.shared.strings.removeFolder, role: .destructive) { remove(f) }
+            Button(Words.shared.CANCEL, role: .cancel) {}
         } message: { _ in
-            Text("Retriever will stop searching it and forget what it processed there. The folder and its files stay where they are.")
+            Text(Words.shared.strings.removeFolderMessage)
         }
     }
 

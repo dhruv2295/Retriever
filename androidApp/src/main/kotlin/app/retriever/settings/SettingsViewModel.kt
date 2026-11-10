@@ -11,6 +11,7 @@ import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
 import app.retriever.model.ModelRepository
@@ -86,7 +87,7 @@ class SettingsViewModel(
     private fun fail(e: Exception) {
         // A full disk (SQLiteFullException) lands here too: the person sees it, the app keeps running.
         LogSink.write(BuildConfig.DEBUG, "settings action failed", e)
-        local.update { it.copy(message = "Couldn’t save this change. Try again.") }
+        local.update { it.copy(message = Words.strings.couldntSaveChange) }
     }
 
     /** Like [launchCatching], for work that must outlive the screen. */
@@ -202,7 +203,7 @@ class SettingsViewModel(
     fun freeUpSpace() = inApp {
         storage.freeUpSpace()
         loadStorage()
-        local.update { it.copy(message = "Search download removed") }
+        local.update { it.copy(message = Words.strings.searchDownloadRemoved) }
     }
 
     init {

@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.files.FileAction
 import app.retriever.files.FileActionItems
 import app.retriever.files.FileActions
@@ -57,7 +58,7 @@ internal fun ViewerTopBar(
     subtitle: String? = null,
     colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(),
     navigationIcon: @Composable () -> Unit = {
-        IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back") }
+        IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
     },
 ) {
     TopAppBar(
@@ -84,11 +85,11 @@ private fun RowScope.ViewerActions(uri: String, stars: Starring, onDeleted: () -
     val starred by stars.starred.collectAsStateWithLifecycle()
     val on = uri in starred
     IconButton(enabled = file != null, onClick = { file?.let { host.select(it, FileAction.SHARE) {} } }) {
-        Icon(painterResource(R.drawable.ic_share), contentDescription = "Share")
+        Icon(painterResource(R.drawable.ic_share), contentDescription = Words.strings.share)
     }
     if (starFitsInBar(with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp().value.toInt() })) StarButton(on) { stars.toggle(uri) }
     PressMenu(content = { open ->
-        IconButton(enabled = file != null, onClick = open) { Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options") }
+        IconButton(enabled = file != null, onClick = open) { Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptions) }
     }) { dismiss ->
         val shown = file ?: return@PressMenu
         FileActionItems(shown, dismiss, starred = on, onStar = { stars.set(uri, it) }, onDeleted = onDeleted)
@@ -104,13 +105,13 @@ internal fun ViewerStepBar(uri: String, onOpen: (Route) -> Unit) {
     val step = { to: SourceFile? -> to?.let { Opener.routeFor(it) }?.let(onOpen) }
     BottomAppBar {
         IconButton(enabled = near.previous != null, onClick = { step(near.previous) }) {
-            Icon(painterResource(R.drawable.ic_skip_previous), contentDescription = "Previous file")
+            Icon(painterResource(R.drawable.ic_skip_previous), contentDescription = Words.strings.previousFile)
         }
         Spacer(Modifier.weight(1f))
         Text(label, style = MaterialTheme.typography.labelLarge.tabular())
         Spacer(Modifier.weight(1f))
         IconButton(enabled = near.next != null, onClick = { step(near.next) }) {
-            Icon(painterResource(R.drawable.ic_skip_next), contentDescription = "Next file")
+            Icon(painterResource(R.drawable.ic_skip_next), contentDescription = Words.strings.nextFile)
         }
     }
 }

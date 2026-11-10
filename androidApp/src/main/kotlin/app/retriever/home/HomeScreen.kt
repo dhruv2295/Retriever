@@ -167,7 +167,7 @@ fun HomeScreen(
                 vm.hideOnThisDay()
                 scope.launch {
                     snackbar.currentSnackbarData?.dismiss()
-                    if (snackbar.showSnackbar("On this day hidden", "Undo", duration = SnackbarDuration.Short) ==
+                    if (snackbar.showSnackbar(Words.strings.onThisDayHidden, Words.strings.undo, duration = SnackbarDuration.Short) ==
                         SnackbarResult.ActionPerformed
                     ) {
                         vm.showOnThisDay()
@@ -409,14 +409,24 @@ internal fun StatusLine(
                 null
             },
             trailingContent = if (status.action == StatusAction.DISMISS) {
-                { IconButton(onClick = { onAction(StatusAction.DISMISS) }) { Icon(painterResource(R.drawable.ic_close), contentDescription = "Dismiss") } }
+                {
+                    IconButton(onClick = {
+                        onAction(StatusAction.DISMISS)
+                    }) { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.statusAction(StatusAction.DISMISS)) }
+                }
             } else if (onOpen != null) {
                 { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) }
             } else {
                 null
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            modifier = if (onOpen != null) Modifier.clickable(role = Role.Button, onClickLabel = "Show processing details", onClick = onOpen) else Modifier,
+            modifier = if (onOpen !=
+                null
+            ) {
+                Modifier.clickable(role = Role.Button, onClickLabel = Words.strings.showProcessingDetails, onClick = onOpen)
+            } else {
+                Modifier
+            },
         )
         // Spelled out and below the words, so it never squeezes them at large text; aligned with the title.
         status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
@@ -436,12 +446,16 @@ private fun EmptyHome(looking: Boolean) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Mascot(if (looking) MascotMood.WALKING else MascotMood.NO_MATCH, Modifier.width(160.dp))
-        Text(if (looking) "Looking for your files" else "Nothing to search yet", style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+        Text(
+            if (looking) Words.strings.lookingForYourFiles else Words.strings.nothingToSearchYet,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
         Text(
             if (looking) {
-                "This takes a minute. You can search by name as soon as they turn up."
+                Words.strings.takesAMinute
             } else {
-                "Save a PDF, take a screenshot or a photo, and it'll show up here."
+                Words.strings.saveAPdfHint
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
