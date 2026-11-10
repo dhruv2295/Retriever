@@ -216,128 +216,131 @@ fun BrowseContent(
     dateOf: ((Store.StoredFile) -> Long)? = null,
 ) {
     val files = ui.files
-    Column(modifier.padding(top = padding.calculateTopPadding())) {
-        // Starred is ordered by when you starred, so the sort chips would not apply.
-        if (sortable && !starredOnly) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Store.Sort.entries.forEach { option ->
-                    FilterChip(
-                        selected = ui.sort == option.name,
-                        onClick = { onSort(option.name) },
-                        label = { Text(option.label()) },
-                    )
+    // Rows keep a readable width on a wide window, and the chips and caption above them share its edges, so the page
+    // is one column; a grid of pictures uses the whole width.
+    BoxWithConstraints(modifier) {
+        val side = if (kind in GRID_KINDS) 0.dp else gutter()
+        Column(Modifier.padding(top = padding.calculateTopPadding())) {
+            // Starred is ordered by when you starred, so the sort chips would not apply.
+            if (sortable && !starredOnly) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp + side, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Store.Sort.entries.forEach { option ->
+                        FilterChip(
+                            selected = ui.sort == option.name,
+                            onClick = { onSort(option.name) },
+                            label = { Text(option.label()) },
+                        )
+                    }
                 }
+                Muted(sortCaption(ui.sort), Modifier.padding(horizontal = 16.dp + side))
             }
-            Muted(sortCaption(ui.sort), Modifier.padding(horizontal = 16.dp))
-        }
 
-        if (files.isEmpty() && ui.error != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(
-                    title = Words.strings.couldntLoadYourFiles,
-                    description = Words.strings.wentWrongReadingThem,
-                    icon = R.drawable.ic_folder_open,
-                    mood = MascotMood.TROUBLE,
-                    action = Words.TRY_AGAIN to onRetry,
-                )
-            }
-        } else if (files.isEmpty() && ui.loading) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        } else if (files.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (starredOnly) {
+            if (files.isEmpty() && ui.error != null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
-                        title = Words.strings.keepUsefulFilesClose,
-                        description = Words.strings.tapStarToFindHere,
-                        icon = R.drawable.ic_star_border,
-                        mood = MascotMood.NO_MATCH,
-                    )
-                } else if (!filtered) {
-                    EmptyState(
-                        title = Words.strings.chooseFilesToSearch,
-                        description = Words.strings.addPhotosOrFolder,
+                        title = Words.strings.couldntLoadYourFiles,
+                        description = Words.strings.wentWrongReadingThem,
                         icon = R.drawable.ic_folder_open,
-                        mood = MascotMood.NO_MATCH,
-                        action = Words.strings.manageAccess to onManageAccess,
-                    )
-                } else {
-                    EmptyState(
-                        title = Words.strings.nothingHereYet,
-                        description = Words.strings.filesShowUpHere(DeviceWords.ANDROID),
-                        icon = R.drawable.ic_folder_open,
-                        mood = MascotMood.NO_MATCH,
+                        mood = MascotMood.TROUBLE,
+                        action = Words.TRY_AGAIN to onRetry,
                     )
                 }
-            }
-        } else {
-            val listPadding = contentPaddingFor(padding, includeTop = false)
-            if (kind in GRID_KINDS) {
-                val state = rememberLazyGridState()
-                // null is the width's own column count; a pinch picks another, kept across rotation.
-                var chosen by rememberSaveable { mutableStateOf<Int?>(null) }
-                val runs = remember(files, dateOf) { monthRuns(files, dateOf) }
-                ScrollingEffect({ state.isScrollInProgress }, onScrolling)
-                LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
-                BoxWithConstraints(Modifier.fillMaxSize()) {
-                    val direction = LocalLayoutDirection.current
-                    val sides = listPadding.calculateLeftPadding(direction) + listPadding.calculateRightPadding(direction)
-                    val width = maxWidth - 8.dp - sides
-                    val columns = chosen ?: adaptiveColumns(width, 110.dp, 4.dp)
-                    val cell = (width - 4.dp * (columns - 1)) / columns
-                    val pinch by rememberUpdatedState { step: Int -> chosen = (columns + step).coerceIn(2, 8) }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(columns),
-                        state = state,
-                        contentPadding = listPadding,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).pinchSteps { pinch(it) },
-                    ) {
-                        runs.forEach { (month, run) ->
-                            if (month != null) {
-                                stickyHeader(key = "m${run.first().id}", contentType = "month") {
-                                    Text(
-                                        month,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        modifier = Modifier.fillMaxWidth().background(
-                                            MaterialTheme.colorScheme.surface,
-                                        ).padding(horizontal = 4.dp, vertical = 8.dp),
-                                    )
-                                }
-                            }
-                            items(run, key = { it.id }, contentType = { "file" }) { stored ->
-                                val on = stored.file.uri in starred
-                                FilePressMenu(stored.file, starred = on, onStar = {
-                                    onStar(stored.file, it)
-                                }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
-                                    ThumbCell(
-                                        file = stored.file,
-                                        onClick = { onOpen(stored.file) },
-                                        requestSize = cell,
-                                        readNote = Words.coverage(stored, ui.inside),
-                                        onLongClick = menu,
-                                        onLongClickLabel = Words.strings.moreOptions,
-                                        modifier = actions,
-                                        morph = morph,
-                                        origin = BROWSE_ORIGIN,
-                                    )
-                                }
-                            }
-                        }
-                        if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
+            } else if (files.isEmpty() && ui.loading) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            } else if (files.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (starredOnly) {
+                        EmptyState(
+                            title = Words.strings.keepUsefulFilesClose,
+                            description = Words.strings.tapStarToFindHere,
+                            icon = R.drawable.ic_star_border,
+                            mood = MascotMood.NO_MATCH,
+                        )
+                    } else if (!filtered) {
+                        EmptyState(
+                            title = Words.strings.chooseFilesToSearch,
+                            description = Words.strings.addPhotosOrFolder,
+                            icon = R.drawable.ic_folder_open,
+                            mood = MascotMood.NO_MATCH,
+                            action = Words.strings.manageAccess to onManageAccess,
+                        )
+                    } else {
+                        EmptyState(
+                            title = Words.strings.nothingHereYet,
+                            description = Words.strings.filesShowUpHere(DeviceWords.ANDROID),
+                            icon = R.drawable.ic_folder_open,
+                            mood = MascotMood.NO_MATCH,
+                        )
                     }
                 }
             } else {
-                val state = rememberLazyListState()
-                ScrollingEffect({ state.isScrollInProgress }, onScrolling)
-                LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
-                BoxWithConstraints(Modifier.fillMaxSize()) {
+                val listPadding = contentPaddingFor(padding, includeTop = false)
+                if (kind in GRID_KINDS) {
+                    val state = rememberLazyGridState()
+                    // null is the width's own column count; a pinch picks another, kept across rotation.
+                    var chosen by rememberSaveable { mutableStateOf<Int?>(null) }
+                    val runs = remember(files, dateOf) { monthRuns(files, dateOf) }
+                    ScrollingEffect({ state.isScrollInProgress }, onScrolling)
+                    LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val direction = LocalLayoutDirection.current
+                        val sides = listPadding.calculateLeftPadding(direction) + listPadding.calculateRightPadding(direction)
+                        val width = maxWidth - 8.dp - sides
+                        val columns = chosen ?: adaptiveColumns(width, 110.dp, 4.dp)
+                        val cell = (width - 4.dp * (columns - 1)) / columns
+                        val pinch by rememberUpdatedState { step: Int -> chosen = (columns + step).coerceIn(2, 8) }
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(columns),
+                            state = state,
+                            contentPadding = listPadding,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).pinchSteps { pinch(it) },
+                        ) {
+                            runs.forEach { (month, run) ->
+                                if (month != null) {
+                                    stickyHeader(key = "m${run.first().id}", contentType = "month") {
+                                        Text(
+                                            month,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            modifier = Modifier.fillMaxWidth().background(
+                                                MaterialTheme.colorScheme.surface,
+                                            ).padding(horizontal = 4.dp, vertical = 8.dp),
+                                        )
+                                    }
+                                }
+                                items(run, key = { it.id }, contentType = { "file" }) { stored ->
+                                    val on = stored.file.uri in starred
+                                    FilePressMenu(stored.file, starred = on, onStar = {
+                                        onStar(stored.file, it)
+                                    }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
+                                        ThumbCell(
+                                            file = stored.file,
+                                            onClick = { onOpen(stored.file) },
+                                            requestSize = cell,
+                                            readNote = Words.coverage(stored, ui.inside),
+                                            onLongClick = menu,
+                                            onLongClickLabel = Words.strings.moreOptions,
+                                            modifier = actions,
+                                            morph = morph,
+                                            origin = BROWSE_ORIGIN,
+                                        )
+                                    }
+                                }
+                            }
+                            if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
+                        }
+                    }
+                } else {
+                    val state = rememberLazyListState()
+                    ScrollingEffect({ state.isScrollInProgress }, onScrolling)
+                    LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
                     LazyColumn(
                         state = state,
-                        contentPadding = contentPaddingFor(padding, side = gutter(), includeTop = false),
+                        contentPadding = contentPaddingFor(padding, side = side, includeTop = false),
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->

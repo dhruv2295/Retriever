@@ -45,8 +45,9 @@ class PlayerViewModel(context: Context, private val handle: SavedStateHandle, va
             // A saved position (a recreated entry after the process died) beats where the search hit pointed.
             seekTo(handle[POSITION] ?: route.startMs)
             prepare()
-            // Paused at the moment, until Play: a swipe or a step to the next file must not start sound.
-            playWhenReady = false
+            // A video tapped in a list plays at once, as in Google Photos. A recording, or a step to the next file (no
+            // origin), waits paused for Play: those must not start sound by themselves. Not again after a restore.
+            playWhenReady = route.origin.isNotEmpty() && route.mime.startsWith("video/") && handle.get<Long>(POSITION) == null
         }
 
     /**

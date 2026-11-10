@@ -62,7 +62,8 @@ object Opener {
      */
     fun routeFor(file: SourceFile, locator: String = "", fileId: Long = 0, query: String = "", origin: String = ""): Route? = when (file.kind) {
         Kind.PDF -> Locator.pageOf(locator).let { PdfRoute(file.uri, it ?: 1, file.name, matched = it != null, query = query) }
-        Kind.AUDIO, Kind.VIDEO -> PlayerRoute(file.uri, file.mime, Locator.msOf(locator) ?: 0, file.name)
+        Kind.AUDIO -> PlayerRoute(file.uri, file.mime, Locator.msOf(locator) ?: 0, file.name)
+        Kind.VIDEO -> PlayerRoute(file.uri, file.mime, Locator.msOf(locator) ?: 0, file.name, origin)
         Kind.DOC -> DocRoute(fileId, file.uri, file.name, file.mime, locator, query)
         Kind.PHOTO, Kind.SCREENSHOT -> PhotoRoute(file.uri, file.name, file.mime, origin)
         Kind.OTHER -> null

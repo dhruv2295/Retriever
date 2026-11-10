@@ -20,6 +20,9 @@ class ViewerQueue {
         this.files = files
     }
 
+    /** The file behind [uri] when the queue holds it. */
+    fun file(uri: String): SourceFile? = files.firstOrNull { it.uri == uri }
+
     /** The queue's photos when they hold the opened one; otherwise just that photo. */
     fun itemsFor(route: PhotoRoute): List<PhotoItem> =
         files.filter { it.kind == Kind.PHOTO || it.kind == Kind.SCREENSHOT }.map { PhotoItem(it.uri, it.name, it.mime, it) }

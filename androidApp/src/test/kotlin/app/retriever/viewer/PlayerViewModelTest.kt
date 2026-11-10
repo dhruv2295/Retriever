@@ -46,8 +46,12 @@ class PlayerViewModelTest {
         assertEquals(12_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route).player.currentPosition)
     }
 
-    @Test fun opensPausedSoNothingPlaysUntilPlayIsPressed() {
-        assertFalse(PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route).player.playWhenReady)
+    @Test fun aSteppedToVideoOpensPausedAndATappedOnePlays() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        assertFalse(PlayerViewModel(context, handle(), route).player.playWhenReady)
+        assertTrue(PlayerViewModel(context, handle(), route.copy(origin = "browse")).player.playWhenReady)
+        // Restored after the process died: back where it was, paused.
+        assertFalse(PlayerViewModel(context, handle(position = 3_000L), route.copy(origin = "browse")).player.playWhenReady)
     }
 
     @Test fun stoppingSavesThePositionAndTheRestoredViewModelOpensThere() {

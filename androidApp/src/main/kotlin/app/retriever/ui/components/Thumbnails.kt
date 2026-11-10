@@ -318,7 +318,7 @@ fun ThumbnailImage(
     // Read in the layer, not here: the cell recomposes when the fade ends, not on each of its frames.
     val fade = animateFloatAsState(if (shown != null) 1f else 0f, tween(150), label = "thumbnailFade")
     val covered by remember { derivedStateOf { fade.value >= 1f } }
-    val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT) rememberPhotoKey(morph, origin, file.uri) else null
+    val key = if (file.kind == Kind.PHOTO || file.kind == Kind.SCREENSHOT || file.kind == Kind.VIDEO) rememberPhotoKey(morph, origin, file.uri) else null
     Box(
         modifier.photoMorph(key).clip(shape).background(container.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }),
         contentAlignment = Alignment.Center,

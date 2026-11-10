@@ -126,7 +126,7 @@ data class SearchRoute(val query: String = "", val run: Boolean = false, val pho
 
 @Serializable data object StatusRoute : Route
 
-@Serializable data class PlayerRoute(val uri: String, val mime: String, val startMs: Long, val title: String) : Route
+@Serializable data class PlayerRoute(val uri: String, val mime: String, val startMs: Long, val title: String, val origin: String = "") : Route
 
 /** [matched]: a search matched on [page]; false when the PDF opens at its start (from a list, or found by name). */
 @Serializable data class PdfRoute(val uri: String, val page: Int, val title: String, val matched: Boolean = false, val query: String = "") : Route
@@ -419,9 +419,10 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                         val m = moves()
                         StatusScreen(m.back, onNavigate = m.go, onOpenSettings = { m.go(SettingsRoute) })
                     }
-                    entry<PlayerRoute>(metadata = fullWindow) { route ->
+                    // A video opens as a photo does: it grows from its tile over the page, which stays put.
+                    entry<PlayerRoute>(metadata = photo + fullWindow) { route ->
                         val m = moves()
-                        PlayerScreen(route, m.back, m.replace)
+                        PlayerScreen(route, m.back, m.replace, morph = morph(LocalNavAnimatedContentScope.current))
                     }
                     entry<PdfRoute>(metadata = viewer) { route ->
                         val m = moves()
