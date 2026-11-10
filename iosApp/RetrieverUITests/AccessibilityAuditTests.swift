@@ -690,8 +690,12 @@ final class AccessibilityAuditTests: XCTestCase {
         let frame = element.frame
         if frame.minY < window.maxY && frame.maxY > window.maxY { return true }
         let bars = [app.otherElements["step-actions"], app.searchFields.firstMatch].filter { $0.exists && $0.frame.minY > window.midY }
-        // The floating search field's glass reaches past the field's own frame; a row scrolled behind it is faded by design.
-        if bars.contains(where: { $0.frame.insetBy(dx: 0, dy: -12).intersects(frame) && (!$0.frame.contains(frame) || !element.isHittable) }) {
+        // The floating search field's glass reaches past the field's own frame, down to the window's bottom edge; a row
+        // scrolled behind it is faded by design.
+        if bars.contains(where: {
+            let glass = CGRect(x: window.minX, y: $0.frame.minY - 12, width: window.width, height: window.maxY - $0.frame.minY + 12)
+            return glass.intersects(frame) && (!$0.frame.contains(frame) || !element.isHittable)
+        }) {
             return true
         }
         // The same at the top: scrolling a clipped tile into view can push a header or tile partly under the navigation
