@@ -317,7 +317,7 @@ final class SearchModel {
             if let found = try? await retriever.readExtents(fileIds: result.hits.map { KotlinLong(value: $0.fileId) }), !Task.isCancelled,
                 answer?.key.question == q
             {
-                answer?.extents = Dictionary(uniqueKeysWithValues: found.map { ($0.key.int64Value, $0.value) })
+                answer?.extents = Self.extentsByFile(found)
             }
             if settled {
                 wordsOnlyRetries = 0
@@ -330,6 +330,16 @@ final class SearchModel {
             guard !Task.isCancelled else { return }
             phase = SearchPhaseKt.onError(phase, q: q)
         }
+    }
+
+    /// Kotlin/Native hands a map's boxed Long keys over as plain NSNumbers, not the KotlinLong its header promises, so
+    /// reading `found` as typed aborts on a failed cast once any file is only partly read. Read the keys as NSNumber.
+    static func extentsByFile(_ found: [KotlinLong: ReadExtent]) -> [Int64: ReadExtent] {
+        var byFile: [Int64: ReadExtent] = [:]
+        for (key, value) in found as NSDictionary {
+            if let id = key as? NSNumber, let extent = value as? ReadExtent { byFile[id.int64Value] = extent }
+        }
+        return byFile
     }
 
     /// The person saw "no matches" once more (Prefs.noMatchSeen).

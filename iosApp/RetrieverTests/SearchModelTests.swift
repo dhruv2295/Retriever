@@ -30,6 +30,13 @@ final class SearchModelTests: XCTestCase {
         XCTAssertNil(Scope.starred.kinds)
     }
 
+    /// Core's readExtents map arrives with NSNumber keys; reading them as KotlinLong crashed search once a file was
+    /// only partly read.
+    func testExtentsReadKeysThatArriveAsPlainNumbers() {
+        let fromKotlin = NSDictionary(dictionary: [NSNumber(value: Int64(7)): ReadExtent.firstPart]) as! [KotlinLong: ReadExtent]
+        XCTAssertEqual(SearchModel.extentsByFile(fromKotlin), [7: .firstPart])
+    }
+
     func testOnlyPhotosAndVideosNeedPhotosAccess() {
         XCTAssertEqual(Scope.allCases.filter(\.needsPhotos), [.photos, .videos])
     }
