@@ -52,7 +52,7 @@ object Format {
 
     /** What a search kept when the chips narrow it, as a plural noun ("starred PDFs", "photos"); null when it kept everything. */
     fun scope(chip: Kind?, onlyStarred: Boolean): String? {
-        val kind = chip?.let(Words::kindLabelPlural)?.let { k -> if (k[1].isUpperCase()) k else k.lowercase() }
+        val kind = chip?.let(Words.strings::kindsInSentence)
         return when {
             onlyStarred -> Words.strings.starredScope(kind)
             else -> kind

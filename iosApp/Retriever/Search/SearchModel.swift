@@ -76,7 +76,9 @@ final class SearchModel {
             switch self {
             case .all: nil
             case .starred: Words.shared.strings.starredFiles
-            default: title.lowercased()
+            case .photos: Words.shared.strings.kindsInSentence(kind: .photo)
+            case .videos: Words.shared.strings.kindsInSentence(kind: .video)
+            case .documents: Words.shared.strings.kindsInSentence(kind: .doc)
             }
         }
 

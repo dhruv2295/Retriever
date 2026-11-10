@@ -70,6 +70,8 @@ internal object English : Strings {
         Kind.OTHER -> "Other files"
     }
 
+    override fun kindsInSentence(kind: Kind) = kindLabelPlural(kind).let { if (it.length > 1 && it[1].isUpperCase()) it else it.lowercase() }
+
     override fun spokenPage(page: Int) = "page $page"
 
     override fun spokenTime(hours: Long, minutes: Long, seconds: Long): String {
@@ -78,7 +80,8 @@ internal object English : Strings {
     }
 
     override fun textOnlyNote(ramGb: Int, words: DeviceWords) =
-        "This ${words.device} has $ramGb${NBSP}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."
+        "This ${words.device} has $ramGb${NBSP}GB of memory, too little for search by description, so Retriever finds files by their names and the " +
+            "words inside them."
 
     override fun notReadYet(files: Long) = "${formatCount(files)} to go"
 
@@ -1093,7 +1096,8 @@ internal object English : Strings {
     override val folderRefused = "iOS wouldn't let Retriever keep that folder. Try another one."
 
     override fun backgroundNote(words: DeviceWords) =
-        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your ${words.device} is charging. $readFor15 uses some battery."
+        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until " +
+            "your ${words.device} is charging. $readFor15 uses some battery."
 
     override val screenKeptOn = "Your screen stays on while Retriever processes your files for 15 minutes. You can turn this off in Settings."
 
@@ -1257,14 +1261,16 @@ internal object English : Strings {
     override val clearRecentSearchesAsk = "Clear recent searches?"
 
     override fun privacyBody(words: DeviceWords) =
-        "Retriever processes your files on this ${words.device}. Your searches, stars and what it finds inside stay here. Downloading search by description and opening files stored in iCloud may use the internet."
+        "Retriever processes your files on this ${words.device}. Your searches, stars and what it finds inside stay here. Downloading search by " +
+            "description and opening files stored in iCloud may use the internet."
 
     override val longFilesBitAtATime = "Long files are processed a bit at a time: you can find them by their beginning first, and the rest follows."
 
     override val onlyWhenYouChooseAnyFile = "Only when you choose $readFor15. You can always find any file by its name."
 
     override fun alsoOnBatteryIosBody(words: DeviceWords) =
-        "Processes your files while Retriever is open, above 20% battery. When you’re not using it, iOS waits until your ${words.device} is charging. Pauses when your ${words.device} is warm or in Low Power Mode."
+        "Processes your files while Retriever is open, above 20% battery. When you’re not using it, iOS waits until your ${words.device} is charging. " +
+            "Pauses when your ${words.device} is warm or in Low Power Mode."
 
     override val keepScreenOnToggle = "Keep the screen on while processing for 15 minutes"
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Machine-translated, awaiting native review. The app's own words are in core's fr Strings table. -->
+<resources>
+    <string name="language">fr</string>
+    <string name="shortcut_search_short">Rechercher</string>
+    <string name="shortcut_search_long">Rechercher dans vos fichiers</string>
+</resources>

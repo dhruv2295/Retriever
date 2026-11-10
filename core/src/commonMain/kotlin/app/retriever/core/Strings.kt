@@ -53,6 +53,9 @@ interface Strings {
 
     fun kindLabelPlural(kind: Kind): String
 
+    /** Both apps: a kind's plural as it reads inside a sentence ("No matches in your photos", "starred PDFs"). */
+    fun kindsInSentence(kind: Kind): String
+
     fun spokenPage(page: Int): String
 
     /** A time in a file as a screen reader says it; each part 0 when absent, all 0 at the very start. */
@@ -1591,10 +1594,22 @@ interface Strings {
  */
 enum class Language(val tag: String) {
     EN("en"),
+    HI("hi"),
+    ES("es"),
+    PT_BR("pt-BR"),
+    FR("fr"),
+    JA("ja"),
+    DE("de"),
     ;
 
     val strings: Strings get() = when (this) {
         EN -> English
+        HI -> Hindi
+        ES -> Spanish
+        PT_BR -> PortugueseBrazil
+        FR -> French
+        JA -> Japanese
+        DE -> German
     }
 
     companion object {

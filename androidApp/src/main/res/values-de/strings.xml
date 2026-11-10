@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Machine-translated, awaiting native review. The app's own words are in core's de Strings table. -->
+<resources>
+    <string name="language">de</string>
+    <string name="shortcut_search_short">Suchen</string>
+    <string name="shortcut_search_long">Deine Dateien durchsuchen</string>
+</resources>

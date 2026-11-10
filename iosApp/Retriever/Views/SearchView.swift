@@ -277,7 +277,7 @@ private struct ResultsView: View {
         if scope.needsPhotos && (photos == .denied || photos == .restricted) {
             StateView(
                 art: "IllusWelcome", title: Words.shared.strings.photosAccessOff,
-                message: Words.shared.strings.turnOnToSearchScope(scope: scope.title.lowercased())
+                message: Words.shared.strings.turnOnToSearchScope(scope: scope.kept ?? scope.title)
             ) {
                 Button(Words.shared.strings.openSettings, action: model.openSettings).buttonStyle(.primaryAction)
             }
