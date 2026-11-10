@@ -724,6 +724,10 @@ internal object Hindi : Strings {
     override val couldntChangePerson = "इस व्यक्ति में बदलाव नहीं हो सका. फिर से कोशिश करें."
 
     override val back = "वापस जाएं"
+    override val home = "होम"
+    override val fullScreen = "फ़ुल स्क्रीन"
+    override val showBesideList = "सूची के साथ दिखाएं"
+    override val searchYourFiles = "अपनी फ़ाइलें खोजें"
 
     override val couldntLoadYourFiles = "आपकी फ़ाइलें लोड नहीं हो सकीं"
 

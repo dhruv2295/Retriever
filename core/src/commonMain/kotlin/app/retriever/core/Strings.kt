@@ -509,6 +509,18 @@ interface Strings {
     /** both apps: top-bar icon label */
     val back: String
 
+    /** Android: the navigation rail's first place */
+    val home: String
+
+    /** Android: viewer bar button; the file beside its list takes the whole window */
+    val fullScreen: String
+
+    /** Android: viewer bar button; a full-screen file goes back beside its list */
+    val showBesideList: String
+
+    /** iOS: the Search menu's command (⌘F); title case in English, as menu commands are */
+    val searchYourFiles: String
+
     /** Android: error title; differs from couldntLoadFiles (iOS) */
     val couldntLoadYourFiles: String
 

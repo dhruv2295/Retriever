@@ -165,14 +165,16 @@ fun HomeHost(
     modifier: Modifier = Modifier,
     pillModifier: Modifier = Modifier,
     morph: PhotoMorph? = null,
+    /** The places a navigation rail shows beside Home, which Home then leaves out. */
+    rail: List<Route> = emptyList(),
     vm: SearchViewModel = koinViewModel(),
 ) {
     val search by vm.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     val snackbar = remember { SnackbarHostState() }
-    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar) { padding, state, side ->
-        HomeScreen(actions, state, padding, side, snackbar)
+    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar, settings = SettingsRoute !in rail) { padding, state, side ->
+        HomeScreen(actions, state, padding, side, snackbar, rail)
     }
 }
 
@@ -255,6 +257,8 @@ fun HomeShell(
     footer: (@Composable () -> Unit)? = null,
     /** Where the page says what it just did, with Undo. */
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
+    /** False when the navigation rail holds Settings. */
+    settings: Boolean = true,
     /** The page: the padding the bars leave, its list state, and the side gutter. */
     content: @Composable (PaddingValues, LazyStaggeredGridState, Dp) -> Unit,
 ) {
@@ -267,9 +271,11 @@ fun HomeShell(
         topBar = {
             if (footer == null) {
                 TopAppBar(title = {}, actions = {
-                    IconButton(onClick = {
-                        actions.onNavigate(SettingsRoute)
-                    }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = Words.strings.appSettings) }
+                    if (settings) {
+                        IconButton(onClick = {
+                            actions.onNavigate(SettingsRoute)
+                        }) { Icon(painterResource(R.drawable.ic_settings), contentDescription = Words.strings.appSettings) }
+                    }
                 })
             }
         },
@@ -411,7 +417,21 @@ fun SearchContent(
                 },
             )
             HorizontalDivider()
-            SearchPane(ui, home, actions, grid, snackbar, useText = {
+            // Opening a result ends the typing too: on a wide window the list stays beside the file, and its keyboard would
+            // stay up over the file.
+            val opening = remember(actions) {
+                actions.copy(
+                    onOpenHit = {
+                        done()
+                        actions.onOpenHit(it)
+                    },
+                    onOpenFile = { file, origin ->
+                        done()
+                        actions.onOpenFile(file, origin)
+                    },
+                )
+            }
+            SearchPane(ui, home, opening, grid, snackbar, useText = {
                 text.setTextAndPlaceCursorAtEnd(it)
                 done()
             })

@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
 import app.retriever.core.Kind
 import app.retriever.core.Person
 import app.retriever.core.Retriever
@@ -35,9 +34,8 @@ data class BrowseUi(
     val inside: Set<Kind> = Kind.entries.toSet() - Kind.OTHER,
 )
 
-/** Arguments and sort come from [saved], so they survive rotation and process death; the first page loads at once. */
-class BrowseViewModel(private val retriever: Retriever, private val saved: SavedStateHandle) : ViewModel() {
-    val route = saved.toRoute<BrowseRoute>()
+/** The sort is kept in [saved], so it survives rotation and process death; the first page loads at once. */
+class BrowseViewModel(private val retriever: Retriever, private val saved: SavedStateHandle, val route: BrowseRoute) : ViewModel() {
     val stars = Starring(retriever, viewModelScope)
 
     private val paged = MutableStateFlow(BrowseUi(sort = saved[SORT] ?: route.sort))

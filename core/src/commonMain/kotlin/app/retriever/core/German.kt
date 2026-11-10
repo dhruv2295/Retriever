@@ -738,6 +738,10 @@ internal object German : Strings {
     override val couldntChangePerson = "Diese Person konnte nicht geändert werden. Versuch es noch einmal."
 
     override val back = "Zurück"
+    override val home = "Startseite"
+    override val fullScreen = "Vollbild"
+    override val showBesideList = "Neben der Liste zeigen"
+    override val searchYourFiles = "Deine Dateien durchsuchen"
 
     override val couldntLoadYourFiles = "Deine Dateien konnten nicht geladen werden"
 

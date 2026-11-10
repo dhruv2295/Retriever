@@ -182,6 +182,7 @@ dependencies {
     implementation(project(":core"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
+    implementation(libs.compose.material3.navigation.suite)
     implementation(libs.compose.ui)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
@@ -190,7 +191,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.sqldelight.android.driver)
     implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.navigation.compose)
+    implementation(libs.navigation3.ui)
+    implementation(libs.lifecycle.viewmodel.navigation3)
+    implementation(libs.adaptive.navigation3)
     implementation(libs.work.runtime)
     implementation(libs.telephoto.zoomable)
     implementation(libs.telephoto.sub.sampling.image)
@@ -210,6 +213,7 @@ dependencies {
         // on a newer runtime of the same major version.
         implementation(libs.okhttp) { because("ML Kit vision-internal-vkp pins 3.0.0: GHSA-3cqm-mf7h-prrj, GHSA-4hc2-jh7r-wrc3") }
         implementation(libs.protobuf.javalite) { because("MediaPipe tasks-core pins 4.26.1: CVE-2024-7254") }
+        implementation(libs.guava) { because("LiteRT's litert-api pins 33.5.0-android: GHSA-xxph-c9ww-hj94") }
     }
 
     testImplementation(libs.junit)

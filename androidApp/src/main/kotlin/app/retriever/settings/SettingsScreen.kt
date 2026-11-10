@@ -127,7 +127,8 @@ data class SettingsUi(
 )
 
 class SettingsActions(
-    val back: () -> Unit = {},
+    /** Null for a top-level place (the navigation rail's), with no Back arrow. */
+    val back: (() -> Unit)? = {},
     val setReadingSchedule: (ReadingSchedule) -> Unit = {},
     val readNow: () -> Unit = {},
     val stopReadNow: () -> Unit = {},
@@ -154,7 +155,7 @@ class SettingsActions(
 )
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
+fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val state by vm.uiState.collectAsStateWithLifecycle()
     val readingStatus by vm.readingStatus.collectAsStateWithLifecycle()
@@ -255,7 +256,7 @@ fun SettingsContent(
             TopAppBar(
                 title = { Text(Words.strings.appSettings) },
                 navigationIcon = {
-                    IconButton(onClick = actions.back) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
+                    actions.back?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) } }
                 },
             )
         },

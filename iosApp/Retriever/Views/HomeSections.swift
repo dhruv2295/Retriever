@@ -137,6 +137,7 @@ struct OnThisDayStrip: View {
                             .contentShape(.rect(cornerRadius: 22, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Words.shared.strings.onThisDaySpoken(year: Int32(truncatingIfNeeded: card.year), count: card.count, date: date))
                     .accessibilityHint(Words.shared.strings.showsThem)
@@ -186,6 +187,7 @@ struct TileStrip: View {
                     }
                     .menuStyle(.button)
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityLabel(
                         Words.shared.strings.homeTileSpoken(
                             kind: Words.shared.kindLabel(kind: file.kind), name: file.name, date: Format.date(file.takenAt?.int64Value ?? file.modifiedAt),
@@ -255,6 +257,7 @@ struct PeopleStrip: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .hoverEffect()
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Words.shared.strings.personTileSpoken(name: title, photos: Int64(p.photos)))
                 }

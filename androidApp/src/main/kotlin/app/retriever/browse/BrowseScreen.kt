@@ -79,6 +79,7 @@ import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import org.koin.core.parameter.parametersOf
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
@@ -109,10 +110,11 @@ internal fun sortCaption(sort: String): String = when (sort) {
 /** The grid's photo-morph origin: a cell and the viewer it opens share it. */
 private const val BROWSE_ORIGIN = "browse"
 
+/** [onBack] null: a top-level place (the navigation rail's), with no Back arrow. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
-    val vm = koinViewModel<BrowseViewModel>()
+fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: (() -> Unit)?, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
+    val vm = koinViewModel<BrowseViewModel> { parametersOf(route) }
     val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
     val starred by vm.stars.starred.collectAsStateWithLifecycle()
@@ -147,8 +149,10 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
+                        }
                     }
                 },
                 actions = {

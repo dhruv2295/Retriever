@@ -2,6 +2,7 @@ package app.retriever.viewer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,17 +48,19 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
+import app.retriever.ui.components.gutter
 import app.retriever.ui.components.nameHighlighted
 import app.retriever.ui.tabular
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 /** The in-app reader: the text the index holds for a document, opened on the paragraph that matched. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
+fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier, pane: PaneExpand? = null) {
     val context = LocalContext.current
-    val ui by koinViewModel<DocViewModel>().ui.collectAsStateWithLifecycle()
+    val ui by koinViewModel<DocViewModel> { parametersOf(route) }.ui.collectAsStateWithLifecycle()
     val stars = koinViewModel<StarHolder>().stars
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)
@@ -66,7 +69,7 @@ fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, mod
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            ViewerTopBar(route.name, route.uri, stars, onBack)
+            ViewerTopBar(route.name, route.uri, stars, onBack, pane = pane)
         },
         bottomBar = { ViewerStepBar(route.uri, replace) },
     ) { padding -> DocContent(ui, padding, openWith) }
@@ -112,11 +115,12 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
             val mark = MaterialTheme.colorScheme.primaryContainer
             val style = remember(mark) { SpanStyle(background = mark, fontWeight = FontWeight.Bold) }
             val bar = ui.matches.isNotEmpty()
-            Box(Modifier.fillMaxSize()) {
+            // Lines kept to a readable measure on a tablet or a wide pane; the gutters still scroll the text.
+            BoxWithConstraints(Modifier.fillMaxSize()) {
                 SelectionContainer {
                     LazyColumn(
                         state = list,
-                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp, side = 16.dp),
+                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp, side = 16.dp + gutter(max = 680.dp)),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(ui.paragraphs) { text ->

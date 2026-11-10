@@ -66,6 +66,7 @@ import app.retriever.nav.BrowseRoute
 import app.retriever.nav.DuplicatesRoute
 import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
+import app.retriever.nav.route
 import app.retriever.search.SearchActions
 import app.retriever.ui.Format
 import app.retriever.ui.components.FaceAvatar
@@ -73,6 +74,7 @@ import app.retriever.ui.components.FileTile
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.ThumbnailImage
 import app.retriever.ui.components.kindIcon
+import app.retriever.ui.components.onRightClick
 import app.retriever.ui.tabular
 import app.retriever.viewer.Opener
 import java.time.LocalDate
@@ -268,12 +270,7 @@ internal fun BrowseSection(kinds: List<BrowseKind>, folders: Long, go: (Route) -
             Arrangement.spacedBy(8.dp),
             maxItemsInEachRow = columns,
         ) {
-            for (k in kinds) {
-                val kind = k.kinds.firstOrNull { it == Kind.PDF } ?: k.kinds.first()
-                BrowseTile(kindIcon(k.kinds.first()), k.title, Format.count(k.files), {
-                    go(BrowseRoute(kind = kind.name, title = k.title))
-                }, Modifier.weight(1f))
-            }
+            for (k in kinds) BrowseTile(kindIcon(k.kinds.first()), k.title, Format.count(k.files), { go(k.route()) }, Modifier.weight(1f))
             if (folders > 0) BrowseTile(R.drawable.ic_folder, Words.strings.folders, Format.count(folders), { go(FoldersRoute) }, Modifier.weight(1f))
             // The last row keeps the others' width.
             repeat((columns - n % columns) % columns) { Spacer(Modifier.weight(1f)) }
@@ -352,6 +349,7 @@ internal fun OnThisDaySection(day: LocalDate, memories: List<YearMemory>, go: (R
                         .size(tile)
                         .clip(shape)
                         .semantics(mergeDescendants = true) { contentDescription = Words.strings.onThisDaySpoken(m.year, count, monthDay) }
+                        .onRightClick(onHide)
                         .combinedClickable(
                             onClickLabel = Words.strings.showThem,
                             onLongClickLabel = Words.strings.hideOnThisDay,

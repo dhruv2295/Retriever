@@ -119,6 +119,21 @@ final class ViewerTests: XCTestCase {
         XCTAssertEqual(viewing(movie, locator: "", words: [], among: []), .media(Place(files: [movie], index: 0), ms: nil))
     }
 
+    /// A viewer rebuilt by a fold carries on where it was; one closed and opened again starts at its match, paused.
+    func testViewerMemoryKeepsOnlyOpenViewers() {
+        let memory = ViewerMemory()
+        let pdf = viewing(file("a", .pdf), locator: "", words: [])
+        let video = viewing(file("movie", .video), locator: "", words: [])
+        memory.keep([pdf])
+        memory[pdf].page = 3
+        memory[video].playing = true
+        XCTAssertEqual(memory[pdf].page, 3)
+        XCTAssertFalse(memory[video].playing, "a viewer that isn't open, like a video closed with Back, is not remembered")
+        memory.keep([])
+        memory.keep([pdf])
+        XCTAssertNil(memory[pdf].page, "closing forgets where it was")
+    }
+
     func testPositionAndMatchLabels() {
         XCTAssertEqual(Place.label(index: 1, count: 5), "2 of 5")
         XCTAssertNil(Place.label(index: 0, count: 1), "a lone file has no position to show")

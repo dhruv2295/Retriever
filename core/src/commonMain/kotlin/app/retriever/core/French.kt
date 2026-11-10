@@ -735,6 +735,10 @@ internal object French : Strings {
     override val couldntChangePerson = "Impossible de modifier cette personne. Réessayez."
 
     override val back = "Retour"
+    override val home = "Accueil"
+    override val fullScreen = "Plein écran"
+    override val showBesideList = "Afficher à côté de la liste"
+    override val searchYourFiles = "Rechercher dans vos fichiers"
 
     override val couldntLoadYourFiles = "Impossible de charger vos fichiers"
 

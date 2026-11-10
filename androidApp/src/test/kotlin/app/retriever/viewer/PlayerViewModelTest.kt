@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.test.core.app.ApplicationProvider
+import app.retriever.nav.PlayerRoute
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -22,18 +23,12 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class PlayerViewModelTest {
-    private fun handle(position: Long? = null) = SavedStateHandle(
-        buildMap {
-            put("uri", "content://media/clip.mp4")
-            put("mime", "video/mp4")
-            put("startMs", 12_000L)
-            put("title", "clip.mp4")
-            position?.let { put("position", it) }
-        },
-    )
+    private val route = PlayerRoute("content://media/clip.mp4", "video/mp4", 12_000L, "clip.mp4")
+
+    private fun handle(position: Long? = null) = SavedStateHandle(buildMap { position?.let { put("position", it) } })
 
     private fun factory(h: SavedStateHandle) = viewModelFactory {
-        initializer { PlayerViewModel(ApplicationProvider.getApplicationContext(), h) }
+        initializer { PlayerViewModel(ApplicationProvider.getApplicationContext(), h, route) }
     }
 
     @Test fun theSameViewModelKeepsTheSamePlayerAndReleasesItWhenCleared() {
@@ -48,25 +43,25 @@ class PlayerViewModelTest {
     }
 
     @Test fun startsAtTheHitUntilAPositionWasSaved() {
-        assertEquals(12_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle()).player.currentPosition)
+        assertEquals(12_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route).player.currentPosition)
     }
 
     @Test fun opensPausedSoNothingPlaysUntilPlayIsPressed() {
-        assertFalse(PlayerViewModel(ApplicationProvider.getApplicationContext(), handle()).player.playWhenReady)
+        assertFalse(PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route).player.playWhenReady)
     }
 
     @Test fun stoppingSavesThePositionAndTheRestoredViewModelOpensThere() {
         val h = handle()
-        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), h)
+        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), h, route)
         vm.player.seekTo(34_000)
         vm.onStop()
         assertEquals(34_000L, h.get<Long>("position"))
-        assertEquals(34_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(h["position"])).player.currentPosition)
+        assertEquals(34_000L, PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(h["position"]), route).player.currentPosition)
     }
 
     /** In the background the player holds no decoders or buffers; back in front it loads again, paused at the same place. */
     @Test fun stoppingReleasesTheMediaAndStartingLoadsItAgain() {
-        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), handle())
+        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route)
         vm.player.seekTo(34_000)
         vm.onStop()
         assertEquals(Player.STATE_IDLE, vm.player.playbackState)
@@ -78,7 +73,7 @@ class PlayerViewModelTest {
     }
 
     @Test fun aPlayerErrorMovesTheStateToFailed() {
-        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), handle())
+        val vm = PlayerViewModel(ApplicationProvider.getApplicationContext(), handle(), route)
         assertEquals(PlayerUi.Ready, vm.ui.value)
         vm.listener.onPlayerError(PlaybackException("gone", null, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND))
         assertEquals(PlayerUi.Failed, vm.ui.value)

@@ -667,6 +667,10 @@ internal object Japanese : Strings {
     override val couldntChangePerson = "この人物を変更できませんでした。もう一度お試しください。"
 
     override val back = "戻る"
+    override val home = "ホーム"
+    override val fullScreen = "全画面表示"
+    override val showBesideList = "リストの横に表示"
+    override val searchYourFiles = "ファイルを検索"
 
     override val couldntLoadYourFiles = "ファイル一覧を表示できませんでした"
 
