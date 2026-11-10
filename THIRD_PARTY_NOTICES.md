@@ -18,6 +18,12 @@ The English Swift Playgrounds agreement from Apple's original sample is also rep
 - Copyright 2023 The Android Open Source Project
 - License: Apache License 2.0
 
+## android/nav3-recipes
+
+- Source: https://github.com/android/nav3-recipes
+- Copyright 2026 The Android Open Source Project
+- License: Apache License 2.0
+
 ## ML Kit text recognition (dependencies, not adapted code)
 
 - Source: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
