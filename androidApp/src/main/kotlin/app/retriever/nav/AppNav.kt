@@ -11,13 +11,13 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope.ResizeMode
 import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -176,12 +176,17 @@ private val photo = mapOf(TAG to "photo")
 // Search and Browse are lists; a document or PDF opened from one shows beside it when the window has room for two panes.
 // Photos and videos take the whole window wherever they open from, as in Google Photos and Apple Photos: the tile was the
 // preview, so opening one means seeing it properly.
+// The panes change size in one frame; the file's pane still slides in and out. Animated, the list was laid out again at
+// every frame's width: its rows re-cut their names and its grid changed column counts while the divider crept across.
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
-private val list = ListDetailSceneStrategy.listPane()
+private val inOneStep = ListDetailSceneStrategy.paneAnimation(boundsAnimationSpec = snap())
+
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+private val list = ListDetailSceneStrategy.listPane() + inOneStep
 private const val VIEWER = "app.retriever.viewer"
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
-private val viewer = ListDetailSceneStrategy.detailPane() + (VIEWER to true)
+private val viewer = ListDetailSceneStrategy.detailPane() + inOneStep + (VIEWER to true)
 
 /**
  * The window's directive with [partitions] panes across, not moving focus into the pane that becomes current: closing a
@@ -302,10 +307,11 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
         },
     )
     // The main places in a rail on a wide window, as in Google Photos and the iPad's sidebar; a phone or a short window
-    // (the default's bar) keeps Home's own links. Not during setup, nor beside a photo or video, which take the window.
+    // (the default's bar) keeps Home's own links. Not during setup. It stays beside a photo or video: hiding it widened
+    // the grid under the opening photo, which reflowed and moved the tile the photo grows from.
     val facts by remember(retriever) { retriever.home() }.collectAsStateWithLifecycle(null)
     val railType = NavigationSuiteScaffoldDefaults.navigationSuiteType(adaptive)
-    val rail = railType == NavigationSuiteType.WideNavigationRailCollapsed && stack.firstOrNull() == HomeRoute && top !is PhotoRoute && top !is PlayerRoute
+    val rail = railType == NavigationSuiteType.WideNavigationRailCollapsed && stack.firstOrNull() == HomeRoute
     val places = railPlaces(facts)
     // Search is Home's, wherever it was opened from.
     val here = stack.asReversed().firstOrNull { it in places || it is SearchRoute }?.let { if (it is SearchRoute) HomeRoute else it }
@@ -382,19 +388,14 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                             val scope = LocalNavAnimatedContentScope.current
                             HomeHost(moves().go, pillModifier = searchBounds(scope, false), morph = morph(scope), rail = if (rail) places else emptyList())
                         }
-                        // Opening or closing a file beside a list animates the list pane's bounds. Laid out at each frame's size,
-                        // the grid's columns disagreed with the gutters worked out from the final width, and tiles jumped
-                        // between column counts until it ended; laid out at its final size from the start, the list just jumps there.
                         entry<SearchRoute>(metadata = search + list) { route ->
                             val scope = LocalNavAnimatedContentScope.current
                             val m = moves()
-                            Box(Modifier.skipToLookaheadSize()) { SearchScreen(route, m.go, m.back, searchBounds(scope, true), morph(scope)) }
+                            SearchScreen(route, m.go, m.back, searchBounds(scope, true), morph(scope))
                         }
                         entry<BrowseRoute>(metadata = list) { route ->
                             val m = moves()
-                            Box(Modifier.skipToLookaheadSize()) {
-                                BrowseScreen(route, m.go, m.back.takeUnless { railPlace(route) }, morph = morph(LocalNavAnimatedContentScope.current))
-                            }
+                            BrowseScreen(route, m.go, m.back.takeUnless { railPlace(route) }, morph = morph(LocalNavAnimatedContentScope.current))
                         }
                         entry<SettingsRoute> { route ->
                             val m = moves()
