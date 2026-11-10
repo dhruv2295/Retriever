@@ -48,7 +48,7 @@ class BrowseViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun args(kind: String? = "PDF", sort: String = "NEWEST", starredOnly: Boolean = false) =
-        SavedStateHandle(mapOf("kind" to kind, "folder" to null, "sort" to sort, "title" to "PDFs", "starredOnly" to starredOnly))
+        BrowseRoute(kind = kind, sort = sort, title = "PDFs", starredOnly = starredOnly)
 
     private val files = listOf(testFile("b.pdf", Kind.PDF), testFile("a.pdf", Kind.PDF), testFile("c.jpg", Kind.PHOTO))
 
@@ -58,7 +58,7 @@ class BrowseViewModelTest {
             reads++
             emptyList()
         }, dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
-        val vm = BrowseViewModel(r, args())
+        val vm = BrowseViewModel(r, SavedStateHandle(), args())
         vm.setScrolling(true)
         val batch = launch { r.indexBatch(1.minutes) }
         runCurrent()
@@ -72,7 +72,7 @@ class BrowseViewModelTest {
 
     @Test fun leavingBrowseReleasesItsScrollGate() = runTest {
         val r = testRetriever(files, ramGb = 3.0, dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
-        val vm = BrowseViewModel(r, args())
+        val vm = BrowseViewModel(r, SavedStateHandle(), args())
         val store = ViewModelStore().apply { put("browse", vm) }
         vm.setScrolling(true)
         val batch = launch { r.indexBatch(1.minutes) }
@@ -85,7 +85,7 @@ class BrowseViewModelTest {
 
     @Test fun loadsTheRouteFromTheSavedStateOnCreation() = runTest {
         val retriever = testRetriever(files).also { it.indexBatch(1.minutes) }
-        val vm = BrowseViewModel(retriever, args())
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), args())
         assertTrue(vm.uiState.value.loading)
         val loaded = vm.uiState.first { it.files.isNotEmpty() }
         assertEquals(BrowseRoute(kind = "PDF", title = "PDFs"), vm.route)
@@ -96,14 +96,14 @@ class BrowseViewModelTest {
 
     @Test fun sortSurvivesRecreationAndRestartsPaging() = runTest {
         val retriever = testRetriever(files).also { it.indexBatch(1.minutes) }
-        val saved = args()
-        val first = BrowseViewModel(retriever, saved)
+        val saved = SavedStateHandle()
+        val first = BrowseViewModel(retriever, saved, args())
         first.uiState.first { it.files.isNotEmpty() }
         first.setSort("NAME")
         assertEquals(listOf("a.pdf", "b.pdf"), first.uiState.first { it.files.size == 2 && it.files[0].file.name == "a.pdf" }.files.map { it.file.name })
 
         // A rotation or process death builds a new ViewModel over the same handle.
-        val second = BrowseViewModel(retriever, saved)
+        val second = BrowseViewModel(retriever, saved, args())
         assertEquals("NAME", second.uiState.value.sort)
         assertEquals(listOf("a.pdf", "b.pdf"), second.uiState.first { it.files.isNotEmpty() }.files.map { it.file.name })
     }
@@ -111,7 +111,7 @@ class BrowseViewModelTest {
     @Test fun aDeleteRefreshesTheLoadedRowsInPlace() = runTest {
         val many = List(250) { testFile("p$it.pdf", Kind.PDF).copy(modifiedAt = 1_000L - it) }
         val retriever = testRetriever(many).also { it.indexBatch(1.minutes) }
-        val vm = BrowseViewModel(retriever, args())
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), args())
         vm.uiState.first { it.files.size == 200 }
         vm.loadMore()
         vm.uiState.first { it.files.size == 250 }
@@ -139,7 +139,7 @@ class BrowseViewModelTest {
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         val retriever = retrieverOver(driver = driver, files = files).also { it.indexBatch(1.minutes) }
         driver.execute(null, "ALTER TABLE files RENAME TO files_away", 0)
-        val vm = BrowseViewModel(retriever, args())
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), args())
 
         val failed = vm.uiState.first { it.error != null }
         assertEquals("Couldn't load these files.", failed.error)
@@ -157,7 +157,7 @@ class BrowseViewModelTest {
         val retriever = testRetriever(files).also { it.indexBatch(1.minutes) }
         retriever.setStarred("content://test/a.pdf", true)
         retriever.setStarred("content://test/b.pdf", true)
-        val vm = BrowseViewModel(retriever, args(kind = null, starredOnly = true))
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), args(kind = null, starredOnly = true))
         assertEquals(setOf("a.pdf", "b.pdf"), vm.uiState.first { it.files.size == 2 }.files.map { it.file.name }.toSet())
 
         vm.stars.set("content://test/a.pdf", false)
@@ -187,18 +187,8 @@ class BrowseViewModelTest {
                 testFile("noDate.jpg", Kind.PHOTO).copy(modifiedAt = start + 20),
             ),
         ).also { it.indexBatch(1.minutes) }
-        val saved = SavedStateHandle(
-            mapOf(
-                "kind" to null,
-                "folder" to null,
-                "sort" to "NEWEST",
-                "title" to "17 October 2023",
-                "starredOnly" to false,
-                "takenFrom" to start,
-                "takenTo" to start + day - 1,
-            ),
-        )
-        val vm = BrowseViewModel(retriever, saved)
+        val route = BrowseRoute(title = "17 October 2023", takenFrom = start, takenTo = start + day - 1)
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), route)
         val loaded = vm.uiState.first { it.files.isNotEmpty() }
         assertEquals(listOf("early.jpg", "clip.mp4", "late.jpg"), loaded.files.map { it.file.name })
         assertTrue(loaded.exhausted)
@@ -216,7 +206,7 @@ class BrowseViewModelTest {
         retriever.uiVisible = true
         repeat(2) { retriever.indexBatch(1.minutes) }
         val asha = retriever.peopleNow().single()
-        val vm = BrowseViewModel(retriever, SavedStateHandle(mapOf("title" to "Add a name", "starredOnly" to false, "person" to asha.id)))
+        val vm = BrowseViewModel(retriever, SavedStateHandle(), BrowseRoute(title = "Add a name", person = asha.id))
         val loaded = vm.uiState.first { it.files.size == 3 }
         assertEquals(listOf("p3.jpg", "p2.jpg", "p1.jpg"), loaded.files.map { it.file.name })
 

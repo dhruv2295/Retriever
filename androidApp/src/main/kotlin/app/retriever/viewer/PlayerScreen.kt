@@ -32,6 +32,7 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
 import org.koin.androidx.compose.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -41,7 +42,7 @@ fun PlayerScreen(route: PlayerRoute, onBack: () -> Unit, replace: (Route) -> Uni
     val stars = koinViewModel<StarHolder>().stars
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)
-    val vm = koinViewModel<PlayerViewModel>()
+    val vm = koinViewModel<PlayerViewModel> { parametersOf(route) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onStart() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onStop() }

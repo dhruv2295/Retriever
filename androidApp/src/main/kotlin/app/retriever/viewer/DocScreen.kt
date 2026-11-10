@@ -50,13 +50,14 @@ import app.retriever.ui.components.nameHighlighted
 import app.retriever.ui.tabular
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 /** The in-app reader: the text the index holds for a document, opened on the paragraph that matched. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DocScreen(route: DocRoute, onBack: () -> Unit, replace: (Route) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val ui by koinViewModel<DocViewModel>().ui.collectAsStateWithLifecycle()
+    val ui by koinViewModel<DocViewModel> { parametersOf(route) }.ui.collectAsStateWithLifecycle()
     val stars = koinViewModel<StarHolder>().stars
     val snackbar = remember { SnackbarHostState() }
     StarFailureEffect(stars, snackbar)

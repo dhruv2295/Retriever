@@ -8,7 +8,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.navigation.toRoute
 import app.retriever.nav.PlayerRoute
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,8 +24,7 @@ sealed interface PlayerUi {
  * prepares again, paused) and the screen only attaches a view.
  * Media3 handles audio focus and the headphones-unplugged pause itself (its docs say not to write that by hand).
  */
-class PlayerViewModel(context: Context, private val handle: SavedStateHandle) : ViewModel() {
-    val route: PlayerRoute = handle.toRoute()
+class PlayerViewModel(context: Context, private val handle: SavedStateHandle, val route: PlayerRoute) : ViewModel() {
 
     private val _ui = MutableStateFlow<PlayerUi>(PlayerUi.Ready)
     val ui: StateFlow<PlayerUi> = _ui

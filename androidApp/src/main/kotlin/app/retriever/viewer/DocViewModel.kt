@@ -1,9 +1,7 @@
 package app.retriever.viewer
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.navigation.toRoute
 import app.retriever.core.ChunkText
 import app.retriever.core.FileState
 import app.retriever.core.Retriever
@@ -37,8 +35,7 @@ sealed interface DocUi {
     data object Failed : DocUi
 }
 
-class DocViewModel(handle: SavedStateHandle, private val retriever: Retriever, private val store: Store) : ViewModel() {
-    val route: DocRoute = handle.toRoute()
+class DocViewModel(val route: DocRoute, private val retriever: Retriever, private val store: Store) : ViewModel() {
 
     val ui: StateFlow<DocUi> = docUi(route.query, route.locator) {
         // A file opened from a list has no id yet; the index finds it by address.

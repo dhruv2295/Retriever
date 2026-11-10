@@ -78,6 +78,7 @@ import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import org.koin.core.parameter.parametersOf
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
@@ -111,7 +112,7 @@ private const val BROWSE_ORIGIN = "browse"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
-    val vm = koinViewModel<BrowseViewModel>()
+    val vm = koinViewModel<BrowseViewModel> { parametersOf(route) }
     val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
     val starred by vm.stars.starred.collectAsStateWithLifecycle()
