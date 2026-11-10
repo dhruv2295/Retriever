@@ -5,7 +5,6 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -56,7 +55,7 @@ import app.retriever.ui.components.ConfirmDialog
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.components.gutter
+import app.retriever.ui.components.readingWidth
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.first
 import org.koin.androidx.compose.koinViewModel
@@ -120,11 +119,11 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
             }
         },
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
+        Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
             val error = s.error
             when {
                 s.scanning -> Column(
-                    Modifier.fillMaxWidth().padding(horizontal = gutter()).padding(24.dp),
+                    Modifier.readingWidth().padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Mascot(MascotMood.WALKING, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
@@ -152,14 +151,14 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                 }
 
                 else -> LazyColumn(
-                    contentPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding()), side = gutter()),
+                    contentPadding = contentPaddingFor(PaddingValues(bottom = padding.calculateBottomPadding())),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     item {
                         Text(
                             Words.strings.couldBeFreed(Format.bytes(reclaimable)),
                             style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(16.dp),
+                            modifier = Modifier.readingWidth().padding(16.dp),
                         )
                     }
                     s.groups.forEach { g ->
@@ -168,7 +167,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                                 Words.strings.copiesEach(g.files.size.toLong(), Format.bytes(g.size)),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                                modifier = Modifier.readingWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
                             )
                         }
                         items(g.files, key = { it.uri }) { file ->
@@ -176,7 +175,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                             // The row is the one toggle, so TalkBack reads the file name with the state.
                             FileRow(
                                 file = file,
-                                modifier = Modifier.semantics {
+                                modifier = Modifier.readingWidth().semantics {
                                     role = Role.Checkbox
                                     toggleableState = ToggleableState(checked)
                                 },

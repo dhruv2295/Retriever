@@ -11,7 +11,6 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.unit.dp
 import app.retriever.ShotTheme
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
@@ -129,7 +128,7 @@ class RecompositionTest {
         val h = mutableStateOf(home.copy(home = facts, showOnThisDay = false))
         val actions = SearchActions()
         rule.setContent {
-            ShotTheme(false, 1f) { HomeBody(h.value, false, actions, rememberLazyStaggeredGridState(), PaddingValues(), 0.dp) }
+            ShotTheme(false, 1f) { HomeBody(h.value, false, actions, rememberLazyStaggeredGridState(), PaddingValues()) }
         }
         rule.waitForIdle()
         assertEquals("starred never composed: $runs", 1, runs["StarredSection"])

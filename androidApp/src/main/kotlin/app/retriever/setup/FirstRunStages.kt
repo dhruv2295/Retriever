@@ -6,16 +6,18 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -42,9 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.min
 import androidx.compose.ui.zIndex
 import app.retriever.R
 import app.retriever.access.ONLY_PICKED_PHOTOS
@@ -225,13 +225,12 @@ internal fun SamplePile(
 ) {
     // Only a card above the pile's top at first sight settles, so reopening the screen never replays the pile.
     val firstTop = remember { cards.maxOfOrNull { it.index } ?: -1 }
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
-        val footprint = min(SamplePile.FOOTPRINT_DP.dp, maxWidth)
-        val card = footprint * SamplePile.CARD_DP / SamplePile.FOOTPRINT_DP
-        // The slots shrink with the pile, as on iOS, so a narrow pile keeps its shape.
-        val scale = card / SamplePile.CARD_DP.dp
+    Box(modifier, contentAlignment = Alignment.Center) {
+        // The cards are a fixed share of the pile, and their slots shrink with them (as on iOS), so a narrow pile keeps
+        // its shape.
+        val card = Modifier.fillMaxSize(SamplePile.CARD_DP.toFloat() / SamplePile.FOOTPRINT_DP)
         Box(
-            Modifier.size(footprint)
+            Modifier.widthIn(max = SamplePile.FOOTPRINT_DP.dp).fillMaxWidth().aspectRatio(1f)
                 .then(if (onSeeAll == null) Modifier else Modifier.clickable(role = Role.Button, onClickLabel = seeAllLabel, onClick = onSeeAll))
                 .semantics { contentDescription = label },
             contentAlignment = Alignment.Center,
@@ -242,7 +241,7 @@ internal fun SamplePile(
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         shape = MaterialTheme.shapes.medium,
                         shadowElevation = 2.dp,
-                        modifier = Modifier.zIndex((kinds.size - i).toFloat()).graphicsLayer { slot(i, 0f, scale) }.size(card).clearAndSetSemantics {},
+                        modifier = Modifier.zIndex((kinds.size - i).toFloat()).graphicsLayer { slot(i, 0f) }.then(card).clearAndSetSemantics {},
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -255,21 +254,27 @@ internal fun SamplePile(
                     }
                 }
             }
-            for (c in cards) key(c.index) { PileCard(c, card, scale, animate = !reduceMotion && c.index > firstTop) }
+            for (c in cards) key(c.index) { PileCard(c, animate = !reduceMotion && c.index > firstTop, card) }
         }
     }
 }
 
 /** A card settles from above, tilted and faded, onto its slot; with motion reduced, or already shown, it is simply there. */
 @Composable
-private fun PileCard(c: SampleFile, size: Dp, scale: Float, animate: Boolean) {
+private fun PileCard(c: SampleFile, animate: Boolean, modifier: Modifier = Modifier) {
     val landed = remember { Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) { landed.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)) }
-    FileTile(c.file, size, Modifier.zIndex(c.index.toFloat()).graphicsLayer { slot(c.index, 1f - landed.value, scale) }.testTag("card:${c.index}"))
+    // Asks for a full card's picture; [modifier] sizes it to the pile.
+    val layer = Modifier.zIndex(c.index.toFloat()).graphicsLayer { slot(c.index, 1f - landed.value) }
+    FileTile(c.file, SamplePile.CARD_DP.dp, layer.testTag("card:${c.index}").then(modifier))
 }
 
-/** [i]'s slot on the pile, its offsets at [scale]; [away] 1 is the settle's start: 48 dp above, 8° more turned, transparent. */
-private fun GraphicsLayerScope.slot(i: Int, away: Float, scale: Float) {
+/**
+ * [i]'s slot on the pile, its offsets scaled as this card is to a full one; [away] 1 is the settle's start: 48 dp above,
+ * 8° more turned, transparent.
+ */
+private fun GraphicsLayerScope.slot(i: Int, away: Float) {
+    val scale = size.width / SamplePile.CARD_DP.dp.toPx()
     rotationZ = SamplePile.angle(i) + SETTLE_TURN * away
     translationX = (SamplePile.dx(i).dp * scale).toPx()
     translationY = (SamplePile.dy(i).dp * scale - SETTLE_DROP * away).toPx()

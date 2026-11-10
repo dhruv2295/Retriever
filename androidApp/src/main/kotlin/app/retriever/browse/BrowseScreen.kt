@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,6 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,7 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,14 +67,15 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.Format
 import app.retriever.ui.ScrollingEffect
+import app.retriever.ui.components.CappedCells
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.Muted
 import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.ThumbCell
-import app.retriever.ui.components.adaptiveColumns
+import app.retriever.ui.components.Thumbnails
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.components.gutter
+import app.retriever.ui.components.readingWidth
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.koin.androidx.compose.koinViewModel
@@ -230,13 +231,13 @@ fun BrowseContent(
     val files = ui.files
     // Rows keep a readable width on a wide window, and the chips and caption above them share its edges, so the page
     // is one column; a grid of pictures uses the whole width.
-    BoxWithConstraints(modifier) {
-        val side = if (kind in GRID_KINDS) 0.dp else gutter()
+    val column = if (kind in GRID_KINDS) Modifier.fillMaxWidth() else Modifier.readingWidth()
+    Box(modifier) {
         Column(Modifier.padding(top = padding.calculateTopPadding())) {
             // Starred is ordered by when you starred, so the sort chips would not apply.
             if (sortable && !starredOnly) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp + side, vertical = 8.dp),
+                    column.padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Store.Sort.entries.forEach { option ->
@@ -247,7 +248,7 @@ fun BrowseContent(
                         )
                     }
                 }
-                Muted(sortCaption(ui.sort), Modifier.padding(horizontal = 16.dp + side))
+                Muted(sortCaption(ui.sort), column.padding(horizontal = 16.dp))
             }
 
             if (files.isEmpty() && ui.error != null) {
@@ -294,57 +295,54 @@ fun BrowseContent(
                     val state = rememberLazyGridState()
                     // null is the width's own column count; a pinch picks another, kept across rotation.
                     var chosen by rememberSaveable { mutableStateOf<Int?>(null) }
+                    var request by remember { mutableIntStateOf(0) }
+                    val base = chosen?.let(GridCells::Fixed) ?: GridCells.Adaptive(110.dp)
+                    val cells = remember(base) {
+                        CappedCells(base) { request = Thumbnails.bucket(it) }
+                    }
                     val runs = remember(files, dateOf) { monthRuns(files, dateOf) }
                     ScrollingEffect({ state.isScrollInProgress }, onScrolling)
                     LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
-                    BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val direction = LocalLayoutDirection.current
-                        val sides = listPadding.calculateLeftPadding(direction) + listPadding.calculateRightPadding(direction)
-                        val width = maxWidth - 8.dp - sides
-                        val columns = chosen ?: adaptiveColumns(width, 110.dp, 4.dp)
-                        val cell = (width - 4.dp * (columns - 1)) / columns
-                        val pinch by rememberUpdatedState { step: Int -> chosen = (columns + step).coerceIn(2, 8) }
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(columns),
-                            state = state,
-                            contentPadding = listPadding,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).pinchSteps { pinch(it) },
-                        ) {
-                            runs.forEach { (month, run) ->
-                                if (month != null) {
-                                    stickyHeader(key = "m${run.first().id}", contentType = "month") {
-                                        Text(
-                                            month,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            modifier = Modifier.fillMaxWidth().background(
-                                                MaterialTheme.colorScheme.surface,
-                                            ).padding(horizontal = 4.dp, vertical = 8.dp),
-                                        )
-                                    }
-                                }
-                                items(run, key = { it.id }, contentType = { "file" }) { stored ->
-                                    val on = stored.file.uri in starred
-                                    FilePressMenu(stored.file, starred = on, onStar = {
-                                        onStar(stored.file, it)
-                                    }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
-                                        ThumbCell(
-                                            file = stored.file,
-                                            onClick = { onOpen(stored.file) },
-                                            requestSize = cell,
-                                            readNote = Words.coverage(stored, ui.inside),
-                                            onLongClick = menu,
-                                            onLongClickLabel = Words.strings.moreOptions,
-                                            modifier = actions,
-                                            morph = morph,
-                                            origin = BROWSE_ORIGIN,
-                                        )
-                                    }
+                    LazyVerticalGrid(
+                        columns = cells,
+                        state = state,
+                        contentPadding = listPadding,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).pinchSteps { chosen = (state.layoutInfo.maxSpan + it).coerceIn(2, 8) },
+                    ) {
+                        runs.forEach { (month, run) ->
+                            if (month != null) {
+                                stickyHeader(key = "m${run.first().id}", contentType = "month") {
+                                    Text(
+                                        month,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        modifier = Modifier.fillMaxWidth().background(
+                                            MaterialTheme.colorScheme.surface,
+                                        ).padding(horizontal = 4.dp, vertical = 8.dp),
+                                    )
                                 }
                             }
-                            if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
+                            items(run, key = { it.id }, contentType = { "file" }) { stored ->
+                                val on = stored.file.uri in starred
+                                FilePressMenu(stored.file, starred = on, onStar = {
+                                    onStar(stored.file, it)
+                                }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
+                                    ThumbCell(
+                                        file = stored.file,
+                                        onClick = { onOpen(stored.file) },
+                                        requestSize = with(LocalDensity.current) { request.toDp() },
+                                        readNote = Words.coverage(stored, ui.inside),
+                                        onLongClick = menu,
+                                        onLongClickLabel = Words.strings.moreOptions,
+                                        modifier = actions,
+                                        morph = morph,
+                                        origin = BROWSE_ORIGIN,
+                                    )
+                                }
+                            }
                         }
+                        if (ui.error != null) item(span = { GridItemSpan(maxLineSpan) }, contentType = "error") { LoadMoreError(onRetry) }
                     }
                 } else {
                     val state = rememberLazyListState()
@@ -352,12 +350,12 @@ fun BrowseContent(
                     LoadMoreEffect(files.size, { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index }, onLoadMore)
                     LazyColumn(
                         state = state,
-                        contentPadding = contentPaddingFor(padding, side = side, includeTop = false),
+                        contentPadding = listPadding,
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            FilePressMenu(stored.file, starred = on, onStar = { onStar(stored.file, it) }) { menu, actions ->
+                            FilePressMenu(stored.file, column, starred = on, onStar = { onStar(stored.file, it) }) { menu, actions ->
                                 FileRow(
                                     file = stored.file,
                                     onClick = { onOpen(stored.file) },
@@ -368,7 +366,7 @@ fun BrowseContent(
                                 )
                             }
                         }
-                        if (ui.error != null) item(contentType = "error") { LoadMoreError(onRetry) }
+                        if (ui.error != null) item(contentType = "error") { LoadMoreError(onRetry, column) }
                     }
                 }
             }
@@ -377,8 +375,8 @@ fun BrowseContent(
 }
 
 @Composable
-private fun LoadMoreError(onRetry: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+private fun LoadMoreError(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(Words.strings.couldntLoadMoreFiles, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = onRetry) { Text(Words.TRY_AGAIN) }
     }

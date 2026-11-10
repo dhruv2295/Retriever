@@ -2,7 +2,6 @@ package app.retriever.folders
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -42,8 +41,8 @@ import app.retriever.nav.Route
 import app.retriever.ui.components.ConfirmDialog
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.components.gutter
 import app.retriever.ui.components.onRightClick
+import app.retriever.ui.components.readingWidth
 import org.koin.androidx.compose.koinViewModel
 
 /** [onSearch] null hides the bar's Search, when the navigation rail has it. */
@@ -98,18 +97,16 @@ fun FoldersScreen(
                 )
             }
         } else {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                LazyColumn(contentPadding = contentPaddingFor(padding, side = gutter()), modifier = Modifier.fillMaxSize()) {
-                    items(folders, key = { it.first }) { (path, count) ->
-                        FolderRow(
-                            path = path,
-                            count = count,
-                            onOpen = {
-                                onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }))
-                            },
-                            onExclude = { confirming = path },
-                        )
-                    }
+            LazyColumn(contentPadding = contentPaddingFor(padding), modifier = Modifier.fillMaxSize()) {
+                items(folders, key = { it.first }) { (path, count) ->
+                    FolderRow(
+                        path = path,
+                        count = count,
+                        onOpen = {
+                            onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }))
+                        },
+                        onExclude = { confirming = path },
+                    )
                 }
             }
         }
@@ -165,6 +162,7 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
             }
         },
         modifier = Modifier
+            .readingWidth()
             .heightIn(min = 56.dp)
             .onRightClick { showMenu = true }
             .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),

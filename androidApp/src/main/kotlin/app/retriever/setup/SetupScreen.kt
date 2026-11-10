@@ -18,13 +18,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -180,11 +178,12 @@ fun SetupContent(
             }
         },
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding)) {
             Column(
-                // Capped inside the scroll, so the gutters scroll too. At least the viewport tall, with spare height split
-                // above and below, for every stage alike, so nothing switches arrangement between stages.
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+                // Capped inside the scroll, so the gutters scroll too. At least the viewport tall (verticalScroll keeps
+                // fillMaxSize's min height), with spare height split above and below, for every stage alike, so nothing
+                // switches arrangement between stages.
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                     .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {

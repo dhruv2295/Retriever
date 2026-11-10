@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -49,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -61,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
@@ -85,27 +88,22 @@ import app.retriever.home.HomeUi
 import app.retriever.motion.Mascot
 import app.retriever.nav.SettingsRoute
 import app.retriever.ui.Format
+import app.retriever.ui.components.CappedCells
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.FileRow
 import app.retriever.ui.components.PhotoMorph
 import app.retriever.ui.components.ThumbCell
+import app.retriever.ui.components.Thumbnails
+import app.retriever.ui.components.readingWidth
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun Results(
-    ui: SearchUi,
-    home: HomeUi,
-    actions: SearchActions,
-    star: (SourceFile, Boolean) -> Unit,
-    grid: LazyGridState,
-    useText: (String) -> Unit,
-    side: Dp,
-    /** A picture cell's width, for its request size. */
-    cell: Dp,
-) {
+internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (SourceFile, Boolean) -> Unit, grid: LazyGridState, useText: (String) -> Unit) {
     val q = ui.query.trim()
-    val edge = 16.dp + side
+    // The headers share the results' column; a chip or button keeps its own width at the column's start.
+    val edge = Modifier.readingWidth().padding(horizontal = 16.dp)
+    val start = edge.wrapContentWidth(Alignment.Start)
     ui.similar?.let { s ->
         InputChip(
             selected = true,
@@ -122,7 +120,7 @@ internal fun Results(
                 }
             },
             trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.stopSearchingByPhoto, Modifier.size(18.dp)) },
-            modifier = Modifier.padding(horizontal = edge),
+            modifier = start,
         )
     }
     val question = ui.question
@@ -141,13 +139,13 @@ internal fun Results(
     val canStar = home.starred > 0 || ui.onlyStarred
     val scope = ui.scope
     // On the first run a few dozen files have no use for kind chips.
-    if (scope == null && (kinds.isNotEmpty() || canStar)) KindChips(kinds, ui.chip, ui.onlyStarred, wordKinds, canStar, edge, actions)
+    if (scope == null && (kinds.isNotEmpty() || canStar)) KindChips(kinds, ui.chip, ui.onlyStarred, wordKinds, canStar, actions)
     if (scope != null) {
         val finished = ui.unread == 0 && ui.samplePlanned > 0
         Text(
             Words.demoSearchScope(ui.sampleDone.toLong(), finished, DeviceWords.ANDROID),
             style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = edge, vertical = 8.dp),
+            modifier = edge.padding(vertical = 8.dp),
         )
     }
     parsed?.let {
@@ -156,14 +154,14 @@ internal fun Results(
             onClick = actions.onWordsAsTyped,
             label = { Text(Words.strings.understoodChip(it.understood), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.searchWordsAsTyped, Modifier.size(18.dp)) },
-            modifier = Modifier.padding(horizontal = edge),
+            modifier = start,
         )
         if (shown.relaxed && shown.hits.isNotEmpty()) {
             Text(
                 it.relaxedNote(Format.scope(ui.chip, ui.onlyStarred)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = edge, vertical = 8.dp),
+                modifier = edge.padding(vertical = 8.dp),
             )
         }
     }
@@ -188,12 +186,15 @@ internal fun Results(
             it,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = edge, vertical = 8.dp),
+            modifier = edge.padding(vertical = 8.dp),
         )
     }
     // Few results without the model: one line to the upgrade, in Settings' Storage and downloads.
     Words.upgradeHint(hits.size, ui.upgrade).takeIf { results != null && !ui.searching && ui.similar == null }?.let {
-        TextButton(onClick = { actions.onNavigate(SettingsRoute) }, modifier = Modifier.padding(horizontal = edge - 12.dp)) { Text(it) }
+        TextButton(
+            onClick = { actions.onNavigate(SettingsRoute) },
+            modifier = Modifier.readingWidth().padding(horizontal = 4.dp).wrapContentWidth(Alignment.Start),
+        ) { Text(it) }
     }
     val chip = ui.chip
     val mood = if (ui.quietNoMatch) MascotMood.NO_MATCH_QUIET else MascotMood.NO_MATCH
@@ -257,7 +258,7 @@ internal fun Results(
                 }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star, actions.morph)
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
-            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, edge, cell, act)
+            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, act)
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
@@ -331,8 +332,8 @@ private fun HitMenu(
 
 /** Given the filters, not the whole [SearchUi]: a keystroke brings several answers and leaves every chip as it was. */
 @Composable
-private fun KindChips(kinds: List<Kind>, chip: Kind?, onlyStarred: Boolean, wordKinds: Set<Kind>, canStar: Boolean, edge: Dp, actions: SearchActions) {
-    LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun KindChips(kinds: List<Kind>, chip: Kind?, onlyStarred: Boolean, wordKinds: Set<Kind>, canStar: Boolean, actions: SearchActions) {
+    LazyRow(Modifier.readingWidth(), contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item(key = "all") {
             KindChip(Words.strings.filterAll, chip == null && !onlyStarred && wordKinds.isEmpty()) {
                 actions.onChip(null)
@@ -378,8 +379,6 @@ private fun ResultGrid(
     query: String?,
     stale: Boolean,
     grid: LazyGridState,
-    edge: Dp,
-    cell: Dp,
     act: HitActions,
 ) {
     val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
@@ -388,11 +387,16 @@ private fun ResultGrid(
     // Kept across opening a result and coming back, and while the same question's results refine; a new question closes it.
     var expanded by rememberSaveable(query) { mutableStateOf(false) }
     val alpha by animateFloatAsState(if (stale) 0.6f else 1f, fastEffects)
+    var request by remember { mutableIntStateOf(0) }
+    val cells = remember { CappedCells(GridCells.Adaptive(RESULT_CELL_MIN), 840.dp - 16.dp * 2) { request = Thumbnails.bucket(it) } }
+    val density = LocalDensity.current
+    // Read by each cell as it composes, after the grid has worked out the columns.
+    val cell = remember(density) { { with(density) { request.toDp() } } }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(RESULT_CELL_MIN),
+        columns = cells,
         state = grid,
-        contentPadding = PaddingValues(start = edge, end = edge, bottom = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(RESULT_CELL_GAP),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(RESULT_CELL_GAP, Alignment.CenterHorizontally),
         verticalArrangement = Arrangement.spacedBy(RESULT_CELL_GAP),
         modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
     ) {
@@ -416,7 +420,14 @@ private fun ResultGrid(
  * then the pictures, then the other documents. Neither one strong document nor one strong photo buries the rest of
  * the other kind. [titled] gives each its header.
  */
-private fun LazyGridScope.sections(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, query: String?, titled: Boolean, cell: Dp, act: HitActions) {
+private fun LazyGridScope.sections(
+    hits: List<SearchEngine.Hit>,
+    extents: Map<Long, ReadExtent>,
+    query: String?,
+    titled: Boolean,
+    cell: () -> Dp,
+    act: HitActions,
+) {
     val (recordings, others) = hits.partition { it.file.kind == Kind.AUDIO }
     val (lead, media, rest) = sectionsOf(others)
     docSection(lead, extents, query, titled, act)
@@ -452,7 +463,7 @@ private fun LazyGridScope.sectionHeader(key: String, title: String) {
     }
 }
 
-private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, titled: Boolean, cell: Dp, act: HitActions) {
+private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, titled: Boolean, cell: () -> Dp, act: HitActions) {
     if (hits.isEmpty()) return
     if (titled) sectionHeader("media", Words.PHOTOS_AND_VIDEOS)
     items(hits, key = { it.fileId }, contentType = { "thumb" }) { hit ->
@@ -467,7 +478,7 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     hit.file,
                     modifier = actions,
                     onClick = { act.open(hit) },
-                    requestSize = cell,
+                    requestSize = cell(),
                     locator = hit.locator,
                     readNote = Words.extent(extents[hit.fileId]),
                     onLongClick = menu,
