@@ -1,3 +1,4 @@
+import RetrieverCore
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,8 @@ struct RetrieverApp: App {
             _model = State(initialValue: AppModel(fixture: .caughtUp))
             return
         }
+        // The bundle's own pick from the person's languages, so core's sentences match the app's (iOS restarts the app on a change).
+        Words.shared.language = Language.companion.of(tag: Bundle.main.preferredLocalizations.first)
         #if DEBUG
             if CommandLine.arguments.contains("-ui-testing") { UIView.setAnimationsEnabled(false) }
             if CommandLine.arguments.contains("-selftest") {

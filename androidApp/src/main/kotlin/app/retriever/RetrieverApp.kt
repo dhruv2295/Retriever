@@ -18,11 +18,13 @@ import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
+import app.retriever.core.Language
 import app.retriever.core.ModelBuilds
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.core.Tier
+import app.retriever.core.Words
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
 import app.retriever.di.appModule
@@ -56,6 +58,7 @@ class RetrieverApp :
 
     override fun onCreate() {
         super<Application>.onCreate()
+        useResolvedLanguage()
         if (BuildConfig.DEBUG) strictMode()
         startKoin {
             androidContext(this@RetrieverApp)
@@ -141,6 +144,16 @@ class RetrieverApp :
 
     private companion object {
         val HELD = setOf(StopReason.UNPLUGGED, StopReason.BUSY, StopReason.POWER_SAVE)
+    }
+
+    /** A language change keeps the process: core's sentences follow the language Android resolved the app's resources to. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        useResolvedLanguage()
+    }
+
+    private fun useResolvedLanguage() {
+        Words.language = Language.of(getString(R.string.language))
     }
 
     /**

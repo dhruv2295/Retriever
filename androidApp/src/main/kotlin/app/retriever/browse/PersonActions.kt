@@ -71,7 +71,7 @@ internal fun PersonActions(person: Person?, others: List<Person>, onRename: (Str
                     items(others, key = { it.id }) { p ->
                         ListItem(
                             headlineContent = { Text(Words.personTitle(p.name)) },
-                            supportingContent = { Text(Words.plural(p.photos.toLong(), "photo")) },
+                            supportingContent = { Text(Words.photos(p.photos.toLong())) },
                             leadingContent = { FaceAvatar(p.cover, p.name, 40.dp) },
                             modifier = Modifier.clickable {
                                 onSameAs(p.id)

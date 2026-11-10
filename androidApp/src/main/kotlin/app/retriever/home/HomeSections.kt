@@ -192,7 +192,7 @@ internal fun PeopleSection(
                             .width(TILE)
                             .clip(RoundedCornerShape(12.dp))
                             .clickable(role = Role.Button, onClickLabel = "Open") { go(BrowseRoute(title = title, person = p.id)) }
-                            .semantics(mergeDescendants = true) { contentDescription = "$title, ${Words.plural(p.photos.toLong(), "photo")}" },
+                            .semantics(mergeDescendants = true) { contentDescription = "$title, ${Words.photos(p.photos.toLong())}" },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -332,11 +332,7 @@ private fun BrowseTile(icon: Int, label: String, count: String, onClick: () -> U
 private fun tileSize() = 112.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
 
 /** "8 photos", "1 video", "5 photos and videos". */
-internal fun memoryCount(m: YearMemory): String = when {
-    m.videos == 0L -> Words.plural(m.photos, "photo")
-    m.photos == 0L -> Words.plural(m.videos, "video")
-    else -> "${Format.count(m.photos + m.videos)} photos and videos"
-}
+internal fun memoryCount(m: YearMemory): String = Words.memoryCount(m.photos, m.videos)
 
 /** Past years' photos on today's date, one small tile per year, the date always in the header. Each tile opens its day. */
 @Composable

@@ -900,7 +900,7 @@ class Retriever(
                 return end(StopReason.DISK_FULL)
             }
             log("Indexing failed", e)
-            error = "Something went wrong processing your files. Retriever will try again."
+            error = Words.strings.processingFailed
             return NextRun.RETRY
         } finally {
             watchdog?.cancel()

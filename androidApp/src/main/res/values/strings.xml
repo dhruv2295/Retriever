@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- The language these resources are in: core's shared sentences (Words.language) follow it. -->
+    <string name="language">en</string>
     <string name="shortcut_search_short">Search</string>
     <string name="shortcut_search_long">Search your files</string>
 </resources>

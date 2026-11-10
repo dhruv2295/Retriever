@@ -109,7 +109,7 @@ struct PersonActions: View {
                         FaceAvatar(cover: p.cover, name: p.name, side: 40)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(Words.shared.personTitle(name: p.name))
-                            Text(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos")).font(.subheadline).foregroundStyle(.secondary)
+                            Text(Words.shared.photos(n: Int64(p.photos))).font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
                 }

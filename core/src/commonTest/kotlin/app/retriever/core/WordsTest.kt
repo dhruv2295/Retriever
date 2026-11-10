@@ -42,7 +42,6 @@ class WordsTest {
         assertEquals("1 file", Words.files(1))
         assertEquals("0 files", Words.files(0))
         assertEquals("${formatCount(1_200)} files", Words.files(1_200))
-        assertEquals("2 PDFs", Words.plural(2, "PDF"))
         assertEquals("1 file processed", Words.readCount(1))
         assertEquals("58 files processed · 24 processed in part", Words.readCount(58, 24))
         assertEquals("1 of 3 files processed", Words.readOf(1, 3))

@@ -96,7 +96,7 @@ private val SEARCH_INSIDE = listOf(Kind.PDF, Kind.DOC, Kind.SCREENSHOT, Kind.PHO
 
 private const val NOTICES_ASSET = "THIRD_PARTY_NOTICES.md"
 
-internal const val INCLUDED_FILES_FOOTER = Words.KIND_OFF + " A folder to skip is left out of search."
+internal val INCLUDED_FILES_FOOTER: String get() = Words.KIND_OFF + " A folder to skip is left out of search."
 
 /** Everything the Settings page shows, so a screenshot test can set it up without a graph. */
 data class SettingsUi(

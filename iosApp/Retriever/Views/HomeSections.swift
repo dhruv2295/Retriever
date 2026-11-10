@@ -85,11 +85,7 @@ enum OnThisDay {
 
     /// "8 photos", "1 video", "5 photos and videos".
     static func countLine(photos: Int, videos: Int) -> String {
-        switch (photos, videos) {
-        case (_, 0): Words.shared.plural(n: Int64(photos), one: "photo", many: "photos")
-        case (0, _): Words.shared.plural(n: Int64(videos), one: "video", many: "videos")
-        default: "\(Copy.count(photos + videos)) photos and videos"
-        }
+        Words.shared.memoryCount(photos: Int64(photos), videos: Int64(videos))
     }
 }
 
@@ -260,7 +256,7 @@ struct PeopleStrip: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(title), \(Words.shared.plural(n: Int64(p.photos), one: "photo", many: "photos"))")
+                    .accessibilityLabel("\(title), \(Words.shared.photos(n: Int64(p.photos)))")
                 }
             }
             .padding(.vertical, 8)
