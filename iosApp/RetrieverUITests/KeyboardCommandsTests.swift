@@ -22,8 +22,9 @@ final class KeyboardCommandsTests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
 
-        // From Settings, ⌘F goes back to Search.
+        // From Settings, ⌘F goes back to Search with its field ready to type in, though it was already open.
         app.typeKey("f", modifierFlags: .command)
         XCTAssertTrue(app.navigationBars["Settings"].waitForNonExistence(timeout: 5))
+        wait(for: [expectation(for: focused, evaluatedWith: app.searchFields.firstMatch)], timeout: 5)
     }
 }

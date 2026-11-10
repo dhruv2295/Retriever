@@ -74,8 +74,8 @@ extension FocusedValues {
 }
 
 extension EnvironmentValues {
-    /// ⌘F's count in a window; Home's search field comes up each time it changes.
-    @Entry var searchFocus = 0
+    /// ⌘F's request in a window, pending until Home shows and raises its search field.
+    @Entry var searchRequest: Binding<Bool> = .constant(false)
 }
 
 /// ⌘F and ⌘, with an iPad's keyboard or on a Mac, listed when ⌘ is held and in iPadOS's menu bar. The commands act on

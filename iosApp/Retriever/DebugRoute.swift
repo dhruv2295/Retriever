@@ -314,8 +314,15 @@
         }
 
         @MainActor func liveScreen(_ model: AppModel) -> some View {
-            LiveRoute(route: self, model: model).task { await Self.hideKeyboard() }
+            LiveRoute(route: self, model: model).task {
+                // Once a launch: Home appears again on every Back, and ⌘F's keyboard must stay up then.
+                guard !Self.launchKeyboardHidden else { return }
+                Self.launchKeyboardHidden = true
+                await Self.hideKeyboard()
+            }
         }
+
+        @MainActor private static var launchKeyboardHidden = false
 
         /// The search stays presented, with its scopes, but the keyboard leaves the screenshot.
         @MainActor static func hideKeyboard() async {
