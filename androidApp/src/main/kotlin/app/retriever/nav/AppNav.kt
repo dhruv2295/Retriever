@@ -283,7 +283,8 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
     // Two panes only while a file is open beside its list; otherwise the one pane has the window, not half of it beside
     // an empty one. Still the same list-detail scene, so opening, expanding and closing move the panes rather than
     // swapping pages.
-    val beside = twoPanes && !expanded && top != null && top.isViewer && fromList(top)
+    // Only a document or PDF goes beside its list: a photo or video opens over the page, which keeps its one pane.
+    val beside = twoPanes && !expanded && (top is PdfRoute || top is DocRoute) && fromList(top)
     val listDetail = rememberListDetailSceneStrategy<Route>(
         shouldHandleSinglePaneLayout = twoPanes,
         directive = directive.panes(if (beside) directive.maxHorizontalPartitions else 1),
