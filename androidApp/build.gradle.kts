@@ -209,6 +209,7 @@ dependencies {
         // on a newer runtime of the same major version.
         implementation(libs.okhttp) { because("ML Kit vision-internal-vkp pins 3.0.0: GHSA-3cqm-mf7h-prrj, GHSA-4hc2-jh7r-wrc3") }
         implementation(libs.protobuf.javalite) { because("MediaPipe tasks-core pins 4.26.1: CVE-2024-7254") }
+        implementation(libs.guava) { because("LiteRT's litert-api pins 33.5.0-android: GHSA-xxph-c9ww-hj94") }
     }
 
     testImplementation(libs.junit)
