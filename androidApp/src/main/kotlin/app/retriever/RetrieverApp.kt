@@ -150,6 +150,8 @@ class RetrieverApp :
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         useResolvedLanguage()
+        // Creating the channel again renames it in Settings.
+        Notifications.createChannel(this)
     }
 
     private fun useResolvedLanguage() {
