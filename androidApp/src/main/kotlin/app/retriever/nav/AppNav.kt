@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDragHandle
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.material3.adaptive.layout.PaneScaffoldDirective
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
@@ -182,13 +183,20 @@ private const val VIEWER = "app.retriever.viewer"
 private val viewer = ListDetailSceneStrategy.detailPane() + (VIEWER to true)
 
 /**
- * Two panes only once a file is open beside its list; until then the list has the whole window, not half of it beside
- * an empty pane. On a window too narrow for two, [panes] gives no scene and the file opens full screen, as on a phone.
+ * The window's directive with [partitions] panes across, not moving focus into the pane that becomes current: closing a
+ * file would focus the list's first field, Search's, and bring up the keyboard. Each screen sets its own focus.
  */
-private class OpenFileBesideList(private val panes: SceneStrategy<Route>, private val expanded: Boolean) : SceneStrategy<Route> {
-    override fun SceneStrategyScope<Route>.calculateScene(entries: List<NavEntry<Route>>): Scene<Route>? =
-        if (!expanded && entries.lastOrNull()?.metadata?.get(VIEWER) == true) with(panes) { calculateScene(entries) } else null
-}
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+private fun PaneScaffoldDirective.panes(partitions: Int) = PaneScaffoldDirective(
+    maxHorizontalPartitions = partitions,
+    horizontalPartitionSpacerSize = horizontalPartitionSpacerSize,
+    maxVerticalPartitions = maxVerticalPartitions,
+    verticalPartitionSpacerSize = verticalPartitionSpacerSize,
+    defaultPanePreferredWidth = defaultPanePreferredWidth,
+    defaultPanePreferredHeight = defaultPanePreferredHeight,
+    excludedBounds = excludedBounds,
+    shouldAutoFocusCurrentDestination = false,
+)
 
 /** A kind Home's Browse lists, as the list it opens. Documents holds PDFs too and opens the PDFs when there are any. */
 fun BrowseKind.route() = BrowseRoute(kind = (kinds.firstOrNull { it == Kind.PDF } ?: kinds.first()).name, title = title)
@@ -238,16 +246,10 @@ private fun predictiveDirection(edge: Int): SlideDirection = when (edge) {
 
 // Ordinary pages slide and fade symmetrically. A photo grows from its tile over the list, which stays put under the
 // viewer's fading backdrop; Back, a predictive swipe too, shrinks it into its tile. Navigation 3 owns predictive back and
-// system motion scale.
-private val AnimatedContentTransitionScope<Scene<Route>>.panes get() = initialState.entries.size > 1 || targetState.entries.size > 1
-
-// Opening or closing a file beside its list, the list stays where it is and the panes move themselves.
-private fun panesSwap(): ContentTransform = fadeIn(tween(150)) togetherWith fadeOut(tween(150))
-
+// system motion scale. A file opening beside its list, going full screen or closing is no page change: the list and the
+// file are one list-detail scene throughout, whose panes move themselves.
 private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransform = if (targetState.tagged(photo)) {
     fadeIn(defaultEffects) togetherWith ExitTransition.KeepUntilTransitionsFinished
-} else if (panes) {
-    panesSwap()
 } else {
     pageEnter(SlideDirection.Start) togetherWith pageExit(SlideDirection.Start)
 }
@@ -256,8 +258,6 @@ private fun AnimatedContentTransitionScope<Scene<Route>>.push(): ContentTransfor
 // shrink the whole viewer, an opaque black card until the swipe ends.
 private fun AnimatedContentTransitionScope<Scene<Route>>.pop(direction: SlideDirection): ContentTransform = if (initialState.tagged(photo)) {
     EnterTransition.None togetherWith fadeOut(defaultEffects)
-} else if (panes) {
-    panesSwap()
 } else {
     pageEnter(direction) togetherWith pageExit(direction)
 }
@@ -276,8 +276,18 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
     val adaptive = currentWindowAdaptiveInfoV2()
     val directive = calculatePaneScaffoldDirective(adaptive)
     val twoPanes = directive.maxHorizontalPartitions > 1
+    val top = stack.lastOrNull()
+    // A document beside its list can take the whole window (the viewer bar's Full screen) and give the list its pane back.
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(top?.isViewer) { if (top?.isViewer != true) expanded = false }
+    val fromList = { route: Route -> stack.getOrNull(stack.indexOf(route) - 1).let { it is SearchRoute || it is BrowseRoute } }
+    // Two panes only while a file is open beside its list; otherwise the one pane has the window, not half of it beside
+    // an empty one. Still the same list-detail scene, so opening, expanding and closing move the panes rather than
+    // swapping pages.
+    val beside = twoPanes && !expanded && top != null && top.isViewer && fromList(top)
     val listDetail = rememberListDetailSceneStrategy<Route>(
-        directive = directive,
+        shouldHandleSinglePaneLayout = twoPanes,
+        directive = directive.panes(if (beside) directive.maxHorizontalPartitions else 1),
         // Back closes the open file and gives the list the window again; the default pops on until the panes change,
         // which a list alone (still two panes to the scaffold) never does, so it went past the list.
         backNavigationBehavior = BackNavigationBehavior.PopLatest,
@@ -290,11 +300,6 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
             )
         },
     )
-    val top = stack.lastOrNull()
-    // A document beside its list can take the whole window (the viewer bar's Full screen) and give the list its pane back.
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(top?.isViewer) { if (top?.isViewer != true) expanded = false }
-    val beside = remember(listDetail, expanded) { OpenFileBesideList(listDetail, expanded) }
     // The main places in a rail on a wide window, as in Google Photos and the iPad's sidebar; a phone or a short window
     // (the default's bar) keeps Home's own links. Not during setup, nor beside a photo or video, which take the window.
     val facts by remember(retriever) { retriever.home() }.collectAsStateWithLifecycle(null)
@@ -342,9 +347,11 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                 // A photo's tile grows into the viewer (ThumbnailImage and PhotoPage share it).
                 val morph = @Composable { scope: AnimatedVisibilityScope -> remember(scope) { PhotoMorph(this, scope) } }
                 val paneExpand = @Composable { route: Route ->
-                    val fromList = stack.getOrNull(stack.indexOf(route) - 1).let { it is SearchRoute || it is BrowseRoute }
-                    remember(twoPanes, fromList, expanded) { if (twoPanes && fromList) PaneExpand(expanded) { expanded = !expanded } else null }
+                    val besideList = twoPanes && fromList(route)
+                    remember(besideList, expanded) { if (besideList) PaneExpand(expanded) { expanded = !expanded } else null }
                 }
+                // A place opened from the rail is top-level: no Back arrow, as in Material's navigation guidance.
+                val railPlace = { route: Route -> rail && stack.getOrNull(1) == route && route in places }
                 val moves = @Composable {
                     val lifecycle = LocalLifecycleOwner.current.lifecycle
                     remember(lifecycle) { Moves(stack, lifecycle) }
@@ -354,7 +361,7 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                     modifier = modifier,
                     onBack = { if (stack.size > 1) stack.removeAt(stack.lastIndex) },
                     entryDecorators = listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-                    sceneStrategies = listOf(beside),
+                    sceneStrategies = listOf(listDetail),
                     sharedTransitionScope = this,
                     transitionSpec = { push() },
                     popTransitionSpec = { pop(SlideDirection.End) },
@@ -374,10 +381,9 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                             val scope = LocalNavAnimatedContentScope.current
                             HomeHost(moves().go, pillModifier = searchBounds(scope, false), morph = morph(scope), rail = if (rail) places else emptyList())
                         }
-                        // Opening or closing a file beside a list animates the list's bounds (the pane's motion, then Navigation 3
-                        // moving the entry between scenes). Laid out at each frame's size, the grid's columns and the bars above
-                        // it disagreed with the gutters worked out from the final width, and rows misaligned or went blank until
-                        // it ended; laid out at its final size from the start, the list just jumps there.
+                        // Opening or closing a file beside a list animates the list pane's bounds. Laid out at each frame's size,
+                        // the grid's columns disagreed with the gutters worked out from the final width, and tiles jumped
+                        // between column counts until it ended; laid out at its final size from the start, the list just jumps there.
                         entry<SearchRoute>(metadata = search + list) { route ->
                             val scope = LocalNavAnimatedContentScope.current
                             val m = moves()
@@ -385,11 +391,13 @@ fun AppNav(modifier: Modifier = Modifier, retriever: Retriever = koinInject(), s
                         }
                         entry<BrowseRoute>(metadata = list) { route ->
                             val m = moves()
-                            Box(Modifier.skipToLookaheadSize()) { BrowseScreen(route, m.go, m.back, morph = morph(LocalNavAnimatedContentScope.current)) }
+                            Box(Modifier.skipToLookaheadSize()) {
+                                BrowseScreen(route, m.go, m.back.takeUnless { railPlace(route) }, morph = morph(LocalNavAnimatedContentScope.current))
+                            }
                         }
-                        entry<SettingsRoute> {
+                        entry<SettingsRoute> { route ->
                             val m = moves()
-                            SettingsScreen(m.back, onStatus = { m.go(StatusRoute) })
+                            SettingsScreen(m.back.takeUnless { railPlace(route) }, onStatus = { m.go(StatusRoute) })
                         }
                         entry<FoldersRoute> {
                             val m = moves()

@@ -417,7 +417,21 @@ fun SearchContent(
                 },
             )
             HorizontalDivider()
-            SearchPane(ui, home, actions, grid, snackbar, useText = {
+            // Opening a result ends the typing too: on a wide window the list stays beside the file, and its keyboard would
+            // stay up over the file.
+            val opening = remember(actions) {
+                actions.copy(
+                    onOpenHit = {
+                        done()
+                        actions.onOpenHit(it)
+                    },
+                    onOpenFile = { file, origin ->
+                        done()
+                        actions.onOpenFile(file, origin)
+                    },
+                )
+            }
+            SearchPane(ui, home, opening, grid, snackbar, useText = {
                 text.setTextAndPlaceCursorAtEnd(it)
                 done()
             })

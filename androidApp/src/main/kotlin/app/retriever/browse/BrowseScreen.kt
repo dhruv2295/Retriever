@@ -109,9 +109,10 @@ internal fun sortCaption(sort: String): String = when (sort) {
 /** The grid's photo-morph origin: a cell and the viewer it opens share it. */
 private const val BROWSE_ORIGIN = "browse"
 
+/** [onBack] null: a top-level place (the navigation rail's), with no Back arrow. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
+fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: (() -> Unit)?, modifier: Modifier = Modifier, morph: PhotoMorph? = null) {
     val vm = koinViewModel<BrowseViewModel> { parametersOf(route) }
     val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val ui by vm.uiState.collectAsStateWithLifecycle()
@@ -147,8 +148,10 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
             TopAppBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
