@@ -83,6 +83,11 @@ internal class FakeExtractor(
 ) : Extractor {
     val names: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
+    /** [Extractor.ready]'s answer: Android's readers come from Play services after install. */
+    var ready: suspend () -> Boolean = { true }
+
+    override suspend fun ready(): Boolean = ready.invoke()
+
     override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> {
         names += file.name
         onExtract(file)

@@ -30,6 +30,14 @@ interface Extractor {
     suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece>
 
     /**
+     * False while a reader it needs is still downloading, which it has asked for: Android's text and label readers come
+     * from Play services after install. A file read without them would keep no words or labels, and isn't read again.
+     * True once they're here, or when they can't come (no Play services), so reading never waits for nothing.
+     */
+    @Throws(Throwable::class)
+    suspend fun ready(): Boolean = true
+
+    /**
      * The first pass's read while the model is there to deepen later: a video's one moment and a scanned PDF's first
      * [PDF_HEAD_OCR_PAGES] pages, the rest left as [later] placeholders. By default, the whole file now.
      */

@@ -265,6 +265,7 @@ object ReadingPolicy {
      * batch's look for faces ([IndexState.faces]), which runs once the files are done; its own count then.
      * [facesWaiting]: photos still to look at once every file is processed. A stop or wait then counts them, not a full
      * file count beside work still to do. [people]: People's model when a faces pass found it missing ([IndexState.people]).
+     * [readersMissing]: the batch waits for the text and label readers downloading ([IndexState.readersMissing]).
      */
     fun decide(
         progress: ReadingProgress,
@@ -277,6 +278,7 @@ object ReadingPolicy {
         faces: FacesProgress? = null,
         facesWaiting: FacesProgress? = null,
         people: PeopleModel? = null,
+        readersMissing: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val demo = progress.sample && !progress.notNow
@@ -332,76 +334,86 @@ object ReadingPolicy {
             (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
         // A stop over only those passes says why it stopped, then that every file is processed and what is left.
         val restStopped = phase in STOPS && progress.unfinished && allProcessed
+        // Play services delivers the text and label readers after install; the first batch may wait for them.
+        val gettingReaders = readersMissing && running && phase == ReadingPhase.READING
         // Between batches with the meaning pass left, its title, not "All files processed" over photos still waiting.
-        val title = when (phase) {
-            ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) "Adding search by description" else "All files processed"
-            ReadingPhase.COUNTING -> "Counting your files…"
-            ReadingPhase.NOT_NOW -> "Only names can be found for now"
-            ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
-            ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
-            ReadingPhase.SAMPLE -> "Processing the demo files"
-            ReadingPhase.MEANING -> "Adding search by description"
-            ReadingPhase.FACES -> if (faces == null) "Getting People ready" else "Looking for faces in your photos"
-            ReadingPhase.DEEPENING -> "Processing the rest of some long files"
-            ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
-            ReadingPhase.LOOKING -> "Checking for new files…"
-            ReadingPhase.CAUGHT_UP -> "All done. Retriever has processed everything it can"
-            ReadingPhase.LIMITED -> "All done. A few long files were processed only in part"
-            else -> stopCopy(blocker ?: StopReason.DONE, words)
+        val title = if (gettingReaders) {
+            "Getting ready to read your files"
+        } else {
+            when (phase) {
+                ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) "Adding search by description" else "All files processed"
+                ReadingPhase.COUNTING -> "Counting your files…"
+                ReadingPhase.NOT_NOW -> "Only names can be found for now"
+                ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
+                ReadingPhase.READ_NOW -> "Processing for 15 minutes · $readNowMinutes min left"
+                ReadingPhase.SAMPLE -> "Processing the demo files"
+                ReadingPhase.MEANING -> "Adding search by description"
+                ReadingPhase.FACES -> if (faces == null) "Getting People ready" else "Looking for faces in your photos"
+                ReadingPhase.DEEPENING -> "Processing the rest of some long files"
+                ReadingPhase.READING -> if (pluggedIn) "Processing while you charge" else Words.PROCESSING_YOUR_FILES
+                ReadingPhase.LOOKING -> "Checking for new files…"
+                ReadingPhase.CAUGHT_UP -> "All done. Retriever has processed everything it can"
+                ReadingPhase.LIMITED -> "All done. A few long files were processed only in part"
+                else -> stopCopy(blocker ?: StopReason.DONE, words)
+            }
         }
-        val sentence = when (phase) {
-            ReadingPhase.PAUSED -> "Search still works."
+        val sentence = if (gettingReaders) {
+            "A one-time download from Google Play services. Search by name works now."
+        } else {
+            when (phase) {
+                ReadingPhase.PAUSED -> "Search still works."
 
-            ReadingPhase.POWER_SAVE -> "Carries on when ${words.powerSave} is off."
+                ReadingPhase.POWER_SAVE -> "Carries on when ${words.powerSave} is off."
 
-            ReadingPhase.HOT -> "Carries on by itself."
+                ReadingPhase.HOT -> "Carries on by itself."
 
-            ReadingPhase.LOW_BATTERY -> "Plug in and Retriever carries on."
+                ReadingPhase.LOW_BATTERY -> "Plug in and Retriever carries on."
 
-            ReadingPhase.CHARGING_UP -> "Processing starts once your battery has a bit more charge."
+                ReadingPhase.CHARGING_UP -> "Processing starts once your battery has a bit more charge."
 
-            ReadingPhase.BUSY -> "Or open Retriever to carry on now."
+                ReadingPhase.BUSY -> "Or open Retriever to carry on now."
 
-            ReadingPhase.CHARGING -> "Retriever carries on when your ${words.device} is charging."
+                ReadingPhase.CHARGING -> "Retriever carries on when your ${words.device} is charging."
 
-            ReadingPhase.MANUAL -> "You can find any file by its name."
+                ReadingPhase.MANUAL -> "You can find any file by its name."
 
-            ReadingPhase.READ_NOW -> "Uses some battery. " + if (words.ios) "Keep Retriever open." else "Stops on its own."
+                ReadingPhase.READ_NOW -> "Uses some battery. " + if (words.ios) "Keep Retriever open." else "Stops on its own."
 
-            ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
+                ReadingPhase.SAMPLE -> "About a minute. Nothing is changed or sent."
 
-            ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
+                ReadingPhase.MEANING -> "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
 
-            // Faces come last (Retriever.runBatch): every file is processed by now.
-            ReadingPhase.FACES -> if (faces == null) {
-                "A one-time download for People. Search works the whole time."
-            } else {
-                "All your files are processed. Search works the whole time."
+                // Faces come last (Retriever.runBatch): every file is processed by now.
+                ReadingPhase.FACES -> if (faces == null) {
+                    "A one-time download for People. Search works the whole time."
+                } else {
+                    "All your files are processed. Search works the whole time."
+                }
+
+                ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
+
+                ReadingPhase.READING -> when {
+                    progress.meaningWaiting > 0 -> "Also adding search by description."
+                    words.ios -> "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
+                    else -> "You can close Retriever; it carries on. Search works the whole time."
+                }
+
+                ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) {
+                    "Retriever processes the rest of some long files when your ${words.device} allows. Search works now."
+                } else {
+                    "Retriever adds search by description when your ${words.device} allows. Search works now."
+                }
+
+                ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) {
+                    "Free up some space and Retriever carries on."
+                } else {
+                    "Your ${words.device} decides when Retriever carries on. Nothing is lost."
+                }
+
+                ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
+
+                else -> null
             }
-
-            ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> "You can find them by their beginning."
-
-            ReadingPhase.READING -> when {
-                progress.meaningWaiting > 0 -> "Also adding search by description."
-                words.ios -> "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows."
-                else -> "You can close Retriever; it carries on. Search works the whole time."
-            }
-
-            ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) {
-                "Retriever processes the rest of some long files when your ${words.device} allows. Search works now."
-            } else {
-                "Retriever adds search by description when your ${words.device} allows. Search works now."
-            }
-
-            ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) {
-                "Free up some space and Retriever carries on."
-            } else {
-                "Your ${words.device} decides when Retriever carries on. Nothing is lost."
-            }
-
-            ReadingPhase.CAUGHT_UP -> "It processes new files by itself.".takeIf { blocker != StopReason.MANUAL }
-
-            else -> null
         }
         // Between batches too: a Pixel's line flipped from "24,373 of 27,128" to "28,028 of 28,028 files processed", a full
         // bar beside 2,750 photos still waiting.

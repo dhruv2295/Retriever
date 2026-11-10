@@ -39,6 +39,11 @@
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="33"
         android:largeHeap="true">
+        <!-- The text readers (Latin, Devanagari) and the labeler come from Play services, fetched at install rather than
+             shipped in the app; reading waits for them (AndroidExtractor.ready). -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr,ocr_devanagari,ica" />
         <!-- Same as Google AI Edge Gallery: without these, Android hides OpenCL from the app and LiteRT
              falls back to WebGPU, which can't load EmbeddingGemma 2 ("weights manager" error). -->
         <uses-native-library android:name="libvndksupport.so" android:required="false" />

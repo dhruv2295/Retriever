@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.LocaleList
 import android.os.ParcelFileDescriptor
 import android.os.ext.SdkExtensions
+import android.util.Log
 import android.util.Size
 import androidx.annotation.RequiresExtension
 import androidx.core.graphics.createBitmap
@@ -66,6 +67,7 @@ import app.retriever.core.traced
 import app.retriever.core.tracedAsync
 import app.retriever.core.xlsxOrder
 import app.retriever.core.xlsxText
+import com.google.android.gms.common.api.OptionalModuleApi
 import com.google.android.gms.common.moduleinstall.ModuleInstall
 import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.android.gms.tasks.Task
@@ -162,6 +164,33 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
                 OcrScript.KOREAN -> KoreanTextRecognizerOptions.Builder().setExecutor(mlKitExecutor).build()
             },
         )
+    }
+
+    private val modules by lazy { ModuleInstall.getClient(context) }
+
+    @Volatile private var readersRequested = false
+
+    /**
+     * The Latin text reader and the labeler come from Play services (the manifest asks for them at install), not in the
+     * app. Devanagari, Chinese, Japanese and Korean stay best effort, as [unbundledRequested] says.
+     */
+    override suspend fun ready(): Boolean = try {
+        val wanted = arrayOf<OptionalModuleApi>(recognizer(OcrScript.LATIN), labeler.value)
+        if (modules.areModulesAvailable(*wanted).awaitResult().areModulesAvailable()) {
+            true
+        } else {
+            if (!readersRequested) {
+                modules.installModules(ModuleInstallRequest.newBuilder().apply { wanted.forEach(::addApi) }.build()).awaitResult()
+                readersRequested = true
+            }
+            false
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // No Play services: read without words in pictures or labels rather than never read at all.
+        Log.w("Retriever", "The text and label readers couldn't be fetched", e)
+        true
     }
 
     override fun close() {
@@ -273,8 +302,9 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
     private val languageTags get() = LocaleList.getDefault().let { list -> List(list.size()) { list[it].toLanguageTag() } }
 
     /**
-     * Chinese, Japanese and Korean recognizers come through Play services, which fetches each on its first use. Asking
-     * for the phone's own ones up front, once, means the first screenshots are read with them instead of without.
+     * Every recognizer comes through Play services. Latin and Devanagari download at install (the manifest's
+     * DEPENDENCIES), Latin waited for ([ready]); Chinese, Japanese and Korean on first use. Asking for the phone's own
+     * ones up front, once, means the first screenshots are read with them instead of without.
      */
     private val unbundledRequested by lazy {
         val wanted = ocrScripts(languageTags) - OcrScript.LATIN - OcrScript.DEVANAGARI

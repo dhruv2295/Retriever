@@ -91,6 +91,8 @@ data class IndexState(
     val faces: FacesProgress? = null,
     /** People's model when the last faces pass found it missing ([FaceReader.ready]); null once it is there. */
     val people: PeopleModel? = null,
+    /** A batch waits for the text and label readers still downloading ([Extractor.ready]). */
+    val readersMissing: Boolean = false,
 )
 
 /**
@@ -579,6 +581,7 @@ class Retriever(
                 state.faces,
                 facesWaiting,
                 state.people,
+                state.readersMissing,
             )
         }
     }
@@ -798,7 +801,7 @@ class Retriever(
                 // With tails: without them the counts leave the meaning pass out (Store.outcome) and this read 0.
                 (keywordOnly || store.countsNow().progress.meaningWaiting == 0L)
             ) {
-                when (peopleModel(reader, minOf(PEOPLE_WAIT, budget - started.elapsedNow()))) {
+                when (peopleModel(reader, minOf(DOWNLOAD_WAIT, budget - started.elapsedNow()))) {
                     PeopleModel.READY -> Unit
 
                     // Still downloading: rest and look again (ThermalRest.RECHECK), as for heat, instead of holding the batch.
@@ -827,6 +830,11 @@ class Retriever(
                 (!keywordOnly || store.laterChunkCount() == 0L)
             // Later parts left that may not run now: stop for that reason, so the platform comes back on the charger or at screen-off.
             if (idle) return end(if (tails > 0 || facesLeft) deepenBlocker() ?: StopReason.DONE else StopReason.DONE)
+            // Play services delivers the text and label readers after install: no file is read without them.
+            if (!readersReady(minOf(DOWNLOAD_WAIT, budget - started.elapsedNow()))) {
+                stop = StopReason.DONE
+                return NextRun.AFTER_COOLDOWN
+            }
             val e = if (keywordOnly) {
                 null
             } else {
@@ -937,6 +945,20 @@ class Retriever(
         _state.update { state -> state.copy(recentFiles = state.recentFiles.filter { store.fileByUri(it.uri) != null }) }
     }
 
+    /** The text and label readers, waited for while they download, at most [wait]; the status line says so meanwhile. */
+    private suspend fun readersReady(wait: Duration): Boolean {
+        val start = TimeSource.Monotonic.markNow()
+        var ready = extractor.ready()
+        while (!ready && start.elapsedNow() < wait) {
+            _state.update { it.copy(readersMissing = true) }
+            delay(DOWNLOAD_POLL)
+            ready = extractor.ready()
+        }
+        _state.update { it.copy(readersMissing = !ready) }
+        if (!ready) log("The text and label readers aren't here yet", null)
+        return ready
+    }
+
     /**
      * People's model, waited for while it downloads, at most [wait]; the status line says so meanwhile ([IndexState.people]).
      * A Play install fetches it when People is turned on, so it is usually there by the time the files are read.
@@ -947,7 +969,7 @@ class Retriever(
         var model = reader.ready(mobileData)
         while (model == PeopleModel.GETTING && start.elapsedNow() < wait) {
             _state.update { it.copy(people = model) }
-            delay(PEOPLE_POLL)
+            delay(DOWNLOAD_POLL)
             model = reader.ready(mobileData)
         }
         _state.update { it.copy(people = model.takeUnless { m -> m == PeopleModel.READY }) }
@@ -1897,10 +1919,10 @@ class Retriever(
     internal companion object {
         const val RECENT_FILES = 24
 
-        /** A faces pass waits this long for People's model downloading; then it rests and looks again. */
-        val PEOPLE_WAIT = 2.minutes
+        /** A batch waits this long for a reader or People's model downloading; then it rests and looks again. */
+        val DOWNLOAD_WAIT = 2.minutes
 
-        val PEOPLE_POLL = 2.seconds
+        val DOWNLOAD_POLL = 2.seconds
 
         /** Reads again of a watched read failing in a row (1 + 2 + 4 + 8 + 16 s apart) before its sharing ends. */
         private const val WATCH_RETRIES = 5
