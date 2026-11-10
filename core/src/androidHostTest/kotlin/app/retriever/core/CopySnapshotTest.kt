@@ -63,15 +63,25 @@ class CopySnapshotTest {
 
     private fun samples(type: Class<*>, m: Method): List<Any?> = when (type) {
         Long::class.javaPrimitiveType -> listOf(0L, 1L, 2L, 1234L)
+
         Int::class.javaPrimitiveType -> listOf(0, 1, 2, 57)
+
         Int::class.javaObjectType -> listOf(null, 0, 57)
+
         Long::class.javaObjectType -> listOf(null, 0L, 1L, 1234L)
+
         Boolean::class.javaPrimitiveType -> listOf(false, true)
+
         Double::class.javaPrimitiveType -> listOf(3.6)
+
         String::class.java -> listOf("388 MB", "p. 12", "1:01:05", "Downloads", null)
+
         List::class.java -> listOf(listOf("Photos", "Last week"))
+
         Set::class.java -> listOf(Kind.entries.toSet(), setOf(Kind.DOC))
+
         DeviceWords::class.java -> listOf(DeviceWords.ANDROID, DeviceWords.ios("iPhone"), DeviceWords.ios("iPad"))
+
         ReadingProgress::class.java -> listOf(
             ReadingProgress(),
             ReadingProgress(read = 1200, partlyRead = 3, scheduled = 40, nameOnly = 5, couldntRead = 2, laterPasses = 7, meaningWaiting = 9, rereads = 1),
@@ -81,7 +91,9 @@ class CopySnapshotTest {
             ReadingProgress(read = 2, scheduled = 3, notNow = true),
             ReadingProgress(read = 5, partlyRead = 1),
         )
+
         TasteProgress::class.java -> listOf(TasteProgress(emptyMap(), emptySet(), 0, 0, 0), TasteProgress(emptyMap(), emptySet(), 3, 2, 5))
+
         Store.StoredFile::class.java -> listOf(Kind.DOC, Kind.OTHER).flatMap { kind ->
             FileState.entries.flatMap { state ->
                 listOf(false, true).flatMap { read ->
@@ -90,6 +102,7 @@ class CopySnapshotTest {
                 }
             }
         } + listOf(null)
+
         DownloadState::class.java -> listOf(
             null,
             DownloadState(null, false, "388 MB"),
@@ -98,12 +111,15 @@ class CopySnapshotTest {
             DownloadState(null, false, "388 MB", settingUp = true),
             DownloadState(null, true, "388 MB", settingUp = true),
         )
+
         ReadingStatus::class.java -> listOf(
             null,
             ReadingStatus(ReadingPhase.COUNTING, "Counting"),
             ReadingStatus(ReadingPhase.READING, "Reading", count = "1 of 2"),
         )
+
         FacesProgress::class.java -> listOf(null, FacesProgress(5, 10))
+
         else -> if (type.isEnum) listOf(*type.enumConstants, null) else error("No samples for ${type.name} in ${m.name}")
     }
 
