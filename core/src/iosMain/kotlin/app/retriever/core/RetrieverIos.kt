@@ -133,8 +133,9 @@ fun Retriever.searchImageDataCancellable(
     kinds: Set<Kind>?,
     limit: Int,
     onlyStarred: Boolean,
+    uri: String?,
     done: (SearchEngine.SearchResult?, Throwable?) -> Unit,
-): AutoCloseable = cancellable({ searchImage(jpeg.toByteArray(), kinds, limit, onlyStarred) }, done)
+): AutoCloseable = cancellable({ searchImage(jpeg.toByteArray(), kinds, limit, onlyStarred, uri = uri) }, done)
 
 /** Internal: a generic T reaches Swift as id, and Swift can't build a Kotlin suspend lambda. */
 @OptIn(ExperimentalCoroutinesApi::class)

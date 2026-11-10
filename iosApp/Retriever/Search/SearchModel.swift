@@ -98,6 +98,8 @@ final class SearchModel {
         let id = UUID()
         let jpeg: Data
         let thumb: UIImage
+        /// The library file "Find similar" started from, so with People on its person's photos lead. A picked photo has none.
+        var uri: String?
     }
 
     struct Key: Equatable {
@@ -234,7 +236,8 @@ final class SearchModel {
     /// One core search. A photo search is never scoped: during the short read only the planned files hold vectors.
     /// ponytail: core's cancellable wrappers take no `scope`, so a scoped words search (first run's try-it only) goes
     /// through the plain suspend call and can't be cancelled mid-flight; add `scope` to them and this branch goes.
-    private func ask(_ key: Key, _ retriever: Retriever, limit: Int32, namesOnly: Bool, jpeg: Data? = nil) async throws -> SearchEngine.SearchResult {
+    private func ask(_ key: Key, _ retriever: Retriever, limit: Int32, namesOnly: Bool, photo: Photo? = nil) async throws -> SearchEngine.SearchResult {
+        let jpeg = photo?.jpeg
         let kinds = key.scope.kinds
         let starred = key.scope == .starred
         if let ids = key.ids, jpeg == nil {
@@ -247,7 +250,7 @@ final class SearchModel {
             if namesOnly {
                 retriever.searchNamesCancellable(q: key.query, kinds: kinds, limit: limit, onlyStarred: starred, literal: key.literal, done: $0)
             } else if let jpeg {
-                retriever.searchImageDataCancellable(jpeg: jpeg, kinds: kinds, limit: limit, onlyStarred: starred, done: $0)
+                retriever.searchImageDataCancellable(jpeg: jpeg, kinds: kinds, limit: limit, onlyStarred: starred, uri: photo?.uri, done: $0)
             } else {
                 retriever.searchCancellable(q: key.query, kinds: kinds, limit: limit, onlyStarred: starred, literal: key.literal, done: $0)
             }
@@ -292,8 +295,8 @@ final class SearchModel {
                 try? await Task.sleep(until: start + .milliseconds(timing.FULL_MS))
                 guard !Task.isCancelled else { return }
             }
-            let jpeg = photo.flatMap { $0.id == key.photo ? $0.jpeg : nil }
-            let result = try await ask(key, retriever, limit: limit, namesOnly: false, jpeg: jpeg)
+            let asked = photo.flatMap { $0.id == key.photo ? $0 : nil }
+            let result = try await ask(key, retriever, limit: limit, namesOnly: false, photo: asked)
             guard !Task.isCancelled else { return }
             // Nothing yet for a word still being typed: the answer on screen stays until typing pauses. A key cancels this.
             if result.hits.isEmpty, key.photo == nil, SearchPhaseKt.midWord(typed: text) {
@@ -405,7 +408,7 @@ final class SearchModel {
         let uri = file.uri
         Task {
             let jpeg = await FileExtractor.blocking { extractor.imageJpeg(uri: uri, maxSide: FileExtractor.queryPhotoSide) }
-            if let jpeg { show(jpeg) }
+            if let jpeg { show(jpeg, uri: uri) }
         }
     }
 
@@ -427,10 +430,10 @@ final class SearchModel {
         if let jpeg { show(jpeg) }
     }
 
-    private func show(_ jpeg: Data) {
+    private func show(_ jpeg: Data, uri: String? = nil) {
         guard let thumb = UIImage(data: jpeg) else { return }
         text = ""
-        photo = Photo(jpeg: jpeg, thumb: thumb)
+        photo = Photo(jpeg: jpeg, thumb: thumb, uri: uri)
     }
 
     func clearPhoto() {

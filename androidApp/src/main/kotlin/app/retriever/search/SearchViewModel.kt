@@ -332,7 +332,9 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
             val r = logged {
                 if (a.photo != null) {
                     // A search by photo has no weak tail.
-                    retriever.searchImage(a.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope).let { it.copy(strongCount = it.hits.size) }
+                    retriever.searchImage(a.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope, a.photo.similar.uri).let {
+                        it.copy(strongCount = it.hits.size)
+                    }
                 } else {
                     retriever.search(q.text, kinds, SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope)
                 }

@@ -1398,7 +1398,10 @@ class Retriever(
 
     private fun newEngine(e: Embedder) = SearchEngine(store, e, nameIndex = { sync.names })
 
-    /** [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. [onlyStarred] keeps starred files only. */
+    /**
+     * [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. [onlyStarred] keeps starred files
+     * only. [uri]: where the photo is, so that with People on the photos of the person in it come first.
+     */
     @Throws(Throwable::class)
     suspend fun searchImage(
         jpeg: ByteArray,
@@ -1406,10 +1409,29 @@ class Retriever(
         limit: Int = 20,
         onlyStarred: Boolean = false,
         scope: List<Long>? = null,
+        uri: String? = null,
     ): SearchEngine.SearchResult {
         val ids = io { fileIdsFor(onlyStarred, scope) }
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true)
-        return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids) }
+        // Inside the search, so reading waits meanwhile and the faces pass yields to this one photo.
+        return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids, first = uri?.let { u -> photosOfThePersonIn(u, ids) }) }
+    }
+
+    /**
+     * The photos, among [within], of the person in the photo at [uri]; null with People off, no face, or nobody known.
+     * Never asks [FaceReader.ready], which starts People's download: a reader without its model finds no face.
+     */
+    private suspend fun photosOfThePersonIn(uri: String, within: Set<Long>?): Set<Long>? = io {
+        val reader = faceReader?.takeIf { prefs.value.recognizePeople } ?: return@io null
+        val found = try {
+            reader.faces(uri)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("Couldn't look for a face in the search photo", e)
+            null
+        } ?: return@io null
+        store.personOf(found)?.let { p -> store.personFileIds(p).filterTo(HashSet()) { within == null || it in within } }
     }
 
     private suspend fun <T> searchWith(run: suspend (SearchEngine) -> T): T {

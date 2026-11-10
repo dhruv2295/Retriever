@@ -46,6 +46,32 @@ class PeopleTest {
         assertEquals(emptyList(), r.search("asha", null, 10).parsed?.people.orEmpty())
     }
 
+    /** The model matches a scene, not who is in it: a search by a photo of someone known leads with their photos. */
+    @Test
+    fun aPhotoOfAKnownPersonFindsTheirPhotosFirst() = runBlocking {
+        val query = ByteArray(33)
+        fun shot(vararg sizes: Int) = listOf(Piece("", sizes.map { Part.Image(ByteArray(it)) }, null))
+        val photos = listOf("beach.jpg", "asha1.jpg", "asha2.jpg").map { testFile(it, Kind.PHOTO) }
+        // The beach is the query's scene exactly; Asha's photos are less and less like it.
+        val extractor = FakeExtractor(mapOf("beach.jpg" to shot(33), "asha1.jpg" to shot(33, 40), "asha2.jpg" to shot(33, 40, 40)))
+        val reader = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> =
+                if (uri.endsWith("beach.jpg")) emptyList() else listOf(FoundFace(FaceBox(0f, 0f, 0.5f, 0.5f), face(0)))
+        }
+        val store = newStore()
+        val r = testRetriever(store, photos, extractor, faceReader = reader)
+        store.setProfile(PROFILE)
+        r.uiVisible = true
+        r.updatePrefs { it.copy(recognizePeople = true) }
+        r.indexBatch(1.minutes)
+        r.indexBatch(1.minutes)
+        r.warmSearch()
+
+        assertEquals(listOf("beach.jpg", "asha1.jpg", "asha2.jpg"), r.searchImage(query).hits.map { it.file.name })
+        val byFace = r.searchImage(query, uri = "content://picked/asha.jpg")
+        assertEquals(listOf("asha1.jpg", "asha2.jpg", "beach.jpg"), byFace.hits.map { it.file.name })
+    }
+
     /**
      * Play delivers People's model when People is turned on. A faces pass without it looks at no photo, so none uses up
      * an attempt, and the next pass runs once the model is there.

@@ -178,13 +178,19 @@ class SearchEngine(
         return SearchResult(hits, false, strong)
     }
 
-    /** Search by example: the photo is the query, passed raw (no task prefix), vector lane only. */
-    suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null, fileIds: Set<Long>? = null): SearchResult {
+    /**
+     * Search by example: the photo is the query, passed raw (no task prefix), vector lane only. [first] (within
+     * [fileIds]): the photos of the person in it, which lead, most alike first; the model matches a scene, not who is in it.
+     */
+    suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null, fileIds: Set<Long>? = null, first: Set<Long>? = null): SearchResult {
         val embedder = embedder.takeIf { store.signature() == it.signature } ?: return SearchResult(emptyList(), false)
         val qv = embed(embedder, listOf(Part.Image(jpeg))) ?: return SearchResult(emptyList(), false)
-        val f = Filter(SearchRequest("", kinds, fileIds = fileIds))
-        val (hits, strong) = toHits(listOf(meaningLane(qv, f)), f, limit, emptyList())
-        return SearchResult(hits, true, strong)
+        suspend fun alike(ids: Set<Long>?) = Filter(SearchRequest("", kinds, fileIds = ids)).let { toHits(listOf(meaningLane(qv, it)), it, limit, emptyList()) }
+        val (hits, strong) = alike(fileIds)
+        if (first.isNullOrEmpty()) return SearchResult(hits, true, strong)
+        val theirs = alike(first).first
+        val shown = theirs.flatMapTo(HashSet()) { h -> h.copies.map { it.fileId } + h.fileId }
+        return SearchResult((theirs + hits.filter { it.fileId !in shown }).take(limit), true)
     }
 
     /** The last query's vector, so a search run again without its filters (the relaxed retry) embeds once. */
