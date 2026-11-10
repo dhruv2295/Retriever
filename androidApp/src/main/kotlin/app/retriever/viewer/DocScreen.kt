@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.nav.DocRoute
 import app.retriever.nav.Route
@@ -78,28 +79,28 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
 
         DocUi.NotReadYet -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Retriever hasn't processed this yet",
-                "It's waiting its turn with the other new files. Open it in another app to see it now.",
+                Words.strings.notProcessedThisYet,
+                Words.strings.waitingItsTurn,
                 R.drawable.ic_history,
-                action = "Open in another app" to openWith,
+                action = Words.strings.openInAnotherApp to openWith,
             )
         }
 
         DocUi.Empty -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Retriever couldn't find text in this file",
-                "It may be a scan or hold only pictures. Open it in another app to see it.",
+                Words.strings.noTextFound,
+                Words.strings.scanOrPictures,
                 R.drawable.ic_warning_amber,
-                action = "Open in another app" to openWith,
+                action = Words.strings.openInAnotherApp to openWith,
             )
         }
 
         DocUi.Failed -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             EmptyState(
-                "Couldn't open this file",
-                "It may have been moved or deleted.",
+                Words.strings.couldntOpenFile,
+                Words.strings.maybeMovedOrDeleted,
                 R.drawable.ic_warning_amber,
-                action = "Open in another app" to openWith,
+                action = Words.strings.openInAnotherApp to openWith,
                 mood = MascotMood.TROUBLE,
             )
         }
@@ -147,15 +148,15 @@ private fun MatchBar(matches: List<Int>, at: Int, step: (Int) -> Unit, modifier:
     Surface(modifier.padding(16.dp), shape = MaterialTheme.shapes.extraLarge, tonalElevation = 3.dp, shadowElevation = 3.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { step(-1) }, enabled = matches.size > 1) {
-                Icon(painterResource(R.drawable.ic_expand_less), contentDescription = "Previous match")
+                Icon(painterResource(R.drawable.ic_expand_less), contentDescription = Words.strings.previousMatch)
             }
             Text(
-                if (position > 0) "Match $position of ${matches.size}" else "${matches.size} matches",
+                if (position > 0) Words.strings.matchOf(position, matches.size) else Words.strings.matchCount(matches.size.toLong()),
                 style = MaterialTheme.typography.labelLarge.tabular(),
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             IconButton(onClick = { step(1) }, enabled = matches.size > 1) {
-                Icon(painterResource(R.drawable.ic_expand_more), contentDescription = "Next match")
+                Icon(painterResource(R.drawable.ic_expand_more), contentDescription = Words.strings.nextMatch)
             }
         }
     }

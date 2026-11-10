@@ -47,10 +47,9 @@ enum Copy {
         switch photos {
         case .denied, .restricted:
             PhotosNote(
-                off: true, title: "Photos access is off",
-                detail: "Search still works on files already processed. Turn it on to search your photos and screenshots too.")
+                off: true, title: Words.shared.strings.photosAccessOff, detail: Words.shared.strings.photosOffNoteDetail)
         case .limited:
-            PhotosNote(off: false, title: "Retriever sees only the photos you picked", detail: "It can search just those.")
+            PhotosNote(off: false, title: Words.shared.strings.seesOnlyPickedPhotos, detail: Words.shared.strings.canSearchJustThose)
         default: nil
         }
     }
@@ -73,9 +72,9 @@ enum Copy {
 
     static func addFolderResult(_ result: FolderSource.AddResult) -> String {
         switch result {
-        case .added: "Folder added. Retriever will process what's inside."
-        case .overlaps(let name): "That folder overlaps “\(name)”, which Retriever already searches."
-        case .failed: "iOS wouldn't let Retriever keep that folder. Try another one."
+        case .added: Words.shared.strings.folderAdded
+        case .overlaps(let name): Words.shared.strings.folderOverlaps(name: name)
+        case .failed: Words.shared.strings.folderRefused
         }
     }
 
@@ -86,21 +85,20 @@ enum Copy {
         return "Using \(chip)\(seconds.map { " · about \($0) s per photo" } ?? "")"
     }
 
-    static let backgroundNote =
-        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your \(device) is charging. \(Words.shared.READ_FOR_15) uses some battery."
+    static var backgroundNote: String { Words.shared.strings.backgroundNote(words: words) }
 
-    static let screenKeptOn = "Your screen stays on while Retriever processes your files for 15 minutes. You can turn this off in Settings."
+    static var screenKeptOn: String { Words.shared.strings.screenKeptOn }
 
     /// What the search made of the words: "Showing Screenshots · Last week".
-    static func understood(_ labels: [String]) -> String { "Showing \(labels.joined(separator: " · "))" }
-    static let exactWords = "Search my exact words"
-    static let star = "Add to Starred"
-    static let removeStar = "Remove from Starred"
+    static func understood(_ labels: [String]) -> String { Words.shared.strings.showingLabels(labels: labels) }
+    static var exactWords: String { Words.shared.strings.searchMyExactWords }
+    static var star: String { Words.shared.strings.addToStarred }
+    static var removeStar: String { Words.shared.strings.removeFromStarred }
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
-    nonisolated static let continuedTitle = Words.shared.PROCESSING_YOUR_FILES
+    nonisolated static var continuedTitle: String { Words.shared.PROCESSING_YOUR_FILES }
 
     nonisolated static func continuedSubtitle(_ files: Int) -> String {
-        "\(Words.shared.readCount(read: Int64(files), partlyRead: 0)) so far"
+        Words.shared.strings.processedSoFar(n: Int64(files))
     }
 }

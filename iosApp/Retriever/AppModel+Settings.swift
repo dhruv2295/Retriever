@@ -53,7 +53,7 @@ extension AppModel {
                 wake()
             } catch {
                 if let before { snap?.automaticReading = before }
-                readingMessage = "Couldn’t save this change. Try again."
+                readingMessage = Words.shared.strings.couldntSaveChange
             }
         }
     }
@@ -64,7 +64,7 @@ extension AppModel {
                 try await services?.retriever.readNow()
                 wake()
                 keepReading()
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
+            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
 
@@ -72,7 +72,7 @@ extension AppModel {
         Task {
             do {
                 try await services?.retriever.decideLater()
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
+            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
 
@@ -224,7 +224,7 @@ extension AppModel {
 
     func pause() {
         guard let services else { return }
-        Task { do { try await services.retriever.pause() } catch { readingMessage = "Couldn’t save this change. Try again." } }
+        Task { do { try await services.retriever.pause() } catch { readingMessage = Words.shared.strings.couldntSaveChange } }
     }
 
     func resume() {
@@ -233,7 +233,7 @@ extension AppModel {
             do {
                 try await services.retriever.resume()
                 wake()
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
+            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
 
@@ -312,7 +312,7 @@ extension AppModel {
                 samePeople = try await retriever.samePeopleNow()
                 then()
             } catch {
-                peopleMessage = "Couldn’t change this person. Try again."
+                peopleMessage = Words.shared.strings.couldntChangePersonCurly
             }
         }
     }

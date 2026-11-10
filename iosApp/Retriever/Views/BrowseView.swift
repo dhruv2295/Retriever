@@ -11,18 +11,18 @@ struct FileQuery: Hashable {
 
         var label: String {
             switch self {
-            case .newest: "Newest"
-            case .largest: "Largest"
-            case .name: "Name"
+            case .newest: Words.shared.strings.sortNewest
+            case .largest: Words.shared.strings.sortLargest
+            case .name: Words.shared.strings.sortName
             }
         }
 
         /// What the order means, said once on the list so "Newest" is the same date the rows show.
         var caption: String {
             switch self {
-            case .newest: "Newest first · by date modified"
-            case .largest: "Largest first"
-            case .name: "By name, A to Z"
+            case .newest: Words.shared.strings.sortNewestDetail
+            case .largest: Words.shared.strings.sortLargestDetail
+            case .name: Words.shared.strings.sortNameDetail
             }
         }
 
@@ -77,7 +77,7 @@ struct FileListView: View {
     /// Large files sorted another way is just every file. On iOS that is Photos plus the folders picked, never "all files".
     static func title(_ query: FileQuery, sort: FileQuery.Sort) -> String {
         query.kind == nil && query.folder == nil && !query.starredOnly && query.takenRange == nil && query.person == nil && sort != .largest
-            ? "Files Retriever can access" : query.title
+            ? Words.shared.strings.filesRetrieverCanAccess : query.title
     }
 
     /// A person's title follows their name, which can change here; until the people load, the name Home opened them with.
@@ -107,18 +107,18 @@ struct FileListView: View {
                 // Never an empty Group: its modifiers (title, task) would vanish with it.
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if visible.isEmpty && pages.failed {
-                StateView(mood: .trouble, title: "Couldn't load files", message: "Something went wrong reading the list.") {
-                    Button("Try again") { Task { await pages.loadPage() } }.buttonStyle(.primaryAction)
+                StateView(mood: .trouble, title: Words.shared.strings.couldntLoadFiles, message: Words.shared.strings.wentWrongReadingList) {
+                    Button(Words.shared.TRY_AGAIN) { Task { await pages.loadPage() } }.buttonStyle(.primaryAction)
                 }
             } else if visible.isEmpty {
                 if query.starredOnly {
-                    StateView(mood: .noMatch, title: "Keep useful files close", message: "Tap the star on a file to find it here.")
+                    StateView(mood: .noMatch, title: Words.shared.strings.keepUsefulFilesClose, message: Words.shared.strings.tapStarToFindHere)
                 } else if libraryEmpty {
-                    StateView(mood: .noMatch, title: "Choose files to search", message: "Add photos or a folder.") {
+                    StateView(mood: .noMatch, title: Words.shared.strings.chooseFilesToSearch, message: Words.shared.strings.addPhotosOrFolder) {
                         NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders).buttonStyle(.primaryAction)
                     }
                 } else {
-                    StateView(mood: .noMatch, title: "Nothing here yet", message: "Files show up here once Retriever finds them on your \(Copy.device).")
+                    StateView(mood: .noMatch, title: Words.shared.strings.nothingHereYet, message: Words.shared.strings.filesShowUpHere(words: Copy.words))
                 }
             } else if grid {
                 ScrollView {
@@ -137,7 +137,7 @@ struct FileListView: View {
                 List(visible, id: \.id) { stored in
                     let f = stored.file
                     FileButton(
-                        file: f, subtitle: "\(Copy.bytes(f.size)) · \(f.folder) · \(Format.date(f.modifiedAt))",
+                        file: f, subtitle: Words.shared.strings.sizeFolderDate(size: Copy.bytes(f.size), folder: f.folder, date: Format.date(f.modifiedAt)),
                         coverage: Words.shared.coverage(file: stored, inside: services?.retriever.readInside() ?? []),
                         starred: starred.contains(f.uri), onOpen: { openFile(f, among: visible.map(\.file)) }
                     )
@@ -164,11 +164,11 @@ struct FileListView: View {
             if sortable {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("Sort by", selection: $sort) {
+                        Picker(Words.shared.strings.sortBy, selection: $sort) {
                             ForEach(FileQuery.Sort.allCases, id: \.self) { Text($0.label).tag($0) }
                         }
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Label(Words.shared.strings.sortMenu, systemImage: "arrow.up.arrow.down")
                     }
                 }
             }
@@ -176,15 +176,15 @@ struct FileListView: View {
         .safeAreaInset(edge: .bottom) {
             if pages.failed && !pages.files.isEmpty {
                 VStack(spacing: 8) {
-                    Text("Couldn't load more files")
-                    Button("Try again") { Task { await pages.loadPage() } }.buttonStyle(.bordered)
+                    Text(Words.shared.strings.couldntLoadMoreFiles)
+                    Button(Words.shared.TRY_AGAIN) { Task { await pages.loadPage() } }.buttonStyle(.bordered)
                 }
                 .padding().frame(maxWidth: .infinity).background(.bar)
             }
         }
         .alert(
             model?.peopleMessage ?? "", isPresented: Binding(get: { model?.peopleMessage != nil }, set: { if !$0 { model?.peopleMessage = nil } })
-        ) { Button("OK") {} }
+        ) { Button(Words.shared.strings.ok) {} }
         .onChange(of: model?.fileRevision) { Task { await pages.load(sort) } }
         .task(id: sort) {
             guard services != nil else { return }

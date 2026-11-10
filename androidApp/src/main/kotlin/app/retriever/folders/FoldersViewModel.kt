@@ -3,6 +3,7 @@ package app.retriever.folders
 import androidx.lifecycle.ViewModel
 import app.retriever.BuildConfig
 import app.retriever.core.Retriever
+import app.retriever.core.Words
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
@@ -31,7 +32,7 @@ class FoldersViewModel(private val retriever: Retriever, private val indexer: In
     }
 
     private fun refresh() {
-        launchCatching(onError = { fail(it, "Couldn't load your folders. Try again in a moment.", loadFailed = true) }) {
+        launchCatching(onError = { fail(it, Words.strings.couldntLoadYourFolders, loadFailed = true) }) {
             val folders = retriever.folders()
             _ui.update { it.copy(folders = folders, loading = false, loadFailed = false) }
         }
@@ -46,7 +47,7 @@ class FoldersViewModel(private val retriever: Retriever, private val indexer: In
 
     /** The changed exclude list makes the next sync a full scan, which forgets the folder's files. */
     fun exclude(folder: String) {
-        launchCatching(onError = { fail(it, "Couldn't stop searching that folder. Try again in a moment.") }) {
+        launchCatching(onError = { fail(it, Words.strings.couldntStopSearchingFolder) }) {
             retriever.updatePrefs { it.copy(excludedFolders = it.excludedFolders + folder) }
             indexer.indexNow()
             refresh()

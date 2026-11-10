@@ -380,6 +380,68 @@ interface Strings {
 
     val processingFailed: String
 
+    // FileActions
+
+    /** both apps: rename-file text field (text-field label); Words.NAME labels a person's name */
+    val fileNameField: String
+
+    // Notifications
+
+    /** Android: progress notification text; joins two shared sentences with ". " */
+    fun notificationBody(count: String?, detail: String?, read: Long): String
+
+    // SearchResults
+
+    /** Android: chip naming what the words were read as; iOS says showingLabels */
+    fun understoodChip(labels: List<String>): String
+
+    /** both apps: Nothing found message (237-241); iOS passes wordsOnly = false; should join with sentenceGap */
+    fun noMatchesMessage(byMeaning: Boolean, waiting: Boolean, wordsOnly: Boolean): String
+
+    /** both apps: why a result matched, plus its copies note */
+    fun reasonLine(parts: List<String>): String
+
+    // SearchScreen
+
+    /** both apps: the app's own Settings (); not Words.SETTINGS, which on iOS names the system Settings app */
+    val appSettings: String
+
+    // SettingsScreen
+
+    /** Android: When to process row: schedule title, then its sentence */
+    fun scheduleSummary(title: String, body: String): String
+
+    /** both apps: stands in for a size until it is measured */
+    val sizePending: String
+
+    // FirstRunStages
+
+    /** Android: access tile detail listing the added folders */
+    fun folderNames(names: List<String>): String
+
+    // AppModel+Setup
+
+    /** iOS: VoiceOver only: list of kindRead sentences */
+    fun kindsReadSpoken(parts: List<String>): String
+
+    // SearchModel
+
+    /** iOS: search scope covering photos and screenshots; also lowercased into sentences */
+    val scopePhotos: String
+
+    /** iOS: search scope covering PDFs and documents; also lowercased into sentences */
+    val scopeDocuments: String
+
+    // HomeView
+
+    /** iOS: VoiceOver label of a Home row */
+    fun titleDetailSpoken(title: String, detail: String?): String
+
+    // ResultViews
+
+    /** iOS: VoiceOver label of a result row (69-73) */
+    fun resultRowSpoken(kind: String, name: String, date: String, position: String?, extent: String?, reason: String?): String
+
     // Access
 
     /** Android: access line (Processing and access screen) */
@@ -635,7 +697,7 @@ interface Strings {
     val stopSearching: String
 
     /** Android: folder row subtitle */
-    fun filesInParent(n: Long, parent: String): String
+    fun filesInParent(n: Long, parent: String?): String
 
     /** Android: TalkBack label */
     fun moreOptionsFor(name: String): String
@@ -1135,17 +1197,6 @@ interface Strings {
 
     /** iOS: fallback name of a folder whose bookmark can't be read */
     val aFolder: String
-
-    // PhotosSource
-
-    /** iOS: stored as the file's folder and shown in rows; translating needs an index migration (unsure) */
-    val photosScreenshotsFolder: String
-
-    /** iOS: stored folder path shown in rows (unsure) */
-    val photosCameraFolder: String
-
-    /** iOS: stored folder path shown in rows (unsure) */
-    val photosVideosFolder: String
 
     // SearchModel
 

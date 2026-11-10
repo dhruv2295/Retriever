@@ -34,11 +34,11 @@ internal fun PersonActions(person: Person?, others: List<Person>, onRename: (Str
     var picking by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     IconButton(onClick = { renaming = true }) {
-        Icon(painterResource(R.drawable.ic_edit), contentDescription = if (person?.name == null) Words.ADD_A_NAME else "Rename")
+        Icon(painterResource(R.drawable.ic_edit), contentDescription = if (person?.name == null) Words.ADD_A_NAME else Words.strings.rename)
     }
     if (others.isNotEmpty()) {
         IconButton(onClick = { menu = true }) {
-            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options")
+            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptions)
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text(Words.SAME_PERSON_AS) }, onClick = {
                     menu = false

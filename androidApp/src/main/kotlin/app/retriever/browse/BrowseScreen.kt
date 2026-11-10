@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.AccessService
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
@@ -93,16 +94,16 @@ private val GRID_KINDS = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
  */
 internal fun browseTitle(route: BrowseRoute, sort: String, allFiles: Boolean): String =
     if (route.kind == null && route.folder == null && !route.starredOnly && route.takenFrom == null && route.person == null && sort != "LARGEST") {
-        if (allFiles) "All files" else "Files Retriever can access"
+        if (allFiles) Words.strings.allFiles else Words.strings.filesRetrieverCanAccess
     } else {
         route.title
     }
 
 /** What the sort chips order by, said once under them, so "Newest" means the same here as the date on each row. */
 internal fun sortCaption(sort: String): String = when (sort) {
-    Store.Sort.LARGEST.name -> "Largest first"
-    Store.Sort.NAME.name -> "By name, A to Z"
-    else -> "Newest first · by date modified"
+    Store.Sort.LARGEST.name -> Words.strings.sortLargestDetail
+    Store.Sort.NAME.name -> Words.strings.sortNameDetail
+    else -> Words.strings.sortNewestDetail
 }
 
 /** The grid's photo-morph origin: a cell and the viewer it opens share it. */
@@ -134,7 +135,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
     val personFailed by vm.personFailed.collectAsStateWithLifecycle()
     LaunchedEffect(personFailed) {
         if (personFailed) {
-            snackbar.showSnackbar("Couldn't change this person. Try again.")
+            snackbar.showSnackbar(Words.strings.couldntChangePerson)
             vm.personFailureShown()
         }
     }
@@ -147,7 +148,7 @@ fun BrowseScreen(route: BrowseRoute, onNavigate: (Route) -> Unit, onBack: () -> 
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
                     }
                 },
                 actions = {
@@ -232,11 +233,11 @@ fun BrowseContent(
         if (files.isEmpty() && ui.error != null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    title = "Couldn't load your files",
-                    description = "Something went wrong reading them. Give it another go.",
+                    title = Words.strings.couldntLoadYourFiles,
+                    description = Words.strings.wentWrongReadingThem,
                     icon = R.drawable.ic_folder_open,
                     mood = MascotMood.TROUBLE,
-                    action = "Try again" to onRetry,
+                    action = Words.TRY_AGAIN to onRetry,
                 )
             }
         } else if (files.isEmpty() && ui.loading) {
@@ -245,23 +246,23 @@ fun BrowseContent(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (starredOnly) {
                     EmptyState(
-                        title = "Keep useful files close",
-                        description = "Tap the star on a file to find it here.",
+                        title = Words.strings.keepUsefulFilesClose,
+                        description = Words.strings.tapStarToFindHere,
                         icon = R.drawable.ic_star_border,
                         mood = MascotMood.NO_MATCH,
                     )
                 } else if (!filtered) {
                     EmptyState(
-                        title = "Choose files to search",
-                        description = "Add photos or a folder.",
+                        title = Words.strings.chooseFilesToSearch,
+                        description = Words.strings.addPhotosOrFolder,
                         icon = R.drawable.ic_folder_open,
                         mood = MascotMood.NO_MATCH,
-                        action = "Manage access" to onManageAccess,
+                        action = Words.strings.manageAccess to onManageAccess,
                     )
                 } else {
                     EmptyState(
-                        title = "Nothing here yet",
-                        description = "Files show up here once Retriever finds them on your phone.",
+                        title = Words.strings.nothingHereYet,
+                        description = Words.strings.filesShowUpHere(DeviceWords.ANDROID),
                         icon = R.drawable.ic_folder_open,
                         mood = MascotMood.NO_MATCH,
                     )
@@ -314,7 +315,7 @@ fun BrowseContent(
                                         requestSize = cell,
                                         readNote = Words.coverage(stored, ui.inside),
                                         onLongClick = menu,
-                                        onLongClickLabel = "More options",
+                                        onLongClickLabel = Words.strings.moreOptions,
                                         modifier = actions,
                                         morph = morph,
                                         origin = BROWSE_ORIGIN,
@@ -343,7 +344,7 @@ fun BrowseContent(
                                     onClick = { onOpen(stored.file) },
                                     readNote = Words.coverage(stored, ui.inside),
                                     onLongClick = menu,
-                                    onLongClickLabel = "More options",
+                                    onLongClickLabel = Words.strings.moreOptions,
                                     modifier = actions,
                                 )
                             }
@@ -359,8 +360,8 @@ fun BrowseContent(
 @Composable
 private fun LoadMoreError(onRetry: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text("Couldn't load more files", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = onRetry) { Text("Try again") }
+        Text(Words.strings.couldntLoadMoreFiles, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = onRetry) { Text(Words.TRY_AGAIN) }
     }
 }
 
@@ -411,7 +412,7 @@ private fun Modifier.pinchSteps(onStep: (Int) -> Unit) = pointerInput(Unit) {
 }
 
 private fun Store.Sort.label(): String = when (this) {
-    Store.Sort.NEWEST -> "Newest"
-    Store.Sort.LARGEST -> "Largest"
-    Store.Sort.NAME -> "Name"
+    Store.Sort.NEWEST -> Words.strings.sortNewest
+    Store.Sort.LARGEST -> Words.strings.sortLargest
+    Store.Sort.NAME -> Words.strings.sortName
 }

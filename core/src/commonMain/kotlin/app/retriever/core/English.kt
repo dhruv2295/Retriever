@@ -521,6 +521,46 @@ internal object English : Strings {
 
     override val processingFailed = "Something went wrong processing your files. Retriever will try again."
 
+    // FileActions
+    override val fileNameField = "Name"
+
+    // Notifications
+    override fun notificationBody(count: String?, detail: String?, read: Long) = listOfNotNull(count, detail).joinToString(". ").ifEmpty { readCount(read) }
+
+    // SearchResults
+    override fun understoodChip(labels: List<String>) = labels.joinToString(" · ")
+
+    override fun noMatchesMessage(byMeaning: Boolean, waiting: Boolean, wordsOnly: Boolean) =
+        listOfNotNull(noMatchesDetail(byMeaning), moreWaiting.takeIf { waiting }, searchingWithoutModel.takeIf { wordsOnly }).joinToString(" ")
+
+    override fun reasonLine(parts: List<String>) = parts.joinToString(" · ")
+
+    // SearchScreen
+    override val appSettings = "Settings"
+
+    // SettingsScreen
+    override fun scheduleSummary(title: String, body: String) = "$title. $body"
+
+    override val sizePending = "…"
+
+    // FirstRunStages
+    override fun folderNames(names: List<String>) = names.joinToString(" · ")
+
+    // AppModel+Setup
+    override fun kindsReadSpoken(parts: List<String>) = parts.joinToString(", ")
+
+    // SearchModel
+    override val scopePhotos = "Photos"
+
+    override val scopeDocuments = "Documents"
+
+    // HomeView
+    override fun titleDetailSpoken(title: String, detail: String?) = listOfNotNull(title, detail).joinToString(", ")
+
+    // ResultViews
+    override fun resultRowSpoken(kind: String, name: String, date: String, position: String?, extent: String?, reason: String?) =
+        listOfNotNull(kind, name, date, position, extent, reason).joinToString(", ")
+
     // Access
     override val onlyPickedPhotos = "Only the photos you picked"
 
@@ -699,7 +739,7 @@ internal object English : Strings {
 
     override val stopSearching = "Stop searching"
 
-    override fun filesInParent(n: Long, parent: String) = "${files(n)} · $parent"
+    override fun filesInParent(n: Long, parent: String?) = if (parent == null) files(n) else "${files(n)} · $parent"
 
     override fun moreOptionsFor(name: String) = "More options for $name"
 
@@ -1033,13 +1073,6 @@ internal object English : Strings {
 
     // FolderSource
     override val aFolder = "A folder"
-
-    // PhotosSource
-    override val photosScreenshotsFolder = "Photos/Screenshots"
-
-    override val photosCameraFolder = "Photos/Camera"
-
-    override val photosVideosFolder = "Photos/Videos"
 
     // SearchModel
     override val starredFiles = "starred files"

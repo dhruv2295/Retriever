@@ -13,6 +13,7 @@ import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 import android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 import androidx.core.content.ContextCompat
 import app.retriever.BuildConfig
+import app.retriever.core.Words
 import app.retriever.core.android.SafSource
 import app.retriever.diagnostics.LogSink
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,7 +66,7 @@ class AccessService(
                 .getOrElse { resolver.takePersistableUriPermission(uri, read) }
         } catch (e: SecurityException) {
             LogSink.write(BuildConfig.DEBUG, "folder not kept", e)
-            return "Couldn't keep access to that folder. Try picking it again."
+            return Words.strings.couldntKeepFolder
         }
         // The new folder covers any added inside it.
         Access.inside(uri.toString(), folders).forEach { release(it.uri) }

@@ -64,10 +64,10 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Folders") },
+                title = { Text(Words.strings.folders) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
                     }
                 },
             )
@@ -79,8 +79,8 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
         } else if (folders.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 EmptyState(
-                    title = if (loadFailed) "Folders didn't load" else "No folders yet",
-                    description = if (loadFailed) "Try again in a moment." else "Folders appear once Retriever has looked through your phone.",
+                    title = if (loadFailed) Words.strings.foldersDidntLoad else Words.strings.noFoldersYet,
+                    description = if (loadFailed) Words.strings.tryAgainInAMoment else Words.strings.foldersAppearPhone,
                     icon = R.drawable.ic_folder_open,
                     mood = if (loadFailed) MascotMood.TROUBLE else MascotMood.NO_MATCH,
                 )
@@ -93,7 +93,7 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
                             path = path,
                             count = count,
                             onOpen = {
-                                onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { "Top level" }))
+                                onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }))
                             },
                             onExclude = { confirming = path },
                         )
@@ -105,12 +105,11 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
 
     confirming?.let { path ->
         val count = folders.firstOrNull { it.first == path }?.second ?: return@let
-        val name = path.substringAfterLast('/').ifEmpty { "Top level" }
+        val name = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
         ConfirmDialog(
-            title = "Stop searching $name?",
-            message = "The ${Words.files(count)} in $name are removed from search now, and bringing them back means processing them all again. " +
-                "You can bring it back from the status line at the top of Home.",
-            confirmLabel = "Stop searching",
+            title = Words.strings.stopSearchingAsk(name),
+            message = Words.strings.stopSearchingMessage(count, name),
+            confirmLabel = Words.strings.stopSearching,
             onConfirm = {
                 confirming = null
                 vm.exclude(path)
@@ -123,7 +122,7 @@ fun FoldersScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: Mod
 @Composable
 private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
-    val name = path.substringAfterLast('/').ifEmpty { "Top level" }
+    val name = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
 
     ListItem(
         // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
@@ -131,7 +130,7 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
         supportingContent = {
             val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
             Text(
-                if (parent.isEmpty()) Words.files(count) else "${Words.files(count)} · $parent",
+                Words.strings.filesInParent(count, parent.ifEmpty { null }),
                 maxLines = 1,
                 overflow = TextOverflow.MiddleEllipsis,
             )
@@ -140,7 +139,7 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
         trailingContent = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
-                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "More options for $name")
+                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptionsFor(name))
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
@@ -159,4 +158,4 @@ private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: 
     )
 }
 
-private const val EXCLUDE_LABEL = "Stop searching this folder"
+private val EXCLUDE_LABEL: String get() = Words.strings.stopSearchingThisFolder

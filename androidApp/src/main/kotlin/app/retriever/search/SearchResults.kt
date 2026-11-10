@@ -110,18 +110,18 @@ internal fun Results(
         InputChip(
             selected = true,
             onClick = actions.onClearSimilar,
-            label = { Text("Like ${s.label}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            label = { Text(s.label?.let { Words.strings.likeFile(it) } ?: Words.strings.likeYourPhoto, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             avatar = s.thumb?.let { thumb ->
                 {
                     Image(
                         thumb,
-                        contentDescription = "The photo you're searching with",
+                        contentDescription = Words.strings.photoYoureSearchingWith,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.size(InputChipDefaults.AvatarSize).clip(CircleShape),
                     )
                 }
             },
-            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = "Stop searching by photo", Modifier.size(18.dp)) },
+            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.stopSearchingByPhoto, Modifier.size(18.dp)) },
             modifier = Modifier.padding(horizontal = edge),
         )
     }
@@ -154,8 +154,8 @@ internal fun Results(
         InputChip(
             selected = true,
             onClick = actions.onWordsAsTyped,
-            label = { Text(it.understood.joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = "Search the words as typed instead", Modifier.size(18.dp)) },
+            label = { Text(Words.strings.understoodChip(it.understood), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.searchWordsAsTyped, Modifier.size(18.dp)) },
             modifier = Modifier.padding(horizontal = edge),
         )
         if (shown.relaxed && shown.hits.isNotEmpty()) {
@@ -174,12 +174,12 @@ internal fun Results(
     val note = when {
         contentsWait -> Words.SEARCHING_CONTENTS
 
-        ui.similar != null && !ui.vectorLane -> "Search by photo works once setup finishes."
+        ui.similar != null && !ui.vectorLane -> Words.strings.photoSearchAfterSetup
 
         // Words only is said by no label: the download hint under few results says what more there is.
         ui.wordsOnly -> null
 
-        !ui.vectorLane -> "Matching exact words for now. Results by description will be back shortly."
+        !ui.vectorLane -> Words.strings.matchingExactWordsForNow
 
         else -> null
     }
@@ -209,7 +209,7 @@ internal fun Results(
         phase is SearchPhase.Failed && !stale -> Message {
             EmptyState(
                 Words.SEARCH_FAILED,
-                "Something went wrong. Try again.",
+                Words.strings.somethingWentWrongTryAgain,
                 R.drawable.ic_warning_amber,
                 action = Words.TRY_AGAIN to actions.onRetry,
                 mood = MascotMood.TROUBLE,
@@ -219,31 +219,27 @@ internal fun Results(
         empty && (chip != null || ui.onlyStarred) -> Message(dim) {
             val where = Format.scope(chip, ui.onlyStarred)
             EmptyState(
-                "No matches in your $where",
-                if (ui.similar != null) "Nothing like this photo there." else "Nothing for “$asked” there.",
+                Words.strings.noMatchesIn(where.orEmpty()),
+                if (ui.similar != null) Words.strings.nothingLikePhotoThere else Words.strings.nothingForThere(asked),
                 R.drawable.ic_search_off,
-                action = "Search all files" to searchAll,
+                action = Words.strings.searchAllFiles to searchAll,
                 mood = mood,
             )
         }
 
         empty && ui.similar != null -> if (ui.vectorLane) {
-            Message(dim) { EmptyState("Nothing like this yet", "Try another photo.", R.drawable.ic_image_search, mood = mood) }
+            Message(dim) { EmptyState(Words.strings.nothingLikeThisYet, Words.strings.tryAnotherPhoto, R.drawable.ic_image_search, mood = mood) }
         }
 
         empty -> Message(dim) {
             val words = asked.split(Regex("\\s+"))
             val waiting = if (scope != null) ui.unread > 0 else home.progress.scheduled > 0
-            val message = listOfNotNull(
-                Words.noMatchesDetail(!ui.wordsOnly),
-                Words.MORE_WAITING.takeIf { waiting },
-                Words.SEARCHING_WITHOUT_MODEL.takeIf { ui.wordsOnly },
-            ).joinToString(" ")
+            val message = Words.strings.noMatchesMessage(!ui.wordsOnly, waiting, ui.wordsOnly)
             EmptyState(
                 Words.NO_MATCHES,
                 message,
                 R.drawable.ic_search_off,
-                action = if (words.size >= 2) "Try fewer words" to { useText(words.dropLast(1).joinToString(" ")) } else null,
+                action = if (words.size >= 2) Words.strings.tryFewerWords to { useText(words.dropLast(1).joinToString(" ")) } else null,
                 mood = mood,
             )
         }
@@ -338,13 +334,13 @@ private fun HitMenu(
 private fun KindChips(kinds: List<Kind>, chip: Kind?, onlyStarred: Boolean, wordKinds: Set<Kind>, canStar: Boolean, edge: Dp, actions: SearchActions) {
     LazyRow(contentPadding = PaddingValues(horizontal = edge), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item(key = "all") {
-            KindChip("All", chip == null && !onlyStarred && wordKinds.isEmpty()) {
+            KindChip(Words.strings.filterAll, chip == null && !onlyStarred && wordKinds.isEmpty()) {
                 actions.onChip(null)
                 actions.onStarredOnly(false)
                 if (wordKinds.isNotEmpty()) actions.onWordsAsTyped()
             }
         }
-        if (canStar) item(key = "starred") { KindChip("Starred", onlyStarred) { actions.onStarredOnly(!onlyStarred) } }
+        if (canStar) item(key = "starred") { KindChip(Words.strings.filterStarred, onlyStarred) { actions.onStarredOnly(!onlyStarred) } }
         items(kinds, key = { it.name }) { k ->
             KindChip(Words.kindLabelPlural(k), chip == k || k in wordKinds) { actions.onChip(if (chip == k) null else k) }
         }
@@ -406,9 +402,9 @@ private fun ResultGrid(
                 TextButton(
                     onClick = { expanded = !expanded },
                     modifier = Modifier.semantics {
-                        stateDescription = if (expanded) "Expanded" else "Collapsed"
+                        stateDescription = if (expanded) Words.strings.expanded else Words.strings.collapsed
                     },
-                ) { Text("Less likely matches (${weak.size})") }
+                ) { Text(Words.strings.lessLikelyMatches(weak.size.toLong())) }
             }
             if (expanded) sections(weak, extents, query, titled = false, cell, act)
         }
@@ -428,9 +424,9 @@ private fun LazyGridScope.sections(hits: List<SearchEngine.Hit>, extents: Map<Lo
     if (lead.isEmpty()) {
         docSection(rest, extents, query, titled, act)
     } else {
-        docSection(rest, extents, query, titled, act, "docs-more", "More documents")
+        docSection(rest, extents, query, titled, act, "docs-more", Words.strings.moreDocuments)
     }
-    docSection(recordings, extents, query, titled, act, "recordings", "Recordings")
+    docSection(recordings, extents, query, titled, act, "recordings", Words.strings.recordings)
 }
 
 /** The documents ranked above the first picture, the pictures, and the documents after it. */
@@ -458,7 +454,7 @@ private fun LazyGridScope.sectionHeader(key: String, title: String) {
 
 private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Map<Long, ReadExtent>, titled: Boolean, cell: Dp, act: HitActions) {
     if (hits.isEmpty()) return
-    if (titled) sectionHeader("media", "Photos and videos")
+    if (titled) sectionHeader("media", Words.PHOTOS_AND_VIDEOS)
     items(hits, key = { it.fileId }, contentType = { "thumb" }) { hit ->
         HitMenu(
             hit,
@@ -475,11 +471,12 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
                     locator = hit.locator,
                     readNote = Words.extent(extents[hit.fileId]),
                     onLongClick = menu,
-                    onLongClickLabel = "More options",
+                    onLongClickLabel = Words.strings.moreOptions,
                     morph = act.morph,
                     origin = SEARCH_ORIGIN,
                 )
-                listOfNotNull(hit.reason, hit.copiesNote).joinToString(" · ").ifEmpty { null }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+                val line = Words.strings.reasonLine(listOfNotNull(hit.reason, hit.copiesNote))
+                if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -492,7 +489,7 @@ private fun LazyGridScope.docSection(
     titled: Boolean,
     act: HitActions,
     headerKey: String = "docs",
-    header: String = "Documents and more",
+    header: String = Words.strings.documentsAndMore,
 ) {
     if (hits.isEmpty()) return
     if (titled) sectionHeader(headerKey, header)
@@ -510,9 +507,9 @@ private fun LazyGridScope.docSection(
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
-                readNote = listOfNotNull(hit.reason, Words.extent(extents[hit.fileId]), hit.copiesNote).joinToString(" · ").ifEmpty { null },
+                readNote = Words.strings.reasonLine(listOfNotNull(hit.reason, Words.extent(extents[hit.fileId]), hit.copiesNote)).ifEmpty { null },
                 onLongClick = menu,
-                onLongClickLabel = "More options",
+                onLongClickLabel = Words.strings.moreOptions,
                 onClick = { act.open(hit) },
             )
         }

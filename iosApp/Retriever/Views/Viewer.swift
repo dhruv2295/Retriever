@@ -18,14 +18,14 @@ struct Place: Hashable {
     var file: SourceFile { files[index] }
 
     /// "2 of 5"; nothing for a lone file, so a restored route never shows a swipe cue it cannot honor.
-    static func label(index: Int, count: Int) -> String? { count > 1 ? "\(index + 1) of \(count)" : nil }
+    static func label(index: Int, count: Int) -> String? { count > 1 ? Words.shared.strings.positionOf(at: Int32(truncatingIfNeeded: index + 1), count: Int32(truncatingIfNeeded: count)) : nil }
 }
 
 /// The words a viewer shows over a file.
 enum ViewerCopy {
-    static func match(page: Int?) -> String? { page.map { "Match on page \($0)" } }
-    static func page(_ page: Int, of total: Int) -> String? { total > 1 ? "Page \(page) of \(total)" : nil }
-    static func match(ms: Int64?) -> String? { ms.map { "Match at \(clock(seconds: Int($0 / 1000)))" } }
+    static func match(page: Int?) -> String? { page.map { Words.shared.strings.matchOnPage(page: Int32(truncatingIfNeeded: $0)) } }
+    static func page(_ page: Int, of total: Int) -> String? { total > 1 ? Words.shared.strings.pageOf(page: Int32(truncatingIfNeeded: page), count: Int32(truncatingIfNeeded: total)) : nil }
+    static func match(ms: Int64?) -> String? { ms.map { Words.shared.strings.matchAt(time: clock(seconds: Int($0 / 1000))) } }
 
     /// "1:05" or "1:02:05", as the result's badge and Android write it.
     static func clock(seconds: Int) -> String { Locator.shared.time(sec: Int32(clamping: seconds)) }
@@ -148,7 +148,7 @@ private struct StepBar: ToolbarContent {
             Button {
                 index -= 1
             } label: {
-                Label("Previous file", systemImage: "chevron.left").labelStyle(.iconOnly)
+                Label(Words.shared.strings.previousFile, systemImage: "chevron.left").labelStyle(.iconOnly)
             }
             .disabled(index == 0)
             Spacer()
@@ -157,7 +157,7 @@ private struct StepBar: ToolbarContent {
             Button {
                 index += 1
             } label: {
-                Label("Next file", systemImage: "chevron.right").labelStyle(.iconOnly)
+                Label(Words.shared.strings.nextFile, systemImage: "chevron.right").labelStyle(.iconOnly)
             }
             .disabled(index == count - 1)
         }
@@ -203,22 +203,22 @@ private struct ProblemView: View {
     var body: some View {
         switch problem {
         case .missing:
-            StateView(mood: .trouble, title: "This file is no longer available", message: "It may have been moved or deleted.") {
-                Button("Go back") { dismiss() }
+            StateView(mood: .trouble, title: Words.shared.strings.fileNoLongerAvailable, message: Words.shared.strings.maybeMovedOrDeleted) {
+                Button(Words.shared.strings.goBack) { dismiss() }
             }
         case .noAccess:
-            StateView(mood: .trouble, title: "Access to this folder has changed", message: "Choose the folder again to open this file.") {
+            StateView(mood: .trouble, title: Words.shared.strings.folderAccessChanged, message: Words.shared.strings.chooseFolderAgain) {
                 NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders)
             }
         case .locked:
-            StateView(mood: .trouble, title: "This PDF needs a password", message: "Another app can ask for it.") { openElsewhere }
+            StateView(mood: .trouble, title: Words.shared.strings.pdfNeedsPassword, message: Words.shared.strings.anotherAppCanAsk) { openElsewhere }
         case .cantOpen(let title, let message):
             StateView(mood: .trouble, title: title, message: message) { openElsewhere }
         }
     }
 
     private var openElsewhere: some View {
-        Button("Open in another app") { actions?.select(.open, file: file) }
+        Button(Words.shared.strings.openInAnotherApp) { actions?.select(.open, file: file) }
     }
 }
 
@@ -291,7 +291,7 @@ private struct PDFPane: View {
                 } else if doc != nil {
                     problem = .locked
                 } else {
-                    problem = .cantOpen(title: "Couldn't open this file", message: "It may be damaged, or in a form Retriever can't show.")
+                    problem = .cantOpen(title: Words.shared.strings.couldntOpenFile, message: Words.shared.strings.damagedOrUnsupported)
                 }
             }
         }
@@ -420,8 +420,8 @@ private struct MediaPane: View {
             guard !Task.isCancelled else { return }
             guard let item else {
                 problem = .cantOpen(
-                    title: file.kind == .audio ? "Couldn't play this audio" : "Couldn't play this video",
-                    message: "It may be only in iCloud and there's no connection, or in a form Retriever can't play.")
+                    title: Words.shared.strings.couldntPlayIos(audio: file.kind == .audio),
+                    message: Words.shared.strings.iCloudOrCantPlay)
                 return
             }
             let player = AVPlayer(playerItem: item)
@@ -488,18 +488,18 @@ private struct PhotoPage: View {
                 ZoomableImage(image: image)
                     .accessibilityIdentifier("viewer.photo")
                     .ignoresSafeArea()
-                    .accessibilityLabel("\(Words.shared.kindLabel(kind: file.kind)), \(file.name)")
+                    .accessibilityLabel(Words.shared.strings.photoSpoken(kind: Words.shared.kindLabel(kind: file.kind), name: file.name))
                     .accessibilityAddTraits(.isImage)
             } else if failed, [.denied, .restricted].contains(PHPhotoLibrary.authorizationStatus(for: .readWrite)) {
-                StateView(art: "IllusWelcome", title: "Photos access is off", message: "Turn it on in Settings to see your photos here.") {
-                    Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
+                StateView(art: "IllusWelcome", title: Words.shared.strings.photosAccessOff, message: Words.shared.strings.turnOnToSeePhotos) {
+                    Button(Words.shared.strings.openSettings) { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
                 }
             } else if failed {
-                StateView(mood: .trouble, title: "Couldn't show this photo", message: "It may be only in iCloud, and there's no connection right now.") {
-                    Button("Try again") { attempt += 1 }
+                StateView(mood: .trouble, title: Words.shared.strings.couldntShowPhoto, message: Words.shared.strings.onlyInICloudNow) {
+                    Button(Words.shared.TRY_AGAIN) { attempt += 1 }
                 }
             } else if let progress {
-                ProgressView("Downloading from iCloud", value: progress).tint(.white).foregroundStyle(.white).padding(40)
+                ProgressView(Words.shared.strings.downloadingFromICloud, value: progress).tint(.white).foregroundStyle(.white).padding(40)
             } else {
                 ProgressView().tint(.white)
             }
@@ -614,7 +614,7 @@ private struct DocumentPane: View {
                     Button {
                         reading = true
                     } label: {
-                        Label("Text from this file", systemImage: "text.alignleft").labelStyle(.iconOnly)
+                        Label(Words.shared.strings.textFromThisFile, systemImage: "text.alignleft").labelStyle(.iconOnly)
                     }
                 }
             }

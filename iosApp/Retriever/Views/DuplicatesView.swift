@@ -27,28 +27,28 @@ struct DuplicatesView: View {
     var body: some View {
         Group {
             if failed {
-                StateView(mood: .trouble, title: "Couldn't look for duplicates", message: "Something went wrong. Try again.") {
-                    Button("Try again") { Task { await scan() } }.buttonStyle(.primaryAction)
+                StateView(mood: .trouble, title: Words.shared.strings.couldntLookForDuplicates, message: Words.shared.strings.somethingWentWrongTryAgain) {
+                    Button(Words.shared.TRY_AGAIN) { Task { await scan() } }.buttonStyle(.primaryAction)
                 }
             } else if let groups, groups.isEmpty {
                 StateView(
-                    mood: .noMatch, title: "No duplicates found",
-                    message: "Retriever checked the files in your added folders and found no copies bigger than 1 MB. Photos aren't checked.")
+                    mood: .noMatch, title: Words.shared.strings.noDuplicatesFound,
+                    message: Words.shared.strings.noDuplicatesMessage)
             } else if let groups {
                 list(groups)
             } else {
-                StateView(mood: .walking, title: "Looking for copies", message: "This can take a minute.") { ProgressView() }
+                StateView(mood: .walking, title: Words.shared.strings.lookingForCopies, message: Words.shared.strings.thisCanTakeAMinute) { ProgressView() }
             }
         }
-        .navigationTitle("Duplicates")
+        .navigationTitle(Words.shared.strings.duplicates)
         .safeAreaInset(edge: .bottom) {
             if let groups, !groups.isEmpty { bar }
         }
-        .alert(selected.count == 1 ? "Delete 1 file?" : "Delete \(selected.count) files?", isPresented: $confirming) {
-            Button("Delete", role: .destructive) { Task { await delete() } }
-            Button("Cancel", role: .cancel) {}
+        .alert(Words.shared.strings.deleteFilesAsk(n: Int64(selected.count)), isPresented: $confirming) {
+            Button(Words.shared.strings.delete_, role: .destructive) { Task { await delete() } }
+            Button(Words.shared.CANCEL, role: .cancel) {}
         } message: {
-            Text("They can't be recovered.")
+            Text(Words.shared.strings.cantBeRecovered)
         }
         .task {
             if groups == nil { await scan() }
@@ -58,16 +58,16 @@ struct DuplicatesView: View {
     private func list(_ groups: [DuplicateGroup]) -> some View {
         List {
             Section {
-                Text("\(Copy.bytes(groups.reduce(0) { $0 + $1.wastedBytes })) could be freed").font(.headline)
+                Text(Words.shared.strings.couldBeFreed(size: Copy.bytes(groups.reduce(0) { $0 + $1.wastedBytes }))).font(.headline)
             } footer: {
-                Text("Compares files in the folders you added, not photos. The oldest copy of each file is kept. Tap a copy to change what goes.")
+                Text(Words.shared.strings.comparesFilesNote)
                     .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(groups, id: \.files.first!.uri) { group in
                 Section {
                     ForEach(group.files, id: \.uri) { file in row(file) }
                 } header: {
-                    Text("\(group.files.count) copies · \(Copy.bytes(group.size)) each")
+                    Text(Words.shared.strings.copiesEach(n: Int64(group.files.count), size: Copy.bytes(group.size)))
                         .foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -84,13 +84,13 @@ struct DuplicatesView: View {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
                         .foregroundStyle(checked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    FileRowView(file: file, subtitle: "\(file.folder) · \(Format.date(file.modifiedAt))")
+                    FileRowView(file: file, subtitle: Words.shared.strings.folderAndDate(folder: file.folder, date: Format.date(file.modifiedAt)))
                 }
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(checked ? .isSelected : [])
-            .accessibilityHint(checked ? "Selected to delete. Double-tap to keep it." : "Kept. Double-tap to select it for deleting.")
+            .accessibilityHint(checked ? Words.shared.strings.selectedToDeleteHint : Words.shared.strings.keptHint)
             // Look before deleting: copies often have identical thumbnails.
             Button {
                 openFile(file)
@@ -99,18 +99,18 @@ struct DuplicatesView: View {
                     .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel("Open \(file.name)")
+            .accessibilityLabel(Words.shared.strings.openNamed(name: file.name))
         }
     }
 
     private var bar: some View {
         VStack(spacing: 8) {
-            if keepOne { Text("Keep at least one copy of each file").font(.footnote) }
-            if notDeleted > 0 { Text(notDeleted == 1 ? "1 file wasn't deleted" : "\(notDeleted) files weren't deleted").font(.footnote).foregroundStyle(.red) }
+            if keepOne { Text(Words.shared.strings.keepOneCopy).font(.footnote) }
+            if notDeleted > 0 { Text(Words.shared.strings.filesWerentDeleted(n: Int64(notDeleted))).font(.footnote).foregroundStyle(.red) }
             Button {
                 confirming = true
             } label: {
-                Text("Delete \(selected.count) selected (\(Copy.bytes(selectedBytes)))").frame(maxWidth: .infinity)
+                Text(Words.shared.strings.deleteSelected(n: Int64(selected.count), size: Copy.bytes(selectedBytes))).frame(maxWidth: .infinity)
             }
             .buttonStyle(.primaryAction)
             .controlSize(.large)

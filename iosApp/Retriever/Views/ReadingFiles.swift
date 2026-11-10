@@ -88,7 +88,7 @@ struct RecentlyRead: View {
                         .buttonStyle(.plain)
                         .contextMenu { FileActionButtons(file: file) }
                         .accessibilityActions { FileActionButtons(file: file) }
-                        .accessibilityHint("Open file")
+                        .accessibilityHint(Words.shared.strings.openFileHint)
                     }
                 }
             }
@@ -113,7 +113,7 @@ struct FileTile: View, @MainActor Equatable {
         .aspectRatio(1, contentMode: .fit)
         .clipShape(.rect(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(file.name), \(Words.shared.kindLabel(kind: file.kind)), \(Format.date(file.modifiedAt))")
+        .accessibilityLabel(Words.shared.strings.fileSpoken(name: file.name, kind: Words.shared.kindLabel(kind: file.kind), date: Format.date(file.modifiedAt)))
         .accessibilityIdentifier("recent:\(file.uri)")
     }
 }

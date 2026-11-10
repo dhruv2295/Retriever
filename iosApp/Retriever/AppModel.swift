@@ -394,7 +394,7 @@ final class AppModel {
                 IndexTask.schedule()
                 wake()
                 if !whileCharging { keepReading() }
-            } catch { readingMessage = "Couldn’t save this change. Try again." }
+            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
 
         }
     }

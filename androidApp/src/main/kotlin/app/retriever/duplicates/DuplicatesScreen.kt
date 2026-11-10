@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import app.retriever.R
+import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
@@ -82,10 +83,10 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Duplicates") },
+                title = { Text(Words.strings.duplicates) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
                     }
                 },
             )
@@ -98,11 +99,11 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         if (s.keepOne) {
-                            Text("Keep at least one copy of each file", style = MaterialTheme.typography.bodyMedium)
+                            Text(Words.strings.keepOneCopy, style = MaterialTheme.typography.bodyMedium)
                         }
                         if (s.failed > 0) {
                             Text(
-                                "${s.failed} files couldn't be deleted",
+                                Words.strings.filesCouldntBeDeleted(s.failed.toLong()),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -112,7 +113,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                             enabled = selectedCount > 0 && !s.deleting,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Delete $selectedCount selected (${Format.bytes(vm.selectedBytes(s))})")
+                            Text(Words.strings.deleteSelected(selectedCount.toLong(), Format.bytes(vm.selectedBytes(s))))
                         }
                     }
                 }
@@ -127,24 +128,24 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Mascot(MascotMood.WALKING, Modifier.align(Alignment.CenterHorizontally).width(160.dp))
-                    Text("Looking for copies…", style = MaterialTheme.typography.titleMedium)
+                    Text(Words.strings.lookingForCopiesEllipsis, style = MaterialTheme.typography.titleMedium)
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
 
                 error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
-                        title = "Couldn't look for duplicates",
+                        title = Words.strings.couldntLookForDuplicates,
                         description = error,
                         icon = R.drawable.ic_warning_amber,
-                        action = "Try again" to vm::scan,
+                        action = Words.TRY_AGAIN to vm::scan,
                         mood = MascotMood.TROUBLE,
                     )
                 }
 
                 s.groups.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
-                        title = "No duplicates found",
-                        description = "Retriever compared ${"%,d".format(s.scannedFiles)} files.",
+                        title = Words.strings.noDuplicatesFound,
+                        description = Words.strings.comparedFiles(s.scannedFiles),
                         icon = R.drawable.ic_content_copy,
                         mood = MascotMood.NO_MATCH,
                     )
@@ -156,7 +157,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                 ) {
                     item {
                         Text(
-                            "${Format.bytes(reclaimable)} could be freed",
+                            Words.strings.couldBeFreed(Format.bytes(reclaimable)),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(16.dp),
                         )
@@ -164,7 +165,7 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                     s.groups.forEach { g ->
                         item(key = "h" + g.files.first().uri) {
                             Text(
-                                "${g.files.size} copies · ${Format.bytes(g.size)} each",
+                                Words.strings.copiesEach(g.files.size.toLong(), Format.bytes(g.size)),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
@@ -184,10 +185,10 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
                                 // Look before deleting: copies often have identical thumbnails.
                                 trailing = {
                                     IconButton(onClick = { Opener.open(context, file, "", onNavigate) }) {
-                                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = "Open ${file.name}")
+                                        Icon(painterResource(R.drawable.ic_open_in_new), contentDescription = Words.strings.openNamed(file.name))
                                     }
                                 },
-                                onClickLabel = if (checked) "Deselect" else "Select",
+                                onClickLabel = if (checked) Words.strings.deselect else Words.strings.select,
                                 onClick = { vm.toggle(file.uri) },
                             )
                         }
@@ -199,9 +200,9 @@ fun DuplicatesScreen(onNavigate: (Route) -> Unit, onBack: () -> Unit, modifier: 
 
     if (confirming) {
         ConfirmDialog(
-            title = "Delete files?",
-            message = "Delete $selectedCount files? This can't be undone.",
-            confirmLabel = "Delete",
+            title = Words.strings.deleteFilesTitle,
+            message = Words.strings.deleteFilesMessage(selectedCount.toLong()),
+            confirmLabel = Words.strings.delete,
             onConfirm = {
                 confirming = false
                 vm.deleteSelected()

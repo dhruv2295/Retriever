@@ -7,6 +7,7 @@ import app.retriever.access.AccessService
 import app.retriever.core.DuplicateGroup
 import app.retriever.core.Retriever
 import app.retriever.core.SourceFile
+import app.retriever.core.Words
 import app.retriever.core.android.SafSource
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
@@ -64,7 +65,7 @@ class DuplicatesViewModel(
         _state.value = DuplicatesState()
         launchCatching(onError = {
             LogSink.write(BuildConfig.DEBUG, "duplicate scan failed", it)
-            _state.update { s -> s.copy(scanning = false, error = "Something went wrong. Try again.") }
+            _state.update { s -> s.copy(scanning = false, error = Words.strings.somethingWentWrongTryAgain) }
         }) {
             val groups = retriever.duplicates(MIN_SIZE)
                 .map { g -> g.copy(files = oneEntryPerFile(g.files)) }

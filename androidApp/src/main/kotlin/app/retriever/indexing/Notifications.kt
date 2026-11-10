@@ -46,7 +46,7 @@ object Notifications {
 
     fun progress(context: Context, counts: ReadingProgress, status: ReadingStatus?, cancel: PendingIntent): Notification {
         // The status line's own words: its count, then its detail; else what is processed so far.
-        val text = listOfNotNull(status?.count, status?.detail).joinToString(". ").ifEmpty { Words.readCount(counts.contentRead) }
+        val text = Words.strings.notificationBody(status?.count, status?.detail, counts.contentRead)
         return NotificationCompat.Builder(context, CHANNEL)
             .setContentTitle(status?.title ?: Words.STARTING)
             .setContentText(text)
@@ -58,7 +58,7 @@ object Notifications {
             .setPublicVersion(publicVersion(context))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(openApp(context, status = true))
-            .addAction(0, "Pause", cancel)
+            .addAction(0, Words.PAUSE, cancel)
             .apply {
                 val done = status?.done
                 val total = status?.total

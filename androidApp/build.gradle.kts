@@ -90,6 +90,9 @@ android {
         buildConfig = true
     }
 
+    // Lists the values-xx languages for Android 13+'s per-app language setting (default language: res/resources.properties).
+    androidResources { generateLocaleConfig = true }
+
     packaging {
         // LiteRT loads NPU dispatch libraries from applicationInfo.nativeLibraryDir, so they must be extracted.
         jniLibs {

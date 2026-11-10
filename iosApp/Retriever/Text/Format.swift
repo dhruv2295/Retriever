@@ -20,14 +20,14 @@ enum Format {
     }
 
     static func badge(_ locator: String) -> String? {
-        if let page = Locator.shared.pageOf(l: locator)?.intValue { return "Page \(page)" }
+        if let page = Locator.shared.pageOf(l: locator)?.intValue { return Words.shared.strings.pageBadge(page: Int32(page)) }
         return Locator.shared.msOf(l: locator) != nil ? locator : nil
     }
 
     static func openHint(_ locator: String) -> String {
-        if let page = Locator.shared.pageOf(l: locator)?.intValue { return "Opens at page \(page)" }
-        if Locator.shared.msOf(l: locator) != nil { return "Plays from \(locator)" }
-        return "Opens"
+        if let page = Locator.shared.pageOf(l: locator)?.intValue { return Words.shared.strings.opensAtPage(page: Int32(page)) }
+        if Locator.shared.msOf(l: locator) != nil { return Words.shared.strings.playsFrom(time: locator) }
+        return Words.shared.strings.opensHint
     }
 
     /// The \u{2}...\u{3} words bold on a tinted background. An unclosed span runs to the end.

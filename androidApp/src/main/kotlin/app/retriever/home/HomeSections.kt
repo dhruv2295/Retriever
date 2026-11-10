@@ -99,12 +99,12 @@ internal fun SectionHeader(title: String, subtitle: String? = null, onClick: (()
     Row(
         Modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = "Show all", onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = Words.strings.showAll, onClick = onClick) else Modifier)
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp)
             .semantics(mergeDescendants = true) {
                 heading()
-                contentDescription = if (subtitle == null) title else "$title, $subtitle"
+                contentDescription = if (subtitle == null) title else Words.strings.sectionSpoken(title, subtitle)
             },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -191,8 +191,8 @@ internal fun PeopleSection(
                         Modifier
                             .width(TILE)
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable(role = Role.Button, onClickLabel = "Open") { go(BrowseRoute(title = title, person = p.id)) }
-                            .semantics(mergeDescendants = true) { contentDescription = "$title, ${Words.photos(p.photos.toLong())}" },
+                            .clickable(role = Role.Button, onClickLabel = Words.strings.openAction) { go(BrowseRoute(title = title, person = p.id)) }
+                            .semantics(mergeDescendants = true) { contentDescription = Words.strings.personTileSpoken(title, p.photos.toLong()) },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -274,7 +274,7 @@ internal fun BrowseSection(kinds: List<BrowseKind>, folders: Long, go: (Route) -
                     go(BrowseRoute(kind = kind.name, title = k.title))
                 }, Modifier.weight(1f))
             }
-            if (folders > 0) BrowseTile(R.drawable.ic_folder, "Folders", Format.count(folders), { go(FoldersRoute) }, Modifier.weight(1f))
+            if (folders > 0) BrowseTile(R.drawable.ic_folder, Words.strings.folders, Format.count(folders), { go(FoldersRoute) }, Modifier.weight(1f))
             // The last row keeps the others' width.
             repeat((columns - n % columns) % columns) { Spacer(Modifier.weight(1f)) }
         }
@@ -316,7 +316,7 @@ private fun BrowseTile(icon: Int, label: String, count: String, onClick: () -> U
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = modifier.heightIn(min = 72.dp).semantics(mergeDescendants = true) { contentDescription = "$label, $count" },
+        modifier = modifier.heightIn(min = 72.dp).semantics(mergeDescendants = true) { contentDescription = Words.strings.browseTileSpoken(label, count) },
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -342,7 +342,7 @@ internal fun OnThisDaySection(day: LocalDate, memories: List<YearMemory>, go: (R
     val monthDay = remember(day) { dayText(context, day, zone, year = false) }
     val tile = tileSize()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("On this day", monthDay)
+        SectionHeader(Words.strings.onThisDay, monthDay)
         LazyRow(contentPadding = StripPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(memories, key = { it.year }, contentType = { "year" }) { m ->
                 val count = memoryCount(m)
@@ -351,10 +351,10 @@ internal fun OnThisDaySection(day: LocalDate, memories: List<YearMemory>, go: (R
                     Modifier
                         .size(tile)
                         .clip(shape)
-                        .semantics(mergeDescendants = true) { contentDescription = "${m.year}, $count from $monthDay" }
+                        .semantics(mergeDescendants = true) { contentDescription = Words.strings.onThisDaySpoken(m.year, count, monthDay) }
                         .combinedClickable(
-                            onClickLabel = "Show them",
-                            onLongClickLabel = "Hide On this day",
+                            onClickLabel = Words.strings.showThem,
+                            onLongClickLabel = Words.strings.hideOnThisDay,
                             onLongClick = onHide,
                             onClick = {
                                 val date = LocalDate.of(m.year, day.monthValue, day.dayOfMonth)
@@ -386,5 +386,6 @@ private fun dayText(context: Context, date: LocalDate, zone: ZoneId, year: Boole
 
 /** The most recently starred files as the same small tiles; the header opens the whole Starred list. */
 @Composable
-internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) =
-    FileStrip("Starred", "starred", home.starred, { actions.onNavigate(BrowseRoute(title = "Starred", starredOnly = true)) }, actions, hasAccess)
+internal fun StarredSection(hasAccess: Boolean, home: HomeFacts, actions: SearchActions) = FileStrip(Words.strings.starredSection, "starred", home.starred, {
+    actions.onNavigate(BrowseRoute(title = Words.strings.starredSection, starredOnly = true))
+}, actions, hasAccess)

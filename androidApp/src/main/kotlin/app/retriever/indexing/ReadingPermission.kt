@@ -62,9 +62,9 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         }
         AlertDialog(
             onDismissRequest = { finish(false) },
-            title = { Text("Show a notification while Retriever processes your files?") },
+            title = { Text(Words.strings.notificationPermissionAsk) },
             text = { Text(text) },
-            confirmButton = { TextButton(onClick = { finish(true) }) { Text("Allow") } },
+            confirmButton = { TextButton(onClick = { finish(true) }) { Text(Words.ALLOW) } },
             dismissButton = { TextButton(onClick = { finish(false) }) { Text(Words.NOT_NOW) } },
         )
     }
@@ -92,19 +92,15 @@ fun rememberBatteryAsk(): () -> Unit {
     if (asking) {
         AlertDialog(
             onDismissRequest = { asking = false },
-            title = { Text("Process faster while charging?") },
+            title = { Text(Words.strings.processFasterAsk) },
             text = {
-                Text(
-                    "Android runs apps in the background on its slowest cores. With Retriever's battery use set to " +
-                        "Unrestricted, it uses the fast ones whenever your phone charges, and finishes much sooner. " +
-                        "In settings, open Battery and choose Unrestricted.",
-                )
+                Text(Words.strings.processFasterBody)
             },
             confirmButton = {
                 TextButton(onClick = {
                     asking = false
                     openBatterySettings(context)
-                }) { Text("Open settings") }
+                }) { Text(Words.strings.openSettingsLowercase) }
             },
             dismissButton = { TextButton(onClick = { asking = false }) { Text(Words.NOT_NOW) } },
         )

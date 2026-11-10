@@ -24,6 +24,7 @@ import android.os.storage.StorageManager
 import androidx.core.net.toUri
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
+import app.retriever.core.Words
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -91,7 +92,7 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
         marker(b).delete()
         reserve(neededBytes(b))
         val request = DownloadManager.Request(b.url.toUri())
-            .setTitle("Retriever search model")
+            .setTitle(Words.strings.searchModelDownloadTitle)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(context, "models", b.fileName)
             .setAllowedOverMetered(prefs.allowMobileData)

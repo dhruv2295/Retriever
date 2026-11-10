@@ -176,15 +176,15 @@ internal fun FileTile(
     app.retriever.files.FilePressMenu(file, modifier) { menu, actions ->
         val click = actions.combinedClickable(
             role = Role.Button,
-            onClickLabel = "Open",
-            onLongClickLabel = "File actions",
+            onClickLabel = Words.strings.openAction,
+            onLongClickLabel = Words.strings.fileActions,
             onLongClick = menu,
             onClick = { onOpen(file) },
         )
         ThumbnailImage(
             file,
             size,
-            image.then(click).semantics { contentDescription = "${file.name}, ${Words.kindLabel(file.kind)}, ${Format.date(file.modifiedAt)}" }
+            image.then(click).semantics { contentDescription = Words.strings.fileSpoken(file.name, Words.kindLabel(file.kind), Format.date(file.modifiedAt)) }
                 .testTag("recent:${file.uri}"),
             load = load,
             morph = morph,
