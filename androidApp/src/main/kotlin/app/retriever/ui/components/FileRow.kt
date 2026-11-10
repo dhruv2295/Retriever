@@ -23,7 +23,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -36,6 +35,9 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -57,9 +59,11 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import app.retriever.R
 import app.retriever.core.Kind
 import app.retriever.core.Locator
@@ -185,7 +189,7 @@ fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: St
 
 /**
  * A square grid cell: the picture (at the matched page or moment) with a small badge saying where. [requestSize] is the
- * cell's width, worked out once by the grid ([adaptiveCell]), so no cell measures itself.
+ * cell's width as the grid worked it out ([CappedCells]), so no cell measures itself.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -270,7 +274,7 @@ fun kindIcon(kind: Kind): Int = when (kind) {
 
 /**
  * A list's contentPadding: the Scaffold's, with the bottom cleared of the navigation bar and keyboard, and [side] added
- * at both sides (see [gutter]); [includeTop] false leaves the top to the caller. Never pad the list itself, or it
+ * at both sides; [includeTop] false leaves the top to the caller. Never pad the list itself, or it
  * clips instead of scrolling under the bars. The insets are read inside the lazy list's measure, not in composition,
  * so a keyboard animation re-measures the list without recomposing it.
  */
@@ -290,21 +294,20 @@ fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, side: Dp
     }
 }
 
-/** How many columns a `GridCells.Adaptive(min)` grid fits across [width]. */
-fun adaptiveColumns(width: Dp, min: Dp, spacing: Dp): Int = ((width + spacing) / (min + spacing)).toInt().coerceAtLeast(1)
+/**
+ * A list row or header at most [max] wide, centred, so rows and the headers above them share one readable column.
+ * Put it on the items, not the list: a capped list would leave its margins dead to drags and wheel scrolls.
+ */
+fun Modifier.readingWidth(max: Dp = 840.dp): Modifier = fillMaxWidth().wrapContentWidth().widthIn(max = max).fillMaxWidth()
 
 /**
- * The width of one column of a `GridCells.Adaptive(min)` grid with [spacing] between columns, across this box less
- * [padding] (both sides together): the grid's own rule, worked out once above it for every cell.
+ * [base]'s columns across at most [max] of the grid's width; an arrangement aligned `CenterHorizontally` centres them,
+ * and full-line items follow, as they take their slots' edges. [onCell] hears a column's width in px, in the grid's
+ * measure before its cells compose, so a cell can pick its picture's request size on its first frame.
  */
-fun BoxWithConstraintsScope.adaptiveCell(min: Dp, spacing: Dp, padding: Dp = 0.dp): Dp {
-    val width = maxWidth - padding
-    val columns = adaptiveColumns(width, min, spacing)
-    return (width - spacing * (columns - 1)) / columns
+class CappedCells(private val base: GridCells, private val max: Dp = Dp.Unspecified, private val onCell: (Int) -> Unit = {}) : GridCells {
+    override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> {
+        val width = if (max.isSpecified) minOf(availableSize, max.roundToPx()) else availableSize
+        return with(base) { calculateCrossAxisCellSizes(width, spacing) }.also { onCell(it.first()) }
+    }
 }
-
-/**
- * Side padding that centres a full-width list's content in a column at most [max] wide. Capping the list's own width
- * instead would leave the gutters dead to drags and wheel scrolls.
- */
-fun BoxWithConstraintsScope.gutter(max: Dp = 840.dp): Dp = ((maxWidth - max) / 2).coerceAtLeast(0.dp)

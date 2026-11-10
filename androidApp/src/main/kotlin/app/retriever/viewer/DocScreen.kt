@@ -2,7 +2,6 @@ package app.retriever.viewer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,8 +47,8 @@ import app.retriever.starred.StarFailureEffect
 import app.retriever.starred.StarHolder
 import app.retriever.ui.components.EmptyState
 import app.retriever.ui.components.contentPaddingFor
-import app.retriever.ui.components.gutter
 import app.retriever.ui.components.nameHighlighted
+import app.retriever.ui.components.readingWidth
 import app.retriever.ui.tabular
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -116,16 +115,16 @@ internal fun DocContent(ui: DocUi, padding: PaddingValues, openWith: () -> Unit)
             val style = remember(mark) { SpanStyle(background = mark, fontWeight = FontWeight.Bold) }
             val bar = ui.matches.isNotEmpty()
             // Lines kept to a readable measure on a tablet or a wide pane; the gutters still scroll the text.
-            BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize()) {
                 SelectionContainer {
                     LazyColumn(
                         state = list,
-                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp, side = 16.dp + gutter(max = 680.dp)),
+                        contentPadding = contentPaddingFor(padding, if (bar) 88.dp else 16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(ui.paragraphs) { text ->
                             val shown = remember(text, ui.query, style) { nameHighlighted(text, ui.query, style) }
-                            Text(shown, style = MaterialTheme.typography.bodyLarge)
+                            Text(shown, Modifier.readingWidth(680.dp).padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyLarge)
                         }
                     }
                 }

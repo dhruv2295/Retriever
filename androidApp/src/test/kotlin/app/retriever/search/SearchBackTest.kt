@@ -107,7 +107,7 @@ class SearchBackTest {
         var opened: SearchRoute? = null
         rule.setContent {
             back = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-            ShotTheme(false) { HomeShell(SearchUi(), SearchActions(), open = { opened = it }) { _, _, _ -> } }
+            ShotTheme(false) { HomeShell(SearchUi(), SearchActions(), open = { opened = it }) { _, _ -> } }
         }
         rule.runOnIdle { assertEquals(false, back?.hasEnabledCallbacks()) }
         rule.onNodeWithText(Words.SEARCH_FIELD).performClick()

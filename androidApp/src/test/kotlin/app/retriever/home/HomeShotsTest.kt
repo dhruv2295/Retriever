@@ -188,8 +188,8 @@ class HomeShotsTest {
         upgrade: UpgradeUi = UpgradeUi(),
         upgradeActions: UpgradeActions = UpgradeActions(),
         offer: Boolean = false,
-    ) = HomeShell(SearchUi(), actions, open = {}) { padding, state, side ->
-        HomeBody(home, index.running, actions, state, padding, side, homeActions, celebration, upgrade, upgradeActions, offer)
+    ) = HomeShell(SearchUi(), actions, open = {}) { padding, state ->
+        HomeBody(home, index.running, actions, state, padding, homeActions, celebration, upgrade, upgradeActions, offer)
     }
 
     private fun shot(state: String, dark: Boolean, fontScale: Float = 1f, prefix: String = "clarity_home") {

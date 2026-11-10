@@ -54,7 +54,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -129,7 +129,6 @@ fun HomeScreen(
     actions: SearchActions,
     state: LazyStaggeredGridState,
     padding: PaddingValues,
-    side: Dp,
     snackbar: SnackbarHostState,
     /** The places a navigation rail shows; Browse leaves those kinds out. */
     rail: List<Route> = emptyList(),
@@ -196,7 +195,7 @@ fun HomeScreen(
         )
     }
     HomeBody(
-        ui, running, actions, state, padding, side,
+        ui, running, actions, state, padding,
         homeActions,
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
@@ -232,7 +231,6 @@ internal fun HomeBody(
     actions: SearchActions,
     state: LazyStaggeredGridState,
     padding: PaddingValues,
-    side: Dp,
     home: HomeActions = HomeActions(),
     celebration: Celebration = Celebration(),
     /** The one upgrade: its download is the status line; its offer, when [offer], the last row. */
@@ -257,9 +255,10 @@ internal fun HomeBody(
         }
     }
     LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Adaptive(380.dp),
+        columns = HomeCells,
         state = state,
-        contentPadding = contentPaddingFor(padding, side = side),
+        contentPadding = contentPaddingFor(padding),
+        horizontalArrangement = Arrangement.Center,
         verticalItemSpacing = 24.dp,
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -374,6 +373,14 @@ internal fun HomeBody(
             }
         }
     }
+}
+
+/** As many 380 dp columns as fit in at most 1200 dp of the width; the grid's arrangement centres them. */
+private object HomeCells : StaggeredGridCells {
+    private val adaptive = StaggeredGridCells.Adaptive(380.dp)
+
+    override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): IntArray =
+        with(adaptive) { calculateCrossAxisCellSizes(minOf(availableSize, 1200.dp.roundToPx()), spacing) }
 }
 
 /**

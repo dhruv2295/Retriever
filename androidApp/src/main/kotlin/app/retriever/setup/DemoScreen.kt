@@ -3,7 +3,6 @@ package app.retriever.setup
 import android.animation.ValueAnimator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -130,12 +129,12 @@ fun DemoContent(
         footer = {
             Button(onClick = actions.finish, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
         },
-    ) { padding, _, side ->
+    ) { padding, _ ->
         // At least the viewport tall with the spare height split above and below, as Hello and the access screen do.
-        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+        Box(Modifier.fillMaxSize().padding(padding)) {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
-                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp + side, vertical = 16.dp),
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                    .wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             ) {
                 if (description == DescriptionState.READY) ReadyBanner()

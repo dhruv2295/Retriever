@@ -28,7 +28,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -48,6 +47,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
@@ -101,7 +101,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
@@ -124,8 +123,7 @@ import app.retriever.nav.SettingsRoute
 import app.retriever.starred.starWithUndo
 import app.retriever.ui.ScrollingEffect
 import app.retriever.ui.components.PhotoMorph
-import app.retriever.ui.components.adaptiveCell
-import app.retriever.ui.components.gutter
+import app.retriever.ui.components.readingWidth
 import app.retriever.viewer.Opener
 import kotlinx.coroutines.flow.filterIsInstance
 import org.koin.androidx.compose.koinViewModel
@@ -173,8 +171,8 @@ fun HomeHost(
     val context = LocalContext.current
     val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
     val snackbar = remember { SnackbarHostState() }
-    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar, settings = SettingsRoute !in rail) { padding, state, side ->
-        HomeScreen(actions, state, padding, side, snackbar, rail)
+    HomeShell(search, actions, onNavigate, modifier, pillModifier, snackbar = snackbar, settings = SettingsRoute !in rail) { padding, state ->
+        HomeScreen(actions, state, padding, snackbar, rail)
     }
 }
 
@@ -259,8 +257,8 @@ fun HomeShell(
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     /** False when the navigation rail holds Settings. */
     settings: Boolean = true,
-    /** The page: the padding the bars leave, its list state, and the side gutter. */
-    content: @Composable (PaddingValues, LazyStaggeredGridState, Dp) -> Unit,
+    /** The page: the padding the bars leave, and its list state. */
+    content: @Composable (PaddingValues, LazyStaggeredGridState) -> Unit,
 ) {
     val homeList = rememberLazyStaggeredGridState()
     ScrollingEffect({ homeList.isScrollInProgress }, actions.onScrolling)
@@ -295,7 +293,7 @@ fun HomeShell(
             }
         },
     ) { padding ->
-        BoxWithConstraints(Modifier.fillMaxSize()) { content(padding, homeList, gutter(1200.dp)) }
+        content(padding, homeList)
     }
 }
 
@@ -469,14 +467,10 @@ internal fun SearchPane(
             Box(Modifier.fillMaxWidth().height(4.dp)) {
                 if (heldFor(SearchTiming.SEARCHING_BAR_MS, ui.searching)) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val side = gutter()
-                if (ui.query.isBlank() && ui.similar == null) {
-                    Suggestions(ui.recent, home.suggestions.orEmpty(), actions, useText, side)
-                } else {
-                    val cell = adaptiveCell(RESULT_CELL_MIN, RESULT_CELL_GAP, padding = (16.dp + side) * 2)
-                    Column { Results(ui, home, actions, star, grid, useText, side, cell) }
-                }
+            if (ui.query.isBlank() && ui.similar == null) {
+                Suggestions(ui.recent, home.suggestions.orEmpty(), actions, useText)
+            } else {
+                Column { Results(ui, home, actions, star, grid, useText) }
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)))
@@ -484,23 +478,23 @@ internal fun SearchPane(
 }
 
 @Composable
-private fun Suggestions(recent: List<String>, examples: List<String>, actions: SearchActions, useText: (String) -> Unit, side: Dp) {
+private fun Suggestions(recent: List<String>, examples: List<String>, actions: SearchActions, useText: (String) -> Unit) {
     val pick = { q: String ->
         useText(q)
         actions.onSubmit(q)
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = side, end = side, bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         if (recent.isEmpty()) {
             if (examples.isEmpty()) return@LazyColumn
-            item(key = "try-header") { GroupHeader(Words.TRY_LABEL) }
+            item(key = "try-header") { GroupHeader(Words.TRY_LABEL, Modifier.readingWidth()) }
             item(key = "try") {
-                FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.readingWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (q in examples) SuggestionChip(onClick = { pick(q) }, label = { Text(q) })
                 }
             }
             return@LazyColumn
         }
-        item(key = "recent-header") { GroupHeader(Words.strings.recentSearches) }
+        item(key = "recent-header") { GroupHeader(Words.strings.recentSearches, Modifier.readingWidth()) }
         items(recent, key = { it }) { q ->
             ListItem(
                 headlineContent = { Text(q, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -511,11 +505,13 @@ private fun Suggestions(recent: List<String>, examples: List<String>, actions: S
                     }
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                modifier = Modifier.animateItem().clickable(onClickLabel = Words.strings.searchAction) { pick(q) },
+                modifier = Modifier.animateItem().readingWidth().clickable(onClickLabel = Words.strings.searchAction) { pick(q) },
             )
         }
         item(key = "clear") {
-            TextButton(onClick = actions.onClearRecent, modifier = Modifier.padding(horizontal = 8.dp)) { Text(Words.strings.clearHistory) }
+            TextButton(onClick = actions.onClearRecent, modifier = Modifier.readingWidth().padding(horizontal = 8.dp).wrapContentWidth(Alignment.Start)) {
+                Text(Words.strings.clearHistory)
+            }
         }
     }
 }

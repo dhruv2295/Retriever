@@ -257,6 +257,7 @@ fun PdfPageScreen(
 
             PdfState.Failed -> PdfFailed(openElsewhere, Modifier.padding(padding))
 
+            // Kept: every page is rendered and sized at this width before it is composed.
             is PdfState.Ready -> BoxWithConstraints(Modifier.fillMaxSize()) {
                 val widthPx = with(LocalDensity.current) { maxWidth.roundToPx() }
                 LazyColumn(
