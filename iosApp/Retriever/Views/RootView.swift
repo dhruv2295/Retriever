@@ -12,22 +12,16 @@ enum Route: Hashable {
 /// Setup until the person has given Retriever something to read and chosen to go on, then Home.
 struct RootView: View {
     let model: AppModel
-    @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Held above the sidebar and the size-class switch, so neither throws away the search or the open pages.
-    @State private var search: SearchModel
-    /// The pages over Home as one stack shows them; at regular width the first one that has a sidebar item selects it.
+    /// The pages over Home; the first one that has a sidebar item selects it.
     @State private var path: [Route]
     /// Home was shown this session; setup is decided once, not again when access changes.
     @State private var homeShown = false
-    /// ⌘F's count in this window: its search field comes up each time it changes.
-    @State private var searchFocus = 0
-    /// Where the open viewers are, so a viewer the size-class switch rebuilds carries on where it was.
-    @State private var viewers = ViewerMemory()
+    /// ⌘F asked for the search field and Home hasn't raised it yet.
+    @State private var searchRequested = false
 
     init(model: AppModel) {
         self.model = model
-        _search = State(initialValue: SearchModel(services: model.services))
         _path = State(initialValue: Self.initialPath)
     }
 
@@ -69,7 +63,7 @@ struct RootView: View {
         let inHome = homeShown ? true : model.setup.map { !$0.showSetup }
         Group {
             if inHome == true {
-                home { SearchView(model: model, search: search) }
+                home { SearchView(model: model) }
                     // A search from Shortcuts or Siri shows over whatever page was open: back to Search first (on iPad
                     // the empty path selects it), where SearchView takes the words.
                     .onChange(of: LaunchQuery.shared.pending, initial: true) { _, pending in
@@ -89,26 +83,18 @@ struct RootView: View {
         }
     }
 
-    /// Sidebar and detail at regular width; today's single stack on iPhone and in narrow windows.
-    @ViewBuilder private func home<Root: View>(@ViewBuilder root: () -> Root) -> some View {
-        Group {
-            if sizeClass == .regular {
-                SplitRoot(model: model, path: $path, home: root)
-            } else {
-                AppStack(model: model, path: $path, root: root)
-            }
-        }
-        .environment(\.searchFocus, searchFocus)
-        .environment(\.viewerMemory, viewers)
-        .onChange(of: path, initial: true) { _, now in viewers.keep(now.compactMap { if case .view(let v) = $0 { v } else { nil } }) }
-        // The menu bar's and the keyboard's Search and Settings act on this window (RetrieverCommands).
-        .focusedSceneValue(
-            \.windowCommands,
-            WindowCommands(
-                search: {
-                    path = []
-                    searchFocus += 1
-                }, settings: { path = [.settings] }))
+    /// Sidebar and detail when there is room; collapsed to Home's single stack on iPhone and in narrow windows.
+    private func home<Root: View>(@ViewBuilder root: () -> Root) -> some View {
+        SplitRoot(model: model, path: $path, home: root)
+            .environment(\.searchRequest, $searchRequested)
+            // The menu bar's and the keyboard's Search and Settings act on this window (RetrieverCommands).
+            .focusedSceneValue(
+                \.windowCommands,
+                WindowCommands(
+                    search: {
+                        path = []
+                        searchRequested = true
+                    }, settings: { path = [.settings] }))
     }
 
     private static var initialPath: [Route] {
@@ -135,28 +121,38 @@ extension View {
 struct AppStack<Root: View>: View {
     let model: AppModel
     @Binding var path: [Route]
-    @Environment(\.viewerMemory) private var viewerMemory
+    /// The first page, when the sidebar lists it: at regular width the sidebar is its way back, so it has no Back.
+    private let sidebarPage: Route?
+    @Environment(\.horizontalSizeClass) private var sizeClass
     private let root: Root
 
-    init(model: AppModel, path: Binding<[Route]>, @ViewBuilder root: () -> Root) {
+    init(model: AppModel, path: Binding<[Route]>, sidebarPage: Route? = nil, @ViewBuilder root: () -> Root) {
         self.model = model
         _path = path
+        self.sidebarPage = sidebarPage
         self.root = root()
     }
 
     var body: some View {
         NavigationStack(path: $path) {
-            root.navigationDestination(for: Route.self) { destination($0) }
-        }
-        .environment(model)
-        .environment(\.services, model.services)
-        .environment(
-            \.openFile,
-            OpenFile { file, locator, words, among in
-                path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
+            pageEnvironment(root).navigationDestination(for: Route.self) { route in
+                pageEnvironment(destination(route)).navigationBarBackButtonHidden(sizeClass == .regular && route == sidebarPage)
             }
-        )
+        }
+    }
 
+    /// Set on each page, not on the stack: in a split view's detail column a pushed page doesn't inherit what is set
+    /// around the stack, so a list pushed from the sidebar on iPad had the default, do-nothing openFile.
+    private func pageEnvironment(_ page: some View) -> some View {
+        page
+            .environment(model)
+            .environment(\.services, model.services)
+            .environment(
+                \.openFile,
+                OpenFile { file, locator, words, among in
+                    path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
+                }
+            )
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {
@@ -176,7 +172,7 @@ struct AppStack<Root: View>: View {
         case .duplicates:
             DuplicatesView(model: model)
         case .view(let v):
-            viewer(v, memory: viewerMemory)
+            viewer(v)
         }
     }
 }

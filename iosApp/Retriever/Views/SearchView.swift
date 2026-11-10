@@ -28,7 +28,10 @@ struct SearchView: View {
     @State private var folderNote: String?
     @Environment(\.openFile) private var openFile
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.searchFocus) private var searchFocus
+    @Environment(\.searchRequest) private var searchRequest
+    @FocusState private var fieldFocused: Bool
+    /// Not covered by a pushed page: a field raised while covered is dropped, so ⌘F waits for Home to show.
+    @State private var visible = false
     private let fixedSnap: AppModel.Snap?
     private let trial: Trial?
 
@@ -93,7 +96,13 @@ struct SearchView: View {
             }
         }
         .onChange(of: model.fileRevision) { search.retry() }
-        .onChange(of: searchFocus) { presented = true }
+        .modifier(FocusSearchField(focused: $fieldFocused))
+        .onChange(of: searchRequest.wrappedValue) { takeSearchRequest() }
+        .onAppear {
+            visible = true
+            takeSearchRequest()
+        }
+        .onDisappear { visible = false }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
         .modifier(RefreshHome(model: model, home: trial == nil))
         .task { await search.loadRecent() }
@@ -149,6 +158,14 @@ struct SearchView: View {
         }
     }
 
+    /// isPresented alone leaves an already presented field unfocused; iOS 18 can focus it.
+    private func takeSearchRequest() {
+        guard visible, searchRequest.wrappedValue else { return }
+        searchRequest.wrappedValue = false
+        presented = true
+        fieldFocused = true
+    }
+
     private func open(_ hit: SearchEngine.Hit) {
         search.record()
         openFile(
@@ -193,6 +210,14 @@ private struct RefreshHome: ViewModifier {
     private func sync() {
         guard home else { return }
         if shown && phase == .active { model.watchHome() } else { model.unwatchHome() }
+    }
+}
+
+private struct FocusSearchField: ViewModifier {
+    let focused: FocusState<Bool>.Binding
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) { content.searchFocused(focused) } else { content }
     }
 }
 

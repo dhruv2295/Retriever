@@ -87,57 +87,13 @@ func highlightWords(snippet: String?, query: String?) -> [String] {
     return query.map { HighlightKt.highlightTerms(query: $0) } ?? []
 }
 
-@MainActor @ViewBuilder func viewer(_ v: Viewing, memory: ViewerMemory? = nil) -> some View {
-    let spot = memory.map { Remembered(memory: $0, key: v) }
+@MainActor @ViewBuilder func viewer(_ v: Viewing) -> some View {
     switch v {
-    case .pdf(let place, let page, let words): PDFViewer(place: place, page: page, words: words, spot: spot)
-    case .media(let place, let ms): MediaViewer(place: place, ms: ms, spot: spot)
-    case .photos(let files, let index): PhotoViewer(files: files, index: index, spot: spot)
-    case .document(let place, let locator, let words): DocumentViewer(place: place, locator: locator, words: words, spot: spot)
+    case .pdf(let place, let page, let words): PDFViewer(place: place, page: page, words: words)
+    case .media(let place, let ms): MediaViewer(place: place, ms: ms)
+    case .photos(let files, let index): PhotoViewer(files: files, index: index)
+    case .document(let place, let locator, let words): DocumentViewer(place: place, locator: locator, words: words)
     }
-}
-
-/// Where each open viewer is: the file it stepped to, the PDF page, the moment in a video and whether it was playing.
-/// RootView holds it above its size-class switch, which rebuilds the open viewer when an iPhone Duo folds or unfolds or
-/// an iPad window crosses regular width; the rebuilt viewer carries on from here instead of from where it was opened.
-@MainActor final class ViewerMemory {
-    struct Spot {
-        var index: Int?
-        var page: Int?
-        var seconds: Double?
-        var playing = false
-    }
-
-    private var spots: [Viewing: Spot] = [:]
-    private var open: Set<Viewing> = []
-
-    /// Only an open viewer is remembered: a video closed with Back still reports where it stopped as it goes, and the
-    /// same file opened again later starts at its match, paused.
-    subscript(_ viewing: Viewing) -> Spot {
-        get { spots[viewing] ?? Spot() }
-        set { if open.contains(viewing) { spots[viewing] = newValue } }
-    }
-
-    /// The viewers now open; the others are forgotten.
-    func keep(_ open: [Viewing]) {
-        self.open = Set(open)
-        spots = spots.filter { self.open.contains($0.key) }
-    }
-}
-
-/// One open viewer's place in the memory.
-@MainActor struct Remembered {
-    let memory: ViewerMemory
-    let key: Viewing
-
-    var spot: ViewerMemory.Spot {
-        get { memory[key] }
-        nonmutating set { memory[key] = newValue }
-    }
-}
-
-extension EnvironmentValues {
-    @Entry var viewerMemory: ViewerMemory?
 }
 
 // MARK: Shared chrome
@@ -272,21 +228,18 @@ struct PDFViewer: View {
     let place: Place
     let page: Int?
     let words: [String]
-    var spot: Remembered?
     @State private var index: Int
 
-    init(place: Place, page: Int?, words: [String], spot: Remembered? = nil) {
-        (self.place, self.page, self.words, self.spot) = (place, page, words, spot)
-        _index = State(initialValue: spot?.spot.index ?? place.index)
+    init(place: Place, page: Int?, words: [String]) {
+        (self.place, self.page, self.words) = (place, page, words)
+        _index = State(initialValue: place.index)
     }
 
     var body: some View {
         let first = index == place.index
-        PDFPane(file: place.files[index], page: first ? page : nil, words: first ? words : [], resume: spot?.spot.page) { spot?.spot.page = $0 }
+        PDFPane(file: place.files[index], page: first ? page : nil, words: first ? words : [])
             .id(place.files[index].uri)
             .toolbar { if place.files.count > 1 { StepBar(count: place.files.count, index: $index) } }
-            // A file stepped to opens at its start, so its page starts afresh.
-            .onChange(of: index) { _, now in spot?.spot = ViewerMemory.Spot(index: now) }
     }
 }
 
@@ -295,17 +248,14 @@ private struct PDFPane: View {
     /// The matched page; nil when the PDF was opened without a match.
     let page: Int?
     let words: [String]
-    /// The page it was on before it was rebuilt, which wins over the matched page.
-    var resume: Int?
-    var onPage: (Int) -> Void = { _ in }
     @State private var document: PDFDocument?
     @State private var problem: ViewerProblem?
     @State private var current: Int
     @Environment(AppModel.self) private var model: AppModel?
 
-    init(file: SourceFile, page: Int?, words: [String], resume: Int? = nil, onPage: @escaping (Int) -> Void = { _ in }) {
-        (self.file, self.page, self.words, self.resume, self.onPage) = (file, page, words, resume, onPage)
-        _current = State(initialValue: resume ?? page ?? 1)
+    init(file: SourceFile, page: Int?, words: [String]) {
+        (self.file, self.page, self.words) = (file, page, words)
+        _current = State(initialValue: page ?? 1)
     }
 
     var body: some View {
@@ -325,10 +275,9 @@ private struct PDFPane: View {
             if let document { Badge(lines: [ViewerCopy.match(page: page), ViewerCopy.page(current, of: document.pageCount)].compactMap { $0 }) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .PDFViewPageChanged)) { note in
-            // Not before the opening jump lands: the first page shows first, and would replace the remembered one.
+            // Not before the opening jump lands: the first page shows first, and would replace the matched one.
             if let view = note.object as? JumpPDFView, view.pending == nil, let shown = view.currentPage, let document = view.document {
                 current = document.index(for: shown) + 1
-                onPage(current)
             }
         }
         .viewerBar(file)
@@ -408,19 +357,17 @@ private struct PDFPageView: UIViewRepresentable {
 struct MediaViewer: View {
     let place: Place
     let ms: Int64?
-    var spot: Remembered?
     @State private var index: Int
 
-    init(place: Place, ms: Int64?, spot: Remembered? = nil) {
-        (self.place, self.ms, self.spot) = (place, ms, spot)
-        _index = State(initialValue: spot?.spot.index ?? place.index)
+    init(place: Place, ms: Int64?) {
+        (self.place, self.ms) = (place, ms)
+        _index = State(initialValue: place.index)
     }
 
     var body: some View {
-        MediaPane(file: place.files[index], ms: index == place.index ? ms : nil, spot: spot)
+        MediaPane(file: place.files[index], ms: index == place.index ? ms : nil)
             .id(place.files[index].uri)
             .toolbar { if place.files.count > 1 { StepBar(count: place.files.count, index: $index) } }
-            .onChange(of: index) { _, now in spot?.spot = ViewerMemory.Spot(index: now) }
     }
 
     /// Off the main actor: Photos calls back on its own queue, and a closure formed here would trap there.
@@ -442,8 +389,6 @@ private struct MediaPane: View {
     let file: SourceFile
     /// The matched moment; nil when there is no real locator.
     let ms: Int64?
-    /// Where it had got to, and whether it was playing, before it was rebuilt.
-    var spot: Remembered?
     @State private var player: AVPlayer?
     @State private var problem: ViewerProblem?
     @Environment(AppModel.self) private var model: AppModel?
@@ -488,20 +433,14 @@ private struct MediaPane: View {
             #if DEBUG
                 player.isMuted = CommandLine.arguments.contains("-mutedMedia")
             #endif
-            // Opens at the moment, paused: nothing plays until the person presses play. A rebuilt viewer carries on
-            // where it was, playing if it was.
-            let resume = spot?.spot
-            let start = resume?.seconds.map { CMTime(seconds: $0, preferredTimescale: 1000) } ?? CMTime(value: ms ?? 0, timescale: 1000)
-            await player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+            // Opens at the moment, paused: nothing plays until the person presses play.
+            await player.seek(to: CMTime(value: ms ?? 0, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
             guard !Task.isCancelled else { return }
             self.player = player
             try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            if resume?.playing == true { player.play() }
         }
         .onDisappear {
             guard let player else { return }
-            spot?.spot.seconds = player.currentTime().seconds
-            spot?.spot.playing = player.timeControlStatus == .playing
             player.pause()
         }
     }
@@ -523,12 +462,11 @@ private struct PlayerController: UIViewControllerRepresentable {
 
 struct PhotoViewer: View {
     let files: [SourceFile]
-    var spot: Remembered?
     @State private var selection: Int
 
-    init(files: [SourceFile], index: Int, spot: Remembered? = nil) {
-        (self.files, self.spot) = (files, spot)
-        _selection = State(initialValue: spot?.spot.index ?? index)
+    init(files: [SourceFile], index: Int) {
+        self.files = files
+        _selection = State(initialValue: index)
     }
 
     var body: some View {
@@ -536,7 +474,6 @@ struct PhotoViewer: View {
             ForEach(files.indices, id: \.self) { PhotoPage(file: files[$0]).tag($0) }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .onChange(of: selection) { _, now in spot?.spot.index = now }
         .background(Color.black.ignoresSafeArea())
         .viewerBar(files[selection], detail: Place.label(index: selection, count: files.count))
         .toolbarBackground(.visible, for: .navigationBar)
@@ -652,7 +589,6 @@ private struct DocumentViewer: View {
     let place: Place
     let locator: String
     let words: [String]
-    var spot: Remembered?
     @Environment(\.services) private var services
 
     var body: some View {
@@ -660,7 +596,7 @@ private struct DocumentViewer: View {
         if !items.contains(where: { $0.0.uri == place.file.uri }) {
             ProblemView(file: place.file, problem: .noAccess).viewerBar(place.file)
         } else {
-            DocumentPane(items: items, initial: place.file.uri, locator: locator, words: words, spot: spot)
+            DocumentPane(items: items, initial: place.file.uri, locator: locator, words: words)
         }
     }
 }
@@ -669,14 +605,12 @@ private struct DocumentPane: View {
     let items: [(SourceFile, URL)]
     let locator: String
     let words: [String]
-    var spot: Remembered?
     @State private var index: Int
     @State private var reading = false
 
-    init(items: [(SourceFile, URL)], initial: String, locator: String, words: [String], spot: Remembered? = nil) {
-        (self.items, self.locator, self.words, self.spot) = (items, locator, words, spot)
-        let remembered = spot?.spot.index.flatMap { items.indices.contains($0) ? $0 : nil }
-        _index = State(initialValue: remembered ?? items.firstIndex { $0.0.uri == initial } ?? 0)
+    init(items: [(SourceFile, URL)], initial: String, locator: String, words: [String]) {
+        (self.items, self.locator, self.words) = (items, locator, words)
+        _index = State(initialValue: items.firstIndex { $0.0.uri == initial } ?? 0)
     }
 
     var body: some View {
@@ -693,7 +627,6 @@ private struct DocumentPane: View {
                 }
             }
             .toolbar { if items.count > 1 { StepBar(count: items.count, index: $index) } }
-            .onChange(of: index) { _, now in spot?.spot.index = now }
             .sheet(isPresented: $reading) { TextReader(file: file, locator: locator, words: words) }
     }
 }
