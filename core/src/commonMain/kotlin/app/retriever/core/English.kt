@@ -520,4 +520,779 @@ internal object English : Strings {
     override val foundByNotYet = "Its name. Not processed yet."
 
     override val processingFailed = "Something went wrong processing your files. Retriever will try again."
+
+    // Access
+    override val onlyPickedPhotos = "Only the photos you picked"
+
+    override val musicAndRecordings = "Music and recordings"
+
+    override fun notCoveredMedia(photos: Boolean, videos: Boolean, music: Boolean) = listOfNotNull(
+        "photos".takeIf {
+            photos
+        },
+        "videos".takeIf { videos },
+        "music".takeIf { music },
+    ).let { m ->
+        "Not covered: " +
+            if (m.size == 1) m[0] else m.dropLast(1).joinToString(", ") + " and " + m.last()
+    }
+
+    override fun notCoveredDocuments(hasFolders: Boolean) =
+        if (hasFolders) "Not covered: documents and downloads outside the folders you added" else "Not covered: documents and downloads"
+
+    override val pickFolderOnPhone = "Pick a folder on this phone's storage."
+
+    override val alreadySearchesFolder = "Retriever already searches that folder."
+
+    // AccessService
+    override val couldntKeepFolder = "Couldn't keep access to that folder. Try picking it again."
+
+    // BrowseScreen
+    override val allFiles = "All files"
+
+    override val filesRetrieverCanAccess = "Files Retriever can access"
+
+    override val sortLargestDetail = "Largest first"
+
+    override val sortNameDetail = "By name, A to Z"
+
+    override val sortNewestDetail = "Newest first · by date modified"
+
+    override val couldntChangePerson = "Couldn't change this person. Try again."
+
+    override val back = "Back"
+
+    override val couldntLoadYourFiles = "Couldn't load your files"
+
+    override val wentWrongReadingThem = "Something went wrong reading them. Give it another go."
+
+    override val keepUsefulFilesClose = "Keep useful files close"
+
+    override val tapStarToFindHere = "Tap the star on a file to find it here."
+
+    override val chooseFilesToSearch = "Choose files to search"
+
+    override val addPhotosOrFolder = "Add photos or a folder."
+
+    override val manageAccess = "Manage access"
+
+    override val nothingHereYet = "Nothing here yet"
+
+    override fun filesShowUpHere(words: DeviceWords) = "Files show up here once Retriever finds them on your ${words.device}."
+
+    override val moreOptions = "More options"
+
+    override val couldntLoadMoreFiles = "Couldn't load more files"
+
+    override val sortNewest = "Newest"
+
+    override val sortLargest = "Largest"
+
+    override val sortName = "Name"
+
+    // BrowseViewModel
+    override val couldntLoadTheseFiles = "Couldn't load these files."
+
+    // PersonActions
+    override val rename = "Rename"
+
+    // DuplicatesScreen
+    override val duplicates = "Duplicates"
+
+    override val keepOneCopy = "Keep at least one copy of each file"
+
+    override fun filesCouldntBeDeleted(n: Long) = "${formatCount(n)} files couldn't be deleted"
+
+    override fun deleteSelected(n: Long, size: String) = "Delete ${formatCount(n)} selected ($size)"
+
+    override val lookingForCopiesEllipsis = "Looking for copies…"
+
+    override val couldntLookForDuplicates = "Couldn't look for duplicates"
+
+    override val noDuplicatesFound = "No duplicates found"
+
+    override fun comparedFiles(n: Long) = "Retriever compared ${formatCount(n)} files."
+
+    override fun couldBeFreed(size: String) = "$size could be freed"
+
+    override fun copiesEach(n: Long, size: String) = "${formatCount(n)} copies · $size each"
+
+    override fun openNamed(name: String) = "Open $name"
+
+    override val deselect = "Deselect"
+
+    override val select = "Select"
+
+    override val deleteFilesTitle = "Delete files?"
+
+    override fun deleteFilesMessage(n: Long) = "Delete ${formatCount(n)} files? This can't be undone."
+
+    override val delete = "Delete"
+
+    // DuplicatesViewModel
+    override val somethingWentWrongTryAgain = "Something went wrong. Try again."
+
+    // FileActions
+    override val addToStarred = "Add to Starred"
+
+    override val share = "Share"
+
+    override val openInAnotherApp = "Open in another app"
+
+    override val fileInfo = "File info"
+
+    override val removeFromStarred = "Remove from Starred"
+
+    override val topLevel = "Top level"
+
+    override val couldntChangeStar = "Couldn't change the star. Try again."
+
+    override val findSimilar = "Find similar"
+
+    override val couldntFinishThat = "Couldn't finish that. The file may have moved or access may have changed."
+
+    override val renameFile = "Rename file"
+
+    override val deleteThisFile = "Delete this file?"
+
+    // FileInfo
+    override fun kindAndSize(kind: String, size: String) = "$kind · $size"
+
+    override val locationLabel = "Location"
+
+    override val hideFullPath = "Hide full path"
+
+    override val showFullPath = "Show full path"
+
+    override val locationDetails = "Location details"
+
+    override val pathClipLabel = "Path"
+
+    override val copyPath = "Copy path"
+
+    override val dimensionsLabel = "Dimensions"
+
+    override fun dimensions(width: Int, height: Int) = "$width × $height"
+
+    override val durationLabel = "Duration"
+
+    override val pagesLabel = "Pages"
+
+    override val internalStorage = "Internal storage/"
+
+    // FoldersScreen
+    override val folders = "Folders"
+
+    override val foldersDidntLoad = "Folders didn't load"
+
+    override val noFoldersYet = "No folders yet"
+
+    override val tryAgainInAMoment = "Try again in a moment."
+
+    override val foldersAppearPhone = "Folders appear once Retriever has looked through your phone."
+
+    override fun stopSearchingAsk(name: String) = "Stop searching $name?"
+
+    override fun stopSearchingMessage(n: Long, name: String) =
+        "The ${files(n)} in $name are removed from search now, and bringing them back means processing them all again. " +
+            "You can bring it back from the status line at the top of Home."
+
+    override val stopSearching = "Stop searching"
+
+    override fun filesInParent(n: Long, parent: String) = "${files(n)} · $parent"
+
+    override fun moreOptionsFor(name: String) = "More options for $name"
+
+    override val stopSearchingThisFolder = "Stop searching this folder"
+
+    // FoldersViewModel
+    override val couldntLoadYourFolders = "Couldn't load your folders. Try again in a moment."
+
+    override val couldntStopSearchingFolder = "Couldn't stop searching that folder. Try again in a moment."
+
+    // HomeScreen
+    override val onThisDayHidden = "On this day hidden"
+
+    override val undo = "Undo"
+
+    override val showProcessingDetails = "Show processing details"
+
+    override val lookingForYourFiles = "Looking for your files"
+
+    override val nothingToSearchYet = "Nothing to search yet"
+
+    override val takesAMinute = "This takes a minute. You can search by name as soon as they turn up."
+
+    override val saveAPdfHint = "Save a PDF, take a screenshot or a photo, and it'll show up here."
+
+    // HomeSections
+    override val showAll = "Show all"
+
+    override fun sectionSpoken(title: String, subtitle: String) = "$title, $subtitle"
+
+    override val openAction = "Open"
+
+    override fun personTileSpoken(name: String, photos: Long) = "$name, ${photos(photos)}"
+
+    override fun browseTileSpoken(label: String, count: String) = "$label, $count"
+
+    override val onThisDay = "On this day"
+
+    override fun onThisDaySpoken(year: Int, count: String, date: String) = "$year, $count from $date"
+
+    override val showThem = "Show them"
+
+    override val hideOnThisDay = "Hide On this day"
+
+    override val starredSection = "Starred"
+
+    // ReadingPermission
+    override val notificationPermissionAsk = "Show a notification while Retriever processes your files?"
+
+    override val processFasterAsk = "Process faster while charging?"
+
+    override val processFasterBody = "Android runs apps in the background on its slowest cores. With Retriever's battery use set to Unrestricted, it " +
+        "uses the fast ones whenever your phone charges, and finishes much sooner. In settings, open Battery and choose Unrestricted."
+
+    override val openSettingsLowercase = "Open settings"
+
+    // ModelDownload
+    override val searchModelDownloadTitle = "Retriever search model"
+
+    // ModelRepository
+    override val downloadStopped = "The download stopped. Check your connection and try again."
+
+    override val downloadDamaged = "The download was damaged. Try again."
+
+    override fun needsFreeSpace(gb: String) = "Needs $gb GB free. Free up some space, then try again."
+
+    // SearchResults
+    override fun likeFile(name: String) = "Like $name"
+
+    override val photoYoureSearchingWith = "The photo you're searching with"
+
+    override val stopSearchingByPhoto = "Stop searching by photo"
+
+    override val searchWordsAsTyped = "Search the words as typed instead"
+
+    override val photoSearchAfterSetup = "Search by photo works once setup finishes."
+
+    override val matchingExactWordsForNow = "Matching exact words for now. Results by description will be back shortly."
+
+    override fun noMatchesIn(scope: String) = "No matches in your $scope"
+
+    override val nothingLikePhotoThere = "Nothing like this photo there."
+
+    override fun nothingForThere(query: String) = "Nothing for “$query” there."
+
+    override val searchAllFiles = "Search all files"
+
+    override val nothingLikeThisYet = "Nothing like this yet"
+
+    override val tryAnotherPhoto = "Try another photo."
+
+    override val tryFewerWords = "Try fewer words"
+
+    override val filterAll = "All"
+
+    override val filterStarred = "Starred"
+
+    override val expanded = "Expanded"
+
+    override val collapsed = "Collapsed"
+
+    override fun lessLikelyMatches(n: Long) = "Less likely matches (${formatCount(n)})"
+
+    override val moreDocuments = "More documents"
+
+    override val recordings = "Recordings"
+
+    override val documentsAndMore = "Documents and more"
+
+    // SearchScreen
+    override val searchWithPhoto = "Search with a photo"
+
+    override val clearSearch = "Clear search"
+
+    override val recentSearches = "Recent searches"
+
+    override fun removeFromHistory(query: String) = "Remove $query from history"
+
+    override val searchAction = "Search"
+
+    override val clearHistory = "Clear history"
+
+    // SearchViewModel
+    override val likeYourPhoto = "Like your photo"
+
+    override val couldntOpenPhoto = "Couldn't open this photo. Choose another one."
+
+    override val thatDidntWork = "That didn't work. Try again."
+
+    // SettingsScreen
+    override val includedFilesFooter = "$kindOff A folder to skip is left out of search."
+
+    override val onlyWhenYouChoose = "Only when you choose $readFor15."
+
+    override val processingNotifications = "Processing notifications"
+
+    override val notificationsOn = "On"
+
+    override val notificationsOff = "Off. Processing still runs; you just don’t see how far it’s got."
+
+    override val includedFiles = "Included files"
+
+    override val noneExcluded = "None"
+
+    override fun includeNamed(folder: String) = "Include $folder"
+
+    override val includeFolder = "Include folder"
+
+    override val privacy = "Privacy"
+
+    override val saveRecentSearches = "Save recent searches"
+
+    override val savedOnDeviceShortcuts = "Saved on this device. Also used for search shortcuts."
+
+    override val clearRecentSearches = "Clear recent searches"
+
+    override val clearSearchesAndShortcutsAsk = "Clear recent searches and shortcuts?"
+
+    override val clear = "Clear"
+
+    override val storage = "Storage"
+
+    override val appearance = "Appearance"
+
+    override val wallpaperColours = "Wallpaper colours"
+
+    override val wallpaperColoursOff = "Off uses Retriever's warm amber."
+
+    override val about = "About"
+
+    override val version = "Version"
+
+    override val openSourceNotices = "Open-source notices"
+
+    override val removeDownloadConfirm = "Remove download"
+
+    override fun howItWorksBody(words: DeviceWords) = "${wholeDeviceNote(
+        words,
+    )} ${onDevice(
+        words,
+    )}. Search and text-recognition models may need an internet download. Your file provider may also use the internet to open cloud files."
+
+    override val howItWorksTimes = "It processes your files at the times you choose under $whenToRead. Long files are processed a bit at a time: you " +
+        "can find them by their beginning first."
+
+    override val runSetupCheck = "Run setup check"
+
+    override val tuningFewMinutes = "Tuning… a few minutes at most"
+
+    override fun tuneFailedMessage(message: String) = "Tune failed: $message"
+
+    override val processingIsSetUp = "Processing is set up"
+
+    override val adjustsProcessingSpeed = "Adjusts processing speed to this phone."
+
+    override val useMobileDataForDownloads = "Use mobile data for downloads"
+
+    override val downloadsWaitForWifiShort = "Off: downloads wait for Wi-Fi."
+
+    override val loading = "Loading…"
+
+    // SettingsViewModel
+    override val couldntSaveChange = "Couldn’t save this change. Try again."
+
+    override val searchDownloadRemoved = "Search download removed"
+
+    // Starring
+    override val starAdded = "Starred"
+
+    override val starRemoved = "Star removed"
+
+    // StatusScreen
+    override val checkingYourFiles = "Checking your files…"
+
+    override val hide = "Hide"
+
+    override val reviewFiles = "Review files"
+
+    override val letProcessWhileAway = "Let Retriever process files while you’re not using it"
+
+    override fun batteryMayStop(chargingOnly: Boolean) =
+        "Your phone may stop it to save battery." + if (chargingOnly) " It still processes files only while charging." else ""
+
+    override val settingsRowDetail = "What to process, storage and more"
+
+    override val chooseMorePhotos = "Choose more photos"
+
+    override val foldersYouAdded = "Folders you added"
+
+    override fun removeNamed(name: String) = "Remove $name"
+
+    override val allowAccessToAllFiles = "Allow access to all files"
+
+    // Format
+    override fun starredScope(kind: String?) = kind?.let { "starred $it" } ?: starredFiles
+
+    override fun pageBadge(page: Int) = "Page $page"
+
+    // FileRow
+    override fun openAtPage(page: Int) = "Open at page $page"
+
+    override fun playFrom(time: String) = "Play from $time"
+
+    override fun kindSizeDate(kind: String, size: String, date: String) = "$kind · $size · $date"
+
+    override fun fileRowSpoken(kind: String, name: String, date: String, position: String?, note: String?) =
+        "$kind, $name, $date" + (position?.let { ", $it" } ?: "") + (note?.let { ", $it" } ?: "")
+
+    // ReadingFiles
+    override val fileActions = "File actions"
+
+    override fun fileSpoken(name: String, kind: String, date: String) = "$name, $kind, $date"
+
+    // DocScreen
+    override val notProcessedThisYet = "Retriever hasn't processed this yet"
+
+    override val waitingItsTurn = "It's waiting its turn with the other new files. Open it in another app to see it now."
+
+    override val noTextFound = "Retriever couldn't find text in this file"
+
+    override val scanOrPictures = "It may be a scan or hold only pictures. Open it in another app to see it."
+
+    override val couldntOpenFile = "Couldn't open this file"
+
+    override val maybeMovedOrDeleted = "It may have been moved or deleted."
+
+    override val previousMatch = "Previous match"
+
+    override fun matchOf(at: Int, total: Int) = "Match $at of $total"
+
+    override fun matchCount(n: Long) = "${formatCount(n)} matches"
+
+    override val nextMatch = "Next match"
+
+    // Opener
+    override val noAppOpensFile = "No app on this phone opens this file"
+
+    // PdfPageScreen
+    override fun pdfSubtitle(page: Int, count: Int, matchedPage: Int?) = (matchedPage?.let { "${matchOnPage(it)} · " } ?: "") + pageOf(page, count)
+
+    override val closePage = "Close page"
+
+    override val pdfNeedsPassword = "This PDF needs a password"
+
+    override val pdfFindableByName = "Retriever can still find it by name. You can open it in another app."
+
+    override val folderAccessChanged = "Access to this folder has changed"
+
+    override val chooseFolderAgain = "Choose the folder again to open this file."
+
+    override val fileNoLongerAvailable = "This file is no longer available"
+
+    override val goBack = "Go back"
+
+    override val couldntOpenPdf = "Couldn't open this PDF"
+
+    override fun pageZoomed(page: Int) = "Page $page, zoomed"
+
+    override fun pageOf(page: Int, count: Int) = "Page $page of $count"
+
+    override val zoomPage = "Zoom page"
+
+    override fun pageSpoken(label: String, matched: Boolean) = label + if (matched) ", where your search matched" else ""
+
+    override val matchedHere = "Matched here"
+
+    // PhotoScreen
+    override val couldntShowPhoto = "Couldn't show this photo"
+
+    // PlayerScreen
+    override fun matchAt(time: String) = "Match at $time"
+
+    override fun couldntPlay(audio: Boolean) = "Couldn't play this ${if (audio) "recording" else "video"}"
+
+    override val maybeMovedOrCantPlay = "It may have been moved or deleted, or this phone can't play it."
+
+    // ViewerQueue
+    override fun positionOf(at: Int, count: Int) = "$at of $count"
+
+    // ViewerTopBar
+    override val previousFile = "Previous file"
+
+    override val nextFile = "Next file"
+
+    // AppModel+Loop
+    override fun keepProcessingFailed(words: DeviceWords) =
+        "iOS couldn’t keep processing while you weren’t using Retriever. Keep it open, or let it process your files while your ${words.device} charges."
+
+    // AppModel+Settings
+    override val couldntChangePersonCurly = "Couldn’t change this person. Try again."
+
+    // FolderSource
+    override val aFolder = "A folder"
+
+    // PhotosSource
+    override val photosScreenshotsFolder = "Photos/Screenshots"
+
+    override val photosCameraFolder = "Photos/Camera"
+
+    override val photosVideosFolder = "Photos/Videos"
+
+    // SearchModel
+    override val starredFiles = "starred files"
+
+    // Copy
+    override val photosAccessOff = "Photos access is off"
+
+    override val photosOffNoteDetail = "Search still works on files already processed. Turn it on to search your photos and screenshots too."
+
+    override val seesOnlyPickedPhotos = "Retriever sees only the photos you picked"
+
+    override val canSearchJustThose = "It can search just those."
+
+    override val folderAdded = "Folder added. Retriever will process what's inside."
+
+    override fun folderOverlaps(name: String) = "That folder overlaps “$name”, which Retriever already searches."
+
+    override val folderRefused = "iOS wouldn't let Retriever keep that folder. Try another one."
+
+    override fun backgroundNote(words: DeviceWords) =
+        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your ${words.device} is charging. $readFor15 uses some battery."
+
+    override val screenKeptOn = "Your screen stays on while Retriever processes your files for 15 minutes. You can turn this off in Settings."
+
+    override fun showingLabels(labels: List<String>) = "Showing " + labels.joinToString(" · ")
+
+    override val searchMyExactWords = "Search my exact words"
+
+    override fun processedSoFar(n: Long) = "${readCount(n)} so far"
+
+    // Format
+    override fun opensAtPage(page: Int) = "Opens at page $page"
+
+    override fun playsFrom(time: String) = "Plays from $time"
+
+    override val opensHint = "Opens"
+
+    // BrowseView
+    override val couldntLoadFiles = "Couldn't load files"
+
+    override val wentWrongReadingList = "Something went wrong reading the list."
+
+    override fun sizeFolderDate(size: String, folder: String, date: String) = "$size · $folder · $date"
+
+    override val sortBy = "Sort by"
+
+    override val sortMenu = "Sort"
+
+    override val ok = "OK"
+
+    // DuplicatesView
+    override val noDuplicatesMessage = "Retriever checked the files in your added folders and found no copies bigger than 1 MB. Photos aren't checked."
+
+    override val lookingForCopies = "Looking for copies"
+
+    override val thisCanTakeAMinute = "This can take a minute."
+
+    override fun deleteFilesAsk(n: Long) = if (n == 1L) "Delete 1 file?" else "Delete ${formatCount(n)} files?"
+
+    override val cantBeRecovered = "They can't be recovered."
+
+    override val comparesFilesNote = "Compares files in the folders you added, not photos. The oldest copy of each file is kept. Tap a copy to change " +
+        "what goes."
+
+    override fun folderAndDate(folder: String, date: String) = "$folder · $date"
+
+    override val selectedToDeleteHint = "Selected to delete. Double-tap to keep it."
+
+    override val keptHint = "Kept. Double-tap to select it for deleting."
+
+    override fun filesWerentDeleted(n: Long) = if (n == 1L) "1 file wasn't deleted" else "${formatCount(n)} files weren't deleted"
+
+    // FileActions
+    override val couldntOpenFolderUnavailable = "Couldn't open this file. Its folder may be unavailable."
+
+    override val photosAppName = "Photos"
+
+    override val moreActions = "More actions"
+
+    override val couldntFinish = "Couldn't finish"
+
+    // FoldersView
+    override val foldersWithFiles = "Folders with files"
+
+    override val couldntLoadFolderList = "Couldn't load the folder list. Try again"
+
+    override val removeFolder = "Remove"
+
+    override val cantOpenFolderAnyMore = "Retriever can't open this folder any more. Remove it, then add it again."
+
+    override val alsoSearchesOwnFolder = "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it."
+
+    override val couldntLoadFolders = "Couldn't load folders"
+
+    override val wentWrongReadingFolders = "Something went wrong reading your folders."
+
+    override val foldersAppearFiles = "Folders appear once Retriever has looked through your files."
+
+    override fun stopSearchingForget(n: Long, name: String) = "Retriever will forget the ${files(n)} in $name. You can bring it back here."
+
+    override fun removeFolderAsk(name: String) = "Remove $name?"
+
+    override val removeFolderMessage = "Retriever will stop searching it and forget what it processed there. The folder and its files stay where they are."
+
+    // HomeSections
+    override val showsAll = "Shows all"
+
+    override val showsThem = "Shows them"
+
+    override val hideOnThisDayIos = "Hide On This Day"
+
+    override fun homeTileSpoken(kind: String, name: String, date: String, starred: Boolean) = "$kind, $name, $date" + if (starred) ", starred" else ""
+
+    // HomeView
+    override val addFolderOrPhotos = "Add a folder, or let Retriever see your photos, and it'll find what's inside them."
+
+    override val allowPhotosAccess = "Allow Photos access"
+
+    override val turnOnPhotosAccess = "Turn on Photos access"
+
+    override val onThisDayTitle = "On This Day"
+
+    override val openSettings = "Open Settings"
+
+    override val alsoSearchesFolders = "Retriever also searches folders you add."
+
+    // ReadingFiles
+    override val openFileHint = "Open file"
+
+    // ResultViews
+    override fun sharedPhotoName(ext: String?) = "Photo.${ext ?: "jpg"}"
+
+    // RootView
+    override val setupTitle = "Setup"
+
+    // SearchView
+    override val docsShort = "Docs"
+
+    override val searchByPhoto = "Search by photo"
+
+    override val removeSearch = "Remove"
+
+    override val removeFromRecentSearches = "Remove from recent searches"
+
+    override val somethingWentWrongSearching = "Something went wrong searching."
+
+    override val lookingEllipsis = "Looking…"
+
+    override fun turnOnToSearchScope(scope: String) = "Turn it on in Settings, and Retriever can search your $scope too."
+
+    override val noMatchesInPickedPhotos = "No matches in the photos you picked"
+
+    override val onlySeesChosenPhotos = "Retriever can only see the photos you chose. Pick more to search more of them."
+
+    override val notQuiteReady = "Not quite ready"
+
+    override fun nothingLikeThatOn(words: DeviceWords) = "Nothing like that on this ${words.device} yet."
+
+    override fun nothingInScopeFits(scope: String) = "Nothing in $scope fits. Try all your files."
+
+    override fun noStarredMatch(query: String) = "No starred file matches “$query”"
+
+    override val onlyStarredShowHere = "Only files you've starred show here. Try all your files."
+
+    override fun nothingLikePhotoIn(scope: String) = "Nothing like this photo in $scope"
+
+    override fun noMatchesFor(query: String) = "No matches for “$query”"
+
+    override val tryAllFilesInstead = "Try all your files instead."
+
+    override fun nothingInScopeMatches(scope: String) = "Nothing in $scope matches. Try all your files."
+
+    override val likeThisPhoto = "Like this photo"
+
+    override val photosOffResults = "Photos access is off, so these results leave out your photos."
+
+    // SettingsView
+    override val cleared = "Cleared"
+
+    override fun savedOnDeviceOnly(words: DeviceWords) = "Saved on this ${words.device} only. Nothing is sent anywhere."
+
+    override val clearRecentSearchesAsk = "Clear recent searches?"
+
+    override fun privacyBody(words: DeviceWords) =
+        "Retriever processes your files on this ${words.device}. Your searches, stars and what it finds inside stay here. Downloading search by description and opening files stored in iCloud may use the internet."
+
+    override val longFilesBitAtATime = "Long files are processed a bit at a time: you can find them by their beginning first, and the rest follows."
+
+    override val onlyWhenYouChooseAnyFile = "Only when you choose $readFor15. You can always find any file by its name."
+
+    override fun alsoOnBatteryIosBody(words: DeviceWords) =
+        "Processes your files while Retriever is open, above 20% battery. When you’re not using it, iOS waits until your ${words.device} is charging. Pauses when your ${words.device} is warm or in Low Power Mode."
+
+    override val keepScreenOnToggle = "Keep the screen on while processing for 15 minutes"
+
+    override fun adjustProcessingFor(words: DeviceWords) = "Adjust processing for this ${words.device}"
+
+    override val runSetupCheckAgain = "Run the setup check again."
+
+    override val kindsFooterVideos = "$kindOff Videos: pictures only, no sound."
+
+    override fun includeQuoted(name: String) = "Include “$name”"
+
+    override val doesntLookInThese = "Retriever doesn’t look in these. Your files stay where they are."
+
+    override val downloadsOnWifiOrData = "Downloads on Wi-Fi or mobile data."
+
+    override val downloadsWaitForWifi = "Downloads wait for Wi-Fi, so they won't use your data."
+
+    override val noticesUnavailable = "Retriever is built on open-source software. Its licences couldn't be shown just now."
+
+    // SetupView
+    override val searchesForThis = "Searches for this"
+
+    // SplitRoot
+    override val searchTab = "Search"
+
+    // StatusView
+    override val onlySeesPickedPhotos = "Retriever can only see the photos you picked."
+
+    override val photosOffCantSearch = "Photos access is off, so Retriever can't search your photos."
+
+    // TextReader
+    override val notProcessedOpenOriginal = "Retriever hasn't processed this file yet. You can open the original instead."
+
+    override val noTextToShow = "No text to show"
+
+    override val noReadableText = "Retriever found no readable text in this file."
+
+    override val couldntShowText = "Couldn't show the text"
+
+    override val wentWrongReadingIt = "Something went wrong reading it. Try again in a moment."
+
+    override val textFromThisFile = "Text from this file"
+
+    override val onlyBeginningIncluded = "Only the beginning of this file is included."
+
+    // Viewer
+    override fun matchOnPage(page: Int) = "Match on page $page"
+
+    override val anotherAppCanAsk = "Another app can ask for it."
+
+    override val damagedOrUnsupported = "It may be damaged, or in a form Retriever can't show."
+
+    override fun couldntPlayIos(audio: Boolean) = if (audio) "Couldn't play this audio" else "Couldn't play this video"
+
+    override val iCloudOrCantPlay = "It may be only in iCloud and there's no connection, or in a form Retriever can't play."
+
+    override fun photoSpoken(kind: String, name: String) = "$kind, $name"
+
+    override val turnOnToSeePhotos = "Turn it on in Settings to see your photos here."
+
+    override val onlyInICloudNow = "It may be only in iCloud, and there's no connection right now."
+
+    override val downloadingFromICloud = "Downloading from iCloud"
 }

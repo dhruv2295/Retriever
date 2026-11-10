@@ -535,8 +535,11 @@ class Retriever(
      */
     private fun fewWaiting(): Boolean = store.pendingUpTo(readInside(), fewWaitingLimit + 1L) in 1..fewWaitingLimit
 
-    /** What the status line reads from the device and the clock once a second. */
-    private data class Tick(val blocker: StopReason?, val readNowMinutes: Int, val pluggedIn: Boolean)
+    /**
+     * What the status line reads from the device and the clock once a second. [language]: a language change while nothing
+     * else moves still redraws the line in the new words.
+     */
+    private data class Tick(val blocker: StopReason?, val readNowMinutes: Int, val pluggedIn: Boolean, val language: Language = Words.language)
 
     private data class StatusKey(val counts: Store.Counts, val prefs: Prefs, val state: IndexState, val tick: Tick)
 
