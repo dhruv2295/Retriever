@@ -22,6 +22,8 @@ struct RootView: View {
     @State private var homeShown = false
     /// ⌘F's count in this window: its search field comes up each time it changes.
     @State private var searchFocus = 0
+    /// Where the open viewers are, so a viewer the size-class switch rebuilds carries on where it was.
+    @State private var viewers = ViewerMemory()
 
     init(model: AppModel) {
         self.model = model
@@ -97,6 +99,8 @@ struct RootView: View {
             }
         }
         .environment(\.searchFocus, searchFocus)
+        .environment(\.viewerMemory, viewers)
+        .onChange(of: path, initial: true) { _, now in viewers.keep(now.compactMap { if case .view(let v) = $0 { v } else { nil } }) }
         // The menu bar's and the keyboard's Search and Settings act on this window (RetrieverCommands).
         .focusedSceneValue(
             \.windowCommands,
@@ -131,6 +135,7 @@ extension View {
 struct AppStack<Root: View>: View {
     let model: AppModel
     @Binding var path: [Route]
+    @Environment(\.viewerMemory) private var viewerMemory
     private let root: Root
 
     init(model: AppModel, path: Binding<[Route]>, @ViewBuilder root: () -> Root) {
@@ -171,7 +176,7 @@ struct AppStack<Root: View>: View {
         case .duplicates:
             DuplicatesView(model: model)
         case .view(let v):
-            viewer(v)
+            viewer(v, memory: viewerMemory)
         }
     }
 }
