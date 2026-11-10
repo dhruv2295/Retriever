@@ -189,7 +189,7 @@ fun Thumb(file: SourceFile, size: Dp, modifier: Modifier = Modifier, locator: St
 
 /**
  * A square grid cell: the picture (at the matched page or moment) with a small badge saying where. [requestSize] is the
- * cell's width as the grid worked it out ([CappedCells]), so no cell measures itself.
+ * picture's request size, from the cell width the grid worked out ([CappedCells]), so no cell measures itself.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -273,20 +273,20 @@ fun kindIcon(kind: Kind): Int = when (kind) {
 }
 
 /**
- * A list's contentPadding: the Scaffold's, with the bottom cleared of the navigation bar and keyboard, and [side] added
- * at both sides; [includeTop] false leaves the top to the caller. Never pad the list itself, or it
- * clips instead of scrolling under the bars. The insets are read inside the lazy list's measure, not in composition,
- * so a keyboard animation re-measures the list without recomposing it.
+ * A list's contentPadding: the Scaffold's, with the bottom cleared of the navigation bar and keyboard; [includeTop]
+ * false leaves the top to the caller. Never pad the list itself, or it clips instead of scrolling under the bars. The
+ * insets are read inside the lazy list's measure, not in composition, so a keyboard animation re-measures the list
+ * without recomposing it.
  */
 @Composable
-fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, side: Dp = 0.dp, includeTop: Boolean = true): PaddingValues {
+fun contentPaddingFor(scaffold: PaddingValues, extraBottom: Dp = 16.dp, includeTop: Boolean = true): PaddingValues {
     val density = LocalDensity.current
     val nav = WindowInsets.navigationBars
     val ime = WindowInsets.ime
-    return remember(scaffold, extraBottom, side, includeTop, density, nav, ime) {
+    return remember(scaffold, extraBottom, includeTop, density, nav, ime) {
         object : PaddingValues {
-            override fun calculateLeftPadding(layoutDirection: LayoutDirection) = scaffold.calculateLeftPadding(layoutDirection) + side
-            override fun calculateRightPadding(layoutDirection: LayoutDirection) = scaffold.calculateRightPadding(layoutDirection) + side
+            override fun calculateLeftPadding(layoutDirection: LayoutDirection) = scaffold.calculateLeftPadding(layoutDirection)
+            override fun calculateRightPadding(layoutDirection: LayoutDirection) = scaffold.calculateRightPadding(layoutDirection)
             override fun calculateTopPadding() = if (includeTop) scaffold.calculateTopPadding() else 0.dp
             override fun calculateBottomPadding() =
                 maxOf(scaffold.calculateBottomPadding(), with(density) { maxOf(nav.getBottom(density), ime.getBottom(density)).toDp() }) + extraBottom
