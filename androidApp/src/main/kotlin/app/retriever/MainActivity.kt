@@ -72,9 +72,10 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
-    // Esc goes back, as in a desktop window, when nothing on screen took it (an open menu closes itself first).
+    // Esc goes back, as in a desktop window, when nothing on screen took it (an open menu closes itself first). Only
+    // within the app: on Home it does nothing, rather than closing the app as Back would.
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode != KeyEvent.KEYCODE_ESCAPE) return super.onKeyUp(keyCode, event)
+        if (keyCode != KeyEvent.KEYCODE_ESCAPE || !onBackPressedDispatcher.hasEnabledCallbacks()) return super.onKeyUp(keyCode, event)
         onBackPressedDispatcher.onBackPressed()
         return true
     }
