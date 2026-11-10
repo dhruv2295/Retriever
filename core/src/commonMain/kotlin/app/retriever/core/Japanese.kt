@@ -321,8 +321,8 @@ internal object Japanese : Strings {
 
     override val noMatches = "見つかりませんでした"
 
-    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "写っているものを説明するか、書かれている内容で尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。") +
-        "「先週」のように時期を加えることもできます。"
+    // No "add when, like last week": QueryParser reads only English time words.
+    override fun noMatchesDetail(byMeaning: Boolean) = (if (byMeaning) "写っているものを説明するか、書かれている内容で尋ねてみてください。" else "含まれている言葉や、名前の一部で試してみてください。")
 
     override val moreWaiting = "Retrieverはまだファイルを処理中です。しばらくしてからもう一度検索してください。"
     override val searchFailed = "検索を完了できませんでした"

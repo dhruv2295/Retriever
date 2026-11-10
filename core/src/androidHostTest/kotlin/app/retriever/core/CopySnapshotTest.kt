@@ -4,6 +4,7 @@ import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -19,23 +20,27 @@ class CopySnapshotTest {
         val write = System.getProperty("copy.write")
         Language.entries.forEach {
             val file = File(write ?: "fixtures", "copy-${it.tag}.txt")
+            val sheet = snapshot(it)
             if (write !=
                 null
             ) {
-                file.writeText(snapshot(it))
+                file.writeText(sheet)
             } else {
-                assertEquals(file.readText(), snapshot(it), "${file.name} changed; rerun with -Dcopy.write=fixtures if on purpose")
+                assertEquals(file.readText(), sheet, "${file.name} changed; rerun with -Dcopy.write=fixtures if on purpose")
             }
         }
     }
 
+    /** One number format for every machine ("1,234"), so a sheet differs only by its language. */
     private fun snapshot(language: Language): String {
-        val before = Words.language
+        val before = Words.language to Locale.getDefault()
         Words.language = language
+        Locale.setDefault(Locale.US)
         try {
             return snapshot()
         } finally {
-            Words.language = before
+            Words.language = before.first
+            Locale.setDefault(before.second)
         }
     }
 

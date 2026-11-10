@@ -18,7 +18,7 @@ import app.retriever.core.Words.NBSP
  * - Starred → Markiert (the collection), star → markieren / Markierung.
  * - People → Personen; On this day → An diesem Tag; Home → Startseite; Browse → Durchsuchen.
  * - 15 minutes → 15 Minuten; While charging → Beim Laden; Also on battery → Auch im Akkubetrieb.
- * - Wi-Fi stays "Wi-Fi" per the brief, including in example queries.
+ * - WLAN, as Android and iOS name Wi-Fi in German, including in example queries.
  * - Retriever is "es" (das Programm) wherever a pronoun refers back to it.
  * - du throughout; buttons are infinitives ("Herunterladen"), iOS VoiceOver hints are third person ("Öffnet").
  * - Plural: 1 singular, everything else plural. Percent as "50 %" with a non-breaking space.
@@ -142,7 +142,7 @@ internal object German : Strings {
     override val helloBody = "Fotos, Screenshots, Dokumente und Videos in einer Suche."
     override val forExample = "Zum Beispiel"
     override val helloExamples = listOf(
-        Words.HelloExample("Wi-Fi-Passwort vom Vermieter", "Screenshot vom 14. März", "Zeigt „Wi-Fi-Passwort: …“"),
+        Words.HelloExample("WLAN-Passwort vom Vermieter", "Screenshot vom 14. März", "Zeigt „WLAN-Passwort: …“"),
         Words.HelloExample("Hund schläft auf dem Sofa", "Foto vom letzten Sonntag", "Über den Inhalt gefunden", needsModel = true),
         Words.HelloExample("mein Mietvertrag", "Mietvertrag 2025.pdf", "Seite 3, die unterschriebene Fassung"),
     )
@@ -152,7 +152,7 @@ internal object German : Strings {
 
     override val getStarted = "Starten"
 
-    override fun downloadNote(size: String) = "Enthält einen einmaligen Download von $size über Wi-Fi."
+    override fun downloadNote(size: String) = "Enthält einen einmaligen Download von $size über WLAN."
 
     override val accessTitle = "Wähle, was Retriever durchsuchen darf"
     override val accessBody = "Wähle eine oder mehrere Optionen. Du kannst später mehr hinzufügen."
@@ -188,7 +188,7 @@ internal object German : Strings {
 
     override fun descriptionLine(state: DescriptionState, percent: Int?) = when (state) {
         DescriptionState.DOWNLOADING -> "Suche per Beschreibung wird heruntergeladen" + (percent?.let { " · ${withPercent(it)}" } ?: "")
-        DescriptionState.WAITING_FOR_WIFI -> "Der Download der Suche per Beschreibung wartet auf Wi-Fi."
+        DescriptionState.WAITING_FOR_WIFI -> "Der Download der Suche per Beschreibung wartet auf WLAN."
         DescriptionState.PREPARING -> "Suche per Beschreibung wird vorbereitet"
         DescriptionState.FAILED -> "Der Download der Suche per Beschreibung wurde unterbrochen."
         DescriptionState.NO_SPACE -> "Nicht genug freier Speicher für den Download der Suche per Beschreibung."
@@ -238,7 +238,7 @@ internal object German : Strings {
 
         DescriptionState.UNAVAILABLE -> "Finde sie über den Namen oder Wörter im Inhalt. Die Suche per Beschreibung braucht ein Gerät mit mehr Arbeitsspeicher."
 
-        DescriptionState.WAITING_FOR_WIFI -> "Finde sie jetzt über den Namen oder Wörter im Inhalt. Ein einmaliger Download wartet auf Wi-Fi."
+        DescriptionState.WAITING_FOR_WIFI -> "Finde sie jetzt über den Namen oder Wörter im Inhalt. Ein einmaliger Download wartet auf WLAN."
 
         DescriptionState.FAILED -> "Finde sie jetzt über den Namen oder Wörter im Inhalt. Der Download wurde unterbrochen."
 
@@ -353,9 +353,8 @@ internal object German : Strings {
 
     override val noMatches = "Nichts gefunden"
 
-    override fun noMatchesDetail(byMeaning: Boolean) =
-        (if (byMeaning) "Beschreibe den Inhalt oder frag, was darin steht." else "Probier ein Wort aus dem Inhalt oder dem Namen.") +
-            " Ergänze eine Zeitangabe, etwa „letzte Woche“."
+    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
+        (if (byMeaning) "Beschreibe den Inhalt oder frag, was darin steht." else "Probier ein Wort aus dem Inhalt oder dem Namen.")
 
     override val moreWaiting = "Retriever verarbeitet deine Dateien noch, also such später noch einmal."
     override val searchFailed = "Die Suche konnte nicht abgeschlossen werden"
@@ -433,15 +432,15 @@ internal object German : Strings {
     override fun deleteConfirm(words: DeviceWords) = "Dadurch wird die Datei von deinem ${device(words)} gelöscht."
 
     override val upgradeTitle = "Dateien finden, indem du sie beschreibst"
-    override val waitingForWifi = "Download wartet auf Wi-Fi"
+    override val waitingForWifi = "Download wartet auf WLAN"
     override val useMobileData = "Mobile Daten nutzen"
-    override val waitForWifi = "Auf Wi-Fi warten"
+    override val waitForWifi = "Auf WLAN warten"
     override val checkingDownload = "Download wird geprüft…"
     override val downloadFailed = "Download unterbrochen. Prüfe deine Verbindung und versuch es noch einmal."
     override val noSpace = "Nicht genug freier Speicher für den Download"
     override val tuneLeaving = "Du kannst jetzt nach Namen suchen. Die Einrichtung geht weiter, wenn du zurückkommst."
 
-    override fun upgradeBody(size: String, words: DeviceWords) = "Einmaliger Download von $size über Wi-Fi. " +
+    override fun upgradeBody(size: String, words: DeviceWords) = "Einmaliger Download von $size über WLAN. " +
         "Danach findet eine Suche wie „Sonnenuntergang am Strand“ Fotos auch ohne diese Wörter. Alles bleibt auf diesem ${device(words)}."
 
     override fun downloadProgress(done: String, total: String, percent: Int) = "$done von $total · ${withPercent(percent)}"
@@ -501,7 +500,7 @@ internal object German : Strings {
     override val downloadPausedTitle = "Download pausiert"
 
     override fun downloadPausedDetail(words: DeviceWords, size: String) =
-        "Es geht weiter, sobald du mit Wi-Fi verbunden bist. Wenn dein ${device(words)} voll ist, braucht der Download $size freien Speicher."
+        "Es geht weiter, sobald du mit WLAN verbunden bist. Wenn dein ${device(words)} voll ist, braucht der Download $size freien Speicher."
 
     override fun downloadingTitle(percent: Int?) = "Suche per Beschreibung wird heruntergeladen" + (percent?.let { " · ${withPercent(it)}" } ?: "")
 
@@ -566,7 +565,7 @@ internal object German : Strings {
 
     override val caughtUpDetail = "Retriever verarbeitet neue Dateien von selbst."
 
-    override val peopleWaitsForWifi = "Der Download für „Personen“ wartet auf Wi-Fi."
+    override val peopleWaitsForWifi = "Der Download für „Personen“ wartet auf WLAN."
 
     override fun deepeningLead(left: Long) = "${notReadYet(left)}."
 
@@ -1007,7 +1006,7 @@ internal object German : Strings {
 
     override val useMobileDataForDownloads = "Mobile Daten für Downloads nutzen"
 
-    override val downloadsWaitForWifiShort = "Aus: Downloads warten auf Wi-Fi."
+    override val downloadsWaitForWifiShort = "Aus: Downloads warten auf WLAN."
 
     override val loading = "Wird geladen…"
 
@@ -1357,9 +1356,9 @@ internal object German : Strings {
 
     override val doesntLookInThese = "Retriever durchsucht diese Ordner nicht. Deine Dateien bleiben, wo sie sind."
 
-    override val downloadsOnWifiOrData = "Downloads über Wi-Fi oder mobile Daten."
+    override val downloadsOnWifiOrData = "Downloads über WLAN oder mobile Daten."
 
-    override val downloadsWaitForWifi = "Downloads warten auf Wi-Fi, damit sie deine mobilen Daten nicht nutzen."
+    override val downloadsWaitForWifi = "Downloads warten auf WLAN, damit sie deine mobilen Daten nicht nutzen."
 
     override val noticesUnavailable = "Retriever basiert auf Open-Source-Software. Die Lizenzen können gerade nicht angezeigt werden."
 

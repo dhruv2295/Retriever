@@ -149,6 +149,31 @@ class ReadingContractTest {
         assertEquals("Waits until you charge" to 8L, second.readingStatus().first().let { it.title to it.total })
     }
 
+    /** Android keeps the process across a language change: a line nothing else moves is drawn again in the new words. */
+    @Test fun aLanguageChangeRedrawsAnIdleLine() = runBlocking {
+        val store = newStore().also { it.setProfile(PROFILE) }
+        val files = (1..4).map { testFile("$it.txt") }
+        store.upsertFiles(files)
+        store.setMeta(LAST_FULL_SCAN_KEY, "1")
+        val unplugged = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
+        val r = testRetriever(store, files, FakeExtractor(), monitor = unplugged).apply { refreshSetUp() }
+        val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
+        val watching = launch(Dispatchers.Default) { r.readingStatus().collect { lines.send(it) } }
+        try {
+            assertEquals("Waits until you charge", withTimeout(5_000) { lines.receive() }.title)
+            Words.language = Language.DE
+            val german = Language.DE.strings.stopCopy(StopReason.UNPLUGGED, DeviceWords.ANDROID)
+            withTimeout(5_000) {
+                do {
+                    val line = lines.receive()
+                } while (line.title != german)
+            }
+        } finally {
+            Words.language = Language.EN
+            watching.cancel()
+        }
+    }
+
     /**
      * "Counting your files…" until the first full scan is written, then the count, without a relaunch. The scan's end is a
      * meta write, which countChanges never sees; the sync's own signal ([Retriever.synced]) wakes the line. This run also

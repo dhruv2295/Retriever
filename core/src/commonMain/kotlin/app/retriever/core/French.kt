@@ -360,9 +360,8 @@ internal object French : Strings {
 
     override val noMatches = "Aucun résultat"
 
-    override fun noMatchesDetail(byMeaning: Boolean) =
-        (if (byMeaning) "Décrivez ce qu’il contient, ou demandez ce qu’il dit." else "Essayez un mot qu’il contient ou tiré de son nom.") +
-            " Précisez une date ou une période, par exemple «${NBSP}la semaine dernière$NBSP»."
+    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
+        (if (byMeaning) "Décrivez ce qu’il contient, ou demandez ce qu’il dit." else "Essayez un mot qu’il contient ou tiré de son nom.")
 
     override val moreWaiting = "Retriever traite encore vos fichiers$NBSP: refaites la recherche plus tard."
     override val searchFailed = "La recherche n’a pas pu aboutir"

@@ -350,9 +350,8 @@ internal object Hindi : Strings {
 
     override val noMatches = "कुछ नहीं मिला"
 
-    override fun noMatchesDetail(byMeaning: Boolean) =
-        (if (byMeaning) "बताएं कि उसमें क्या है, या पूछें कि उसमें क्या लिखा है." else "उसमें मौजूद या उसके नाम का कोई शब्द आज़माएं.") +
-            " कब का है, यह भी जोड़ें, जैसे “पिछले हफ़्ते”."
+    override fun noMatchesDetail(byMeaning: Boolean) = // No "add when, like last week": QueryParser reads only English time words.
+        (if (byMeaning) "बताएं कि उसमें क्या है, या पूछें कि उसमें क्या लिखा है." else "उसमें मौजूद या उसके नाम का कोई शब्द आज़माएं.")
 
     override val moreWaiting = "Retriever अभी आपकी फ़ाइलें प्रोसेस कर रहा है, इसलिए थोड़ी देर बाद फिर से खोजें."
     override val searchFailed = "खोज पूरी नहीं हो सकी"
