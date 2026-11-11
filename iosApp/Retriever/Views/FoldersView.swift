@@ -128,7 +128,8 @@ struct FoldersView: View {
         }
         .alert(note ?? "", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) {}
         .alert(
-            Words.shared.strings.stopSearchingAsk(name: excluding?.name ?? ""), isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
+            Words.shared.strings.stopSearchingAsk(name: excluding?.name ?? ""),
+            isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
             presenting: excluding
         ) { f in
             Button(Words.shared.strings.stopSearching, role: .destructive) { model.setExcluded(f.path, true) }
@@ -136,7 +137,10 @@ struct FoldersView: View {
         } message: { f in
             Text(Words.shared.strings.stopSearchingForget(n: Int64(f.count), name: f.name))
         }
-        .alert(Words.shared.strings.removeFolderAsk(name: removing?.name ?? ""), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) {
+        .alert(
+            Words.shared.strings.removeFolderAsk(name: removing?.name ?? ""),
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing
+        ) {
             f in
             Button(Words.shared.strings.removeFolder, role: .destructive) { remove(f) }
             Button(Words.shared.CANCEL, role: .cancel) {}

@@ -167,7 +167,9 @@ struct TextReader: View {
                     Label(Words.shared.strings.previousMatch, systemImage: "chevron.up").labelStyle(.iconOnly)
                 }
                 Spacer()
-                Text(Words.shared.strings.matchOf(at: Int32(truncatingIfNeeded: current + 1), total: Int32(truncatingIfNeeded: loaded.matches.total))).font(.footnote).monospacedDigit()
+                Text(Words.shared.strings.matchOf(at: Int32(truncatingIfNeeded: current + 1), total: Int32(truncatingIfNeeded: loaded.matches.total))).font(
+                    .footnote
+                ).monospacedDigit()
                 Spacer()
                 Button {
                     current = ReaderMatches.step(current, by: 1, total: loaded.matches.total)

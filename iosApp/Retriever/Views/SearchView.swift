@@ -150,7 +150,9 @@ struct SearchView: View {
                         Label(q, systemImage: "clock.arrow.circlepath")
                             .searchCompletion(q)
                             .swipeActions { Button(Words.shared.strings.removeSearch, role: .destructive) { search.removeRecent(q) } }
-                            .contextMenu { Button(Words.shared.strings.removeFromRecentSearches, systemImage: "trash", role: .destructive) { search.removeRecent(q) } }
+                            .contextMenu {
+                                Button(Words.shared.strings.removeFromRecentSearches, systemImage: "trash", role: .destructive) { search.removeRecent(q) }
+                            }
                     }
                     Button(Words.shared.strings.clearRecentSearches, role: .destructive) { search.clearRecent() }
                 }
@@ -331,7 +333,8 @@ private struct ResultsView: View {
             }
         } else if scope != .all {
             StateView(
-                mood: search.noMatchMood, title: search.photo != nil ? Words.shared.strings.nothingLikePhotoIn(scope: scope.title) : Words.shared.strings.noMatchesFor(query: q),
+                mood: search.noMatchMood,
+                title: search.photo != nil ? Words.shared.strings.nothingLikePhotoIn(scope: scope.title) : Words.shared.strings.noMatchesFor(query: q),
                 message: search.photo != nil ? Words.shared.strings.tryAllFilesInstead : Words.shared.strings.nothingInScopeMatches(scope: scope.title)
             ) {
                 Button(Words.shared.strings.searchAllFiles) { search.scope = .all }.buttonStyle(.primaryAction)

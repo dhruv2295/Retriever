@@ -148,32 +148,41 @@ enum FileAction: CaseIterable {
 
     /// The friendly place a file lives: its folder's own name, or Photos.
     nonisolated static func place(_ file: SourceFile) -> String {
-        file.uri.hasPrefix("ph://") ? Words.shared.strings.photosAppName : file.folder.split(separator: "/").last.map(String.init) ?? Words.shared.strings.topLevel
+        file.uri.hasPrefix("ph://")
+            ? Words.shared.strings.photosAppName : file.folder.split(separator: "/").last.map(String.init) ?? Words.shared.strings.topLevel
     }
 
     @concurrent private static func details(_ file: SourceFile, stored: Store.StoredFile?, folders: FolderSource, readInside: Bool) async -> FileInfo {
         var info = FileInfo(
             summary: file.size > 0
-                ? Words.shared.strings.kindAndSize(kind: Words.shared.kindLabel(kind: file.kind), size: Copy.bytes(file.size)) : Words.shared.kindLabel(kind: file.kind),
+                ? Words.shared.strings.kindAndSize(kind: Words.shared.kindLabel(kind: file.kind), size: Copy.bytes(file.size))
+                : Words.shared.kindLabel(kind: file.kind),
             location: place(file), modified: Date(timeIntervalSince1970: Double(file.modifiedAt) / 1000).formatted(),
             reading: ReadingProgressKt.readingLabel(kind: file.kind, stored: stored, readInside: readInside))
         if file.uri.hasPrefix("ph://"), let asset = PHAsset.fetchAssets(withLocalIdentifiers: [String(file.uri.dropFirst(5))], options: nil).firstObject {
             if let taken = asset.creationDate { info.facts.append(.init(Words.shared.TAKEN, taken.formatted())) }
-            info.facts.append(.init(Words.shared.strings.dimensionsLabel, Words.shared.strings.dimensions(width: Int32(truncatingIfNeeded: asset.pixelWidth), height: Int32(truncatingIfNeeded: asset.pixelHeight))))
+            info.facts.append(
+                .init(
+                    Words.shared.strings.dimensionsLabel,
+                    Words.shared.strings.dimensions(width: Int32(truncatingIfNeeded: asset.pixelWidth), height: Int32(truncatingIfNeeded: asset.pixelHeight))))
             if asset.duration > 0 { info.facts.append(.init(Words.shared.strings.durationLabel, ViewerCopy.clock(seconds: Int(asset.duration)))) }
         } else if let url = folders.resolve(file.uri) {
             info.path = url.path
             if let image = CGImageSourceCreateWithURL(url as CFURL, nil), let props = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
                 let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int
             {
-                info.facts.append(.init(Words.shared.strings.dimensionsLabel, Words.shared.strings.dimensions(width: Int32(truncatingIfNeeded: w), height: Int32(truncatingIfNeeded: h))))
+                info.facts.append(
+                    .init(
+                        Words.shared.strings.dimensionsLabel,
+                        Words.shared.strings.dimensions(width: Int32(truncatingIfNeeded: w), height: Int32(truncatingIfNeeded: h))))
             } else if file.kind == .audio || file.kind == .video {
                 let asset = AVURLAsset(url: url)
                 if let duration = try? await asset.load(.duration), duration.seconds.isFinite {
                     info.facts.append(.init(Words.shared.strings.durationLabel, ViewerCopy.clock(seconds: Int(duration.seconds))))
                 }
                 if let track = try? await asset.loadTracks(withMediaType: .video).first, let size = try? await track.load(.naturalSize) {
-                    info.facts.append(.init(Words.shared.strings.dimensionsLabel, Words.shared.strings.dimensions(width: Int32(size.width), height: Int32(size.height))))
+                    info.facts.append(
+                        .init(Words.shared.strings.dimensionsLabel, Words.shared.strings.dimensions(width: Int32(size.width), height: Int32(size.height))))
                 }
             } else if file.kind == .pdf, let pages = PDFDocument(url: url)?.pageCount {
                 info.facts.append(.init(Words.shared.strings.pagesLabel, "\(pages)"))

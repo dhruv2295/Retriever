@@ -18,13 +18,17 @@ struct Place: Hashable {
     var file: SourceFile { files[index] }
 
     /// "2 of 5"; nothing for a lone file, so a restored route never shows a swipe cue it cannot honor.
-    static func label(index: Int, count: Int) -> String? { count > 1 ? Words.shared.strings.positionOf(at: Int32(truncatingIfNeeded: index + 1), count: Int32(truncatingIfNeeded: count)) : nil }
+    static func label(index: Int, count: Int) -> String? {
+        count > 1 ? Words.shared.strings.positionOf(at: Int32(truncatingIfNeeded: index + 1), count: Int32(truncatingIfNeeded: count)) : nil
+    }
 }
 
 /// The words a viewer shows over a file.
 enum ViewerCopy {
     static func match(page: Int?) -> String? { page.map { Words.shared.strings.matchOnPage(page: Int32(truncatingIfNeeded: $0)) } }
-    static func page(_ page: Int, of total: Int) -> String? { total > 1 ? Words.shared.strings.pageOf(page: Int32(truncatingIfNeeded: page), count: Int32(truncatingIfNeeded: total)) : nil }
+    static func page(_ page: Int, of total: Int) -> String? {
+        total > 1 ? Words.shared.strings.pageOf(page: Int32(truncatingIfNeeded: page), count: Int32(truncatingIfNeeded: total)) : nil
+    }
     static func match(ms: Int64?) -> String? { ms.map { Words.shared.strings.matchAt(time: clock(seconds: Int($0 / 1000))) } }
 
     /// "1:05" or "1:02:05", as the result's badge and Android write it.
