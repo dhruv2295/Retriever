@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.core.DeviceWords
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.ui.Format
@@ -89,8 +90,11 @@ fun UpgradeCard(ui: UpgradeUi, actions: UpgradeActions, modifier: Modifier = Mod
                 }
 
                 UpgradeStage.TUNE -> {
-                    Title(Words.tuneTitle(DeviceWords.ANDROID))
-                    if (ui.tune is TuneState.Failed) {
+                    val deferred = ui.tune as? TuneState.Deferred
+                    Title(deferred?.let { ReadingPolicy.stopCopy(it.reason, DeviceWords.ANDROID) } ?: Words.tuneTitle(DeviceWords.ANDROID))
+                    if (deferred != null) {
+                        Text(Words.strings.waitingMeaningDetail(DeviceWords.ANDROID), style = MaterialTheme.typography.bodyMedium)
+                    } else if (ui.tune is TuneState.Failed) {
                         Text(Words.tuneFailed(DeviceWords.ANDROID), color = MaterialTheme.colorScheme.error)
                         OutlinedButton(onClick = actions.retryTune) { Text(Words.TRY_AGAIN) }
                     } else {
@@ -169,6 +173,11 @@ private fun Download(ui: UpgradeUi, actions: UpgradeActions) {
         ModelState.Checking -> {
             Text(Words.CHECKING_DOWNLOAD, live)
             LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+
+        is ModelState.Deferred -> {
+            Text(ReadingPolicy.stopCopy(m.reason, DeviceWords.ANDROID), live)
+            OutlinedButton(onClick = actions.download) { Text(Words.TRY_AGAIN) }
         }
 
         is ModelState.Failed -> {

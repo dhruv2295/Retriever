@@ -4,12 +4,15 @@ import android.app.DownloadManager
 import android.content.Context
 import android.os.storage.StorageManager
 import androidx.test.core.app.ApplicationProvider
+import app.retriever.core.CalibrationDeferred
 import app.retriever.core.ModelBuild
 import app.retriever.core.ModelVariant
 import app.retriever.core.Prefs
+import app.retriever.core.StopReason
 import app.retriever.core.Store
 import app.retriever.settings.StorageUsage
 import app.retriever.settings.storageUsage
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -26,6 +29,7 @@ import org.robolectric.shadows.ShadowStatFs
 import org.robolectric.shadows.ShadowStorageManager
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.UUID
 
 /** One volume with [allocatable] bytes, free space plus caches Android may clear; Robolectric has no volumes of its own. */
@@ -82,6 +86,27 @@ class ModelDownloadTest {
         ModelDownload(context, dir).deleteModel(mine)
         gone.forEach { assertFalse(it.path, it.exists()) }
         keep.forEach { assertTrue(it.path, it.exists()) }
+    }
+
+    @Test fun resourceDeferralDuringHashKeepsTheFileUnverifiedAndAFullRetryCanVerifyIt() = runBlocking {
+        val bytes = ByteArray(3 * 1024 * 1024) { (it % 251).toByte() }
+        val b = build("emb_hash.litertlm").copy(
+            sizeBytes = bytes.size.toLong(),
+            sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) },
+        )
+        val dl = ModelDownload(context, dir)
+        dl.file(b).apply {
+            parentFile!!.mkdirs()
+            writeBytes(bytes)
+        }
+        var checks = 0
+        assertThrows(CalibrationDeferred::class.java) {
+            runBlocking { dl.verify(b) { if (++checks == 3) throw CalibrationDeferred(StopReason.PAUSED) } }
+        }
+        assertTrue(dl.file(b).exists())
+        assertFalse("an interrupted digest never writes an integrity marker", dl.ready(b))
+        assertTrue("a complete retry verifies the whole retained file", dl.verify(b))
+        assertTrue(dl.ready(b))
     }
 
     @Test fun startReadsTheMobileDataPref() {

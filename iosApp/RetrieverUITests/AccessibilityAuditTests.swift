@@ -37,7 +37,7 @@ final class AccessibilityAuditTests: XCTestCase {
     ]
     private static let statusText = [
         "Processing now", "Photo", "9 October 2025", "Recently processed", "Pause",
-        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic processing waits until your iPhone is charging. Process for 15 minutes uses some battery.",
+        "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic background processing waits until your iPhone is charging. Starting or resuming processing uses some battery.",
     ]
     private static let routes = [
         "setup.welcome", "setup.textOnly", "setup.access", "setup.limited", "setup.denied", "setup.folders", "setup.accessBoth",
@@ -45,7 +45,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "upgrade.offer", "upgrade.download", "upgrade.waitingWifi", "upgrade.failed", "upgrade.tuning", "upgrade.meaning",
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
-        "home.readNow", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "home.introReady", "home.introOnItsWay",
+        "home.processing", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "home.introReady", "home.introOnItsWay",
         "settings", "search.empty", "search.wordsOnly",
         "search.noModel",
         "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
@@ -64,7 +64,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.introReady", "home.introOnItsWay",
     ]
     private static let homeStatusLineRoutes = [
-        "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.readNow", "home.downloading", "home.meaning", "home.noAccess",
+        "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.processing", "home.downloading", "home.meaning", "home.noAccess",
         "home.notNow", "home.counting",
     ]
     private static let searchResultRoutes = ["search.wordsOnly", "search.noModel", "search.lessLikely", "search.nothingWell", "search.firstPart"]
@@ -213,7 +213,8 @@ final class AccessibilityAuditTests: XCTestCase {
                         }
                         XCTAssertEqual(app.buttons["Use mobile data"].exists, route == "setup.waitingWifi")
                         // A pause takes the description line's place: it says why the count stands still.
-                        let paused = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Paused, battery is low'")).firstMatch
+                        let paused = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Paused · continues when you plug in'"))
+                            .firstMatch
                         XCTAssertEqual(paused.exists, route == "setup.paused", route)
                         XCTAssertTrue(app.buttons["Continue"].isEnabled)
                         XCTAssertFalse(app.buttons["Try search"].exists)
@@ -257,13 +258,14 @@ final class AccessibilityAuditTests: XCTestCase {
                     // Home's one status line, its button spelled out (clarity-proposal section 3).
                     let lines =
                         [
-                            "home.charging": ("Processing while you charge", nil),
-                            "home.firstDay": ("Only names can be found for now", "Choose when to process"),
-                            "home.notNow": ("Only names can be found for now", "Choose when to process"),
-                            "home.counting": ("Counting your files…", nil),
-                            "home.unplugged": ("Waits until you charge", "Process for 15 minutes"), "home.chargingUp": ("Charging up first", nil),
-                            "home.readNow": ("Processing for 15 minutes · 12 min left", "Stop"),
-                            "home.downloading": ("Downloading search by description · 34%", "Stop"), "home.meaning": ("Adding search by description", nil),
+                            "home.charging": ("Processing your files", "Pause"),
+                            "home.firstDay": ("Only names can be found for now", "Start processing"),
+                            "home.notNow": ("Only names can be found for now", "Start processing"),
+                            "home.counting": ("Getting ready…", nil),
+                            "home.unplugged": ("Paused · continues when you plug in", "Start processing"),
+                            "home.chargingUp": ("Paused · continues when the battery has a bit more charge", nil),
+                            "home.processing": ("Processing your files", "Pause"),
+                            "home.downloading": ("Downloading search by description · 34%", "Stop"), "home.meaning": ("Adding search by description", "Pause"),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
                         ] as [String: (String, String?)]
                     if let line = lines[route] {
@@ -506,9 +508,9 @@ final class AccessibilityAuditTests: XCTestCase {
     /// Status lines the live resize loses; each is relaunched at AX5 below and checked to grow.
     private static let grown = [
         ("status.paused", "Resume"), ("status.tailFiles", "All files processed"), ("status.reading", "Photo 1.jpg"),
-        ("home.charging", "Starred"), ("home.firstDay", "Choose when to process"), ("home.noAccess", "Allow access"),
+        ("home.charging", "Starred"), ("home.firstDay", "Start processing"), ("home.noAccess", "Allow access"),
         // The live count's sentence pushes these buttons lower, where the resize loses them.
-        ("home.unplugged", "Process for 15 minutes"), ("home.readNow", "Stop"),
+        ("home.unplugged", "Start processing"), ("home.processing", "Pause"),
         ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
         ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
         // Search by description sits just under When to process, at the first screen's fold.
@@ -522,7 +524,10 @@ final class AccessibilityAuditTests: XCTestCase {
     /// test's reach: under half the screen scrolls above Duplicates' pinned Delete, and the memory note ends its page.
     private static let seenOnShortDisplays = [
         ("browse.duplicates", "2 copies · 1.5\u{00A0}MB each"),
-        ("status.textOnly", "This iPhone has 3\u{00A0}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."),
+        (
+            "status.textOnly",
+            "This iPhone has 3\u{00A0}GB of memory, too little for search by description, so Retriever finds files by their names and the words inside them."
+        ),
     ]
 
     /// The demo's chips, the same on every sample route: system bordered buttons in .subheadline, seen at full AX5 size on

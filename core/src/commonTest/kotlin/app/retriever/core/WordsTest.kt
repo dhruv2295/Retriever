@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WordsTest {
     private val android = DeviceWords.ANDROID
@@ -71,24 +72,32 @@ class WordsTest {
 
     @Test fun theDeviceIsNamedWhereItIsMeant() {
         assertEquals("Your files are processed on your iPhone", Words.onDevice(iphone))
-        assertEquals("When your phone is charging and you’re not using it. With lots of files, this can take a few nights.", Words.otherFilesBody(android))
-        assertEquals("Uses some battery. Stops early if your phone gets warm. Then carries on while charging.", Words.readNowBody(android))
         assertEquals(
-            "Uses some battery. Stops early if your iPad gets warm. Then carries on while charging. Keep Retriever open.",
-            Words.readNowBody(DeviceWords.ios("iPad")),
+            "Automatically waits for charging. Resume lets you process on battery this time.",
+            Words.processingPlanDetail(ReadingSchedule.CHARGING, sessionActive = false),
         )
-        assertEquals("When your phone is charging and you’re not using it, usually overnight. You can pause any time.", Words.whileChargingBody(android))
         assertEquals("47.6\u00A0MB · kept on this iPhone", Words.keptOn("47.6 MB", iphone))
         assertEquals("Delete from phone" to "This deletes the file from your phone.", Words.deleteFrom(android) to Words.deleteConfirm(android))
     }
 
+    @Test fun processingCopySeparatesTheActiveScanFromAutomaticPolicy() {
+        assertEquals(
+            "Plug in to keep processing. Retriever processes on battery down to ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%.",
+            Words.strings.processingPlugInDetail,
+        )
+        assertEquals("Paused · continues when you plug in", ReadingPolicy.stopCopy(StopReason.UNPLUGGED, android))
+        assertEquals("Paused · continues when Low Power Mode is off", ReadingPolicy.stopCopy(StopReason.POWER_SAVE, iphone))
+        // Also on battery's own detail already names the session's floor: never twice.
+        assertEquals(Words.strings.automaticProcessingPreferenceDetail, Words.processingPlanDetail(ReadingSchedule.BATTERY, sessionActive = true))
+    }
+
     /** Section 4's retired words appear in no shared sentence. */
     @Test fun noSharedSentenceUsesARetiredWord() {
-        val sentences = demoAndChoice + listOf(
-            Words.SEARCH_FIELD, Words.HELLO_BODY, Words.SHARED_FILES_AND_FOLDERS, Words.READ, Words.CHOOSE_WHEN,
+        val sentences = setupAndHome + listOf(
+            Words.SEARCH_FIELD, Words.HELLO_BODY, Words.SHARED_FILES_AND_FOLDERS, Words.READ,
             Words.READING_STATUS, Words.MORE_ON_PHONE, Words.KIND_OFF, Words.NO_MATCHES, Words.MORE_WAITING,
             Words.noMatchesDetail(true), Words.noMatchesDetail(false),
-            Words.readCount(3, 1), Words.notReadYet(3), Words.readNowBody(iphone), Words.onDevice(android),
+            Words.readCount(3, 1), Words.notReadYet(3), Words.onDevice(android),
         ) + StopReason.entries.map { ReadingPolicy.stopCopy(it, android) } + ReadExtent.entries.mapNotNull(Words::extent) +
             listOf(true, false).map { readingLabel(Kind.OTHER, null, it) }
         val retired = listOf("library", "waiting to read", "Name only", "partly read", "session", "schedule", "Read now", "first pages", "Tidy up")
@@ -97,33 +106,32 @@ class WordsTest {
         }
     }
 
-    /** Every sentence of setup, Home's one-time card and the choice, as the specs word them. */
-    private val demoAndChoice = DescriptionState.entries.flatMap {
+    /** Every sentence of setup and Home's one-time card, as the specs word them. */
+    private val setupAndHome = DescriptionState.entries.flatMap {
         listOfNotNull(Words.descriptionLine(it, 64), Words.recentFilesBody(it), Words.recentFilesAction(it, "388 MB"), Words.firstSearchHint(it))
     } + Words.HELLO_EXAMPLES.flatMap { listOf(it.query, it.title, it.detail) } + listOf(
         Words.helloTitle(false), Words.helloTitle(true), Words.HELLO_BODY, Words.FOR_EXAMPLE, Words.GET_STARTED, Words.downloadNote("388 MB"),
+        Words.downloadLine("388 MB"), Words.ACCESS_SCANNING,
         Words.ACCESS_TITLE, Words.ACCESS_BODY, Words.ANDROID_ACCESS_BODY, Words.SOME_PHOTOS, Words.PHOTOS_OFF, Words.PICK_FOLDERS,
         Words.foldersAdded(2), Words.FIRST_LOOK, Words.DESCRIPTION_READY, Words.DESCRIPTION_READY_BODY, Words.HOME_INTRO_TITLE,
         Words.HOME_INTRO_BODY, Words.NEW_FILES, Words.NEW_FILES_BODY, Words.NOTIFY_WHEN_SEARCHABLE, Words.recentFiles(30),
-        Words.otherFiles(25_763), Words.otherFiles(null), Words.otherFilesBody(android),
+        Words.otherFiles(25_763), Words.otherFiles(null), Words.processingPlanDetail(ReadingSchedule.CHARGING, sessionActive = false),
         Words.DEMO_PICKING, Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
-        Words.chooseTitle(android), Words.chooseBody(25_763),
-        Words.chooseBody(null), Words.choosePace(android), Words.RECOMMENDED, Words.READ_15_NOW, Words.chargingAndNowBody(android),
-        Words.NOT_NOW_BODY, Words.START_PROCESSING, Words.GO_TO_HOME, Words.whileChargingBody(android),
+        Words.START_PROCESSING,
         Words.notificationsAsk(true, TasteProgress(emptyMap(), emptySet(), 0, 3, 30)), Words.PROGRESS_CHANNEL,
         Words.PROGRESS_CHANNEL_BODY, Words.DEMO_DONE_NOTICE_TITLE, Words.demoDoneNotice(30, 30),
     )
 
-    /** The app's verb is "process": no "% done", "new file", "try" screen or "sample" in what the demo and the choice say. */
-    @Test fun theDemoAndTheChoiceSayDemoAndProcess() {
-        for (s in demoAndChoice) {
+    /** The app's verb is "process": no "% done", "new file", "try" screen or "sample" in what setup and Home say. */
+    @Test fun setupAndHomeSayDemoAndProcess() {
+        for (s in setupAndHome) {
             for (word in listOf("% done", "new file", "Try it", "one-minute try", "Skip the try", "sample", "Skip for now", "Done")) {
                 assertFalse(s.contains(word), "“$s” says “$word”")
             }
         }
     }
 
-    @Test fun theDemoAndTheChoiceInTheSpecsWords() {
+    @Test fun setupAndHomeInTheSpecsWords() {
         val n = formatCount(25_763)
         assertEquals("Find anything by describing it", Words.helloTitle(textOnly = false))
         assertEquals("Find files by what’s inside them", Words.helloTitle(textOnly = true), "no promise a small phone can't keep")
@@ -147,19 +155,7 @@ class WordsTest {
         assertEquals("Finds any file on your phone by its name.", Words.demoSearchScope(0, false, android), "the first frame")
         assertEquals("Finds any file on your phone by its name, and looks inside the 30 demo files.", Words.demoSearchScope(30, true, android))
         assertEquals("See the 30 files" to "See the file", Words.seeAll(30) to Words.seeAll(1))
-        assertEquals("Now, the rest of your phone", Words.chooseTitle(android))
-        assertEquals("$n files aren’t processed yet. Until they are, you can find them by name, but not by what’s inside.", Words.chooseBody(25_763))
-        assertEquals("1 file isn’t processed yet. Until it is, you can find it by name, but not by what’s inside.", Words.chooseBody(1))
-        assertEquals(
-            "The rest of your files aren’t processed yet. Until they are, you can find them by name, but not by what’s inside.",
-            Words.chooseBody(null),
-        )
-        assertEquals(
-            "Processing them takes hours, so Retriever does a little at a time. You can use your phone and Retriever the whole time.",
-            Words.choosePace(android),
-        )
-        assertEquals("Starts right away and uses some battery, then carries on while charging.", Words.chargingAndNowBody(android))
-        assertEquals("Start processing" to "Go to Home", Words.START_PROCESSING to Words.GO_TO_HOME)
+        assertEquals("Start processing", Words.START_PROCESSING)
         assertEquals("The demo is done", Words.DEMO_DONE_NOTICE_TITLE)
         assertEquals("30 of 30 files processed. Open Retriever to search them.", Words.demoDoneNotice(30, 30))
         assertEquals("Processing progress", Words.PROGRESS_CHANNEL)

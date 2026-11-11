@@ -11,7 +11,7 @@ import app.retriever.core.Words.NBSP
  *   playing audio and video.
  * - search by description: « recherche par description », the feature's one name.
  * - found by name: « trouvé par son nom »; found by what's inside: « trouvé par son contenu ».
- * - processed in part: « traité en partie ». 15 minutes: « 15 minutes ».
+ * - processed in part: « traité en partie ».
  * - phone: téléphone (ce téléphone, le téléphone, du téléphone); on iOS cet iPhone, l’iPhone, de l’iPad.
  * - Battery Saver: « Économiseur de batterie » (Android); Low Power Mode: « Mode économie d’énergie » (iOS).
  *   Unrestricted battery use: « Sans restriction » (Android).
@@ -56,7 +56,7 @@ internal object French : Strings {
 
     override fun meaningOf(done: Long, total: Long) = "${formatCount(done)} sur ${files(total)} avec la recherche par description"
 
-    override fun facesOf(done: Long, total: Long) = "${photos(done)} ${agree(done, "traitée")} sur ${formatCount(total)}"
+    override fun facesOf(done: Long, total: Long) = "${photos(done)} ${agree(done, "vérifiée")} sur ${formatCount(total)} pour repérer les personnes"
 
     override val processedInPart = "Traité en partie"
     override val couldntBeOpened = "Impossible à ouvrir"
@@ -134,7 +134,6 @@ internal object French : Strings {
     override val notNow = "Pas maintenant"
     override val cancel = "Annuler"
     override val done = "Terminé"
-    override val readFor15 = "Traiter pendant 15 minutes"
     override val optional = "Facultatif"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "Trouvez vos fichiers grâce à leur contenu" else "Trouvez tout en le décrivant"
@@ -154,6 +153,8 @@ internal object French : Strings {
 
     override fun downloadNote(size: String) = "Inclut un téléchargement unique de $size, en Wi-Fi."
 
+    override fun downloadLine(size: String) = "Téléchargement unique de $size, en Wi-Fi uniquement"
+
     override val accessTitle = "Choisissez ce que Retriever peut rechercher"
     override val accessBody = "Choisissez-en un ou plusieurs. Vous pourrez en ajouter d’autres plus tard."
     override val allow = "Autoriser"
@@ -171,6 +172,8 @@ internal object French : Strings {
     override fun foldersAdded(n: Long) = "${plural(n, "dossier")} ${agree(n, "ajouté")}"
 
     override val androidAccessBody = "Pour retrouver vos photos, documents et fichiers téléchargés en les décrivant."
+    override val accessScanning =
+        "Retriever commence maintenant à analyser vos photos et fichiers pour que vous puissiez les rechercher. Tout reste sur votre téléphone."
     override val allFilesOff = "Activez «${NBSP}Autoriser l’accès pour gérer tous les fichiers$NBSP» " +
         "pour rechercher dans tout votre téléphone, ou choisissez ce qu’il faut inclure."
     override val includeTitle = "Choisissez ce qu’il faut inclure"
@@ -221,17 +224,6 @@ internal object French : Strings {
         1L -> "L’autre fichier"
         else -> plural(rest, "autre fichier", "autres fichiers")
     }
-
-    override fun otherFilesBody(words: DeviceWords) =
-        "Quand votre ${device(words)} est en charge et que vous ne l’utilisez pas. S’il y a beaucoup de fichiers, cela peut prendre quelques nuits."
-
-    override fun otherFilesOnBatteryBody(words: DeviceWords) =
-        "Quand vous n’utilisez pas votre ${device(words)}$NBSP: sur batterie jusqu’à ce qu’elle descende à ${ReadingPolicy.BATTERY_FLOOR}$NBSP%, " +
-            "et pendant la charge. S’il y a beaucoup de fichiers, cela peut prendre quelques jours."
-
-    override fun onBatteryBody(words: DeviceWords) =
-        "Aussi sur batterie, jusqu’à ce qu’elle descende à ${ReadingPolicy.BATTERY_FLOOR}$NBSP%, pour garder le reste de votre charge pour la journée. " +
-            "S’arrête quand ${powerSave(words)} est activé ou que votre ${device(words)} chauffe."
 
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "Retrouvez-les en les décrivant."
@@ -303,40 +295,9 @@ internal object French : Strings {
         return "${plural(read, one, many)} $processed sur ${formatCount(planned)}"
     }
 
-    override val chooseWhen = "Choisir quand traiter"
     override val tryLabel = "Essayez$NBSP:"
 
-    override fun chooseTitle(words: DeviceWords) = "Maintenant, le reste de votre ${device(words)}"
-
-    override fun chooseBody(rest: Long?) = when (rest) {
-        null -> "Le reste de vos fichiers n’est pas encore traité. En attendant, vous pouvez les retrouver par leur nom, mais pas par leur contenu."
-
-        1L -> "1 fichier n’est pas encore traité. En attendant, vous pouvez le retrouver par son nom, mais pas par son contenu."
-
-        else -> "${files(rest)} ${agree(rest, "n’est pas encore traité", "ne sont pas encore traités")}. " +
-            "En attendant, vous pouvez ${agree(rest, "le", "les")} retrouver par ${agree(rest, "son", "leur")} nom, " +
-            "mais pas par ${agree(rest, "son", "leur")} contenu."
-    }
-
-    override fun choosePace(words: DeviceWords) = "Leur traitement prend des heures, alors Retriever avance petit à petit. " +
-        "Vous pouvez utiliser votre ${device(words)} et Retriever pendant tout ce temps."
-
-    override val recommended = "Recommandé"
-    override val read15Now = "Pendant la charge, et 15 minutes maintenant"
-    override val notNowBody = "Vous ne pouvez retrouver les fichiers que par leur nom tant que vous n’avez pas choisi. Vous pouvez choisir à tout moment " +
-        "depuis l’accueil."
     override val startProcessing = "Lancer le traitement"
-    override val goToHome = "Aller à l’accueil"
-
-    override fun whileChargingBody(words: DeviceWords) =
-        "Quand votre ${device(words)} est en charge et que vous ne l’utilisez pas, en général la nuit. Vous pouvez mettre en pause à tout moment."
-
-    override fun chargingAndNowBody(words: DeviceWords) =
-        "Commence tout de suite et utilise un peu de batterie, puis continue pendant la charge." + if (words.ios) " Gardez Retriever ouvert." else ""
-
-    override fun readNowBody(words: DeviceWords) =
-        "Utilise un peu de batterie. S’arrête plus tôt si votre ${device(words)} chauffe. Puis continue pendant la charge." +
-            if (words.ios) " Gardez Retriever ouvert." else ""
 
     override fun notificationsAsk(demoPending: Boolean) =
         "Une petite notification en haut de l’écran pendant le traitement, pour voir où il en est ou le mettre en pause. " +
@@ -463,7 +424,7 @@ internal object French : Strings {
 
     override fun pairOf(at: Int, of: Int) = "$at sur $of"
 
-    override fun facesToGo(left: Long) = "${photos(left)} à traiter"
+    override fun facesToGo(left: Long) = "${photos(left)} à vérifier pour repérer les personnes"
 
     override val retrieversData = "Données de Retriever"
     override val temporaryFiles = "Fichiers temporaires"
@@ -529,22 +490,20 @@ internal object French : Strings {
     override fun statusAction(action: StatusAction) = when (action) {
         StatusAction.CONTINUE -> continueAction
         StatusAction.ALLOW_ACCESS -> allowAccess
-        StatusAction.CHOOSE_WHEN -> chooseWhen
-        StatusAction.READ_FOR_15 -> readFor15
         StatusAction.STOP -> "Arrêter"
         StatusAction.RESUME -> "Reprendre"
         StatusAction.DISMISS -> "Ignorer"
         StatusAction.TRY_AGAIN -> tryAgain
+        StatusAction.START -> startProcessing
+        StatusAction.PAUSE -> pause
     }
 
     override fun stopCopy(stop: StopReason, words: DeviceWords) = when (stop) {
         StopReason.PAUSED -> "En pause"
-        StopReason.POWER_SAVE -> "En pause tant que ${powerSave(words)} est activé"
-        StopReason.HOT -> "En pause pour laisser refroidir votre ${device(words)}"
-        StopReason.LOW_BATTERY -> "En pause, batterie faible"
-        StopReason.CHARGING_UP -> "En attente d’un peu plus de charge"
-        StopReason.BUSY -> "En attente que vous posiez votre ${device(words)}"
-        StopReason.UNPLUGGED -> "Attend la prochaine charge"
+        StopReason.POWER_SAVE -> "En pause · reprend quand ${powerSave(words)} est désactivé"
+        StopReason.HOT -> "En pause · reprend quand votre ${device(words)} a refroidi"
+        StopReason.LOW_BATTERY, StopReason.UNPLUGGED -> "En pause · reprend quand vous branchez le chargeur"
+        StopReason.CHARGING_UP -> "En pause · reprend quand la batterie sera un peu plus chargée"
         StopReason.MANUAL -> "Traitement uniquement quand vous le lancez"
         StopReason.DISK_FULL -> "En pause, votre ${device(words)} est plein"
         StopReason.DONE, StopReason.BUDGET -> "Petite pause"
@@ -568,19 +527,33 @@ internal object French : Strings {
 
     override val addingDescriptionTitle = "Ajout de la recherche par description"
     override val allFilesProcessedTitle = "Tous les fichiers sont traités"
-    override val countingTitle = "Décompte de vos fichiers…"
+    override val gettingReadyTitle = "Préparation…"
     override val notNowTitle = "Recherche par nom pour l’instant"
 
-    override fun readNowTitle(minutesLeft: Int) = "Traitement pendant 15 minutes · encore $minutesLeft${NBSP}min"
-
     override val sampleTitle = "Traitement des fichiers de démo"
-    override val gettingPeopleReadyTitle = "Préparation de Personnes"
-    override val lookingForFacesTitle = "Recherche de visages dans vos photos"
+    override val lookingForFacesTitle = "Repérage des personnes dans vos photos"
     override val deepeningTitle = "Traitement de la suite de certains fichiers longs"
-    override val chargingReadTitle = "Traitement pendant la charge"
     override val lookingTitle = "Recherche de nouveaux fichiers…"
     override val caughtUpTitle = "Terminé. Retriever a traité tout ce qu’il pouvait"
-    override val limitedTitle = "Terminé. Quelques fichiers longs n’ont été traités qu’en partie"
+
+    override val processingReadyDetail =
+        "Votre progression est enregistrée. Vous pouvez lancer le traitement maintenant, ou le traitement continuera dès que les " +
+            "conditions le permettront."
+    override val processingAdaptiveDetail = "Le traitement s’adapte pour que votre téléphone reste réactif."
+    override val processingBatteryOverrideDetail = "Le traitement fonctionne sur batterie jusqu’à ${ReadingPolicy.RESUMED_BATTERY_FLOOR}$NBSP%."
+
+    override val processingKeepPaused = "Garder en pause"
+    override val processingSearchAvailableDetail = "Vous pouvez déjà chercher. Les noms et le contenu déjà traité restent accessibles."
+    override val processingPlugInDetail =
+        "Branchez votre téléphone pour continuer le traitement. Retriever traite sur batterie jusqu’à ${ReadingPolicy.RESUMED_BATTERY_FLOOR}$NBSP%."
+    override val processingTapToContinue = "Appuyez pour continuer"
+
+    override val automaticChargingPreferenceDetail = "Attend automatiquement la charge. Reprendre permet de traiter sur batterie pour cette session."
+
+    override val automaticProcessingPreferenceTitle = "Traitement automatique"
+    override val automaticProcessingPreferenceDetail =
+        "Le traitement automatique se met en pause sous ${ReadingPolicy.BATTERY_FLOOR}$NBSP% sur batterie. Le traitement que vous lancez ou " +
+            "reprenez continue jusqu’à ${ReadingPolicy.RESUMED_BATTERY_FLOOR}$NBSP%."
 
     override val pausedDetail = "La recherche fonctionne toujours."
 
@@ -589,22 +562,24 @@ internal object French : Strings {
     override val hotDetail = "Reprend tout seul."
     override val lowBatteryDetail = "Branchez le chargeur et Retriever reprendra."
     override val chargingUpDetail = "Le traitement commence quand la batterie est un peu plus chargée."
-    override val busyDetail = "Ou ouvrez Retriever pour reprendre maintenant."
 
     override fun chargingDetail(words: DeviceWords) = "Retriever reprend quand votre ${device(words)} est en charge."
 
     override val manualDetail = "Vous pouvez trouver n’importe quel fichier par son nom."
-
-    override fun readNowDetail(words: DeviceWords) = "Utilise un peu de batterie. " + if (words.ios) "Gardez Retriever ouvert." else "S’arrête tout seul."
 
     override val sampleDetail = "Environ une minute. Rien n’est modifié ni envoyé."
 
     override fun meaningDetail(words: DeviceWords) =
         "Pour retrouver vos fichiers en décrivant leur contenu ou ce que montrent vos photos. Uniquement sur ${thisDevice(words)}."
 
-    override val peopleDownloadDetail = "Un téléchargement unique pour Personnes. La recherche fonctionne pendant tout ce temps."
-    override val facesDetail = "Tous vos fichiers sont traités. La recherche fonctionne pendant tout ce temps."
+    override val peopleDownloadDetail = "Un téléchargement unique pour Personnes. Tous vos fichiers sont déjà recherchables."
+    override val facesDetail = "Une étape facultative en plus. Tous vos fichiers sont déjà recherchables, et rien n’est traité une seconde fois."
+
+    override fun facesWaitingDetail(words: DeviceWords) =
+        "Retriever repère les personnes quand votre ${device(words)} le permet. Tous vos fichiers sont déjà recherchables."
+
     override val deepeningDetail = "Vous pouvez les retrouver par leur début."
+    override val limitedDetail = "Quelques fichiers longs n’ont été traités qu’en partie. Vous pouvez les retrouver par leur début."
     override val readingMeaningDetail = "La recherche par description est aussi en cours d’ajout."
 
     override fun readingDetail(words: DeviceWords) = if (words.ios) {
@@ -625,7 +600,6 @@ internal object French : Strings {
 
     override val caughtUpDetail = "Il traite les nouveaux fichiers tout seul."
 
-    override val gettingReadersTitle = "Préparation du traitement de vos fichiers"
     override val gettingReadersDetail = "Un téléchargement unique depuis les services Google Play. La recherche par nom fonctionne déjà."
 
     override val peopleWaitsForWifi = "Le téléchargement de Personnes attend le Wi-Fi."
@@ -929,15 +903,6 @@ internal object French : Strings {
     // ReadingPermission
     override val notificationPermissionAsk = "Afficher une notification pendant que Retriever traite vos fichiers$NBSP?"
 
-    override val processFasterAsk = "Traiter plus vite pendant la charge$NBSP?"
-
-    override val processFasterBody = "Android ralentit les applis en arrière-plan. " +
-        "Si l’utilisation de la batterie de Retriever est réglée sur «${NBSP}Sans restriction$NBSP», " +
-        "il traite les fichiers plus vite pendant la charge et termine bien plus tôt. " +
-        "Dans Paramètres, ouvrez Batterie et choisissez «${NBSP}Sans restriction$NBSP»."
-
-    override val openSettingsLowercase = "Ouvrir Paramètres"
-
     // ModelDownload
     override val searchModelDownloadTitle = "Modèle de recherche de Retriever"
 
@@ -1014,7 +979,7 @@ internal object French : Strings {
     // SettingsScreen
     override val includedFilesFooter = "$kindOff Un dossier à ignorer est exclu de la recherche."
 
-    override val onlyWhenYouChoose = "Seulement quand vous choisissez «$NBSP$readFor15$NBSP»."
+    override val onlyWhenYouChoose = "Seulement quand vous lancez ou reprenez le traitement."
 
     override val showProcessingProgress = "Afficher la progression du traitement"
 
@@ -1063,8 +1028,8 @@ internal object French : Strings {
         "L’appli qui gère vos fichiers peut aussi utiliser Internet pour ouvrir ceux qui sont stockés en ligne."
 
     override val howItWorksTimes =
-        "Il traite vos fichiers aux moments choisis dans «$NBSP$whenToRead$NBSP». Les fichiers longs sont traités petit à petit$NBSP: " +
-            "vous pouvez d’abord les retrouver par leur début."
+        "Il traite vos fichiers aux moments choisis dans «$NBSP$automaticProcessingPreferenceTitle$NBSP». " +
+            "Les fichiers longs sont traités petit à petit$NBSP: vous pouvez d’abord les retrouver par leur début."
 
     override val runSetupCheck = "Vérifier la configuration"
 
@@ -1101,8 +1066,8 @@ internal object French : Strings {
 
     override val letProcessWhileAway = "Laisser Retriever traiter les fichiers quand vous ne l’utilisez pas"
 
-    override fun batteryMayStop(chargingOnly: Boolean) = "Votre téléphone peut arrêter Retriever pour économiser la batterie." +
-        if (chargingOnly) " Retriever traite toujours vos fichiers uniquement pendant la charge." else ""
+    override fun batteryMayStop(chargingOnly: Boolean) = "Votre téléphone peut arrêter Retriever pour économiser la batterie." + sentenceGap +
+        if (chargingOnly) automaticChargingPreferenceDetail else automaticProcessingPreferenceDetail
 
     override val settingsRowDetail = "Ce qu’il faut traiter, stockage et plus"
 
@@ -1239,9 +1204,11 @@ internal object French : Strings {
 
     override fun backgroundNote(words: DeviceWords) =
         "Retriever traite vos fichiers quand il est ouvert, et parfois quand vous ne l’utilisez pas, si iOS le permet. " +
-            "Le traitement automatique attend que votre ${device(words)} soit en charge. «$NBSP$readFor15$NBSP» utilise un peu de batterie."
+            "Le traitement automatique en arrière-plan attend que votre ${device(
+                words,
+            )} soit en charge. Démarrer ou reprendre le traitement utilise un peu de batterie."
 
-    override val screenKeptOn = "Votre écran reste allumé quand Retriever traite vos fichiers pendant 15 minutes. " +
+    override val screenKeptOn = "Votre écran reste allumé quand Retriever traite vos fichiers. " +
         "Vous pouvez désactiver cette option dans les paramètres de Retriever."
 
     override fun showingLabels(labels: List<String>) = "Affichage$NBSP: " + labels.joinToString(" · ")
@@ -1415,14 +1382,9 @@ internal object French : Strings {
     override val longFilesBitAtATime =
         "Les fichiers longs sont traités petit à petit$NBSP: vous pouvez d’abord les retrouver par leur début, puis la suite arrive."
 
-    override val onlyWhenYouChooseAnyFile =
-        "Seulement quand vous choisissez «$NBSP$readFor15$NBSP». Vous pouvez toujours trouver n’importe quel fichier par son nom."
+    override val onlyWhenYouChooseAnyFile = "Seulement quand vous lancez ou reprenez le traitement. Vous pouvez toujours trouver chaque fichier par son nom."
 
-    override fun alsoOnBatteryIosBody(words: DeviceWords) = "Traite vos fichiers quand Retriever est ouvert, au-dessus de 20$NBSP% de batterie. " +
-        "Quand vous ne l’utilisez pas, iOS attend que votre ${device(words)} soit en charge. " +
-        "Se met en pause quand votre ${device(words)} chauffe ou quand ${powerSave(words)} est activé."
-
-    override val keepScreenOnToggle = "Garder l’écran allumé pendant les 15 minutes"
+    override val keepScreenOnToggle = "Garder l’écran allumé pendant le traitement"
 
     override fun adjustProcessingFor(words: DeviceWords) = "Adapter le traitement à ${thisDevice(words)}"
 

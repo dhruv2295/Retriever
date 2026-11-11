@@ -6,13 +6,22 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.Backend
+import app.retriever.core.CalibrationResult
+import app.retriever.core.CoreDispatchers
+import app.retriever.core.DeviceProfile
+import app.retriever.core.DeviceState
 import app.retriever.core.Kind
+import app.retriever.core.ModelVariant
 import app.retriever.core.Retriever
 import app.retriever.core.StopReason
+import app.retriever.core.Thermal
+import app.retriever.core.Tier
 import app.retriever.duplicates.retrieverOver
 import app.retriever.indexing.IndexService
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
+import app.retriever.model.TuneState
 import app.retriever.search.RecentShortcuts
 import app.retriever.testFile
 import app.retriever.testRetriever
@@ -22,6 +31,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -29,12 +39,15 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -66,17 +79,48 @@ class SettingsViewModelTest {
     private fun viewModel(
         driver: JdbcSqliteDriver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY),
         retriever: Retriever = retrieverOver(driver),
+        scope: CoroutineScope = appScope,
+        tuner: suspend () -> CalibrationResult = { error("no tuning in this test") },
     ): Pair<SettingsViewModel, Retriever> {
         val download = ModelDownload(app, modelDir)
         val vm = SettingsViewModel(
             retriever,
-            ModelRepository(app, download, retriever, appScope),
+            ModelRepository(app, download, retriever, scope),
             StorageService(app, retriever, download, modelDir),
             IndexService(app, retriever),
-            appScope,
+            scope,
             RecentShortcuts(app),
-        ) { error("no tuning in this test") }
+        ) { tuner() }
         return vm to retriever
+    }
+
+    @Test fun explicitSetupCheckOverridesBatteryPreferenceAndRunsOnceAfterSafetyRecovers() = runTest {
+        var thermal = Thermal.SEVERE
+        var calls = 0
+        val retriever = testRetriever(
+            deviceState = { DeviceState(8.0, false, 60, thermal) },
+            dispatchers = CoreDispatchers(io = StandardTestDispatcher(testScheduler)),
+        )
+        retriever.refreshSetUp()
+        val result = CalibrationResult(emptyList(), Backend.CPU, DeviceProfile(Tier.BALANCED, ModelVariant.M740, Backend.CPU, 70, 5, false, false))
+        val (vm, _) = viewModel(retriever = retriever, scope = backgroundScope, tuner = {
+            calls++
+            result
+        })
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect { } }
+        vm.tuneAgain()
+        runCurrent()
+        assertEquals(TuneState.Deferred(StopReason.HOT), vm.uiState.value.tune)
+        vm.tuneAgain()
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(0, calls)
+        thermal = Thermal.NONE
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(vm.uiState.value.tune is TuneState.Done)
+        assertEquals(1, calls)
+        assertFalse(retriever.prefs.value.started)
     }
 
     /** The view model saves on a real thread; this lets it and the test dispatcher both run until [done]. */

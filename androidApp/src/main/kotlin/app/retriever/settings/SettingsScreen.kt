@@ -62,6 +62,7 @@ import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.StatusAction
@@ -130,9 +131,9 @@ class SettingsActions(
     /** Null for a top-level place (the navigation rail's), with no Back arrow. */
     val back: (() -> Unit)? = {},
     val setReadingSchedule: (ReadingSchedule) -> Unit = {},
-    val readNow: () -> Unit = {},
-    val stopReadNow: () -> Unit = {},
-    val resume: () -> Unit = {},
+    /** The status line's Start processing and Resume, and its Pause. */
+    val start: () -> Unit = {},
+    val pause: () -> Unit = {},
     val openStatus: () -> Unit = {},
     val setOnThisDay: (Boolean) -> Unit = {},
     val setSearchInside: (Kind, Boolean) -> Unit = { _, _ -> },
@@ -191,8 +192,8 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
         SettingsActions(
             back = onBack,
             setReadingSchedule = { schedule -> requestReading { vm.setReadingSchedule(schedule) } },
-            readNow = { requestReading { vm.readNow() } },
-            stopReadNow = vm::stopReadNow, resume = vm::resume, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
+            start = { requestReading { vm.start() } },
+            pause = vm::pause, openStatus = onStatus, setOnThisDay = vm::setOnThisDay,
             setSearchInside = vm::setSearchInside,
             removeExcluded = vm::removeExcluded,
             tuneAgain = vm::tuneAgain,
@@ -265,22 +266,26 @@ fun SettingsContent(
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header(Words.READING_STATUS)
                 var schedulesOpen by rememberSaveable { mutableStateOf(false) }
-                // The line Home shows, so a tap below (Process for 15 minutes) changes it at once. The whole line opens Processing.
+                // The line Home shows, with its Start processing, Pause or Resume. The whole line opens Processing.
                 ui.readingStatus?.let { status ->
                     StatusLine(
-                        status.copy(action = status.action.takeIf { it == StatusAction.STOP || it == StatusAction.RESUME }),
+                        status.copy(
+                            action = status.action.takeIf {
+                                it == StatusAction.START || it == StatusAction.PAUSE || it == StatusAction.RESUME
+                            },
+                        ),
                         if (status.active) MascotMood.WALKING else MascotMood.RESTING,
                         onOpen = actions.openStatus,
-                        onAction = { if (it == StatusAction.STOP) actions.stopReadNow() else actions.resume() },
+                        onAction = { if (it == StatusAction.PAUSE) actions.pause() else actions.start() },
                     )
                 }
                 OpenRow(
-                    Words.WHEN_TO_READ,
+                    Words.strings.automaticProcessingPreferenceTitle,
                     Words.strings.scheduleSummary(
                         prefs.automaticReading.title,
                         when (prefs.automaticReading) {
-                            ReadingSchedule.CHARGING -> Words.whileChargingBody(DeviceWords.ANDROID)
-                            ReadingSchedule.BATTERY -> Words.onBatteryBody(DeviceWords.ANDROID)
+                            ReadingSchedule.CHARGING -> Words.strings.automaticChargingPreferenceDetail
+                            ReadingSchedule.BATTERY -> Words.strings.automaticProcessingPreferenceDetail
                             ReadingSchedule.MANUAL -> Words.strings.onlyWhenYouChoose
                         },
                     ),
@@ -288,12 +293,21 @@ fun SettingsContent(
                 if (schedulesOpen) {
                     AlertDialog(
                         onDismissRequest = { schedulesOpen = false },
-                        title = { Text(Words.WHEN_TO_READ) },
+                        title = { Text(Words.strings.automaticProcessingPreferenceTitle) },
                         text = {
                             Column(Modifier.selectableGroup()) {
                                 ReadingSchedule.entries.forEach { schedule ->
                                     ListItem(
                                         headlineContent = { Text(schedule.title) },
+                                        supportingContent = {
+                                            Text(
+                                                when (schedule) {
+                                                    ReadingSchedule.CHARGING -> Words.strings.automaticChargingPreferenceDetail
+                                                    ReadingSchedule.BATTERY -> Words.strings.automaticProcessingPreferenceDetail
+                                                    ReadingSchedule.MANUAL -> Words.strings.onlyWhenYouChoose
+                                                },
+                                            )
+                                        },
                                         leadingContent = { androidx.compose.material3.RadioButton(prefs.automaticReading == schedule, null) },
                                         modifier = Modifier.selectable(prefs.automaticReading == schedule, role = Role.RadioButton) {
                                             actions.setReadingSchedule(schedule)
@@ -306,7 +320,6 @@ fun SettingsContent(
                         confirmButton = { TextButton(onClick = { schedulesOpen = false }) { Text(Words.DONE) } },
                     )
                 }
-                ActionRow(Words.READ_FOR_15, { Text(Words.readNowBody(DeviceWords.ANDROID)) }, onClick = actions.readNow)
                 SwitchRow(
                     Words.strings.showProcessingProgress,
                     ui.notificationsOn,
@@ -477,6 +490,7 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
             Text(
                 when (tune) {
                     TuneState.Running -> Words.strings.tuningFewMinutes
+                    is TuneState.Deferred -> ReadingPolicy.stopCopy(tune.reason, DeviceWords.ANDROID)
                     is TuneState.Failed -> Words.strings.tuneFailedMessage(tune.message)
                     is TuneState.Done -> Words.strings.processingIsSetUp
                     TuneState.Idle -> Words.strings.adjustsProcessingSpeed
@@ -484,7 +498,7 @@ private fun TuneRow(tune: TuneState, onTune: () -> Unit) {
                 color = if (tune is TuneState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
-        enabled = tune != TuneState.Running,
+        enabled = tune != TuneState.Running && tune !is TuneState.Deferred,
         trailing = if (tune == TuneState.Running) {
             { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp) }
         } else {

@@ -12,8 +12,8 @@ final class ClarityShotsTests: XCTestCase {
         .appendingPathComponent("build/shots")
 
     private static let states: [DebugRoute] = [
-        .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeCaughtUp,
-        .homeNoAccess, .statusReading, .statusPaused, .statusReadNow, .searchCopies, .settings, .setupWelcome, .setupAccess, .setupReading,
+        .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeProcessing, .homeDownloading, .homeMeaning, .homeCaughtUp,
+        .homeNoAccess, .statusReading, .statusPaused, .statusProcessing, .searchCopies, .settings, .setupWelcome, .setupAccess, .setupReading,
     ]
 
     func testEveryClarityStateRenders() async throws {

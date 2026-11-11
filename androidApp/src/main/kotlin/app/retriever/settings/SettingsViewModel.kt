@@ -18,10 +18,12 @@ import app.retriever.model.ModelRepository
 import app.retriever.model.ModelState
 import app.retriever.model.TuneState
 import app.retriever.model.tuneSummary
+import app.retriever.model.whenCalibrationAllowed
 import app.retriever.search.RecentShortcuts
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -75,7 +77,7 @@ class SettingsViewModel(
 
     private fun IndexState.facts() = Triple(backend, detail, build)
 
-    /** The Reading row's line: the same as Home's, so Read for 15 minutes shows there from the tap. */
+    /** The Reading row's line: the same as Home's, so Start processing shows there from the tap. */
     val readingStatus: StateFlow<ReadingStatus?> = retriever.readingStatus().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private fun ui(prefs: Prefs, facts: Triple<Backend?, String?, ModelBuild?>, missing: Boolean, build: ModelBuild, l: Local) = SettingsUi(
@@ -92,7 +94,7 @@ class SettingsViewModel(
 
     /** Like [launchCatching], for work that must outlive the screen. */
     private fun inApp(block: suspend () -> Unit) {
-        appScope.launch {
+        appScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 block()
             } catch (e: CancellationException) {
@@ -131,9 +133,8 @@ class SettingsViewModel(
         indexer.indexNow()
     }
 
-    fun readNow() = launchCatching(::fail) { indexer.readNow() }
-    fun stopReadNow() = launchCatching(::fail) { indexer.endReadNow() }
-    fun resume() = launchCatching(::fail) { indexer.resume() }
+    fun start() = inApp { indexer.start() }
+    fun pause() = inApp { indexer.pause() }
     fun setOnThisDay(on: Boolean) = launchCatching(::fail) { retriever.updatePrefs { it.copy(showOnThisDay = on) } }
 
     // Off forgets every face and name (Retriever.updatePrefs); on starts looking at photos.
@@ -182,14 +183,19 @@ class SettingsViewModel(
     }
 
     fun tuneAgain() {
-        if (local.value.tune is TuneState.Running) return
+        if (local.value.tune is TuneState.Running || local.value.tune is TuneState.Deferred) return
         local.update { it.copy(tune = TuneState.Running) }
         // The app scope: leaving Settings must not cancel a tune halfway (indexing waits meanwhile).
         appScope.launch {
             val next = try {
-                val r = tuner()
+                val r = retriever.whenCalibrationAllowed(
+                    running = { local.update { it.copy(tune = TuneState.Running) } },
+                    deferred = { reason -> local.update { it.copy(tune = TuneState.Deferred(reason)) } },
+                    operation = tuner,
+                )
                 TuneState.Done(tuneSummary(r.chosen, r.backends.firstOrNull { it.backend == r.chosen }?.imageMs))
             } catch (e: CancellationException) {
+                local.update { it.copy(tune = TuneState.Idle) }
                 throw e
             } catch (e: Throwable) {
                 LogSink.write(BuildConfig.DEBUG, "calibration failed", e)

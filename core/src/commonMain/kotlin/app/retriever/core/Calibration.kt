@@ -1,5 +1,7 @@
 package app.retriever.core
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
 import kotlin.time.TimedValue
@@ -53,12 +55,21 @@ data class BackendResult(
 
 data class CalibrationResult(val backends: List<BackendResult>, val chosen: Backend, val profile: DeviceProfile)
 
+/** A temporary resource stop, not a failed model/backend. Android retries after the device is available. */
+class CalibrationDeferred(val reason: StopReason) : CancellationException("Calibration deferred: ${reason.name}")
+
 class Calibration(
     private val factory: EmbedderFactory,
     private val clock: TimeSource = TimeSource.Monotonic,
     private val frames: FrameSource? = null,
     private val visible: () -> Boolean = { true },
+    private val checkResources: () -> Unit = {},
 ) {
+    private suspend fun checkCanRun() {
+        currentCoroutineContext().ensureActive()
+        checkResources()
+    }
+
     private class Measured(val result: BackendResult, val raws: List<FloatArray>?, val totalMs: Double)
 
     private class TooSlow : Exception("much slower than CPU")
@@ -128,21 +139,25 @@ class Calibration(
         var loadMs = 0.0
         val rendering = frames?.takeIf { backend == Backend.GPU }?.let { RenderingStalls(it, visible) }
         try {
+            checkCanRun()
             val opened = clock.measureTimedValue { factory.open(profile, build) }
             loadMs = opened.duration.inWholeNanoseconds / 1e6
             val embedder = opened.value
             start = clock.markNow()
             try {
                 suspend fun timedEmbed(parts: List<Part>): TimedValue<FloatArray> {
+                    checkCanRun()
                     val usesGpu = parts.any {
                         (it is Part.Image && embedder.visionBackend == Backend.GPU) ||
                             (it is Part.Text && embedder.backend == Backend.GPU)
                     }
-                    return if (usesGpu && rendering != null) {
-                        rendering.measure { clock.measureTimedValue { embedder.embedRaw(parts) } }
-                    } else {
-                        clock.measureTimedValue { embedder.embedRaw(parts) }
-                    }
+                    return (
+                        if (usesGpu && rendering != null) {
+                            rendering.measure { clock.measureTimedValue { embedder.embedRaw(parts) } }
+                        } else {
+                            clock.measureTimedValue { embedder.embedRaw(parts) }
+                        }
+                        ).also { checkCanRun() }
                 }
                 // A cold model pages in weights and builds caches on its first calls of each kind; time none of them.
                 for (kind in listOf(images, texts, audio, queries)) {

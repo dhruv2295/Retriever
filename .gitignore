@@ -17,3 +17,6 @@ eval/corpus/
 *.mobileprovision
 keystore.properties
 iosApp/Configuration/Local.xcconfig
+
+# Local Perfetto trace processor wrapper
+/trace_processor

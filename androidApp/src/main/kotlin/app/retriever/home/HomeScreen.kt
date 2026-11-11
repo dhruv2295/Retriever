@@ -23,7 +23,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -35,7 +34,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -91,7 +89,6 @@ import app.retriever.nav.SetupRoute
 import app.retriever.nav.StatusRoute
 import app.retriever.nav.route
 import app.retriever.search.SearchActions
-import app.retriever.setup.CommitStage
 import app.retriever.ui.Format
 import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.contentPaddingFor
@@ -107,14 +104,12 @@ import org.koin.compose.koinInject
 
 private val FullLine = StaggeredGridItemSpan.FullLine
 
-/** What Home's status line and its sheet can ask for; every default does nothing, so a test passes only what it checks. */
+/** What Home's status line can ask for; every default does nothing, so a test passes only what it checks. */
 class HomeActions(
-    val resume: () -> Unit = {},
     val allowAccess: () -> Unit = {},
     val readNow: () -> Unit = {},
     val stopReadNow: () -> Unit = {},
     val dismissCaughtUp: () -> Unit = {},
-    val commit: (whileCharging: Boolean) -> Unit = {},
     val hideOnThisDay: () -> Unit = {},
     val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
     val turnOnPeople: () -> Unit = {},
@@ -146,7 +141,6 @@ fun HomeScreen(
     val requestReading = app.retriever.indexing.rememberReadingPermission()
     val requestNotifications = rememberNotificationPermission(retriever)
     val notificationsOn by rememberProcessingNotificationsEnabled()
-    val askBattery = app.retriever.indexing.rememberBatteryAsk()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
@@ -155,19 +149,12 @@ fun HomeScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
     // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
     // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val homeActions = remember(context, requestReading, requestNotifications, askBattery, prefs.notifyWhenCaughtUp, snackbar, scope) {
+    val homeActions = remember(context, requestReading, requestNotifications, prefs.notifyWhenCaughtUp, snackbar, scope) {
         HomeActions(
-            resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
             readNow = { requestReading { vm.readNow() } },
             stopReadNow = vm::stopReadNow,
             dismissCaughtUp = vm::dismissCaughtUp,
-            commit = { charging ->
-                requestReading {
-                    vm.commit(charging)
-                    askBattery()
-                }
-            },
             hideOnThisDay = {
                 vm.hideOnThisDay()
                 scope.launch {
@@ -245,15 +232,13 @@ internal fun HomeBody(
 ) {
     val context = LocalContext.current
     val download = remember(upgrade, context) { upgrade.downloadState(Format.downloadSize(context, upgrade.sizeBytes)) }
-    var choosing by rememberSaveable { mutableStateOf(false) }
     fun onAction(action: StatusAction, phase: ReadingPhase) {
         when (action) {
             StatusAction.CONTINUE -> actions.onNavigate(SetupRoute)
             StatusAction.ALLOW_ACCESS -> home.allowAccess()
-            StatusAction.CHOOSE_WHEN -> choosing = true
-            StatusAction.READ_FOR_15 -> home.readNow()
-            StatusAction.STOP -> if (phase == ReadingPhase.DOWNLOADING) upgradeActions.cancel() else home.stopReadNow()
-            StatusAction.RESUME -> home.resume()
+            StatusAction.START, StatusAction.RESUME -> home.readNow()
+            StatusAction.PAUSE -> home.stopReadNow()
+            StatusAction.STOP -> upgradeActions.cancel()
             StatusAction.DISMISS -> home.dismissCaughtUp()
             StatusAction.TRY_AGAIN -> if (phase == ReadingPhase.TUNING) upgradeActions.retryTune() else upgradeActions.download()
         }
@@ -276,30 +261,14 @@ internal fun HomeBody(
         // Not loaded yet: show nothing rather than flash the first-run message over a full index.
         val counts = ui.counts ?: return@LazyVerticalStaggeredGrid
         val noSpace = (upgrade.model as? ModelState.Failed)?.takeIf { it.noSpace }?.reason
-        val status = homeStatus(ui, download, noSpace)
-        if (ui.introDue) {
-            item(key = "intro", span = FullLine) {
-                val state = upgrade.description
-                HomeIntroCard(
-                    state,
-                    ui.planned,
-                    ui.progress.rest,
-                    Format.downloadSize(context, upgrade.sizeBytes),
-                    ui.readsOnBattery,
-                    onRecentAction = if (state == DescriptionState.WAITING_FOR_WIFI) upgradeActions.useMobileData else upgradeActions.download,
-                    onNotify = home.notify,
-                    onGotIt = home.dismissIntro,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-        }
+        val status = homeStatus(ui, download.takeUnless { ui.introDue }, noSpace)
         if (counts.values.sum() == 0L && ui.hasAccess) {
             // Still looking while setup runs; "nothing" only once a finished look found nothing.
             item(key = "empty", span = FullLine) { EmptyHome(indexRunning || !ui.libraryChosen) }
             return@LazyVerticalStaggeredGrid
         }
-        // The card says the same until Got it.
-        if (status != null && !ui.introDue) {
+        // Processing controls stay available even while the one-time explanation is shown.
+        if (status != null) {
             item(key = "status", span = FullLine) {
                 val shown = status.action != StatusAction.DISMISS || !ui.caughtUpDismissed
                 if (shown) {
@@ -323,6 +292,23 @@ internal fun HomeBody(
                         )
                     }
                 }
+            }
+        }
+        if (ui.introDue) {
+            item(key = "intro", span = FullLine) {
+                val state = upgrade.description
+                HomeIntroCard(
+                    state,
+                    ui.planned,
+                    ui.progress.rest,
+                    Format.downloadSize(context, upgrade.sizeBytes),
+                    ui.automaticReading,
+                    ui.sessionActive,
+                    onRecentAction = if (state == DescriptionState.WAITING_FOR_WIFI) upgradeActions.useMobileData else upgradeActions.download,
+                    onNotify = home.notify,
+                    onGotIt = home.dismissIntro,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
             }
         }
         // The sections wait for every source to answer, then draw together in this order: none lands above another later.
@@ -370,16 +356,6 @@ internal fun HomeBody(
     }
     // The status line's Try again and the one-time card ask too; the offer's card, when shown, asks for itself.
     if (!(offer && upgrade.stage == UpgradeStage.OFFER)) MobileDataAsk(upgrade, upgradeActions)
-    if (choosing) {
-        ModalBottomSheet(onDismissRequest = { choosing = false }) {
-            Box(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
-                CommitStage(ui.progress.rest, commit = {
-                    choosing = false
-                    home.commit(it)
-                })
-            }
-        }
-    }
 }
 
 /** As many 380 dp columns as fit in at most 1200 dp of the width; the grid's arrangement centres them. */
@@ -451,9 +427,11 @@ internal fun StatusLine(
             },
         )
         // Spelled out and below the words, so it never squeezes them at large text; aligned with the title.
-        status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
+        if ((status.action != null && status.action != StatusAction.DISMISS) || onOpen != null || more != null) {
             FlowRow(Modifier.padding(start = 56.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { onAction(action) }) { Text(action.label) }
+                status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
+                    FilledTonalButton(onClick = { onAction(action) }) { Text(action.label) }
+                }
                 more?.invoke()
             }
         }

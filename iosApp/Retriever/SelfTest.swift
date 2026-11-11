@@ -127,9 +127,9 @@
 
             s.monitor.active = true
             s.retriever.uiVisible = true
-            // Later parts wait for the charger unless the person asks to process now (ReadingPolicy.deepenBlocker), and the
-            // simulator is never on one: Read now, so the whole index, deepen pass included, is built here.
-            try await s.retriever.readNow()
+            // Later parts wait for the charger unless the person asks to process now (ReadingPolicy.blocker), and the
+            // simulator is never on one: Start, so the whole index, deepen pass included, is built here.
+            _ = try await s.retriever.startProcessing(setup: false)
             let next = try await indexAll(s).next
             let snap = await snapshot(s.retriever)
             let byKind = snap.counts.byKind.map { "\($0.key.name)=\($0.value)" }.sorted().joined(separator: " ")

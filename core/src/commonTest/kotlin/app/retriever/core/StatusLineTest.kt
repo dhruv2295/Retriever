@@ -9,6 +9,32 @@ import kotlin.test.assertTrue
 
 /** One title, one count, one detail and at most one action for every state, the same on both apps (demo-flow.md §5). */
 class StatusLineTest {
+    @Test fun faceOnlySafetyWaitDoesNotClaimZeroLongFilesRemain() {
+        for (stop in listOf(StopReason.PAUSED, StopReason.HOT, StopReason.POWER_SAVE, StopReason.UNPLUGGED)) {
+            val status = ReadingPolicy.decide(
+                ReadingProgress(read = 5),
+                stop,
+                false,
+                false,
+                DeviceWords.ANDROID,
+                facesWaiting = FacesProgress(2, 3),
+                processingStarted = true,
+            )
+            assertFalse(status.detail.orEmpty().contains("0 long files"))
+            assertEquals("2 of 5 photos checked for people", status.count)
+        }
+    }
+
+    /** With only faces left between batches, the line is about people, never the description pass all over again. */
+    @Test fun aFacesOnlyWaitSaysFacesNotDescriptions() {
+        val status = ReadingPolicy.decide(ReadingProgress(read = 5), null, false, false, DeviceWords.ANDROID, facesWaiting = FacesProgress(2, 3))
+        assertEquals(
+            listOf("Finding people in your photos", "2 of 5 photos checked for people", Words.strings.facesWaitingDetail(DeviceWords.ANDROID)),
+            listOf(status.title, status.count, status.detail),
+        )
+        val running = ReadingPolicy.decide(ReadingProgress(read = 5), null, true, true, DeviceWords.ANDROID, faces = FacesProgress(2, 3), adaptive = true)
+        assertEquals(Words.strings.facesDetail, running.detail, "no files-pass detail swapped in")
+    }
     private val android = DeviceWords.ANDROID
     private val iphone = DeviceWords.ios("iPhone")
 
@@ -21,12 +47,12 @@ class StatusLineTest {
         running: Boolean = false,
         reading: Boolean = false,
         words: DeviceWords = android,
-        minutes: Int = 0,
+        session: Boolean = false,
         plugged: Boolean = false,
         faces: FacesProgress? = null,
         facesWaiting: FacesProgress? = null,
         people: PeopleModel? = null,
-    ) = ReadingPolicy.decide(p, stop, running, reading, words, minutes, plugged, faces, facesWaiting, people)
+    ) = ReadingPolicy.decide(p, stop, running, reading, words, session, plugged, faces, facesWaiting, people)
 
     private fun row(s: ReadingStatus) = listOf(s.phase.name, s.title, s.count, s.detail, s.action?.label)
 
@@ -35,54 +61,59 @@ class StatusLineTest {
         val rows = listOf(
             decide(stop = StopReason.PAUSED) to listOf("PAUSED", "Paused", count, "Search still works.", "Resume"),
             decide(stop = StopReason.POWER_SAVE) to
-                listOf("POWER_SAVE", "Paused while Battery Saver is on", count, "Carries on when Battery Saver is off.", null),
-            decide(stop = StopReason.HOT) to listOf("HOT", "Paused to let your phone cool down", count, "Carries on by itself.", null),
-            decide(stop = StopReason.LOW_BATTERY) to listOf("LOW_BATTERY", "Paused, battery is low", count, "Plug in and Retriever carries on.", null),
-            decide(stop = StopReason.CHARGING_UP) to
-                listOf("CHARGING_UP", "Charging up first", count, "Processing starts once your battery has a bit more charge.", null),
-            decide(stop = StopReason.BUSY) to
-                listOf("BUSY", "Waiting until you put your phone down", count, "Or open Retriever to carry on now.", null),
+                listOf("POWER_SAVE", "Paused · continues when Battery Saver is off", count, "Carries on when Battery Saver is off.", null),
+            decide(stop = StopReason.HOT) to listOf("HOT", "Paused · continues when your phone cools down", count, "Carries on by itself.", null),
+            decide(stop = StopReason.LOW_BATTERY) to
+                listOf("LOW_BATTERY", "Paused · continues when you plug in", count, "Plug in and Retriever carries on.", null),
+            decide(stop = StopReason.CHARGING_UP) to listOf(
+                "CHARGING_UP",
+                "Paused · continues when the battery has a bit more charge",
+                count,
+                "Processing starts once your battery has a bit more charge.",
+                null,
+            ),
             decide(stop = StopReason.UNPLUGGED) to
-                listOf("CHARGING", "Waits until you charge", count, "Retriever carries on when your phone is charging.", "Process for 15 minutes"),
+                listOf("CHARGING", "Paused · continues when you plug in", count, "Retriever carries on when your phone is charging.", "Start processing"),
             decide(stop = StopReason.MANUAL) to
-                listOf("MANUAL", "Processing only when you start it", count, "You can find any file by its name.", "Process for 15 minutes"),
+                listOf("MANUAL", "Processing only when you start it", count, "You can find any file by its name.", "Start processing"),
             decide(stop = StopReason.BUDGET) to
-                listOf("WAITING", "Taking a short break", count, "Your phone decides when Retriever carries on. Nothing is lost.", null),
-            decide(minutes = 12) to listOf("READ_NOW", "Processing for 15 minutes · 12 min left", count, "Uses some battery. Stops on its own.", "Stop"),
+                listOf("WAITING", "Paused", count, Words.strings.processingReadyDetail, "Start processing"),
+            decide(session = false, words = iphone) to
+                listOf("WAITING", "Paused", count, Words.strings.processingReadyDetail, "Start processing"),
             decide(waiting.copy(sample = true), reading = true) to
-                listOf("SAMPLE", "Processing the demo files", null, "About a minute. Nothing is changed or sent.", null),
-            // Not now pauses: the line says what can be found, counts the whole phone, and offers the choice again.
+                listOf("SAMPLE", "Processing the demo files", null, "About a minute. Nothing is changed or sent.", "Pause"),
+            // Not now pauses: the line says what can be found, counts the whole phone, and offers to start.
             decide(ReadingProgress(read = 30, notScheduled = 25_763, sample = true, notNow = true), stop = StopReason.PAUSED) to
-                listOf("NOT_NOW", "Only names can be found for now", "30 of ${formatCount(25_793)} files processed", null, "Choose when to process"),
+                listOf("NOT_NOW", "Only names can be found for now", "30 of ${formatCount(25_793)} files processed", null, "Start processing"),
             decide(reading = true) to
-                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             decide(reading = true, plugged = true) to
-                listOf("READING", "Processing while you charge", count, "You can close Retriever; it carries on. Search works the whole time.", null),
+                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to listOf(
                 "MEANING",
                 "Adding search by description",
                 "1 of 4 files have search by description",
                 "So you can search by what things mean, and by what’s in your photos. On this phone only.",
-                null,
+                "Pause",
             ),
-            // Faces come once the files are done: the line counts photos looked at.
+            // Faces come once the files are done: the line counts photos checked.
             decide(running = true, plugged = true, faces = FacesProgress(2_046, 14_659)) to listOf(
                 "FACES",
-                "Looking for faces in your photos",
-                "2,046 of 16,705 photos looked at",
-                "All your files are processed. Search works the whole time.",
-                null,
+                "Finding people in your photos",
+                "2,046 of 16,705 photos checked for people",
+                "An optional extra step. Your files are all searchable, and nothing is processed again.",
+                "Pause",
             ),
             // Before it, Play delivers People's model: no count of files beside a download.
             decide(running = true, plugged = true, people = PeopleModel.GETTING) to listOf(
                 "FACES",
-                "Getting People ready",
+                "Finding people in your photos",
                 null,
-                "A one-time download for People. Search works the whole time.",
-                null,
+                "A one-time download for People. Your files are all searchable.",
+                "Pause",
             ),
             decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true) to
-                listOf("DEEPENING", "Processing the rest of some long files", null, "2 to go. You can find them by their beginning.", null),
+                listOf("DEEPENING", "Processing the rest of some long files", null, "2 to go. You can find them by their beginning.", "Pause"),
             decide(ReadingProgress(read = 3), running = true) to listOf("LOOKING", "Checking for new files…", "3 of 3 files processed", null, null),
             decide(ReadingProgress(read = 3)) to
                 listOf(
@@ -94,58 +125,100 @@ class StatusLineTest {
                 ),
             decide(ReadingProgress(read = 3, partlyRead = 1)) to listOf(
                 "LIMITED",
-                "All done. A few long files were processed only in part",
+                "All done. Retriever has processed everything it can",
                 "4 of 4 files processed",
-                "You can find them by their beginning.",
+                "A few long files were processed only in part. You can find them by their beginning.",
                 "Dismiss",
             ),
-            decide(ReadingProgress(read = 3, scheduled = 2, counted = false), reading = true) to listOf("COUNTING", "Counting your files…", null, null, null),
+            decide(ReadingProgress(read = 3, scheduled = 2, counted = false), reading = true) to listOf("COUNTING", "Getting ready…", null, null, null),
         )
         for ((status, expected) in rows) assertEquals(expected, row(status))
     }
 
     @Test fun iosSaysItsOwnDeviceAndThatRetrieverStaysOpen() {
-        assertEquals("Paused while Low Power Mode is on", decide(stop = StopReason.POWER_SAVE, words = iphone).title)
-        assertEquals("Waiting until you put your iPhone down", decide(stop = StopReason.BUSY, words = iphone).title)
-        assertEquals("Uses some battery. Keep Retriever open.", decide(minutes = 3, words = iphone).detail)
+        assertEquals("Paused · continues when your iPhone cools down", decide(stop = StopReason.HOT, words = iphone).title)
+        assertEquals(Words.strings.processingReadyDetail, decide(session = false, words = iphone).detail)
         assertEquals(
             "Search works the whole time. Retriever processes your files while it’s open, and sometimes when iOS allows.",
             decide(reading = true, words = iphone).detail,
         )
-        assertEquals("Your iPad decides when Retriever carries on. Nothing is lost.", decide(stop = StopReason.DONE, words = DeviceWords.ios("iPad")).detail)
+        assertEquals(Words.strings.processingReadyDetail, decide(stop = StopReason.DONE, words = DeviceWords.ios("iPad")).detail)
         // An empty phone never says "0 of 0 files processed".
         assertNull(decide(ReadingProgress(), stop = StopReason.PAUSED).count)
     }
 
-    /** Settings' Read for 15 minutes shows at once: before the reader starts, and before a blocker-free turn would say WAITING. */
-    @Test fun readNowShowsFromTheTap() {
-        val tapped = decide(minutes = 15)
-        assertEquals(ReadingPhase.READ_NOW to StatusAction.STOP, tapped.phase to tapped.action)
-        assertTrue(tapped.active)
-        assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, minutes = 15).phase, "a stop still wins")
-        assertEquals(ReadingPhase.CAUGHT_UP, decide(ReadingProgress(read = 3), minutes = 15).phase, "nothing left to read")
-        assertEquals(ReadingPhase.BUSY, decide(stop = StopReason.BUSY, running = true, faces = FacesProgress(1, 9)).phase, "a stop wins over faces")
+    /** Start processing records intent; only a running reader claims active processing. */
+    @Test fun startProcessingWaitsUntilTheReaderRuns() {
+        val tapped = decide(session = true)
+        assertEquals(listOf("WAITING", "Processing your files", "Pause"), listOf(tapped.phase.name, tapped.title, tapped.action?.label))
+        assertFalse(tapped.active)
+        assertFalse(tapped.offersPause(waiting), "the line's Pause is the only one")
+        assertEquals(ReadingPhase.READING, decide(running = true, session = true).phase)
+        assertEquals(ReadingPhase.MEANING, decide(ReadingProgress(read = 4, meaningWaiting = 3), running = true, session = true).phase)
+        assertEquals(ReadingPhase.DEEPENING, decide(ReadingProgress(partlyRead = 2, laterPasses = 2), running = true, session = true).phase)
+        assertEquals(ReadingPhase.WAITING, decide(ReadingProgress(read = 4, meaningWaiting = 3), session = true).phase)
+        assertEquals(ReadingPhase.WAITING, decide(ReadingProgress(partlyRead = 2, laterPasses = 2), session = true).phase)
+        assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, session = true).phase, "a stop still wins")
+        assertEquals(ReadingPhase.CAUGHT_UP, decide(ReadingProgress(read = 3), session = true).phase, "nothing left to process")
+    }
+
+    @Test fun waitingWorkOffersStartAfterItsSessionIsLost() {
+        val lost = decide()
+        assertEquals(ReadingPhase.WAITING, lost.phase)
+        assertEquals(StatusAction.START, lost.action)
+        assertFalse(lost.active)
+        assertEquals(StatusAction.START, decide(words = iphone).action)
     }
 
     /** Every file processed, faces left: a stop counts the photos, not "26,376 of 26,376 files processed" beside work to do. */
     @Test fun aStopAfterEveryFileCountsTheFacesLeft() {
         val allFiles = ReadingProgress(read = 4, partlyRead = 1, laterPasses = 1)
-        val busy = decide(allFiles, stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8))
-        assertEquals(listOf("BUSY", "2 of 10 photos looked at"), listOf(busy.phase.name, busy.count))
-        assertEquals(2L to 10L, busy.done to busy.total)
-        assertEquals("3 of 5 files processed", decide(stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8)).count, "files left come first")
-        // A Pixel paused for heat showed "6,417 of 23,414 photos looked at" while 3,392 photos still waited for search by
-        // description, which goes first.
-        val meaningLeft = decide(ReadingProgress(read = 5, meaningWaiting = 1), stop = StopReason.BUSY, facesWaiting = FacesProgress(2, 8))
+        val hot = decide(allFiles, stop = StopReason.HOT, facesWaiting = FacesProgress(2, 8))
+        assertEquals(listOf("HOT", "2 of 10 photos checked for people"), listOf(hot.phase.name, hot.count))
+        assertEquals(2L to 10L, hot.done to hot.total)
+        assertEquals("3 of 5 files processed", decide(stop = StopReason.HOT, facesWaiting = FacesProgress(2, 8)).count, "files left come first")
+        assertEquals(ReadingPhase.HOT, decide(stop = StopReason.HOT, running = true, faces = FacesProgress(1, 9)).phase, "a stop wins over faces")
+        // A Pixel paused for heat counted photos for faces while 3,392 photos still waited for search by description,
+        // which goes first.
+        val meaningLeft = decide(ReadingProgress(read = 5, meaningWaiting = 1), stop = StopReason.HOT, facesWaiting = FacesProgress(2, 8))
         assertEquals("4 of 5 files have search by description", meaningLeft.count, "then the search by description")
     }
 
-    /** Processing never shows Pause beside a session's Stop: one ends the 15 minutes, the other stopped everything. */
+    @Test fun queuedAndroidFacesAreStillWorkAfterEveryFileIsProcessed() {
+        val queued = ReadingPolicy.decide(
+            ReadingProgress(read = 4),
+            null,
+            false,
+            false,
+            android,
+            facesWaiting = FacesProgress(2, 8),
+            processingStarted = true,
+        )
+        assertEquals(ReadingPhase.WAITING, queued.phase)
+        assertEquals(StatusAction.RESUME, queued.action)
+        assertEquals("2 of 10 photos checked for people", queued.count)
+        assertFalse(queued.active)
+        val hot = ReadingPolicy.decide(
+            ReadingProgress(read = 4),
+            StopReason.HOT,
+            false,
+            false,
+            android,
+            facesWaiting = FacesProgress(2, 8),
+            processingStarted = true,
+        )
+        assertEquals(ReadingPhase.HOT, hot.phase)
+        assertNull(hot.action)
+    }
+
+    /** Processing offers one Pause control for an active session. */
     @Test fun pauseShowsOnlyWhenNoSessionRuns() {
-        val session = decide(running = true, reading = true, minutes = 12)
-        assertEquals(StatusAction.STOP, session.action)
-        assertFalse(session.offersPause(waiting), "the session's Stop is the only button")
-        assertTrue(decide(running = true, reading = true).offersPause(waiting), "processing by the schedule can be paused")
+        val session = decide(running = true, reading = true, session = false, words = iphone)
+        assertEquals(StatusAction.PAUSE, session.action)
+        assertFalse(session.offersPause(waiting), "the line has Pause itself")
+        assertFalse(decide(running = true, reading = true, words = iphone).offersPause(waiting), "the line has Pause itself")
+        assertFalse(decide(running = true, reading = true).offersPause(waiting), "Android's line has Pause itself")
+        assertTrue(decide(stop = StopReason.HOT).offersPause(waiting), "a wait has no button of its own")
         assertFalse(decide(stop = StopReason.PAUSED).offersPause(waiting), "already paused: Resume only")
         assertFalse(decide(ReadingProgress(read = 3)).offersPause(ReadingProgress(read = 3)), "nothing left to pause")
     }
@@ -157,7 +230,7 @@ class StatusLineTest {
         }
         assertEquals("Paused", decide(stop = StopReason.PAUSED).pause)
         assertEquals("Paused", decide(waiting.copy(sample = true), stop = StopReason.PAUSED).pause, "the demo's own pause still says why")
-        assertEquals("Waits until you charge", decide(stop = StopReason.UNPLUGGED).pause)
+        assertEquals("Paused · continues when you plug in", decide(stop = StopReason.UNPLUGGED).pause)
     }
 
     @Test fun manualReadingNeverPromisesToReadByItself() {
@@ -225,16 +298,16 @@ class StatusLineTest {
         assertEquals(ReadingPhase.PAUSED, decide(demo, stop = StopReason.PAUSED).phase)
         assertEquals(ReadingPhase.NOT_NOW, decide(demo.copy(notNow = true), stop = StopReason.PAUSED).phase)
         assertEquals(
-            StatusAction.CHOOSE_WHEN,
+            StatusAction.START,
             decide(ReadingProgress(read = 30, notScheduled = 25_763, sample = true)).action,
-            "the demo done, the choice waits",
+            "the demo done, the rest waits for Start processing",
         )
     }
 
     /** Before the phone's files are all counted the line says so, with no count and no bar; Home shows it even with none yet. */
     @Test fun countingYourFilesUntilTheFirstFullCount() {
         val counting = decide(ReadingProgress(read = 30, scheduled = 400, counted = false), reading = true)
-        assertEquals(ReadingPhase.COUNTING to "Counting your files…", counting.phase to counting.title)
+        assertEquals(ReadingPhase.COUNTING to "Getting ready…", counting.phase to counting.title)
         assertEquals(listOf(null, null, null), listOf(counting.count, counting.done, counting.total))
         assertEquals(counting, ReadingPolicy.line(counting, true, true, 0, android))
         val demo = decide(ReadingProgress(read = 3, scheduled = 2, sample = true, counted = false), reading = true)
@@ -284,7 +357,7 @@ class StatusLineTest {
             row(line(download = stopped, r = decide(stop = StopReason.UNPLUGGED))!!),
         )
         assertEquals(
-            listOf("TUNING", "Setting up processing for this phone", null, "About a minute. Finding a processing speed that suits this phone.", null),
+            listOf("TUNING", "Getting ready…", null, "About a minute. Finding a processing speed that suits this phone.", null),
             row(line(download = DownloadState(null, false, "388 MB", settingUp = true))!!),
         )
         assertEquals(StatusAction.TRY_AGAIN, line(download = DownloadState(null, true, "388 MB", settingUp = true), r = decide())?.action)
@@ -292,7 +365,7 @@ class StatusLineTest {
 
     @Test fun noStateSaysHoursNightsPercentOrNewFiles() {
         val all = StopReason.entries.map { decide(stop = it) } + listOf(
-            decide(minutes = 1),
+            decide(session = true),
             decide(reading = true),
             decide(waiting.copy(sample = true), reading = true),
             decide(ReadingProgress(read = 3)),

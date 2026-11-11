@@ -57,10 +57,8 @@ enum class ReadingPhase {
     HOT,
     LOW_BATTERY,
     CHARGING_UP,
-    BUSY,
     CHARGING,
     MANUAL,
-    READ_NOW,
     SAMPLE,
     MEANING,
     FACES,
@@ -76,25 +74,28 @@ enum class ReadingPhase {
 enum class StatusAction {
     CONTINUE,
     ALLOW_ACCESS,
-    CHOOSE_WHEN,
-    READ_FOR_15,
     STOP,
     RESUME,
     DISMISS,
     TRY_AGAIN,
+
+    /** Starts an explicit untimed run. */
+    START,
+
+    /** The line's Pause while files are processed. */
+    PAUSE,
     ;
 
     val label: String get() = Words.strings.statusAction(this)
 }
 
-private val ACTIVE = setOf(ReadingPhase.READ_NOW, ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
+private val ACTIVE = setOf(ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
 private val STOPS = setOf(
     ReadingPhase.PAUSED,
     ReadingPhase.POWER_SAVE,
     ReadingPhase.HOT,
     ReadingPhase.LOW_BATTERY,
     ReadingPhase.CHARGING_UP,
-    ReadingPhase.BUSY,
     ReadingPhase.CHARGING,
     ReadingPhase.MANUAL,
 )
@@ -123,11 +124,12 @@ data class ReadingStatus(
     val pause: String? get() = title.takeIf { phase in STOPS }
 
     /**
-     * Processing's [Words.PAUSE] beside the line's own button: only while work is left, nothing has paused it, and no
-     * Process for 15 minutes runs. During one the line's Stop ends it; a Pause beside it looked the same and stopped all
-     * processing.
+     * Processing's [Words.PAUSE] beside the line's own button: only while work is left, nothing has paused it, the line's
+     * button is not Pause itself. Downloads have their own Stop button.
      */
-    fun offersPause(progress: ReadingProgress): Boolean = progress.unfinished && phase != ReadingPhase.PAUSED && action != StatusAction.STOP
+    fun offersPause(progress: ReadingProgress): Boolean =
+        progress.unfinished && phase != ReadingPhase.PAUSED && action != StatusAction.STOP && action != StatusAction.PAUSE &&
+            action != StatusAction.RESUME && action != StatusAction.START
 }
 
 /**
@@ -139,62 +141,45 @@ data class DownloadState(val percent: Int?, val stopped: Boolean, val size: Stri
 
 /** Shared by the reader and every progress surface. Opening the app never overrides the saved schedule. */
 object ReadingPolicy {
-    const val SESSION_MS = 15 * 60 * 1000L
     const val LOW_BATTERY = 20
     const val BATTERY_RECOVERED = 23
 
-    /** Also on battery: the catch-up reads off the charger only down to this, so a day's charge is left for the day. */
+    /** Automatic processing pauses below this level; an explicit session can override it. */
     const val BATTERY_FLOOR = 75
+    const val RESUMED_BATTERY_FLOOR = 50
+
+    fun batteryFloor(prefs: Prefs): Int = if (prefs.started) RESUMED_BATTERY_FLOOR else BATTERY_FLOOR
 
     /**
-     * New files after the first pass: up to this many are processed at once, on battery and while the phone is in use. At
-     * about 1.5 s a photo that is a couple of minutes; only the one-time catch-up waits for the charger.
+     * New files after the first pass: up to this many may bypass the automatic reserve, down to fifty.
+     * Explicit Pause, manual scheduling and safety stops still apply.
      */
     const val FEW_WAITING = 100
 
-    /**
-     * Process for 15 minutes is the person asking now: it carries on while they use the phone (on the CPU, see `onScreen`).
-     * So does any reading on the charger, where use costs no battery: waiting for the phone to be put down left a first read
-     * days long.
-     */
-    fun blocker(
-        prefs: Prefs,
-        device: DeviceState,
-        visible: Boolean,
-        sampleSession: Boolean,
-        now: Long,
-        lowBattery: Boolean = false,
-        fewWaiting: Boolean = false,
-    ): StopReason? = when {
+    /** Pause, safety and the battery [floor] off the charger, shared by preparation, tuning and processing. */
+    fun resourceBlocker(prefs: Prefs, device: DeviceState, lowBattery: Boolean = false, floor: Int = batteryFloor(prefs)): StopReason? = when {
         prefs.paused -> StopReason.PAUSED
         device.powerSave -> StopReason.POWER_SAVE
         device.hot -> StopReason.HOT
         !device.charging && (lowBattery || device.batteryPct in 0..LOW_BATTERY) -> if (device.pluggedIn) StopReason.CHARGING_UP else StopReason.LOW_BATTERY
-        prefs.readNowUntil > now -> null
-        device.screenOn && !visible && !fewWaiting && !device.pluggedIn -> StopReason.BUSY
-        sampleSession -> null
-        prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
-        !device.pluggedIn && !fewWaiting && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
+        !device.pluggedIn && device.batteryPct in 0 until floor -> StopReason.UNPLUGGED
         else -> null
-    }
-
-    /** Off the charger, the schedule waits for one: While charging always, Also on battery under [BATTERY_FLOOR]. */
-    private fun belowSchedule(prefs: Prefs, device: DeviceState) = when (prefs.automaticReading) {
-        ReadingSchedule.CHARGING -> true
-        ReadingSchedule.BATTERY -> device.batteryPct in 0 until BATTERY_FLOOR
-        ReadingSchedule.MANUAL -> false
     }
 
     /**
-     * Embedding long files' later parts is the big, one-time work: off the charger it waits for one even when few new files
-     * wait, and in the background for the phone to be put down. Null when it may run now.
+     * Opening the app leaves the saved schedule unchanged; explicit sessions override it, never safety. [fewWaiting]: a
+     * catch-up of new files runs down to [RESUMED_BATTERY_FLOOR] whatever the schedule. Later parts pass false.
      */
-    fun deepenBlocker(prefs: Prefs, device: DeviceState, visible: Boolean, sampleSession: Boolean, now: Long): StopReason? = when {
-        sampleSession && visible -> null
-        prefs.readNowUntil > now -> null
-        device.screenOn && !visible && !device.pluggedIn -> StopReason.BUSY
-        !device.pluggedIn && belowSchedule(prefs, device) -> StopReason.UNPLUGGED
-        else -> null
+    fun blocker(prefs: Prefs, device: DeviceState, sampleSession: Boolean, lowBattery: Boolean = false, fewWaiting: Boolean = false): StopReason? {
+        resourceBlocker(prefs, device, lowBattery, if (fewWaiting) RESUMED_BATTERY_FLOOR else batteryFloor(prefs))?.let { return it }
+        return when {
+            prefs.started -> null
+            prefs.processingRequested && device.pluggedIn -> null
+            sampleSession -> null
+            prefs.automaticReading == ReadingSchedule.MANUAL -> StopReason.MANUAL
+            prefs.automaticReading == ReadingSchedule.CHARGING && !device.pluggedIn && !fewWaiting -> StopReason.UNPLUGGED
+            else -> null
+        }
     }
 
     /** Why reading stopped, as every surface titles it; DONE and BUDGET are the system's turn between batches. */
@@ -227,7 +212,7 @@ object ReadingPolicy {
             download != null && (!download.stopped || reading?.active != true) -> when {
                 download.settingUp && download.stopped -> ReadingStatus(ReadingPhase.TUNING, Words.tuneFailed(words), action = StatusAction.TRY_AGAIN)
 
-                download.settingUp -> ReadingStatus(ReadingPhase.TUNING, Words.tuneTitle(words), Words.tuneBody(words))
+                download.settingUp -> ReadingStatus(ReadingPhase.TUNING, c.gettingReadyTitle, Words.tuneBody(words))
 
                 download.stopped -> ReadingStatus(
                     ReadingPhase.DOWNLOAD_STOPPED,
@@ -255,8 +240,8 @@ object ReadingPolicy {
     }
 
     /**
-     * The reading part of the status line. [readNowMinutes]: what is left of a Read for 15 minutes, rounded up, 0 with
-     * none; it shows from the tap, before the reader starts. [pluggedIn]: [DeviceState.pluggedIn]. A live count by the
+     * The reading part of the status line. [sessionActive] is the explicit untimed intent. Processing is
+     * shown only while the reader runs. [pluggedIn]: [DeviceState.pluggedIn]. A live count by the
      * one rule ([ReadingProgress.processed] of [ReadingProgress.libraryTotal]), not a percent: 1% of a big library is
      * minutes of work, and a count moves with every file (and a dip when new files come explains itself). "Counting your
      * files…" until they are all counted. No hours, nights or "by morning": [ESTIMATE_CALIBRATED]. [faces]: the running
@@ -264,6 +249,8 @@ object ReadingPolicy {
      * [facesWaiting]: photos still to look at once every file is processed. A stop or wait then counts them, not a full
      * file count beside work still to do. [people]: People's model when a faces pass found it missing ([IndexState.people]).
      * [readersMissing]: the batch waits for the text and label readers downloading ([IndexState.readersMissing]).
+     * [battery]: [DeviceState.batteryPct]. [requested]: [Prefs.processingRequested]; below [RESUMED_BATTERY_FLOOR] off the
+     * charger, a person's request asks to plug in. [processingStarted]: Resume rather than Start.
      */
     fun decide(
         progress: ReadingProgress,
@@ -271,36 +258,41 @@ object ReadingPolicy {
         running: Boolean,
         reading: Boolean,
         words: DeviceWords,
-        readNowMinutes: Int = 0,
+        sessionActive: Boolean = false,
         pluggedIn: Boolean = false,
         faces: FacesProgress? = null,
         facesWaiting: FacesProgress? = null,
         people: PeopleModel? = null,
         readersMissing: Boolean = false,
+        battery: Int = 100,
+        requested: Boolean = sessionActive,
+        processingStarted: Boolean = false,
+        adaptive: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val c = Words.strings
         val demo = progress.sample && !progress.notNow
+        val unfinished = progress.unfinished || ((facesWaiting?.pending ?: 0L) > 0)
+        val onBattery = !pluggedIn && battery >= 0
+        // A session on battery under the automatic floor, which it may process down to the session's.
+        val onReserve = sessionActive && onBattery && battery < BATTERY_FLOOR
         val phase = when {
             !progress.counted && !demo -> ReadingPhase.COUNTING
 
             // Not now pauses, so it comes before the person's own Pause.
             progress.notNow -> ReadingPhase.NOT_NOW
 
-            blocker == StopReason.PAUSED -> ReadingPhase.PAUSED
+            blocker == StopReason.PAUSED && unfinished -> ReadingPhase.PAUSED
 
-            progress.unfinished && blocker != null -> when (blocker) {
+            unfinished && blocker != null -> when (blocker) {
                 StopReason.POWER_SAVE -> ReadingPhase.POWER_SAVE
                 StopReason.HOT -> ReadingPhase.HOT
                 StopReason.LOW_BATTERY -> ReadingPhase.LOW_BATTERY
                 StopReason.CHARGING_UP -> ReadingPhase.CHARGING_UP
-                StopReason.BUSY -> ReadingPhase.BUSY
                 StopReason.UNPLUGGED -> ReadingPhase.CHARGING
                 StopReason.MANUAL -> ReadingPhase.MANUAL
                 else -> ReadingPhase.WAITING
             }
-
-            readNowMinutes > 0 && progress.unfinished -> ReadingPhase.READ_NOW
 
             // A faces pass first waits for People's model while it downloads (Retriever.peopleModel).
             running && (faces != null || people == PeopleModel.GETTING) -> ReadingPhase.FACES
@@ -313,9 +305,9 @@ object ReadingPolicy {
 
             (reading || running) && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
 
-            reading || (running && progress.unfinished) -> ReadingPhase.READING
+            reading || (running && unfinished) -> ReadingPhase.READING
 
-            progress.unfinished -> ReadingPhase.WAITING
+            unfinished -> ReadingPhase.WAITING
 
             // The demo is done and the choice waits.
             progress.sample -> ReadingPhase.NOT_NOW
@@ -332,27 +324,41 @@ object ReadingPolicy {
         val firstPassDone = phase == ReadingPhase.WAITING && allProcessed &&
             (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
         // A stop over only those passes says why it stopped, then that every file is processed and what is left.
-        val restStopped = phase in STOPS && progress.unfinished && allProcessed
+        val restStopped = phase in STOPS && unfinished && allProcessed
         // Play services delivers the text and label readers after install; the first batch may wait for them.
         val gettingReaders = readersMissing && running && phase == ReadingPhase.READING
-        // Between batches with the meaning pass left, its title, not "All files processed" over photos still waiting.
-        val title = if (gettingReaders) {
-            c.gettingReadersTitle
-        } else {
-            when (phase) {
-                ReadingPhase.WAITING if firstPassDone -> if (progress.meaningWaiting > 0) c.addingDescriptionTitle else c.allFilesProcessedTitle
-                ReadingPhase.COUNTING -> c.countingTitle
+        // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
+        // its first reads are all done, and a full bar beside work going on reads as stuck. A stop over the meaning pass
+        // counts that pass; one over only later parts has none, like deepening. Faces come after the files and their search
+        // by description (Retriever.runBatch), so a stop counts them only once both are done.
+        val looking = when {
+            phase == ReadingPhase.FACES -> faces
+            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L && progress.meaningWaiting == 0L }
+            else -> null
+        }
+        // Between batches with only faces or the meaning pass left, their title, never "All files processed" over work waiting.
+        val title = when {
+            gettingReaders -> c.gettingReadyTitle
+
+            phase == ReadingPhase.WAITING && firstPassDone -> when {
+                looking != null -> c.lookingForFacesTitle
+                progress.meaningWaiting > 0 -> c.addingDescriptionTitle
+                else -> c.allFilesProcessedTitle
+            }
+
+            phase == ReadingPhase.WAITING && blocker != StopReason.DISK_FULL ->
+                if (sessionActive && blocker == null) c.processingYourFiles else stopCopy(StopReason.PAUSED, words)
+
+            else -> when (phase) {
+                ReadingPhase.COUNTING -> c.gettingReadyTitle
                 ReadingPhase.NOT_NOW -> c.notNowTitle
-                ReadingPhase.CHARGING -> stopCopy(StopReason.UNPLUGGED, words)
-                ReadingPhase.READ_NOW -> c.readNowTitle(readNowMinutes)
                 ReadingPhase.SAMPLE -> c.sampleTitle
                 ReadingPhase.MEANING -> c.addingDescriptionTitle
-                ReadingPhase.FACES -> if (faces == null) c.gettingPeopleReadyTitle else c.lookingForFacesTitle
+                ReadingPhase.FACES -> c.lookingForFacesTitle
                 ReadingPhase.DEEPENING -> c.deepeningTitle
-                ReadingPhase.READING -> if (pluggedIn) c.chargingReadTitle else c.processingYourFiles
+                ReadingPhase.READING -> c.processingYourFiles
                 ReadingPhase.LOOKING -> c.lookingTitle
-                ReadingPhase.CAUGHT_UP -> c.caughtUpTitle
-                ReadingPhase.LIMITED -> c.limitedTitle
+                ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> c.caughtUpTitle
                 else -> stopCopy(blocker ?: StopReason.DONE, words)
             }
         }
@@ -370,13 +376,9 @@ object ReadingPolicy {
 
                 ReadingPhase.CHARGING_UP -> c.chargingUpDetail
 
-                ReadingPhase.BUSY -> c.busyDetail
-
                 ReadingPhase.CHARGING -> c.chargingDetail(words)
 
                 ReadingPhase.MANUAL -> c.manualDetail
-
-                ReadingPhase.READ_NOW -> c.readNowDetail(words)
 
                 ReadingPhase.SAMPLE -> c.sampleDetail
 
@@ -385,14 +387,20 @@ object ReadingPolicy {
                 // Faces come last (Retriever.runBatch): every file is processed by now.
                 ReadingPhase.FACES -> if (faces == null) c.peopleDownloadDetail else c.facesDetail
 
-                ReadingPhase.DEEPENING, ReadingPhase.LIMITED -> c.deepeningDetail
+                ReadingPhase.DEEPENING -> c.deepeningDetail
+
+                ReadingPhase.LIMITED -> c.limitedDetail
 
                 ReadingPhase.READING -> when {
                     progress.meaningWaiting > 0 -> c.readingMeaningDetail
                     else -> c.readingDetail(words)
                 }
 
-                ReadingPhase.WAITING if firstPassDone -> if (progress.laterPasses > 0) c.waitingLongFilesDetail(words) else c.waitingMeaningDetail(words)
+                ReadingPhase.WAITING if firstPassDone -> when {
+                    looking != null -> c.facesWaitingDetail(words)
+                    progress.laterPasses > 0 -> c.waitingLongFilesDetail(words)
+                    else -> c.waitingMeaningDetail(words)
+                }
 
                 ReadingPhase.WAITING -> if (blocker == StopReason.DISK_FULL) c.diskFullDetail else c.waitingDetail(words)
 
@@ -407,26 +415,57 @@ object ReadingPolicy {
         val lead = when {
             people == PeopleModel.WAITING_FOR_WIFI && facesWaiting != null && !running -> c.peopleWaitsForWifi
             phase == ReadingPhase.DEEPENING -> c.deepeningLead(progress.laterPasses)
-            restStopped && !meaning -> c.longFilesWait(progress.laterPasses)
+            restStopped && !meaning && progress.laterPasses > 0 -> c.longFilesWait(progress.laterPasses)
             restStopped -> c.allFilesProcessedLead
             else -> null
         }
-        val detail = listOfNotNull(lead, sentence).joinToString(c.sentenceGap).ifEmpty { null }
+        // Faces keep their own detail: the swap below described the files' pass all over again.
+        val filesPass = phase in ACTIVE && phase != ReadingPhase.FACES
+        val detail = when {
+            requested && onBattery && battery < RESUMED_BATTERY_FLOOR && (phase == ReadingPhase.CHARGING || phase == ReadingPhase.LOW_BATTERY) ->
+                c.processingPlugInDetail
+
+            phase == ReadingPhase.CHARGING && onBattery && battery < (if (sessionActive) RESUMED_BATTERY_FLOOR else BATTERY_FLOOR) ->
+                c.automaticProcessingPreferenceDetail
+
+            phase == ReadingPhase.WAITING && !firstPassDone && sessionActive && blocker == null -> when {
+                onReserve -> c.processingBatteryOverrideDetail
+                adaptive -> c.processingAdaptiveDetail
+                else -> c.readingDetail(words)
+            }
+
+            phase == ReadingPhase.WAITING && !firstPassDone && blocker != StopReason.DISK_FULL -> c.processingReadyDetail
+
+            filesPass && onReserve -> c.processingBatteryOverrideDetail
+
+            filesPass && adaptive -> c.processingAdaptiveDetail
+
+            else -> listOfNotNull(lead, sentence).joinToString(c.sentenceGap).ifEmpty { null }
+        }
+        // The line always has the one button that changes what happens: Start processing, Pause or Resume.
         val action = when (phase) {
             ReadingPhase.PAUSED -> StatusAction.RESUME
-            ReadingPhase.CHARGING, ReadingPhase.MANUAL -> StatusAction.READ_FOR_15
-            ReadingPhase.READ_NOW -> StatusAction.STOP
-            ReadingPhase.NOT_NOW -> StatusAction.CHOOSE_WHEN
+
+            ReadingPhase.CHARGING, ReadingPhase.MANUAL -> if (processingStarted || sessionActive) StatusAction.RESUME else StatusAction.START
+
+            ReadingPhase.NOT_NOW -> StatusAction.START
+
             ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> StatusAction.DISMISS
-            else -> null
-        }
-        // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
-        // its first reads are all done, and a full bar beside work going on reads as stuck. A stop over the meaning pass
-        // counts that pass; one over only later parts has none, like deepening. Faces come after the files and their search
-        // by description (Retriever.runBatch), so a stop counts them only once both are done.
-        val looking = when {
-            phase == ReadingPhase.FACES -> faces
-            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L && progress.meaningWaiting == 0L }
+
+            ReadingPhase.READING, ReadingPhase.MEANING, ReadingPhase.DEEPENING, ReadingPhase.FACES, ReadingPhase.SAMPLE -> StatusAction.PAUSE
+
+            ReadingPhase.WAITING -> if (unfinished) {
+                if (sessionActive) {
+                    StatusAction.PAUSE
+                } else if (processingStarted) {
+                    StatusAction.RESUME
+                } else {
+                    StatusAction.START
+                }
+            } else {
+                null
+            }
+
             else -> null
         }
         val (done, total) = when {
@@ -484,3 +523,7 @@ fun readingLabel(kind: Kind, stored: Store.StoredFile?, readInside: Boolean): St
         else -> c.foundByNotYet
     }
 }
+
+internal const val SESSION_GENERATION_KEY = "reading_session_generation"
+
+internal const val SETUP_SESSION_KEY = "setup_processing_session"

@@ -119,6 +119,26 @@ class ReadAheadTest {
         }
     }
 
+    @Test fun readAheadRechecksInteractionAfterExtractionInsteadOfUsingTheFilesOldState() = runTest {
+        val store = newStore().apply { upsertFiles(files) }
+        val monitor = FakeMonitor()
+        val extractor = FakeExtractor(pieces) { monitor.state = monitor.state.copy(screenOn = true) }
+        var bAttemptsWhileAEmbeds: Int? = null
+        val embedder = OnGpu(FakeEmbedder()) { parts ->
+            if ("a.txt" in (parts.single() as Part.Text).text) bAttemptsWhileAEmbeds = store.fileByUri(files[1].uri)!!.attempts
+        }
+        val result = IndexEngine(
+            store,
+            extractor,
+            embedder,
+            monitor,
+            settingsOf(),
+            readAheadDepth = { IndexEngine.readAheadDepth(it, visible = false) },
+        ).runBatch(1.minutes)
+        assertEquals(BatchResult(3, 0, StopReason.DONE), result, "interaction lowers intensity but work continues")
+        assertEquals(0, bAttemptsWhileAEmbeds, "no extra extraction was launched using stale idle state")
+    }
+
     @Test
     fun withoutTheModelVideosAreFoundByNameAndReadWhenItComes() = runTest {
         val store = newStore(sig = null)

@@ -21,8 +21,10 @@ import android.content.Context
 import android.util.Log
 import app.retriever.BuildConfig
 import app.retriever.core.Backend
+import app.retriever.core.CalibrationDeferred
 import app.retriever.core.ModelBuild
 import app.retriever.core.Retriever
+import app.retriever.core.StopReason
 import app.retriever.core.Words
 import app.retriever.diagnostics.LogSink
 import app.retriever.indexing.IndexService
@@ -88,6 +90,10 @@ class ModelRepository(
     /** Downloads [b], or follows the download of it already queued. */
     fun start(b: ModelBuild) = launchOnce {
         val running = withContext(Dispatchers.IO) { download.active(b) }
+        if (running == null && withContext(Dispatchers.IO) { download.file(b).length() == b.sizeBytes }) {
+            verify(b, afterDownload = true)
+            return@launchOnce
+        }
         if (running == null && !download.hasSpaceFor(b)) {
             _state.value = noSpace(b)
             return@launchOnce
@@ -123,10 +129,13 @@ class ModelRepository(
 
     private fun launchOnce(block: suspend () -> Unit) {
         synchronized(this) {
-            if (job?.isActive == true) return
+            if (job?.isActive == true && _state.value !is ModelState.Deferred) return
             job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     block()
+                } catch (e: CalibrationDeferred) {
+                    // The completed file stays unverified; the next sync retries from the beginning without a wake lock.
+                    _state.value = ModelState.Deferred(e.reason)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -166,7 +175,7 @@ class ModelRepository(
     /** On a match every other model file goes and set-up is read again; files read by name alone get their meaning. */
     private suspend fun verify(b: ModelBuild, afterDownload: Boolean) {
         _state.value = ModelState.Checking
-        if (download.verify(b)) {
+        if (download.verify(b) { retriever.calibrationBlocker()?.let { throw CalibrationDeferred(it) } }) {
             withContext(Dispatchers.IO) { download.prune(keep = b) }
             retriever.refreshSetUp()
             _state.value = ModelState.Done
@@ -187,6 +196,7 @@ sealed interface ModelState {
     data class Downloading(val progress: Float, val indeterminate: Boolean) : ModelState
     data object WaitingForWifi : ModelState
     data object Checking : ModelState
+    data class Deferred(val reason: StopReason) : ModelState
 
     /** [noSpace]: the screen offers Android's storage manager next to Try again. */
     data class Failed(val reason: String, val noSpace: Boolean = false) : ModelState
@@ -196,6 +206,7 @@ sealed interface ModelState {
 sealed interface TuneState {
     data object Idle : TuneState
     data object Running : TuneState
+    data class Deferred(val reason: StopReason) : TuneState
     data class Done(val summary: String) : TuneState
     data class Failed(val message: String) : TuneState
 }

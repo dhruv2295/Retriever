@@ -26,7 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.core.DescriptionState
-import app.retriever.core.DeviceWords
+import app.retriever.core.ReadingSchedule
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.model.FreeUpSpaceButton
@@ -44,7 +44,8 @@ internal fun HomeIntroCard(
     planned: Long,
     rest: Long?,
     size: String,
-    readsOnBattery: Boolean,
+    schedule: ReadingSchedule,
+    sessionActive: Boolean,
     onRecentAction: () -> Unit,
     onNotify: (() -> Unit)?,
     onGotIt: () -> Unit,
@@ -74,7 +75,7 @@ internal fun HomeIntroCard(
                 IntroRow(
                     R.drawable.ic_bolt,
                     Words.otherFiles(rest),
-                    if (readsOnBattery) Words.otherFilesOnBatteryBody(DeviceWords.ANDROID) else Words.otherFilesBody(DeviceWords.ANDROID),
+                    Words.processingPlanDetail(schedule, sessionActive),
                 )
                 IntroRow(R.drawable.ic_add, Words.NEW_FILES, Words.NEW_FILES_BODY)
             }

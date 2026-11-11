@@ -20,7 +20,6 @@ import app.retriever.core.Words.NBSP
  * - Allow access to manage all files → 全ファイルの管理権を付与 (AOSP `permit_manage_external_storage`, values-ja);
  *   Battery → バッテリー, Unrestricted → 制限なし (AOSP `power_usage_summary_title`, `manager_battery_usage_unrestricted_title`)
  * - model (downloaded data) → 検索用データ; file provider → ファイルを提供するアプリ
- * - 15 minutes → 15分間; Process for 15 minutes → 15分間処理
  * - starred → スター付き; star (verb) → スターを付ける / スターを外す
  * - People (the feature) → 人物; On this day → 過去の今日; Home → ホーム; Settings → 設定; the iOS Files app → 「ファイル」アプリ
  * - document → ドキュメント (short scope button: 文書); photo → 写真; audio → 音声; video → 動画; folder → フォルダ; download → ダウンロード; mobile data → モバイルデータ
@@ -62,7 +61,7 @@ internal object Japanese : Strings {
 
     override fun meaningOf(done: Long, total: Long) = "ファイル${count(total, "件")}中${count(done, "件")}が「説明で検索」に対応"
 
-    override fun facesOf(done: Long, total: Long) = "写真${count(total, "枚")}中${count(done, "枚")}を確認済み"
+    override fun facesOf(done: Long, total: Long) = "写真${count(total, "枚")}中${count(done, "枚")}で人物を確認済み"
 
     override val processedInPart = "一部処理済み"
     override val couldntBeOpened = "開けませんでした"
@@ -139,7 +138,6 @@ internal object Japanese : Strings {
     override val notNow = "後で"
     override val cancel = "キャンセル"
     override val done = "完了"
-    override val readFor15 = "15分間処理"
     override val optional = "任意"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "ファイルを中身で見つけましょう" else "説明するだけで、何でも見つかります"
@@ -159,6 +157,8 @@ internal object Japanese : Strings {
 
     override fun downloadNote(size: String) = "初回のみ、Wi-Fi接続時に${size}をダウンロードします。"
 
+    override fun downloadLine(size: String) = "初回のみ${size}をダウンロード（Wi-Fiのみ）"
+
     override val accessTitle = "Retrieverで検索する対象を選択"
     override val accessBody = "1つ以上選んでください。あとから追加できます。"
     override val allow = "許可"
@@ -176,6 +176,7 @@ internal object Japanese : Strings {
     override fun foldersAdded(n: Long) = "フォルダを${count(n, "個")}追加しました"
 
     override val androidAccessBody = "写真、ドキュメント、ダウンロードしたファイルを、説明するだけで見つけられるようになります。"
+    override val accessScanning = "Retrieverが写真やファイルのスキャンを開始し、検索できるようにします。すべてのデータはスマートフォン内に留まります。"
     override val allFilesOff = "スマートフォン全体を検索するには「全ファイルの管理権を付与」をオンにするか、対象を選んでください。"
     override val includeTitle = "対象を選択"
     override val sharedFilesAndFolders = "このスマートフォン内のファイルとフォルダ"
@@ -223,15 +224,6 @@ internal object Japanese : Strings {
         else -> "残りの${files(rest)}"
     }
 
-    override fun otherFilesBody(words: DeviceWords) = "${dev(words)}を充電中で、使っていないときに行います。ファイルが多い場合は、数晩かかることがあります。"
-
-    override fun otherFilesOnBatteryBody(words: DeviceWords) =
-        "${dev(words)}を使っていないときに処理します。充電中に加え、充電していないときもバッテリー残量が${ReadingPolicy.BATTERY_FLOOR}%になるまで処理します。" +
-            "ファイルが多い場合は、数日かかることがあります。"
-
-    override fun onBatteryBody(words: DeviceWords) = "充電していないときも、バッテリー残量が${ReadingPolicy.BATTERY_FLOOR}%になるまで処理します。残りのバッテリーは普段の使用のために残します。" +
-        "${saver(words)}がオンのときや、${dev(words)}が熱くなっているときは停止します。"
-
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "説明して見つけられます。"
 
@@ -277,29 +269,9 @@ internal object Japanese : Strings {
 
     override fun kindRead(read: Long, planned: Long, kind: Kind) = "${kindLabelPlural(kind)}${count(planned, counter(kind))}中${count(read, counter(kind))}を処理済み"
 
-    override val chooseWhen = "処理するタイミングを選択"
     override val tryLabel = "たとえば："
 
-    override fun chooseTitle(words: DeviceWords) = "次は、${dev(words)}内の残りのファイルです"
-
-    override fun chooseBody(rest: Long?) = when (rest) {
-        null -> "残りのファイルはまだ処理されていません。処理されるまでは、名前では見つけられますが、中身では見つけられません。"
-        else -> "${files(rest)}がまだ処理されていません。処理されるまでは、名前では見つけられますが、中身では見つけられません。"
-    }
-
-    override fun choosePace(words: DeviceWords) = "処理には数時間かかるため、Retrieverは少しずつ進めます。その間も${dev(words)}とRetrieverはいつもどおり使えます。"
-
-    override val recommended = "おすすめ"
-    override val read15Now = "充電中と、今すぐ15分間"
-    override val notNowBody = "選ぶまでは、名前でだけ見つけられます。ホームからいつでも選べます。"
     override val startProcessing = "処理を開始"
-    override val goToHome = "ホームへ"
-
-    override fun whileChargingBody(words: DeviceWords) = "${dev(words)}を充電中で、使っていないとき（通常は夜間）に行います。いつでも一時停止できます。"
-
-    override fun chargingAndNowBody(words: DeviceWords) = "すぐに始まり、バッテリーを少し使います。その後は充電中に続けます。" + if (words.ios) "Retrieverは開いたままにしてください。" else ""
-
-    override fun readNowBody(words: DeviceWords) = "バッテリーを少し使います。${dev(words)}が熱くなったら早めに止まります。その後は充電中に続けます。" + if (words.ios) "Retrieverは開いたままにしてください。" else ""
 
     override fun notificationsAsk(demoPending: Boolean) = "処理中は画面上部に小さな通知を1つ表示し、進み具合の確認や一時停止ができます。音やほかの通知はありません。" +
         if (demoPending) "デモが終わったときにお知らせすることもできます。" else ""
@@ -407,7 +379,7 @@ internal object Japanese : Strings {
 
     override fun pairOf(at: Int, of: Int) = "${formatCount(at.toLong())} / ${formatCount(of.toLong())}"
 
-    override fun facesToGo(left: Long) = "あと${photos(left)}を確認"
+    override fun facesToGo(left: Long) = "人物の確認まで、あと${photos(left)}"
 
     override val retrieversData = "Retrieverのデータ"
     override val temporaryFiles = "一時ファイル"
@@ -471,22 +443,20 @@ internal object Japanese : Strings {
     override fun statusAction(action: StatusAction) = when (action) {
         StatusAction.CONTINUE -> continueAction
         StatusAction.ALLOW_ACCESS -> allowAccess
-        StatusAction.CHOOSE_WHEN -> chooseWhen
-        StatusAction.READ_FOR_15 -> readFor15
         StatusAction.STOP -> "停止"
         StatusAction.RESUME -> "再開"
         StatusAction.DISMISS -> "閉じる"
         StatusAction.TRY_AGAIN -> tryAgain
+        StatusAction.START -> startProcessing
+        StatusAction.PAUSE -> pause
     }
 
     override fun stopCopy(stop: StopReason, words: DeviceWords) = when (stop) {
         StopReason.PAUSED -> "一時停止中"
-        StopReason.POWER_SAVE -> "${saver(words)}がオンのため一時停止中"
-        StopReason.HOT -> "${dev(words)}の温度が下がるまで一時停止中"
-        StopReason.LOW_BATTERY -> "バッテリー残量が少ないため一時停止中"
-        StopReason.CHARGING_UP -> "まず充電しています"
-        StopReason.BUSY -> "${dev(words)}を使い終わるまで待っています"
-        StopReason.UNPLUGGED -> "充電するまで待機します"
+        StopReason.POWER_SAVE -> "一時停止 · ${saver(words)}をオフにすると続行します"
+        StopReason.HOT -> "一時停止 · ${dev(words)}が冷えると続行します"
+        StopReason.LOW_BATTERY, StopReason.UNPLUGGED -> "一時停止 · 充電すると続行します"
+        StopReason.CHARGING_UP -> "一時停止 · バッテリーがもう少し充電されると続行します"
         StopReason.MANUAL -> "開始したときだけ処理します"
         StopReason.DISK_FULL -> "${dev(words)}の容量がいっぱいのため一時停止中"
         StopReason.DONE, StopReason.BUDGET -> "少し休憩しています"
@@ -508,19 +478,29 @@ internal object Japanese : Strings {
 
     override val addingDescriptionTitle = "「説明で検索」を追加中"
     override val allFilesProcessedTitle = "すべてのファイルを処理しました"
-    override val countingTitle = "ファイルを数えています…"
+    override val gettingReadyTitle = "準備しています…"
     override val notNowTitle = "今のところ名前でだけ見つけられます"
 
-    override fun readNowTitle(minutesLeft: Int) = "15分間処理中 · 残り${formatCount(minutesLeft.toLong())}分"
-
     override val sampleTitle = "デモ用ファイルを処理しています"
-    override val gettingPeopleReadyTitle = "「人物」を準備しています"
-    override val lookingForFacesTitle = "写真の中の顔を探しています"
+    override val lookingForFacesTitle = "写真の中の人物を見つけています"
     override val deepeningTitle = "一部の長いファイルの残りを処理しています"
-    override val chargingReadTitle = "充電中に処理しています"
     override val lookingTitle = "新しいファイルを確認しています…"
     override val caughtUpTitle = "完了。Retrieverは処理できるものをすべて処理しました"
-    override val limitedTitle = "完了。いくつかの長いファイルは一部のみ処理しました"
+
+    override val processingReadyDetail = "進捗は保存されています。今すぐ開始するか、条件が整うと自動的に処理が続きます。"
+    override val processingAdaptiveDetail = "スマートフォンの操作が快適になるように処理速度を調整します。"
+    override val processingBatteryOverrideDetail = "処理はバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
+
+    override val processingKeepPaused = "一時停止を続ける"
+    override val processingSearchAvailableDetail = "今すぐ検索できます。ファイル名と処理済みの内容を検索できます。"
+    override val processingPlugInDetail = "処理を続けるには充電してください。Retrieverはバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで処理します。"
+    override val processingTapToContinue = "タップして続行"
+
+    override val automaticChargingPreferenceDetail = "自動処理は充電を待ちます。「再開」で、この処理中はバッテリーでも処理を始められます。"
+
+    override val automaticProcessingPreferenceTitle = "自動処理"
+    override val automaticProcessingPreferenceDetail =
+        "自動処理はバッテリー残量${ReadingPolicy.BATTERY_FLOOR}%未満で一時停止します。開始または再開した処理は${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
 
     override val pausedDetail = "検索は引き続き使えます。"
 
@@ -529,21 +509,22 @@ internal object Japanese : Strings {
     override val hotDetail = "自動で再開します。"
     override val lowBatteryDetail = "充電するとRetrieverが再開します。"
     override val chargingUpDetail = "バッテリーがもう少し充電されると処理を始めます。"
-    override val busyDetail = "今すぐ続けるには、Retrieverを開いてください。"
 
     override fun chargingDetail(words: DeviceWords) = "${dev(words)}の充電中にRetrieverが再開します。"
 
     override val manualDetail = "どのファイルも名前で見つけられます。"
 
-    override fun readNowDetail(words: DeviceWords) = "バッテリーを少し使います。" + if (words.ios) "Retrieverは開いたままにしてください。" else "自動で止まります。"
-
     override val sampleDetail = "1分ほどかかります。ファイルは変更されず、外部に送信されることもありません。"
 
     override fun meaningDetail(words: DeviceWords) = "意味や、写真に写っているもので検索できるようにします。この${dev(words)}上だけで行います。"
 
-    override val peopleDownloadDetail = "「人物」のための初回のみのダウンロードです。検索はいつでも使えます。"
-    override val facesDetail = "すべてのファイルを処理しました。検索はいつでも使えます。"
+    override val peopleDownloadDetail = "「人物」のための初回のみのダウンロードです。すべてのファイルをすでに検索できます。"
+    override val facesDetail = "任意の追加ステップです。すべてのファイルをすでに検索でき、もう一度処理されるものはありません。"
+
+    override fun facesWaitingDetail(words: DeviceWords) = "${dev(words)}が許可したときに、Retrieverが人物を見つけます。すべてのファイルをすでに検索できます。"
+
     override val deepeningDetail = "冒頭部分で見つけられます。"
+    override val limitedDetail = "いくつかの長いファイルは一部のみ処理しました。冒頭部分で見つけられます。"
     override val readingMeaningDetail = "「説明で検索」も追加しています。"
 
     override fun readingDetail(words: DeviceWords) = if (words.ios) {
@@ -562,7 +543,6 @@ internal object Japanese : Strings {
 
     override val caughtUpDetail = "新しいファイルは自動で処理します。"
 
-    override val gettingReadersTitle = "ファイルを処理する準備をしています"
     override val gettingReadersDetail = "Google Play 開発者サービスから一度だけダウンロードします。名前での検索はすぐに使えます。"
 
     override val peopleWaitsForWifi = "「人物」のダウンロードはWi-Fi接続を待っています。"
@@ -858,13 +838,6 @@ internal object Japanese : Strings {
     // ReadingPermission
     override val notificationPermissionAsk = "Retrieverがファイルを処理している間、通知を表示しますか？"
 
-    override val processFasterAsk = "充電中にもっと速く処理しますか？"
-
-    override val processFasterBody = "Androidは、バックグラウンドのアプリの処理速度を抑えます。Retrieverのバッテリー使用を「制限なし」にすると、" +
-        "スマートフォンの充電中は速く処理でき、早く完了します。「設定」で「バッテリー」を開き、「制限なし」を選んでください。"
-
-    override val openSettingsLowercase = "設定を開く"
-
     // ModelDownload
     override val searchModelDownloadTitle = "Retrieverの検索用データ"
 
@@ -941,7 +914,7 @@ internal object Japanese : Strings {
     // SettingsScreen
     override val includedFilesFooter = "${kindOff}スキップするフォルダは検索の対象外になります。"
 
-    override val onlyWhenYouChoose = "「$readFor15」を選んだときだけ処理します。"
+    override val onlyWhenYouChoose = "処理を開始または再開したときだけ処理します。"
 
     override val showProcessingProgress = "処理の進み具合を表示"
 
@@ -991,7 +964,7 @@ internal object Japanese : Strings {
         words,
     )}。検索と文字認識に必要なデータを、インターネットからダウンロードする場合があります。ファイルを提供するアプリも、クラウド上のファイルを開くときにインターネットを使うことがあります。"
 
-    override val howItWorksTimes = "「$whenToRead」で選んだタイミングでファイルを処理します。長いファイルは少しずつ処理されるため、" +
+    override val howItWorksTimes = "「$automaticProcessingPreferenceTitle」で選んだタイミングでファイルを処理します。長いファイルは少しずつ処理されるため、" +
         "まず冒頭部分で見つけられるようになります。"
 
     override val runSetupCheck = "準備チェックを実行"
@@ -1029,7 +1002,8 @@ internal object Japanese : Strings {
 
     override val letProcessWhileAway = "Retrieverを使っていないときも処理を続ける"
 
-    override fun batteryMayStop(chargingOnly: Boolean) = "バッテリーを節約するため、スマートフォンが処理を止めることがあります。" + if (chargingOnly) "ファイルの処理は、引き続き充電中だけ行われます。" else ""
+    override fun batteryMayStop(chargingOnly: Boolean) =
+        "バッテリーを節約するため、スマートフォンが処理を止めることがあります。" + sentenceGap + if (chargingOnly) automaticChargingPreferenceDetail else automaticProcessingPreferenceDetail
 
     override val settingsRowDetail = "処理する対象、ストレージなど"
 
@@ -1160,9 +1134,9 @@ internal object Japanese : Strings {
     override val folderRefused = "iOSにより、そのフォルダへのアクセスを保存できませんでした。別のフォルダを試してください。"
 
     override fun backgroundNote(words: DeviceWords) =
-        "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。自動での処理は、${dev(words)}を充電するまで待ちます。「$readFor15」はバッテリーを少し使います。"
+        "Retrieverは開いている間にファイルを処理します。使っていない間も、iOSが許可したときに処理することがあります。バックグラウンドでの自動処理は、${dev(words)}を充電するまで待ちます。処理を開始または再開すると、バッテリーを少し使います。"
 
-    override val screenKeptOn = "Retrieverが15分間ファイルを処理している間、画面はオンのままになります。これは設定でオフにできます。"
+    override val screenKeptOn = "Retrieverがファイルを処理している間、画面はオンのままになります。これは設定でオフにできます。"
 
     override fun showingLabels(labels: List<String>) = "表示中：" + labels.joinToString(" · ")
 
@@ -1328,12 +1302,9 @@ internal object Japanese : Strings {
 
     override val longFilesBitAtATime = "長いファイルは少しずつ処理されます。まず冒頭部分で見つけられるようになり、残りはあとから続きます。"
 
-    override val onlyWhenYouChooseAnyFile = "「$readFor15」を選んだときだけ処理します。どのファイルも、いつでも名前で見つけられます。"
+    override val onlyWhenYouChooseAnyFile = "処理を開始または再開したときだけ処理します。 ファイル名ではいつでも検索できます。"
 
-    override fun alsoOnBatteryIosBody(words: DeviceWords) =
-        "Retrieverが開いている間、バッテリー残量が20%を超えていればファイルを処理します。使っていないときは、iOSは${dev(words)}を充電するまで待ちます。${dev(words)}が熱くなっているときや、低電力モードのときは一時停止します。"
-
-    override val keepScreenOnToggle = "15分間の処理中は画面をオンのままにする"
+    override val keepScreenOnToggle = "処理中は画面をオンのままにする"
 
     override fun adjustProcessingFor(words: DeviceWords) = "この${dev(words)}に合わせて処理を調整"
 

@@ -274,13 +274,13 @@ val appModule = module {
     viewModelOf(::StarHolder)
     viewModelOf(::FoldersViewModel)
     viewModelOf(::DuplicatesViewModel)
-    viewModelOf(::StatusViewModel)
+    viewModel { StatusViewModel(get(), get(), get(), get(AppScope)) }
     viewModel {
         val calibrator = get<Calibrator>()
         SettingsViewModel(get(), get(), get(), get(), get(AppScope), get()) { calibrator.calibrate(tuneAgain = true) }
     }
     viewModelOf(::SearchViewModel)
-    viewModelOf(::HomeViewModel)
+    viewModel { HomeViewModel(get(), get(), get(), get(AppScope)) }
     viewModelOf(::DocViewModel)
     viewModelOf(::PlayerViewModel)
 }

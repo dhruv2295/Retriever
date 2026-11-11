@@ -20,7 +20,7 @@ class ProgressConsistencyTest {
         // Nothing until core's live status, which carries the saved mark; then that status as it is.
         assertEquals(null, homeStatus(home))
         val live = ReadingPolicy.decide(status, index.lastStop, index.running, false, DeviceWords.ANDROID)
-        assertEquals("Taking a short break", homeStatus(home.copy(readingStatus = live))?.title)
+        assertEquals("Paused", homeStatus(home.copy(readingStatus = live))?.title)
         assertEquals(24L, home.progress.partlyRead)
     }
 }

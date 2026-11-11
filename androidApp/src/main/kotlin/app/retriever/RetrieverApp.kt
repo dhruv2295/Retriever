@@ -67,9 +67,14 @@ class RetrieverApp :
         // First, so building the graph (disk reads) happens here on IO, not on the main thread.
         scope.launch {
             start()
+            // ReadingService went with the last process, and its session with it.
+            index.endStaleSession()
             // Before setup too: the worker's sync-only batch makes new files findable by name.
             index.watchMedia()
-            if (libraryChosen()) index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
+            if (libraryChosen()) {
+                index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
+                index.indexNow()
+            }
         }
         Notifications.createChannel(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
@@ -79,13 +84,11 @@ class RetrieverApp :
             this,
             object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    if (intent.action == Intent.ACTION_SCREEN_OFF) index.screenOff() else index.deviceChanged()
+                    index.deviceChanged()
+                    if (retriever.uiVisible) scope.launch { if (libraryChosen()) index.recoverRequested() }
                 }
             },
-            IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
-                addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
-                addAction(Intent.ACTION_POWER_CONNECTED)
-            },
+            IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED).apply { addAction(Intent.ACTION_POWER_CONNECTED) },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
     }
@@ -113,12 +116,8 @@ class RetrieverApp :
         // The setup is null until start() settles it, which a cold start's first onStart beats.
         // An unfinished sample, or a batch held back for the charger, a busy phone or Battery Saver, runs now, in front, if
         // the saved schedule allows it.
-        // A background batch still running restarts, so the reader moves it to ReadingService's fast cores, which then carry on
-        // after leaving.
         scope.launch {
-            if (retriever.state.value.running && !index.foregroundHeld()) {
-                index.restart()
-            } else if (resumable() && (retriever.hasPendingTaste() || (retriever.state.value.lastStop in HELD && retriever.readingBlocker() == null))) {
+            if (resumable() && (retriever.hasPendingTaste() || (retriever.state.value.lastStop in HELD && retriever.readingBlocker() == null))) {
                 index.indexNow()
             }
         }
@@ -133,7 +132,7 @@ class RetrieverApp :
 
     private suspend fun resumable() = libraryChosen() && retriever.uiVisible
 
-    // A run reading in front holds ReadingService, which carries on by itself after leaving while it may.
+    // A session's ReadingService carries on by itself after leaving; a job's batch goes on to its budget.
     override fun onStop(owner: LifecycleOwner) {
         warmUp?.cancel()
         retriever.uiVisible = false
@@ -143,7 +142,7 @@ class RetrieverApp :
     }
 
     private companion object {
-        val HELD = setOf(StopReason.UNPLUGGED, StopReason.BUSY, StopReason.POWER_SAVE)
+        val HELD = setOf(StopReason.UNPLUGGED, StopReason.POWER_SAVE)
     }
 
     /** A language change keeps the process: core's sentences follow the language Android resolved the app's resources to. */

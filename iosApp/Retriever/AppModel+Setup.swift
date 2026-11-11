@@ -56,6 +56,11 @@ extension AppModel {
 
     /// The person's answer on a setup screen: Get started, the access screen's Continue, Back.
     func setSetupMark(_ mark: SetupMark) {
+        if mark == .accessChosen {
+            guard accessGiven else { return }
+            readNow(setup: true)
+            return
+        }
         guard let retriever = services?.retriever else { return }
         Task { try? await retriever.setSetupMark(mark: mark) }
     }
@@ -69,8 +74,7 @@ extension AppModel {
         if downloadOnGetStarted { (startDownload ?? downloadModel)() }
     }
 
-    /// The first search's Continue: setup ends, everything is processed on the one automatic schedule, and Home shows its
-    /// one-time card.
+    /// The first search's Continue leaves setup. The already-started reader finishes its demo before the rest.
     func finishSetup() {
         guard let retriever = services?.retriever else { return }
         Task {
@@ -188,14 +192,6 @@ extension AppModel {
 
     /// The one status line, for Home, Reading status and Settings.
     func statusLine(_ s: Snap?) -> ReadingStatus? { Copy.homeStatus(s, hasAccess: hasAccess, download: downloadState) }
-
-    /// The status line's Stop during Read for 15 minutes.
-    func endReadNow() {
-        Task {
-            try? await services?.retriever.endReadNowSession()
-            wake()
-        }
-    }
 
     /// Download, or Try again: the platform's background download; the tune follows once it is checked.
     func downloadModel() {

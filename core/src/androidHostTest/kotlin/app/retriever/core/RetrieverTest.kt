@@ -261,7 +261,6 @@ class RetrieverTest {
             StopReason.HOT to NextRun.AFTER_COOLDOWN,
             StopReason.UNPLUGGED to NextRun.WHEN_CHARGING,
             StopReason.CHARGING_UP to NextRun.WHEN_CHARGING,
-            StopReason.BUSY to NextRun.WHEN_IDLE,
             StopReason.DONE to NextRun.DONE,
             StopReason.PAUSED to NextRun.DONE,
             // Rests like a failed batch; Android's work also waits for storage that isn't low.
@@ -272,11 +271,11 @@ class RetrieverTest {
     }
 
     @Test
-    fun hotAndBusyAndPausedStopTheBatch() = test {
+    fun heatScheduleAndPauseStopTheBatch() = test {
         val f = fx(monitor = FakeMonitor(DeviceState(8.0, true, 80, Thermal.SEVERE)))
         assertEquals(NextRun.AFTER_COOLDOWN, f.r.indexBatch(1.minutes))
         f.monitor.state = DeviceState(8.0, false, 80, Thermal.NONE, screenOn = true)
-        assertEquals(NextRun.WHEN_IDLE, f.r.indexBatch(1.minutes))
+        assertEquals(NextRun.WHEN_CHARGING, f.r.indexBatch(1.minutes))
         f.r.pause()
         assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
         assertEquals(StopReason.PAUSED, f.r.state.value.lastStop)
@@ -379,20 +378,6 @@ class RetrieverTest {
         f.r.refreshSetUp()
         assertEquals(true, f.r.setUp.value)
         assertFalse(f.r.modelMissing.value)
-    }
-
-    @Test
-    fun visibleAndBackgroundWaitForChargingUntilExplicitSession() = test {
-        val f = fx(monitor = FakeMonitor(DeviceState(8.0, false, 50, Thermal.NONE, screenOn = false)))
-        f.r.updatePrefs { it.copy(onlyWhileCharging = true) }
-        assertEquals(NextRun.WHEN_CHARGING, f.r.indexBatch(1.minutes))
-        assertEquals(1L, f.store.countsByState()[FileState.PENDING])
-        f.monitor.state = f.monitor.state.copy(screenOn = true)
-        f.r.uiVisible = true
-        assertEquals(NextRun.WHEN_CHARGING, f.r.indexBatch(1.minutes))
-        f.r.readNow()
-        assertEquals(NextRun.DONE, f.r.indexBatch(1.minutes))
-        assertEquals(1L, f.store.countsByState()[FileState.INDEXED])
     }
 
     @Test

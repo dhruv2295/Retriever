@@ -39,4 +39,5 @@ final class IndexTaskTests: XCTestCase {
         XCTAssertEqual(calls.withLock { $0.count }, 1)
         XCTAssertFalse(complete(true))
     }
+
 }

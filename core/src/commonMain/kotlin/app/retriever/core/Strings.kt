@@ -81,7 +81,6 @@ interface Strings {
     val notNow: String
     val cancel: String
     val done: String
-    val readFor15: String
     val optional: String
 
     fun helloTitle(textOnly: Boolean): String
@@ -94,6 +93,9 @@ interface Strings {
     val getStarted: String
 
     fun downloadNote(size: String): String
+
+    /** Android: the second line over Get started, beside the privacy line. */
+    fun downloadLine(size: String): String
 
     val accessTitle: String
     val accessBody: String
@@ -111,6 +113,9 @@ interface Strings {
 
     fun foldersAdded(n: Long): String
     val androidAccessBody: String
+
+    /** Android: before Continue once all-files access or at least one selected source is allowed. */
+    val accessScanning: String
     val allFilesOff: String
     val includeTitle: String
     val sharedFilesAndFolders: String
@@ -141,12 +146,6 @@ interface Strings {
 
     fun otherFiles(rest: Long?): String
 
-    fun otherFilesBody(words: DeviceWords): String
-
-    fun otherFilesOnBatteryBody(words: DeviceWords): String
-
-    fun onBatteryBody(words: DeviceWords): String
-
     fun recentFilesBody(state: DescriptionState): String
 
     fun recentFilesAction(state: DescriptionState, size: String): String?
@@ -161,25 +160,9 @@ interface Strings {
     val foundBy: String
 
     fun kindRead(read: Long, planned: Long, kind: Kind): String
-    val chooseWhen: String
     val tryLabel: String
 
-    fun chooseTitle(words: DeviceWords): String
-
-    fun chooseBody(rest: Long?): String
-
-    fun choosePace(words: DeviceWords): String
-    val recommended: String
-    val read15Now: String
-    val notNowBody: String
     val startProcessing: String
-    val goToHome: String
-
-    fun whileChargingBody(words: DeviceWords): String
-
-    fun chargingAndNowBody(words: DeviceWords): String
-
-    fun readNowBody(words: DeviceWords): String
 
     /** [demoPending]: the demo still runs with files to process, so its done notice can be promised. */
     fun notificationsAsk(demoPending: Boolean): String
@@ -329,18 +312,28 @@ interface Strings {
 
     val addingDescriptionTitle: String
     val allFilesProcessedTitle: String
-    val countingTitle: String
+
+    /** Counting the files, the text readers' download and the tune: one moment to a person. */
+    val gettingReadyTitle: String
     val notNowTitle: String
 
-    fun readNowTitle(minutesLeft: Int): String
     val sampleTitle: String
-    val gettingPeopleReadyTitle: String
     val lookingForFacesTitle: String
     val deepeningTitle: String
-    val chargingReadTitle: String
     val lookingTitle: String
     val caughtUpTitle: String
-    val limitedTitle: String
+
+    // Android processing state shared by Home, details and notifications.
+    val processingReadyDetail: String
+    val processingAdaptiveDetail: String
+    val processingBatteryOverrideDetail: String
+    val processingKeepPaused: String
+    val processingSearchAvailableDetail: String
+    val processingPlugInDetail: String
+    val processingTapToContinue: String
+    val automaticChargingPreferenceDetail: String
+    val automaticProcessingPreferenceTitle: String
+    val automaticProcessingPreferenceDetail: String
 
     val pausedDetail: String
 
@@ -348,18 +341,22 @@ interface Strings {
     val hotDetail: String
     val lowBatteryDetail: String
     val chargingUpDetail: String
-    val busyDetail: String
 
     fun chargingDetail(words: DeviceWords): String
     val manualDetail: String
 
-    fun readNowDetail(words: DeviceWords): String
     val sampleDetail: String
 
     fun meaningDetail(words: DeviceWords): String
     val peopleDownloadDetail: String
     val facesDetail: String
+
+    /** Between batches with only the look for people left. */
+    fun facesWaitingDetail(words: DeviceWords): String
     val deepeningDetail: String
+
+    /** All done, some long files only in part (the title is [caughtUpTitle]). */
+    val limitedDetail: String
     val readingMeaningDetail: String
 
     fun readingDetail(words: DeviceWords): String
@@ -372,8 +369,7 @@ interface Strings {
     fun waitingDetail(words: DeviceWords): String
     val caughtUpDetail: String
 
-    /** Android: the status line while the first batch waits for Play services to deliver the text and label readers. */
-    val gettingReadersTitle: String
+    /** Android: the status line's detail while the first batch waits for Play services to deliver the text and label readers. */
     val gettingReadersDetail: String
 
     val peopleWaitsForWifi: String
@@ -803,15 +799,6 @@ interface Strings {
 
     /** Android: dialog title */
     val notificationPermissionAsk: String
-
-    /** Android: dialog title */
-    val processFasterAsk: String
-
-    /** Android: dialog body (98-100 one sentence); "Battery"/"Unrestricted" must match Android's own setting names */
-    val processFasterBody: String
-
-    /** Android: dialog button; differs from openSettings (iOS "Open Settings") */
-    val openSettingsLowercase: String
 
     // ModelDownload
 
@@ -1514,9 +1501,6 @@ interface Strings {
 
     /** iOS: schedule footnote; differs from onlyWhenYouChoose (Android) */
     val onlyWhenYouChooseAnyFile: String
-
-    /** iOS: schedule footnote for Also on battery; "Low Power Mode" is Apple's name (DeviceWords.powerSave); 20 is ReadingPolicy.BATTERY_FLOOR */
-    fun alsoOnBatteryIosBody(words: DeviceWords): String
 
     /** iOS: toggle (before iOS 26) */
     val keepScreenOnToggle: String

@@ -99,13 +99,6 @@ suspend fun Retriever.indexBatchSeconds(seconds: Int): NextRun = indexBatch(seco
 @Throws(Throwable::class)
 suspend fun Retriever.foregroundBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, waitForLock = true)
 
-/**
- * The person's continued read: pending files only, so it ends DONE once they are read, and it waits for the
- * foreground batch it replaces to stop rather than finding the index busy.
- */
-@Throws(Throwable::class)
-suspend fun Retriever.continuedBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, waitForLock = true, sessionOnly = true)
-
 // Swift's async import of a suspend function doesn't cancel the Kotlin call, so a superseded search kept running and
 // held the embedder mutex. These hand Swift a handle whose close() cancels the job; done runs exactly once, with a
 // CancellationException when closed.
@@ -216,3 +209,14 @@ fun Retriever.observeAll(cb: (RetrieverSnapshot) -> Unit): AutoCloseable = obser
     },
     cb,
 )
+
+/** Ordinary iOS scheduler work never adopts a human session that started while it was waiting for the index. */
+@Throws(Throwable::class)
+suspend fun Retriever.automaticBatchSeconds(seconds: Int): NextRun = indexBatch(seconds.seconds, expectedSession = 0)
+
+/**
+ * The continued host can only process its own explicit run; it waits for the foreground batch it replaces to stop rather
+ * than finding the index busy.
+ */
+@Throws(Throwable::class)
+suspend fun Retriever.continuedBatchSeconds(seconds: Int, session: Long): NextRun = indexBatch(seconds.seconds, waitForLock = true, expectedSession = session)

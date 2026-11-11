@@ -191,7 +191,8 @@ struct TileStrip: View {
                     .accessibilityLabel(
                         Words.shared.strings.homeTileSpoken(
                             kind: Words.shared.kindLabel(kind: file.kind), name: file.name, date: Format.date(file.takenAt?.int64Value ?? file.modifiedAt),
-                            starred: badge))
+                            starred: badge)
+                    )
                     .accessibilityActions { FileActionButtons(file: file, starred: starred.contains(file.uri)) }
                 }
             }
@@ -392,95 +393,5 @@ struct StatusDog: View {
         } else if let icon {
             Image(systemName: icon).font(.title2).foregroundStyle(.tint).frame(width: 28)
         }
-    }
-}
-
-/// When to process the rest: the same three choices and one button on Home's sheet and in setup. The button starts a
-/// long job, so it never says Done; with Not now picked it says Go to Home.
-struct ReadingChoice: View {
-    /// How the demo ended, first; nil after Skip the demo and on Home's sheet.
-    var ended: String?
-    /// Core's `ReadingProgress.rest`: nil until the phone's files are all counted.
-    let rest: KotlinLong?
-    let charging: () -> Void
-    let readNow: () -> Void
-    let notNow: () -> Void
-    @State private var selected = 0
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let ended { Text(ended).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
-            Text(Words.shared.chooseTitle(words: Copy.words)).font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-            Text(Words.shared.chooseBody(rest: rest)).fixedSize(horizontal: false, vertical: true)
-            Note(Words.shared.choosePace(words: Copy.words))
-            let titles = [ReadingSchedule.charging.title, Words.shared.READ_15_NOW, Words.shared.NOT_NOW]
-            let details = [
-                Words.shared.whileChargingBody(words: Copy.words), Words.shared.chargingAndNowBody(words: Copy.words), Words.shared.NOT_NOW_BODY,
-            ]
-            ForEach(0..<3, id: \.self) { index in
-                Button {
-                    selected = index
-                } label: {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: selected == index ? "checkmark.circle.fill" : "circle").accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 4) {
-                            let title = Text(titles[index]).font(.headline)
-                            if index == 0 {
-                                // Beside the title, or under it at accessibility sizes, so neither breaks mid-word.
-                                let layout =
-                                    typeSize.isAccessibilitySize
-                                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-                                layout {
-                                    title
-                                    if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
-                                    Text(Words.shared.RECOMMENDED).font(.subheadline.weight(.semibold))
-                                }
-                            } else {
-                                title
-                            }
-                            Text(details[index]).font(.subheadline)
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.vertical, 8).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityAddTraits(selected == index ? .isSelected : [])
-            }
-            Button {
-                switch selected {
-                case 0: charging()
-                case 1: readNow()
-                default: notNow()
-                }
-            } label: {
-                Text(selected == 2 ? Words.shared.GO_TO_HOME : Words.shared.START_PROCESSING).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity)
-            }.buttonStyle(.primaryAction).controlSize(.large)
-        }
-    }
-}
-
-struct CommitSheet: View {
-    let model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        ScrollView {
-            ReadingChoice(
-                rest: model.snap?.readProgress.rest,
-                charging: {
-                    model.commit(whileCharging: true)
-                    dismiss()
-                },
-                readNow: {
-                    model.commit(whileCharging: false)
-                    dismiss()
-                },
-                notNow: {
-                    model.decideLater()
-                    dismiss()
-                }
-            ).padding(24)
-        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.large])
     }
 }

@@ -63,6 +63,7 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
+import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.SourceFile
@@ -88,9 +89,8 @@ class StatusActions(
     val back: () -> Unit = {},
     val openFile: (SourceFile) -> Unit = {},
     val pause: () -> Unit = {},
-    val resume: () -> Unit = {},
-    val readNow: () -> Unit = {},
-    val stopReadNow: () -> Unit = {},
+    /** Start processing and Resume. */
+    val start: () -> Unit = {},
     val toggleSkipped: () -> Unit = {},
     val retrySkipped: () -> Unit = {},
     val openBatterySettings: () -> Unit = {},
@@ -138,9 +138,7 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
             back = onBack,
             openFile = openFile,
             pause = vm::pause,
-            resume = vm::resume,
-            readNow = { requestReading { vm.readNow() } },
-            stopReadNow = vm::stopReadNow,
+            start = { requestReading { vm.start() } },
             toggleSkipped = {
                 skippedOpen = !skippedOpen
                 if (skippedOpen) vm.loadSkipped()
@@ -215,7 +213,7 @@ fun StatusContent(
                         else -> null
                     }
                     // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
-                    if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(160.dp), settles = !index.running)
+                    if (mood != null) Mascot(mood, Modifier.width(64.dp), settles = !index.running)
                     // Only the state is announced, not each file: the count is in the detail, the bar is the same numbers.
                     val title = readingStatus?.title ?: Words.strings.checkingYourFiles
                     Text(
@@ -237,14 +235,17 @@ fun StatusContent(
                     val total = readingStatus?.total
                     if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth().padding(vertical = 4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        when (readingStatus?.action) {
-                            StatusAction.RESUME -> Button(onClick = actions.resume) { Text(StatusAction.RESUME.label) }
-                            StatusAction.READ_FOR_15 -> Button(onClick = actions.readNow) { Text(Words.READ_FOR_15) }
-                            StatusAction.STOP -> OutlinedButton(onClick = actions.stopReadNow) { Text(StatusAction.STOP.label) }
+                        when (val action = readingStatus?.action) {
+                            StatusAction.START, StatusAction.RESUME -> Button(onClick = actions.start) { Text(action.label) }
+                            StatusAction.PAUSE -> OutlinedButton(onClick = actions.pause) { Text(action.label) }
                             else -> Unit
                         }
-                        if (readingStatus?.offersPause(counts.progress) == true) OutlinedButton(onClick = actions.pause) { Text(Words.PAUSE) }
+                        if (readingStatus?.pause != null && readingStatus.offersPause(counts.progress)) {
+                            OutlinedButton(onClick = actions.pause) { Text(Words.strings.processingKeepPaused) }
+                        }
                     }
+                    // The faces pass's own detail already says files are searchable.
+                    if (readingStatus?.phase != ReadingPhase.FACES) Muted(Words.strings.processingSearchAvailableDetail)
                     // Laid out from the batch's start, before core names its first file, so the row never blinks in.
                     if (readingStatus?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 48.dp)
                     // What was read stays on show through a pause or a wait; only the sentence above changes.

@@ -105,8 +105,7 @@ struct SettingsView: View {
         }
     }
 
-    /// The status line is the way into Processing, with Process for 15 minutes, Stop and Resume as its button: a tap changes
-    /// the line at once ("Processing for 15 minutes · 15 min left").
+    /// Processing uses the same Start, Pause and Resume controls as Home; the saved automatic schedule stays below.
     private func reading(_ snap: AppModel.Snap) -> some View {
         Section(Words.shared.READING_STATUS) {
             if let status = model.statusLine(model.snap) { StatusLine(status: status, model: model) }
@@ -124,10 +123,10 @@ struct SettingsView: View {
             .pickerStyle(.inline)
             Text(
                 snap.automaticReading == .charging
-                    ? Words.shared.whileChargingBody(words: Copy.words)
+                    ? Words.shared.strings.automaticChargingPreferenceDetail
                     : snap.automaticReading == .manual
                         ? Words.shared.strings.onlyWhenYouChooseAnyFile
-                        : Words.shared.strings.alsoOnBatteryIosBody(words: Copy.words)
+                        : Words.shared.strings.automaticProcessingPreferenceDetail
             ).font(.footnote)
             if #available(iOS 26.0, *) {
                 EmptyView()
@@ -193,7 +192,9 @@ struct SettingsView: View {
     @ViewBuilder private func storage(_ snap: AppModel.Snap) -> some View {
         let sizes = model.storage
         Section(Words.shared.strings.storage) {
-            TitleAndDetail(title: Words.shared.RETRIEVERS_DATA, detail: Words.shared.keptOn(size: sizes.map { Copy.bytes($0.index) } ?? Words.shared.strings.sizePending, words: Copy.words))
+            TitleAndDetail(
+                title: Words.shared.RETRIEVERS_DATA,
+                detail: Words.shared.keptOn(size: sizes.map { Copy.bytes($0.index) } ?? Words.shared.strings.sizePending, words: Copy.words))
             if !snap.textOnly, let cache = sizes?.cache, cache > 0, !model.modelMissing {
                 TitleAndDetail(title: Words.shared.TEMPORARY_FILES, detail: Words.shared.keptOn(size: Copy.bytes(cache), words: Copy.words))
             }

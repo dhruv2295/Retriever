@@ -12,7 +12,8 @@ data class Prefs(
     val kinds: Set<Kind> = Kind.entries.toSet(),
     val onlyWhileCharging: Boolean = true,
     val schedule: ReadingSchedule? = null,
-    val readNowUntil: Long = 0,
+    /** An explicit untimed run is active; automatic work never sets this. */
+    val started: Boolean = false,
     val excludedFolders: Set<String> = emptySet(),
     /** Set by the user's Pause; no indexing runs until "Index now". */
     val paused: Boolean = false,
@@ -47,6 +48,8 @@ data class Prefs(
     val recognizePeople: Boolean = false,
     /** Home's offer to turn People on was answered Not now; Settings still has the switch. */
     val peopleOfferDismissed: Boolean = false,
+    /** A person requested processing; host interruption preserves it, Pause or completion clears it. */
+    val processingRequested: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

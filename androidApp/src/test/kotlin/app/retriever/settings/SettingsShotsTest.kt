@@ -92,7 +92,7 @@ class SettingsShotsTest {
 
     @Test fun settingsLight() {
         page("settings_light", ready)
-        rule.onNodeWithText("Waits until you charge").assertExists()
+        rule.onNodeWithText("Paused · continues when you plug in").assertExists()
         rule.onNodeWithText("of 3,300 files processed", substring = true).assertExists()
         // The section's header, once: the row under it says something else.
         assertNotEquals(Words.SEARCH_BY_MEANING, Words.UPGRADE_TITLE)
@@ -100,7 +100,7 @@ class SettingsShotsTest {
         rule.onNodeWithText(Words.UPGRADE_TITLE).assertExists()
         // Large files and duplicates live on Home now; no storage sentence is joined by a dot.
         val gone = listOf(Words.FREE_UP_SPACE, Words.FIND_DUPLICATES, Words.NEVER_DELETES, "stays on")
-        (gone + listOf("session", "Name only", "Manage access", "Excluded", "Saved search data"))
+        (gone + listOf("Name only", "Manage access", "Excluded", "Saved search data"))
             .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
 
@@ -111,31 +111,20 @@ class SettingsShotsTest {
 
     @Test fun settingsOfferLight() = page("settings_offer_light", offered)
 
-    /** Read for 15 minutes shows at once in the Reading line above it; the line opens Reading status. */
-    @Test fun readForFifteenMinutesShowsInTheLine() {
+    /** The Processing line carries Home's button: Start processing, then Pause when the reader runs. The line opens Processing. */
+    @Test fun theLineStartsAndPausesProcessing() {
         val seen = mutableListOf<String>()
-        var ui by mutableStateOf(ready)
-        val actions = SettingsActions(readNow = { seen += "read" }, stopReadNow = { seen += "stop" }, openStatus = { seen += "status" })
+        fun line(stop: StopReason?, sessionActive: Boolean = false, running: Boolean = false) =
+            ReadingPolicy.decide(ReadingProgress(read = 1_200, scheduled = 2_100), stop, running, running, DeviceWords.ANDROID, sessionActive = sessionActive)
+        var ui by mutableStateOf(ready.copy(readingStatus = line(StopReason.UNPLUGGED)))
+        val actions = SettingsActions(start = { seen += "start" }, pause = { seen += "pause" }, openStatus = { seen += "status" })
         rule.setContent { ShotTheme(dark = false) { SettingsContent(ui, actions = actions) } }
-        rule.onNodeWithText(Words.READ_FOR_15).performScrollTo().performClick()
-        ui =
-            ready.copy(
-                readingStatus = ReadingPolicy.decide(
-                    ReadingProgress(read = 1_200, scheduled = 2_100),
-                    null,
-                    false,
-                    false,
-                    DeviceWords.ANDROID,
-                    readNowMinutes = 15,
-                ),
-            )
-        rule.onNodeWithText("Processing for 15 minutes · 15 min left").assertExists()
-        rule.onNodeWithText("Stop").performClick()
-        rule.onNodeWithText("Processing for 15 minutes · 15 min left").performClick()
-        assertEquals(listOf("read", "stop", "status"), seen)
+        rule.onNodeWithText(Words.START_PROCESSING).performScrollTo().performClick()
+        ui = ready.copy(readingStatus = line(null, sessionActive = true, running = true))
+        rule.onNodeWithText("Pause").performClick()
+        rule.onNodeWithText("Processing your files").performClick()
+        assertEquals(listOf("start", "pause", "status"), seen)
     }
-
-    @Test fun settingsBigText() = page("settings_text1_5", ready, fontScale = 1.5f)
 
     @Test fun settingsWithDialogLight() = dialog("settings_free_dialog_light", dark = false)
 
@@ -192,7 +181,7 @@ class SettingsShotsTest {
                 )
             }
         }
-        rule.onNodeWithText(Words.WHEN_TO_READ).performScrollTo().performClick()
+        rule.onNodeWithText(Words.strings.automaticProcessingPreferenceTitle).performScrollTo().performClick()
         rule.onNodeWithText("Also on battery").performClick()
         for (label in listOf("Save recent searches", "Wallpaper colours", "PDFs", "Remove search download")) {
             rule.onNodeWithText(label).performScrollTo().performClick()

@@ -71,7 +71,6 @@ class AndroidDeviceMonitor(private val context: Context) : DeviceMonitor {
     private val keyguardManager = context.getSystemService(KeyguardManager::class.java)
     private val ramGb by lazy { nominalRamGb(memoryBytes(context)) }
     private val headroom = HeadroomPoll(SystemClock::elapsedRealtime) { powerManager.getThermalHeadroom(ThermalRest.POLL.inWholeSeconds.toInt()) }
-
     override fun state(): DeviceState = DeviceState(
         ramGb = ramGb,
         charging = batteryManager.isCharging,

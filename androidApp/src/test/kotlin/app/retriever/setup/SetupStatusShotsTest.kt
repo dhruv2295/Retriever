@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -131,8 +132,8 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.HELLO_EXAMPLES[0].title).assertIsDisplayed()
         rule.onNodeWithText(Words.onDevice(DeviceWords.ANDROID)).assertIsDisplayed()
         rule.onNodeWithText(Words.GET_STARTED).assertIsDisplayed()
-        // Get started downloads here, so the note under it says so.
-        rule.onNodeWithText(Words.downloadNote("388 MB")).assertIsDisplayed()
+        // Get started downloads here, so the line over it says so.
+        rule.onNodeWithText(Words.downloadLine("388 MB")).assertIsDisplayed()
         // No skip and no demo on the way in.
         listOf("Skip", "demo").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
     }
@@ -178,6 +179,8 @@ class SetupStatusShotsTest {
 
     @Test fun accessBigText() = setup("access_text1_5", access, fontScale = 1.5f)
 
+    @Test fun accessGrantedBigText() = setup("access_granted_text1_5", granted, fontScale = 1.5f)
+
     @Test fun accessButtonsCallTheirActions() {
         val calls = mutableListOf<String>()
         setup("access_buttons", access, actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }))
@@ -198,8 +201,19 @@ class SetupStatusShotsTest {
         val calls = mutableListOf<String>()
         setup("access_granted_light", granted, actions = SetupActions(allowFiles = { calls += "settings" }, continueFromAccess = { calls += "continue" }))
         rule.onNodeWithText(Words.ALLOW_ACCESS).assertDoesNotExist()
+        rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
+        rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(3)
         rule.onNodeWithText(Words.CONTINUE).performClick()
         assertEquals(listOf("continue"), calls)
+    }
+
+    @Test fun pickedFolderShowsScanningAndContinueWithoutClaimingWholePhoneAccess() {
+        val selected = granted.copy(access = Access(false, folders = listOf(PickedFolder("content://picked", "Documents"))))
+        setup("access_folder_granted_light", selected)
+        rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
+        rule.onNodeWithText(Words.CONTINUE).assertIsEnabled()
+        rule.onNodeWithText(Words.INCLUDE_TITLE).assertExists()
+        rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(0)
     }
 
     // --- Choose what to include ---
@@ -223,6 +237,7 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.kindLabelPlural(Kind.AUDIO)).assertExists()
         rule.onNodeWithText(Words.ADD_FOLDER).assertExists()
         rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
+        rule.onNodeWithText(Words.ACCESS_SCANNING).assertDoesNotExist()
         rule.onNodeWithText(Words.NOTHING_SELECTED).assertDoesNotExist()
     }
 
@@ -244,6 +259,7 @@ class SetupStatusShotsTest {
                     "continue"
             }),
         )
+        rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
         rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).performClick()
         rule.onNodeWithText(Words.ADD_FOLDER).performClick()
         rule.onNodeWithText(Words.CONTINUE).assertIsEnabled().performClick()
@@ -528,25 +544,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.demoSearchScope(30, finished = true, words = DeviceWords.ANDROID)).assertExists()
     }
 
-    // --- Home's sheet for an install that chose Not now before this version ---
-
-    @Test fun chooseSheet() {
-        shot("home_choose_light") { CommitStage(25_763, commit = {}) }
-        rule.onNodeWithText(Words.chooseTitle(DeviceWords.ANDROID)).assertExists()
-        rule.onNodeWithText(Words.chooseBody(25_763)).assertExists()
-        rule.onNodeWithText(Words.RECOMMENDED).assertExists()
-        // No sessions, schedules or "Done" on a button that starts hours of work.
-        listOf("session", "schedule", "library").forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
-        rule.onAllNodesWithText(Words.DONE).assertCountEquals(0)
-        rule.onNodeWithText(Words.START_PROCESSING).assertExists()
-    }
-
-    /** Before the phone's files are all counted, no number that still grows. */
-    @Test fun chooseBeforeTheCount() {
-        shot("home_choose_uncounted_light") { CommitStage(null, commit = {}) }
-        rule.onNodeWithText(Words.chooseBody(null)).assertExists()
-    }
-
     /** Spare height is split above and below the group, not left as a band under it. */
     @Test fun spareHeightIsSplitAboveAndBelow() {
         RuntimeEnvironment.setQualifiers("+h1500dp")
@@ -556,24 +553,6 @@ class SetupStatusShotsTest {
         height.value = 1_200.dp
         rule.waitForIdle()
         assertEquals(100f, (top(Words.ACCESS_TITLE) - before) / rule.density.density, 2f)
-    }
-
-    @Test fun twoOptionsCallTheirActions() {
-        val calls = mutableListOf<String>()
-        shot("home_choose_buttons") { CommitStage(25_763, commit = { calls += "commit($it)" }) }
-        rule.onNodeWithText("While charging").performClick()
-        assertEquals(emptyList<String>(), calls)
-        rule.onNodeWithText(Words.START_PROCESSING).performClick()
-        rule.onNodeWithText(Words.READ_15_NOW).performClick()
-        rule.onNodeWithText(Words.START_PROCESSING).performClick()
-        assertEquals(listOf("commit(true)", "commit(false)"), calls)
-    }
-
-    /** Radio rows: one selectable group, each row a radio button, so a screen reader says "1 of 2, selected". */
-    @Test fun theOptionsAreRadioRows() {
-        rule.setContent { ShotTheme(false) { CommitStage(25_763, commit = {}) } }
-        rule.onNodeWithText("While charging").assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsSelected()
-        rule.onNodeWithText(Words.READ_15_NOW).assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)).assertIsNotSelected()
     }
 
     private val prefs = Prefs(excludedFolders = setOf("Android/media/WhatsApp/Stickers"))
@@ -678,8 +657,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText("Details").assertExists()
     }
 
-    @Test fun processingLight() = status("demo_status_light", tall = true)
-
     @Test fun statusReadingLargestText() = status("clarity_status_reading_text2", fontScale = 2f)
 
     private val pausedIndex = running.copy(running = false, currentFile = null)
@@ -691,13 +668,53 @@ class SetupStatusShotsTest {
         rule.onNodeWithText("Pause").assertDoesNotExist()
     }
 
-    /** A Process for 15 minutes shows its Stop alone: a Pause beside it looked the same and stopped all processing. */
-    @Test fun statusReadNowShowsOnlyStop() {
-        val session = ReadingPolicy.decide(reading.progress, null, running = true, reading = true, DeviceWords.ANDROID, readNowMinutes = 12)
-        status("clarity_status_read_now_light", readingStatus = session, tall = true)
-        rule.onNodeWithText("Processing for 15 minutes", substring = true).assertExists()
-        rule.onNodeWithText("Stop").assertExists()
-        rule.onNodeWithText(Words.PAUSE).assertDoesNotExist()
+    @Test fun statusBatteryPreferenceCanResume() {
+        val paused = ReadingPolicy.decide(
+            reading.progress,
+            StopReason.UNPLUGGED,
+            running = false,
+            reading = false,
+            DeviceWords.ANDROID,
+            battery = 60,
+            processingStarted = true,
+        )
+        status("processing_battery_pause_light", index = pausedIndex, readingStatus = paused, tall = true)
+        rule.onNodeWithText(paused.title).assertExists()
+        rule.onNodeWithText(Words.strings.automaticProcessingPreferenceDetail).assertExists()
+        rule.onNodeWithText("Resume").assertIsEnabled()
+        rule.onNodeWithText("Pause").assertDoesNotExist()
+        rule.onNodeWithText(Words.strings.processingSearchAvailableDetail).assertExists()
+    }
+
+    @Test fun statusThermalWaitDoesNotPromiseResume() {
+        val hot = ReadingPolicy.decide(reading.progress, StopReason.HOT, false, false, DeviceWords.ANDROID)
+        status("processing_thermal_wait_text2", index = pausedIndex, readingStatus = hot, fontScale = 2f, tall = true)
+        rule.onNodeWithText(hot.title).assertExists()
+        rule.onNodeWithText(Words.strings.hotDetail).assertExists()
+        rule.onNodeWithText("Resume").assertDoesNotExist()
+        rule.onNodeWithText("Pause").assertDoesNotExist()
+        rule.onNodeWithText(Words.strings.processingKeepPaused).assertExists()
+    }
+
+    @Test fun statusQueuedIsReadyAndCanResume() {
+        val waiting = ReadingPolicy.decide(reading.progress, null, false, false, DeviceWords.ANDROID, processingStarted = true)
+        status("processing_ready_light", index = pausedIndex, readingStatus = waiting, tall = true)
+        rule.onNodeWithText(waiting.title).assertExists()
+        rule.onNodeWithText("Resume").assertIsEnabled()
+        rule.onNodeWithText("Pause").assertDoesNotExist()
+    }
+
+    @Test fun statusAdaptiveProcessingCanPauseAndKeepsCoverageSeparate() {
+        val counts = reading.copy(progress = reading.progress.copy(read = 100, partlyRead = 7, nameOnly = 11))
+        val active = ReadingPolicy.decide(counts.progress, null, true, true, DeviceWords.ANDROID, adaptive = true)
+        status("processing_adaptive_coverage_light", counts = counts, readingStatus = active, tall = true)
+        rule.onNodeWithText(Words.strings.processingAdaptiveDetail).assertExists()
+        rule.onNodeWithText("Pause").assertIsEnabled()
+        for (row in Words.breakdown(counts.progress)) {
+            rule.onNodeWithText(row.label).assertExists()
+            rule.onNodeWithText(row.count, useUnmergedTree = true).assertExists()
+        }
+        rule.onNodeWithText("fully searchable", substring = true).assertDoesNotExist()
     }
 
     @Test fun statusSkippedOpen() = status("status_skipped_open_light", index = running.copy(running = false, lastStop = StopReason.UNPLUGGED), open = true)

@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -25,6 +26,7 @@ class CalibrationTest {
         private val onEmbed: (Backend, Part) -> Unit = { _, _ -> },
     ) : EmbedderFactory {
         val texts = mutableListOf<String>()
+        var closed = 0
 
         override fun backends(build: ModelBuild) = listOf(Backend.GPU, Backend.CPU)
 
@@ -45,12 +47,31 @@ class CalibrationTest {
                     return FloatArray(DIMS) { 1f }
                 }
 
-                override fun close() {}
+                override fun close() {
+                    closed++
+                }
             }
         }
     }
 
     private val samples = Samples(List(3) { byteArrayOf(it.toByte()) }, emptyList(), emptyList())
+
+    @Test fun aResourceChangeStopsAfterTheCurrentInferenceWithoutRecordingABackendFailure() = runTest {
+        val clock = TestTimeSource()
+        var busy = false
+        var calls = 0
+        val factory = Factory(clock, onEmbed = { _, _ ->
+            calls++
+            busy = true
+        })
+        val error = assertFailsWith<CalibrationDeferred> {
+            Calibration(factory, clock, checkResources = { if (busy) throw CalibrationDeferred(StopReason.HOT) })
+                .run(samples, ModelVariant.M740.generic, 8.0)
+        }
+        assertEquals(StopReason.HOT, error.reason)
+        assertEquals(1, calls, "no further inference starts once the phone runs hot")
+        assertEquals(1, factory.closed, "the interrupted measurement releases its model")
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test

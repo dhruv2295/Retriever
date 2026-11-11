@@ -14,6 +14,7 @@ import app.retriever.core.Words
 import app.retriever.home.celebrationOf
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,7 +33,12 @@ data class StatusUi(
     val readingStatus: app.retriever.core.ReadingStatus? = null,
 )
 
-class StatusViewModel(private val retriever: Retriever, private val indexer: IndexService, private val accessService: AccessService) : ViewModel() {
+class StatusViewModel(
+    private val retriever: Retriever,
+    private val indexer: IndexService,
+    private val accessService: AccessService,
+    private val appScope: CoroutineScope,
+) : ViewModel() {
     private val skipped = MutableStateFlow<List<Store.StoredFile>>(emptyList())
     private val folderError = MutableStateFlow<String?>(null)
     private val error = MutableStateFlow<String?>(null)
@@ -66,13 +72,9 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
 
     fun removeFolder(uri: String) = accessService.removeFolder(uri)
 
-    fun resume() = attempt { indexer.resume() }
+    fun start() = attempt(appScope) { indexer.start() }
 
-    fun pause() = attempt { indexer.pause() }
-
-    fun readNow() = attempt { indexer.readNow() }
-
-    fun stopReadNow() = attempt { indexer.endReadNow() }
+    fun pause() = attempt(appScope) { indexer.pause() }
 
     fun loadSkipped() = attempt { skipped.value = retriever.skipped(50) }
 
@@ -82,9 +84,9 @@ class StatusViewModel(private val retriever: Retriever, private val indexer: Ind
         skipped.value = emptyList()
     }
 
-    private fun attempt(block: suspend () -> Unit) {
+    private fun attempt(scope: CoroutineScope = viewModelScope, block: suspend () -> Unit) {
         error.value = null
-        launchCatching(onError = {
+        scope.launchCatching(onError = {
             Log.e("Retriever", "StatusViewModel", it)
             error.value = Words.strings.thatDidntWork
         }) { block() }

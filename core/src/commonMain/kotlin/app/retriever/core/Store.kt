@@ -748,7 +748,8 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             meaningWaiting = scoped.filter { it.meaning }.sumOf { it.n },
             rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
             counted = meta(LAST_FULL_SCAN_KEY) != null,
-            notNow = ids != null && flag(TASTE_DECIDED_KEY),
+            notNow = ids != null && flag(TASTE_DECIDED_KEY) &&
+                meta(SETUP_SESSION_KEY) == null,
         )
         val tails = if (includeTails && ids != null) tailCountsIn(ids) else null
         val indexed = library.filter { it.state == FileState.INDEXED }
@@ -853,7 +854,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     /** New usable chunks include successful later passes; deleting older library files cannot subtract session work. */
     internal fun sessionReadCount(kinds: Set<Kind>): Long {
         val start = meta(SESSION_START_KEY)?.toLongOrNull() ?: return 0
-        return if (prefs().readNowUntil == 0L) {
+        return if (!prefs().started) {
             meta(SESSION_READ_KEY)?.toLongOrNull() ?: 0
         } else {
             q.sessionReadCount(start, kinds.map { it.name }).executeAsOne()

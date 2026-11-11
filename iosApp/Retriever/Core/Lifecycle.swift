@@ -79,17 +79,26 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
         // The person asked for this read and watches it on the Lock Screen, so it goes on as if open, on battery too.
         guard !keepsReading() else { return }
         retriever.uiVisible = false
-        release()
+        let session = retriever.readNowSession
+        guard session != 0 else { return release() }
+        holdRelease()
+        Task {
+            _ = try? await retriever.endReadNowSession(expectedSession: session, cancelReads: { @Sendable in })
+            release()
+        }
     }
 
     /// Frees the model's memory once the app is in the background. Under a background task, so the embed still
     /// in flight finishes before the model closes.
     private func release() {
-        // ponytail: one task covers overlapping releases; the first to finish ends it.
-        if releaseTask == .invalid {
-            releaseTask = UIApplication.shared.beginBackgroundTask(withName: "release-model") { [weak self] in self?.endRelease() }
-        }
-        retriever.release { @Sendable [weak self] _ in DispatchQueue.main.async { self?.endRelease() } }
+        holdRelease()
+        retriever.releaseIfIdle { @Sendable [weak self] _ in DispatchQueue.main.async { self?.endRelease() } }
+    }
+
+    // ponytail: one task covers overlapping releases; the first to finish ends it.
+    private func holdRelease() {
+        guard releaseTask == .invalid else { return }
+        releaseTask = UIApplication.shared.beginBackgroundTask(withName: "release-model") { [weak self] in self?.endRelease() }
     }
 
     private func endRelease() {
@@ -100,7 +109,7 @@ final class Lifecycle: NSObject, PHPhotoLibraryChangeObserver {
 
     private func readBattery() {
         let device = UIDevice.current
-        // .unknown is the simulator: not charging, full. A visible app indexes regardless of charging.
+        // .unknown is the simulator: not charging, full.
         monitor.charging = device.batteryState == .charging || device.batteryState == .full
         monitor.batteryPct = device.batteryLevel < 0 ? 100 : Int32((device.batteryLevel * 100).rounded())
     }

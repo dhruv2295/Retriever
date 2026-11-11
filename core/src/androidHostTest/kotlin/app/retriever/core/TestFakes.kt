@@ -170,6 +170,7 @@ internal fun testRetriever(
     },
     faceReader: FaceReader? = null,
     now: () -> Long = System::currentTimeMillis,
+    dispatchers: CoreDispatchers = CoreDispatchers(),
 ): Retriever {
     val source = FakeSource().apply { next = Changes(files, emptyList(), "tok", isFullScan = true) }
     return Retriever(
@@ -187,5 +188,6 @@ internal fun testRetriever(
         zoneOffsetMs = { 0L },
         fewWaitingLimit = fewWaitingLimit,
         faceReader = faceReader,
+        dispatchers = dispatchers,
     )
 }

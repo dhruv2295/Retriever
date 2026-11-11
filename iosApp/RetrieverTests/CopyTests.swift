@@ -7,17 +7,16 @@ import XCTest
 
 @MainActor
 final class CopyTests: XCTestCase {
-    /// Processing shows a Process for 15 minutes' Stop alone: a Pause beside it looked the same and stopped everything.
-    func testPauseNeverShowsBesideASessionsStop() throws {
-        let session = AppModel(fixture: .readNow)
-        let snap = try XCTUnwrap(session.snap)
-        let status = try XCTUnwrap(session.statusLine(snap))
-        XCTAssertEqual(status.action, .stop)
-        XCTAssertTrue(snap.readProgress.unfinished, "work is left, so only the session hides Pause")
-        XCTAssertFalse(status.offersPause(progress: snap.readProgress))
-        let charging = AppModel(fixture: .readingWhileCharging)
-        let chargingSnap = try XCTUnwrap(charging.snap)
-        XCTAssertTrue(try XCTUnwrap(charging.statusLine(chargingSnap)).offersPause(progress: chargingSnap.readProgress))
+    /// Untimed processing uses one Pause button on every status surface.
+    func testUntimedProcessingUsesOnePause() throws {
+        for fixture in [AppFixture.processing, .readingWhileCharging] {
+            let model = AppModel(fixture: fixture)
+            let snap = try XCTUnwrap(model.snap)
+            let status = try XCTUnwrap(model.statusLine(snap))
+            XCTAssertEqual(status.action, .pause)
+            XCTAssertTrue(snap.readProgress.unfinished)
+            XCTAssertFalse(status.offersPause(progress: snap.readProgress))
+        }
     }
 
     func testHomeStatusFollowsTheIndex() {
@@ -27,13 +26,13 @@ final class CopyTests: XCTestCase {
         let done = "All done. Retriever has processed everything it can"
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: false, indexed: 4))?.title, done)
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2, paused: true))?.phase, .paused)
-        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2))?.title, "Taking a short break")
+        XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 3, pending: 2))?.title, "Paused")
         XCTAssertEqual(Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 4))?.title, done)
     }
 
     func testTrialCardNeverCallsPlannedFilesNew() {
         var snap = AppModel.Snap(setUp: true, indexed: 178, pending: 12, trial: true)
-        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Taking a short break")
+        XCTAssertEqual(Copy.homeStatus(snap)?.title, "Paused")
         snap.paused = true
         XCTAssertEqual(Copy.homeStatus(snap)?.title, "Paused")
     }
@@ -124,8 +123,7 @@ final class CopyTests: XCTestCase {
             Words.shared.demoSearchScope(done: 12, finished: false, words: Copy.words),
             "Finds any file on your iPhone by its name. Looks inside the 12 demo files processed so far.")
         XCTAssertEqual(Words.shared.onDevice(words: Copy.words), "Your files are processed on your \(Copy.device)")
-        XCTAssertTrue(Words.shared.otherFilesBody(words: Copy.words).contains("When your \(Copy.device) is charging"))
-        XCTAssertTrue(Words.shared.chargingAndNowBody(words: Copy.words).hasSuffix("Keep Retriever open."))
+        XCTAssertTrue(Words.shared.processingPlanDetail(schedule: .charging, sessionActive: true).contains("50%"))
         // Hello names the download only under Get started, and only where it happens.
         for text in [Words.shared.helloTitle(textOnly: false), Words.shared.helloTitle(textOnly: true), Words.shared.HELLO_BODY] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("download"), text)
@@ -142,15 +140,14 @@ final class CopyTests: XCTestCase {
         XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, count: nil, done: nil, total: nil).pause, "not a pause")
     }
 
-    func testCommitCopyHasNoFigures() {
+    func testProcessingCopyHasNoFixedDuration() {
         let figure = /\d+(,\d+)?( to \d+)? (hours?|minutes?|nights?|days?)/
-        for text in [Words.shared.chooseBody(rest: KotlinLong(value: 25_763)), Words.shared.choosePace(words: Copy.words), Copy.backgroundNote] {
-            // "Process for 15 minutes" is the action's name, not an estimate of how long processing takes.
-            XCTAssertNil(text.replacingOccurrences(of: Words.shared.READ_FOR_15, with: "").firstMatch(of: figure), text)
+        for text in [Copy.backgroundNote, Copy.screenKeptOn, Words.shared.strings.readingDetail(words: Copy.words)] {
+            XCTAssertNil(text.firstMatch(of: figure), text)
         }
     }
 
-    /// Each Home state the fixtures pin reaches the line it is for: the download, access and Read for 15 minutes come
+    /// Each Home state the fixtures pin reaches the line it is for: the download, access and untimed processing come
     /// from the app's own state, the rest from core's decision.
     func testTheStatusLineCoversEveryHomeState() throws {
         func line(_ fixture: AppFixture) throws -> ReadingStatus {
@@ -159,19 +156,19 @@ final class CopyTests: XCTestCase {
         }
         // A live count, not a percent: 1,204 processed of 5,310, the bar the same numbers.
         let count = "1,204 of 5,310 files processed"
-        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing while you charge")
+        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing your files")
         XCTAssertEqual(try line(.readingWhileCharging).count, count)
         XCTAssertEqual(try line(.readingWhileCharging).done?.int64Value, 1_204)
         XCTAssertEqual(try line(.readingWhileCharging).total?.int64Value, 5_310)
-        XCTAssertEqual(try line(.unplugged).title, "Waits until you charge")
+        XCTAssertEqual(try line(.unplugged).title, "Paused · continues when you plug in")
         XCTAssertEqual(try line(.unplugged).count, count)
         XCTAssertEqual(try line(.unplugged).phase, .charging)
-        XCTAssertEqual(try line(.unplugged).action, .readFor15)
-        XCTAssertEqual(try line(.chargingUp).title, "Charging up first")
-        XCTAssertEqual(try line(.readNow).title, "Processing for 15 minutes · 12 min left")
-        XCTAssertEqual(try line(.readNow).action, .stop)
-        XCTAssertEqual(try line(.readNow).detail, "Uses some battery. Keep Retriever open.")
-        XCTAssertEqual(try line(.readNow).count, count)
+        XCTAssertEqual(try line(.unplugged).action, .start)
+        XCTAssertEqual(try line(.chargingUp).title, "Paused · continues when the battery has a bit more charge")
+        XCTAssertEqual(try line(.processing).title, "Processing your files")
+        XCTAssertEqual(try line(.processing).action, .pause)
+        XCTAssertEqual(try line(.processing).detail, Words.shared.strings.readingDetail(words: Copy.words))
+        XCTAssertEqual(try line(.processing).count, count)
         let downloading = try line(.downloading(0.34))
         XCTAssertEqual(downloading.phase, .downloading)
         XCTAssertEqual(downloading.done?.int64Value, 34)
@@ -184,13 +181,13 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(try line(.meaningPass).title, "Adding search by description")
         XCTAssertEqual(try line(.meaningPass).count, "1,938 of 3,142 files have search by description")
         XCTAssertEqual(try line(.firstDay).phase, .notNow)
-        XCTAssertEqual(try line(.firstDay).action, .chooseWhen)
+        XCTAssertEqual(try line(.firstDay).action, .start)
         // The demo's 30 carry over to the whole phone's count.
         XCTAssertEqual(try line(.notNow).title, "Only names can be found for now")
         XCTAssertEqual(try line(.notNow).count, "30 of 25,793 files processed")
-        XCTAssertEqual(try line(.notNow).action, .chooseWhen)
+        XCTAssertEqual(try line(.notNow).action, .start)
         let counting = try line(.counting)
-        XCTAssertEqual(counting.title, "Counting your files…")
+        XCTAssertEqual(counting.title, "Getting ready…")
         XCTAssertNil(counting.count, "no count or bar until the files are all counted")
         XCTAssertNil(counting.done)
         XCTAssertEqual(try line(.caughtUp).action, .dismiss)

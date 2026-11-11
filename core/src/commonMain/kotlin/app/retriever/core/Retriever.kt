@@ -256,7 +256,7 @@ class Retriever(
             mark = if (legacy) SetupMark.ACCESS_CHOSEN else saved ?: SetupMark.NONE,
             skipped = legacy || store.flag(SETUP_SKIPPED_KEY),
             // No scope yet reads as ALL elsewhere; here it is a plan still to make, unless setup predates plans.
-            decided = store.flag(TASTE_DECIDED_KEY) || scope == Scope.ALL.name || (scope == null && legacy),
+            decided = store.flag(TASTE_DECIDED_KEY) || (scope == Scope.ALL.name && store.meta(SETUP_SESSION_KEY) == null) || (scope == null && legacy),
             planned = store.tasteIds().size,
         )
     }
@@ -269,13 +269,17 @@ class Retriever(
     }
 
     /**
-     * The first search's Continue: setup ends, everything is processed on the one automatic schedule (the demo's unfinished
-     * files join the rest), and Home shows its one-time card about what happens next.
+     * The first search's Continue ends navigation and shows Home's card. A held setup demo keeps its order until
+     * its first reads finish; Continue never launches or replaces its reader.
      */
     @Throws(Throwable::class)
     suspend fun finishSetup() {
         updatePrefs { it.copy(homeIntroDue = true) }
-        commitScope()
+        if (setupDemoHeld()) {
+            io { store.setFlag(TASTE_DECIDED_KEY) }
+        } else {
+            commitScope()
+        }
         io { loadSetup() }
     }
 
@@ -313,6 +317,7 @@ class Retriever(
     private var speedKey = SPEED_KEY
     private var bookSavedAt = 0L
 
+    private val sessionCommands = Mutex()
     private val indexLock = Mutex()
     private var batchSoon = false // guarded by indexLock, including the gap before a SOON follow-up
 
@@ -349,7 +354,7 @@ class Retriever(
 
     private fun reload() {
         reconcileRecentFiles()
-        _prefs.value = store.prefs()
+        loadPrefs()
         val ids = loadScope()
         if (_state.value.recentFiles.isEmpty() && ids != null) {
             val indexed = store.indexedIn(ids)
@@ -365,6 +370,9 @@ class Retriever(
 
     /** Reading adds no meaning until the tune: an untuned open could pick other vision tokens and redo every vector. */
     private fun noModel() = textOnly || _setUp.value != true || !modelReady(requiredBuild.value)
+
+    /** A launch refresh must not publish preferences older than a concurrent Start or Pause. */
+    private fun loadPrefs() = exclusive { store.prefs().also { _prefs.value = it } }
 
     fun setUiBusy(busy: Boolean) {
         uiBusy.value = busy
@@ -395,17 +403,56 @@ class Retriever(
     }
 
     @Throws(Throwable::class)
-    suspend fun pause() {
-        updatePrefs { endSession(it).copy(paused = true) }
+    suspend fun pause() = sessionCommands.withLock {
+        updatePrefs { endSession(it).copy(paused = true, processingRequested = false) }
         if (_state.value.currentFile != null) cancelBatch()
     }
 
     @Throws(Throwable::class)
     suspend fun resume() = updatePrefs { it.copy(paused = false) }
 
-    /** Ends a Read now session without pausing: reading goes back to the saved schedule (a system expiry, not the person's Pause). */
+    /** Ends the current platform hold without pausing; automatic reading returns to its saved schedule. */
     @Throws(Throwable::class)
-    suspend fun endReadNowSession() = updatePrefs { endSession(it) }
+    suspend fun endReadNowSession() = sessionCommands.withLock { updatePrefs { endSession(it) } }
+
+    /** Identity of the explicit run, persisted so a cold continued-task launch can verify its owner; zero when none runs. */
+    val readNowSession: Long get() = if (store.prefs().started) store.meta(SESSION_GENERATION_KEY)?.toLongOrNull() ?: 0 else 0
+
+    /**
+     * The identity is checked inside the transaction, after switching dispatchers; stale async cleanup is harmless. Native
+     * read cancellation runs under the same ownership lock, before any successor can start.
+     */
+    @Throws(Throwable::class)
+    suspend fun endReadNowSession(expectedSession: Long, cancelReads: () -> Unit = {}): Boolean = sessionCommands.withLock {
+        var ended = false
+        updatePrefs {
+            if (expectedSession != 0L && readNowSession == expectedSession) {
+                ended = true
+                endSession(it)
+            } else {
+                it
+            }
+        }
+        if (ended) {
+            cancelBatch()
+            cancelReads()
+        }
+        ended
+    }
+
+    @Throws(Throwable::class)
+    suspend fun cancelSessionBatch(expectedSession: Long) = sessionCommands.withLock {
+        if (readNowSession == expectedSession) cancelBatch()
+    }
+
+    /** An ordinary system task must not cancel a newer human-owned run. */
+    @Throws(Throwable::class)
+    suspend fun cancelAutomaticBatch(cancelReads: () -> Unit = {}) = sessionCommands.withLock {
+        if (readNowSession == 0L) {
+            cancelBatch()
+            cancelReads()
+        }
+    }
 
     @Throws(Throwable::class)
     suspend fun updatePrefs(t: (Prefs) -> Prefs) {
@@ -421,7 +468,7 @@ class Retriever(
                     (it.kinds - old.kinds).takeIf { k -> k.isNotEmpty() }?.let(store::requeue)
                 }
             }
-            _prefs.value = new
+            loadPrefs()
             if (before.recognizePeople != new.recognizePeople) peopleChanged()
             // Its model starts downloading now, not when the faces pass first runs, which waits for every file.
             if (!before.recognizePeople && new.recognizePeople) faceReader?.let { r -> background.launch { r.ready(new.allowMobileData) } }
@@ -487,33 +534,36 @@ class Retriever(
     @Volatile
     private var lowBattery = false
 
-    /** The demo runs in front: planned, and [SetupInputs.demoRunning]. */
-    private fun sampleSession(): Boolean = store.sampleIds() != null && SetupInputs(
-        mark = SetupMark.saved(store.meta(SETUP_MARK_KEY)) ?: SetupMark.NONE,
-        skipped = store.flag(SETUP_SKIPPED_KEY),
-        decided = store.flag(TASTE_DECIDED_KEY),
-    ).demoRunning
-
-    /**
-     * Why content can't be read now, or null when it can. Called between chunks, by the subscribed UI, and by a platform deciding
-     * whether a run is worth a foreground service; expiry and safety stops never renew a session.
-     */
-    fun readingBlocker(): StopReason? {
-        val device = monitor.state()
+    private fun batteryIsLow(device: DeviceState): Boolean {
         lowBattery = !device.charging && (
             device.batteryPct in 0..ReadingPolicy.LOW_BATTERY ||
                 (lowBattery && device.batteryPct in 0..ReadingPolicy.BATTERY_RECOVERED)
             )
-        var p = store.prefs()
-        if (p.readNowUntil != 0L && (p.readNowUntil <= now() || p.paused || device.powerSave || device.hot)) {
-            p = store.updatePrefs { if (it.readNowUntil == p.readNowUntil) endSession(it) else it }
-            _prefs.value = p
-        }
-        return ReadingPolicy.blocker(p, device, uiVisible, sampleSession(), now(), lowBattery, fewWaiting())
+        return lowBattery
+    }
+
+    /** The demo runs in front: planned, and [SetupInputs.demoRunning]. */
+    private fun sampleSession(): Boolean = store.sampleIds() != null && (
+        SetupInputs(
+            mark = SetupMark.saved(store.meta(SETUP_MARK_KEY)) ?: SetupMark.NONE,
+            skipped = store.flag(SETUP_SKIPPED_KEY),
+            decided = store.flag(TASTE_DECIDED_KEY),
+        ).demoRunning || store.meta(SETUP_SESSION_KEY) != null
+        )
+
+    /**
+     * Why content can't be read now, or null when it can. Called between chunks, by the subscribed UI, and by a platform deciding
+     * whether a run is worth a foreground service; safety stops never renew a session.
+     */
+    fun readingBlocker(): StopReason? {
+        val device = monitor.state()
+        val low = batteryIsLow(device)
+        val p = store.prefs()
+        return ReadingPolicy.blocker(p, device, sampleSession(), low, fewWaiting())
     }
 
     /**
-     * Something is on the screen: Retriever, or another app while a few new files are read. A GPU that stalls rendering
+     * Something is on the screen: Retriever, or another app while files are processed. A GPU that stalls rendering
      * ([DeviceProfile.gpuStallsRendering]) then gives way to the CPU, so the phone in use never stutters. Not while
      * Retriever sits untouched on a charger ([idleInFront]): the next file then reads on the GPU, and the first input
      * turns it back. Each turn ends the batch and reopens the model (3-9 s), so it happens once per idle spell, not per touch.
@@ -541,15 +591,11 @@ class Retriever(
      * What the status line reads from the device and the clock once a second. [language]: a language change while nothing
      * else moves still redraws the line in the new words.
      */
-    private data class Tick(val blocker: StopReason?, val readNowMinutes: Int, val pluggedIn: Boolean, val language: Language = Words.language)
+    private data class Tick(val blocker: StopReason?, val pluggedIn: Boolean, val battery: Int, val adaptive: Boolean, val language: Language = Words.language)
 
     private data class StatusKey(val counts: Store.Counts, val prefs: Prefs, val state: IndexState, val tick: Tick)
 
-    private fun tick(): Tick {
-        val blocker = readingBlocker()
-        val left = _prefs.value.readNowUntil - now()
-        return Tick(blocker, if (left > 0) ((left + 59_999) / 60_000).toInt() else 0, monitor.state().pluggedIn)
-    }
+    private fun tick(): Tick = monitor.state().let { Tick(readingBlocker(), it.pluggedIn, it.batteryPct, onScreen) }
 
     /** Each conflated count change is one decision, so the line's "N of M files processed" moves as files finish. */
     private val sharedStatus: Flow<ReadingStatus> by lazy {
@@ -563,7 +609,7 @@ class Retriever(
             combine(sharedCounts, prefs, state, ticks, ::StatusKey),
             { StatusKey(countsOf(countsKeyNow()), prefs.value, state.value, tick()) },
         ) { (counts, p, state) ->
-            // Fresh, not the key's tick: that can be a second old, and a Resume or a Read for 15 minutes shows at once.
+            // Fresh, not the key's tick: that can be a second old, and Start or Resume shows at once.
             val t = tick()
             // No device check sees a full disk: the batch that stopped for it says so until the next one runs.
             val diskFull = state.lastStop?.takeIf { it == StopReason.DISK_FULL && !state.running }
@@ -579,12 +625,18 @@ class Retriever(
                 state.running,
                 state.currentFile != null,
                 words,
-                t.readNowMinutes,
+                p.started,
                 t.pluggedIn,
                 state.faces,
                 facesWaiting,
                 state.people,
                 state.readersMissing,
+                battery = t.battery,
+                requested = p.processingRequested,
+                // Processing has run beyond the demo's files, so a stop offers Resume.
+                processingStarted = p.processingRequested || store.meta(SESSION_START_KEY) != null ||
+                    counts.progress.contentRead > store.tasteIds().size,
+                adaptive = t.adaptive,
             )
         }
     }
@@ -595,24 +647,119 @@ class Retriever(
     private fun startSession(prefs: Prefs): Prefs {
         store.setMeta(SESSION_START_KEY, store.lastChunkId().toString())
         store.setMeta(SESSION_READ_KEY, "0")
-        return prefs.copy(paused = false, readNowUntil = now() + ReadingPolicy.SESSION_MS)
+        val generation = (store.meta(SESSION_GENERATION_KEY)?.toLongOrNull() ?: 0L) + 1
+        store.setMeta(SESSION_GENERATION_KEY, generation.toString())
+        return prefs.copy(paused = false, started = true, processingRequested = true)
     }
 
     private fun endSession(prefs: Prefs): Prefs {
-        if (prefs.readNowUntil != 0L) store.setMeta(SESSION_READ_KEY, store.sessionReadCount(prefs.kinds intersect readableKinds).toString())
-        return prefs.copy(readNowUntil = 0)
+        if (prefs.started) store.setMeta(SESSION_READ_KEY, store.sessionReadCount(prefs.kinds intersect readableKinds).toString())
+        return prefs.copy(started = false)
     }
 
+    /** A Start/Resume checks the explicit fifty-percent floor, independent of the saved automatic schedule. */
+    fun explicitProcessingBlocker(): StopReason? =
+        ReadingPolicy.resourceBlocker(prefs.value.copy(paused = false), monitor.state(), floor = ReadingPolicy.RESUMED_BATTERY_FLOOR)
+
+    val processingRequestGeneration: Long get() = if (store.prefs().processingRequested) {
+        store.meta(SESSION_GENERATION_KEY)?.toLongOrNull() ?: 0L
+    } else {
+        0L
+    }
+
+    /** Remembers a blocked human request without starting content processing or disturbing an existing host. */
     @Throws(Throwable::class)
-    suspend fun readNow() {
-        updatePrefs { startSession(it) }
-        commitScope()
+    suspend fun requestProcessing(setup: Boolean): Long = sessionCommands.withLock {
+        updatePrefs(::requestedPrefs)
+        if (setup) prepareSetupSession()
+        processingRequestGeneration
+    }
+
+    private fun requestedPrefs(prefs: Prefs): Prefs {
+        if (!prefs.processingRequested || store.meta(SESSION_GENERATION_KEY) == null) {
+            val generation = (store.meta(SESSION_GENERATION_KEY)?.toLongOrNull() ?: 0L) + 1
+            store.setMeta(SESSION_GENERATION_KEY, generation.toString())
+        }
+        return prefs.copy(processingRequested = true, paused = false)
+    }
+
+    /** Completion can clear only the request whose work was checked; a later tap is never consumed. */
+    @Throws(Throwable::class)
+    suspend fun finishProcessingRequest(expectedGeneration: Long): Boolean = sessionCommands.withLock {
+        var finished = false
+        updatePrefs { prefs ->
+            if (expectedGeneration != 0L && prefs.processingRequested && processingRequestGeneration == expectedGeneration &&
+                store.meta(LAST_FULL_SCAN_KEY) != null &&
+                !hasWorkNow() &&
+                !(faceReader != null && prefs.recognizePeople && Kind.PHOTO in prefs.kinds && store.facesProgress().pending > 0)
+            ) {
+                finished = true
+                endSession(prefs).copy(processingRequested = false)
+            } else {
+                prefs
+            }
+        }
+        finished
+    }
+
+    /**
+     * Starts an explicit run, lifting a pause without changing the saved automatic schedule. [setup]: access Continue, whose
+     * first reads remain the demo even if the person leaves it. Zero while resources require waiting, with the request kept.
+     */
+    @Throws(Throwable::class)
+    suspend fun startProcessing(setup: Boolean): Long = sessionCommands.withLock {
+        val demoHeld = setupDemoHeld()
+        var started = false
+        updatePrefs {
+            if (explicitProcessingBlocker() != null) requestedPrefs(it) else startSession(it).also { started = true }
+        }
+        if (started) cancelBatch()
+        when {
+            setup -> prepareSetupSession()
+            !started -> Unit
+            demoHeld -> io { store.setMeta(SETUP_SESSION_KEY, readNowSession.toString()) }
+            else -> commitScope()
+        }
+        if (started) readNowSession else 0L
+    }
+
+    private fun setupDemoHeld() = store.meta(SETUP_SESSION_KEY) != null && store.sampleIds() != null
+
+    private suspend fun prepareSetupSession() {
+        io {
+            if (SetupMark.saved(store.meta(SETUP_MARK_KEY)) == SetupMark.GREETED && store.tasteIds().isEmpty()) {
+                store.deleteMeta(TASTE_DECIDED_KEY)
+                store.deleteMeta(TASTE_SCOPE_KEY)
+            }
+            store.setMeta(SETUP_SESSION_KEY, readNowSession.toString())
+        }
+        setSetupMark(SetupMark.ACCESS_CHOSEN)
+        planOrCommit()
+    }
+
+    /** Only the owning held run can advance past the demo, and only after all its first reads finish. */
+    @Throws(Throwable::class)
+    suspend fun completeSetupSample(expectedSession: Long): Boolean = sessionCommands.withLock {
+        io {
+            val owns = readNowSession == expectedSession && store.meta(SETUP_SESSION_KEY) != null &&
+                (expectedSession == 0L || (store.prefs().started && store.meta(SETUP_SESSION_KEY)?.toLongOrNull() == expectedSession))
+            if (!owns || store.prefs().paused || store.sampleIds() == null ||
+                store.pendingIn(store.tasteIds()).isNotEmpty()
+            ) {
+                false
+            } else {
+                store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
+                loadScope()
+                changedSinceSync = true
+                true
+            }
+        }
     }
 
     @Throws(Throwable::class)
     suspend fun setReadingSchedule(schedule: ReadingSchedule) {
         updatePrefs { it.withSchedule(schedule) }
-        if (schedule != ReadingSchedule.MANUAL) commitScope()
+        if (schedule != ReadingSchedule.MANUAL && !setupDemoHeld()) commitScope()
         changedSinceSync = true
     }
 
@@ -664,10 +811,17 @@ class Retriever(
      * [deepen] false reads pending files only, so a batch with none left ends DONE instead of embedding long files'
      * later parts. [waitForLock]: wait for a running batch (being cancelled) however long it takes. Otherwise a batch still
      * unwinding gets [LOCK_WAIT]: a run that replaced a cancelled one found its lock held, ended DONE, and nothing came after
-     * (a Pixel 8 Pro read nothing until the 6-hour run). A batch still running after that keeps the work.
+     * (a Pixel 8 Pro read nothing until the 6-hour run). A batch still running after that keeps the work. [onLocked] runs
+     * once the lock is taken, so a platform's wake lock covers the batch and not the wait.
      */
     @Throws(Throwable::class)
-    suspend fun indexBatch(budget: Duration, deepen: Boolean = true, waitForLock: Boolean = false, sessionOnly: Boolean = false): NextRun {
+    suspend fun indexBatch(
+        budget: Duration,
+        deepen: Boolean = true,
+        waitForLock: Boolean = false,
+        expectedSession: Long? = null,
+        onLocked: () -> Unit = {},
+    ): NextRun {
         if (waitForLock) {
             indexLock.lock()
         } else if (withTimeoutOrNull(LOCK_WAIT) { indexLock.lock() } == null) {
@@ -677,20 +831,11 @@ class Retriever(
         }
         batchSoon = false
         try {
+            onLocked()
             return coroutineScope {
                 // Lazy, so [batchJob] is set before the batch runs: a cancelBatch() from the batch's first files must land.
                 val work = async(dispatchers.indexing, start = CoroutineStart.LAZY) {
-                    val remaining = store.prefs().readNowUntil - now()
-                    if (remaining <= 0) {
-                        runBatch(budget, deepen, sessionOnly)
-                    } else {
-                        withTimeoutOrNull(minOf(remaining, budget.inWholeMilliseconds).coerceAtLeast(1)) { runBatch(budget, deepen, sessionOnly) }
-                            ?: run {
-                                val reason = readingBlocker() ?: StopReason.BUDGET
-                                _state.update { it.copy(lastStop = reason) }
-                                nextRunFor(reason, changedSinceSync)
-                            }
-                    }
+                    runBatch(budget, deepen, expectedSession)
                 }
                 batchJob = work
                 try {
@@ -709,7 +854,7 @@ class Retriever(
         }
     }
 
-    private suspend fun runBatch(budget: Duration, mayDeepen: Boolean, sessionOnly: Boolean): NextRun {
+    private suspend fun runBatch(budget: Duration, mayDeepen: Boolean, expectedSession: Long?): NextRun {
         // The budget covers the sync and the model's open too, so a platform's time limit holds.
         val started = TimeSource.Monotonic.markNow()
         val changed = changedSinceSync
@@ -747,9 +892,9 @@ class Retriever(
                 val p = batchPrefs()
                 IndexSettings(p.effective(if (keywordOnly) textOnlyProfile else store.profile() ?: stored), p.kinds, p.paused)
             }
-            // The policy's answer, so a few new files and Process for 15 minutes carry on while the phone is in use. It covers
-            // being busy and the charger too, so the engine's own charger rule stays off: it would only ask it again.
-            val policyStop = { readingBlocker() ?: StopReason.MANUAL.takeIf { sessionOnly && store.prefs().readNowUntil <= now() } }
+            // The platform's policy covers use and power, so the engine's own charger rule stays off.
+            val lostOwner = { expectedSession != null && readNowSession != expectedSession }
+            val policyStop = { if (lostOwner()) StopReason.MANUAL else readingBlocker() }
             policyStop()?.let { return end(it) }
             // The demo was stopped (its Continue, Skip, or Not now) while its scope stands: what it didn't finish waits for the
             // choice, whose wider scope takes it with the rest. MANUAL, so no follow-up is scheduled until then.
@@ -759,9 +904,14 @@ class Retriever(
             watchdog = background.launch(dispatchers.watchdog) {
                 while (isActive) {
                     delay(1_000)
-                    // A failed check (a dead binder, a store error) skips one second, not the rest of the batch.
+                    // The full scheduling policy runs per file. This watchdog only stops unsafe long reads or a lost owner.
                     val stop = try {
-                        policyStop()
+                        val device = monitor.state()
+                        if (lostOwner()) {
+                            StopReason.MANUAL
+                        } else {
+                            ReadingPolicy.resourceBlocker(_prefs.value, device, batteryIsLow(device), ReadingPolicy.RESUMED_BATTERY_FLOOR)
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -779,9 +929,8 @@ class Retriever(
             val ids = loadScope()
             val pending = if (ids == null) store.pendingByKind().values.sum() else store.pendingIn(ids).size.toLong()
 
-            // An open app deepens once nothing is pending; in the background only on the charger, even
-            // when a few new files are read on battery (ReadingPolicy.deepenBlocker).
-            fun deepenBlocker(): StopReason? = ReadingPolicy.deepenBlocker(store.prefs(), monitor.state(), uiVisible, sampleSession(), now())
+            // Later parts follow the same safety/session policy, then the saved schedule.
+            fun deepenBlocker(): StopReason? = ReadingPolicy.blocker(store.prefs(), monitor.state(), uiVisible && sampleSession())
             fun canDeepen(): Boolean = (mayDeepen || (uiVisible && sampleSession())) && !keywordOnly && deepenBlocker() == null
             val deepen = canDeepen()
             val tails = when {
@@ -981,7 +1130,10 @@ class Retriever(
     }
 
     private fun onCurrent(file: SourceFile) {
-        if (_prefs.value.caughtUpDismissed) _prefs.value = store.updatePrefs { it.readingStarted() }
+        if (_prefs.value.caughtUpDismissed) {
+            store.updatePrefs { it.readingStarted() }
+            loadPrefs()
+        }
         _state.update { it.copy(current = file.name, currentFile = file) }
     }
 
@@ -1155,7 +1307,9 @@ class Retriever(
 
     /** Files to read or later parts to embed, so a batch would read something. */
     @Throws(Throwable::class)
-    suspend fun hasWork(): Boolean = io { store.pendingByKind().values.sum() > 0 || (!noModel() && store.tailChunkCount() > 0) }
+    suspend fun hasWork(): Boolean = io { hasWorkNow() }
+
+    private fun hasWorkNow(): Boolean = store.pendingByKind().values.sum() > 0 || (!noModel() && store.tailChunkCount() > 0)
 
     /** The phone's power and heat now, for a platform deciding whether to hold a foreground run. */
     fun deviceState(): DeviceState = monitor.state()
@@ -1188,15 +1342,6 @@ class Retriever(
      */
     fun sampleFiles(): Flow<List<SampleFile>> = sharedSample
 
-    /** Read everything: scope ALL and the charging choice. The caller schedules the reading. */
-    @Throws(Throwable::class)
-    suspend fun commit(whileCharging: Boolean) {
-        updatePrefs {
-            (if (whileCharging) endSession(it).copy(paused = false) else startSession(it)).withSchedule(ReadingSchedule.CHARGING)
-        }
-        commitScope()
-    }
-
     /**
      * Read everything, with nothing to choose (an empty plan, or a plan that already was everything): scope ALL and decided.
      * Never touches the schedule or a session, so the person's saved choice holds.
@@ -1207,22 +1352,12 @@ class Retriever(
             store.inTransaction {
                 store.setMeta(TASTE_SCOPE_KEY, Scope.ALL.name)
                 store.setFlag(TASTE_DECIDED_KEY)
+                store.deleteMeta(SETUP_SESSION_KEY)
             }
             loadScope()
         }
         // A short read still running ends DONE; this makes it SOON, so the next batch reads the rest.
         changedSinceSync = true
-    }
-
-    /** "Not yet": decided, and the scope stays SAMPLE. What was read stays searchable; Home offers the choice again. */
-    @Throws(Throwable::class)
-    suspend fun decideLater() {
-        io {
-            store.setFlag(TASTE_DECIDED_KEY)
-            loadSetup()
-        }
-        // After the flag: the pause re-reads the counts, which then say Not now.
-        pause()
     }
 
     /** True once the person chose (commit or Not yet) or never had a short read: the try-it and commit screens are done. */
@@ -1834,6 +1969,16 @@ class Retriever(
 
     // --- Calibration ---
 
+    /** Tuning ignores the file schedule, but shares pause, safety and a session's battery floor. */
+    fun calibrationBlocker(): StopReason? {
+        val device = monitor.state()
+        return ReadingPolicy.resourceBlocker(store.prefs(), device, batteryIsLow(device), ReadingPolicy.RESUMED_BATTERY_FLOOR)
+    }
+
+    private fun checkCalibrationResources() {
+        calibrationBlocker()?.let { throw CalibrationDeferred(it) }
+    }
+
     /**
      * Tunes once more when a Tune turned the GPU down without a crash (a Pixel 8 Pro's first tune did, then passed it twice),
      * so one bad measure doesn't keep a phone on CPU. Only hidden on a charger, and once per phone. Null when not due.
@@ -1849,18 +1994,25 @@ class Retriever(
         if (!due) return null
         io { store.setMeta(GPU_RETESTED, "1") }
         log("Tune turned the GPU down before; measuring it once more", null)
-        return calibrate(samples(), tuneAgain = true)
+        try {
+            return calibrate(samples(), tuneAgain = true)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { io { store.setMeta(GPU_RETESTED, "0") } }
+            throw e
+        }
     }
 
     @Throws(Throwable::class)
     suspend fun calibrate(samples: Samples, tuneAgain: Boolean): CalibrationResult {
         check(!textOnly) { "This phone has too little memory for the model, so there is nothing to tune: Retriever searches file names and text." }
+        checkCalibrationResources()
         cancelBatch()
         // Holding the model lock keeps searches keyword-only meanwhile, so two copies of the model never load.
         return indexLock.withLock {
             // Names first: finding files by name needs no model, and a first tune holds reading for a minute or, where the GPU
             // falls back to WebGPU, far longer. The reading itself waits, so it can't slow what the tune measures.
             io { sync.syncUnlessRunning()?.let(::synced) }
+            checkCalibrationResources()
             model.lock.withLock {
                 io {
                     model.closeLocked()
@@ -1877,7 +2029,11 @@ class Retriever(
         val build = requiredBuild.value
         val stored = store.profile()
         val result = try {
-            model.countedOpen { Calibration(model.measurable(), frames = frames, visible = { uiVisible }).run(samples, build, probe.ramGb) }
+            model.countedOpen {
+                Calibration(model.measurable(), frames = frames, visible = {
+                    uiVisible
+                }, checkResources = ::checkCalibrationResources).run(samples, build, probe.ramGb)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1892,6 +2048,8 @@ class Retriever(
             null,
         )
         // Measured at the reference vision tokens; Tune again keeps the stored ones, or every vector would be stale.
+        currentCoroutineContext().ensureActive()
+        checkCalibrationResources()
         val profile = if (tuneAgain && stored != null) result.profile.copy(visionTokens = stored.visionTokens) else result.profile
         applyProfile(stored, profile)
         selectPace(factory.profileNow(profile, uiVisible))
@@ -1976,7 +2134,6 @@ class Retriever(
             StopReason.HOT -> NextRun.AFTER_COOLDOWN
             StopReason.POWER_SAVE -> NextRun.DONE
             StopReason.UNPLUGGED -> NextRun.WHEN_CHARGING
-            StopReason.BUSY -> NextRun.WHEN_IDLE
             StopReason.DONE -> if (changedSinceSync) NextRun.SOON else NextRun.DONE
             StopReason.PAUSED, StopReason.MANUAL -> NextRun.DONE
             StopReason.LOW_BATTERY, StopReason.CHARGING_UP -> NextRun.WHEN_CHARGING

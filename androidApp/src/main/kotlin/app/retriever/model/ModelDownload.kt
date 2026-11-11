@@ -26,7 +26,9 @@ import app.retriever.core.ModelBuild
 import app.retriever.core.Prefs
 import app.retriever.core.Words
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -165,18 +167,26 @@ class ModelDownload(private val context: Context, private val modelDir: File) {
     }.flowOn(Dispatchers.IO)
 
     /** Hashes the file; a match writes the marker, a mismatch deletes the file. */
-    suspend fun verify(b: ModelBuild): Boolean = withContext(Dispatchers.IO) {
+    suspend fun verify(b: ModelBuild, checkResources: () -> Unit = {}): Boolean = withContext(Dispatchers.IO) {
         val f = file(b)
         if (!f.exists()) return@withContext false
+        val owner = currentCoroutineContext()
+        fun checkCanRun() {
+            owner.ensureActive()
+            checkResources()
+        }
+        checkCanRun()
         val md = MessageDigest.getInstance("SHA-256")
         f.inputStream().use { input ->
             val buf = ByteArray(1 shl 20)
             while (true) {
+                checkCanRun()
                 val n = input.read(buf)
                 if (n < 0) break
                 md.update(buf, 0, n)
             }
         }
+        checkCanRun()
         val hex = md.digest().toHexString()
         if (hex == b.sha256.lowercase()) {
             marker(b).writeText(b.sha256)

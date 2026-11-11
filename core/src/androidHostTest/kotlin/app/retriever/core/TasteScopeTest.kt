@@ -61,7 +61,7 @@ class TasteScopeTest {
         assertEquals(NextRun.DONE, r.taste())
         assertEquals(plan.ids.size, extractor.names.size, "a finished plan reads nothing more")
 
-        r.commit(whileCharging = true)
+        r.setReadingSchedule(ReadingSchedule.CHARGING)
         assertTrue(store.prefs().onlyWhileCharging)
         assertTrue(r.tasteDecided())
         r.indexBatch(1.minutes)
@@ -139,7 +139,9 @@ class TasteScopeTest {
         val store = newStore(sig)
         val r = testRetriever(store, files, FakeExtractor(pieces))
         r.planTaste(5.seconds)
-        r.decideLater()
+        store.setFlag(TASTE_DECIDED_KEY)
+        r.pause()
+        r.refreshSetUp()
         assertTrue(r.tasteDecided())
         assertEquals(Scope.SAMPLE, store.tasteScope())
     }

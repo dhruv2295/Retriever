@@ -14,7 +14,7 @@ extension AppModel {
         try await services.retriever.updatePrefs { @Sendable p in
             p.doCopy(
                 kinds: kinds?(p.kinds) ?? p.kinds, onlyWhileCharging: p.onlyWhileCharging,
-                schedule: p.schedule, readNowUntil: p.readNowUntil,
+                schedule: p.schedule, started: p.started,
                 excludedFolders: excluded?(p.excludedFolders) ?? p.excludedFolders,
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
@@ -23,7 +23,8 @@ extension AppModel {
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
                 homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
-                peopleOfferDismissed: peopleOfferDismissed ?? p.peopleOfferDismissed)
+                peopleOfferDismissed: peopleOfferDismissed ?? p.peopleOfferDismissed,
+                processingRequested: p.processingRequested)
         }
     }
 
@@ -59,20 +60,38 @@ extension AppModel {
         }
     }
 
-    func readNow() {
-        Task {
+    /// Start, Resume and setup's access answer; `recovering` picks up a waiting request in the foreground only, and
+    /// yields to any command the person gives meanwhile rather than superseding one in flight.
+    func readNow(setup: Bool = false, recovering: Bool = false) {
+        guard let services else { return }
+        let intent = recovering ? processingIntent : UUID()
+        processingIntent = intent
+        let previous = processingCommand
+        processingCommand = Task {
+            await previous?.value
+            guard processingIntent == intent, !recovering || mayRecover else { return }
             do {
-                try await services?.retriever.readNow()
+                if let blocker = services.retriever.explicitProcessingBlocker() {
+                    _ = try await services.retriever.requestProcessing(setup: setup)
+                    guard processingIntent == intent else { return }
+                    readingMessage =
+                        [.unplugged, .lowBattery, .chargingUp].contains(blocker)
+                        ? Words.shared.strings.processingPlugInDetail : ReadingPolicy.shared.stopCopy(stop: blocker, words: Copy.words)
+                    return
+                }
+                readingMessage = nil
+                let session = try await services.retriever.startProcessing(setup: setup).int64Value
+                guard processingIntent == intent else { return }
+                guard session != 0 else {
+                    readingMessage = Words.shared.strings.processingPlugInDetail
+                    return
+                }
+                if !active, !services.monitor.active {
+                    _ = try await services.retriever.endReadNowSession(expectedSession: session, cancelReads: { @Sendable in })
+                    return
+                }
                 wake()
-                keepReading()
-            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
-        }
-    }
-
-    func decideLater() {
-        Task {
-            do {
-                try await services?.retriever.decideLater()
+                if recovering || !keepReading() { startLoop() }
             } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
@@ -225,18 +244,20 @@ extension AppModel {
 
     func pause() {
         guard let services else { return }
-        Task { do { try await services.retriever.pause() } catch { readingMessage = Words.shared.strings.couldntSaveChange } }
-    }
-
-    func resume() {
-        guard let services else { return }
-        Task {
+        processingIntent = UUID()
+        let previous = processingCommand
+        processingCommand = Task {
+            await previous?.value
             do {
-                try await services.retriever.resume()
+                try await services.retriever.pause()
+                continuedSession = 0
+                startLoop()
                 wake()
             } catch { readingMessage = Words.shared.strings.couldntSaveChange }
         }
     }
+
+    func resume() { readNow() }
 
     func loadSkipped() {
         guard let services else { return }

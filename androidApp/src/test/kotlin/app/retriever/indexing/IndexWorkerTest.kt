@@ -13,14 +13,17 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.IndexWorker
 import app.retriever.core.Backend
 import app.retriever.core.DeviceProfile
+import app.retriever.core.DeviceState
 import app.retriever.core.Embedder
 import app.retriever.core.Kind
 import app.retriever.core.ModelVariant
+import app.retriever.core.NextRun
 import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.Retriever
 import app.retriever.core.Signature
 import app.retriever.core.SourceFile
+import app.retriever.core.Thermal
 import app.retriever.core.ThermalRest
 import app.retriever.core.Tier
 import app.retriever.core.db.IndexDb
@@ -32,7 +35,6 @@ import app.retriever.model.ModelRepository
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -64,7 +66,14 @@ class IndexWorkerTest {
 
     @Before fun setUp() = WorkManagerTestInitHelper.initializeTestWorkManager(context)
 
-    @After fun stop() = stopKoin()
+    @After fun stop() {
+        try {
+            WorkManager.getInstance(context).cancelAllWork().result.get()
+            WorkManagerTestInitHelper.closeWorkDatabase()
+        } finally {
+            stopKoin()
+        }
+    }
 
     /** [reader]: the run that reads; without it, a wake-up. */
     private fun worker(retriever: Retriever, platformReady: Boolean = true, reader: Boolean = true): IndexWorker {
@@ -125,14 +134,29 @@ class IndexWorkerTest {
     )
 
     /** The model with no tune yet: as when its download finished with the app closed. */
-    private fun untuned(model: Embedder) = testRetriever(
+    private fun untuned(model: Embedder, deviceState: (() -> DeviceState)? = null) = testRetriever(
         files = listOf(testFile("report.pdf", Kind.DOC)),
         embedder = model,
+        deviceState = deviceState,
         wrapDriver = {
             it.close()
             AndroidSqliteDriver(IndexDb.Schema, context, null)
         },
     )
+
+    @Test fun anotherAppInUseAllowsConservativeAutomaticPreparationWithoutAForegroundService() {
+        val retriever = untuned(Model(), deviceState = { DeviceState(8.0, true, 80, Thermal.NONE, screenOn = true) })
+        assertEquals(ListenableWorker.Result.success(), run(retriever))
+        assertEquals(true, retriever.setUp.value)
+        assertEquals(1L, listed(retriever))
+    }
+
+    @Test fun aWorkerBelowTheBatteryFloorSkipsHeavyPreparationButStillSyncsNames() {
+        val retriever = untuned(Model(), deviceState = { DeviceState(8.0, false, 74, Thermal.NONE) })
+        assertEquals(ListenableWorker.Result.success(), run(retriever))
+        assertEquals(false, retriever.setUp.value)
+        assertEquals(1L, listed(retriever))
+    }
 
     /** The download finished with the app closed: a run tunes it, so search by description is ready without opening the app. */
     @Test fun aRunTunesADownloadedModel() {
@@ -143,17 +167,13 @@ class IndexWorkerTest {
         assertEquals(true, retriever.setUp.value)
     }
 
-    /**
-     * With battery optimization off Android lets the service start from the background. A tune takes a minute: the service
-     * comes first, and the tune is the service's. The job ends at once, so JobScheduler never counts it as timed out.
-     */
-    @Test fun anUnrestrictedRunStartsReadingServiceAndEndsItsJob() {
-        val retriever = untuned(Model())
-        shadowOf(context.getSystemService(PowerManager::class.java)).setIgnoringBatteryOptimizations(context.packageName, true)
+    /** A session with no tap to take (Android ended its service, or the process) is over: the run reads as a plain job. */
+    @Test fun aSessionWithoutATapEndsAndReadsAsAJob() {
+        val retriever = withModel(Model())
+        runBlocking { retriever.startProcessing(false) }
         assertEquals(ListenableWorker.Result.success(), run(retriever))
-        assertEquals(listOf(ReadingService::class.java.name), started())
-        assertEquals("not tuned here", false, retriever.setUp.value)
-        assertTrue("no follow-up: the service schedules what comes after", queued(INDEX).isEmpty())
+        assertFalse(retriever.prefs.value.started)
+        assertEquals(1L, listed(retriever))
     }
 
     /** Media, periodic, charger and idle runs only start the reader: four runs that each read fought over the index. */
@@ -231,42 +251,39 @@ class IndexWorkerTest {
         assertEquals(ThermalRest.RECHECK.inWholeMilliseconds, queued(INDEX).single().initialDelayMillis)
     }
 
-    @Test fun aVisibleRunStartsReadingService() {
+    /** In front with no Start processing, the run reads here: nothing automatic starts the service, whatever Android allows. */
+    @Test fun aVisibleRunWithoutATapStartsNoService() {
         val retriever = withModel(Model())
         retriever.uiVisible = true
+        shadowOf(context.getSystemService(PowerManager::class.java)).setIgnoringBatteryOptimizations(context.packageName, true)
         assertEquals(ListenableWorker.Result.success(), run(retriever))
-        assertEquals(listOf(ReadingService::class.java.name), started())
+        assertEquals(emptyList<String?>(), started())
+        assertEquals(1L, listed(retriever))
     }
 
-    /** Hidden and still optimized for battery, Android refuses the service: the reader reads the sample as a plain job. */
-    @Test fun aHiddenRunWithoutAnExemptionReadsAsAPlainJob() = runBlocking {
+    /** The demo is not the person's Start processing: the reader reads the sample as a plain job. */
+    @Test fun theDemoReadsAsAPlainJob() = runBlocking {
         val retriever = testRetriever(files = listOf(testFile("a.txt", Kind.DOC)), ramGb = 3.0)
         retriever.planTaste()
         assertEquals(ListenableWorker.Result.success(), worker(retriever).doWork())
         assertFalse("read", retriever.hasPendingTaste())
-        assertEquals(emptyList<String?>(), started())
     }
 
-    /** Q1 2: a run that can't read content (here paused) only syncs names, so it posts no reading notification. */
-    @Test fun aRunThatCannotReadContentStartsNoForegroundService() {
-        val retriever = withModel(Model())
-        retriever.uiVisible = true
-        runBlocking { retriever.pause() }
-        assertEquals(ListenableWorker.Result.success(), run(retriever))
-        assertEquals(emptyList<String?>(), started())
-    }
-
-    /** A media or periodic job while ReadingService holds a run: taking the lock ended the held run's service overnight. */
+    /**
+     * A media or periodic job while ReadingService holds a run: taking the lock ended the held run's service overnight. It
+     * only comes back later, in case the process dies with the service.
+     */
     @Test fun aRunLeavesTheReadingToAHeldRun() = runBlocking {
         val retriever = testRetriever(files = listOf(testFile("report.pdf", Kind.DOC)))
         val worker = worker(retriever)
-        val held = launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { GlobalContext.get().get<IndexService>().holdForeground() }
-        try {
+        val index = GlobalContext.get().get<IndexService>()
+        index.start()
+        val token = shadowOf(context as Application).nextStartedService.getLongExtra(ReadingService.TOKEN, 0)
+        index.host(token, setup = false) {
             assertEquals(ListenableWorker.Result.success(), worker.doWork())
             assertEquals("not synced: the held run's next batch does", 0L, listed(retriever))
-            assertTrue(queued(INDEX).isEmpty())
-        } finally {
-            held.cancel()
+            assertTrue(queued(INDEX).all { it.initialDelayMillis == ThermalRest.RECHECK.inWholeMilliseconds })
+            NextRun.DONE
         }
     }
 }

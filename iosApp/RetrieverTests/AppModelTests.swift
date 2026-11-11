@@ -1,6 +1,7 @@
 import Photos
 import RetrieverCore
 import XCTest
+import os
 
 @testable import Retriever
 
@@ -114,7 +115,7 @@ final class AppModelTests: XCTestCase {
     func testBackgroundTaskIdsArePermitted() {
         let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
         XCTAssertTrue(permitted.contains(IndexTask.id))
-        XCTAssertTrue(permitted.contains(IndexTask.continuedId))
+        XCTAssertTrue(permitted.contains(IndexTask.continuedPattern))
     }
 
     func testRetryTuneResetsTune() {
@@ -264,14 +265,15 @@ final class AppModelTests: XCTestCase {
         let prefs = try XCTUnwrap(model.snap?.prefs)
         func with(tried: Bool, dismissed: Bool, intro: Bool = false) -> Prefs {
             prefs.doCopy(
-                kinds: prefs.kinds, onlyWhileCharging: prefs.onlyWhileCharging, schedule: prefs.schedule, readNowUntil: prefs.readNowUntil,
+                kinds: prefs.kinds, onlyWhileCharging: prefs.onlyWhileCharging, schedule: prefs.schedule, started: prefs.started,
                 excludedFolders: prefs.excludedFolders, paused: prefs.paused, sampleSize: prefs.sampleSize, allowMobileData: prefs.allowMobileData,
                 rememberSearches: prefs.rememberSearches, dynamicColor: prefs.dynamicColor, setupStarted: prefs.setupStarted,
                 notificationsDismissed: prefs.notificationsDismissed, notificationsOfferDismissed: prefs.notificationsOfferDismissed,
                 notificationsPermissionRequested: prefs.notificationsPermissionRequested, noMatchSeen: prefs.noMatchSeen, showOnThisDay: prefs.showOnThisDay,
                 readingCycle: prefs.readingCycle, dismissedReadingCycle: prefs.dismissedReadingCycle, searchTried: tried,
                 upgradeOfferDismissed: dismissed, homeIntroDue: intro, notifyWhenCaughtUp: prefs.notifyWhenCaughtUp,
-                recognizePeople: prefs.recognizePeople, peopleOfferDismissed: prefs.peopleOfferDismissed)
+                recognizePeople: prefs.recognizePeople, peopleOfferDismissed: prefs.peopleOfferDismissed,
+                processingRequested: prefs.processingRequested)
         }
         model.snap?.prefs = with(tried: false, dismissed: false)
         XCTAssertTrue(model.upgradeOnHome, "offered at once, before any search")
@@ -317,4 +319,203 @@ final class AppModelTests: XCTestCase {
         model.setUseMobileData(false)
         XCTAssertFalse(model.useMobileData)
     }
+    func testOldContinuedCompletionDoesNotClearANewerResume() {
+        let model = AppModel(services: temporaryServices())
+        model.continuedSession = 42
+        NotificationCenter.default.post(name: IndexTask.ended, object: IndexTask.continuedId, userInfo: ["session": Int64(41)])
+        XCTAssertEqual(model.continuedSession, 42)
+        NotificationCenter.default.post(name: IndexTask.ended, object: IndexTask.continuedId, userInfo: ["session": Int64(42)])
+        XCTAssertFalse(model.continuing)
+    }
+
+    /// iOS starts a continued task only from a tap, so recovery reads in the foreground, and only once the app is in
+    /// front with the battery for it.
+    func testRecoveryRunsAnExistingRequestInTheForegroundOnly() async throws {
+        let services = temporaryServices()
+        services.monitor.charging = false
+        services.monitor.batteryPct = 49
+        let model = AppModel(services: services)
+        // Finish the launch reload before this test introduces a new request.
+        let loaded = await eventually { model.setupInputs != nil && model.snap != nil }
+        XCTAssertTrue(loaded)
+        model.active = true
+        model.recoverProcessingRequest()
+        XCTAssertNil(model.processingCommand, "nothing was requested")
+        _ = try await services.retriever.requestProcessing(setup: false)
+        model.recoverProcessingRequest()
+        XCTAssertNil(model.processingCommand, "below 50%")
+        services.monitor.batteryPct = 50
+        model.active = false
+        model.recoverProcessingRequest()
+        XCTAssertNil(model.processingCommand, "in the background")
+        XCTAssertEqual(services.retriever.readNowSession, 0)
+        let originalSubmit = IndexTask.submit
+        defer { IndexTask.submit = originalSubmit }
+        let continued = OSAllocatedUnfairLock(initialState: 0)
+        IndexTask.submit = { request in
+            if request.identifier.hasPrefix(IndexTask.continuedId + ".") { continued.withLock { $0 += 1 } }
+        }
+        model.active = true
+        model.recoverProcessingRequest()
+        await model.processingCommand?.value
+        XCTAssertNotEqual(services.retriever.readNowSession, 0)
+        XCTAssertFalse(model.continuing)
+        XCTAssertEqual(continued.withLock { $0 }, 0)
+        model.pause()
+        await model.processingCommand?.value
+        model.recoverProcessingRequest()
+        await model.processingCommand?.value
+        XCTAssertFalse(services.retriever.prefsNow.processingRequested)
+        XCTAssertEqual(services.retriever.readNowSession, 0)
+        model.stopLoop()
+    }
+
+    func testDelayedContinuedSubmissionFailureRestartsForegroundReading() async throws {
+        guard #available(iOS 26.0, *) else { return }
+        let services = temporaryServices()
+        services.monitor.charging = true
+        let model = AppModel(services: services)
+        model.folders = ["Work"]
+        _ = try await services.retriever.setSetupMark(mark: .accessChosen)
+        let loaded = await eventually { model.setup?.libraryChosen == true && model.setup?.step != .plan }
+        XCTAssertTrue(loaded)
+        XCTAssertNil(services.retriever.stateNow.lastStop)
+        let originalSubmit = IndexTask.submit
+        defer { IndexTask.submit = originalSubmit }
+        let pending = expectation(description: "submission pending")
+        let gate = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        IndexTask.submit = { request in
+            guard request.identifier.hasPrefix(IndexTask.continuedId + ".") else { return }
+            await withCheckedContinuation { continuation in
+                gate.withLock { $0 = continuation }
+                pending.fulfill()
+            }
+            throw NSError(domain: "continued-submit", code: 1)
+        }
+        model.setPhase(.active)
+        model.readNow()
+        await model.processingCommand?.value
+        await fulfillment(of: [pending], timeout: 2)
+        XCTAssertTrue(model.continuing)
+        XCTAssertNil(model.loop)
+        gate.withLock {
+            $0?.resume()
+            $0 = nil
+        }
+        let resumed = await eventually {
+            !model.continuing && model.loop != nil && (services.retriever.stateNow.running || services.retriever.stateNow.lastStop != nil)
+        }
+        XCTAssertTrue(resumed, "a failed handoff must run a foreground batch again")
+        XCTAssertEqual(model.readingMessage, Words.shared.strings.keepProcessingFailed(words: Copy.words))
+        model.pause()
+        await model.processingCommand?.value
+        model.stopLoop()
+    }
+
+    func testDelayedContinuedSubmissionFailureReleasesBackgroundOwnerForRecovery() async throws {
+        guard #available(iOS 26.0, *) else { return }
+        let services = temporaryServices()
+        services.monitor.charging = true
+        let model = AppModel(services: services)
+        let loaded = await eventually { model.setupInputs != nil && model.snap != nil }
+        XCTAssertTrue(loaded)
+        let originalSubmit = IndexTask.submit
+        defer { IndexTask.submit = originalSubmit }
+        let pending = expectation(description: "submission pending")
+        let gate = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        let submissions = OSAllocatedUnfairLock(initialState: 0)
+        IndexTask.submit = { request in
+            guard request.identifier.hasPrefix(IndexTask.continuedId + ".") else { return }
+            let first = submissions.withLock {
+                $0 += 1
+                return $0 == 1
+            }
+            guard first else { return }
+            await withCheckedContinuation { continuation in
+                gate.withLock { $0 = continuation }
+                pending.fulfill()
+            }
+            throw NSError(domain: "continued-submit", code: 1)
+        }
+        model.setPhase(.active)
+        model.readNow()
+        await model.processingCommand?.value
+        await fulfillment(of: [pending], timeout: 2)
+        let session = services.retriever.readNowSession
+        model.setPhase(.background)
+        services.lifecycle?.enterBackground()
+        gate.withLock {
+            $0?.resume()
+            $0 = nil
+        }
+        let released = await eventually { !model.continuing && services.retriever.readNowSession == 0 }
+        XCTAssertTrue(released)
+        XCTAssertTrue(services.retriever.prefsNow.processingRequested)
+        model.setPhase(.active)
+        let recovered = await eventually {
+            !model.continuing && services.retriever.readNowSession != 0 && services.retriever.readNowSession != session
+        }
+        XCTAssertTrue(recovered)
+        XCTAssertTrue(services.retriever.prefsNow.processingRequested)
+        model.pause()
+        await model.processingCommand?.value
+        model.stopLoop()
+    }
+
+    func testColdLaunchRecoversARequestLoadedAfterActivation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("retriever-recovery-\(UUID().uuidString)")
+        let support = root.appendingPathComponent("support")
+        let caches = root.appendingPathComponent("caches")
+        let documents = root.appendingPathComponent("documents")
+        let seed = AppServices(support: support, caches: caches, documents: documents)
+        seed.monitor.charging = true
+        _ = try await seed.retriever.requestProcessing(setup: false)
+        try await seed.close()
+
+        let services = AppServices(support: support, caches: caches, documents: documents)
+        addTeardownBlock {
+            try await services.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        services.monitor.charging = true
+        XCTAssertFalse(services.retriever.prefsNow.processingRequested, "the fresh facade has not loaded persisted prefs yet")
+        let model = AppModel(services: services)
+        model.setPhase(.active)
+        let recovered = await eventually { services.retriever.readNowSession != 0 }
+        XCTAssertTrue(recovered)
+        XCTAssertFalse(model.continuing)
+        model.pause()
+        await model.processingCommand?.value
+        model.stopLoop()
+    }
+
+    func testAStartThatFinishesAfterLeavingKeepsTheRequestWithoutAnUnhostedOwner() async throws {
+        let services = temporaryServices()
+        services.monitor.charging = true
+        services.monitor.active = false
+        let model = AppModel(services: services)
+        model.readNow()
+        await model.processingCommand?.value
+        XCTAssertTrue(services.retriever.prefsNow.processingRequested)
+        XCTAssertFalse(services.retriever.prefsNow.started)
+        XCTAssertEqual(services.retriever.readNowSession, 0)
+        XCTAssertFalse(model.continuing)
+    }
+
+    func testAResourceRecoveryQueuedBeforePauseCannotUndoIt() async throws {
+        let services = temporaryServices()
+        services.monitor.charging = false
+        services.monitor.batteryPct = 50
+        let model = AppModel(services: services)
+        model.active = true
+        _ = try await services.retriever.requestProcessing(setup: false)
+        model.pause()
+        model.recoverProcessingRequest()
+        await model.processingCommand?.value
+        XCTAssertFalse(services.retriever.prefsNow.processingRequested)
+        XCTAssertEqual(services.retriever.readNowSession, 0)
+        XCTAssertFalse(model.continuing)
+        model.stopLoop()
+    }
+
 }

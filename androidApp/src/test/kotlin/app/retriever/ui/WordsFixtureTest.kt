@@ -27,6 +27,6 @@ class WordsFixtureTest {
             }
             assertEquals(row.toString(), row.last().ifEmpty { null }, actual)
         }
-        assertEquals(29, rows.size)
+        assertEquals(27, rows.size)
     }
 }

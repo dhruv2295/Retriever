@@ -21,9 +21,8 @@ expect fun formatCount(n: Long): String
 
 /**
  * The sentences both apps show around numbers, dates and files, in plain words a first-time user knows: "your phone" or
- * "your files", never "library"; "found by name", never "name only"; Retriever "processes" files, never reads, analyzes,
- * indexes, learns or scans them; "processed in part", never "partly read"; "15 minutes", never "session"; nothing about
- * a "schedule". Sizes and dates stay with each platform's formatter.
+ * "your files", never "library"; "found by name", never "name only"; "processed in part", never "partly read".
+ * Processing starts and resumes without a timer. Sizes and dates stay with each platform's formatter.
  *
  * Each sentence comes from the current [language]'s [Strings] when it is asked for, never earlier, so a language change
  * shows at once; the choices between sentences stay here, once for every language.
@@ -149,7 +148,6 @@ object Words {
 
     /** Closes a sheet or dialog; never a button that starts work. */
     val DONE: String get() = strings.done
-    val READ_FOR_15: String get() = strings.readFor15
 
     /** Marks the search-by-meaning row at the end of Home. */
     val OPTIONAL: String get() = strings.optional
@@ -180,6 +178,9 @@ object Words {
     /** Under Get started on a phone that will download search by description; [size]: the platform's format. */
     fun downloadNote(size: String): String = strings.downloadNote(keepTogether(size))
 
+    /** Android: over Get started on a phone that will download search by description; [size]: the platform's format. */
+    fun downloadLine(size: String): String = strings.downloadLine(keepTogether(size))
+
     // The access screen.
     val ACCESS_TITLE: String get() = strings.accessTitle
     val ACCESS_BODY: String get() = strings.accessBody
@@ -199,6 +200,9 @@ object Words {
 
     /** Android's access screen, under the title. */
     val ANDROID_ACCESS_BODY: String get() = strings.androidAccessBody
+
+    /** Android: under the access tiles once the whole phone is allowed. */
+    val ACCESS_SCANNING: String get() = strings.accessScanning
 
     // Access, before this version's access screen.
     val ALL_FILES_OFF: String get() = strings.allFilesOff
@@ -248,15 +252,17 @@ object Words {
     /** [rest]: [ReadingProgress.rest]; null until counted. */
     fun otherFiles(rest: Long?): String = strings.otherFiles(rest)
 
-    fun otherFilesBody(words: DeviceWords): String = strings.otherFilesBody(words)
+    /** The saved schedule, after the running session's battery floor; Also on battery's own detail already says that floor. */
+    fun processingPlanDetail(schedule: ReadingSchedule, sessionActive: Boolean): String {
+        val automatic = when (schedule) {
+            ReadingSchedule.CHARGING -> strings.automaticChargingPreferenceDetail
+            ReadingSchedule.BATTERY -> strings.automaticProcessingPreferenceDetail
+            ReadingSchedule.MANUAL -> strings.onlyWhenYouChooseAnyFile
+        }
+        val session = strings.processingBatteryOverrideDetail.takeIf { sessionActive && schedule != ReadingSchedule.BATTERY }
+        return listOfNotNull(session, automatic).joinToString(strings.sentenceGap)
+    }
 
-    /** [otherFilesBody] for Also on battery ([ReadingSchedule.BATTERY]). */
-    fun otherFilesOnBatteryBody(words: DeviceWords): String = strings.otherFilesOnBatteryBody(words)
-
-    /** Settings' line for Also on battery. */
-    fun onBatteryBody(words: DeviceWords): String = strings.onBatteryBody(words)
-
-    /** What the recent files can do now; promises no time. */
     fun recentFilesBody(state: DescriptionState): String = strings.recentFilesBody(state)
 
     /** The card's action under the recent files, null when there is nothing to do; [size]: the download's size. */
@@ -287,38 +293,11 @@ object Words {
     /** For a screen reader, never on screen: "12 of 40 photos processed". */
     fun kindRead(read: Long, planned: Long, kind: Kind): String = strings.kindRead(read, planned, kind)
 
-    val CHOOSE_WHEN: String get() = strings.chooseWhen
-
     /** Labels words from the person's own files wherever they are offered (the demo's chips, Home's search with no history). */
     val TRY_LABEL: String get() = strings.tryLabel
 
-    // When to process the rest: after the demo, and from Home's status line.
-
-    fun chooseTitle(words: DeviceWords): String = strings.chooseTitle(words)
-
-    /** [rest]: [ReadingProgress.rest]; null until the phone's files are all counted, so no number that still grows. */
-    fun chooseBody(rest: Long?): String = strings.chooseBody(rest)
-
-    /** No figure: the estimate is not calibrated yet ([ESTIMATE_CALIBRATED]). */
-    fun choosePace(words: DeviceWords): String = strings.choosePace(words)
-
-    /** Beside the first option, While charging. */
-    val RECOMMENDED: String get() = strings.recommended
-    val READ_15_NOW: String get() = strings.read15Now
-    val NOT_NOW_BODY: String get() = strings.notNowBody
-
-    /** The choice's button: it starts a long job, so never "Done"; [GO_TO_HOME] when Not now is picked. */
+    /** The button that starts processing until the work is done or paused. */
     val START_PROCESSING: String get() = strings.startProcessing
-    val GO_TO_HOME: String get() = strings.goToHome
-
-    /** While charging, on the choice and in Settings' When to process. */
-    fun whileChargingBody(words: DeviceWords): String = strings.whileChargingBody(words)
-
-    /** [READ_15_NOW]'s line on the choice. */
-    fun chargingAndNowBody(words: DeviceWords): String = strings.chargingAndNowBody(words)
-
-    /** Settings' Process for 15 minutes. */
-    fun readNowBody(words: DeviceWords): String = strings.readNowBody(words)
 
     /**
      * The notification ask's body (Android). The demo's line only while the demo runs ([SetupInputs.demoRunning]) with files

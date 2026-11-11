@@ -49,7 +49,7 @@
         case statusReadingTurnover = "status.readingTurnover"
         case statusCaughtUp = "status.caughtUp"
         case statusPaused = "status.paused"
-        case statusReadNow = "status.readNow"
+        case statusProcessing = "status.processing"
         case statusSkipped = "status.skipped"
         case setupSamplePicking = "setup.samplePicking"
         case setupSampleStart = "setup.sampleStart"
@@ -83,7 +83,7 @@
         case homeFirstDay = "home.firstDay"
         case homeUnplugged = "home.unplugged"
         case homeChargingUp = "home.chargingUp"
-        case homeReadNow = "home.readNow"
+        case homeProcessing = "home.processing"
         case homeDownloading = "home.downloading"
         case homeMeaning = "home.meaning"
         case homeNoAccess = "home.noAccess"
@@ -179,7 +179,7 @@
             case .homeFirstDay: .firstDay
             case .homeUnplugged: .unplugged
             case .homeChargingUp: .chargingUp
-            case .homeReadNow, .statusReadNow: .readNow
+            case .homeProcessing, .statusProcessing: .processing
             case .homeMeaning: .meaningPass
             case .homeNoAccess: .lostAccess
             case .homeNotNow: .notNow
@@ -208,7 +208,7 @@
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
-            case .statusReading, .statusCaughtUp, .statusPaused, .statusReadNow, .statusSkipped, .statusTextOnly, .statusTailFiles:
+            case .statusReading, .statusCaughtUp, .statusPaused, .statusProcessing, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
                 MascotGallery()
@@ -243,7 +243,7 @@
             switch self {
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
-            case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeReadNow, .homeDownloading, .homeMeaning, .homeNoAccess,
+            case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeProcessing, .homeDownloading, .homeMeaning, .homeNoAccess,
                 .homeNotNow, .homeCounting, .homeIntroReady, .homeIntroOnItsWay:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:

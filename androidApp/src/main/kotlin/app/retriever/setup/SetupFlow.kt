@@ -152,11 +152,13 @@ class SetupFlow(
     fun getStarted() = launch {
         if (_ui.value.downloadsOnGetStarted) startDownload()
         // Android reads off the charger too, down to ReadingPolicy.BATTERY_FLOOR; iOS reads hidden only on external power.
-        if (retriever.prefs.value.schedule == null) retriever.setReadingSchedule(ReadingSchedule.BATTERY)
+        if (retriever.prefs.value.schedule == null) retriever.updatePrefs { it.withSchedule(ReadingSchedule.BATTERY) }
         retriever.setSetupMark(SetupMark.GREETED)
     }
 
-    fun continueFromAccess() = mark(SetupMark.ACCESS_CHOSEN)
+    fun continueFromAccess() = launch {
+        if (access.access().ready) index.startSetup()
+    }
 
     /** Back from the access screen to Hello. */
     fun back() {
@@ -185,7 +187,7 @@ class SetupFlow(
         if (sampleRead) return
         sampleRead = true
         index.schedulePeriodic(retriever.prefs.value.onlyWhileCharging)
-        index.indexNow()
+        if (!index.foregroundHeld()) index.indexNow()
     }
 }
 

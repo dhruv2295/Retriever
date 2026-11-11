@@ -11,6 +11,7 @@ import app.retriever.access.AccessService
 import app.retriever.core.CoreDispatchers
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
+import app.retriever.core.NextRun
 import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.ReadingPhase
@@ -21,6 +22,7 @@ import app.retriever.core.SetupStage
 import app.retriever.core.StopReason
 import app.retriever.core.UpgradeStage
 import app.retriever.indexing.IndexService
+import app.retriever.indexing.ReadingService
 import app.retriever.model.ModelDownload
 import app.retriever.model.ModelRepository
 import app.retriever.model.UpgradeFlow
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -76,8 +79,16 @@ class SetupFlowTest {
         extract = { listOf(Piece("", listOf(Part.Text("read content")), "read content", "read content")) },
     ).apply { uiVisible = true }
 
-    private fun flow(r: Retriever, scope: CoroutineScope, startDownload: () -> Unit = {}) =
-        SetupFlow(r, AccessService(app), IndexService(app, r), scope, notificationsGranted = { false }, startDownload = startDownload)
+    private fun flow(r: Retriever, scope: CoroutineScope, index: IndexService = IndexService(app, r), startDownload: () -> Unit = {}) =
+        SetupFlow(r, AccessService(app), index, scope, notificationsGranted = { false }, startDownload = startDownload)
+
+    /** Access Continue, then what ReadingService does once Android delivers the tap's start: the session plans the demo. */
+    private suspend fun TestScope.continueFromAccess(f: SetupFlow, index: IndexService) {
+        f.continueFromAccess()
+        runCurrent()
+        assertEquals(ReadingService::class.java.name, shadowOf(app).peekNextStartedService().component?.className)
+        index.host(shadowOf(app).nextStartedService.getLongExtra(ReadingService.TOKEN, 0), setup = true) { NextRun.DONE }
+    }
 
     private fun denyAccess() {
         shadowOf(app).denyPermissions(*Access.mediaPermissions(35).toTypedArray())
@@ -130,7 +141,9 @@ class SetupFlowTest {
         f.getStarted()
         f.ui.first { it.stage == SetupStage.ACCESS }
         f.continueFromAccess()
-        r.setup.first { it?.mark == SetupMark.ACCESS_CHOSEN }
+        advanceUntilIdle()
+        assertEquals(SetupMark.GREETED, r.setup.value?.mark)
+        assertNull(shadowOf(app).nextStartedService)
         assertEquals(SetupStage.ACCESS, f.ui.value.stage)
         assertTrue(f.ui.value.setup.showSetup)
     }
@@ -139,7 +152,8 @@ class SetupFlowTest {
     @Test fun continueFromTheWelcomeWithAccessInPlaceSurvivesTheProcess() = runTest {
         val r = noModel()
         r.refreshSetUp()
-        flow(r, backgroundScope).continueFromAccess()
+        val index = IndexService(app, r)
+        continueFromAccess(flow(r, backgroundScope, index = index), index)
         r.setup.first { it?.mark == SetupMark.ACCESS_CHOSEN }
         r.refreshSetUp()
         assertEquals(SetupStage.SAMPLE, flow(r, backgroundScope).ui.value.stage)
@@ -148,11 +162,17 @@ class SetupFlowTest {
     @Test fun continueFromAccessPlansTheDemoAndProcessesItWithoutAModel() = runTest {
         val r = noModel()
         r.refreshSetUp()
-        val f = flow(r, backgroundScope)
-        f.continueFromAccess()
+        val index = IndexService(app, r)
+        val f = flow(r, backgroundScope, index = index)
+        f.getStarted()
+        f.ui.first { it.stage == SetupStage.ACCESS }
+        assertFalse("Get started must not skip the demo", requireNotNull(r.setup.value).decided)
+        assertFalse("only access Continue starts the held run", r.prefs.value.started)
+        assertNull(shadowOf(app).nextStartedService)
+        continueFromAccess(f, index)
         val sample = f.ui.first { it.stage == SetupStage.SAMPLE && it.setup.planned > 0 }
         assertFalse(sample.setup.decided)
-        assertEquals("the reader is woken for it", 1, WorkManager.getInstance(app).getWorkInfosForUniqueWork(IndexService.INDEX).get().size)
+        assertTrue(r.prefs.value.processingRequested)
         r.taste() // what the reader runs
         val p = r.tasteProgress().first { it.planned > 0 && it.pending == 0 }
         assertEquals(p.planned, p.done)
@@ -166,8 +186,9 @@ class SetupFlowTest {
     @Test fun finishEndsSetupAndAsksHomeForItsCard() = runTest {
         val r = noModel()
         r.refreshSetUp()
-        val f = flow(r, backgroundScope)
-        f.continueFromAccess()
+        val index = IndexService(app, r)
+        val f = flow(r, backgroundScope, index = index)
+        continueFromAccess(f, index)
         f.ui.first { it.stage == SetupStage.SAMPLE }
         f.finish()
         f.ui.first { !it.setup.showSetup }

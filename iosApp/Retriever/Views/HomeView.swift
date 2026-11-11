@@ -247,7 +247,7 @@ struct HomeIntroCard: View {
             }
             step(
                 "bolt.fill", Words.shared.otherFiles(rest: model.snap?.readProgress.rest),
-                Words.shared.otherFilesBody(words: Copy.words)
+                Words.shared.processingPlanDetail(schedule: model.snap?.automaticReading ?? .charging, sessionActive: model.snap?.prefs?.started == true)
             ) {}
             step("plus", Words.shared.NEW_FILES, Words.shared.NEW_FILES_BODY) {}
             Button(Words.shared.GOT_IT, action: model.dismissHomeIntro).frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
@@ -316,7 +316,11 @@ private struct HomeStatusSection: View {
                 if let line { StatusLine(status: line, model: model, dismissable: true) }
                 if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
-                    if note.off { card(note, Words.shared.strings.openSettings, model.openSettings) } else { card(note, Words.shared.strings.chooseMorePhotos, model.chooseMorePhotos) }
+                    if note.off {
+                        card(note, Words.shared.strings.openSettings, model.openSettings)
+                    } else {
+                        card(note, Words.shared.strings.chooseMorePhotos, model.chooseMorePhotos)
+                    }
                 }
                 if nudge {
                     Button(action: addFolder) {
@@ -349,7 +353,6 @@ struct StatusLine: View {
     var link = true
     /// Home's line only: its x hides "All done" until new files come, and its dog plays the one celebration.
     var dismissable = false
-    @State private var choosing = false
 
     var body: some View {
         HStack {
@@ -373,7 +376,6 @@ struct StatusLine: View {
                 } label: {
                     Text(action.label).fixedSize(horizontal: false, vertical: true)
                 }
-                .sheet(isPresented: $choosing) { CommitSheet(model: model) }
             }
         }
     }
@@ -409,9 +411,9 @@ struct StatusLine: View {
     private func run(_ action: StatusAction) {
         switch action {
         case .allowAccess: model.openSettings()
-        case .chooseWhen: choosing = true
-        case .readFor15: model.readNow()
-        case .stop: if status.phase == .downloading { model.cancelDownload() } else { model.endReadNow() }
+        case .start: model.readNow()
+        case .pause: model.pause()
+        case .stop: if status.phase == .downloading { model.cancelDownload() }
         case .resume: model.resume()
         case .tryAgain: if status.phase == .tuning { model.retryTune() } else { model.downloadModel() }
         default: break

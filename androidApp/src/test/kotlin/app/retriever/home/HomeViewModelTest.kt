@@ -15,11 +15,14 @@ import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.indexing.IndexService
+import app.retriever.indexing.ReadingService
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
@@ -55,13 +58,14 @@ class HomeViewModelTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val dispatcher = StandardTestDispatcher()
     private val core = CoreDispatchers(dispatcher)
+    private val appScope = CoroutineScope(SupervisorJob() + dispatcher)
     private val photos = (1..4).map { testFile("photo $it.jpg", Kind.PHOTO) }
     private val pdfs = (1..3).map { testFile("bill $it.pdf", Kind.PDF) }
     private val retriever = testRetriever(pdfs + photos, dispatchers = core)
     private val access by lazy { AccessService(app) }
 
     private val models = mutableListOf<ViewModel>()
-    private fun vm(r: Retriever = retriever) = HomeViewModel(r, access, IndexService(app, r)).also { models += it }
+    private fun vm(r: Retriever = retriever) = HomeViewModel(r, access, IndexService(app, r), appScope).also { models += it }
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -72,7 +76,10 @@ class HomeViewModelTest {
 
     @After fun tearDown() {
         // Wait for IO continuations too, before replacing Main underneath their ViewModel scopes.
-        runTest(dispatcher) { models.forEach { it.viewModelScope.coroutineContext.job.cancelAndJoin() } }
+        runTest(dispatcher) {
+            models.forEach { it.viewModelScope.coroutineContext.job.cancelAndJoin() }
+            appScope.coroutineContext.job.cancelAndJoin()
+        }
         WorkManager.getInstance(app).cancelAllWork().result.get()
         WorkManagerTestInitHelper.closeWorkDatabase()
         Dispatchers.resetMain()
@@ -129,12 +136,18 @@ class HomeViewModelTest {
         assertEquals(1, vm.ui.first { it.starred == 1 }.starred)
     }
 
-    @Test fun resumeLiftsAPause() = runTest {
-        retriever.pause()
-        val vm = vm()
+    @Test fun leavingHomeDoesNotCancelAnAcceptedStartOrPause() = runTest {
+        val startVm = vm()
+        val start = startVm.readNow()
+        startVm.viewModelScope.coroutineContext.job.cancel()
+        start.join()
+        assertEquals(ReadingService::class.java.name, shadowOf(app).nextStartedService.component?.className)
+        val pauseVm = vm()
+        val pause = pauseVm.stopReadNow()
+        pauseVm.viewModelScope.coroutineContext.job.cancel()
+        pause.join()
         assertTrue(retriever.prefs.value.paused)
-        vm.resume().join()
-        assertFalse(retriever.prefs.value.paused)
+        assertFalse(retriever.prefs.value.started)
     }
 
     @Test fun countsAreSubscribedToOncePerViewModel() = runTest {
@@ -213,13 +226,6 @@ class HomeViewModelTest {
         // A screen left before the haptic never marks it, so the next time it is on screen it still plays.
         assertTrue(vm().celebration.due())
         assertTrue(vm().celebration.due())
-    }
-
-    @Test fun readEverythingCommitsTheScopeAndSchedulesTheReading() = runTest {
-        val vm = vm()
-        vm.commit(true).join()
-        assertTrue(retriever.tasteDecided())
-        assertTrue(retriever.prefs.value.onlyWhileCharging)
     }
 
     // --- On this day ---

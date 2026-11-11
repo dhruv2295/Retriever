@@ -21,14 +21,19 @@ import app.retriever.core.SourceFile
 import app.retriever.duplicates.retrieverOver
 import app.retriever.home.HomeViewModel
 import app.retriever.indexing.IndexService
+import app.retriever.indexing.ReadingService
 import app.retriever.testRetriever
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -42,6 +47,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import kotlin.time.Duration.Companion.minutes
 
@@ -51,25 +57,28 @@ import kotlin.time.Duration.Companion.minutes
 class StatusViewModelTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private val photo = SourceFile("content://test/a.jpg", "a.jpg", "/Pictures", "image/jpeg", Kind.PHOTO, 100, 1)
+    private val dispatcher = StandardTestDispatcher()
+    private val appScope = CoroutineScope(SupervisorJob() + dispatcher)
 
     // Demo mode grants Access.ALL, which stands in for a phone with all-files access; Robolectric cannot answer Environment.isExternalStorageManager().
-    private fun viewModel(retriever: Retriever) = kept(StatusViewModel(retriever, IndexService(app, retriever), AccessService(app, demo = true)))
+    private fun viewModel(retriever: Retriever) = kept(StatusViewModel(retriever, IndexService(app, retriever), AccessService(app, demo = true), appScope))
 
     // Cleared before Main is reset: a model left running resumes onto Main from the reader's threads while it is swapped.
     private val models = ViewModelStore()
     private fun <T : ViewModel> kept(vm: T) = vm.also { models.put("${models.keys().size}", it) }
 
     @Before fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(dispatcher)
         WorkManagerTestInitHelper.initializeTestWorkManager(app)
     }
 
     @After fun tearDown() {
         models.clear()
+        appScope.cancel()
         Dispatchers.resetMain()
     }
 
-    @Test fun pauseAndResumeShowInTheOneUiState() = runTest {
+    @Test fun pauseShowsInTheOneUiState() = runTest {
         val retriever = retrieverOver(files = listOf(photo))
         retriever.indexBatch(1.minutes)
         val vm = viewModel(retriever)
@@ -77,9 +86,22 @@ class StatusViewModelTest {
 
         vm.pause()
         assertTrue(vm.uiState.first { it.prefs.paused }.prefs.paused)
-        vm.resume()
-        assertFalse(vm.uiState.first { !it.prefs.paused }.prefs.paused)
         assertEquals(null, vm.uiState.value.error)
+    }
+
+    @Test fun leavingStatusDoesNotCancelTheReservedCommand() = runTest {
+        val retriever = testRetriever(dispatchers = CoreDispatchers(StandardTestDispatcher(testScheduler)))
+        val vm = viewModel(retriever)
+        vm.start()
+        models.clear()
+        runCurrent()
+        assertEquals(ReadingService::class.java.name, shadowOf(app).nextStartedService.component?.className)
+        val paused = viewModel(retriever)
+        paused.pause()
+        models.clear()
+        runCurrent()
+        assertTrue(retriever.prefs.value.paused)
+        assertFalse(retriever.prefs.value.started)
     }
 
     @Test fun theHeaderSharesHomesOnceOnlyCelebration() = runTest {
@@ -91,7 +113,7 @@ class StatusViewModelTest {
         advanceUntilIdle()
         assertFalse(vm.celebration.due())
         // Home's status asks the same store flag, and so does a relaunched Status.
-        assertFalse(kept(HomeViewModel(retriever, AccessService(app, demo = true), IndexService(app, retriever))).celebration.due())
+        assertFalse(kept(HomeViewModel(retriever, AccessService(app, demo = true), IndexService(app, retriever), appScope)).celebration.due())
         assertFalse(viewModel(retriever).celebration.due())
     }
 

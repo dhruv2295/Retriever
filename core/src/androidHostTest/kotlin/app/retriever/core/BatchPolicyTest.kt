@@ -72,7 +72,7 @@ class BatchPolicyTest {
     fun aStateThatWouldStopTheBatchStopsItBeforeTheModelOpens() = test {
         val cases = listOf(
             plugged.copy(thermal = Thermal.SEVERE) to NextRun.AFTER_COOLDOWN,
-            unplugged.copy(screenOn = true) to NextRun.WHEN_IDLE,
+            unplugged.copy(screenOn = true) to NextRun.WHEN_CHARGING,
             unplugged to NextRun.WHEN_CHARGING,
         )
         for ((state, next) in cases) {
@@ -105,7 +105,7 @@ class BatchPolicyTest {
     }
 
     @Test
-    fun unpluggingMidBatchStopsVisibleAndHiddenReading() = test {
+    fun unpluggingStopsBeforeTheNextFileInVisibleAndHiddenReading() = test {
         for (visible in listOf(true, false)) {
             val f = Fx(files = (1..3).map { testFile("f$it.txt", modifiedAt = it.toLong()) })
             f.r.updatePrefs { it.copy(onlyWhileCharging = true) }
@@ -114,7 +114,7 @@ class BatchPolicyTest {
             val next = f.r.indexBatch(1.minutes)
             assertEquals(NextRun.WHEN_CHARGING, next)
             assertEquals(StopReason.UNPLUGGED, f.r.state.value.lastStop)
-            assertEquals(0L, f.indexed(), "unplugging before embedding keeps the file pending")
+            assertEquals(1L, f.indexed(), "the per-file schedule check lets the healthy current file finish, then stops")
         }
     }
 
@@ -133,7 +133,7 @@ class BatchPolicyTest {
         assertEquals(1L, unknown.indexed())
     }
 
-    /** Android's "charging" means the level is rising, false for up to 15 minutes after plugging in below 90%. */
+    /** Android's "charging" means the level is rising, can stay false after plugging in below 90%. */
     @Test
     fun theChargerRuleAsksWhetherThePhoneIsPluggedInNotWhetherItsLevelRises() = test {
         val f = Fx()
@@ -152,12 +152,12 @@ class BatchPolicyTest {
     }
 
     @Test
-    fun trialPausesForOtherAppsAndResumesWhenVisibleOrScreenOff() = test {
+    fun trialCanProcessConservativelyWhileAnotherAppIsInUse() = test {
         for (visible in listOf(true, false)) {
             val f = Fx(state = unplugged.copy(screenOn = true))
             f.r.planTaste()
-            assertEquals(NextRun.WHEN_IDLE, f.r.taste())
-            assertEquals(StopReason.BUSY, f.r.state.value.lastStop)
+            assertEquals(NextRun.DONE, f.r.taste())
+            assertEquals(StopReason.DONE, f.r.state.value.lastStop)
             f.r.uiVisible = visible
             f.monitor.state = plugged.copy(screenOn = visible)
             assertEquals(NextRun.DONE, f.r.taste())

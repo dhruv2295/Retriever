@@ -64,20 +64,24 @@ val UpgradeUi.description: DescriptionState get() = UpgradePolicy.description(
         ModelState.Missing, ModelState.Done -> DownloadPhase.NONE
         is ModelState.Downloading -> DownloadPhase.RUNNING
         ModelState.WaitingForWifi -> DownloadPhase.WAITING_FOR_WIFI
-        ModelState.Checking -> DownloadPhase.CHECKING
+        ModelState.Checking, is ModelState.Deferred -> DownloadPhase.CHECKING
         is ModelState.Failed -> if (m.noSpace) DownloadPhase.NO_SPACE else DownloadPhase.FAILED
     },
 )
 
 /** The download or its tune for the status line ([size]: the platform's format of [UpgradeUi.sizeBytes]); null at any other stage. */
 fun UpgradeUi.downloadState(size: String): DownloadState? = when (stage) {
-    UpgradeStage.DOWNLOAD -> DownloadState(
-        percent,
-        model == ModelState.WaitingForWifi || model is ModelState.Failed,
-        size,
-    )
+    UpgradeStage.DOWNLOAD -> if (model is ModelState.Deferred) {
+        null
+    } else {
+        DownloadState(
+            percent,
+            model == ModelState.WaitingForWifi || model is ModelState.Failed,
+            size,
+        )
+    }
 
-    UpgradeStage.TUNE -> DownloadState(null, tune is TuneState.Failed, size, settingUp = true)
+    UpgradeStage.TUNE -> if (tune is TuneState.Deferred) null else DownloadState(null, tune is TuneState.Failed, size, settingUp = true)
 
     else -> null
 }
@@ -113,7 +117,7 @@ class UpgradeFlow(
         scope.launch {
             combine(combine(retriever.modelPresent, retriever.setUp, models.state, ::Triple), progress) { (present, setUp, model), progress ->
                 val downloading = model is ModelState.Downloading || model == ModelState.WaitingForWifi ||
-                    model == ModelState.Checking || model is ModelState.Failed
+                    model == ModelState.Checking || model is ModelState.Deferred || model is ModelState.Failed
                 val stage = UpgradePolicy.stage(retriever.textOnly, present, downloading, setUp == true, progress?.meaningWaiting ?: 0)
                 Triple(stage, model, progress)
             }.collect { (stage, model, progress) ->
@@ -165,7 +169,10 @@ class UpgradeFlow(
     fun dismissOffer() = scope.launch { retriever.dismissUpgradeOffer() }
 
     /** After a failed tune: once more. */
-    fun retryTune() = local.update { it.copy(tune = TuneState.Idle) }
+    fun retryTune() {
+        if (local.value.tune is TuneState.Running || local.value.tune is TuneState.Deferred) return
+        local.update { it.copy(tune = TuneState.Idle) }
+    }
 
     /** Runs once per chain; a failure waits for Try again rather than looping. */
     private fun tune() {
@@ -173,9 +180,14 @@ class UpgradeFlow(
         val before = retriever.requiredBuild.value
         scope.launch {
             val next = try {
-                val r = calibrate()
+                val r = retriever.whenCalibrationAllowed(
+                    running = { local.update { it.copy(tune = TuneState.Running) } },
+                    deferred = { reason -> local.update { it.copy(tune = TuneState.Deferred(reason)) } },
+                    operation = calibrate,
+                )
                 TuneState.Done(r?.let { tuneSummary(it.chosen, it.backends.firstOrNull { b -> b.backend == it.chosen }?.imageMs) } ?: "")
             } catch (e: CancellationException) {
+                local.update { it.copy(tune = TuneState.Idle) }
                 throw e
             } catch (e: Throwable) {
                 // Errors too (a missing API, OOM): a crash here would leave the upgrade unfinishable.

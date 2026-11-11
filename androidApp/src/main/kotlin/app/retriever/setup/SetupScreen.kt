@@ -105,7 +105,8 @@ fun SetupScreen(
     }
     val allFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         access.refresh()
-        if (access.state.value.allFiles) requestReading(flow::continueFromAccess) else allFilesOff = true
+        allFilesOff = !access.state.value.allFiles
+        flow.refresh()
     }
     val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
     val actions = SetupActions(
@@ -209,7 +210,7 @@ fun SetupContent(
                         when (s) {
                             SetupStage.WELCOME -> Hello(ui, reduceMotion)
 
-                            SetupStage.ACCESS -> AccessStage()
+                            SetupStage.ACCESS -> AccessStage(ui.access)
 
                             // SAMPLE is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
                             SetupStage.SAMPLE, SetupStage.DONE -> Unit

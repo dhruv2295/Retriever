@@ -2,13 +2,20 @@ package app.retriever.indexing
 
 import android.app.Application
 import android.app.NotificationManager
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Kind
 import app.retriever.core.Words
@@ -17,6 +24,7 @@ import app.retriever.testRetriever
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -56,8 +64,79 @@ class ReadingPermissionTest {
         }
     }
 
-    /** Q1 5: a tap held for the notification question still runs when the screen goes first (a rotation recreates it). */
-    @Test fun aHeldTapRunsWhenTheScreenGoesBeforeTheAnswer() {
+    @Test fun rotationDropsThePendingCustomPrompt() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val retriever = testRetriever()
+        val restore = StateRestorationTester(rule)
+        var request: ((() -> Unit) -> Unit)? = null
+        var continued = 0
+        try {
+            restore.setContent {
+                request = rememberReadingPermission(retriever, onboarding = true)
+            }
+            rule.runOnIdle { requireNotNull(request).invoke { continued++ } }
+            rule.waitUntil(5_000) { rule.onAllNodesWithText(Words.strings.notificationPermissionAsk).fetchSemanticsNodes().isNotEmpty() }
+            restore.emulateSavedInstanceStateRestore()
+            rule.runOnIdle { assertEquals(0, continued) }
+            rule.onNodeWithText(Words.strings.notificationPermissionAsk).assertDoesNotExist()
+            rule.runOnIdle { requireNotNull(request).invoke { continued++ } }
+            rule.waitUntil(5_000) { rule.onAllNodesWithText(Words.strings.notificationPermissionAsk).fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText(Words.NOT_NOW).performClick()
+            rule.waitUntil(5_000) { continued == 1 }
+        } finally {
+            NotificationPermissionSession.onboardingAsked = false
+        }
+    }
+
+    @Test fun setupStartsAfterSystemDenialWhileTheScreenRemains() = systemDenial(rotates = false)
+
+    @Test fun rotationDropsThePendingActionBeforeSystemDenial() = systemDenial(rotates = true)
+
+    private fun systemDenial(rotates: Boolean) {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val retriever = testRetriever()
+        val restore = StateRestorationTester(rule)
+        var launchedCode: Int? = null
+        val registry = object : ActivityResultRegistry() {
+            override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+                launchedCode = requestCode
+            }
+        }
+        val owner = object : ActivityResultRegistryOwner {
+            override val activityResultRegistry = registry
+        }
+        var request: ((() -> Unit) -> Unit)? = null
+        var continued = 0
+        try {
+            restore.setContent {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides owner) {
+                    request = rememberReadingPermission(retriever, onboarding = true)
+                }
+            }
+            rule.runOnIdle { requireNotNull(request).invoke { continued++ } }
+            rule.waitUntil(5_000) { rule.onAllNodesWithText(Words.strings.notificationPermissionAsk).fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText(Words.ALLOW).performClick()
+            rule.waitUntil(5_000) { launchedCode != null }
+            rule.runOnIdle { assertEquals(0, continued) }
+            if (rotates) restore.emulateSavedInstanceStateRestore()
+            rule.runOnIdle {
+                assertEquals(0, continued)
+                assertTrue(registry.dispatchResult(requireNotNull(launchedCode), mapOf(android.Manifest.permission.POST_NOTIFICATIONS to false)))
+            }
+            // A fake registry callback needs the same snapshot/recomposition flush as an Android result event.
+            rule.waitForIdle()
+            rule.waitUntil(5_000) { retriever.prefs.value.notificationsPermissionRequested }
+            rule.runOnIdle { assertEquals(if (rotates) 0 else 1, continued) }
+            assertNull("Declining setup notifications must keep Retriever in front", shadowOf(app).nextStartedActivity)
+        } finally {
+            NotificationPermissionSession.onboardingAsked = false
+        }
+    }
+
+    /** Leaving the permission question never starts processing on the way out. */
+    @Test fun aHeldTapIsDroppedWhenTheScreenGoesBeforeTheAnswer() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
         val retriever = testRetriever()
@@ -68,7 +147,7 @@ class ReadingPermissionTest {
         rule.runOnIdle { request!! { ran++ } }
         rule.runOnIdle { assertEquals("held while the question shows", 0, ran) }
         shown = false
-        rule.runOnIdle { assertEquals(1, ran) }
+        rule.runOnIdle { assertEquals(0, ran) }
     }
 
     private fun ask(retriever: app.retriever.core.Retriever) {

@@ -1,22 +1,20 @@
 # Shared copy: core, Android and iOS tests each assert every row. Columns: function, its inputs, the expected text (empty: none).
 stop	PAUSED	android	Paused
-stop	POWER_SAVE	android	Paused while Battery Saver is on
-stop	HOT	android	Paused to let your phone cool down
-stop	LOW_BATTERY	android	Paused, battery is low
-stop	CHARGING_UP	android	Charging up first
-stop	BUSY	android	Waiting until you put your phone down
-stop	UNPLUGGED	android	Waits until you charge
+stop	POWER_SAVE	android	Paused · continues when Battery Saver is off
+stop	HOT	android	Paused · continues when your phone cools down
+stop	LOW_BATTERY	android	Paused · continues when you plug in
+stop	CHARGING_UP	android	Paused · continues when the battery has a bit more charge
+stop	UNPLUGGED	android	Paused · continues when you plug in
 stop	MANUAL	android	Processing only when you start it
 stop	DISK_FULL	android	Paused, your phone is full
 stop	DONE	android	Taking a short break
 stop	BUDGET	android	Taking a short break
 stop	PAUSED	iphone	Paused
-stop	POWER_SAVE	iphone	Paused while Low Power Mode is on
-stop	HOT	iphone	Paused to let your iPhone cool down
-stop	LOW_BATTERY	iphone	Paused, battery is low
-stop	CHARGING_UP	iphone	Charging up first
-stop	BUSY	iphone	Waiting until you put your iPhone down
-stop	UNPLUGGED	iphone	Waits until you charge
+stop	POWER_SAVE	iphone	Paused · continues when Low Power Mode is off
+stop	HOT	iphone	Paused · continues when your iPhone cools down
+stop	LOW_BATTERY	iphone	Paused · continues when you plug in
+stop	CHARGING_UP	iphone	Paused · continues when the battery has a bit more charge
+stop	UNPLUGGED	iphone	Paused · continues when you plug in
 stop	MANUAL	iphone	Processing only when you start it
 stop	DISK_FULL	iphone	Paused, your iPhone is full
 stop	DONE	iphone	Taking a short break

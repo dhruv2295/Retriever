@@ -19,10 +19,10 @@ enum AppFixture {
     case meaning(Int)
     case reading(done: Int, total: Int)
     /// Home's status line (clarity-proposal section 3): reading while plugged in, waiting to be plugged in, plugged in
-    /// but charging up first, Read for 15 minutes, the meaning pass after the download, the first day (found by name
+    /// but charging up first, untimed processing, the meaning pass after the download, the first day (found by name
     /// only), Not now chosen after the demo, the phone's files still being counted, and no access at all (Photos off,
     /// no folder).
-    case readingWhileCharging, unplugged, chargingUp, readNow, meaningPass, firstDay, notNow, counting, lostAccess
+    case readingWhileCharging, unplugged, chargingUp, processing, meaningPass, firstDay, notNow, counting, lostAccess
     case caughtUp, paused
     case skipped(Int)
     case noAccess
@@ -82,11 +82,12 @@ extension AppModel {
             snap.pendingByKind = [.photo: 4_106]
             snap.reading = ReadingPreview(current: running ? files[0] : nil, recent: Array(files.dropFirst()))
         }
-        /// Pins core's decision for a state the snapshot alone can't say (plugged in, minutes of Read for 15 left).
-        func decided(_ blocker: StopReason?, minutes: Int32 = 0, pluggedIn: Bool = false) {
+        /// Pins core's decision for a state the snapshot alone can't say (plugged in, an explicit untimed run).
+        func decided(_ blocker: StopReason?, explicit: Bool = false, pluggedIn: Bool = false) {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
-                readNowMinutes: minutes, pluggedIn: pluggedIn, faces: nil, facesWaiting: nil, people: nil, readersMissing: false)
+                sessionActive: explicit, pluggedIn: pluggedIn, faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
+                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false)
         }
         switch fixture {
         case .readingWhileCharging:
@@ -100,9 +101,9 @@ extension AppModel {
             midway(running: false)
             snap.lastStop = .chargingUp
             decided(.chargingUp, pluggedIn: true)
-        case .readNow:
+        case .processing:
             midway(running: true)
-            decided(nil, minutes: 12)
+            decided(nil, explicit: true)
         case .meaningPass:
             (snap.meaningWaiting, snap.running, snap.lastStop) = (1_204, true, nil)
             snap.reading = ReadingPreview(current: files[0], recent: Array(files.dropFirst()))
@@ -182,7 +183,8 @@ extension AppModel {
         }
         snap.readByKind = snap.byKind.mapValues { $0 }
         for (kind, pending) in snap.pendingByKind { snap.readByKind[kind] = max(0, (snap.byKind[kind] ?? 0) - pending) }
-        snap.prefs = Self.prefs(searchTried: true, homeIntroDue: { if case .homeIntro = fixture { true } else { false } }())
+        let explicit = if case .processing = fixture { true } else { false }
+        snap.prefs = Self.prefs(sessionActive: explicit, searchTried: true, homeIntroDue: { if case .homeIntro = fixture { true } else { false } }())
         self.init(snap: snap, photos: photos, download: download, tune: tune, setup: setup, folders: folders, modelMissing: modelMissing, skipped: skipped)
         self.taste = taste
         self.sample = sample
@@ -236,13 +238,14 @@ extension AppModel {
     }
 
     /// Prefs as a fresh install keeps them, with a first search made.
-    private static func prefs(searchTried: Bool, homeIntroDue: Bool) -> Prefs {
+    private static func prefs(sessionActive: Bool, searchTried: Bool, homeIntroDue: Bool) -> Prefs {
         Prefs(
-            kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, readNowUntil: 0, excludedFolders: [],
+            kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, started: sessionActive, excludedFolders: [],
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
             dynamicColor: true, setupStarted: false, notificationsDismissed: false, notificationsOfferDismissed: false,
             notificationsPermissionRequested: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
-            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false, peopleOfferDismissed: false)
+            homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false, peopleOfferDismissed: false,
+            processingRequested: sessionActive)
     }
 }

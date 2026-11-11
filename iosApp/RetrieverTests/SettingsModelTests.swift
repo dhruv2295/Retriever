@@ -150,7 +150,7 @@ final class SettingsModelTests: XCTestCase {
     func testMobileDataMovesFromTheOldKeyIntoPrefsOnce() async throws {
         try await services.retriever.updatePrefs { @Sendable in
             $0.doCopy(
-                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, readNowUntil: $0.readNowUntil,
+                kinds: $0.kinds, onlyWhileCharging: $0.onlyWhileCharging, schedule: $0.schedule, started: $0.started,
                 excludedFolders: $0.excludedFolders,
                 paused: $0.paused, sampleSize: $0.sampleSize, allowMobileData: false,
                 rememberSearches: $0.rememberSearches, dynamicColor: $0.dynamicColor,
@@ -159,7 +159,8 @@ final class SettingsModelTests: XCTestCase {
                 noMatchSeen: $0.noMatchSeen, showOnThisDay: $0.showOnThisDay, readingCycle: $0.readingCycle, dismissedReadingCycle: $0.dismissedReadingCycle,
                 searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed, homeIntroDue: $0.homeIntroDue,
                 notifyWhenCaughtUp: $0.notifyWhenCaughtUp, recognizePeople: $0.recognizePeople,
-                peopleOfferDismissed: $0.peopleOfferDismissed)
+                peopleOfferDismissed: $0.peopleOfferDismissed,
+                processingRequested: $0.processingRequested)
         }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)
@@ -241,11 +242,11 @@ final class SettingsModelTests: XCTestCase {
         var saved = await eventually { self.prefs.automaticReading == .manual }
         XCTAssertTrue(saved)
         model.readNow()
-        saved = await eventually { self.prefs.readNowUntil > 0 }
+        saved = await eventually { self.prefs.started }
         XCTAssertTrue(saved)
         XCTAssertEqual(prefs.automaticReading, .manual)
         model.pause()
-        saved = await eventually { self.prefs.paused && self.prefs.readNowUntil == 0 }
+        saved = await eventually { self.prefs.paused && !self.prefs.started }
         XCTAssertTrue(saved)
         let reopened = try await liveModel()
         XCTAssertTrue(reopened.snap?.paused == true)
@@ -253,7 +254,23 @@ final class SettingsModelTests: XCTestCase {
         saved = await eventually { !self.prefs.paused }
         XCTAssertTrue(saved)
         XCTAssertEqual(prefs.automaticReading, .manual)
-        XCTAssertEqual(prefs.readNowUntil, 0)
+        XCTAssertTrue(prefs.started)
+    }
+
+    func testRapidStartPauseAndResumeKeepTheLatestIntent() async throws {
+        let model = try await liveModel()
+        model.readNow()
+        model.pause()
+        model.resume()
+        await model.processingCommand?.value
+        XCTAssertFalse(prefs.paused)
+        XCTAssertTrue(prefs.started)
+        XCTAssertNotEqual(services.retriever.readNowSession, 0)
+        model.pause()
+        await model.processingCommand?.value
+        XCTAssertTrue(prefs.paused)
+        XCTAssertFalse(prefs.started)
+        XCTAssertFalse(prefs.processingRequested)
     }
 
 }

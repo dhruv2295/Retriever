@@ -6,8 +6,12 @@ import android.database.Cursor
 import android.database.MatrixCursor
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.testing.WorkManagerTestInitHelper
+import app.retriever.core.DeviceState
 import app.retriever.core.ModelBuild
 import app.retriever.core.ModelVariant
+import app.retriever.core.ReadingSchedule
+import app.retriever.core.StopReason
+import app.retriever.core.Thermal
 import app.retriever.testRetriever
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +110,23 @@ class ModelRepositoryTest {
         assertFalse(download.file(build).exists())
         repo.clearFailure()
         assertEquals(ModelState.Missing, repo.state.value)
+    }
+
+    @Test fun deferredVerificationRetriesTheRetainedFileAndDoesNotInheritTheManualFileSchedule() = runBlocking {
+        var battery = 49
+        val retriever = testRetriever(deviceState = { DeviceState(8.0, false, battery, Thermal.NONE, screenOn = true) })
+        retriever.setReadingSchedule(ReadingSchedule.MANUAL)
+        val repository = ModelRepository(context, download, retriever, scope)
+        download.file(build).writeBytes(bytes)
+        repository.sync(build)
+        withTimeout(5_000) { repository.state.first { it == ModelState.Deferred(StopReason.UNPLUGGED) } }
+        assertTrue(download.file(build).exists())
+        assertFalse(download.ready(build))
+        battery = 50
+        repository.sync(build)
+        withTimeout(5_000) { repository.state.first { it == ModelState.Done } }
+        assertTrue(download.ready(build))
+        assertEquals(ReadingSchedule.MANUAL, retriever.prefs.value.automaticReading)
     }
 
     @Test fun cancelRemovesTheDownload() {

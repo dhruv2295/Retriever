@@ -22,6 +22,6 @@ final class WordsFixtureTests: XCTestCase {
                 }
             XCTAssertEqual(actual, row.last!.isEmpty ? nil : row.last!, row.joined(separator: " | "))
         }
-        XCTAssertEqual(rows.count, 29)
+        XCTAssertEqual(rows.count, 27)
     }
 }

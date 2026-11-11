@@ -3,6 +3,7 @@ package app.retriever.setup
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -47,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import app.retriever.R
+import app.retriever.access.Access
 import app.retriever.access.ONLY_PICKED_PHOTOS
 import app.retriever.access.Photos
 import app.retriever.core.DeviceWords
@@ -75,44 +78,58 @@ internal fun ColumnScope.Hello(ui: SetupUi, reduceMotion: Boolean) {
     }
 }
 
-/** Get started, under the privacy line; the download note only when Get started downloads. */
+/** Get started, under the privacy line and, only when Get started downloads, the download line. */
 @Composable
 internal fun HelloActions(ui: SetupUi, actions: SetupActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OnDevice()
-        Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.GET_STARTED) }
-        if (ui.downloadsOnGetStarted) {
-            Text(
-                Words.downloadNote(Format.downloadSize(LocalContext.current, ui.downloadBytes)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+        Column(Modifier.padding(bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            InfoLine(R.drawable.ic_lock, Words.onDevice(DeviceWords.ANDROID), MaterialTheme.colorScheme.primary)
+            if (ui.downloadsOnGetStarted) {
+                InfoLine(
+                    R.drawable.ic_download,
+                    Words.downloadLine(Format.downloadSize(LocalContext.current, ui.downloadBytes)),
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+        Button(onClick = actions.getStarted, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.GET_STARTED) }
     }
 }
 
 /** The access screen: what access is for, and three tiles that picture it (not buttons). Its actions are pinned below. */
 @Composable
-internal fun ColumnScope.AccessStage() {
+internal fun ColumnScope.AccessStage(access: Access) {
+    val granted = access.allFiles
     Heading(Words.ACCESS_TITLE, Words.ANDROID_ACCESS_BODY)
     Row(
-        Modifier.fillMaxWidth().padding(top = 16.dp).clearAndSetSemantics {},
+        // Pictures until the whole phone is allowed; then each tile reads as "Photos, Allowed".
+        Modifier.fillMaxWidth().padding(top = 16.dp).then(if (granted) Modifier else Modifier.clearAndSetSemantics {}),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO))
-        AccessTile(R.drawable.ic_description, Words.DOCUMENTS)
-        AccessTile(R.drawable.ic_download, Words.DOWNLOADS)
+        AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO), granted)
+        AccessTile(R.drawable.ic_description, Words.DOCUMENTS, granted)
+        AccessTile(R.drawable.ic_download, Words.DOWNLOADS, granted)
+    }
+    if (access.ready) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            Text(Words.ACCESS_SCANNING, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        }
     }
 }
 
-/** Allow access (Continue once the whole phone is allowed), what to do if it was left off, and the quieter choice. */
+/** Allow access (Continue once a source is allowed), what to do if it was left off, and the quieter choice. */
 @Composable
 internal fun AccessActions(ui: SetupUi, allFilesOff: Boolean, actions: SetupActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OnDevice()
-        if (ui.access.allFiles) {
+        if (ui.access.ready) {
             Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
+            if (!ui.access.allFiles) TextButton(onClick = actions.chooseInstead) { Text(Words.INCLUDE_TITLE) }
         } else {
             if (allFilesOff) Muted(Words.ALL_FILES_OFF)
             Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.ALLOW_ACCESS) }
@@ -139,11 +156,34 @@ private fun ColumnScope.Heading(title: String, body: String) {
 }
 
 @Composable
-private fun RowScope.AccessTile(icon: Int, label: String) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.weight(1f).height(92.dp)) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)) {
-            Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge)
+private fun RowScope.AccessTile(icon: Int, label: String, granted: Boolean) {
+    Surface(
+        color = if (granted) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.weight(1f).height(92.dp).semantics(mergeDescendants = true) {},
+    ) {
+        Box {
+            Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+            ) {
+                Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge)
+            }
+            if (granted) {
+                Box(
+                    Modifier.align(Alignment.TopEnd).padding(8.dp).size(20.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_check),
+                        contentDescription = Words.ALLOWED,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -151,9 +191,14 @@ private fun RowScope.AccessTile(icon: Int, label: String) {
 /** The privacy line over Hello's and the access screen's button. */
 @Composable
 private fun OnDevice() {
-    Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-        Text(Words.onDevice(DeviceWords.ANDROID), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    InfoLine(R.drawable.ic_lock, Words.onDevice(DeviceWords.ANDROID), MaterialTheme.colorScheme.primary, Modifier.padding(bottom = 4.dp))
+}
+
+@Composable
+private fun InfoLine(icon: Int, text: String, color: Color, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+        Text(text, style = MaterialTheme.typography.labelLarge, color = color)
     }
 }
 
@@ -186,6 +231,7 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
         }
         if (asked && !a.ready) Muted(Words.NOTHING_SELECTED)
         folderError?.let { ErrorText(it) }
+        if (a.ready) Text(Words.ACCESS_SCANNING, style = MaterialTheme.typography.bodyMedium)
         Button(onClick = actions.continueFromAccess, enabled = a.ready, modifier = Modifier.fillMaxWidth()) { Text(Words.CONTINUE) }
     }
 }

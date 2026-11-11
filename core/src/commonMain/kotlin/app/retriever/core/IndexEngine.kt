@@ -5,13 +5,17 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
+import kotlin.time.measureTime
 import kotlin.time.measureTimedValue
 
 data class FileMetric(
@@ -28,7 +32,7 @@ data class FileMetric(
 )
 
 /** [DISK_FULL]: storage ran out mid-batch; no file is charged an attempt for it, and the platform tries again later. */
-enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, BUSY, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL, DISK_FULL }
+enum class StopReason { DONE, HOT, UNPLUGGED, BUDGET, PAUSED, POWER_SAVE, LOW_BATTERY, CHARGING_UP, MANUAL, DISK_FULL }
 
 /**
  * Storage is full: SQLite's SQLITE_FULL (Android's SQLiteFullException; SQLiter on iOS says "database or disk is full") or a
@@ -78,7 +82,7 @@ class IndexEngine(
     private val onCurrent: (SourceFile) -> Unit = {},
     /** Finish this batch between files so the next one can open the new delegate configuration. */
     private val configurationChanged: () -> Boolean = { false },
-    /** The platform's reading policy, asked before every file and every embed; the engine's own [stopReason] is a subset of it. */
+    /** The platform's reading policy, asked once before each file or tail; the engine's own [stopReason] is a subset of it. */
     private val policyStop: (() -> StopReason?)? = null,
     /** Asked per file: how many of the next files may be read while this one embeds (see readAhead, [readAheadDepth])? */
     private val readAheadDepth: (DeviceState) -> Int = { 0 },
@@ -101,10 +105,10 @@ class IndexEngine(
         // inference (the two would share cores) and never while the app is in use (its frames come first). The tail
         // interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS never
         // gets here (a backgrounded iOS app infers on CPU).
-        fun readAhead(state: DeviceState) {
+        fun readAhead() {
             val e = embedder ?: return
             if (e.backend == Backend.CPU || e.visionBackend == Backend.CPU) return
-            val depth = readAheadDepth(state)
+            val depth = readAheadDepth(monitor.state())
             while (ahead.size < depth) {
                 val next = files.getOrNull(ahead.size)?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
                 val now = settings()
@@ -113,10 +117,23 @@ class IndexEngine(
                 ahead += Ahead(
                     next,
                     inside,
-                    scope.async(readAheadContext) { runCatching { extract(next.file, inside, now.profile) } },
+                    scope.async(readAheadContext) {
+                        runCatching {
+                            extract(next.file, inside, now.profile)
+                        }
+                    },
                 )
             }
         }
+
+        // Warm: rest as long as the work took (capped), never past the budget. The batch's watchdog stops it for heat or Pause.
+        suspend fun restIfWarm(took: Duration) {
+            if (!monitor.state().warm) return
+            delay(minOf(took, ThermalRest.WARM_REST_MAX, budget - start.elapsedNow()))
+            currentCoroutineContext().ensureActive()
+        }
+
+        suspend fun embedTailThenRest(tail: Store.TailChunk, e: Embedder) = restIfWarm(measureTime { embedTail(tail, e) })
         try {
             while (true) {
                 fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
@@ -130,15 +147,16 @@ class IndexEngine(
                 if (next != null) {
                     val mine = ahead.firstOrNull()?.takeIf { it.stored.id == next.id }?.also { ahead.removeFirst() }
                     val metric = try {
-                        index(next, now, state, mine) { readAhead(state) }
+                        index(next, now, state, mine, ::readAhead)
                     } catch (s: ReadingStopped) {
                         return stop(s.reason)
                     }
                     if (metric.ok) processed++ else failed++
                     onFile(metric)
+                    restIfWarm((metric.extractMs + metric.embedMs).milliseconds)
                     if (deepen && embedder != null && (processed + failed) % TAIL_EVERY == 0) {
                         try {
-                            tailPage().firstOrNull()?.let { embedTail(it, embedder) }
+                            tailPage().firstOrNull()?.let { embedTailThenRest(it, embedder) }
                         } catch (s: ReadingStopped) {
                             return stop(s.reason)
                         }
@@ -158,7 +176,7 @@ class IndexEngine(
                 if (!deepen) return stop(StopReason.DONE)
                 if (tails.isEmpty()) tails += tailPage()
                 try {
-                    embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
+                    embedTailThenRest(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
                 } catch (s: ReadingStopped) {
                     return stop(s.reason)
                 }
@@ -174,7 +192,7 @@ class IndexEngine(
 
     private suspend fun checkpoint() {
         awaitUi()
-        policyStop?.invoke()?.let { throw ReadingStopped(it) }
+        currentCoroutineContext().ensureActive()
     }
 
     /**
@@ -350,9 +368,20 @@ class IndexEngine(
          * [idleInFront]); none while it is in use or the system says memory is low.
          */
         fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false, idle: Boolean = false): Int = when {
-            lowMemory || (visible && !idle) -> 0
+            lowMemory || (visible && !idle) || (state.screenOn && !visible) -> 0
+
             visible -> minOf(state.aheadRoom, 1)
-            else -> minOf(state.aheadRoom, if (state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB) ThermalRest.MAX_READ_AHEAD else 1)
+
+            else -> minOf(
+                state.aheadRoom,
+                if (state.pluggedIn &&
+                    state.ramGb >= TWO_AHEAD_MIN_RAM_GB
+                ) {
+                    ThermalRest.MAX_READ_AHEAD
+                } else {
+                    1
+                },
+            )
         }
 
         const val TWO_AHEAD_MIN_RAM_GB = 6.0

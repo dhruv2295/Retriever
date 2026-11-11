@@ -20,14 +20,15 @@ enum Copy {
     /// The device's names in core's shared sentences.
     static let words = DeviceWords.companion.ios(device: device)
 
-    /// Core's reading status: the live one, or before it arrives the same decision made here.
+    /// Core's reading status. Every live snapshot carries one; a fixture without one gets the same decision, unplugged.
     static func reading(_ s: AppModel.Snap) -> ReadingStatus {
-        let msLeft = Double(s.readNowUntil) - Date.now.timeIntervalSince1970 * 1000
+        let session = s.prefs?.started == true
         return s.readingStatus
             ?? ReadingPolicy.shared.decide(
                 progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words,
-                readNowMinutes: Int32(max(0, (msLeft / 60_000).rounded(.up))), pluggedIn: [.charging, .full].contains(UIDevice.current.batteryState),
-                faces: nil, facesWaiting: nil, people: nil, readersMissing: false
+                sessionActive: session, pluggedIn: false,
+                faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
+                battery: 100, requested: session, processingStarted: session, adaptive: false
             )
     }
 

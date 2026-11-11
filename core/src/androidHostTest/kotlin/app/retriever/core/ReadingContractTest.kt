@@ -79,7 +79,7 @@ class ReadingContractTest {
         assertEquals(ReadingSchedule.MANUAL, store.prefs().retuned(PROFILE, PROFILE.copy(tier = Tier.LIGHT)).automaticReading)
     }
 
-    @Test fun expiryPauseAndNotNowPersistAcrossFacadeHandoffs() = runBlocking {
+    @Test fun sessionEndPauseAndNotNowPersistAcrossFacadeHandoffs() = runBlocking {
         val file = testFile("words.txt")
         val store = newStore(Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens)).also { it.setProfile(PROFILE) }
         val monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE))
@@ -88,31 +88,33 @@ class ReadingContractTest {
                 true
         }
         val first = facade()
-        first.readNow()
-        val until = store.prefs().readNowUntil
+        first.startProcessing(false)
+        val active = store.prefs().started
         val second = facade()
         second.refreshSetUp()
-        assertEquals(until, second.prefs.value.readNowUntil)
-        second.updatePrefs { it.copy(readNowUntil = 1) }
+        assertEquals(active, second.prefs.value.started)
+        second.endReadNowSession()
         assertEquals(NextRun.WHEN_CHARGING, second.indexBatch(1.minutes))
-        assertEquals(0, store.prefs().readNowUntil)
-        second.readNow()
+        assertFalse(store.prefs().started)
+        second.startProcessing(false)
         second.pause()
-        assertEquals(0, store.prefs().readNowUntil)
+        assertFalse(store.prefs().started)
         val third = facade()
         third.refreshSetUp()
         assertTrue(third.prefs.value.paused)
         third.resume()
         assertEquals(NextRun.WHEN_CHARGING, third.indexBatch(1.minutes))
         third.planTaste()
-        third.decideLater()
+        store.setFlag(TASTE_DECIDED_KEY)
+        third.pause()
+        third.refreshSetUp()
         assertEquals(NextRun.DONE, third.taste())
         assertEquals(StopReason.PAUSED, third.state.value.lastStop)
         assertTrue(third.searchNames("words").hits.isNotEmpty(), "Pause keeps name updates alive")
     }
 
-    /** Settings' Read for 15 minutes is seen at once, and the live count moves as files come, without a relaunch. */
-    @Test fun theStatusLineShowsReadNowAtOnceAndCountsLive() = runBlocking {
+    /** Start processing intent is seen at once without claiming a reader is running; counts remain live. */
+    @Test fun theStatusLineShowsStartIntentAtOnceAndCountsLive() = runBlocking {
         val store = newStore().also { it.setProfile(PROFILE) }
         val files = (1..4).map { testFile("$it.txt") }
         store.upsertFiles(files)
@@ -123,12 +125,13 @@ class ReadingContractTest {
         val first = facade().apply { refreshSetUp() }
         val waiting = first.readingStatus().first()
         assertEquals(
-            listOf("Waits until you charge", "1 of 4 files processed", "Retriever carries on when your phone is charging.", 1L, 4L),
+            listOf("Paused · continues when you plug in", "1 of 4 files processed", "Retriever carries on when your phone is charging.", 1L, 4L),
             listOf(waiting.title, waiting.count, waiting.detail, waiting.done, waiting.total),
         )
-        first.readNow()
-        val tapped = first.readingStatus().first { it.phase == ReadingPhase.READ_NOW }
-        assertEquals("Processing for 15 minutes · 15 min left" to StatusAction.STOP, tapped.title to tapped.action)
+        first.startProcessing(false)
+        val tapped = first.readingStatus().first { it.phase == ReadingPhase.WAITING }
+        assertEquals(Words.strings.processingYourFiles to StatusAction.PAUSE, tapped.title to tapped.action)
+        assertFalse(tapped.active)
 
         // Four new files reach a collector already watching: 1 of 8, with no relaunch or new subscription.
         val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
@@ -146,7 +149,46 @@ class ReadingContractTest {
         watching.cancel()
         val second = facade().apply { refreshSetUp() }
         second.endReadNowSession()
-        assertEquals("Waits until you charge" to 8L, second.readingStatus().first().let { it.title to it.total })
+        assertEquals("Paused · continues when you plug in" to 8L, second.readingStatus().first().let { it.title to it.total })
+    }
+
+    @Test fun lostAndroidSessionOffersResumeWithoutClaimingProcessing() = runBlocking {
+        val store = scanned().also { it.setProfile(PROFILE) }
+        val file = testFile("waiting.txt")
+        store.upsertFiles(listOf(file))
+        store.updatePrefs { it.withSchedule(ReadingSchedule.BATTERY) }
+        val r = testRetriever(store, listOf(file), FakeExtractor(), monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE)))
+        r.startProcessing(false)
+        r.endReadNowSession()
+        val fresh = testRetriever(store, listOf(file), FakeExtractor(), monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE)))
+        fresh.refreshSetUp()
+        val status = fresh.readingStatus().first()
+        assertEquals(ReadingPhase.WAITING to StatusAction.RESUME, status.phase to status.action)
+        assertFalse(status.active)
+    }
+
+    @Test fun demoAtSixtyPercentCanPrepareAndReadButDoesNotStartTheFullLibrary() = runBlocking {
+        val store = scanned().also { it.setProfile(PROFILE) }
+        val files = listOf(testFile("demo.txt"), testFile("later.txt"))
+        store.upsertFiles(files)
+        store.setTaste(listOf(store.fileByUri(files[0].uri)!!.id))
+        val monitor = FakeMonitor(DeviceState(8.0, false, 60, Thermal.NONE, screenOn = true))
+        val r = testRetriever(store, files, FakeExtractor(mapOf("demo.txt" to listOf(textPiece("demo words")))), monitor = monitor).apply { uiVisible = true }
+        r.refreshSetUp()
+        assertEquals(StopReason.UNPLUGGED, r.readingBlocker(), "unowned automatic demo work uses seventy-five")
+        val session = r.startProcessing(true)
+        assertEquals(50, ReadingPolicy.batteryFloor(r.prefs.value))
+        assertEquals(null, r.readingBlocker())
+        assertEquals(null, r.calibrationBlocker())
+        r.indexBatch(1.minutes)
+        assertEquals(1L, store.countsNow().progress.contentRead)
+        r.commitScope()
+        r.endReadNowSession(session)
+        val fullLibrary = r.readingStatus().first()
+        assertEquals(StatusAction.RESUME, fullLibrary.action, "access Continue was a previous explicit run, independent of demo counts")
+        assertEquals(StopReason.UNPLUGGED, r.readingBlocker(), "the automatic preference resumes after the demo")
+        monitor.state = monitor.state.copy(thermal = Thermal.SEVERE)
+        assertEquals(StopReason.HOT, r.calibrationBlocker())
     }
 
     /** Android keeps the process across a language change: a line nothing else moves is drawn again in the new words. */
@@ -160,7 +202,7 @@ class ReadingContractTest {
         val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
         val watching = launch(Dispatchers.Default) { r.readingStatus().collect { lines.send(it) } }
         try {
-            assertEquals("Waits until you charge", withTimeout(5_000) { lines.receive() }.title)
+            assertEquals("Paused · continues when you plug in", withTimeout(5_000) { lines.receive() }.title)
             Words.language = Language.DE
             val german = Language.DE.strings.stopCopy(StopReason.UNPLUGGED, DeviceWords.ANDROID)
             withTimeout(5_000) {
@@ -175,7 +217,7 @@ class ReadingContractTest {
     }
 
     /**
-     * "Counting your files…" until the first full scan is written, then the count, without a relaunch. The scan's end is a
+     * "Getting ready…" until the first full scan is written, then the count, without a relaunch. The scan's end is a
      * meta write, which countChanges never sees; the sync's own signal ([Retriever.synced]) wakes the line. This run also
      * re-reads for other reasons, so it pins the outcome, not that signal alone.
      */
@@ -187,7 +229,7 @@ class ReadingContractTest {
         val r = testRetriever(store, files, FakeExtractor(), monitor = unplugged).apply { refreshSetUp() }
         val lines = Channel<ReadingStatus>(Channel.UNLIMITED)
         val watching = launch(Dispatchers.Default) { r.readingStatus().collect { lines.send(it) } }
-        assertEquals("Counting your files…", withTimeout(5_000) { lines.receive() }.title)
+        assertEquals("Getting ready…", withTimeout(5_000) { lines.receive() }.title)
         r.indexBatch(1.minutes) // its sync is the first full scan, and every row is already in
         val counted = withTimeout(5_000) {
             var s: ReadingStatus
@@ -200,15 +242,20 @@ class ReadingContractTest {
         watching.cancel()
     }
 
-    @Test fun savingPowerEndsTheExplicitSessionEvenWhileVisible() = runBlocking {
-        for (hot in listOf(false, true)) {
-            val store = newStore().also { it.setProfile(PROFILE) }
-            val monitor = FakeMonitor(DeviceState(8.0, true, 80, if (hot) Thermal.SEVERE else Thermal.NONE, powerSave = !hot))
-            val r = testRetriever(store, listOf(testFile("a.txt")), FakeExtractor(), monitor = monitor).apply { uiVisible = true }
-            r.readNow()
-            r.indexBatch(1.minutes)
-            assertEquals(0, store.prefs().readNowUntil)
-            assertEquals(if (hot) StopReason.HOT else StopReason.POWER_SAVE, r.state.value.lastStop)
+    /** Heat and power saving pause work without consuming the person’s request or host. */
+    @Test fun heatAndPowerSavingPreserveTheExplicitSession() = runBlocking {
+        for (platform in Platform.entries) {
+            for (hot in listOf(false, true)) {
+                val store = newStore().also { it.setProfile(PROFILE) }
+                val monitor = FakeMonitor(DeviceState(8.0, true, 80, Thermal.NONE))
+                val r = testRetriever(store, listOf(testFile("a.txt")), FakeExtractor(), probe = PIXEL.copy(platform = platform), monitor = monitor)
+                r.uiVisible = true
+                r.startProcessing(false)
+                monitor.state = monitor.state.copy(thermal = if (hot) Thermal.SEVERE else Thermal.NONE, powerSave = !hot)
+                r.indexBatch(1.minutes)
+                assertTrue(store.prefs().started, "$platform, hot $hot")
+                assertEquals(if (hot) StopReason.HOT else StopReason.POWER_SAVE, r.state.value.lastStop)
+            }
         }
     }
 
@@ -304,7 +351,7 @@ class ReadingContractTest {
         assertEquals(1001, counts.sampleProgress?.libraryTotal)
     }
 
-    @Test fun theSessionDeadlineCancelsSuspendedExtractionAtASafeBoundary() = runBlocking {
+    @Test fun endingAnOwnedSessionCancelsSuspendedExtractionAtASafeBoundary() = runBlocking {
         val store = newStore(Signature.of(ModelVariant.M740.generic, PROFILE.visionTokens, PROFILE.maxTokens)).also { it.setProfile(PROFILE) }
         val file = testFile("slow.pdf", Kind.PDF)
         val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
@@ -314,13 +361,22 @@ class ReadingContractTest {
                 kotlinx.coroutines.awaitCancellation()
             }
         }
-        val r = testRetriever(store, listOf(file), extractor, monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE)))
-        r.readNow()
-        r.updatePrefs { it.copy(readNowUntil = System.currentTimeMillis() + 500) }
-        val next = kotlinx.coroutines.withTimeout(3_000) { r.indexBatch(1.minutes) }
+        val r =
+            testRetriever(
+                store,
+                listOf(file),
+                extractor,
+                probe = PIXEL.copy(platform = Platform.IOS),
+                monitor = FakeMonitor(DeviceState(8.0, false, 80, Thermal.NONE)),
+            )
+        val session = r.startProcessing(false)
+        val batch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).async { r.indexBatch(1.minutes, expectedSession = session) }
+        kotlinx.coroutines.withTimeout(3_000) { entered.await() }
+        assertTrue(r.endReadNowSession(session))
+        val next = kotlinx.coroutines.withTimeout(3_000) { batch.await() }
         assertTrue(entered.isCompleted)
         assertEquals(NextRun.WHEN_CHARGING, next)
-        assertEquals(0, store.prefs().readNowUntil)
+        assertFalse(store.prefs().started)
         assertEquals(0, store.fileByUri(file.uri)?.attempts)
         assertEquals(FileState.PENDING, store.fileByUri(file.uri)?.state)
     }
@@ -363,7 +419,7 @@ class ReadingContractTest {
         store.replaceChunks(ids[0], listOf(Store.NewChunk(1, "", "old content", vector)))
         store.replaceChunks(ids[1], listOf(Store.NewChunk(1, "", "a text tail", null)))
         val r = testRetriever(store, files, FakeExtractor())
-        r.readNow()
+        r.startProcessing(false)
         store.replaceChunks(ids[2], listOf(Store.NewChunk(1, "", "new content", vector)))
         store.replaceChunks(ids[3], listOf(Store.NewChunk(0, "", null, vector)))
         store.removeFiles(listOf(files[0].uri))
@@ -373,7 +429,7 @@ class ReadingContractTest {
         r.pause()
         store.replaceChunks(ids[3], listOf(Store.NewChunk(1, "", "later automatic content", vector)))
         assertEquals(2, r.counts().first().sessionRead, "a finished session is frozen")
-        r.readNow()
+        r.startProcessing(false)
         assertEquals(0, r.counts().first().sessionRead)
     }
 
@@ -438,10 +494,10 @@ class ReadingContractTest {
     @Test fun endingTheReadNowSessionNeverPauses() = runBlocking {
         val store = newStore()
         val r = testRetriever(store, emptyList(), FakeExtractor())
-        r.readNow()
-        assertTrue(store.prefs().readNowUntil > 0)
+        r.startProcessing(false)
+        assertTrue(store.prefs().started)
         r.endReadNowSession()
-        assertEquals(0, store.prefs().readNowUntil)
+        assertFalse(store.prefs().started)
         assertFalse(store.prefs().paused)
     }
 
@@ -455,7 +511,7 @@ class ReadingContractTest {
         r.setReadingSchedule(ReadingSchedule.MANUAL)
         r.commitScope()
         assertEquals(ReadingSchedule.MANUAL, store.prefs().automaticReading)
-        assertEquals(0, store.prefs().readNowUntil)
+        assertFalse(store.prefs().started)
         assertTrue(r.tasteDecided())
         assertEquals(null, r.scopeIds.value)
     }
@@ -472,7 +528,9 @@ class ReadingContractTest {
         assertFalse(r.hasPendingTaste())
         r.resume()
         assertTrue(r.hasPendingTaste())
-        r.decideLater()
+        store.setFlag(TASTE_DECIDED_KEY)
+        r.pause()
+        r.refreshSetUp()
         r.resume()
         assertFalse(r.hasPendingTaste(), "Not now leaves the scope SAMPLE but the person decided")
     }
@@ -503,7 +561,9 @@ class ReadingContractTest {
         assertFalse(r.claimSampleNotification(), "already seen on screen")
         val (decided, other) = sample()
         val later = testRetriever(decided, listOf(other), FakeExtractor())
-        later.decideLater()
+        decided.setFlag(TASTE_DECIDED_KEY)
+        later.pause()
+        later.refreshSetUp()
         assertFalse(later.claimSampleNotification())
     }
 }

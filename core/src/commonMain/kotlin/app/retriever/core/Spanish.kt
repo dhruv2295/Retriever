@@ -54,7 +54,8 @@ internal object Spanish : Strings {
 
     override fun meaningOf(done: Long, total: Long) = "${formatCount(done)} de ${files(total)} con búsqueda por descripción"
 
-    override fun facesOf(done: Long, total: Long) = "${formatCount(done)} de ${photos(total)} ${if (total == 1L) "revisada" else "revisadas"}"
+    override fun facesOf(done: Long, total: Long) =
+        "${formatCount(done)} de ${photos(total)} ${if (total == 1L) "revisada" else "revisadas"} para encontrar personas"
 
     override val processedInPart = "Procesado en parte"
     override val couldntBeOpened = "No se pudo abrir"
@@ -137,7 +138,6 @@ internal object Spanish : Strings {
     override val notNow = "Ahora no"
     override val cancel = "Cancelar"
     override val done = "Listo"
-    override val readFor15 = "Procesar 15 minutos"
     override val optional = "Opcional"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "Encuentra archivos por lo que contienen" else "Encuentra lo que sea describiéndolo"
@@ -157,6 +157,8 @@ internal object Spanish : Strings {
 
     override fun downloadNote(size: String) = "Incluye una descarga única de $size, por Wi-Fi."
 
+    override fun downloadLine(size: String) = "Descarga única de $size, solo por Wi-Fi"
+
     override val accessTitle = "Elige qué puede buscar Retriever"
     override val accessBody = "Elige una o más opciones. Puedes añadir más después."
     override val allow = "Permitir"
@@ -174,6 +176,7 @@ internal object Spanish : Strings {
     override fun foldersAdded(n: Long) = if (n == 1L) "${formatCount(n)} carpeta añadida" else "${formatCount(n)} carpetas añadidas"
 
     override val androidAccessBody = "Para encontrar cualquier foto, documento o descarga con una descripción."
+    override val accessScanning = "Retriever empieza a analizar tus fotos y archivos para que puedas buscarlos. Todo se queda en tu teléfono."
     override val allFilesOff =
         "Activa «Dar acceso para gestionar todos los archivos» para buscar en todo tu teléfono o elige qué incluir."
     override val includeTitle = "Elige qué incluir"
@@ -235,17 +238,6 @@ internal object Spanish : Strings {
         else -> "Los otros ${files(rest)}"
     }
 
-    override fun otherFilesBody(words: DeviceWords) =
-        "Cuando tu ${device(words)} se está cargando y no lo estás usando. Con muchos archivos, puede tardar unas cuantas noches."
-
-    override fun otherFilesOnBatteryBody(words: DeviceWords) =
-        "Cuando no estás usando tu ${device(words)}: con batería hasta que baje al ${pct(ReadingPolicy.BATTERY_FLOOR)}, y mientras se carga. " +
-            "Con muchos archivos, puede tardar unos cuantos días."
-
-    override fun onBatteryBody(words: DeviceWords) =
-        "También con batería, hasta que baje al ${pct(ReadingPolicy.BATTERY_FLOOR)}, para que te quede el resto de la carga para tu día. " +
-            "Se detiene cuando el ${powerSave(words)} está activado o tu ${device(words)} está caliente."
-
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "Encuéntralos describiéndolos."
 
@@ -303,35 +295,9 @@ internal object Spanish : Strings {
                 if (planned == 1L) "procesado" else "procesados"
             }
 
-    override val chooseWhen = "Elegir cuándo procesar"
     override val tryLabel = "Prueba:"
 
-    override fun chooseTitle(words: DeviceWords) = "Ahora, los demás archivos de tu ${device(words)}"
-
-    override fun chooseBody(rest: Long?) = when (rest) {
-        null -> "El resto de tus archivos aún no está procesado. Hasta que lo esté, puedes encontrarlos por su nombre, pero no por lo que contienen."
-        1L -> "${files(1L)} aún no está procesado. Hasta que lo esté, puedes encontrarlo por su nombre, pero no por lo que contiene."
-        else -> "${files(rest)} aún no están procesados. Hasta que lo estén, puedes encontrarlos por su nombre, pero no por lo que contienen."
-    }
-
-    override fun choosePace(words: DeviceWords) =
-        "Procesarlos lleva horas, así que Retriever lo hace poco a poco. Puedes usar tu ${device(words)} y Retriever todo el tiempo."
-
-    override val recommended = "Recomendado"
-    override val read15Now = "Mientras se carga y 15 minutos ahora"
-    override val notNowBody = "Hasta que elijas, solo puedes encontrar archivos por su nombre. Puedes elegir cuando quieras desde Inicio."
     override val startProcessing = "Procesar"
-    override val goToHome = "Ir a Inicio"
-
-    override fun whileChargingBody(words: DeviceWords) =
-        "Cuando tu ${device(words)} se está cargando y no lo estás usando, normalmente por la noche. Puedes pausarlo cuando quieras."
-
-    override fun chargingAndNowBody(words: DeviceWords) =
-        "Empieza enseguida y gasta algo de batería; luego sigue mientras se carga." + if (words.ios) " Mantén Retriever abierto." else ""
-
-    override fun readNowBody(words: DeviceWords) =
-        "Gasta algo de batería. Se detiene antes si tu ${device(words)} se calienta. Luego sigue mientras se carga." +
-            if (words.ios) " Mantén Retriever abierto." else ""
 
     override fun notificationsAsk(demoPending: Boolean) =
         "Un pequeño aviso en la parte superior de la pantalla mientras trabaja, para que veas cuánto lleva o lo pauses. " +
@@ -457,7 +423,7 @@ internal object Spanish : Strings {
 
     override fun pairOf(at: Int, of: Int) = "$at de $of"
 
-    override fun facesToGo(left: Long) = "${photos(left)} por revisar"
+    override fun facesToGo(left: Long) = "${photos(left)} por revisar para encontrar personas"
 
     override val retrieversData = "Datos de Retriever"
     override val temporaryFiles = "Archivos temporales"
@@ -524,22 +490,20 @@ internal object Spanish : Strings {
     override fun statusAction(action: StatusAction) = when (action) {
         StatusAction.CONTINUE -> continueAction
         StatusAction.ALLOW_ACCESS -> allowAccess
-        StatusAction.CHOOSE_WHEN -> chooseWhen
-        StatusAction.READ_FOR_15 -> readFor15
         StatusAction.STOP -> "Detener"
         StatusAction.RESUME -> "Reanudar"
         StatusAction.DISMISS -> "Descartar"
         StatusAction.TRY_AGAIN -> tryAgain
+        StatusAction.START -> startProcessing
+        StatusAction.PAUSE -> pause
     }
 
     override fun stopCopy(stop: StopReason, words: DeviceWords) = when (stop) {
         StopReason.PAUSED -> "En pausa"
-        StopReason.POWER_SAVE -> "En pausa mientras el ${powerSave(words)} está activado"
-        StopReason.HOT -> "En pausa para que tu ${device(words)} se enfríe"
-        StopReason.LOW_BATTERY -> "En pausa, queda poca batería"
-        StopReason.CHARGING_UP -> "Cargando la batería primero"
-        StopReason.BUSY -> "Esperando a que dejes tu ${device(words)}"
-        StopReason.UNPLUGGED -> "Espera a que lo cargues"
+        StopReason.POWER_SAVE -> "En pausa · continúa cuando el ${powerSave(words)} esté desactivado"
+        StopReason.HOT -> "En pausa · continúa cuando tu ${device(words)} se enfríe"
+        StopReason.LOW_BATTERY, StopReason.UNPLUGGED -> "En pausa · continúa cuando lo conectes al cargador"
+        StopReason.CHARGING_UP -> "En pausa · continúa cuando la batería tenga algo más de carga"
         StopReason.MANUAL -> "Solo procesa cuando tú lo inicias"
         StopReason.DISK_FULL -> "En pausa, tu ${device(words)} está lleno"
         StopReason.DONE, StopReason.BUDGET -> "Tomándose un breve descanso"
@@ -563,20 +527,34 @@ internal object Spanish : Strings {
 
     override val addingDescriptionTitle = "Añadiendo búsqueda por descripción"
     override val allFilesProcessedTitle = "Todos los archivos procesados"
-    override val countingTitle = "Contando tus archivos…"
+    override val gettingReadyTitle = "Preparando…"
     override val notNowTitle = "Por ahora solo puedes buscar por nombre"
 
-    override fun readNowTitle(minutesLeft: Int) =
-        "Procesando durante 15 minutos · ${if (minutesLeft == 1) "queda" else "quedan"} ${formatCount(minutesLeft.toLong())}${NBSP}min"
-
     override val sampleTitle = "Procesando los archivos de demostración"
-    override val gettingPeopleReadyTitle = "Preparando Personas"
-    override val lookingForFacesTitle = "Buscando caras en tus fotos"
+    override val lookingForFacesTitle = "Encontrando personas en tus fotos"
     override val deepeningTitle = "Procesando el resto de algunos archivos largos"
-    override val chargingReadTitle = "Procesando mientras se carga"
     override val lookingTitle = "Buscando archivos nuevos…"
     override val caughtUpTitle = "Listo. Retriever ha procesado todo lo que puede"
-    override val limitedTitle = "Listo. Algunos archivos largos solo se procesaron en parte"
+
+    override val processingReadyDetail =
+        "Tu progreso está guardado. Puedes empezar ahora, o el procesamiento continuará cuando las condiciones lo permitan."
+    override val processingAdaptiveDetail = "El procesamiento se adapta para que tu teléfono siga respondiendo con fluidez."
+    override val processingBatteryOverrideDetail = "El procesamiento funciona con batería hasta el ${pct(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
+
+    override val processingKeepPaused = "Mantener en pausa"
+    override val processingSearchAvailableDetail = "Ya puedes buscar. Los nombres y el contenido ya procesado siguen disponibles."
+    override val processingPlugInDetail =
+        "Conecta el teléfono para seguir procesando. Retriever procesa con batería hasta el ${pct(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
+    override val processingTapToContinue = "Toca para continuar"
+
+    override val automaticChargingPreferenceDetail =
+        "Espera automáticamente a que se cargue el teléfono. Reanudar permite procesar con batería " +
+            "durante esta sesión."
+
+    override val automaticProcessingPreferenceTitle = "Procesamiento automático"
+    override val automaticProcessingPreferenceDetail =
+        "El procesamiento automático se pausa con batería por debajo del ${pct(ReadingPolicy.BATTERY_FLOOR)}. El procesamiento que inicias o " +
+            "reanudas continúa hasta el ${pct(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
 
     override val pausedDetail = "La búsqueda sigue funcionando."
 
@@ -585,22 +563,24 @@ internal object Spanish : Strings {
     override val hotDetail = "Continuará por sí solo."
     override val lowBatteryDetail = "Conecta el cargador y Retriever continuará."
     override val chargingUpDetail = "El procesamiento empezará cuando la batería tenga algo más de carga."
-    override val busyDetail = "O abre Retriever para continuar ahora."
 
     override fun chargingDetail(words: DeviceWords) = "Retriever continuará cuando tu ${device(words)} se esté cargando."
 
     override val manualDetail = "Puedes encontrar cualquier archivo por su nombre."
-
-    override fun readNowDetail(words: DeviceWords) = "Gasta algo de batería. " + if (words.ios) "Mantén Retriever abierto." else "Se detiene solo."
 
     override val sampleDetail = "Alrededor de un minuto. No se cambia ni se envía nada."
 
     override fun meaningDetail(words: DeviceWords) =
         "Para que puedas buscar por lo que significan las cosas y por lo que aparece en tus fotos. Solo en este ${device(words)}."
 
-    override val peopleDownloadDetail = "Una descarga única para Personas. La búsqueda funciona todo el tiempo."
-    override val facesDetail = "Todos tus archivos están procesados. La búsqueda funciona todo el tiempo."
+    override val peopleDownloadDetail = "Una descarga única para Personas. Todos tus archivos ya se pueden buscar."
+    override val facesDetail = "Un paso extra opcional. Todos tus archivos ya se pueden buscar y no se vuelve a procesar nada."
+
+    override fun facesWaitingDetail(words: DeviceWords) =
+        "Retriever encuentra a las personas cuando tu ${device(words)} lo permite. Todos tus archivos ya se pueden buscar."
+
     override val deepeningDetail = "Puedes encontrarlos por su principio."
+    override val limitedDetail = "Algunos archivos largos solo se procesaron en parte. Puedes encontrarlos por su principio."
     override val readingMeaningDetail = "También se está añadiendo la búsqueda por descripción."
 
     override fun readingDetail(words: DeviceWords) = if (words.ios) {
@@ -621,7 +601,6 @@ internal object Spanish : Strings {
 
     override val caughtUpDetail = "Procesa los archivos nuevos por sí solo."
 
-    override val gettingReadersTitle = "Preparando el procesamiento de tus archivos"
     override val gettingReadersDetail = "Una descarga única de los servicios de Google Play. La búsqueda por nombre ya funciona."
 
     override val peopleWaitsForWifi = "La descarga de Personas espera al Wi-Fi."
@@ -922,14 +901,6 @@ internal object Spanish : Strings {
     // ReadingPermission
     override val notificationPermissionAsk = "¿Mostrar una notificación mientras Retriever procesa tus archivos?"
 
-    override val processFasterAsk = "¿Procesar más rápido mientras se carga?"
-
-    override val processFasterBody = "Android ejecuta las apps en segundo plano en sus núcleos más lentos. " +
-        "Si el uso de batería de Retriever está en «Sin restricciones», Retriever usa los núcleos rápidos mientras tu teléfono se carga " +
-        "y termina mucho antes. En Ajustes, abre «Batería» y elige «Sin restricciones»."
-
-    override val openSettingsLowercase = "Abrir Ajustes"
-
     // ModelDownload
     override val searchModelDownloadTitle = "Modelo de búsqueda de Retriever"
 
@@ -1006,7 +977,7 @@ internal object Spanish : Strings {
     // SettingsScreen
     override val includedFilesFooter = "$kindOff Las carpetas que omitas quedan fuera de la búsqueda."
 
-    override val onlyWhenYouChoose = "Solo cuando eliges «$readFor15»."
+    override val onlyWhenYouChoose = "Solo cuando inicias o reanudas el procesamiento."
 
     override val showProcessingProgress = "Mostrar el progreso del procesamiento"
 
@@ -1054,7 +1025,7 @@ internal object Spanish : Strings {
         "Los modelos de búsqueda y de reconocimiento de texto pueden necesitar una descarga por internet. " +
         "Tu proveedor de archivos también puede usar internet para abrir archivos en la nube."
 
-    override val howItWorksTimes = "Procesa tus archivos en los momentos que elijas en «$whenToRead». " +
+    override val howItWorksTimes = "Procesa tus archivos en los momentos que elijas en «$automaticProcessingPreferenceTitle»." +
         "Los archivos largos se procesan poco a poco: primero puedes encontrarlos por su principio."
 
     override val runSetupCheck = "Comprobar la configuración"
@@ -1092,8 +1063,8 @@ internal object Spanish : Strings {
 
     override val letProcessWhileAway = "Deja que Retriever procese archivos mientras no lo usas"
 
-    override fun batteryMayStop(chargingOnly: Boolean) =
-        "Puede que tu teléfono lo detenga para ahorrar batería." + if (chargingOnly) " Aun así, solo procesa archivos mientras se carga." else ""
+    override fun batteryMayStop(chargingOnly: Boolean) = "Puede que tu teléfono lo detenga para ahorrar batería." + sentenceGap +
+        if (chargingOnly) automaticChargingPreferenceDetail else automaticProcessingPreferenceDetail
 
     override val settingsRowDetail = "Qué procesar, almacenamiento y más"
 
@@ -1229,10 +1200,12 @@ internal object Spanish : Strings {
 
     override fun backgroundNote(words: DeviceWords) =
         "Retriever procesa tus archivos mientras está abierto y, a veces, mientras no lo usas, cuando iOS lo permite. " +
-            "El procesamiento automático espera a que tu ${device(words)} se esté cargando. «$readFor15» gasta algo de batería."
+            "El procesamiento automático en segundo plano espera a que tu ${device(
+                words,
+            )} se esté cargando. Iniciar o reanudar el procesamiento gasta algo de batería."
 
     override val screenKeptOn =
-        "La pantalla se mantiene encendida mientras Retriever procesa tus archivos durante 15 minutos. Puedes desactivarlo en Ajustes."
+        "La pantalla se mantiene encendida mientras Retriever procesa tus archivos. Puedes desactivarlo en Ajustes."
 
     override fun showingLabels(labels: List<String>) = "Mostrando " + labels.joinToString(" · ")
 
@@ -1404,13 +1377,9 @@ internal object Spanish : Strings {
     override val longFilesBitAtATime =
         "Los archivos largos se procesan poco a poco: primero puedes encontrarlos por su principio, y el resto llega después."
 
-    override val onlyWhenYouChooseAnyFile = "Solo cuando eliges «$readFor15». Siempre puedes encontrar cualquier archivo por su nombre."
+    override val onlyWhenYouChooseAnyFile = "Solo cuando inicias o reanudas el procesamiento. Siempre puedes encontrar cualquier archivo por su nombre."
 
-    override fun alsoOnBatteryIosBody(words: DeviceWords) = "Procesa tus archivos mientras Retriever está abierto, con más del 20$NBSP% de batería. " +
-        "Cuando no lo usas, iOS espera a que tu ${device(words)} se esté cargando. " +
-        "Se pausa cuando tu ${device(words)} está caliente o en el ${powerSave(words)}."
-
-    override val keepScreenOnToggle = "Mantener la pantalla encendida al procesar durante 15 minutos"
+    override val keepScreenOnToggle = "Mantener la pantalla encendida mientras se procesa"
 
     override fun adjustProcessingFor(words: DeviceWords) = "Ajustar el procesamiento para este ${device(words)}"
 

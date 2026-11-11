@@ -3,23 +3,30 @@ package app.retriever
 import android.app.Application
 import android.content.Intent
 import android.os.Environment
+import android.os.Looper
 import android.os.StrictMode
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.lifecycle.Lifecycle
+import androidx.startup.InitializationProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Retriever
 import app.retriever.core.Words
 import app.retriever.di.AppScope
 import app.retriever.di.DemoMode
+import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
+import app.retriever.indexing.ReadingService
 import app.retriever.search.RecentShortcuts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -29,7 +36,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.stopKoin
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.Implementation
@@ -45,7 +54,17 @@ class AppLaunchTest {
 
     @After fun tearDown() {
         GlobalContext.getOrNull()?.let { koin ->
-            runBlocking { koin.get<CoroutineScope>(AppScope).coroutineContext.job.cancelAndJoin() }
+            val job = koin.get<CoroutineScope>(AppScope).coroutineContext.job
+            job.cancel()
+            runBlocking {
+                withTimeout(10_000) {
+                    while (!job.isCompleted) {
+                        shadowOf(Looper.getMainLooper()).idle()
+                        delay(1)
+                    }
+                }
+                job.join()
+            }
         }
         stopKoin()
         StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.LAX)
@@ -55,6 +74,8 @@ class AppLaunchTest {
     @Test fun realApplicationLaunchesHello() {
         val app = ApplicationProvider.getApplicationContext<Application>()
         assertTrue(app is RetrieverApp)
+        // Robolectric runs no content providers: start the process lifecycle the app's onStart (uiVisible) follows, as on a phone.
+        Robolectric.setupContentProvider(InitializationProvider::class.java)
         val koin = GlobalContext.get()
         assertNull(koin.get<DemoMode>().parts)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -91,6 +112,32 @@ class AppLaunchTest {
         for (blank in listOf("", "   ")) {
             val empty = Intent(app, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(RecentShortcuts.EXTRA, blank)
             ActivityScenario.launch<MainActivity>(empty).use { scenario -> scenario.onActivity { assertNull(it.searchRequest) } }
+        }
+        // A notification Resume starts once while the activity is visible. Recreating its retained intent must not
+        // undo a subsequent user Pause, even though it still carries the Resume action.
+        val resume = Intent(app, MainActivity::class.java).setAction(Notifications.RESUME_PROCESSING)
+        ActivityScenario.launch<MainActivity>(resume).use { scenario ->
+            scenario.onActivity { assertEquals(1, it.statusRequest) }
+            rule.waitUntil(10_000) { shadowOf(app).peekNextStartedService()?.component?.className == ReadingService::class.java.name }
+            val paused = koin.get<CoroutineScope>(AppScope).launch { koin.get<IndexService>().pause() }
+            rule.waitUntil(10_000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                paused.isCompleted
+            }
+            scenario.recreate()
+            rule.waitForIdle()
+            scenario.onActivity { assertEquals(0, it.statusRequest) }
+            assertTrue(koin.get<Retriever>().prefs.value.paused)
+        }
+        // Recents can create a new activity with no saved Bundle while retaining the old notification action.
+        val history = Intent(resume).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)
+        ActivityScenario.launch<MainActivity>(history).use { scenario ->
+            scenario.onActivity {
+                assertTrue(it.intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0)
+                assertEquals(0, it.statusRequest)
+            }
+            rule.waitForIdle()
+            assertTrue(koin.get<Retriever>().prefs.value.paused)
         }
     }
 }

@@ -17,6 +17,7 @@ import app.retriever.core.Store
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
 import app.retriever.ui.launchCatching
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,8 +60,9 @@ data class HomeUi(
     val showOnThisDay: Boolean = true,
     /** Setup just finished: the one-time card about what happens next, core's [app.retriever.core.Prefs.homeIntroDue]. */
     val introDue: Boolean = false,
-    /** The card's "other files" line follows the schedule: Also on battery reads off the charger too. */
-    val readsOnBattery: Boolean = false,
+    /** The card distinguishes this active scan from the saved automatic policy. */
+    val automaticReading: ReadingSchedule = ReadingSchedule.CHARGING,
+    val sessionActive: Boolean = false,
     /** Setup's first search's files, core's [app.retriever.core.SetupInputs.planned]. */
     val planned: Long = 0,
     /** Grouped faces, most photos first; empty while Recognize people is off. */
@@ -114,7 +116,12 @@ internal fun onThisDayRanges(today: LocalDate, zone: ZoneId): List<Triple<Int, L
 /** Unchanged facts are the old instance, so the strips showing them skip recomposing on a refresh. */
 internal fun HomeFacts.reusing(old: HomeFacts?): HomeFacts = if (this == old) old else this
 
-class HomeViewModel(private val retriever: Retriever, private val access: AccessService, private val indexer: IndexService) : ViewModel() {
+class HomeViewModel(
+    private val retriever: Retriever,
+    private val access: AccessService,
+    private val indexer: IndexService,
+    private val appScope: CoroutineScope,
+) : ViewModel() {
     /** The local clock; replaced in tests. */
     internal var now: suspend () -> ZonedDateTime = { withContext(Dispatchers.IO) { ZonedDateTime.now() } }
 
@@ -127,7 +134,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
                 introDue = retriever.prefs.value.homeIntroDue,
-                readsOnBattery = retriever.prefs.value.automaticReading == ReadingSchedule.BATTERY,
+                automaticReading = retriever.prefs.value.automaticReading,
+                sessionActive = retriever.prefs.value.started,
                 notificationsOfferDismissed = retriever.prefs.value.notificationsOfferDismissed,
                 suggestions = null,
             ),
@@ -181,7 +189,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
                         introDue = p.homeIntroDue,
-                        readsOnBattery = p.automaticReading == ReadingSchedule.BATTERY,
+                        automaticReading = p.automaticReading,
+                        sessionActive = p.started,
                         peopleOffer = !p.recognizePeople && !p.peopleOfferDismissed && Kind.PHOTO in p.kinds,
                         notificationsOfferDismissed = p.notificationsOfferDismissed,
                     )
@@ -250,18 +259,8 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
 
     val celebration = celebrationOf(retriever)
 
-    /** "Read everything" on Home: the commit choice made after the first run; WorkManager reads on past this screen. */
-    fun commit(whileCharging: Boolean) = launchCatching {
-        retriever.commit(whileCharging)
-        indexer.schedulePeriodic(true)
-        indexer.indexNow()
-    }
+    /** The status line's Start processing and Resume. */
+    fun readNow() = appScope.launchCatching { indexer.start() }
 
-    /** "Index now": lifts a pause and starts a batch, which WorkManager runs past this screen. */
-    fun resume() = launchCatching { indexer.resume() }
-
-    /** The status line's Read for 15 minutes; the line says so from the tap. */
-    fun readNow() = launchCatching { indexer.readNow() }
-
-    fun stopReadNow() = launchCatching { indexer.endReadNow() }
+    fun stopReadNow() = appScope.launchCatching { indexer.pause() }
 }

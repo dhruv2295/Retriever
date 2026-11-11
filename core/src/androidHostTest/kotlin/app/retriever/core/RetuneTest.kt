@@ -1,10 +1,12 @@
 package app.retriever.core
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -76,6 +78,32 @@ class RetuneTest {
 
     private val slow = DeviceProbe(Platform.ANDROID, 35, "Google", "Pixel", 4.0, false)
     private val samples = Samples(listOf(ByteArray(10)), listOf("hello world"), emptyList())
+
+    @Test fun aTuneUsesTheSessionFloorAndPauseButNeverTheFileSchedule() = test {
+        val monitor = FakeMonitor(DeviceState(8.0, false, 49, Thermal.NONE, screenOn = true))
+        val r = testRetriever(newStore(), emptyList(), FakeExtractor(), monitor = monitor)
+        r.setReadingSchedule(ReadingSchedule.MANUAL)
+        assertEquals(StopReason.UNPLUGGED, assertFailsWith<CalibrationDeferred> { r.calibrate(samples, false) }.reason)
+        monitor.state = monitor.state.copy(batteryPct = ReadingPolicy.RESUMED_BATTERY_FLOOR)
+        assertTrue(r.calibrate(samples, false).backends.isNotEmpty(), "fifty, as a session, whatever the file schedule")
+        assertFalse(r.prefs.value.started, "a tune starts no processing session")
+        r.pause()
+        assertEquals(StopReason.PAUSED, assertFailsWith<CalibrationDeferred> { r.calibrate(samples, true) }.reason)
+    }
+
+    @Test fun aDeferredOrCancelledGpuRetestKeepsItsRetryAvailable() = test {
+        for (cancelled in listOf(false, true)) {
+            val store = newStore().also { it.setProfile(PROFILE.copy(gpuError = "much slower than CPU")) }
+            val r = testRetriever(store, emptyList(), FakeExtractor())
+            assertFailsWith<CancellationException> {
+                r.retestGpuIfDue {
+                    if (cancelled) throw CancellationException("test cancellation") else throw CalibrationDeferred(StopReason.HOT)
+                }
+            }
+            assertEquals("0", store.meta(Retriever.GPU_RETESTED))
+            assertTrue(r.retestGpuIfDue { samples } != null, "a temporary stop does not consume the one retest")
+        }
+    }
 
     /** Mobile data (or the welcome tap) writes prefs before the first tune; the tier defaults must still land. */
     @Test

@@ -32,7 +32,6 @@ final class AppModel {
         /// Core's reading status; nil until the first snapshot, when `Copy.reading` decides the same way.
         var readingStatus: ReadingStatus?
         var automaticReading: ReadingSchedule = .charging
-        var readNowUntil: Int64 = 0
         /// Too little memory to understand photos: files are found by their names and the words inside them.
         var textOnly = false
         var ramGb = 0.0
@@ -197,9 +196,13 @@ final class AppModel {
     var screenKeptOn = false
     var keepScreenAwakeForSession = false
     var readingMessage: String?
-    /// A read the person started carries on after they leave (IndexTask.continuedId); the foreground loop stands
-    /// aside until it ends.
-    var continuing = false
+    /// The session a read the person started carries on in after they leave (IndexTask.continuedId), from the tap until
+    /// its task ends; 0 when none. The foreground loop stands aside meanwhile.
+    var continuedSession: Int64 = 0
+    var continuing: Bool { continuedSession != 0 }
+    /// Explicit commands run one after another; each checks it is still the latest after every wait.
+    @ObservationIgnored var processingCommand: Task<Void, Never>?
+    @ObservationIgnored var processingIntent = UUID()
 
     /// Status offers to keep reading after the person leaves: iOS 26 and files waiting.
     var canKeepReading: Bool {
@@ -274,12 +277,13 @@ final class AppModel {
         tokens.append(
             NotificationCenter.default.addObserver(forName: IndexTask.ended, object: nil, queue: .main) { [weak self] note in
                 let continued = (note.object as? String) == IndexTask.continuedId
+                let session = note.userInfo?["session"] as? Int64
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    if continued {
-                        self.continuing = false
-                        self.startLoop()
-                    }
+                    // An older task's end leaves a newer handoff continuing; the loop's own guards decide the rest.
+                    if continued, session == self.continuedSession { self.continuedSession = 0 }
+                    self.recoverProcessingRequest()
+                    self.startLoop()
                     self.wake()
                 }
             })
@@ -291,6 +295,7 @@ final class AppModel {
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated {
                         self?.keepScreenOn(self?.reading ?? false)
+                        self?.recoverProcessingRequest()
                         self?.wake()
                     }
                 })
@@ -331,12 +336,15 @@ final class AppModel {
         let becameSetUp = new.setUp == true && snap?.setUp != true
         // Files waiting or not decides the screen, so re-decide when that flips (the first counts included).
         let waitingChanged = (new.pending > 0) != ((snap?.pending ?? 0) > 0)
+        // A request with no session: loaded after activation, or left when an earlier process's session was ended.
+        let requestWaiting = new.prefs?.processingRequested == true && new.prefs?.started != true
         snap = new
         snapWrites += 1
         if setUp != (new.setUp == true) { setUp = new.setUp == true }
         if textOnly != new.textOnly { textOnly = new.textOnly }
         if waitingChanged { keepScreenOn(reading) }
         considerCelebration(new)
+        if requestWaiting { recoverProcessingRequest() }
         guard becameSetUp else { return }
         // Tuned in an earlier launch: say so rather than "starts after the download".
         if tune == .idle { tune = .done(new.backend.map { Copy.tuneSummary($0, imageMs: nil) } ?? "Tuned for this \(Copy.device)") }
@@ -384,20 +392,6 @@ final class AppModel {
         Task { await markCelebrated() }
     }
 
-    /// Read while charging / Read now, from Home's commit card: the rest is read from now on. The same steps as setup's
-    /// commit choice; on iOS 26 Read now hands the reading to a task that goes on after the person leaves.
-    func commit(whileCharging: Bool) {
-        guard let retriever = services?.retriever else { return }
-        Task {
-            do {
-                try await retriever.commit(whileCharging: whileCharging)
-                IndexTask.schedule()
-                wake()
-                if !whileCharging { keepReading() }
-            } catch { readingMessage = Words.shared.strings.couldntSaveChange }
-
-        }
-    }
 }
 
 extension AppModel.Snap {
@@ -427,7 +421,6 @@ extension AppModel.Snap {
         notNow = coverage.notNow
         readingStatus = s.reading
         automaticReading = s.prefs.automaticReading
-        readNowUntil = s.prefs.readNowUntil
         waiting = Int(s.counts.waiting)
         trial = s.counts.trial
         skipped = Int(coverage.couldntRead)

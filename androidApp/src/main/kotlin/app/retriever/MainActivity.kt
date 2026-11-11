@@ -2,6 +2,7 @@ package app.retriever
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.KeyboardShortcutGroup
 import android.view.KeyboardShortcutInfo
@@ -12,12 +13,20 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import app.retriever.access.AccessService
 import app.retriever.core.Retriever
 import app.retriever.core.Words
+import app.retriever.di.AppScope
+import app.retriever.indexing.IndexService
 import app.retriever.indexing.Notifications
 import app.retriever.nav.AppNav
 import app.retriever.search.RecentShortcuts
 import app.retriever.ui.RetrieverTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
@@ -28,6 +37,10 @@ class MainActivity : ComponentActivity() {
     internal var searchRequest by androidx.compose.runtime.mutableStateOf<Pair<Int, String>?>(null)
         private set
     private val retriever: Retriever by inject()
+    private val indexer: IndexService by inject()
+    private val access: AccessService by inject()
+    private val appScope: CoroutineScope by inject(AppScope)
+    private var resumeProcessing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -52,6 +65,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         retriever.inputSeen()
+        val explicitResume = resumeProcessing
+        // Consume before launching: a later Pause cannot replay this notification through recreation.
+        resumeProcessing = false
+        appScope.launch(Dispatchers.Default) {
+            try {
+                retriever.setup.first { it != null }
+                if (!retriever.uiVisible) return@launch
+                if (explicitResume) {
+                    indexer.start()
+                } else if (access.access().ready) {
+                    indexer.recoverRequested()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("Retriever", "Unable to resume requested processing", e)
+            }
+        }
     }
 
     override fun onUserInteraction() {
@@ -92,6 +123,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun take(intent: Intent) {
+        // History can retain a consumed notification action even when no saved instance state survives.
+        if (intent.action == Notifications.RESUME_PROCESSING && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
+            statusRequest++
+            resumeProcessing = true
+        }
         intent.getStringExtra(RecentShortcuts.EXTRA)?.trim()?.takeIf { it.isNotEmpty() }?.let { searchRequest = (searchRequest?.first ?: 0) + 1 to it }
     }
 }

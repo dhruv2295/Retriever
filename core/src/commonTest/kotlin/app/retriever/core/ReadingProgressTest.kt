@@ -20,65 +20,90 @@ class ReadingProgressTest {
         assertFalse(ReadingProgress(partlyRead = 3).unfinished, "permanent limits are not scheduled work")
     }
 
-    @Test fun chargingAppliesInForegroundAndExplicitExpiryDoesNotRenew() {
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(Prefs(), device, true, false, 100))
-        val session = Prefs(readNowUntil = 200)
-        assertNull(ReadingPolicy.blocker(session, device, true, false, 199))
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(session, device, true, false, 200))
-        assertEquals(StopReason.MANUAL, ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.MANUAL), device.copy(charging = true), true, false, 100))
-    }
-
-    @Test fun safeguardsBeatExplicitAndSampleSessions() {
-        val prefs = Prefs(readNowUntil = 1_000)
-        assertEquals(StopReason.POWER_SAVE, ReadingPolicy.blocker(prefs, device.copy(powerSave = true), true, true, 0))
-        assertEquals(StopReason.HOT, ReadingPolicy.blocker(prefs, device.copy(thermal = Thermal.SEVERE), true, true, 0))
-        assertEquals(StopReason.LOW_BATTERY, ReadingPolicy.blocker(prefs, device.copy(batteryPct = 20), true, true, 0))
-        // Using the phone is not a safeguard against Process for 15 minutes, which the person asked for; a sample still waits.
-        assertNull(ReadingPolicy.blocker(prefs, device.copy(screenOn = true), false, true, 0))
-        assertEquals(StopReason.BUSY, ReadingPolicy.blocker(Prefs(), device.copy(screenOn = true), false, true, 0))
-        assertEquals(StopReason.PAUSED, ReadingPolicy.blocker(prefs.copy(paused = true), device.copy(powerSave = true), true, true, 0))
-    }
-
-    @Test fun aFewNewFilesAreReadOnBatteryAndWhileThePhoneIsInUse() {
-        val inUse = device.copy(screenOn = true)
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(Prefs(), device, false, false, 0))
-        assertNull(ReadingPolicy.blocker(Prefs(), device, false, false, 0, fewWaiting = true))
-        assertEquals(StopReason.BUSY, ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.BATTERY), inUse, false, false, 0))
-        assertNull(ReadingPolicy.blocker(Prefs(), inUse, false, false, 0, fewWaiting = true))
-        // On the charger the catch-up goes on while the phone is in use.
-        assertNull(ReadingPolicy.blocker(Prefs(), inUse.copy(charging = true, pluggedIn = true), false, false, 0))
-        // Safeguards and the person's own choices still win.
-        assertEquals(StopReason.LOW_BATTERY, ReadingPolicy.blocker(Prefs(), device.copy(batteryPct = 15), false, false, 0, fewWaiting = true))
-        assertEquals(StopReason.HOT, ReadingPolicy.blocker(Prefs(), device.copy(thermal = Thermal.SEVERE), false, false, 0, fewWaiting = true))
-        assertEquals(StopReason.PAUSED, ReadingPolicy.blocker(Prefs(paused = true), device, false, false, 0, fewWaiting = true))
-        assertEquals(StopReason.MANUAL, ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.MANUAL), device, false, false, 0, fewWaiting = true))
+    @Test fun sessionsOverrideTheScheduleNeverSafety() {
+        val session = Prefs(started = true)
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(Prefs(), device, false))
+        assertNull(ReadingPolicy.blocker(session, device, false))
+        assertNull(ReadingPolicy.blocker(Prefs(), device, true), "the demo in front")
+        assertEquals(
+            StopReason.MANUAL,
+            ReadingPolicy.blocker(Prefs().withSchedule(ReadingSchedule.MANUAL), device.copy(charging = true, pluggedIn = true), false),
+        )
+        assertEquals(StopReason.POWER_SAVE, ReadingPolicy.blocker(session, device.copy(powerSave = true), true))
+        assertEquals(StopReason.HOT, ReadingPolicy.blocker(session, device.copy(thermal = Thermal.SEVERE), true))
+        assertEquals(StopReason.LOW_BATTERY, ReadingPolicy.blocker(session, device.copy(batteryPct = 20), true))
+        assertEquals(StopReason.PAUSED, ReadingPolicy.blocker(session.copy(paused = true), device.copy(powerSave = true), true))
     }
 
     @Test fun alsoOnBatteryReadsDownToTheFloorThenWaitsForTheCharger() {
         val battery = Prefs().withSchedule(ReadingSchedule.BATTERY)
         val floor = ReadingPolicy.BATTERY_FLOOR
-        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor), false, false, 0))
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false, false, 0))
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.deepenBlocker(battery, device.copy(batteryPct = floor - 1), false, false, 0))
-        // A few new files still go on down to the low-battery line; the charger lifts the floor.
-        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false, false, 0, fewWaiting = true))
-        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = 40, charging = true, pluggedIn = true), false, false, 0))
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor), false))
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false))
+        // Small backlogs bypass the automatic reserve down to fifty; charging lifts the battery floor.
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = floor - 1), false, fewWaiting = true))
+        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.blocker(battery, device.copy(batteryPct = 49), false, fewWaiting = true))
+        assertNull(ReadingPolicy.blocker(battery, device.copy(batteryPct = 40, charging = true, pluggedIn = true), false))
     }
 
-    @Test fun laterPartsStayOnTheCharger() {
-        val plugged = device.copy(charging = true, pluggedIn = true)
-        assertNull(ReadingPolicy.deepenBlocker(Prefs(), plugged, false, false, 0))
-        assertEquals(StopReason.UNPLUGGED, ReadingPolicy.deepenBlocker(Prefs(), device, false, false, 0))
-        assertNull(ReadingPolicy.deepenBlocker(Prefs(), plugged.copy(screenOn = true), false, false, 0))
-        assertNull(ReadingPolicy.deepenBlocker(Prefs(readNowUntil = 100), device.copy(screenOn = true), false, false, 0))
-        assertNull(ReadingPolicy.deepenBlocker(Prefs(), device.copy(screenOn = true), true, true, 0))
+    @Test fun savedQueuedProgressOffersResumeAndActualOtherAppProcessingOffersPause() {
+        val queued = ReadingPolicy.decide(pending, null, false, false, DeviceWords.ANDROID, processingStarted = true)
+        assertEquals(ReadingPhase.WAITING, queued.phase)
+        assertEquals(StatusAction.RESUME, queued.action)
+        assertFalse(queued.active)
+        assertFalse(queued.offersPause(pending))
+        val active = ReadingPolicy.decide(pending, null, true, false, DeviceWords.ANDROID, adaptive = true)
+        assertEquals(ReadingPhase.READING, active.phase)
+        assertEquals(StatusAction.PAUSE, active.action)
+        assertEquals(Words.strings.processingAdaptiveDetail, active.detail)
+        assertEquals(pending.processed to pending.libraryTotal, active.done to active.total)
+        val betweenBatches = ReadingPolicy.decide(pending, null, false, false, DeviceWords.ANDROID, sessionActive = true)
+        assertEquals(StatusAction.PAUSE, betweenBatches.action)
+        assertEquals(Words.strings.processingYourFiles, betweenBatches.title)
+        assertFalse(betweenBatches.active, "a held session's gap does not claim inference is running")
+        val unstarted = ReadingPolicy.decide(pending, StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID, battery = 74)
+        assertEquals(StatusAction.START, unstarted.action, "an automatic battery wait does not establish processing history")
+        assertEquals(Words.strings.automaticProcessingPreferenceDetail, unstarted.detail)
+        val asked = ReadingPolicy.decide(
+            pending,
+            StopReason.UNPLUGGED,
+            false,
+            false,
+            DeviceWords.ANDROID,
+            battery = 49,
+            requested = true,
+            processingStarted = true,
+        )
+        assertEquals(Words.strings.processingPlugInDetail, asked.detail, "below fifty, a person's request asks to plug in")
+        assertEquals(StatusAction.RESUME, asked.action)
+        val complete = ReadingPolicy.decide(
+            ReadingProgress(read = 4, partlyRead = 2, couldntRead = 1),
+            StopReason.PAUSED,
+            false,
+            false,
+            DeviceWords.ANDROID,
+            processingStarted = true,
+        )
+        assertEquals(ReadingPhase.LIMITED, complete.phase)
+        assertEquals(StatusAction.DISMISS, complete.action, "a saved pause has no Resume once all possible work is done")
+        assertEquals(7L, complete.done, "completed coverage keeps failures and partial reads distinct")
+        val completeOnBattery = ReadingPolicy.decide(
+            ReadingProgress(read = 4),
+            StopReason.UNPLUGGED,
+            false,
+            false,
+            DeviceWords.ANDROID,
+            battery = 60,
+        )
+        assertEquals(ReadingPhase.CAUGHT_UP, completeOnBattery.phase)
+        assertEquals(Words.strings.caughtUpDetail, completeOnBattery.detail, "complete work has no stale battery wait detail")
     }
 
     @Test fun oneStatePrecedenceKeepsBlockersAheadOfActiveSampleAndTails() {
         for (sample in listOf(true, false)) {
             val p = pending.copy(sample = sample)
             assertEquals(ReadingPhase.PAUSED, ReadingPolicy.decide(p, StopReason.PAUSED, true, true, DeviceWords.ANDROID).phase)
-            assertEquals("Paused while Low Power Mode is on", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, IOS).title)
+            assertEquals("Paused · continues when Low Power Mode is off", ReadingPolicy.decide(p, StopReason.POWER_SAVE, true, true, IOS).title)
             assertEquals(ReadingPhase.CHARGING, ReadingPolicy.decide(p, StopReason.UNPLUGGED, true, true, DeviceWords.ANDROID).phase)
             assertEquals(ReadingPhase.WAITING, ReadingPolicy.decide(p, null, false, false, DeviceWords.ANDROID).phase)
         }
@@ -91,7 +116,7 @@ class ReadingProgressTest {
         assertEquals(ReadingPhase.LIMITED, ReadingPolicy.decide(ReadingProgress(partlyRead = 2), null, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.NOT_NOW, ReadingPolicy.decide(ReadingProgress(read = 2, sample = true), null, false, false, DeviceWords.ANDROID).phase)
         assertEquals(ReadingPhase.CAUGHT_UP, ReadingPolicy.decide(ReadingProgress(read = 2), null, false, false, DeviceWords.ANDROID).phase)
-        assertEquals("Taking a short break", ReadingPolicy.decide(pending, null, false, false, IOS).title)
+        assertEquals("Paused", ReadingPolicy.decide(pending, null, false, false, IOS).title)
     }
 
     /** Every file's first pass done, long files' later parts left: hours of work, never a short break beside a full bar. */
@@ -100,25 +125,25 @@ class ReadingProgressTest {
         val between = ReadingPolicy.decide(later, null, false, false, DeviceWords.ANDROID)
         assertEquals(ReadingPhase.WAITING, between.phase)
         assertEquals("All files processed", between.title)
-        assertEquals("Retriever processes the rest of some long files when your phone allows. Search works now.", between.detail)
+        assertEquals(Words.strings.waitingLongFilesDetail(DeviceWords.ANDROID), between.detail)
         assertEquals("12 of 12 files processed", between.count)
         assertEquals("All files processed", ReadingPolicy.decide(later, StopReason.BUDGET, false, false, DeviceWords.ANDROID).title)
         val meaningLeft = ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 2), null, false, false, DeviceWords.ANDROID)
-        assertEquals("Retriever adds search by description when your phone allows. Search works now.", meaningLeft.detail)
+        assertEquals(Words.strings.waitingMeaningDetail(DeviceWords.ANDROID), meaningLeft.detail)
         assertEquals("3 of 5 files have search by description", meaningLeft.count, "not a full bar of files processed")
-        assertEquals("Adding search by description", meaningLeft.title, "nor All files processed over that count")
+        assertEquals("Adding search by description", meaningLeft.title)
         // A stop still says why; files still waiting keep the short break.
-        val busy = ReadingPolicy.decide(later, StopReason.BUSY, false, false, DeviceWords.ANDROID)
-        assertEquals(ReadingPhase.BUSY, busy.phase)
-        assertEquals("All files processed. The rest of 2 long files waits. Or open Retriever to carry on now.", busy.detail)
-        assertEquals(null, busy.count, "no full bar beside work still to do")
+        val hot = ReadingPolicy.decide(later, StopReason.HOT, false, false, DeviceWords.ANDROID)
+        assertEquals(ReadingPhase.HOT, hot.phase)
+        assertEquals("All files processed. The rest of 2 long files waits. Carries on by itself.", hot.detail)
+        assertEquals(null, hot.count, "no full bar beside work still to do")
         val meaningStopped = ReadingPolicy.decide(ReadingProgress(read = 5, meaningWaiting = 2), StopReason.UNPLUGGED, false, false, DeviceWords.ANDROID)
         assertEquals("3 of 5 files have search by description", meaningStopped.count)
         assertEquals("All files processed. Retriever carries on when your phone is charging.", meaningStopped.detail)
         // Paused with nothing left keeps the plain count.
         assertEquals("5 of 5 files processed", ReadingPolicy.decide(ReadingProgress(read = 5), StopReason.PAUSED, false, false, DeviceWords.ANDROID).count)
         assertEquals("Paused, your phone is full", ReadingPolicy.decide(later, StopReason.DISK_FULL, false, false, DeviceWords.ANDROID).title)
-        assertEquals("Taking a short break", ReadingPolicy.decide(later.copy(scheduled = 1), null, false, false, DeviceWords.ANDROID).title)
+        assertEquals("Paused", ReadingPolicy.decide(later.copy(scheduled = 1), null, false, false, DeviceWords.ANDROID).title)
         // A batch on the later parts names them between two files too, with no full bar.
         val running = ReadingPolicy.decide(later, null, true, false, DeviceWords.ANDROID)
         assertEquals(ReadingPhase.DEEPENING, running.phase)

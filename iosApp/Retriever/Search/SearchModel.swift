@@ -352,7 +352,7 @@ final class SearchModel {
         Task {
             try? await retriever.updatePrefs { @Sendable p in
                 p.doCopy(
-                    kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging, schedule: p.schedule, readNowUntil: p.readNowUntil,
+                    kinds: p.kinds, onlyWhileCharging: p.onlyWhileCharging, schedule: p.schedule, started: p.started,
                     excludedFolders: p.excludedFolders,
                     paused: p.paused,
                     sampleSize: p.sampleSize, allowMobileData: p.allowMobileData, rememberSearches: p.rememberSearches,
@@ -363,7 +363,8 @@ final class SearchModel {
                     dismissedReadingCycle: p.dismissedReadingCycle,
                     searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed, homeIntroDue: p.homeIntroDue,
                     notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: p.recognizePeople,
-                    peopleOfferDismissed: p.peopleOfferDismissed)
+                    peopleOfferDismissed: p.peopleOfferDismissed,
+                    processingRequested: p.processingRequested)
             }
         }
     }
