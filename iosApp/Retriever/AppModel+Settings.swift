@@ -19,6 +19,7 @@ extension AppModel {
                 paused: p.paused, sampleSize: p.sampleSize, allowMobileData: mobileData ?? p.allowMobileData,
                 rememberSearches: remember ?? p.rememberSearches, dynamicColor: p.dynamicColor,
                 setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
+                notificationsOfferDismissed: p.notificationsOfferDismissed, notificationsPermissionRequested: p.notificationsPermissionRequested,
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
                 homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
