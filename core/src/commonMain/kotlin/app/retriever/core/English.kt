@@ -922,11 +922,11 @@ internal object English : Strings {
 
     override val onlyWhenYouChoose = "Only when you choose $readFor15."
 
-    override val processingNotifications = "Processing notifications"
+    override val showProcessingProgress = "Show processing progress"
+
+    override val processingProgressNotice = "Turn on one silent notification to see progress while Retriever processes your files."
 
     override val notificationsOn = "On"
-
-    override val notificationsOff = "Off. Processing still runs; you just don’t see how far it’s got."
 
     override val includedFiles = "Included files"
 

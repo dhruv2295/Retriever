@@ -1016,11 +1016,11 @@ internal object French : Strings {
 
     override val onlyWhenYouChoose = "Seulement quand vous choisissez «$NBSP$readFor15$NBSP»."
 
-    override val processingNotifications = "Notifications de traitement"
+    override val showProcessingProgress = "Afficher la progression du traitement"
+
+    override val processingProgressNotice = "Activez une seule notification silencieuse pour suivre la progression pendant que Retriever traite vos fichiers."
 
     override val notificationsOn = "Activées"
-
-    override val notificationsOff = "Désactivées. Le traitement continue, vous ne voyez simplement pas où il en est."
 
     override val includedFiles = "Fichiers inclus"
 

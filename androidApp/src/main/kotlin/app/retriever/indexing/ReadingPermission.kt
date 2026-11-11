@@ -1,7 +1,5 @@
 package app.retriever.indexing
 
-import android.Manifest
-import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -9,13 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +30,7 @@ import org.koin.compose.koinInject
 
 /** Ask once on a scheduling tap; declining never blocks the action. */
 @Composable
-fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit) -> Unit {
+fun rememberReadingPermission(retriever: Retriever = koinInject(), onboarding: Boolean = false): (() -> Unit) -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Saved, so the question survives a rotation. The tap's action can't be saved: a recreation runs it rather than drop it.
@@ -44,7 +41,7 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         pending = null
     }
     DisposableEffect(Unit) { onDispose { runPending() } }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { runPending() }
+    val requestNotifications = rememberNotificationPermission(retriever) { runPending() }
     // Core words it from the demo's state; the dialog waits the one frame the answer takes, so its text never changes
     // while it is up.
     val asked by remember(asking) {
@@ -53,11 +50,12 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
     }.collectAsStateWithLifecycle(null)
     val text = asked
     if (asking && text != null) {
+        LaunchedEffect(Unit) { if (onboarding) NotificationPermissionSession.onboardingAsked = true }
         fun finish(enable: Boolean) {
             asking = false
             scope.launch {
                 retriever.updatePrefs { it.copy(notificationsDismissed = true) }
-                if (enable && Build.VERSION.SDK_INT >= 33) launcher.launch(Manifest.permission.POST_NOTIFICATIONS) else runPending()
+                if (enable) requestNotifications() else runPending()
             }
         }
         AlertDialog(
@@ -69,7 +67,7 @@ fun rememberReadingPermission(retriever: Retriever = koinInject()): (() -> Unit)
         )
     }
     return { action ->
-        if (Build.VERSION.SDK_INT < 33 || context.getSystemService(NotificationManager::class.java).areNotificationsEnabled() ||
+        if (Build.VERSION.SDK_INT < 33 || processingNotificationsEnabled(context) ||
             retriever.prefs.value.notificationsDismissed
         ) {
             action()

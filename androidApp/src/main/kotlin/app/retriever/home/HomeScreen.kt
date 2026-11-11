@@ -1,11 +1,7 @@
 package app.retriever.home
 
-import android.Manifest
-import android.app.NotificationManager
 import android.os.Build
 import androidx.activity.compose.ReportDrawnWhen
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,6 +71,10 @@ import app.retriever.core.UpgradePolicy
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.indexing.NotificationPermissionSession
+import app.retriever.indexing.processingNotificationsEnabled
+import app.retriever.indexing.rememberNotificationPermission
+import app.retriever.indexing.rememberProcessingNotificationsEnabled
 import app.retriever.model.FreeUpSpaceButton
 import app.retriever.model.MobileDataAsk
 import app.retriever.model.ModelState
@@ -119,6 +119,8 @@ class HomeActions(
     val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
     val turnOnPeople: () -> Unit = {},
     val dismissPeopleOffer: () -> Unit = {},
+    val turnOnNotifications: () -> Unit = {},
+    val dismissNotificationsOffer: () -> Unit = {},
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
     val dismissIntro: () -> Unit = {},
     val notify: (() -> Unit)? = null,
@@ -142,18 +144,18 @@ fun HomeScreen(
     val prefs by retriever.prefs.collectAsStateWithLifecycle()
     val upgradeActions = remember(upgrade) { upgrade.actions(dismissible = true) }
     val requestReading = app.retriever.indexing.rememberReadingPermission()
+    val requestNotifications = rememberNotificationPermission(retriever)
+    val notificationsOn by rememberProcessingNotificationsEnabled()
     val askBattery = app.retriever.indexing.rememberBatteryAsk()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Home is usable once its counts load: reportFullyDrawn, so a cold start's time to full display is measurable.
     ReportDrawnWhen { ui.counts != null }
-    // The card's Notify me asks core for the one notice, and Android for notifications where they are off.
-    val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     // All-files access is switched in Settings, so the "can't see your files" line clears on return without a restart.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.onResume() }
     // Built once (again when Notify me has been asked): a fresh HomeActions per recomposition would defeat HomeBody's
     // skipping. Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val homeActions = remember(context, requestReading, askBattery, prefs.notifyWhenCaughtUp, snackbar, scope) {
+    val homeActions = remember(context, requestReading, requestNotifications, askBattery, prefs.notifyWhenCaughtUp, snackbar, scope) {
         HomeActions(
             resume = vm::resume,
             allowAccess = { openAllFilesSettings(context) },
@@ -180,6 +182,8 @@ fun HomeScreen(
             answerSamePerson = vm::answerSamePerson,
             turnOnPeople = vm::turnOnPeople,
             dismissPeopleOffer = vm::dismissPeopleOffer,
+            turnOnNotifications = requestNotifications,
+            dismissNotificationsOffer = vm::dismissNotificationsOffer,
             dismissIntro = vm::dismissIntro,
             // Hidden once asked: the card has nothing more to promise.
             notify = if (prefs.notifyWhenCaughtUp) {
@@ -187,9 +191,7 @@ fun HomeScreen(
             } else {
                 {
                     vm.requestCaughtUpNotice()
-                    if (Build.VERSION.SDK_INT >= 33 && !context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
-                        notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
+                    if (!processingNotificationsEnabled(context)) requestNotifications()
                 }
             },
         )
@@ -200,6 +202,7 @@ fun HomeScreen(
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
         rail = rail,
+        notificationsOffer = ui.showNotificationsOffer(Build.VERSION.SDK_INT, notificationsOn, NotificationPermissionSession.onboardingAsked),
     )
 }
 
@@ -238,6 +241,7 @@ internal fun HomeBody(
     upgradeActions: UpgradeActions = UpgradeActions(),
     offer: Boolean = false,
     rail: List<Route> = emptyList(),
+    notificationsOffer: Boolean = false,
 ) {
     val context = LocalContext.current
     val download = remember(upgrade, context) { upgrade.downloadState(Format.downloadSize(context, upgrade.sizeBytes)) }
@@ -332,11 +336,14 @@ internal fun HomeBody(
         if (ui.hasAccess && facts.recentlyAdded.isNotEmpty()) {
             item(key = "recent", span = FullLine, contentType = "recent") { RecentlyAddedSection(facts.recentlyAdded, actions) }
         }
+        if (notificationsOffer) {
+            item(key = "notifications-offer", span = FullLine) { NotificationsOffer(home.turnOnNotifications, home.dismissNotificationsOffer) }
+        }
         if (ui.hasAccess && (ui.people.isNotEmpty() || ui.facesLeft > 0)) {
             item(key = "people", span = FullLine, contentType = "people") {
                 PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePeople, home.answerSamePerson)
             }
-        } else if (ui.hasAccess && ui.peopleOffer && !ui.introDue && (counts[Kind.PHOTO] ?: 0L) > 0L) {
+        } else if (!notificationsOffer && ui.hasAccess && ui.peopleOffer && !ui.introDue && (counts[Kind.PHOTO] ?: 0L) > 0L) {
             // Not beside the one-time card, which already asks for a decision.
             item(key = "people-offer", span = FullLine) { PeopleOffer(home.turnOnPeople, home.dismissPeopleOffer) }
         }

@@ -1001,11 +1001,11 @@ internal object Hindi : Strings {
 
     override val onlyWhenYouChoose = "सिर्फ़ तब, जब आप “$readFor15” चुनें."
 
-    override val processingNotifications = "प्रोसेसिंग की सूचनाएं"
+    override val showProcessingProgress = "प्रोसेसिंग की प्रगति दिखाएं"
+
+    override val processingProgressNotice = "Retriever जब आपकी फ़ाइलें प्रोसेस करे, तब प्रगति देखने के लिए बिना आवाज़ वाली एक सूचना चालू करें."
 
     override val notificationsOn = "चालू"
-
-    override val notificationsOff = "बंद. प्रोसेसिंग फिर भी चलती है; बस आपको यह नहीं दिखता कि कितना काम हुआ."
 
     override val includedFiles = "शामिल फ़ाइलें"
 

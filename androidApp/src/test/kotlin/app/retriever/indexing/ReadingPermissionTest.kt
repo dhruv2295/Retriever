@@ -8,8 +8,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.core.Kind
+import app.retriever.core.Words
 import app.retriever.testFile
 import app.retriever.testRetriever
 import kotlinx.coroutines.flow.first
@@ -27,6 +29,32 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = Application::class)
 class ReadingPermissionTest {
     @get:Rule val rule = createComposeRule()
+
+    @Test fun decliningOnboardingContinuesOnceAndDefersTheHomeOfferForThisProcess() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val retriever = testRetriever()
+        var request: ((() -> Unit) -> Unit)? = null
+        var continued = 0
+        try {
+            rule.setContent { request = rememberReadingPermission(retriever, onboarding = true) }
+            rule.runOnIdle { request?.invoke { continued++ } }
+            rule.waitUntil(5_000) { rule.onAllNodesWithText(Words.strings.notificationPermissionAsk).fetchSemanticsNodes().isNotEmpty() }
+            rule.runOnIdle {
+                assertEquals(0, continued)
+                assertTrue(NotificationPermissionSession.onboardingAsked)
+            }
+            rule.onNodeWithText(Words.NOT_NOW).performClick()
+            rule.waitUntil(5_000) { continued == 1 }
+            assertTrue(retriever.prefs.value.notificationsDismissed)
+            assertEquals(false, retriever.prefs.value.notificationsOfferDismissed)
+            assertEquals(false, retriever.prefs.value.notificationsPermissionRequested)
+            rule.runOnIdle { request?.invoke { continued++ } }
+            rule.runOnIdle { assertEquals(2, continued) }
+        } finally {
+            NotificationPermissionSession.onboardingAsked = false
+        }
+    }
 
     /** Q1 5: a tap held for the notification question still runs when the screen goes first (a rotation recreates it). */
     @Test fun aHeldTapRunsWhenTheScreenGoesBeforeTheAnswer() {

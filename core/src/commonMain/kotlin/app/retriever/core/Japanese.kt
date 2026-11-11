@@ -943,11 +943,11 @@ internal object Japanese : Strings {
 
     override val onlyWhenYouChoose = "「$readFor15」を選んだときだけ処理します。"
 
-    override val processingNotifications = "処理の通知"
+    override val showProcessingProgress = "処理の進み具合を表示"
+
+    override val processingProgressNotice = "Retrieverがファイルを処理している間、音の鳴らない通知を1件表示して、進み具合を確認できます。"
 
     override val notificationsOn = "オン"
-
-    override val notificationsOff = "オフ。処理は続きますが、進み具合は表示されません。"
 
     override val includedFiles = "対象のファイル"
 

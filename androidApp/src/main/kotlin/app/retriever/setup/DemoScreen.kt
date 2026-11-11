@@ -90,7 +90,7 @@ fun DemoScreen(
     val stage = up.stage
     val shown = remember(search, stage) { search.copy(upgrade = stage) }
     // Setup ends with the rest processing in the background, so its notice is asked for here, once; Not now is kept.
-    val requestReading = rememberReadingPermission(retriever)
+    val requestReading = rememberReadingPermission(retriever, onboarding = true)
     val finishing = remember(actions, requestReading) { actions.copy(finish = { requestReading(actions.finish) }) }
     DemoContent(ui, shown, searchActions, finishing, up.description, up.percent, modifier, pillModifier, suggestions, open = onNavigate)
     // Try again after a failed download asks before using mobile data, as Home does.

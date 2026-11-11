@@ -933,14 +933,14 @@ interface Strings {
     /** Android: When to process detail for "When I start it"; differs from onlyWhenYouChooseAnyFile (iOS); app prefixes "<schedule>. " */
     val onlyWhenYouChoose: String
 
-    /** Android: Settings row title */
-    val processingNotifications: String
+    /** Android: Settings switch title, and the heading of Home's offer to turn notifications on */
+    val showProcessingProgress: String
+
+    /** Android: what the processing notification is, under the Settings switch while off and on Home's offer */
+    val processingProgressNotice: String
 
     /** Android: row value: notifications are on */
     val notificationsOn: String
-
-    /** Android: row value: notifications are off */
-    val notificationsOff: String
 
     /** Android: Settings section header */
     val includedFiles: String

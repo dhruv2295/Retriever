@@ -170,6 +170,24 @@ internal fun PeopleOffer(turnOn: () -> Unit, notNow: () -> Unit) {
     }
 }
 
+@Composable
+internal fun NotificationsOffer(turnOn: () -> Unit, notNow: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(Words.strings.showProcessingProgress, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+            Text(Words.strings.processingProgressNotice, style = MaterialTheme.typography.bodyMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = turnOn) { Text(Words.TURN_ON) }
+                TextButton(onClick = notNow) { Text(Words.NOT_NOW) }
+            }
+        }
+    }
+}
+
 /**
  * Faces grouped so far, as round crops with their names; while photos wait, the count to go. Tap opens the person's photos.
  * Below, when people may be one ([samePeople]), the question, one pair at a time. Debug builds number the tiles so a

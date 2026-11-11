@@ -58,6 +58,7 @@ import app.retriever.core.SetupPolicy
 import app.retriever.core.SetupStage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
+import app.retriever.indexing.rememberReadingPermission
 import app.retriever.model.UpgradeFlow
 import app.retriever.motion.Mascot
 import app.retriever.nav.Route
@@ -77,6 +78,7 @@ fun SetupScreen(
     upgrade: UpgradeFlow = koinInject(),
 ) {
     val context = LocalContext.current
+    val requestReading = rememberReadingPermission(onboarding = true)
     val ui by flow.ui.collectAsStateWithLifecycle()
     // Set when the person leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }
@@ -103,7 +105,7 @@ fun SetupScreen(
     }
     val allFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         access.refresh()
-        if (access.state.value.allFiles) flow.continueFromAccess() else allFilesOff = true
+        if (access.state.value.allFiles) requestReading(flow::continueFromAccess) else allFilesOff = true
     }
     val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
     val actions = SetupActions(
@@ -121,7 +123,7 @@ fun SetupScreen(
         },
         continueFromAccess = {
             including = false
-            flow.continueFromAccess()
+            requestReading(flow::continueFromAccess)
         },
         seeAll = { seeAll = true },
         finish = flow::finish,

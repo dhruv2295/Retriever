@@ -1,9 +1,7 @@
 package app.retriever.settings
 
-import android.app.NotificationManager
 import android.content.Intent
 import android.os.Build
-import android.provider.Settings
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -73,7 +71,9 @@ import app.retriever.core.motion.MascotMood
 import app.retriever.diagnostics.ExitProblem
 import app.retriever.diagnostics.ExitReasons
 import app.retriever.home.StatusLine
-import app.retriever.indexing.Notifications
+import app.retriever.indexing.openNotificationSettings
+import app.retriever.indexing.rememberNotificationPermission
+import app.retriever.indexing.rememberProcessingNotificationsEnabled
 import app.retriever.model.TuneState
 import app.retriever.model.UpgradeActions
 import app.retriever.model.UpgradeCard
@@ -151,12 +151,14 @@ class SettingsActions(
     val shareProblems: () -> Unit = {},
     val openAccess: () -> Unit = {},
     val clearRecentSearches: () -> Unit = {},
-    val openNotificationSettings: () -> Unit = {},
+    val setNotifications: (Boolean) -> Unit = {},
 )
 
 @Composable
 fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: SettingsViewModel = koinViewModel(), upgradeFlow: UpgradeFlow = koinInject()) {
     val requestReading = app.retriever.indexing.rememberReadingPermission()
+    val requestNotifications = rememberNotificationPermission()
+    val notificationsOn by rememberProcessingNotificationsEnabled()
     val state by vm.uiState.collectAsStateWithLifecycle()
     val readingStatus by vm.readingStatus.collectAsStateWithLifecycle()
     val upgrade by upgradeFlow.ui.collectAsStateWithLifecycle()
@@ -171,14 +173,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
         }
     }
     val context = LocalContext.current
-    // Read again on return: the person may have changed it in the system's settings page.
-    var notificationsOn by remember { mutableStateOf(true) }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        vm.refreshStorage()
-        notificationsOn = context.getSystemService(NotificationManager::class.java).let { nm ->
-            nm.areNotificationsEnabled() && nm.getNotificationChannel(Notifications.CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
-        }
-    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshStorage() }
     // Read from the assets only when asked for: 22 KB nobody opens on most visits.
     val notices by produceState<String?>(null, showNotices) {
         if (showNotices) value = withContext(Dispatchers.IO) { context.assets.open(NOTICES_ASSET).bufferedReader().use { it.readText() } }
@@ -192,7 +187,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
     }
     // Built once: a fresh SettingsActions per recomposition would defeat skipping in everything it feeds.
     // Not keyed on vm: it lives as long as this screen's back-stack entry.
-    val actions = remember(onBack, context, upgradeFlow) {
+    val actions = remember(onBack, context, upgradeFlow, requestNotifications) {
         SettingsActions(
             back = onBack,
             setReadingSchedule = { schedule -> requestReading { vm.setReadingSchedule(schedule) } },
@@ -217,9 +212,8 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
             openNotices = { showNotices = true },
             openAccess = onStatus,
             clearRecentSearches = vm::clearRecentSearches,
-            openNotificationSettings = {
-                val page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                context.startActivity(page)
+            setNotifications = { on ->
+                if (on) requestNotifications() else openNotificationSettings(context)
             },
             // Only the system share sheet: the person picks where it goes.
             shareProblems = {
@@ -313,10 +307,11 @@ fun SettingsContent(
                     )
                 }
                 ActionRow(Words.READ_FOR_15, { Text(Words.readNowBody(DeviceWords.ANDROID)) }, onClick = actions.readNow)
-                OpenRow(
-                    Words.strings.processingNotifications,
-                    if (ui.notificationsOn) Words.strings.notificationsOn else Words.strings.notificationsOff,
-                    actions.openNotificationSettings,
+                SwitchRow(
+                    Words.strings.showProcessingProgress,
+                    ui.notificationsOn,
+                    if (ui.notificationsOn) Words.strings.notificationsOn else Words.strings.processingProgressNotice,
+                    actions.setNotifications,
                 )
                 if (!ui.textOnly && !ui.modelMissing) TuneRow(ui.tune, actions.tuneAgain)
                 // Text-only phones can't run it, so they have no section for it.

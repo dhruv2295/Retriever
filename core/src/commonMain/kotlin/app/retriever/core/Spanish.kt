@@ -1008,11 +1008,11 @@ internal object Spanish : Strings {
 
     override val onlyWhenYouChoose = "Solo cuando eliges «$readFor15»."
 
-    override val processingNotifications = "Notificaciones de procesamiento"
+    override val showProcessingProgress = "Mostrar el progreso del procesamiento"
+
+    override val processingProgressNotice = "Activa una única notificación silenciosa para ver el progreso mientras Retriever procesa tus archivos."
 
     override val notificationsOn = "Activadas"
-
-    override val notificationsOff = "Desactivadas. El procesamiento sigue; solo que no ves cuánto lleva."
 
     override val includedFiles = "Archivos incluidos"
 

@@ -71,6 +71,7 @@ data class HomeUi(
     val samePeople: List<SamePerson> = emptyList(),
     /** People is off, photos are read, and the person hasn't said Not now: Home offers it where People would be. */
     val peopleOffer: Boolean = false,
+    val notificationsOfferDismissed: Boolean = false,
 ) {
     fun withCounts(c: Store.Counts): HomeUi = copy(counts = c.byKind, progress = c.progress)
 
@@ -80,6 +81,10 @@ data class HomeUi(
      */
     val sectionsReady: Boolean get() = home != null && (!showOnThisDay || !hasAccess || memoriesDay != null)
 }
+
+internal fun HomeUi.showNotificationsOffer(sdk: Int, notificationsOn: Boolean, onboardingAsked: Boolean): Boolean =
+    sdk >= 33 && !notificationsOn && !notificationsOfferDismissed && !onboardingAsked &&
+        (progress.unfinished || progress.waiting > 0 || facesLeft > 0)
 
 /**
  * The caught-up pop, once ever. [due] while the first full read has not been celebrated; [done] marks it in the store,
@@ -123,6 +128,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
                 introDue = retriever.prefs.value.homeIntroDue,
                 readsOnBattery = retriever.prefs.value.automaticReading == ReadingSchedule.BATTERY,
+                notificationsOfferDismissed = retriever.prefs.value.notificationsOfferDismissed,
                 suggestions = null,
             ),
         )
@@ -177,6 +183,7 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
                         introDue = p.homeIntroDue,
                         readsOnBattery = p.automaticReading == ReadingSchedule.BATTERY,
                         peopleOffer = !p.recognizePeople && !p.peopleOfferDismissed && Kind.PHOTO in p.kinds,
+                        notificationsOfferDismissed = p.notificationsOfferDismissed,
                     )
                 }
             }
@@ -235,6 +242,11 @@ class HomeViewModel(private val retriever: Retriever, private val access: Access
     }
 
     fun dismissPeopleOffer() = launchCatching { retriever.updatePrefs { it.copy(peopleOfferDismissed = true) } }
+
+    fun dismissNotificationsOffer() {
+        _ui.update { it.copy(notificationsOfferDismissed = true) }
+        launchCatching { retriever.updatePrefs { it.copy(notificationsOfferDismissed = true) } }
+    }
 
     val celebration = celebrationOf(retriever)
 

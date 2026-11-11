@@ -294,21 +294,22 @@ class SettingsShotsTest {
         assertEquals(1, cleared)
     }
 
-    @Test fun readingNotificationsReportOnOrOffAndOpenTheSystemPage() {
-        var opened = 0
-        val actions = SettingsActions(openNotificationSettings = { opened++ })
+    @Test fun readingNotificationsRequestEnablingWithoutPretendingPermissionWasGranted() {
+        val changes = mutableListOf<Boolean>()
+        val actions = SettingsActions(setNotifications = { changes += it })
         show(ready.copy(notificationsOn = false), actions)
 
-        rule.onNodeWithText("Processing notifications").performScrollTo().performClick()
+        rule.onNodeWithText("Show processing progress").performScrollTo().assertIsOff().performClick().assertIsOff()
 
-        assertEquals(1, opened)
-        rule.onNodeWithText("Off. Processing still runs; you just don’t see how far it’s got.").assertExists()
-        assertEquals(0, rule.onAllNodesWithTextCount("On"))
+        assertEquals(listOf(true), changes)
+        rule.onNodeWithText("Turn on one silent notification to see progress while Retriever processes your files.").assertExists()
     }
 
-    @Test fun readingNotificationsSayOn() {
-        show(ready.copy(notificationsOn = true))
-        rule.onNodeWithText("On").performScrollTo().assertExists()
+    @Test fun readingNotificationsStayOnUntilTheSystemTurnsThemOff() {
+        val changes = mutableListOf<Boolean>()
+        show(ready.copy(notificationsOn = true), SettingsActions(setNotifications = { changes += it }))
+        rule.onNodeWithText("Show processing progress").performScrollTo().assertIsOn().performClick().assertIsOn()
+        assertEquals(listOf(false), changes)
     }
 
     @Test fun storageNamesTheSavedDataAndTheOptionalDownloadWithTheirSizes() {
