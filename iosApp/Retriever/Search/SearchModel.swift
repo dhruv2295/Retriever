@@ -356,7 +356,7 @@ final class SearchModel {
                     excludedFolders: p.excludedFolders,
                     paused: p.paused,
                     sampleSize: p.sampleSize, allowMobileData: p.allowMobileData, rememberSearches: p.rememberSearches,
-                    dynamicColor: p.dynamicColor, setupStarted: p.setupStarted, notificationsDismissed: p.notificationsDismissed,
+                    dynamicColor: p.dynamicColor, setupStarted: p.setupStarted,
                     notificationsOfferDismissed: p.notificationsOfferDismissed,
                     notificationsPermissionRequested: p.notificationsPermissionRequested,
                     noMatchSeen: p.noMatchSeen + 1, showOnThisDay: p.showOnThisDay, readingCycle: p.readingCycle,

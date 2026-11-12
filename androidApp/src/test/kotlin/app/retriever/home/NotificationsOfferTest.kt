@@ -9,17 +9,17 @@ class NotificationsOfferTest {
     private val pending = HomeUi(progress = ReadingProgress(read = 10, scheduled = 2))
 
     @Test fun aLaterVisitOffersProgressUntilDismissedOrEnabled() {
-        assertTrue(pending.showNotificationsOffer(33, notificationsOn = false, onboardingAsked = false))
-        assertFalse(pending.showNotificationsOffer(32, notificationsOn = false, onboardingAsked = false))
-        assertFalse(pending.showNotificationsOffer(35, notificationsOn = true, onboardingAsked = false))
-        assertFalse(pending.showNotificationsOffer(35, notificationsOn = false, onboardingAsked = true))
-        assertFalse(pending.copy(notificationsOfferDismissed = true).showNotificationsOffer(35, notificationsOn = false, onboardingAsked = false))
+        assertTrue(pending.showNotificationsOffer(33, notificationsOn = false, justAsked = false))
+        assertFalse(pending.showNotificationsOffer(32, notificationsOn = false, justAsked = false))
+        assertFalse(pending.showNotificationsOffer(35, notificationsOn = true, justAsked = false))
+        assertFalse(pending.showNotificationsOffer(35, notificationsOn = false, justAsked = true))
+        assertFalse(pending.copy(notificationsOfferDismissed = true).showNotificationsOffer(35, notificationsOn = false, justAsked = false))
     }
 
     @Test fun emptyOrFinishedLibrariesHaveNothingToOfferButLaterPassesStillCount() {
         val finished = ReadingProgress(read = 10, nameOnly = 3, couldntRead = 1)
         for (progress in listOf(ReadingProgress(), finished, finished.copy(partlyRead = 1))) {
-            assertFalse(HomeUi(progress = progress).showNotificationsOffer(35, notificationsOn = false, onboardingAsked = false))
+            assertFalse(HomeUi(progress = progress).showNotificationsOffer(35, notificationsOn = false, justAsked = false))
         }
         for (progress in listOf(
             finished.copy(notScheduled = 1),
@@ -27,8 +27,8 @@ class NotificationsOfferTest {
             finished.copy(meaningWaiting = 1),
             finished.copy(rereads = 1),
         )) {
-            assertTrue(HomeUi(progress = progress).showNotificationsOffer(35, notificationsOn = false, onboardingAsked = false))
+            assertTrue(HomeUi(progress = progress).showNotificationsOffer(35, notificationsOn = false, justAsked = false))
         }
-        assertTrue(HomeUi(progress = finished, facesLeft = 1).showNotificationsOffer(35, notificationsOn = false, onboardingAsked = false))
+        assertTrue(HomeUi(progress = finished, facesLeft = 1).showNotificationsOffer(35, notificationsOn = false, justAsked = false))
     }
 }

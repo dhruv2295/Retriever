@@ -118,7 +118,7 @@ class WordsTest {
         Words.otherFiles(25_763), Words.otherFiles(null), Words.processingPlanDetail(ReadingSchedule.CHARGING, sessionActive = false),
         Words.DEMO_PICKING, Words.DEMO_HINT, Words.demoSearchScope(12, false, android), Words.demoSearchScope(30, true, android), Words.seeAll(30),
         Words.START_PROCESSING,
-        Words.notificationsAsk(true, TasteProgress(emptyMap(), emptySet(), 0, 3, 30)), Words.PROGRESS_CHANNEL,
+        Words.PROGRESS_CHANNEL,
         Words.PROGRESS_CHANNEL_BODY, Words.DEMO_DONE_NOTICE_TITLE, Words.demoDoneNotice(30, 30),
     )
 

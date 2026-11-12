@@ -242,7 +242,7 @@ extension AppModel {
         Prefs(
             kinds: Set(Snap.inside), onlyWhileCharging: true, schedule: .charging, started: sessionActive, excludedFolders: [],
             paused: false, sampleSize: nil, allowMobileData: false, rememberSearches: true,
-            dynamicColor: true, setupStarted: false, notificationsDismissed: false, notificationsOfferDismissed: false,
+            dynamicColor: true, setupStarted: false, notificationsOfferDismissed: false,
             notificationsPermissionRequested: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
             homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false, peopleOfferDismissed: false,

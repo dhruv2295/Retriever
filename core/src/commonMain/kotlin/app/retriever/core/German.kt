@@ -293,12 +293,6 @@ internal object German : Strings {
 
     override val startProcessing = "Verarbeitung starten"
 
-    override fun notificationsAsk(demoPending: Boolean) =
-        "Eine kleine Benachrichtigung oben auf deinem Bildschirm, während Retriever deine Dateien verarbeitet. Sie zeigt den Fortschritt. Darüber " +
-            "kannst du die Verarbeitung pausieren. " +
-            "Keine Töne, keine anderen Hinweise." +
-            if (demoPending) " Wir können dir auch Bescheid geben, wenn die Demo fertig ist." else ""
-
     override val progressChannel = "Verarbeitungsfortschritt"
     override val progressChannelBody = "Zeigt den Fortschritt der Verarbeitung und meldet einmal, wenn die Demo fertig ist."
     override val demoDoneNoticeTitle = "Die Demo ist fertig"
@@ -904,9 +898,6 @@ internal object German : Strings {
     override val hideOnThisDay = "„An diesem Tag“ ausblenden"
 
     override val starredSection = "Markiert"
-
-    // ReadingPermission
-    override val notificationPermissionAsk = "Eine Benachrichtigung anzeigen, während Retriever deine Dateien verarbeitet?"
 
     // ModelDownload
     override val searchModelDownloadTitle = "Suchmodell von Retriever"

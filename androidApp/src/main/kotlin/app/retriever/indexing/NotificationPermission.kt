@@ -29,9 +29,9 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import app.retriever.core.Retriever
 import org.koin.compose.koinInject
 
-// Kept for the process lifetime, so rotation and trips to system settings cannot make onboarding offer twice.
+// Kept for the process lifetime: Home holds its offer back after a start tap has just asked.
 internal object NotificationPermissionSession {
-    var onboardingAsked by mutableStateOf(false)
+    var asked by mutableStateOf(false)
 }
 
 internal fun processingNotificationsEnabled(context: Context): Boolean {

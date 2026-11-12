@@ -273,9 +273,6 @@ internal object Japanese : Strings {
 
     override val startProcessing = "処理を開始"
 
-    override fun notificationsAsk(demoPending: Boolean) = "処理中は画面上部に小さな通知を1つ表示し、進み具合の確認や一時停止ができます。音やほかの通知はありません。" +
-        if (demoPending) "デモが終わったときにお知らせすることもできます。" else ""
-
     override val progressChannel = "処理の進み具合"
     override val progressChannelBody = "処理の進み具合を表示し、デモが終わったときに一度だけお知らせします。"
     override val demoDoneNoticeTitle = "デモが完了しました"
@@ -834,9 +831,6 @@ internal object Japanese : Strings {
     override val hideOnThisDay = "「過去の今日」を非表示"
 
     override val starredSection = "スター付き"
-
-    // ReadingPermission
-    override val notificationPermissionAsk = "Retrieverがファイルを処理している間、通知を表示しますか？"
 
     // ModelDownload
     override val searchModelDownloadTitle = "Retrieverの検索用データ"

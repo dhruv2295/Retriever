@@ -121,11 +121,6 @@ class SetupTest {
         assertEquals("Adding search by description · 4 of 10 files", Words.addingMeaning(ReadingProgress(read = 9, partlyRead = 1, meaningWaiting = 6)))
         // Files still to read: the status line counts those, so no second count that won't add up with it.
         assertEquals(Words.MEANING_CATCHING_UP, Words.addingMeaning(ReadingProgress(read = 9, scheduled = 8, meaningWaiting = 6)))
-        fun demo(pending: Int) = TasteProgress(emptyMap(), emptySet(), 3, pending, 30)
-        val plain = "One small notice at the top of your screen while it works, so you can see how far it’s got or pause it. No sounds, no other alerts."
-        assertEquals("$plain We can also let you know when the demo is done.", Words.notificationsAsk(demoRunning = true, demo(pending = 10)))
-        assertEquals(plain, Words.notificationsAsk(demoRunning = false, demo(pending = 10)), "stopped, skipped or decided")
-        assertEquals(plain, Words.notificationsAsk(demoRunning = true, demo(pending = 0)))
         assertEquals("12 of 40 files processed", Words.readOf(12, 40))
         assertEquals("Retriever looks inside the files on this phone so you can find them by what’s in them.", Words.wholeDeviceNote(android))
         assertEquals("Download for search by description", Words.upgradeHint(2, UpgradeStage.OFFER))

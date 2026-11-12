@@ -25,11 +25,9 @@ data class Prefs(
     val dynamicColor: Boolean = true,
     /** Setup has begun, so a relaunch resumes it instead of starting over. */
     val setupStarted: Boolean = false,
-    /** The person dismissed the ask for notification access. */
-    val notificationsDismissed: Boolean = false,
     /** Not now on Home's offer to turn on the processing notification (Android). */
     val notificationsOfferDismissed: Boolean = false,
-    /** Android's permission was answered, independently of Not now in Retriever's own dialog. */
+    /** Android's notification permission was answered; a start tap asks it only until then. */
     val notificationsPermissionRequested: Boolean = false,
     /** How many times the person has seen "No matches"; the screen switches to NO_MATCH_QUIET after a few. */
     val noMatchSeen: Int = 0,

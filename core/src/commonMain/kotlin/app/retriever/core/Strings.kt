@@ -164,8 +164,6 @@ interface Strings {
 
     val startProcessing: String
 
-    /** [demoPending]: the demo still runs with files to process, so its done notice can be promised. */
-    fun notificationsAsk(demoPending: Boolean): String
     val progressChannel: String
     val progressChannelBody: String
     val demoDoneNoticeTitle: String
@@ -794,11 +792,6 @@ interface Strings {
 
     /** both apps: Home section title (the collection) */
     val starredSection: String
-
-    // ReadingPermission
-
-    /** Android: dialog title */
-    val notificationPermissionAsk: String
 
     // ModelDownload
 

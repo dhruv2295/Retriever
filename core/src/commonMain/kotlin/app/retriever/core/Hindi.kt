@@ -293,11 +293,6 @@ internal object Hindi : Strings {
 
     override val startProcessing = "प्रोसेस शुरू करें"
 
-    override fun notificationsAsk(demoPending: Boolean) =
-        "काम के दौरान आपकी स्क्रीन के ऊपर एक छोटी-सी सूचना दिखेगी, ताकि आप देख सकें कि कितना काम हुआ या उसे रोक सकें. " +
-            "कोई आवाज़ नहीं, कोई दूसरा अलर्ट नहीं." +
-            if (demoPending) " डेमो पूरा होने पर हम आपको बता भी सकते हैं." else ""
-
     override val progressChannel = "कितना प्रोसेस हुआ"
     override val progressChannelBody = "दिखाता है कि कितना प्रोसेस हुआ, और डेमो पूरा होने पर एक बार बताता है."
     override val demoDoneNoticeTitle = "डेमो पूरा हो गया"
@@ -887,9 +882,6 @@ internal object Hindi : Strings {
     override val hideOnThisDay = "“आज के दिन” छिपाएं"
 
     override val starredSection = "स्टार वाली फ़ाइलें"
-
-    // ReadingPermission
-    override val notificationPermissionAsk = "Retriever के फ़ाइलें प्रोसेस करते समय सूचना दिखाएं?"
 
     // ModelDownload
     override val searchModelDownloadTitle = "Retriever के लिए खोज का डाउनलोड"

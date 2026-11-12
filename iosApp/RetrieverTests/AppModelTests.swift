@@ -268,7 +268,7 @@ final class AppModelTests: XCTestCase {
                 kinds: prefs.kinds, onlyWhileCharging: prefs.onlyWhileCharging, schedule: prefs.schedule, started: prefs.started,
                 excludedFolders: prefs.excludedFolders, paused: prefs.paused, sampleSize: prefs.sampleSize, allowMobileData: prefs.allowMobileData,
                 rememberSearches: prefs.rememberSearches, dynamicColor: prefs.dynamicColor, setupStarted: prefs.setupStarted,
-                notificationsDismissed: prefs.notificationsDismissed, notificationsOfferDismissed: prefs.notificationsOfferDismissed,
+                notificationsOfferDismissed: prefs.notificationsOfferDismissed,
                 notificationsPermissionRequested: prefs.notificationsPermissionRequested, noMatchSeen: prefs.noMatchSeen, showOnThisDay: prefs.showOnThisDay,
                 readingCycle: prefs.readingCycle, dismissedReadingCycle: prefs.dismissedReadingCycle, searchTried: tried,
                 upgradeOfferDismissed: dismissed, homeIntroDue: intro, notifyWhenCaughtUp: prefs.notifyWhenCaughtUp,

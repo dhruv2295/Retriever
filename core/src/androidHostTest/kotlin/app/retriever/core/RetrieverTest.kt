@@ -607,7 +607,7 @@ class RetrieverTest {
         val store = newStore()
         store.setMeta("prefs", """{"kinds":["PHOTO"],"paused":true}""")
         assertEquals(Prefs(kinds = setOf(Kind.PHOTO), paused = true, onlyWhileCharging = false), store.prefs())
-        assertFalse(store.prefs().setupStarted || store.prefs().notificationsDismissed)
+        assertFalse(store.prefs().setupStarted)
     }
 
     @Test

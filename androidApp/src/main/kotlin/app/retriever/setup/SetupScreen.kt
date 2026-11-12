@@ -78,7 +78,7 @@ fun SetupScreen(
     upgrade: UpgradeFlow = koinInject(),
 ) {
     val context = LocalContext.current
-    val requestReading = rememberReadingPermission(onboarding = true)
+    val requestReading = rememberReadingPermission()
     val ui by flow.ui.collectAsStateWithLifecycle()
     // Set when the person leaves for a permission, so coming back without any can say what to do.
     var askedFiles by rememberSaveable { mutableStateOf(false) }

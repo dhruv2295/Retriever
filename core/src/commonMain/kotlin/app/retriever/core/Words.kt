@@ -299,12 +299,6 @@ object Words {
     /** The button that starts processing until the work is done or paused. */
     val START_PROCESSING: String get() = strings.startProcessing
 
-    /**
-     * The notification ask's body (Android). The demo's line only while the demo runs ([SetupInputs.demoRunning]) with files
-     * still to process: once it is stopped, skipped or decided there is no demo message to promise.
-     */
-    fun notificationsAsk(demoRunning: Boolean, demo: TasteProgress): String = strings.notificationsAsk(demoRunning && demo.pending > 0)
-
     // The notification channel and the one demo-done notice (Android).
     val PROGRESS_CHANNEL: String get() = strings.progressChannel
     val PROGRESS_CHANNEL_BODY: String get() = strings.progressChannelBody

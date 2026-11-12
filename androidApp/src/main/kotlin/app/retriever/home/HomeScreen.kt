@@ -189,7 +189,7 @@ fun HomeScreen(
         vm.celebration,
         upgrade = up, upgradeActions = upgradeActions, offer = UpgradePolicy.showOnHome(up.stage, prefs),
         rail = rail,
-        notificationsOffer = ui.showNotificationsOffer(Build.VERSION.SDK_INT, notificationsOn, NotificationPermissionSession.onboardingAsked),
+        notificationsOffer = ui.showNotificationsOffer(Build.VERSION.SDK_INT, notificationsOn, NotificationPermissionSession.asked),
     )
 }
 

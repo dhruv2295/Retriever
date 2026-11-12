@@ -84,8 +84,8 @@ data class HomeUi(
     val sectionsReady: Boolean get() = home != null && (!showOnThisDay || !hasAccess || memoriesDay != null)
 }
 
-internal fun HomeUi.showNotificationsOffer(sdk: Int, notificationsOn: Boolean, onboardingAsked: Boolean): Boolean =
-    sdk >= 33 && !notificationsOn && !notificationsOfferDismissed && !onboardingAsked &&
+internal fun HomeUi.showNotificationsOffer(sdk: Int, notificationsOn: Boolean, justAsked: Boolean): Boolean =
+    sdk >= 33 && !notificationsOn && !notificationsOfferDismissed && !justAsked &&
         (progress.unfinished || progress.waiting > 0 || facesLeft > 0)
 
 /**
