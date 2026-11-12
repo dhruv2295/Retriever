@@ -552,7 +552,8 @@ internal object Hindi : Strings {
         "प्रोसेसिंग जारी रखने के लिए फ़ोन चार्ज पर लगाएँ। Retriever बैटरी ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक रहने पर प्रोसेस करता है।"
     override val processingTapToContinue = "जारी रखने के लिए टैप करें"
 
-    override val automaticChargingPreferenceDetail = "दो स्कैन के बीच Retriever चार्जिंग का इंतज़ार करता है. फिर शुरू करें चुनकर इस बार बैटरी पर प्रोसेसिंग शुरू कर सकते हैं."
+    override val automaticChargingPreferenceDetail =
+        "दो स्कैन के बीच Retriever चार्जिंग का इंतज़ार करता है. फिर शुरू करें चुनकर इस बार बैटरी पर प्रोसेसिंग शुरू कर सकते हैं."
 
     override val automaticProcessingPreferenceTitle = "कब प्रोसेस करें"
     override val automaticProcessingPreferenceDetail =

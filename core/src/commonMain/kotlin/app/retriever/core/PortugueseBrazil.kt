@@ -558,7 +558,8 @@ internal object PortugueseBrazil : Strings {
         "Conecte o celular para continuar o processamento. O Retriever processa na bateria até ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
     override val processingTapToContinue = "Toque para continuar"
 
-    override val automaticChargingPreferenceDetail = "Entre análises, o Retriever espera pelo carregamento. Retomar permite processar com bateria durante esta sessão."
+    override val automaticChargingPreferenceDetail =
+        "Entre análises, o Retriever espera pelo carregamento. Retomar permite processar com bateria durante esta sessão."
 
     override val automaticProcessingPreferenceTitle = "Quando processar"
     override val automaticProcessingPreferenceDetail =

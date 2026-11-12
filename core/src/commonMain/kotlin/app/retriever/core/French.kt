@@ -554,7 +554,8 @@ internal object French : Strings {
         "Branchez votre téléphone pour continuer le traitement. Retriever traite sur batterie jusqu’à ${ReadingPolicy.RESUMED_BATTERY_FLOOR}$NBSP%."
     override val processingTapToContinue = "Appuyez pour continuer"
 
-    override val automaticChargingPreferenceDetail = "Entre deux analyses, Retriever attend la charge. Reprendre permet de traiter sur batterie pour cette session."
+    override val automaticChargingPreferenceDetail =
+        "Entre deux analyses, Retriever attend la charge. Reprendre permet de traiter sur batterie pour cette session."
 
     override val automaticProcessingPreferenceTitle = "Quand traiter"
     override val automaticProcessingPreferenceDetail =

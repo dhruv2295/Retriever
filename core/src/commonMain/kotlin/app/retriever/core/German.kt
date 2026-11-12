@@ -562,7 +562,8 @@ internal object German : Strings {
         "Schließe dein Handy an, um weiter zu verarbeiten. Retriever verarbeitet im Akkubetrieb bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
     override val processingTapToContinue = "Tippen, um fortzufahren"
 
-    override val automaticChargingPreferenceDetail = "Zwischen zwei Durchläufen wartet Retriever auf das Laden. Mit Fortsetzen kannst du für diesen Durchlauf im Akkubetrieb starten."
+    override val automaticChargingPreferenceDetail =
+        "Zwischen zwei Durchläufen wartet Retriever auf das Laden. Mit Fortsetzen kannst du für diesen Durchlauf im Akkubetrieb starten."
 
     override val automaticProcessingPreferenceTitle = "Wann verarbeiten"
     override val automaticProcessingPreferenceDetail =
