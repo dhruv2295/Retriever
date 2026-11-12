@@ -384,11 +384,16 @@ struct DemoIntro: View {
         let state = model.descriptionState
         // Tighter than the other steps: with the full-size pile it must fit an iPhone Pro above the footer and search field.
         StepContent(alignment: .center, spacing: 10) {
-            // The dog's height holds the banner's place, so the rows under it stay put when it arrives.
+            // The banner's place is held from the first frame (the smaller dog is shorter than it), so the rows under it
+            // stay put when it arrives.
             ZStack {
                 MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: model.peopleAvailable ? 100 : 120)
                     .opacity(state == .ready ? 0 : 1)
-                if state == .ready { ReadyBanner().transition(.scale(scale: 0.96).combined(with: .opacity)) }
+                if state == .ready {
+                    ReadyBanner().transition(.scale(scale: 0.96).combined(with: .opacity))
+                } else {
+                    ReadyBanner().hidden()
+                }
             }
             .animation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.3), value: state == .ready)
             Text(Words.shared.FIRST_LOOK)

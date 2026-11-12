@@ -10,7 +10,6 @@ enum IndexTask {
     /// The read a person starts and iOS carries on after they leave (iOS 26+). The bundle ID is
     /// `app.retriever$(TEAM_ID)` and iOS wants it in front, so Info.plist lists `$(PRODUCT_BUNDLE_IDENTIFIER).continued`.
     static let continuedId = "\(Bundle.main.bundleIdentifier ?? "app.retriever").continued"
-    static let continuedPattern = "\(continuedId).*"
     /// Posted on the main thread when a background batch has ended, so a foreground loop it blocked can run. The
     /// continued task posts it with `continuedId` as the object.
     static let ended = Notification.Name("app.retriever.backgroundBatchEnded")
@@ -35,12 +34,22 @@ enum IndexTask {
             task.expirationHandler = { expire(complete, run: run) }
             runBatch(run: run) { complete($0) }
         }
-        if #available(iOS 26.0, *) {
-            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: continuedPattern, using: nil) { task in
+    }
+
+    /// Apple's pattern for a continued task: register each identifier just before submitting it. A single handler for
+    /// Info.plist's `continued.*` wildcard is refused by design (Apple DTS, developer forums thread 796944). Registering
+    /// an identifier twice raises an exception, so each is registered once per process.
+    @available(iOS 26.0, *)
+    private static func registerContinued(_ identifier: String) -> Bool {
+        continuedRegistrations.withLock { registered in
+            if registered.contains(identifier) { return true }
+            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
                 guard let task = task as? BGContinuedProcessingTask else { return task.setTaskCompleted(success: false) }
                 runContinued(task)
             }
-            log.info("continued reading registered: \(ok, privacy: .public)")
+            if ok { registered.insert(identifier) }
+            log.info("continued reading registered for \(identifier, privacy: .public): \(ok, privacy: .public)")
+            return ok
         }
     }
 
@@ -87,7 +96,11 @@ enum IndexTask {
     /// BGTaskScheduler error 1 (unavailable).
     @available(iOS 26.0, *)
     @concurrent static func submitContinued(session: Int64) async throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: "\(continuedId).\(session)", title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
+        let identifier = "\(continuedId).\(session)"
+        // Submitting an identifier with no handler raises an exception `try` can't catch, so a refused registration (the
+        // simulator refuses them all) throws instead, and the open app reads. The unit-test host never registers.
+        if services != nil, !registerContinued(identifier) { throw BGTaskScheduler.Error(.unavailable) }
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
         // No .gpu: asking for it needs the Background GPU Access entitlement, which every signing profile must then carry.
@@ -105,6 +118,9 @@ enum IndexTask {
         let expired = OSAllocatedUnfairLock(initialState: false)
         init(session: Int64) { self.session = session }
     }
+
+    /// The continued identifiers this process has registered (registerContinued).
+    private static let continuedRegistrations = OSAllocatedUnfairLock<Set<String>>(initialState: [])
 
     /// The continued request asked for the GPU, for the task it starts (runContinued).
     private static let continuedGpu = OSAllocatedUnfairLock(initialState: false)
@@ -246,12 +262,7 @@ enum IndexTask {
                 }, waiting, 1)
             task.progress.totalUnitCount = Int64(total)
             task.progress.completedUnitCount = Int64(total - waiting)
-            // A pause for the battery or heat says what it waits for, as the status line does.
-            if snapshot.reading.active {
-                task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
-            } else {
-                task.updateTitle(snapshot.reading.title, subtitle: snapshot.reading.detail ?? "")
-            }
+            task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
         }
         // The batch's end or expire's grace timer, once: release this run's hold, then tell iOS.
         let complete = Completion { ok in
@@ -274,32 +285,22 @@ enum IndexTask {
         Task {
             var next = NextRun.soon
             var failed = false
-            func live() -> Bool { !run.expired.withLock({ $0 }) && retriever.readNowSession == session }
-            // A pause for the battery or heat waits here and carries on by itself, as Android's session does; iOS may
-            // still expire a task that stalls, and the request then resumes when the app next opens.
-            while live() {
+            // iOS ends a continued task whose progress stalls, so a pause (heat, battery) ends it here instead of waiting:
+            // the request stays, and the app resumes it when next opened, or a tap hands it back.
+            while next == NextRun.soon, !run.expired.withLock({ $0 }), retriever.readNowSession == session {
                 do {
                     next = try await retriever.continuedBatchSeconds(seconds: 120, session: session)
-                    let blocked = retriever.readingBlocker() != nil
-                    if next == NextRun.done, !blocked {
-                        if try await retriever.completeSetupSample(expectedSession: session).boolValue { continue }
-                        // DONE with nothing read (a failed NPU build waits for the generic download): another batch would do the same.
-                        if retriever.stateNow.processed == 0 { break }
-                        if try await retriever.finishProcessingRequest(expectedGeneration: generation).boolValue { break }
-                    }
-                    if next == NextRun.retry { break }
-                    if next == NextRun.afterCooldown, !blocked {
-                        // Nothing to wait out but a rest (a model open refused for memory, People's model downloading).
-                        try await Task.sleep(for: .seconds(ThermalRest.shared.RECHECK_SECONDS))
-                    } else if next != NextRun.soon || blocked {
-                        repeat {
-                            try await Task.sleep(for: .seconds(10))
-                        } while live() && retriever.readingBlocker() != nil
+                    if next == NextRun.done {
+                        if try await retriever.completeSetupSample(expectedSession: session).boolValue {
+                            next = NextRun.soon
+                        } else {
+                            _ = try await retriever.finishProcessingRequest(expectedGeneration: generation)
+                        }
                     }
                 } catch {
                     log.error("continued batch failed: \(error, privacy: .private)")
                     failed = true
-                    break
+                    next = NextRun.afterCooldown
                 }
             }
             let ok = !run.expired.withLock { $0 } && !failed

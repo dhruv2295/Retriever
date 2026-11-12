@@ -31,7 +31,9 @@ class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
         val thermal = when (info.thermalState) {
             NSProcessInfoThermalState.NSProcessInfoThermalStateNominal -> Thermal.NONE
             NSProcessInfoThermalState.NSProcessInfoThermalStateFair -> Thermal.LIGHT
-            NSProcessInfoThermalState.NSProcessInfoThermalStateSerious -> Thermal.SEVERE
+            // Apple: reduce work at serious, stop at critical. Serious slows reading (Thermal.MODERATE rests between files);
+            // only critical pauses it. An iPhone 12 mini on a charger reached serious after 90 s of full-speed reading.
+            NSProcessInfoThermalState.NSProcessInfoThermalStateSerious -> Thermal.MODERATE
             else -> Thermal.CRITICAL
         }
         return DeviceState(

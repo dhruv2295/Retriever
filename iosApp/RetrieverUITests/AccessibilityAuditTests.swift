@@ -35,8 +35,9 @@ final class AccessibilityAuditTests: XCTestCase {
         "audit", "Add a folder",
         "Retriever also searches its own folder in the Files app. Removing a folder here never deletes it.",
     ]
+    /// Top to bottom (the growth test only scrolls down): Pause is the status line's own button, above the files.
     private static let statusText = [
-        "Processing now", "Photo", "9 October 2025", "Recently processed", "Pause",
+        "Pause", "Processing now", "Photo", "9 October 2025", "Recently processed",
         "Retriever processes your files while it’s open, and sometimes while you’re not using it, when iOS allows. Automatic background processing waits until your iPhone is charging. Starting or resuming processing uses some battery.",
     ]
     private static let routes = [
@@ -235,7 +236,7 @@ final class AccessibilityAuditTests: XCTestCase {
                             XCTAssertEqual(app.buttons["Allow"].exists, route == "setup.access" || route == "setup.folders", route)
                             XCTAssertEqual(app.buttons["Settings"].exists, route == "setup.denied", route)
                         }
-                        XCTAssertEqual(app.staticTexts["Includes a one-time 388\u{00A0}MB download, on Wi-Fi."].exists, route == "setup.welcome", route)
+                        XCTAssertEqual(app.staticTexts["One-time 388\u{00A0}MB download, on Wi-Fi only"].exists, route == "setup.welcome", route)
                     }
                     // Home's one-time card: the recent files' state, and its button only where it helps.
                     if route.hasPrefix("home.intro") {
@@ -508,9 +509,10 @@ final class AccessibilityAuditTests: XCTestCase {
         ("status.paused", "Resume"), ("status.tailFiles", "All files processed"), ("status.reading", "Photo 1.jpg"),
         ("home.charging", "Starred"), ("home.firstDay", "Start processing"), ("home.noAccess", "Allow access"),
         // The live count's sentence pushes these buttons lower, where the resize loses them.
-        ("home.unplugged", "Start processing"), ("home.processing", "Pause"),
-        ("settings", "When to process"), ("settings", "Process these file types"), ("settings", "Adjust processing for this iPhone"),
-        ("settings", "When your iPhone is charging and you’re not using it, usually overnight. You can pause any time."),
+        ("home.unplugged", "Start processing"), ("home.processing", "Pause"), ("home.processing", "Keep going in the background"),
+        ("home.charging", "Pause"), ("home.meaning", "Pause"), ("status.tailFiles", "Start processing"),
+        ("settings", "When to process"), ("settings", "Photos library"), ("settings", "Adjust processing for this iPhone"),
+        ("settings", "Automatically waits for charging. Resume lets you process on battery this time."),
         // Search by description sits just under When to process, at the first screen's fold.
         ("settings", "Search by description"), ("settings", "Find files by describing them"), ("settings", "Downloaded · 388\u{00A0}MB"),
     ]

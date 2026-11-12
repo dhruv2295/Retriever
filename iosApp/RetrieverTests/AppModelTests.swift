@@ -115,7 +115,8 @@ final class AppModelTests: XCTestCase {
     func testBackgroundTaskIdsArePermitted() {
         let permitted = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
         XCTAssertTrue(permitted.contains(IndexTask.id))
-        XCTAssertTrue(permitted.contains(IndexTask.continuedPattern))
+        // Each session's identifier (continued.<session>) is permitted through the wildcard.
+        XCTAssertTrue(permitted.contains("\(IndexTask.continuedId).*"))
     }
 
     func testRetryTuneResetsTune() {

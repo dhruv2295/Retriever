@@ -257,21 +257,24 @@ struct HomeIntroCard: View {
     private func step<Action: View>(
         _ icon: String, done: Bool = false, _ title: String, _ detail: String, @ViewBuilder action: () -> Action
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.subheadline.weight(.semibold))
-                .foregroundStyle(done ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.tint))
-                .frame(width: 30, height: 30)
-                .background(done ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.16)), in: Circle())
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 8) {
+            // The icon inside the step's one element: People's two-heads glyph reads as text to the audit's element
+            // detection, which needs an element over it. Hidden, so VoiceOver still reads only the words.
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon).font(.subheadline.weight(.semibold))
+                    .foregroundStyle(done ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.tint))
+                    .frame(width: 30, height: 30)
+                    .background(done ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.16)), in: Circle())
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.subheadline.weight(.semibold))
                     Text(detail).font(.footnote)
                 }
-                .accessibilityElement(children: .combine)
-                action().padding(.top, 6)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            // Under the words, past the icon's 30 pt and the 12 pt gap.
+            action().padding(.leading, 42)
         }
     }
 }
@@ -371,7 +374,11 @@ struct StatusLine: View {
             }
         }
         if model.offersKeepGoing {
-            Button(Words.shared.strings.keepGoingInBackground) { model.keepReading() }
+            Button {
+                model.keepReading()
+            } label: {
+                Text(Words.shared.strings.keepGoingInBackground).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
