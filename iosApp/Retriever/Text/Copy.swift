@@ -98,8 +98,4 @@ enum Copy {
 
     /// The Lock Screen's progress for a read that carries on after the person leaves.
     nonisolated static var continuedTitle: String { Words.shared.PROCESSING_YOUR_FILES }
-
-    nonisolated static func continuedSubtitle(_ files: Int) -> String {
-        Words.shared.strings.processedSoFar(n: Int64(files))
-    }
 }

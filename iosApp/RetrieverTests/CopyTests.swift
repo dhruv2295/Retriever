@@ -108,10 +108,6 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Copy.addFolderResult(.failed), "iOS wouldn't let Retriever keep that folder. Try another one.")
     }
 
-    func testContinuedReadSaysNoSession() {
-        XCTAssertEqual(Copy.continuedSubtitle(5), "5 files processed so far")
-    }
-
     func testSetupDownloadSizeUsesWholeMegabytes() {
         XCTAssertEqual(Copy.downloadSize(484_622_336), "485\u{00A0}MB")
         XCTAssertEqual(Copy.bytes(484_622_336), "484.6\u{00A0}MB")

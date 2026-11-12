@@ -100,13 +100,14 @@ enum IndexTask {
         // Submitting an identifier with no handler raises an exception `try` can't catch, so a refused registration (the
         // simulator refuses them all) throws instead, and the open app reads. The unit-test host never registers.
         if services != nil, !registerContinued(identifier) { throw BGTaskScheduler.Error(.unavailable) }
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: Copy.continuedTitle, subtitle: Copy.continuedSubtitle(0))
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: Copy.continuedTitle, subtitle: "")
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
         // No .gpu: asking for it needs the Background GPU Access entitlement, which every signing profile must then carry.
         // Add the capability to the App ID, regenerate the profiles, and only then put both back. backendNow picks the
         // CPU once the app leaves.
         continuedGpu.withLock { $0 = false }
+        log.info("background GPU supported on this device: \(BGTaskScheduler.supportedResources.contains(.gpu), privacy: .public)")
         try await submit(request)
     }
 
@@ -248,21 +249,15 @@ enum IndexTask {
             monitor.backgroundGpu = continuedGpu.withLock { $0 }
         }
         task.progress.totalUnitCount = 1
-        // Pending at the first snapshot: progress counts this read, not the whole library.
-        let start = OSAllocatedUnfairLock<Int?>(initialState: nil)
+        // The app's own count and bar, for the whole library, so the Lock Screen and Home say the same thing.
         let progress = retriever.observeAll { @Sendable snapshot in
             guard !run.expired.withLock({ $0 }), retriever.readNowSession == session else { return }
-            let snap = AppModel.Snap(snapshot)
-            // Later passes are not file reads, so this bar counts each file's first pass.
-            let waiting = snap.pending + snap.rereads
-            let total = max(
-                start.withLock {
-                    $0 = $0 ?? waiting
-                    return $0 ?? waiting
-                }, waiting, 1)
-            task.progress.totalUnitCount = Int64(total)
-            task.progress.completedUnitCount = Int64(total - waiting)
-            task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
+            let reading = snapshot.reading
+            if let done = reading.done?.int64Value, let total = reading.total?.int64Value, total > 0 {
+                task.progress.totalUnitCount = total
+                task.progress.completedUnitCount = done
+            }
+            task.updateTitle(Copy.continuedTitle, subtitle: reading.count ?? "")
         }
         // The batch's end or expire's grace timer, once: release this run's hold, then tell iOS.
         let complete = Completion { ok in
