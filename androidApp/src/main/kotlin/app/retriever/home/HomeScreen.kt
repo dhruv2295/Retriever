@@ -98,7 +98,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
 // Home: where you start looking for something, with one calm line on how well Retriever knows the phone so far.
-// Order: title, status line, Starred, Recently added, People (or its offer), On this day, Browse, the optional download,
+// Order: title, status line, the search-by-meaning download, Starred, Recently added, People (or its offer), On this day, Browse,
 // then Free up space.
 // Colour tokens only.
 
@@ -310,6 +310,15 @@ internal fun HomeBody(
                 )
             }
         }
+        // Right under the status: what the download adds is the app's main search, so it isn't left below the sections.
+        if (offer && upgrade.stage == UpgradeStage.OFFER) {
+            item(key = "meaning", span = FullLine) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeader(Words.SEARCH_BY_MEANING)
+                    UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp), compact = true)
+                }
+            }
+        }
         // The sections wait for every source to answer, then draw together in this order: none lands above another later.
         val facts = ui.home
         if (!ui.sectionsReady || facts == null) return@LazyVerticalStaggeredGrid
@@ -337,14 +346,6 @@ internal fun HomeBody(
         val browse = facts.browse.filter { it.route() !in rail }
         if (browse.isNotEmpty() || facts.folders > 0) {
             item(key = "browse", span = FullLine, contentType = "browse") { BrowseSection(browse, facts.folders, actions.onNavigate) }
-        }
-        if (offer && upgrade.stage == UpgradeStage.OFFER) {
-            item(key = "optional", span = FullLine) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader(Words.OPTIONAL)
-                    UpgradeCard(upgrade, upgradeActions, Modifier.padding(horizontal = 16.dp), compact = true)
-                }
-            }
         }
         if (facts.largeCount > 0 || facts.possibleCopies > 0) {
             item(key = "free", span = FullLine, contentType = "free") { FreeUpSpaceSection(facts, actions.onNavigate) }

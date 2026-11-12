@@ -138,7 +138,6 @@ internal object Japanese : Strings {
     override val notNow = "後で"
     override val cancel = "キャンセル"
     override val done = "完了"
-    override val optional = "任意"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "ファイルを中身で見つけましょう" else "説明するだけで、何でも見つかります"
 

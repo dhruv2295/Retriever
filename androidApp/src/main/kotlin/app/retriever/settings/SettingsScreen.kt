@@ -262,6 +262,13 @@ fun SettingsContent(
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).wrapContentWidth().widthIn(max = 600.dp).fillMaxWidth().padding(bottom = 24.dp),
             ) {
+                // Text-only phones can't run it, so they have no section for it. Until it's downloaded it leads the screen.
+                val meaningFirst = !ui.textOnly && ui.upgrade.stage != UpgradeStage.DONE
+                if (meaningFirst) {
+                    Header(Words.SEARCH_BY_MEANING)
+                    SearchByMeaning(ui, actions)
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                }
                 HowItWorks()
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header(Words.READING_STATUS)
@@ -327,8 +334,7 @@ fun SettingsContent(
                     actions.setNotifications,
                 )
                 if (!ui.textOnly && !ui.modelMissing) TuneRow(ui.tune, actions.tuneAgain)
-                // Text-only phones can't run it, so they have no section for it.
-                if (!ui.textOnly) {
+                if (!ui.textOnly && !meaningFirst) {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Header(Words.SEARCH_BY_MEANING)
                     SearchByMeaning(ui, actions)

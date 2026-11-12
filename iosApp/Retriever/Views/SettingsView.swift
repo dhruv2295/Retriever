@@ -20,11 +20,13 @@ struct SettingsView: View {
 
     var body: some View {
         let snap = model.snap ?? AppModel.Snap()
+        // Text-only devices can't run it, so they have no section for it. Until it's downloaded it leads the screen.
+        let meaningFirst = !snap.textOnly && model.upgrade != .done
         Form {
+            if meaningFirst { searchByMeaning(snap) }
             howItWorks
             reading(snap)
-            // Text-only devices can't run it, so they have no section for it.
-            if !snap.textOnly { searchByMeaning(snap) }
+            if !snap.textOnly && !meaningFirst { searchByMeaning(snap) }
             includedFiles(snap)
             Section {
                 Toggle(Words.shared.strings.saveRecentSearches, isOn: Binding(get: { snap.rememberSearches }, set: model.setRememberSearches))

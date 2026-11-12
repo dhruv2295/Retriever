@@ -147,7 +147,6 @@ internal object Hindi : Strings {
     override val notNow = "अभी नहीं"
     override val cancel = "रद्द करें"
     override val done = "हो गया"
-    override val optional = "ज़रूरी नहीं"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "फ़ाइलों को उनके अंदर लिखी बातों से ढूंढें" else "कुछ भी ढूंढें, बस उसके बारे में बताकर"
 

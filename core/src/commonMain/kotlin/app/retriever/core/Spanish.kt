@@ -138,7 +138,6 @@ internal object Spanish : Strings {
     override val notNow = "Ahora no"
     override val cancel = "Cancelar"
     override val done = "Listo"
-    override val optional = "Opcional"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "Encuentra archivos por lo que contienen" else "Encuentra lo que sea describiéndolo"
 

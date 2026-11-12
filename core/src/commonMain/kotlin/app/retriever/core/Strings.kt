@@ -81,7 +81,6 @@ interface Strings {
     val notNow: String
     val cancel: String
     val done: String
-    val optional: String
 
     fun helloTitle(textOnly: Boolean): String
     val helloBody: String

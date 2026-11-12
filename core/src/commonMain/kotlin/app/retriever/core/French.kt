@@ -134,7 +134,6 @@ internal object French : Strings {
     override val notNow = "Pas maintenant"
     override val cancel = "Annuler"
     override val done = "Terminé"
-    override val optional = "Facultatif"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "Trouvez vos fichiers grâce à leur contenu" else "Trouvez tout en le décrivant"
 

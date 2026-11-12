@@ -248,6 +248,12 @@ class SettingsShotsTest {
         assertTrue(top(Words.SHOW_ON_THIS_DAY) > top("Appearance") && top(Words.SHOW_ON_THIS_DAY) < top("About"))
     }
 
+    @Test fun untilDownloadedSearchByMeaningLeads() {
+        show(offered)
+        assertTrue(top(Words.SEARCH_BY_MEANING) < top(Words.HOW_IT_WORKS))
+        rule.onAllNodesWithText(Words.SEARCH_BY_MEANING).assertCountEquals(1)
+    }
+
     @Test fun includedFilesHoldAccessTypesAndExcludedFolders() {
         val seen = mutableListOf<String>()
         show(actions = SettingsActions(openAccess = { seen += "access" }, removeExcluded = { seen += "include $it" }))

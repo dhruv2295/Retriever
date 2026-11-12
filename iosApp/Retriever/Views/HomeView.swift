@@ -32,8 +32,9 @@ struct HomeList: View {
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)
                 if snap.total == 0 {
                     empty(snap)
-                } else if Self.sectionsReady(model, memories: wantsMemories) {
-                    sections(snap)
+                } else {
+                    meaningOffer
+                    if Self.sectionsReady(model, memories: wantsMemories) { sections(snap) }
                 }
             }
         }
@@ -83,6 +84,18 @@ struct HomeList: View {
 
     // MARK: Sections
 
+    /// Right under the status: what the download adds is the app's main search, so it isn't left below the sections.
+    /// Only the offer: the download and its setup show in the status line.
+    @ViewBuilder private var meaningOffer: some View {
+        if model.upgrade == .offer && model.upgradeOnHome {
+            Section {
+                UpgradeCard(model: model, compact: true)
+            } header: {
+                SectionHeader(Words.shared.SEARCH_BY_MEANING)
+            }
+        }
+    }
+
     @ViewBuilder private func sections(_ snap: AppModel.Snap) -> some View {
         starred
         recentlyAdded
@@ -90,14 +103,6 @@ struct HomeList: View {
         onThisDay(snap)
         // On an iPad the sidebar holds Browse.
         if sizeClass != .regular { browse(snap) }
-        // Only the offer: the download and its setup show in the status line.
-        if model.upgrade == .offer && model.upgradeOnHome {
-            Section {
-                UpgradeCard(model: model, compact: true)
-            } header: {
-                SectionHeader(Words.shared.OPTIONAL)
-            }
-        }
         // On an iPad the sidebar holds these too.
         if sizeClass != .regular { freeUpSpace }
     }

@@ -126,7 +126,6 @@ internal object PortugueseBrazil : Strings {
     override val notNow = "Agora não"
     override val cancel = "Cancelar"
     override val done = "Concluído"
-    override val optional = "Opcional"
 
     override fun helloTitle(textOnly: Boolean) = if (textOnly) "Encontre arquivos pelo que há dentro deles" else "Encontre qualquer coisa só descrevendo"
 

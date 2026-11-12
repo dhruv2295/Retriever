@@ -149,9 +149,6 @@ object Words {
     /** Closes a sheet or dialog; never a button that starts work. */
     val DONE: String get() = strings.done
 
-    /** Marks the search-by-meaning row at the end of Home. */
-    val OPTIONAL: String get() = strings.optional
-
     // Hello. [textOnly]: a phone too small for search by description promises only what it can do.
     fun helloTitle(textOnly: Boolean): String = strings.helloTitle(textOnly)
     val HELLO_BODY: String get() = strings.helloBody

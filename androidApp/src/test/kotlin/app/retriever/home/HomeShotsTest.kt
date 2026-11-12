@@ -440,13 +440,13 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.NEVER_DELETES).assertDoesNotExist()
     }
 
-    @Test fun theOptionalDownloadFollowsBrowseAndCanBeDismissed() {
+    @Test fun theDownloadSitsUnderTheStatusAndCanBeDismissed() {
         var dismissed = 0
         val offer = UpgradeUi(UpgradeStage.OFFER, sizeBytes = 387_710_976)
         rule.setContent { ShotTheme(false) { Screen(base, upgrade = offer, upgradeActions = UpgradeActions(notNow = { dismissed++ }), offer = true) } }
         rule.waitForIdle()
-        rule.shot("clarity_home_optional_light")
-        assertTrue(top(Words.OPTIONAL) > top(Words.MORE_ON_PHONE))
+        rule.shot("clarity_home_meaning_light")
+        assertTrue(top(Words.SEARCH_BY_MEANING) < top(Words.RECENTLY_ADDED))
         rule.onNodeWithText(Words.NOT_NOW).performClick()
         assertEquals(1, dismissed)
     }
