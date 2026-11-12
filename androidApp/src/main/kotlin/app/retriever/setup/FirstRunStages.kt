@@ -251,17 +251,13 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
                 actions.allowMedia,
                 ONLY_PICKED_PHOTOS.takeIf { !a.allFiles && a.photos == Photos.SELECTED },
             )
-            AccessRow(kindIcon(Kind.AUDIO), Words.kindLabelPlural(Kind.AUDIO), a.allFiles || a.audio, actions.allowMedia)
+            AccessRow(kindIcon(Kind.AUDIO), Words.kindLabelPlural(Kind.AUDIO), a.allFiles || a.audio, actions.allowAudio)
             AccessRow(
                 R.drawable.ic_folder_open,
                 Words.ADD_FOLDER,
                 false,
                 actions.addFolder,
-                Words.strings.folderNames(
-                    a.folders.map {
-                        it.name
-                    },
-                ).ifEmpty { null },
+                Words.strings.folderNames(a.folders.map { it.name }).ifEmpty { null },
             )
         }
         if (asked && !a.ready) Muted(Words.NOTHING_SELECTED)

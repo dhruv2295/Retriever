@@ -130,23 +130,23 @@ data class Access(
 
         // InlinedApi: permission names are plain strings, and each is asked for or checked only on its own Android version.
 
-        /** What to ask for on the narrower path. Android 14 may answer with only the photos the person picks. */
+        /**
+         * What one row of the narrower path asks for: photos and videos, or [audio]. Android 14 may answer photos with only
+         * the ones the person picks. Before 13 one storage permission covers both.
+         */
         @SuppressLint("InlinedApi")
-        fun mediaPermissions(sdk: Int): List<String> = when {
+        fun mediaPermissions(sdk: Int, audio: Boolean = false): List<String> = when {
+            sdk < 33 -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+
+            audio -> listOf(Manifest.permission.READ_MEDIA_AUDIO)
+
             sdk >= 34 -> listOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_AUDIO,
                 Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
             )
 
-            sdk >= 33 -> listOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_AUDIO,
-            )
-
-            else -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            else -> listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
         }
 
         /** [describe] names a memory card by its volume id (SafSource.volumeDescriber); null while it is out. */

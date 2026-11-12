@@ -25,11 +25,11 @@ class AccessTest {
 
     @Test fun permissionsPerAndroidVersion() {
         assertEquals(listOf(READ_EXTERNAL_STORAGE), Access.mediaPermissions(30))
-        assertEquals(listOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, READ_MEDIA_AUDIO), Access.mediaPermissions(33))
-        assertEquals(
-            listOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, READ_MEDIA_AUDIO, READ_MEDIA_VISUAL_USER_SELECTED),
-            Access.mediaPermissions(34),
-        )
+        assertEquals(listOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO), Access.mediaPermissions(33))
+        assertEquals(listOf(READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, READ_MEDIA_VISUAL_USER_SELECTED), Access.mediaPermissions(34))
+        // Each row asks for its own kind only: tapping Photos never asks about music.
+        assertEquals(listOf(READ_MEDIA_AUDIO), Access.mediaPermissions(34, audio = true))
+        assertEquals(listOf(READ_EXTERNAL_STORAGE), Access.mediaPermissions(30, audio = true))
     }
 
     @Test fun grantsReadPerAndroidVersion() {

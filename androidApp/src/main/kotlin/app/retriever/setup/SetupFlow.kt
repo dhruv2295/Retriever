@@ -214,6 +214,7 @@ data class SetupActions(
     val allowFiles: () -> Unit = {},
     val chooseInstead: () -> Unit = {},
     val allowMedia: () -> Unit = {},
+    val allowAudio: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val continueFromAccess: () -> Unit = {},
     val seeAll: () -> Unit = {},

@@ -106,6 +106,8 @@ fun SetupScreen(
     val allFilesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         access.refresh()
         allFilesOff = !access.state.value.allFiles
+        // All files answers everything the sheet offers, so it closes on the access screen's ticks and Continue.
+        if (!allFilesOff) including = false
         flow.refresh()
     }
     val allowFiles = { openAllFilesSettings(context, allFilesLauncher::launch) }
@@ -116,6 +118,10 @@ fun SetupScreen(
         allowMedia = {
             askedFiles = true
             mediaLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT).toTypedArray())
+        },
+        allowAudio = {
+            askedFiles = true
+            mediaLauncher.launch(Access.mediaPermissions(Build.VERSION.SDK_INT, audio = true).toTypedArray())
         },
         addFolder = {
             askedFiles = true
@@ -138,7 +144,7 @@ fun SetupScreen(
     } else {
         SetupContent(ui, modifier, actions = actions, allFilesOff = allFilesOff)
     }
-    if (including && ui.stage == SetupStage.ACCESS) {
+    if (including && ui.stage == SetupStage.ACCESS && !ui.access.allFiles) {
         ModalBottomSheet(onDismissRequest = { including = false }) { IncludeSheet(ui, askedFiles, folderError, actions) }
     }
     // Every planned file, read or not, so the list answers what is done and what isn't; only read ones open, as on iOS.
