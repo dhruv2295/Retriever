@@ -103,11 +103,12 @@ enum IndexTask {
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: Copy.continuedTitle, subtitle: "")
         // A queued request may wait while the open app stands aside, reading nothing.
         request.strategy = .fail
-        // No .gpu: asking for it needs the Background GPU Access entitlement, which every signing profile must then carry.
-        // Add the capability to the App ID, regenerate the profiles, and only then put both back. backendNow picks the
-        // CPU once the app leaves.
-        continuedGpu.withLock { $0 = false }
-        log.info("background GPU supported on this device: \(BGTaskScheduler.supportedResources.contains(.gpu), privacy: .public)")
+        // The GPU in the background (Background GPU Access entitlement) where the device offers it; elsewhere backendNow
+        // picks the CPU once the app leaves, about 10x slower (an iPhone 12 mini offers none).
+        let gpu = BGTaskScheduler.supportedResources.contains(.gpu)
+        if gpu { request.requiredResources = .gpu }
+        continuedGpu.withLock { $0 = gpu }
+        log.info("continued reading asks for the GPU: \(gpu, privacy: .public)")
         try await submit(request)
     }
 
