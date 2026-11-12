@@ -699,6 +699,24 @@ internal object PortugueseBrazil : Strings {
 
     override val alreadySearchesFolder = "O Retriever já busca nessa pasta."
 
+    /** "suas fotos, seus vídeos e 2 pastas" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "suas fotos".takeIf { photos },
+        "seus vídeos".takeIf { videos },
+        "suas músicas".takeIf { music },
+        plural(folders.toLong(), "pasta").takeIf { folders > 0 },
+    ).let { m -> if (m.size <= 1) m.firstOrNull().orEmpty() else m.dropLast(1).joinToString(", ") + " e " + m.last() }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = "O Retriever pode ver ${granted(photos, videos, music, folders)}."
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders).replaceFirstChar(Char::uppercase)}, não todo o seu ${device(words)}"
+
+    override fun seesWholeDevice(words: DeviceWords) = "Todo o seu ${device(words)}"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "A busca incluiu só ${granted(photos, videos, music, folders)}. Downloads e arquivos de outros apps ficaram de fora."
+
     // AccessService
     override val couldntKeepFolder = "Não foi possível manter o acesso a essa pasta. Tente escolhê-la de novo."
 
@@ -1395,6 +1413,11 @@ internal object PortugueseBrazil : Strings {
     override val foldersFromFiles = "Pastas do app Arquivos"
 
     override val addFoldersFooter = "PDFs e documentos nas pastas que você adicionar pelo app Arquivos passam a aparecer na busca."
+
+    override val searchDocumentsToo = "Pesquise documentos também"
+
+    override val searchDocumentsTooBody =
+        "Adicione pastas do app Arquivos, como Downloads ou iCloud Drive, e o Retriever pesquisa os PDFs e documentos delas."
 
     override val downloadsOnWifiOrData = "Downloads por Wi-Fi ou dados móveis."
 

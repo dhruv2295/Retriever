@@ -51,6 +51,12 @@ struct HomeList: View {
         model.home != nil && (!memories || model.memoriesLoaded)
     }
 
+    /// "Search documents too" under "All done": everything Photos gave is processed, and no folder from Files is added.
+    /// [line] is the status line as shown (nil under the one-time card or once "All done" is hidden).
+    static func offersFolders(line: ReadingStatus?, photos: PHAuthorizationStatus, folders: [String], dismissed: Bool) -> Bool {
+        line?.action == .dismiss && (photos == .authorized || photos == .limited) && folders.isEmpty && !dismissed
+    }
+
     private var wantsMemories: Bool {
         guard let snap else { return false }
         return snap.showOnThisDay && snap.total > 0 && !photosOff && scenePhase == .active
@@ -311,9 +317,12 @@ private struct HomeStatusSection: View {
         let nudge =
             line == nil && photosNote == nil && model.readingMessage == nil && snap.prefs?.homeIntroDue != true && snap.total > 0
             && snap.total <= Self.nearlyEmpty
+        let folders = HomeList.offersFolders(
+            line: line, photos: photos, folders: model.folders, dismissed: snap.prefs?.widenAccessOfferDismissed == true)
         if line != nil || photosNote != nil || model.readingMessage != nil || nudge {
             Section {
                 if let line { StatusLine(status: line, model: model, dismissable: true) }
+                if folders { foldersOffer }
                 if let message = model.readingMessage { Text(message).foregroundStyle(.primary) }
                 if let note = photosNote {
                     if note.off {
@@ -332,6 +341,32 @@ private struct HomeStatusSection: View {
                 }
             }
         }
+    }
+
+    /// Raised off the line on the grouped list's nested fill, like the intro card's People row.
+    private var foldersOffer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Words.shared.strings.searchDocumentsToo).font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                .fixedSize(horizontal: false, vertical: true)
+            // Full contrast: secondary grey on the nested fill nearly fails.
+            Text(Words.shared.strings.searchDocumentsTooBody).font(.footnote).fixedSize(horizontal: false, vertical: true)
+            // Side by side while they fit, stacked at large text sizes.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { offerButtons }
+                VStack(alignment: .leading, spacing: 8) { offerButtons }
+            }
+            .padding(.top, 4)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.vertical, 4)
+    }
+
+    /// Explicit styles: in one List row, plain buttons would all fire on a tap anywhere in it.
+    @ViewBuilder private var offerButtons: some View {
+        Button(Words.shared.ADD_FOLDER, action: addFolder).buttonStyle(.bordered).buttonBorderShape(.capsule)
+        Button(Words.shared.NOT_NOW, action: model.dismissWidenAccessOffer).buttonStyle(.borderless)
     }
 
     private func card(_ status: PhotosNote, _ action: String, _ run: @escaping () -> Void) -> some View {

@@ -20,12 +20,15 @@ package app.retriever.search
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,6 +67,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -73,6 +78,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.retriever.R
+import app.retriever.access.Access
+import app.retriever.access.openAllFilesSettings
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.ReadExtent
@@ -205,6 +212,10 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
     // "Nothing found" only once the whole search for these very words and filters has answered. It then stays, dimmed
     // like old hits, while newer words are searched, so typing never blinks it away and back.
     val empty = phase.showsEmpty(question) || (stale && results?.complete == true && hits.isEmpty())
+    // A whole, current answer with few results, from partial access: say what was left out, and the way to the rest.
+    val wider = home.access.takeIf {
+        showsWiderSearch(it, hits.size) && results?.complete == true && !ui.searching && !stale && ui.similar == null && scope == null
+    }
     val asked = results?.question?.text ?: q
     when {
         phase is SearchPhase.Failed && !stale -> Message {
@@ -236,13 +247,16 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
             val words = asked.split(Regex("\\s+"))
             val waiting = if (scope != null) ui.unread > 0 else home.progress.scheduled > 0
             val message = Words.strings.noMatchesMessage(!ui.wordsOnly, waiting, ui.wordsOnly)
-            EmptyState(
-                Words.NO_MATCHES,
-                message,
-                R.drawable.ic_search_off,
-                action = if (words.size >= 2) Words.strings.tryFewerWords to { useText(words.dropLast(1).joinToString(" ")) } else null,
-                mood = mood,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                EmptyState(
+                    Words.NO_MATCHES,
+                    message,
+                    R.drawable.ic_search_off,
+                    action = if (words.size >= 2) Words.strings.tryFewerWords to { useText(words.dropLast(1).joinToString(" ")) } else null,
+                    mood = mood,
+                )
+                wider?.let { WiderSearchHint(it, Modifier.readingWidth().padding(16.dp)) }
+            }
         }
 
         results != null && hits.isNotEmpty() -> {
@@ -258,12 +272,42 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
                 }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star, actions.morph)
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
-            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, act)
+            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, act, wider)
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
         else -> if (heldFor(SearchTiming.SEARCHING_MASCOT_MS, true, question)) {
             Message { Mascot(MascotMood.SEARCHING, Modifier.width(160.dp).testTag(SEARCHING_MASCOT_TAG)) }
+        }
+    }
+}
+
+/** Up to this many results, a search over partial access says what it left out ([WiderSearchHint]). */
+internal const val FEW_FOR_WIDER_SEARCH = 3
+
+internal fun showsWiderSearch(access: Access, results: Int): Boolean = access.partial && results <= FEW_FOR_WIDER_SEARCH
+
+/** What a search over partial access covered, and "Search your whole phone", which opens Android's all-files switch. */
+@Composable
+private fun WiderSearchHint(access: Access, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    Surface(
+        onClick = { openAllFilesSettings(context) },
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(painterResource(R.drawable.ic_info), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(access.granted(Words.strings::searchedOnly), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    Words.strings.wholeDeviceTitle(DeviceWords.ANDROID),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -380,6 +424,8 @@ private fun ResultGrid(
     stale: Boolean,
     grid: LazyGridState,
     act: HitActions,
+    /** Partial access under few results: [WiderSearchHint] after them. */
+    wider: Access? = null,
 ) {
     val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
     val strong = hits.take(visibleCount)
@@ -411,6 +457,9 @@ private fun ResultGrid(
                 ) { Text(Words.strings.lessLikelyMatches(weak.size.toLong())) }
             }
             if (expanded) sections(weak, extents, query, titled = false, cell, act)
+        }
+        wider?.let { access ->
+            item(key = "wider", span = { GridItemSpan(maxLineSpan) }) { WiderSearchHint(access, Modifier.padding(top = 8.dp)) }
         }
     }
 }

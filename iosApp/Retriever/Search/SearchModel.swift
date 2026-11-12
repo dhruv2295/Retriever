@@ -364,7 +364,7 @@ final class SearchModel {
                     searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed, homeIntroDue: p.homeIntroDue,
                     notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: p.recognizePeople,
                     peopleOfferDismissed: p.peopleOfferDismissed,
-                    processingRequested: p.processingRequested)
+                    processingRequested: p.processingRequested, widenAccessOfferDismissed: p.widenAccessOfferDismissed)
             }
         }
     }

@@ -91,6 +91,11 @@ extension AppModel {
         Task { try? await services?.retriever.dismissHomeIntro() }
     }
 
+    /// Home's "Search documents too": Not now. The next snapshot's prefs take the row away for good.
+    func dismissWidenAccessOffer() {
+        Task { try? await services?.retriever.dismissWidenAccessOffer() }
+    }
+
     /// Back from the access screen to Hello, by core's rule.
     func setupBack() {
         guard let setup, let mark = SetupPolicy.shared.back(stage: setup.stage) else { return }

@@ -696,6 +696,24 @@ internal object French : Strings {
 
     override val alreadySearchesFolder = "Retriever recherche déjà dans ce dossier."
 
+    /** "vos photos, vos vidéos et 2 dossiers" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "vos photos".takeIf { photos },
+        "vos vidéos".takeIf { videos },
+        "votre musique".takeIf { music },
+        plural(folders.toLong(), "dossier").takeIf { folders > 0 },
+    ).let { m -> if (m.size <= 1) m.firstOrNull().orEmpty() else m.dropLast(1).joinToString(", ") + " et " + m.last() }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = "Retriever peut voir ${granted(photos, videos, music, folders)}."
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders).replaceFirstChar(Char::uppercase)}, pas tout votre ${device(words)}"
+
+    override fun seesWholeDevice(words: DeviceWords) = "Tout votre ${device(words)}"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "Recherche limitée à ${granted(photos, videos, music, folders)}. Les téléchargements et les fichiers des autres applis n’étaient pas inclus."
+
     // AccessService
     override val couldntKeepFolder = "Impossible de garder l’accès à ce dossier. Essayez de le choisir à nouveau."
 
@@ -1398,6 +1416,11 @@ internal object French : Strings {
     override val foldersFromFiles = "Dossiers de l’app Fichiers"
 
     override val addFoldersFooter = "Ajoutez des dossiers depuis l’app Fichiers pour rechercher dans leurs PDF et documents."
+
+    override val searchDocumentsToo = "Cherchez aussi dans vos documents"
+
+    override val searchDocumentsTooBody =
+        "Ajoutez des dossiers depuis l’app Fichiers, comme Téléchargements ou iCloud Drive, et Retriever cherchera dans leurs PDF et documents."
 
     override val downloadsOnWifiOrData = "Téléchargements en Wi-Fi ou avec les données mobiles."
 

@@ -26,6 +26,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.ShotTheme
+import app.retriever.access.Access
+import app.retriever.access.Photos
+import app.retriever.access.PickedFolder
 import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.FileTotals
@@ -150,6 +153,13 @@ class HomeShotsTest {
         readingStatus = line(),
     )
 
+    /** Photos and two picked folders, not all files: the done card offers the whole phone. */
+    private val partialAccess = Access(
+        allFiles = false,
+        photos = Photos.ALL,
+        folders = listOf(PickedFolder("content://tree/Documents", "Documents"), PickedFolder("content://tree/Work", "Work")),
+    )
+
     private val downloading = UpgradeUi(UpgradeStage.DOWNLOAD, ModelState.Downloading(0.4f, false), sizeBytes = 387_710_976)
 
     /** Every state the status line has on Home, by the name its shot carries. */
@@ -181,6 +191,7 @@ class HomeShotsTest {
         "all_read" to
             (base.copy(progress = allRead, readingStatus = line(allRead, on = false)) to UpgradeUi()),
         "no_access" to (base.copy(hasAccess = false) to UpgradeUi()),
+        "widen" to (base.copy(progress = allRead, readingStatus = line(allRead, on = false), access = partialAccess) to UpgradeUi()),
     )
 
     @Composable
@@ -287,6 +298,23 @@ class HomeShotsTest {
         shot("all_read", false)
         rule.onNodeWithText("All done. Retriever has processed everything it can").assertExists()
         rule.onNodeWithContentDescription("Dismiss").assertExists()
+    }
+
+    @Test fun widenLight() {
+        shot("widen", false)
+        rule.onNodeWithText("Retriever can see your photos and 2 folders.", substring = true).assertExists()
+    }
+
+    @Test fun widenDark() = shot("widen", true)
+
+    /** Allow opens the all-files switch; Not now hides the row for good. */
+    @Test fun widenRowRunsItsActions() {
+        val seen = mutableListOf<String>()
+        val actions = HomeActions(allowAccess = { seen += "allow" }, dismissWidenAccess = { seen += "not now" })
+        rule.setContent { ShotTheme(false) { Screen(states.getValue("widen").first, homeActions = actions) } }
+        rule.onNodeWithText(Words.strings.allowAllFiles).performClick()
+        rule.onNodeWithText(Words.NOT_NOW).performClick()
+        assertEquals(listOf("allow", "not now"), seen)
     }
 
     @Test fun noAccessLight() {

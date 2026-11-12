@@ -25,6 +25,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import app.retriever.ShotTheme
+import app.retriever.access.Access
+import app.retriever.access.Photos
+import app.retriever.access.PickedFolder
 import app.retriever.core.DateFilter
 import app.retriever.core.DeviceWords
 import app.retriever.core.IndexState
@@ -89,6 +92,15 @@ class SearchShotsTest {
         counts = counts,
         progress = ReadingProgress(read = 3_100, scheduled = 2_230),
         suggestions = listOf("wifi password", "electricity bill", "notes from the meeting"),
+    )
+
+    /** Photos and two picked folders, not all files. */
+    private val partialHome = readyHome.copy(
+        access = Access(
+            allFiles = false,
+            photos = Photos.ALL,
+            folders = listOf(PickedFolder("content://tree/Documents", "Documents"), PickedFolder("content://tree/Work", "Work")),
+        ),
     )
 
     /** Core's live status for [index], as Home gets it; Home shows no reading line before it arrives. */
@@ -177,6 +189,10 @@ class SearchShotsTest {
             "empty_in_chip" -> Pane(ready.copy(chip = Kind.PDF).answered("passport photo", emptyList()), none)
 
             "empty_stale" -> Pane(ready.answered("invoice zq", emptyList()).copy(query = "invoice"), none)
+
+            "few_partial" -> Pane(ready.answered("lease agreement", mixedHits.subList(1, 3)), none, partialHome)
+
+            "empty_partial" -> Pane(ready.answered("blue passport", emptyList()), none, partialHome)
 
             "error" -> Pane(ready.copy(query = "bill").let { it.copy(phase = SearchPhase.Failed(it.question)) }, none)
 
@@ -474,6 +490,19 @@ class SearchShotsTest {
     @Test fun emptyLight() {
         shot("empty", false)
         rule.onNodeWithText("Try fewer words").assertExists()
+    }
+
+    @Test fun fewResultsFromPartialAccessSayWhatWasLeftOut() {
+        shot("few_partial", false)
+        rule.onNodeWithText("Searched your photos and 2 folders only.", substring = true).assertExists()
+        rule.onNodeWithText(Words.strings.wholeDeviceTitle(DeviceWords.ANDROID)).assertExists()
+    }
+
+    @Test fun fewResultsFromPartialAccessDark() = shot("few_partial", true)
+
+    @Test fun nothingFromPartialAccessSaysWhatWasLeftOut() {
+        shot("empty_partial", false)
+        rule.onNodeWithText("Searched your photos and 2 folders only.", substring = true).assertExists()
     }
 
     @Test fun errorLight() {

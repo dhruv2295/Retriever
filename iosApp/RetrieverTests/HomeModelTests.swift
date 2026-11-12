@@ -42,6 +42,22 @@ final class HomeModelTests: XCTestCase {
         XCTAssertFalse(HomeList.isLooking(AppModel.Snap(setUp: true, paused: true), started: true), "an empty paused library is not looking")
     }
 
+    /// "Search documents too" only under "All done", with Photos allowed, no folder added and no Not now.
+    func testFoldersAreOfferedOnlyWhenDoneWithPhotosAndNoFolder() throws {
+        let model = AppModel(fixture: .photosOnly)
+        let done = try XCTUnwrap(model.statusLine(try XCTUnwrap(model.snap)))
+        XCTAssertEqual(done.action, .dismiss)
+        XCTAssertTrue(HomeList.offersFolders(line: done, photos: .authorized, folders: [], dismissed: false))
+        XCTAssertTrue(HomeList.offersFolders(line: done, photos: .limited, folders: [], dismissed: false))
+        let busy = AppModel(fixture: .reading(done: 1_204, total: 5_310))
+        let reading = try XCTUnwrap(busy.statusLine(try XCTUnwrap(busy.snap)))
+        XCTAssertFalse(HomeList.offersFolders(line: reading, photos: .authorized, folders: [], dismissed: false), "still processing")
+        XCTAssertFalse(HomeList.offersFolders(line: nil, photos: .authorized, folders: [], dismissed: false), "All done hidden")
+        XCTAssertFalse(HomeList.offersFolders(line: done, photos: .denied, folders: [], dismissed: false), "no Photos")
+        XCTAssertFalse(HomeList.offersFolders(line: done, photos: .authorized, folders: ["Work"], dismissed: false), "a folder added")
+        XCTAssertFalse(HomeList.offersFolders(line: done, photos: .authorized, folders: [], dismissed: true), "Not now")
+    }
+
     func testThumbnailSizesShareBuckets() {
         XCTAssertEqual([100, 256, 300, 384, 500, 720, 2_000].map(Thumbnails.bucket), [256, 256, 384, 384, 512, 768, 768])
     }
@@ -162,6 +178,8 @@ final class HomeModelTests: XCTestCase {
             newMedia: [], newShots: [], newDocs: [], starred: [], starredCount: 0, folders: 0, largeCount: 0, largeBytes: 0,
             possibleCopies: 0, kindTotals: [:], folderTotals: [])
         let snap = AppModel.Snap(setUp: true, byKind: [.pdf: 3, .screenshot: 2], indexed: 5)
+        // A folder from Files is added, so "Search documents too" has nothing to offer either.
+        model.folders = ["Work"]
         let layout = try await layout(model, snap: snap)
         // No new files, kinds, folders or stars: the status line alone. The nudge to add a folder (5 files is nearly
         // empty) takes the line's place only when the line has nothing to say, one at a time.

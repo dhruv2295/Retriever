@@ -75,6 +75,8 @@
         case searchFirstPart = "search.firstPart"
         case searchCopies = "search.copies"
         case homeCaughtUp = "home.caughtUp"
+        /// All done with Photos and no folder: "Search documents too".
+        case homePhotosOnly = "home.photosOnly"
         case homeReading = "home.reading"
         case homeEmpty = "home.empty"
         case homeMemories = "home.memories"
@@ -182,6 +184,7 @@
             case .homeProcessing, .statusProcessing: .processing
             case .homeMeaning: .meaningPass
             case .homeNoAccess: .lostAccess
+            case .homePhotosOnly: .photosOnly
             case .homeNotNow: .notNow
             case .homeCounting: .counting
             case .upgradeWaitingWifi: .waitingForWifi
@@ -244,7 +247,7 @@
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
             case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeProcessing, .homeDownloading, .homeMeaning, .homeNoAccess,
-                .homeNotNow, .homeCounting, .homeIntroReady, .homeIntroOnItsWay:
+                .homeNotNow, .homeCounting, .homeIntroReady, .homeIntroOnItsWay, .homePhotosOnly:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {
