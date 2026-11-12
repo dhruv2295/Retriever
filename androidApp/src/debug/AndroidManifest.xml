@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <application>
+    <application android:icon="@mipmap/ic_launcher">
         <!-- Debug builds only: demo mode and the search eval. Its own task, so it never stacks on the app's. -->
         <activity
             android:name=".DebugActivity"

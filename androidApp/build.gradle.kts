@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.play.publisher)
+    alias(libs.plugins.kover)
 }
 
 // iOS's Config.xcconfig holds the one version and build number for both apps.
@@ -17,8 +18,18 @@ val xcconfig =
 
 // Play upload key, from ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env vars (docs: README, Release).
 val uploadKey = listOf("StoreFile", "StorePassword", "KeyAlias", "KeyPassword").map { providers.gradleProperty("retrieverUpload$it").orNull }
+val requestedTasks = gradle.startParameter.taskNames
+val publishing = requestedTasks.any { it.contains("publish", ignoreCase = true) }
+val forPlay = publishing || requestedTasks.any { it.contains("bundle", ignoreCase = true) } // see splits below
 
-if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
+// Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still
+// works. Play rejects a debug-signed upload, so publish tasks stop here instead.
+if (publishing && uploadKey.any { it == null }) {
+    throw GradleException("Publishing needs the upload key: set the retrieverUpload* properties (README, Release)")
+}
+
+// Test coverage only with -Pcoverage (scripts/verify.sh --full); otherwise tests run uninstrumented.
+kover { if (!providers.gradleProperty("coverage").isPresent) disable() }
 
 // ./gradlew -PcomposeReports :androidApp:compileDebugKotlin writes the stability reports to androidApp/build/compose.
 composeCompiler {
@@ -53,11 +64,6 @@ android {
         }
     }
 
-    // Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still
-    // works. Play rejects a debug-signed upload, so publish tasks stop here instead.
-    if (signingConfigs.findByName("upload") == null && gradle.startParameter.taskNames.any { it.contains("publish", ignoreCase = true) }) {
-        throw GradleException("Publishing needs the upload key: set the retrieverUpload* properties (README, Release)")
-    }
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -72,13 +78,11 @@ android {
     // splits a bundle by ABI itself, so a bundle or Play publish build turns them off: run those apart from assemble
     // tasks. The 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict
     // in any build type, so there are no filters.
-    val forPlay = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) || it.contains("publish", ignoreCase = true) }
     splits {
         abi {
             isEnable = !forPlay
             reset()
             include("arm64-v8a", "x86_64")
-            isUniversalApk = false
         }
     }
 
@@ -89,9 +93,6 @@ android {
         compose = true
         buildConfig = true
     }
-
-    // Lists the values-xx languages for Android 13+'s per-app language setting (default language: res/resources.properties).
-    androidResources { generateLocaleConfig = true }
 
     packaging {
         // LiteRT loads NPU dispatch libraries from applicationInfo.nativeLibraryDir, so they must be extracted.
@@ -114,8 +115,6 @@ android {
         // Also lint :core's androidMain, so an API above minSdk there (readNBytes was 33) fails the build.
         checkDependencies = true
         warningsAsErrors = true
-        abortOnError = true
-        checkReleaseBuilds = true
         // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
         // -Poutdated turns the checks on to list newer versions.
         val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")

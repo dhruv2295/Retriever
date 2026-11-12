@@ -7,22 +7,21 @@ plugins {
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.sqldelight)
     alias(libs.plugins.android.lint)
+    alias(libs.plugins.kover)
 }
 
-tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }
-
-// The benches take minutes; they run only with -Pbench.
-if (!providers.gradleProperty("bench").isPresent) {
-    tasks.withType<Test>().configureEach { filter { excludeTestsMatching("*BenchTest") } }
+tasks.withType<Test>().configureEach {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // The benches take minutes; they run only with -Pbench.
+    if (!providers.gradleProperty("bench").isPresent) filter { excludeTestsMatching("*BenchTest") }
 }
 
-if (providers.gradleProperty("coverage").isPresent) apply(plugin = "org.jetbrains.kotlinx.kover")
+// Test coverage only with -Pcoverage (scripts/verify.sh --full); otherwise tests run uninstrumented.
+kover { if (!providers.gradleProperty("coverage").isPresent) disable() }
 
 // One gate for both lint runs here: the KMP Android target's (lintAndroidMain) and the standalone one (lintJvm).
 val lintGate: Lint.() -> Unit = {
     warningsAsErrors = true
-    abortOnError = true
-    checkReleaseBuilds = true
     // Versions are pinned on purpose (litertlm, AGP, the Compose BOM); an upgrade is a decision, not a lint nag.
     // -Poutdated turns the checks on to list newer versions.
     val versionChecks = setOf("NewerVersionAvailable", "GradleDependency", "AndroidGradlePluginVersion")
