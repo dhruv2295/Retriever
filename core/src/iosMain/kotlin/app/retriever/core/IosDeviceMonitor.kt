@@ -41,7 +41,8 @@ class IosDeviceMonitor(private val ramGb: Double) : DeviceMonitor {
             pluggedIn = charging,
             batteryPct = batteryPct,
             thermal = thermal,
-            powerSave = info.lowPowerModeEnabled,
+            // A continued session the person started carries on in Low Power Mode; the battery floors still apply.
+            powerSave = info.lowPowerModeEnabled && !continued,
             // iOS can't tell whether the screen is on. With screenOn == visible, Retriever's busy() never trips
             // while the app is open, and the batch policy stays visibility-based.
             screenOn = active,

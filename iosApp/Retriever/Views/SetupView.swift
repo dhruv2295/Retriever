@@ -104,7 +104,7 @@ private struct HelloStep: View {
                 Button(action: model.getStarted) { wide(Words.shared.GET_STARTED) }.buttonStyle(.primaryAction)
                 if model.downloadOnGetStarted {
                     // Primary: footnote-sized secondary grey falls short of contrast.
-                    Text(Words.shared.downloadNote(size: model.downloadSize)).font(.footnote).multilineTextAlignment(.center)
+                    Text(Words.shared.downloadLine(size: model.downloadSize)).font(.footnote).multilineTextAlignment(.center)
                 }
             })
     }
@@ -211,6 +211,10 @@ private struct AccessStep: View {
                 .frame(maxWidth: 342)
                 .padding(.top, 20)
                 if let folderNote { Note(folderNote) }
+                // Continue starts processing, so the screen says so once there is something to process.
+                if model.accessGiven {
+                    Label(Words.shared.ACCESS_SCANNING, systemImage: "checkmark").font(.subheadline).padding(.top, 12)
+                }
             }
             .modifier(
                 StepActions {

@@ -185,7 +185,7 @@ internal object Hindi : Strings {
     override fun foldersAdded(n: Long) = "${plural(n, "फ़ोल्डर")} ${agree(n, "जोड़ा गया", "जोड़े गए")}"
 
     override val androidAccessBody = "ताकि आप किसी भी फ़ोटो, दस्तावेज़ या डाउनलोड को उसके बारे में बताकर ढूंढ सकें."
-    override val accessScanning = "Retriever अब आपकी फ़ोटो और फ़ाइलों को स्कैन करना शुरू करेगा, ताकि आप उनमें खोज सकें। सब कुछ आपके फ़ोन पर ही रहता है।"
+    override val accessScanning = "Retriever अब आपकी फ़ोटो और फ़ाइलों को स्कैन करना शुरू करेगा, ताकि आप उनमें खोज सकें।"
     override val allFilesOff =
         "पूरे फ़ोन में खोजने के लिए “सभी फ़ाइलों को मैनेज करने का ऐक्सेस दें” चालू करें, या चुनें कि क्या शामिल करना है."
     override val includeTitle = "चुनें कि क्या शामिल करना है"
@@ -525,13 +525,13 @@ internal object Hindi : Strings {
     override val gettingReadyTitle = "तैयारी हो रही है…"
     override val notNowTitle = "अभी फ़ाइलें सिर्फ़ नाम से मिलेंगी"
 
-    override val sampleTitle = "डेमो फ़ाइलें प्रोसेस हो रही हैं"
     override val lookingForFacesTitle = "आपकी फ़ोटो में लोगों को ढूंढा जा रहा है"
     override val deepeningTitle = "कुछ लंबी फ़ाइलों का बाकी हिस्सा प्रोसेस हो रहा है"
     override val lookingTitle = "नई फ़ाइलें देखी जा रही हैं…"
     override val caughtUpTitle = "सब हो गया. Retriever ने जो कुछ प्रोसेस हो सकता था, सब कर लिया"
 
     override val processingReadyDetail = "आपकी प्रगति सेव है। अभी शुरू कर सकते हैं, या अनुकूल स्थिति होने पर प्रोसेसिंग अपने-आप जारी होगी।"
+    override val keepGoingInBackground = "बैकग्राउंड में जारी रखें"
     override val processingAdaptiveDetail = "फ़ोन सुचारू रूप से चलता रहे, इसलिए प्रोसेसिंग अपनी गति बदलती है।"
     override val processingBatteryOverrideDetail = "प्रोसेसिंग बैटरी ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक रहने पर चलती है।"
 
@@ -559,8 +559,6 @@ internal object Hindi : Strings {
     override fun chargingDetail(words: DeviceWords) = "आपके ${phone(words)} के चार्ज होते समय Retriever काम जारी रखेगा."
 
     override val manualDetail = "आप कोई भी फ़ाइल उसके नाम से ढूंढ सकते हैं."
-
-    override val sampleDetail = "करीब एक मिनट. न कुछ बदला जाता है, न कहीं भेजा जाता है."
 
     override fun meaningDetail(words: DeviceWords) = "ताकि आप चीज़ों के मतलब से और अपनी फ़ोटो में दिख रही चीज़ों से खोज सकें. सिर्फ़ इसी ${phone(words)} पर."
 
@@ -1366,9 +1364,11 @@ internal object Hindi : Strings {
 
     override val kindsFooterVideos = "$kindOff वीडियो: सिर्फ़ तस्वीरें, आवाज़ नहीं."
 
-    override fun includeQuoted(name: String) = "“$name” शामिल करें"
+    override val photosLibrary = "फ़ोटो लाइब्रेरी"
 
-    override val doesntLookInThese = "Retriever इनमें खोज नहीं करता. आपकी फ़ाइलें जहां हैं, वहीं रहती हैं."
+    override val foldersFromFiles = "फ़ाइलें ऐप के फ़ोल्डर"
+
+    override val addFoldersFooter = "फ़ाइलें ऐप से जोड़े गए फ़ोल्डरों की PDF और दस्तावेज़ खोजे जा सकेंगे."
 
     override val downloadsOnWifiOrData = "डाउनलोड Wi-Fi या मोबाइल डेटा पर होते हैं."
 

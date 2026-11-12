@@ -173,7 +173,7 @@ internal object German : Strings {
 
     override val androidAccessBody = "So findest du Fotos, Dokumente und Downloads, indem du sie beschreibst."
     override val accessScanning =
-        "Retriever beginnt jetzt, deine Fotos und Dateien zu verarbeiten, damit du sie durchsuchen kannst. Alles bleibt auf deinem Handy."
+        "Retriever beginnt jetzt, deine Fotos und Dateien zu verarbeiten, damit du sie durchsuchen kannst."
     override val allFilesOff =
         "Aktiviere „Zugriff zum Verwalten aller Dateien zulassen“, um dein ganzes Handy zu durchsuchen, oder wähle aus, was dabei sein soll."
     override val includeTitle = "Wähle aus, was dabei sein soll"
@@ -533,7 +533,6 @@ internal object German : Strings {
     override val gettingReadyTitle = "Wird vorbereitet…"
     override val notNowTitle = "Dateien vorerst über den Namen finden"
 
-    override val sampleTitle = "Die Demodateien werden verarbeitet"
     override val lookingForFacesTitle = "Personen in deinen Fotos werden gefunden"
     override val deepeningTitle = "Der Rest einiger langer Dateien wird verarbeitet"
     override val lookingTitle = "Suche nach neuen Dateien…"
@@ -542,6 +541,7 @@ internal object German : Strings {
     override val processingReadyDetail =
         "Dein Fortschritt ist gespeichert. Du kannst jetzt starten, oder die Verarbeitung geht weiter, " +
             "sobald die Bedingungen es erlauben."
+    override val keepGoingInBackground = "Im Hintergrund weitermachen"
     override val processingAdaptiveDetail = "Die Verarbeitung passt sich an, damit dein Handy flüssig reagiert."
     override val processingBatteryOverrideDetail = "Die Verarbeitung läuft im Akkubetrieb bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
 
@@ -569,8 +569,6 @@ internal object German : Strings {
     override fun chargingDetail(words: DeviceWords) = "Retriever macht weiter, wenn dein ${device(words)} lädt."
 
     override val manualDetail = "Du kannst jede Datei über ihren Namen finden."
-
-    override val sampleDetail = "Etwa eine Minute. Nichts wird verändert oder gesendet."
 
     override fun meaningDetail(words: DeviceWords) =
         "Damit du Dateien und Fotos über ihren Inhalt finden kannst, indem du ihn beschreibst. Nur auf diesem ${device(words)}."
@@ -1383,9 +1381,11 @@ internal object German : Strings {
 
     override val kindsFooterVideos = "$kindOff Videos: nur Bilder, kein Ton."
 
-    override fun includeQuoted(name: String) = "„$name“ einbeziehen"
+    override val photosLibrary = "Fotomediathek"
 
-    override val doesntLookInThese = "Retriever durchsucht diese Ordner nicht. Deine Dateien bleiben, wo sie sind."
+    override val foldersFromFiles = "Ordner aus „Dateien“"
+
+    override val addFoldersFooter = "PDFs und Dokumente in Ordnern, die du aus „Dateien“ hinzufügst, werden durchsuchbar."
 
     override val downloadsOnWifiOrData = "Downloads über WLAN oder mobile Daten."
 

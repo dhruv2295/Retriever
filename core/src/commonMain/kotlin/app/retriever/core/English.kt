@@ -139,7 +139,7 @@ internal object English : Strings {
     override fun foldersAdded(n: Long) = "${plural(n, "folder")} added"
 
     override val androidAccessBody = "So you can find any photo, document or download by describing it."
-    override val accessScanning = "Retriever starts scanning your photos and files now, so you can search them. It all stays on your phone."
+    override val accessScanning = "Retriever starts scanning your photos and files now, so you can search them."
     override val allFilesOff = "Turn on “Allow access to manage all files” to search your whole phone, or choose what to include."
     override val includeTitle = "Choose what to include"
     override val sharedFilesAndFolders = "Files and folders on this phone"
@@ -446,13 +446,13 @@ internal object English : Strings {
     override val gettingReadyTitle = "Getting ready…"
     override val notNowTitle = "Only names can be found for now"
 
-    override val sampleTitle = "Processing the demo files"
     override val lookingForFacesTitle = "Finding people in your photos"
     override val deepeningTitle = "Processing the rest of some long files"
     override val lookingTitle = "Checking for new files…"
     override val caughtUpTitle = "All done. Retriever has processed everything it can"
 
     override val processingReadyDetail = "Your progress is saved. You can start now, or processing will continue when conditions allow."
+    override val keepGoingInBackground = "Keep going in the background"
     override val processingAdaptiveDetail = "Processing adapts to keep your phone responsive."
     override val processingBatteryOverrideDetail = "Processing runs on battery down to ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
 
@@ -481,8 +481,6 @@ internal object English : Strings {
     override fun chargingDetail(words: DeviceWords) = "Retriever carries on when your ${words.device} is charging."
 
     override val manualDetail = "You can find any file by its name."
-
-    override val sampleDetail = "About a minute. Nothing is changed or sent."
 
     override fun meaningDetail(words: DeviceWords) = "So you can search by what things mean, and by what’s in your photos. On this ${words.device} only."
 
@@ -1286,9 +1284,11 @@ internal object English : Strings {
 
     override val kindsFooterVideos = "$kindOff Videos: pictures only, no sound."
 
-    override fun includeQuoted(name: String) = "Include “$name”"
+    override val photosLibrary = "Photos library"
 
-    override val doesntLookInThese = "Retriever doesn’t look in these. Your files stay where they are."
+    override val foldersFromFiles = "Folders from Files"
+
+    override val addFoldersFooter = "PDFs and documents in folders you add from the Files app become searchable."
 
     override val downloadsOnWifiOrData = "Downloads on Wi-Fi or mobile data."
 

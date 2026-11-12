@@ -246,7 +246,12 @@ enum IndexTask {
                 }, waiting, 1)
             task.progress.totalUnitCount = Int64(total)
             task.progress.completedUnitCount = Int64(total - waiting)
-            task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
+            // A pause for the battery or heat says what it waits for, as the status line does.
+            if snapshot.reading.active {
+                task.updateTitle(Copy.continuedTitle, subtitle: Copy.continuedSubtitle(Int(snapshot.counts.sessionRead)))
+            } else {
+                task.updateTitle(snapshot.reading.title, subtitle: snapshot.reading.detail ?? "")
+            }
         }
         // The batch's end or expire's grace timer, once: release this run's hold, then tell iOS.
         let complete = Completion { ok in
@@ -269,20 +274,32 @@ enum IndexTask {
         Task {
             var next = NextRun.soon
             var failed = false
-            while next == NextRun.soon, !run.expired.withLock({ $0 }), retriever.readNowSession == session {
+            func live() -> Bool { !run.expired.withLock({ $0 }) && retriever.readNowSession == session }
+            // A pause for the battery or heat waits here and carries on by itself, as Android's session does; iOS may
+            // still expire a task that stalls, and the request then resumes when the app next opens.
+            while live() {
                 do {
                     next = try await retriever.continuedBatchSeconds(seconds: 120, session: session)
-                    if next == NextRun.done {
-                        if try await retriever.completeSetupSample(expectedSession: session).boolValue {
-                            next = NextRun.soon
-                        } else {
-                            _ = try await retriever.finishProcessingRequest(expectedGeneration: generation)
-                        }
+                    let blocked = retriever.readingBlocker() != nil
+                    if next == NextRun.done, !blocked {
+                        if try await retriever.completeSetupSample(expectedSession: session).boolValue { continue }
+                        // DONE with nothing read (a failed NPU build waits for the generic download): another batch would do the same.
+                        if retriever.stateNow.processed == 0 { break }
+                        if try await retriever.finishProcessingRequest(expectedGeneration: generation).boolValue { break }
+                    }
+                    if next == NextRun.retry { break }
+                    if next == NextRun.afterCooldown, !blocked {
+                        // Nothing to wait out but a rest (a model open refused for memory, People's model downloading).
+                        try await Task.sleep(for: .seconds(ThermalRest.shared.RECHECK_SECONDS))
+                    } else if next != NextRun.soon || blocked {
+                        repeat {
+                            try await Task.sleep(for: .seconds(10))
+                        } while live() && retriever.readingBlocker() != nil
                     }
                 } catch {
                     log.error("continued batch failed: \(error, privacy: .private)")
                     failed = true
-                    next = NextRun.afterCooldown
+                    break
                 }
             }
             let ok = !run.expired.withLock { $0 } && !failed

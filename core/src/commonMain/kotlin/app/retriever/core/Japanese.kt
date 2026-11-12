@@ -176,7 +176,7 @@ internal object Japanese : Strings {
     override fun foldersAdded(n: Long) = "フォルダを${count(n, "個")}追加しました"
 
     override val androidAccessBody = "写真、ドキュメント、ダウンロードしたファイルを、説明するだけで見つけられるようになります。"
-    override val accessScanning = "Retrieverが写真やファイルのスキャンを開始し、検索できるようにします。すべてのデータはスマートフォン内に留まります。"
+    override val accessScanning = "Retrieverが写真やファイルのスキャンを開始し、検索できるようにします。"
     override val allFilesOff = "スマートフォン全体を検索するには「全ファイルの管理権を付与」をオンにするか、対象を選んでください。"
     override val includeTitle = "対象を選択"
     override val sharedFilesAndFolders = "このスマートフォン内のファイルとフォルダ"
@@ -478,13 +478,13 @@ internal object Japanese : Strings {
     override val gettingReadyTitle = "準備しています…"
     override val notNowTitle = "今のところ名前でだけ見つけられます"
 
-    override val sampleTitle = "デモ用ファイルを処理しています"
     override val lookingForFacesTitle = "写真の中の人物を見つけています"
     override val deepeningTitle = "一部の長いファイルの残りを処理しています"
     override val lookingTitle = "新しいファイルを確認しています…"
     override val caughtUpTitle = "完了。Retrieverは処理できるものをすべて処理しました"
 
     override val processingReadyDetail = "進捗は保存されています。今すぐ開始するか、条件が整うと自動的に処理が続きます。"
+    override val keepGoingInBackground = "バックグラウンドで続ける"
     override val processingAdaptiveDetail = "スマートフォンの操作が快適になるように処理速度を調整します。"
     override val processingBatteryOverrideDetail = "処理はバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
 
@@ -510,8 +510,6 @@ internal object Japanese : Strings {
     override fun chargingDetail(words: DeviceWords) = "${dev(words)}の充電中にRetrieverが再開します。"
 
     override val manualDetail = "どのファイルも名前で見つけられます。"
-
-    override val sampleDetail = "1分ほどかかります。ファイルは変更されず、外部に送信されることもありません。"
 
     override fun meaningDetail(words: DeviceWords) = "意味や、写真に写っているもので検索できるようにします。この${dev(words)}上だけで行います。"
 
@@ -1306,9 +1304,11 @@ internal object Japanese : Strings {
 
     override val kindsFooterVideos = "${kindOff}動画：映像のみで、音声は含みません。"
 
-    override fun includeQuoted(name: String) = "「$name」を含める"
+    override val photosLibrary = "写真ライブラリ"
 
-    override val doesntLookInThese = "これらのフォルダは処理せず、検索対象からも外します。ファイルはそのまま残ります。"
+    override val foldersFromFiles = "「ファイル」アプリのフォルダ"
+
+    override val addFoldersFooter = "「ファイル」アプリから追加したフォルダ内のPDFやドキュメントを検索できるようになります。"
 
     override val downloadsOnWifiOrData = "Wi-Fiまたはモバイルデータでダウンロードします。"
 

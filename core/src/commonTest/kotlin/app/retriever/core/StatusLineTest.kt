@@ -80,8 +80,9 @@ class StatusLineTest {
                 listOf("WAITING", "Paused", count, Words.strings.processingReadyDetail, "Start processing"),
             decide(session = false, words = iphone) to
                 listOf("WAITING", "Paused", count, Words.strings.processingReadyDetail, "Start processing"),
+            // The demo's own passes after its Continue: the same title and whole-phone count as any read.
             decide(waiting.copy(sample = true), reading = true) to
-                listOf("SAMPLE", "Processing the demo files", null, "About a minute. Nothing is changed or sent.", "Pause"),
+                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             // Not now pauses: the line says what can be found, counts the whole phone, and offers to start.
             decide(ReadingProgress(read = 30, notScheduled = 25_763, sample = true, notNow = true), stop = StopReason.PAUSED) to
                 listOf("NOT_NOW", "Only names can be found for now", "30 of ${formatCount(25_793)} files processed", null, "Start processing"),
@@ -245,9 +246,9 @@ class StatusLineTest {
         val status = decide(ReadingProgress(read = 312, nameOnly = 20, couldntRead = 3, scheduled = 25_412), reading = true)
         assertEquals("335 of ${formatCount(25_747)} files processed", status.count)
         assertEquals(335L to 25_747L, status.done to status.total)
-        // The demo has its own count; deepening has nothing left of the first reads to count, so no full bar.
+        // Home after the demo counts the whole phone; deepening has nothing left of the first reads to count, so no full bar.
         val demo = decide(ReadingProgress(read = 117, scheduled = 7, sample = true), reading = true)
-        assertEquals(listOf(null, null, null), listOf(demo.count, demo.done, demo.total))
+        assertEquals(listOf("117 of 124 files processed", 117L, 124L), listOf(demo.count, demo.done, demo.total))
         assertNull(decide(ReadingProgress(partlyRead = 2, laterPasses = 2), reading = true).total)
         // The download's bar is its percent of 100, the same shape.
         val download = ReadingPolicy.line(status, true, true, 5, android, DownloadState(37, stopped = false, size = "388 MB"))!!

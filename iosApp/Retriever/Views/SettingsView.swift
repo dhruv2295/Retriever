@@ -1,3 +1,4 @@
+import Photos
 import RetrieverCore
 import SwiftUI
 
@@ -8,6 +9,8 @@ struct SettingsView: View {
     @State private var confirmingClear = false
     @State private var searchesCleared = false
     @State private var confirmingForget = false
+    @State private var addingFolder = false
+    @State private var folderNote: String?
     #if DEBUG
         /// Overrides the app's own log (previews); nil reads model.services?.diagnostics.
         var diagnostics: Diagnostics? = nil
@@ -53,6 +56,15 @@ struct SettingsView: View {
         .navigationTitle(Words.shared.strings.appSettings)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.modelMissing) { await model.loadStorage() }
+        // Back from Folders: a folder removed there leaves model.folders as it was.
+        .onAppear { if let services = model.services { model.folders = AppModel.pickedFolders(services) } }
+        .fileImporter(isPresented: $addingFolder, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            // An added folder shows in its section; only what went wrong needs saying.
+            let problems = model.addFolders(urls).filter { if case .added = $0 { false } else { true } }
+            folderNote = problems.isEmpty ? nil : problems.map(Copy.addFolderResult).joined(separator: "\n")
+        }
+        .alert(folderNote ?? "", isPresented: Binding(get: { folderNote != nil }, set: { if !$0 { folderNote = nil } })) {}
         #if DEBUG
             .task {
                 guard !loadedProblems, let log = diagnostics ?? model.services?.diagnostics else { return }
@@ -150,41 +162,61 @@ struct SettingsView: View {
         }
     }
 
+    /// iOS reads two places: the Photos library, under its permission, and the folders picked in the Files app.
+    /// Each section offers only the kinds that place holds, and its own way in while it gives nothing.
     @ViewBuilder private func includedFiles(_ snap: AppModel.Snap) -> some View {
+        let kinds = snap.textOnly ? AppModel.Snap.insideTextOnly : AppModel.Snap.inside
         Section {
-            NavigationLink(Words.shared.WHAT_IT_CAN_SEE, value: Route.folders)
-        }
-        Section {
-            // No platform reads audio yet, so it has no switch: only the plain fact.
-            LabeledContent(Words.shared.kindLabelPlural(kind: .audio), value: Words.shared.FOUND_BY_NAME)
-            ForEach(snap.textOnly ? AppModel.Snap.insideTextOnly : AppModel.Snap.inside, id: \.self) { kind in
-                Toggle(Self.label(kind), isOn: Binding(get: { snap.kinds.contains(kind) }, set: { model.setKind(kind, $0) }))
+            switch model.photos {
+            case .authorized, .limited:
+                kindToggles([.photo, .screenshot, .video], of: kinds, snap)
+                if model.photos == .limited { Button(Words.shared.strings.chooseMorePhotos, action: model.chooseMorePhotos) }
+            case .denied, .restricted:
+                Button(Words.shared.strings.openSettings, action: model.openSettings)
+            default:
+                Button(Words.shared.strings.allowPhotosAccess, action: model.requestPhotos)
             }
         } header: {
-            Text(Words.shared.PROCESS_THESE_KINDS)
+            Text(Words.shared.strings.photosLibrary)
         } footer: {
-            Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : Words.shared.strings.kindsFooterVideos)
+            switch model.photos {
+            case .authorized, .limited:
+                VStack(alignment: .leading, spacing: 4) {
+                    if model.photos == .limited { Text(Words.shared.strings.onlySeesPickedPhotos) }
+                    Text(snap.textOnly ? Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words) : Words.shared.strings.kindsFooterVideos)
+                }
+            case .denied, .restricted: Text(Words.shared.strings.photosOffCantSearch)
+            default: EmptyView()
+            }
         }
+        // Retriever's own Files folder is searched even with none picked, so skipped folders keep their way back.
+        let hasFolders = !model.folders.isEmpty || !snap.excludedFolders.isEmpty
         Section {
-            if snap.excludedFolders.isEmpty { Text(Words.shared.strings.noneExcluded).foregroundStyle(.secondary) }
-            ForEach(snap.excludedFolders.sorted(), id: \.self) { path in
-                let name = path.split(separator: "/").last.map(String.init) ?? path
-                HStack {
-                    Text(name).lineLimit(1)
-                    Spacer()
-                    Button {
-                        model.restoreFolder(path)
-                    } label: {
-                        Text(Words.shared.strings.includeFolder).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel(Words.shared.strings.includeQuoted(name: name))
+            if hasFolders {
+                NavigationLink(value: Route.folders) {
+                    LabeledContent(Words.shared.strings.folders, value: Copy.count(model.folders.count))
+                }
+                kindToggles([.pdf, .doc], of: kinds, snap)
+                // No platform reads audio yet, so it has no switch: only the plain fact.
+                LabeledContent(Words.shared.kindLabelPlural(kind: .audio), value: Words.shared.FOUND_BY_NAME)
+            } else {
+                Button {
+                    addingFolder = true
+                } label: {
+                    Label(Words.shared.ADD_FOLDER, systemImage: "folder.badge.plus")
                 }
             }
         } header: {
-            Text(Words.shared.FOLDERS_TO_SKIP)
+            Text(Words.shared.strings.foldersFromFiles)
         } footer: {
-            Text(Words.shared.strings.doesntLookInThese)
+            Text(hasFolders ? Words.shared.KIND_OFF : Words.shared.strings.addFoldersFooter)
+        }
+    }
+
+    /// The `wanted` kinds this device reads (`offered`), in the order given.
+    private func kindToggles(_ wanted: [Kind], of offered: [Kind], _ snap: AppModel.Snap) -> some View {
+        ForEach(wanted.filter { offered.contains($0) }, id: \.self) { kind in
+            Toggle(Self.label(kind), isOn: Binding(get: { snap.kinds.contains(kind) }, set: { model.setKind(kind, $0) }))
         }
     }
 

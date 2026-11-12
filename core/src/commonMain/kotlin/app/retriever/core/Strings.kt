@@ -315,7 +315,6 @@ interface Strings {
     val gettingReadyTitle: String
     val notNowTitle: String
 
-    val sampleTitle: String
     val lookingForFacesTitle: String
     val deepeningTitle: String
     val lookingTitle: String
@@ -323,6 +322,9 @@ interface Strings {
 
     // Android processing state shared by Home, details and notifications.
     val processingReadyDetail: String
+
+    /** iOS: hands a run the app resumed on opening to a task that carries on after the person leaves. */
+    val keepGoingInBackground: String
     val processingAdaptiveDetail: String
     val processingBatteryOverrideDetail: String
     val processingKeepPaused: String
@@ -342,8 +344,6 @@ interface Strings {
 
     fun chargingDetail(words: DeviceWords): String
     val manualDetail: String
-
-    val sampleDetail: String
 
     fun meaningDetail(words: DeviceWords): String
     val peopleDownloadDetail: String
@@ -928,7 +928,7 @@ interface Strings {
     /** both apps: empty list under Folders to skip; both apps */
     val noneExcluded: String
 
-    /** Android: TalkBack label of the Include folder button; differs from includeQuoted (iOS) */
+    /** Android: TalkBack label of the Include folder button */
     fun includeNamed(folder: String): String
 
     /** both apps: button: stop skipping this folder; both apps */
@@ -1507,11 +1507,14 @@ interface Strings {
     /** iOS: section footer; today Words.KIND_OFF + this tail */
     val kindsFooterVideos: String
 
-    /** iOS: VoiceOver label; differs from includeNamed (Android) */
-    fun includeQuoted(name: String): String
+    /** iOS: section header over the photo, screenshot and video switches */
+    val photosLibrary: String
 
-    /** iOS: section footer */
-    val doesntLookInThese: String
+    /** iOS: section header over the folders picked in the Files app */
+    val foldersFromFiles: String
+
+    /** iOS: section footer while no folder is picked */
+    val addFoldersFooter: String
 
     /** iOS: section footer */
     val downloadsOnWifiOrData: String

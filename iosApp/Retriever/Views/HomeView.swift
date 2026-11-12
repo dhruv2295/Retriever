@@ -378,6 +378,9 @@ struct StatusLine: View {
                 }
             }
         }
+        if model.offersKeepGoing {
+            Button(Words.shared.strings.keepGoingInBackground) { model.keepReading() }
+        }
     }
 
     private var row: some View {

@@ -59,7 +59,6 @@ enum class ReadingPhase {
     CHARGING_UP,
     CHARGING,
     MANUAL,
-    SAMPLE,
     MEANING,
     FACES,
     DEEPENING,
@@ -89,7 +88,7 @@ enum class StatusAction {
     val label: String get() = Words.strings.statusAction(this)
 }
 
-private val ACTIVE = setOf(ReadingPhase.READING, ReadingPhase.SAMPLE, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
+private val ACTIVE = setOf(ReadingPhase.READING, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
 private val STOPS = setOf(
     ReadingPhase.PAUSED,
     ReadingPhase.POWER_SAVE,
@@ -297,7 +296,8 @@ object ReadingPolicy {
             // A faces pass first waits for People's model while it downloads (Retriever.peopleModel).
             running && (faces != null || people == PeopleModel.GETTING) -> ReadingPhase.FACES
 
-            reading && progress.sample -> ReadingPhase.SAMPLE
+            // The demo's own files go first, with search by description; Home already counts the whole phone.
+            reading && progress.sample -> ReadingPhase.READING
 
             // While first reads remain, the meaning pass only interleaves with them: READING says so in its detail. Once
             // they are done, a running batch is on these passes even between files.
@@ -327,7 +327,7 @@ object ReadingPolicy {
         val restStopped = phase in STOPS && unfinished && allProcessed
         // Play services delivers the text and label readers after install; the first batch may wait for them.
         val gettingReaders = readersMissing && running && phase == ReadingPhase.READING
-        // The count and the bar are the same numbers. None while counting, for the demo (it has its own), or while deepening:
+        // The count and the bar are the same numbers. None while counting, or while deepening:
         // its first reads are all done, and a full bar beside work going on reads as stuck. A stop over the meaning pass
         // counts that pass; one over only later parts has none, like deepening. Faces come after the files and their search
         // by description (Retriever.runBatch), so a stop counts them only once both are done.
@@ -352,7 +352,6 @@ object ReadingPolicy {
             else -> when (phase) {
                 ReadingPhase.COUNTING -> c.gettingReadyTitle
                 ReadingPhase.NOT_NOW -> c.notNowTitle
-                ReadingPhase.SAMPLE -> c.sampleTitle
                 ReadingPhase.MEANING -> c.addingDescriptionTitle
                 ReadingPhase.FACES -> c.lookingForFacesTitle
                 ReadingPhase.DEEPENING -> c.deepeningTitle
@@ -379,8 +378,6 @@ object ReadingPolicy {
                 ReadingPhase.CHARGING -> c.chargingDetail(words)
 
                 ReadingPhase.MANUAL -> c.manualDetail
-
-                ReadingPhase.SAMPLE -> c.sampleDetail
 
                 ReadingPhase.MEANING -> c.meaningDetail(words)
 
@@ -452,7 +449,7 @@ object ReadingPolicy {
 
             ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> StatusAction.DISMISS
 
-            ReadingPhase.READING, ReadingPhase.MEANING, ReadingPhase.DEEPENING, ReadingPhase.FACES, ReadingPhase.SAMPLE -> StatusAction.PAUSE
+            ReadingPhase.READING, ReadingPhase.MEANING, ReadingPhase.DEEPENING, ReadingPhase.FACES -> StatusAction.PAUSE
 
             ReadingPhase.WAITING -> if (unfinished) {
                 if (sessionActive) {
@@ -474,7 +471,7 @@ object ReadingPolicy {
             else -> progress.processed to progress.libraryTotal
         }
         val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
-        val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && faces == null) || (demo && phase != ReadingPhase.NOT_NOW) || total == 0L
+        val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && faces == null) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
         val count = when {
             looking != null -> Words.facesOf(done, total)

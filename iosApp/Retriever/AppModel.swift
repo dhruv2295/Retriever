@@ -210,6 +210,9 @@ final class AppModel {
         return snap.accessChosen && snap.readProgress.unfinished && !snap.paused && !continuing
     }
 
+    /// A run the app resumed on opening reads only while it's open; iOS starts a continued task only from a tap.
+    var offersKeepGoing: Bool { canKeepReading && snap?.prefs?.started == true }
+
     private let fixtureDownload: (ModelDownload.State, Double)
 
     var download: ModelDownload.State { services?.download.state ?? fixtureDownload.0 }
