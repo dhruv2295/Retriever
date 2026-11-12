@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.BuildConfig
 import app.retriever.R
+import app.retriever.access.Access
+import app.retriever.access.AccessService
 import app.retriever.core.Backend
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
@@ -125,6 +127,8 @@ data class SettingsUi(
     val notificationsOn: Boolean = true,
     /** The Reading row's line, as on Home; null until core answers. */
     val readingStatus: ReadingStatus? = null,
+    /** What Retriever may read, for the line under What Retriever can see. */
+    val access: Access = Access.ALL,
 )
 
 class SettingsActions(
@@ -162,6 +166,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
     val notificationsOn by rememberProcessingNotificationsEnabled()
     val state by vm.uiState.collectAsStateWithLifecycle()
     val readingStatus by vm.readingStatus.collectAsStateWithLifecycle()
+    val access by koinInject<AccessService>().state.collectAsStateWithLifecycle()
     val upgrade by upgradeFlow.ui.collectAsStateWithLifecycle()
     var confirmFree by rememberSaveable { mutableStateOf(false) }
     var showNotices by rememberSaveable { mutableStateOf(false) }
@@ -230,6 +235,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onStatus: () -> Unit = {}, vm: Setting
             notificationsOn = notificationsOn,
             upgrade = upgrade,
             readingStatus = readingStatus,
+            access = access,
         ),
         actions = actions,
         snackbar = snackbar,
@@ -270,6 +276,40 @@ fun SettingsContent(
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 }
                 HowItWorks()
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                // First, near the top: what Retriever can see is what search can find.
+                Header(Words.strings.includedFiles)
+                OpenRow(Words.WHAT_IT_CAN_SEE, accessLine(ui.access), onClick = actions.openAccess)
+                Text(
+                    Words.PROCESS_THESE_KINDS,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
+                if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                for (kind in SEARCH_INSIDE.filter { it in ui.readable }) {
+                    SwitchRow(Words.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
+                }
+                // No platform reads audio yet, so there is no switch to offer: only the plain fact.
+                ListItem(headlineContent = { Text(Words.kindLabelPlural(Kind.AUDIO)) }, supportingContent = { Text(Words.FOUND_BY_NAME) })
+                Text(
+                    Words.FOLDERS_TO_SKIP,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                )
+                if (prefs.excludedFolders.isEmpty()) Muted(Words.strings.noneExcluded, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                for (folder in prefs.excludedFolders.sorted()) {
+                    ListItem(
+                        headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingContent = {
+                            // The visible label repeats on every row, so a screen reader is told which folder.
+                            TextButton(
+                                onClick = { actions.removeExcluded(folder) },
+                                modifier = Modifier.semantics { contentDescription = Words.strings.includeNamed(folder) },
+                            ) { Text(Words.strings.includeFolder) }
+                        },
+                    )
+                }
+                Muted(INCLUDED_FILES_FOOTER, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header(Words.READING_STATUS)
                 var schedulesOpen by rememberSaveable { mutableStateOf(false) }
@@ -339,39 +379,6 @@ fun SettingsContent(
                     Header(Words.SEARCH_BY_MEANING)
                     SearchByMeaning(ui, actions)
                 }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Header(Words.strings.includedFiles)
-                OpenRow(Words.WHAT_IT_CAN_SEE, onClick = actions.openAccess)
-                Text(
-                    Words.PROCESS_THESE_KINDS,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                )
-                if (ui.textOnly) Muted(Words.textOnlyNote(ui.ramGb, DeviceWords.ANDROID), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                for (kind in SEARCH_INSIDE.filter { it in ui.readable }) {
-                    SwitchRow(Words.kindLabelPlural(kind), kind in prefs.kinds) { actions.setSearchInside(kind, it) }
-                }
-                // No platform reads audio yet, so there is no switch to offer: only the plain fact.
-                ListItem(headlineContent = { Text(Words.kindLabelPlural(Kind.AUDIO)) }, supportingContent = { Text(Words.FOUND_BY_NAME) })
-                Text(
-                    Words.FOLDERS_TO_SKIP,
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                )
-                if (prefs.excludedFolders.isEmpty()) Muted(Words.strings.noneExcluded, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                for (folder in prefs.excludedFolders.sorted()) {
-                    ListItem(
-                        headlineContent = { Text(folder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        trailingContent = {
-                            // The visible label repeats on every row, so a screen reader is told which folder.
-                            TextButton(
-                                onClick = { actions.removeExcluded(folder) },
-                                modifier = Modifier.semantics { contentDescription = Words.strings.includeNamed(folder) },
-                            ) { Text(Words.strings.includeFolder) }
-                        },
-                    )
-                }
-                Muted(INCLUDED_FILES_FOOTER, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Header(Words.strings.privacy)
@@ -565,6 +572,13 @@ fun NoticesContent(text: String?, modifier: Modifier = Modifier, onBack: () -> U
 @Composable
 private fun ValueRow(label: String, value: String) {
     ListItem(headlineContent = { Text(label) }, trailingContent = { Text(value, style = MaterialTheme.typography.bodyMedium.tabular()) })
+}
+
+/** What Retriever can see, in a few words: the whole phone, or what was granted; nothing while it sees nothing. */
+internal fun accessLine(access: Access): String? = when {
+    access.allFiles -> Words.strings.seesWholeDevice(DeviceWords.ANDROID)
+    access.ready -> access.granted { photos, videos, music, folders -> Words.strings.seesPartOf(photos, videos, music, folders, DeviceWords.ANDROID) }
+    else -> null
 }
 
 /** Opens something (a choice, a screen, the system's settings): the chevron says there is more behind the row. */

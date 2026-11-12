@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.retriever.access.Access
 import app.retriever.access.AccessService
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
@@ -13,6 +14,7 @@ import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SamePerson
+import app.retriever.core.StatusAction
 import app.retriever.core.Store
 import app.retriever.core.YearMemory
 import app.retriever.indexing.IndexService
@@ -74,6 +76,9 @@ data class HomeUi(
     /** People is off and photos are read: the one-time card offers it. */
     val peopleOffer: Boolean = false,
     val notificationsOfferDismissed: Boolean = false,
+    /** What Retriever may read; [Access.ALL] until the service answers, so nothing offers more on a guess. */
+    val access: Access = Access.ALL,
+    val widenAccessOfferDismissed: Boolean = false,
 ) {
     fun withCounts(c: Store.Counts): HomeUi = copy(counts = c.byKind, progress = c.progress)
 
@@ -87,6 +92,13 @@ data class HomeUi(
 internal fun HomeUi.showNotificationsOffer(sdk: Int, notificationsOn: Boolean, justAsked: Boolean): Boolean =
     sdk >= 33 && !notificationsOn && !notificationsOfferDismissed && !justAsked &&
         (progress.unfinished || progress.waiting > 0 || facesLeft > 0)
+
+/**
+ * "Search your whole phone" inside the done card: everything granted is processed ([status] says All done), and allowing
+ * all files would find more. Not under the one-time card, which says what happens next.
+ */
+internal fun HomeUi.showWidenAccess(status: ReadingStatus): Boolean =
+    status.action == StatusAction.DISMISS && access.partial && !widenAccessOfferDismissed && !introDue
 
 /**
  * The caught-up pop, once ever. [due] while the first full read has not been celebrated; [done] marks it in the store,
@@ -131,12 +143,14 @@ class HomeViewModel(
         MutableStateFlow(
             HomeUi(
                 hasAccess = access.state.value.ready,
+                access = access.state.value,
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
                 introDue = retriever.prefs.value.homeIntroDue,
                 automaticReading = retriever.prefs.value.automaticReading,
                 sessionActive = retriever.prefs.value.started,
                 notificationsOfferDismissed = retriever.prefs.value.notificationsOfferDismissed,
+                widenAccessOfferDismissed = retriever.prefs.value.widenAccessOfferDismissed,
                 suggestions = null,
             ),
         )
@@ -176,7 +190,7 @@ class HomeViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), retriever.state.value.running)
 
     init {
-        viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready) } } }
+        viewModelScope.launch { access.state.collect { a -> _ui.update { it.copy(hasAccess = a.ready, access = a) } } }
         viewModelScope.launch {
             combine(retriever.setup.filterNotNull(), access.state) { s, a -> s.withAccess(a.ready) }.collect { s ->
                 _ui.update { it.copy(libraryChosen = s.libraryChosen, planned = s.planned.toLong()) }
@@ -193,6 +207,7 @@ class HomeViewModel(
                         sessionActive = p.started,
                         peopleOffer = !p.recognizePeople && Kind.PHOTO in p.kinds,
                         notificationsOfferDismissed = p.notificationsOfferDismissed,
+                        widenAccessOfferDismissed = p.widenAccessOfferDismissed,
                     )
                 }
             }
@@ -253,6 +268,12 @@ class HomeViewModel(
     fun dismissNotificationsOffer() {
         _ui.update { it.copy(notificationsOfferDismissed = true) }
         launchCatching { retriever.updatePrefs { it.copy(notificationsOfferDismissed = true) } }
+    }
+
+    /** Not now on the done card's offer to allow all files: gone for good. */
+    fun dismissWidenAccess() {
+        _ui.update { it.copy(widenAccessOfferDismissed = true) }
+        launchCatching { retriever.dismissWidenAccessOffer() }
     }
 
     val celebration = celebrationOf(retriever)

@@ -490,6 +490,20 @@ interface Strings {
     /** Android: error under Add a folder; differs from folderOverlaps (iOS) */
     val alreadySearchesFolder: String
 
+    // Partial access: the flags and folder count are what the person granted (at least one), never all files
+
+    /** Android: Home's done card, the offer to widen access: "Retriever can see your photos and 2 folders." */
+    fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int): String
+
+    /** Android: Settings, under What Retriever can see: "Photos and 2 folders, not your whole phone" */
+    fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords): String
+
+    /** Android: Settings, under What Retriever can see, with all files allowed */
+    fun seesWholeDevice(words: DeviceWords): String
+
+    /** Android: under a search with few results; the link under it is wholeDeviceTitle */
+    fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int): String
+
     // AccessService
 
     /** Android: error under Add a folder */
@@ -1530,6 +1544,12 @@ interface Strings {
 
     /** iOS: section footer while no folder is picked */
     val addFoldersFooter: String
+
+    /** iOS: Home, under "All done" when Photos is allowed and no folder is added; its button is ADD_FOLDER */
+    val searchDocumentsToo: String
+
+    /** iOS: Home, under searchDocumentsToo */
+    val searchDocumentsTooBody: String
 
     /** iOS: section footer */
     val downloadsOnWifiOrData: String

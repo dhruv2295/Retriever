@@ -20,6 +20,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import app.retriever.ShotTheme
+import app.retriever.access.Access
+import app.retriever.access.Photos
+import app.retriever.access.PickedFolder
 import app.retriever.core.Backend
 import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
@@ -110,6 +113,22 @@ class SettingsShotsTest {
     }
 
     @Test fun settingsOfferLight() = page("settings_offer_light", offered)
+
+    /** Photos and two folders, not all files: the row says so under What Retriever can see, near the top. */
+    private val partial = ready.copy(
+        access = Access(
+            allFiles = false,
+            photos = Photos.ALL,
+            folders = listOf(PickedFolder("content://tree/Documents", "Documents"), PickedFolder("content://tree/Work", "Work")),
+        ),
+    )
+
+    @Test fun settingsPartialAccessLight() {
+        page("settings_partial_access_light", partial)
+        rule.onNodeWithText("Photos and 2 folders, not your whole phone").assertExists()
+    }
+
+    @Test fun settingsPartialAccessDark() = page("settings_partial_access_dark", partial, dark = true)
 
     /** The Processing line carries Home's button: Start processing, then Pause when the reader runs. The line opens Processing. */
     @Test fun theLineStartsAndPausesProcessing() {
@@ -240,7 +259,7 @@ class SettingsShotsTest {
     @Test fun groupsComeInTheSpecifiedOrder() {
         show()
         val order =
-            listOf(Words.HOW_IT_WORKS, Words.READING_STATUS, Words.SEARCH_BY_MEANING, "Included files", "Privacy", "Storage", "Appearance", "About")
+            listOf(Words.HOW_IT_WORKS, "Included files", Words.READING_STATUS, Words.SEARCH_BY_MEANING, "Privacy", "Storage", "Appearance", "About")
                 .map(::top)
         assertEquals(order.sorted(), order)
         assertEquals(order.distinct(), order)

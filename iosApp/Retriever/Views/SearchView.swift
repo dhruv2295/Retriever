@@ -126,10 +126,11 @@ struct SearchView: View {
                 dismissKeyboard()
             }
         }
-        .fileImporter(isPresented: $addingFolder, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result, let added = model.addFolders([url]).first {
-                folderNote = Copy.addFolderResult(added)
-            }
+        .fileImporter(isPresented: $addingFolder, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
+            guard case .success(let urls) = result else { return }
+            // As in Settings: an added folder shows on Home; only what went wrong needs saying.
+            let problems = model.addFolders(urls).filter { if case .added = $0 { false } else { true } }
+            folderNote = problems.isEmpty ? nil : problems.map(Copy.addFolderResult).joined(separator: "\n")
         }
         .alert(folderNote ?? "", isPresented: Binding(get: { folderNote != nil }, set: { if !$0 { folderNote = nil } })) {}
     }

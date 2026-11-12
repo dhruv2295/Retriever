@@ -699,6 +699,24 @@ internal object German : Strings {
 
     override val alreadySearchesFolder = "Retriever durchsucht diesen Ordner bereits."
 
+    /** "deine Fotos, deine Videos und 2 Ordner" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "deine Fotos".takeIf { photos },
+        "deine Videos".takeIf { videos },
+        "deine Musik".takeIf { music },
+        plural(folders.toLong(), "Ordner", "Ordner").takeIf { folders > 0 },
+    ).let { m -> if (m.size <= 1) m.firstOrNull().orEmpty() else m.dropLast(1).joinToString(", ") + " und " + m.last() }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = "Retriever sieht ${granted(photos, videos, music, folders)}."
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders).replaceFirstChar(Char::uppercase)}, nicht dein ganzes ${device(words)}"
+
+    override fun seesWholeDevice(words: DeviceWords) = "Dein ganzes ${device(words)}"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "Nur ${granted(photos, videos, music, folders)} durchsucht. Downloads und Dateien anderer Apps waren nicht dabei."
+
     // AccessService
     override val couldntKeepFolder = "Der Zugriff auf diesen Ordner konnte nicht gespeichert werden. Wähle ihn noch einmal aus."
 
@@ -1396,6 +1414,11 @@ internal object German : Strings {
     override val foldersFromFiles = "Ordner aus „Dateien“"
 
     override val addFoldersFooter = "PDFs und Dokumente in Ordnern, die du aus „Dateien“ hinzufügst, werden durchsuchbar."
+
+    override val searchDocumentsToo = "Auch Dokumente durchsuchen"
+
+    override val searchDocumentsTooBody =
+        "Füge Ordner aus „Dateien“ hinzu, etwa Downloads oder iCloud Drive, und Retriever durchsucht die PDFs und Dokumente darin."
 
     override val downloadsOnWifiOrData = "Downloads über WLAN oder mobile Daten."
 

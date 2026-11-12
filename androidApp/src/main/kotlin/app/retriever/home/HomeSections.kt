@@ -54,7 +54,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.BuildConfig
 import app.retriever.R
+import app.retriever.access.Access
 import app.retriever.core.BrowseKind
+import app.retriever.core.DeviceWords
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Person
@@ -157,6 +159,37 @@ internal fun NotificationsOffer(turnOn: () -> Unit, notNow: () -> Unit) {
             Text(Words.strings.processingProgressNotice, style = MaterialTheme.typography.bodyMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = turnOn) { Text(Words.TURN_ON) }
+                TextButton(onClick = notNow) { Text(Words.NOT_NOW) }
+            }
+        }
+    }
+}
+
+/**
+ * Inside the done card, raised off it like the intro card's People row: what Retriever sees now, and the way to the whole
+ * phone. [allow] opens Android's all-files switch.
+ */
+@Composable
+internal fun WidenAccessRow(access: Access, allow: () -> Unit, notNow: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 4.dp)) {
+            Text(
+                Words.strings.wholeDeviceTitle(DeviceWords.ANDROID),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(end = 8.dp).semantics { heading() },
+            )
+            Text(
+                access.granted(Words.strings::canSeeOnly) + Words.strings.sentenceGap + Words.strings.wholeDeviceBody,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, end = 8.dp),
+            )
+            FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = allow) { Text(Words.strings.allowAllFiles) }
                 TextButton(onClick = notNow) { Text(Words.NOT_NOW) }
             }
         }

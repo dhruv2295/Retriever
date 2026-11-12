@@ -24,6 +24,8 @@ enum AppFixture {
     /// no folder).
     case readingWhileCharging, unplugged, chargingUp, processing, meaningPass, firstDay, notNow, counting, lostAccess
     case caughtUp, paused
+    /// All done with Photos allowed and no folder from Files: Home offers to add one.
+    case photosOnly
     case skipped(Int)
     case noAccess
     case tailFiles(Int)
@@ -160,6 +162,8 @@ extension AppModel {
             snap.partlyRead = 3
         case .caughtUp:
             break
+        case .photosOnly:
+            folders = []
         case .tailFiles(let n):
             snap.tailFiles = n
             snap.partlyRead = n
@@ -246,6 +250,6 @@ extension AppModel {
             notificationsPermissionRequested: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
             homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false, peopleOfferDismissed: false,
-            processingRequested: sessionActive)
+            processingRequested: sessionActive, widenAccessOfferDismissed: false)
     }
 }

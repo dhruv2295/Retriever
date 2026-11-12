@@ -287,6 +287,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun dismissHomeIntro() = updatePrefs { it.copy(homeIntroDue = false) }
 
+    /** Not now on Home's offer to search more (all files on Android, a Files folder on iOS). */
+    @Throws(Throwable::class)
+    suspend fun dismissWidenAccessOffer() = updatePrefs { it.copy(widenAccessOfferDismissed = true) }
+
     /** Showing drops a pending model release; reading still honors the saved schedule. */
     @Volatile
     var uiVisible: Boolean = false

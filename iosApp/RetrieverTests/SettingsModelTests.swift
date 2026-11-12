@@ -160,7 +160,7 @@ final class SettingsModelTests: XCTestCase {
                 searchTried: $0.searchTried, upgradeOfferDismissed: $0.upgradeOfferDismissed, homeIntroDue: $0.homeIntroDue,
                 notifyWhenCaughtUp: $0.notifyWhenCaughtUp, recognizePeople: $0.recognizePeople,
                 peopleOfferDismissed: $0.peopleOfferDismissed,
-                processingRequested: $0.processingRequested)
+                processingRequested: $0.processingRequested, widenAccessOfferDismissed: $0.widenAccessOfferDismissed)
         }
         XCTAssertFalse(prefs.allowMobileData)
         UserDefaults.standard.set(true, forKey: Self.legacyKey)

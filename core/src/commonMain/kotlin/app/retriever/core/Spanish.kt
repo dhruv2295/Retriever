@@ -691,6 +691,24 @@ internal object Spanish : Strings {
 
     override val alreadySearchesFolder = "Retriever ya busca en esa carpeta."
 
+    /** "tus fotos, tus videos y 2 carpetas" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "tus fotos".takeIf { photos },
+        "tus videos".takeIf { videos },
+        "tu música".takeIf { music },
+        plural(folders.toLong(), "carpeta", "carpetas").takeIf { folders > 0 },
+    ).let { m -> if (m.size <= 1) m.firstOrNull().orEmpty() else m.dropLast(1).joinToString(", ") + " y " + m.last() }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = "Retriever puede ver ${granted(photos, videos, music, folders)}."
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders).replaceFirstChar(Char::uppercase)}, no todo tu ${device(words)}"
+
+    override fun seesWholeDevice(words: DeviceWords) = "Todo tu ${device(words)}"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "Solo se buscó en ${granted(photos, videos, music, folders)}. No se incluyeron las descargas ni los archivos de otras apps."
+
     // AccessService
     override val couldntKeepFolder = "No se pudo mantener el acceso a esa carpeta. Vuelve a elegirla."
 
@@ -1392,6 +1410,11 @@ internal object Spanish : Strings {
     override val foldersFromFiles = "Carpetas de la app Archivos"
 
     override val addFoldersFooter = "Los PDF y documentos de las carpetas que añadas desde la app Archivos se podrán buscar."
+
+    override val searchDocumentsToo = "Busca también en documentos"
+
+    override val searchDocumentsTooBody =
+        "Añade carpetas desde la app Archivos, como Descargas o iCloud Drive, y Retriever buscará en sus PDF y documentos."
 
     override val downloadsOnWifiOrData = "Descargas por Wi-Fi o datos móviles."
 

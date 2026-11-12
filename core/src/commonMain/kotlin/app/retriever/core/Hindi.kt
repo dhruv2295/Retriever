@@ -686,6 +686,25 @@ internal object Hindi : Strings {
 
     override val alreadySearchesFolder = "Retriever उस फ़ोल्डर में पहले से खोजता है."
 
+    /** "फ़ोटो, वीडियो और 2 फ़ोल्डर" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "फ़ोटो".takeIf { photos },
+        "वीडियो".takeIf { videos },
+        "संगीत".takeIf { music },
+        plural(folders.toLong(), "फ़ोल्डर").takeIf { folders > 0 },
+    ).let { m -> if (m.size <= 1) m.firstOrNull().orEmpty() else m.dropLast(1).joinToString(", ") + " और " + m.last() }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "Retriever अभी सिर्फ़ ${granted(photos, videos, music, folders)} देख सकता है."
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders)}, पूरा ${phone(words)} नहीं"
+
+    override fun seesWholeDevice(words: DeviceWords) = "आपका पूरा ${phone(words)}"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "सिर्फ़ ${granted(photos, videos, music, folders)} में खोजा गया. डाउनलोड और दूसरे ऐप की फ़ाइलें शामिल नहीं थीं."
+
     // AccessService
     override val couldntKeepFolder = "उस फ़ोल्डर का ऐक्सेस बना नहीं रह सका. उसे फिर से चुनकर देखें."
 
@@ -1379,6 +1398,11 @@ internal object Hindi : Strings {
     override val foldersFromFiles = "फ़ाइलें ऐप के फ़ोल्डर"
 
     override val addFoldersFooter = "फ़ाइलें ऐप से जोड़े गए फ़ोल्डरों की PDF और दस्तावेज़ खोजे जा सकेंगे."
+
+    override val searchDocumentsToo = "दस्तावेज़ भी खोजें"
+
+    override val searchDocumentsTooBody =
+        "फ़ाइलें ऐप से फ़ोल्डर जोड़ें, जैसे डाउनलोड या iCloud Drive, और Retriever उनकी PDF और दस्तावेज़ों में भी खोजेगा."
 
     override val downloadsOnWifiOrData = "डाउनलोड Wi-Fi या मोबाइल डेटा पर होते हैं."
 

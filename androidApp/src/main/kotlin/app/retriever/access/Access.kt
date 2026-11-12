@@ -90,6 +90,13 @@ data class Access(
 ) {
     val ready: Boolean get() = allFiles || photos != Photos.NONE || videos || audio || folders.isNotEmpty()
 
+    /** Some access but not all files: allowing all files would let Retriever search more. */
+    val partial: Boolean get() = ready && !allFiles
+
+    /** One of core's partial-access sentences, filled with what was granted; only some photos still count as photos. */
+    fun <T> granted(sentence: (photos: Boolean, videos: Boolean, music: Boolean, folders: Int) -> T): T =
+        sentence(photos != Photos.NONE, videos, audio, folders.size)
+
     /** Changes whenever MediaStore would show other rows; folders are not in it, they never reach MediaStore. */
     val fingerprint: String get() = if (allFiles) "all" else "p${photos.ordinal}v${if (videos) 1 else 0}a${if (audio) 1 else 0}"
 

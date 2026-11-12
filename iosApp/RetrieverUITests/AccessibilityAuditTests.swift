@@ -47,7 +47,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles",
         "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp",
         "home.processing", "home.downloading", "home.meaning", "home.noAccess", "home.notNow", "home.counting", "home.introReady", "home.introOnItsWay",
-        "settings", "search.empty", "search.wordsOnly",
+        "home.photosOnly", "settings", "search.empty", "search.wordsOnly",
         "search.noModel",
         "search.lessLikely", "search.nothingWell", "search.firstPart", "search.error", "search.loading", "search.noAccess", "search.reading",
     ]
@@ -62,7 +62,7 @@ final class AccessibilityAuditTests: XCTestCase {
         "status.reading", "status.caughtUp", "status.paused", "status.skipped", "status.textOnly", "status.tailFiles", "settings",
     ]
     private static let homeRoutes = [
-        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.introReady", "home.introOnItsWay",
+        "home.caughtUp", "home.reading", "home.empty", "home.upgrade", "home.people", "home.introReady", "home.introOnItsWay", "home.photosOnly",
     ]
     private static let homeStatusLineRoutes = [
         "home.charging", "home.firstDay", "home.unplugged", "home.chargingUp", "home.processing", "home.downloading", "home.meaning", "home.noAccess",
@@ -509,6 +509,12 @@ final class AccessibilityAuditTests: XCTestCase {
         ("status.paused", "Resume"), ("status.tailFiles", "All files processed"), ("status.reading", "Photo 1.jpg"),
         ("home.charging", "Starred"), ("home.firstDay", "Start processing"), ("home.noAccess", "Allow access"),
         // The live count's sentence pushes these buttons lower, where the resize loses them.
+        // "All done" grows above the offer to add a folder and pushes it lower.
+        ("home.photosOnly", "Search documents too"), ("home.photosOnly", "Add a folder"), ("home.photosOnly", "Not now"),
+        (
+            "home.photosOnly",
+            "Add folders from the Files app, like Downloads or iCloud Drive, and Retriever searches the PDFs and documents in them."
+        ),
         ("home.unplugged", "Start processing"), ("home.processing", "Pause"), ("home.processing", "Keep going in the background"),
         ("home.charging", "Pause"), ("home.meaning", "Pause"), ("status.tailFiles", "Start processing"),
         ("settings", "When to process"), ("settings", "Photos library"), ("settings", "Adjust processing for this iPhone"),

@@ -27,6 +27,7 @@
             ("home.chargingUp", "chargingUp"), ("home.processing", "processing"), ("home.downloading", "downloading(0.34)"),
             ("home.meaning", "meaningPass"), ("home.noAccess", "lostAccess"), ("home.notNow", "notNow"), ("home.counting", "counting"),
             ("home.introReady", "homeIntro(ready: true)"), ("home.introOnItsWay", "homeIntro(ready: false)"),
+            ("home.photosOnly", "photosOnly"),
             ("settings", "caughtUp"),
         ]
 

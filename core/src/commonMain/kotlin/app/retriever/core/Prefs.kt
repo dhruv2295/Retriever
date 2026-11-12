@@ -48,6 +48,8 @@ data class Prefs(
     val peopleOfferDismissed: Boolean = false,
     /** A person requested processing; host interruption preserves it, Pause or completion clears it. */
     val processingRequested: Boolean = false,
+    /** Not now on Home's offer to search more: all files (Android) or a folder from Files (iOS). */
+    val widenAccessOfferDismissed: Boolean = false,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

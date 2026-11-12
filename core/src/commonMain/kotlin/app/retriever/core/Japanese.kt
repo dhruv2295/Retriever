@@ -634,6 +634,24 @@ internal object Japanese : Strings {
 
     override val alreadySearchesFolder = "そのフォルダはすでにRetrieverの検索対象です。"
 
+    /** "写真、動画、フォルダ2個" */
+    private fun granted(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = listOfNotNull(
+        "写真".takeIf { photos },
+        "動画".takeIf { videos },
+        "音楽".takeIf { music },
+        "フォルダ${count(folders.toLong(), "個")}".takeIf { folders > 0 },
+    ).let { m -> m.joinToString(if (m.size <= 2) "と" else "、") }
+
+    override fun canSeeOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) = "Retrieverが見られるのは${granted(photos, videos, music, folders)}だけです。"
+
+    override fun seesPartOf(photos: Boolean, videos: Boolean, music: Boolean, folders: Int, words: DeviceWords) =
+        "${granted(photos, videos, music, folders)}のみ（${dev(words)}全体ではありません）"
+
+    override fun seesWholeDevice(words: DeviceWords) = "${dev(words)}全体"
+
+    override fun searchedOnly(photos: Boolean, videos: Boolean, music: Boolean, folders: Int) =
+        "${granted(photos, videos, music, folders)}だけを検索しました。ダウンロードやほかのアプリのファイルは含まれていません。"
+
     // AccessService
     override val couldntKeepFolder = "そのフォルダへのアクセスを維持できませんでした。もう一度選んでください。"
 
@@ -1318,6 +1336,11 @@ internal object Japanese : Strings {
     override val foldersFromFiles = "「ファイル」アプリのフォルダ"
 
     override val addFoldersFooter = "「ファイル」アプリから追加したフォルダ内のPDFやドキュメントを検索できるようになります。"
+
+    override val searchDocumentsToo = "ドキュメントも検索"
+
+    override val searchDocumentsTooBody =
+        "「ファイル」アプリから「ダウンロード」やiCloud Driveなどのフォルダを追加すると、その中のPDFやドキュメントもRetrieverで検索できます。"
 
     override val downloadsOnWifiOrData = "Wi-Fiまたはモバイルデータでダウンロードします。"
 

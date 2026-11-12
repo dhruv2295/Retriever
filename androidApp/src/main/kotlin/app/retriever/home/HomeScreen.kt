@@ -115,6 +115,8 @@ class HomeActions(
     val turnOnPeople: () -> Unit = {},
     val turnOnNotifications: () -> Unit = {},
     val dismissNotificationsOffer: () -> Unit = {},
+    /** The done card's Not now on "Search your whole phone"; its Allow is [allowAccess]. */
+    val dismissWidenAccess: () -> Unit = {},
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
     val dismissIntro: () -> Unit = {},
     val notify: (() -> Unit)? = null,
@@ -169,6 +171,7 @@ fun HomeScreen(
             turnOnPeople = vm::turnOnPeople,
             turnOnNotifications = requestNotifications,
             dismissNotificationsOffer = vm::dismissNotificationsOffer,
+            dismissWidenAccess = vm::dismissWidenAccess,
             dismissIntro = vm::dismissIntro,
             // Hidden once asked: the card has nothing more to promise.
             notify = if (prefs.notifyWhenCaughtUp) {
@@ -277,17 +280,22 @@ internal fun HomeBody(
                         shape = MaterialTheme.shapes.large,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     ) {
-                        StatusLine(
-                            status,
-                            when {
-                                celebrating -> MascotMood.CAUGHT_UP
-                                status.active -> MascotMood.WALKING
-                                else -> MascotMood.RESTING
-                            },
-                            onOpen = { actions.onNavigate(StatusRoute) },
-                            onAction = { onAction(it, status.phase) },
-                            more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
-                        )
+                        Column {
+                            StatusLine(
+                                status,
+                                when {
+                                    celebrating -> MascotMood.CAUGHT_UP
+                                    status.active -> MascotMood.WALKING
+                                    else -> MascotMood.RESTING
+                                },
+                                onOpen = { actions.onNavigate(StatusRoute) },
+                                onAction = { onAction(it, status.phase) },
+                                more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
+                            )
+                            if (ui.showWidenAccess(status)) {
+                                WidenAccessRow(ui.access, home.allowAccess, home.dismissWidenAccess)
+                            }
+                        }
                     }
                 }
             }
