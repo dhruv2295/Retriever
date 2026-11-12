@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -22,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.core.DescriptionState
+import app.retriever.core.DeviceWords
 import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.core.SamplePile
@@ -125,6 +129,7 @@ fun DemoContent(
         footer = {
             Button(onClick = actions.finish, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
         },
+        abovePill = { if (ui.offersPeople) PeopleChoice(ui.recognizePeople, actions.setPeople) },
     ) { padding, _ ->
         // At least the viewport tall with the spare height split above and below, as Hello and the access screen do.
         Box(Modifier.fillMaxSize().padding(padding)) {
@@ -136,6 +141,28 @@ fun DemoContent(
                 if (description == DescriptionState.READY) ReadyBanner()
                 DemoBody(ui, ui.taste ?: TasteProgress(emptyMap(), emptySet(), 0, 0, 0), description, percent, suggestions, actions, reduceMotion, fill)
             }
+        }
+    }
+}
+
+/** People, off by default and otherwise only in Settings, asked once while the person is still choosing. One switch node. */
+@Composable
+private fun PeopleChoice(on: Boolean, set: (Boolean) -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.widthIn(max = 808.dp).fillMaxWidth()) {
+        Row(
+            Modifier.toggleable(on, role = Role.Switch, onValueChange = set).padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(Words.PEOPLE_OFFER_TITLE, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    Words.strings.peopleChoiceBody(DeviceWords.ANDROID),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = on, onCheckedChange = null)
         }
     }
 }

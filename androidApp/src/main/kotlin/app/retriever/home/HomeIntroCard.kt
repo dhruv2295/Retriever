@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.core.DescriptionState
+import app.retriever.core.DeviceWords
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
@@ -50,6 +52,8 @@ internal fun HomeIntroCard(
     onNotify: (() -> Unit)?,
     onGotIt: () -> Unit,
     modifier: Modifier = Modifier,
+    /** People's Turn on; null hides the row (already on, or no photos to look at). */
+    onTurnOnPeople: (() -> Unit)? = null,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 18.dp, bottom = 8.dp)) {
@@ -78,6 +82,20 @@ internal fun HomeIntroCard(
                     Words.processingPlanDetail(schedule, sessionActive),
                 )
                 IntroRow(R.drawable.ic_add, Words.NEW_FILES, Words.NEW_FILES_BODY)
+                // The one choice in the card, raised off it so it reads as something to do, not a step that happens.
+                onTurnOnPeople?.let { turnOn ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    ) {
+                        Box(Modifier.padding(horizontal = 12.dp)) {
+                            IntroRow(R.drawable.ic_people, Words.PEOPLE, Words.strings.peopleRowBody(DeviceWords.ANDROID)) {
+                                OutlinedButton(onClick = turnOn, modifier = Modifier.padding(top = 8.dp)) { Text(Words.TURN_ON) }
+                            }
+                        }
+                    }
+                }
             }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
                 onNotify?.let { TextButton(onClick = it) { Text(Words.NOTIFY_WHEN_SEARCHABLE) } }

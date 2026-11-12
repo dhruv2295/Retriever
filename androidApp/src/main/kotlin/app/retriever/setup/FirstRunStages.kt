@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +35,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,19 +98,19 @@ internal fun HelloActions(ui: SetupUi, actions: SetupActions) {
     }
 }
 
-/** The access screen: what access is for, and three tiles that picture it (not buttons). Its actions are pinned below. */
+/**
+ * The access screen: what access is for, and three tiles that picture what was given (not buttons). Short of all files, a
+ * card offers the whole phone. Its actions are pinned below.
+ */
 @Composable
-internal fun ColumnScope.AccessStage(access: Access) {
-    val granted = access.allFiles
+internal fun ColumnScope.AccessStage(access: Access, allowFiles: () -> Unit = {}) {
+    val all = access.allFiles
+    val folders = access.folders.size.toLong()
     Heading(Words.ACCESS_TITLE, Words.ANDROID_ACCESS_BODY)
-    Row(
-        // Pictures until the whole phone is allowed; then each tile reads as "Photos, Allowed".
-        Modifier.fillMaxWidth().padding(top = 16.dp).then(if (granted) Modifier else Modifier.clearAndSetSemantics {}),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO), granted)
-        AccessTile(R.drawable.ic_description, Words.DOCUMENTS, granted)
-        AccessTile(R.drawable.ic_download, Words.DOWNLOADS, granted)
+    Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AccessTile(R.drawable.ic_image, Words.kindLabelPlural(Kind.PHOTO), all || access.photos != Photos.NONE || access.videos)
+        AccessTile(R.drawable.ic_description, Words.DOCUMENTS, all || folders > 0, Words.foldersAdded(folders).takeIf { !all && folders > 0 })
+        AccessTile(R.drawable.ic_download, Words.DOWNLOADS, all)
     }
     if (access.ready) {
         Row(
@@ -118,6 +120,23 @@ internal fun ColumnScope.AccessStage(access: Access) {
         ) {
             Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
             Text(Words.ACCESS_SCANNING, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+        }
+        if (!all) WholeDeviceCard(allowFiles)
+    }
+}
+
+/** Some access but not all files: what the whole phone adds, and the way to allow it. */
+@Composable
+private fun WholeDeviceCard(allowFiles: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                Words.strings.wholeDeviceTitle(DeviceWords.ANDROID),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(Words.strings.wholeDeviceBody, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = allowFiles, modifier = Modifier.padding(top = 6.dp)) { Text(Words.strings.allowAllFiles) }
         }
     }
 }
@@ -129,7 +148,7 @@ internal fun AccessActions(ui: SetupUi, allFilesOff: Boolean, actions: SetupActi
         OnDevice()
         if (ui.access.ready) {
             Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
-            if (!ui.access.allFiles) TextButton(onClick = actions.chooseInstead) { Text(Words.INCLUDE_TITLE) }
+            if (!ui.access.allFiles) TextButton(onClick = actions.chooseInstead) { Text(Words.strings.changeWhatsIncluded) }
         } else {
             if (allFilesOff) Muted(Words.ALL_FILES_OFF)
             Button(onClick = actions.allowFiles, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.ALLOW_ACCESS) }
@@ -155,21 +174,28 @@ private fun ColumnScope.Heading(title: String, body: String) {
     )
 }
 
+/** A picture of one source; ticked once given, and only then read aloud, as "Documents, 2 folders added, Allowed". */
 @Composable
-private fun RowScope.AccessTile(icon: Int, label: String, granted: Boolean) {
+private fun RowScope.AccessTile(icon: Int, label: String, granted: Boolean, note: String? = null) {
     Surface(
         color = if (granted) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.large,
-        modifier = Modifier.weight(1f).height(92.dp).semantics(mergeDescendants = true) {},
+        modifier = Modifier.weight(1f).heightIn(min = 92.dp)
+            .then(if (granted) Modifier.semantics(mergeDescendants = true) {} else Modifier.clearAndSetSemantics {}),
     ) {
         Box {
             Column(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxWidth().heightIn(min = 92.dp).padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
             ) {
                 Icon(painterResource(icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(label, style = MaterialTheme.typography.labelLarge)
+                    note?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    }
+                }
             }
             if (granted) {
                 Box(
@@ -208,6 +234,15 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
     val a = ui.access
     Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(Words.INCLUDE_TITLE, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+        if (!a.allFiles) {
+            AllFilesChoice(actions.allowFiles)
+            Text(
+                Words.strings.orOnly,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
         Column {
             AccessRow(
                 R.drawable.ic_image,
@@ -234,6 +269,37 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
         if (a.ready) Text(Words.ACCESS_SCANNING, style = MaterialTheme.typography.bodyMedium)
         Button(onClick = actions.continueFromAccess, enabled = a.ready, modifier = Modifier.fillMaxWidth()) { Text(Words.CONTINUE) }
     }
+}
+
+/** The whole phone, first and marked as the better choice; it opens Settings' all-files switch. */
+@Composable
+private fun AllFilesChoice(onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        headlineContent = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(Words.strings.allFilesChoice)
+                Surface(color = colors.primary, contentColor = colors.onPrimary, shape = CircleShape) {
+                    Text(
+                        Words.strings.recommended,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        },
+        supportingContent = { Text(Words.strings.allFilesChoiceBody) },
+        leadingContent = { Icon(painterResource(R.drawable.ic_storage), contentDescription = null) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null) },
+        colors = ListItemDefaults.colors(
+            containerColor = colors.secondaryContainer,
+            headlineColor = colors.onSecondaryContainer,
+            supportingColor = colors.onSecondaryContainer,
+            leadingIconColor = colors.onSecondaryContainer,
+            trailingIconColor = colors.onSecondaryContainer,
+        ),
+        modifier = Modifier.clip(MaterialTheme.shapes.large).clickable(role = Role.Button, onClick = onClick),
+    )
 }
 
 @Composable

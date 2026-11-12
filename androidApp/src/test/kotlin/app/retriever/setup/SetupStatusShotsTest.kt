@@ -19,7 +19,10 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -207,14 +210,26 @@ class SetupStatusShotsTest {
         assertEquals(listOf("continue"), calls)
     }
 
-    @Test fun pickedFolderShowsScanningAndContinueWithoutClaimingWholePhoneAccess() {
-        val selected = granted.copy(access = Access(false, folders = listOf(PickedFolder("content://picked", "Documents"))))
-        setup("access_folder_granted_light", selected)
+    private val folderPicked = granted.copy(access = Access(false, folders = listOf(PickedFolder("content://picked", "Documents"))))
+
+    /** A folder ticks Documents only, says how many, and offers the whole phone without claiming it. */
+    @Test fun pickedFolderTicksDocumentsAndOffersTheWholePhone() {
+        val calls = mutableListOf<String>()
+        setup("access_folder_granted_light", folderPicked, actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }))
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
         rule.onNodeWithText(Words.CONTINUE).assertIsEnabled()
-        rule.onNodeWithText(Words.INCLUDE_TITLE).assertExists()
-        rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(0)
+        rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(1)
+        rule.onNodeWithText(Words.foldersAdded(1)).assertIsDisplayed()
+        rule.onAllNodesWithText(Words.kindLabelPlural(Kind.PHOTO)).assertCountEquals(0)
+        rule.onNodeWithText(Words.strings.wholeDeviceTitle(DeviceWords.ANDROID)).assertIsDisplayed()
+        rule.onNodeWithText(Words.strings.allowAllFiles).performClick()
+        rule.onNodeWithText(Words.strings.changeWhatsIncluded).performClick()
+        assertEquals(listOf("files", "choose"), calls)
     }
+
+    @Test fun pickedFolderDark() = setup("access_folder_granted_dark", folderPicked, dark = true)
+
+    @Test fun pickedFolderBigText() = setup("access_folder_granted_text1_5", folderPicked, fontScale = 1.5f)
 
     // --- Choose what to include ---
 
@@ -236,9 +251,20 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).assertExists()
         rule.onNodeWithText(Words.kindLabelPlural(Kind.AUDIO)).assertExists()
         rule.onNodeWithText(Words.ADD_FOLDER).assertExists()
+        rule.onNodeWithText(Words.strings.allFilesChoice).assertExists()
+        rule.onNodeWithText(Words.strings.recommended).assertExists()
         rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertDoesNotExist()
         rule.onNodeWithText(Words.NOTHING_SELECTED).assertDoesNotExist()
+    }
+
+    @Test fun includeDark() = include("setup_include_dark", nothing, dark = true)
+
+    /** Once all files are on, the sheet no longer offers them. */
+    @Test fun includeHidesAllFilesOnceGiven() {
+        include("setup_include_all_files_light", granted)
+        rule.onNodeWithText(Words.strings.allFilesChoice).assertDoesNotExist()
+        rule.onNodeWithText(Words.strings.orOnly).assertDoesNotExist()
     }
 
     @Test fun includeAskedWithNothingGivenSaysWhatToDo() {
@@ -252,18 +278,19 @@ class SetupStatusShotsTest {
         include(
             "setup_include_given_light",
             mediaGiven,
-            actions = SetupActions(allowMedia = {
-                calls += "media"
-            }, addFolder = { calls += "folder" }, continueFromAccess = {
-                calls +=
-                    "continue"
-            }),
+            actions = SetupActions(
+                allowFiles = { calls += "files" },
+                allowMedia = { calls += "media" },
+                addFolder = { calls += "folder" },
+                continueFromAccess = { calls += "continue" },
+            ),
         )
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
+        rule.onNodeWithText(Words.strings.allFilesChoice).performClick()
         rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).performClick()
         rule.onNodeWithText(Words.ADD_FOLDER).performClick()
         rule.onNodeWithText(Words.CONTINUE).assertIsEnabled().performClick()
-        assertEquals(listOf("media", "folder", "continue"), calls)
+        assertEquals(listOf("files", "media", "folder", "continue"), calls)
     }
 
     // --- The demo ---
@@ -391,6 +418,21 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.readOf(30, 30)).assertIsDisplayed()
         rule.onNodeWithText(Words.CONTINUE).performClick()
         assertTrue(finished)
+    }
+
+    /** Photos allowed: People's switch over the field, off until turned on, and gone without photos. */
+    @Test fun demoOffersPeople() {
+        val asked = mutableListOf<Boolean>()
+        demo("first_search_people_light", done, state = DescriptionState.READY, actions = SetupActions(setPeople = { asked += it }))
+        rule.onNode(hasText(Words.PEOPLE_OFFER_TITLE) and isToggleable()).assertIsOff().performClick()
+        assertEquals(listOf(true), asked)
+    }
+
+    @Test fun demoOffersPeopleDark() = demo("first_search_people_dark", done.copy(recognizePeople = true), dark = true, state = DescriptionState.READY)
+
+    @Test fun demoWithoutPhotosOffersNoPeople() {
+        demo("first_search_folder_only_light", done.copy(access = Access(false, folders = listOf(PickedFolder("content://picked", "Documents")))))
+        rule.onNodeWithText(Words.PEOPLE_OFFER_TITLE).assertDoesNotExist()
     }
 
     /** A phone too small for search by description: no line about it, and the hint asks for words. */

@@ -7,8 +7,7 @@ extension AppModel {
     /// Changes the settings given and leaves the rest as they are.
     func edit(
         kinds: (@Sendable (Set<Kind>) -> Set<Kind>)? = nil, mobileData: Bool? = nil, remember: Bool? = nil,
-        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil, people: Bool? = nil,
-        peopleOfferDismissed: Bool? = nil
+        excluded: (@Sendable (Set<String>) -> Set<String>)? = nil, onThisDay: Bool? = nil, people: Bool? = nil
     ) async throws {
         guard let services else { return }
         try await services.retriever.updatePrefs { @Sendable p in
@@ -23,7 +22,7 @@ extension AppModel {
                 noMatchSeen: p.noMatchSeen, showOnThisDay: onThisDay ?? p.showOnThisDay, readingCycle: p.readingCycle,
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
                 homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
-                peopleOfferDismissed: peopleOfferDismissed ?? p.peopleOfferDismissed,
+                peopleOfferDismissed: p.peopleOfferDismissed,
                 processingRequested: p.processingRequested)
         }
     }
@@ -122,10 +121,9 @@ extension AppModel {
         }
     }
 
-    /// Home's People offer answered Not now: Settings keeps the switch.
-    func dismissPeopleOffer() {
-        Task { try? await edit(peopleOfferDismissed: true) }
-    }
+    /// Where the first search and Home's one-time card offer People: with photos to look at. Settings keeps the switch on
+    /// every device, so nothing else limits it.
+    var peopleAvailable: Bool { photos == .authorized || photos == .limited }
 
     func clearRecentSearches() {
         recent = []

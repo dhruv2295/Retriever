@@ -71,7 +71,7 @@ data class HomeUi(
     val facesLeft: Long = 0,
     /** Pairs of people who may be one, closest first, for Home to ask about one at a time. */
     val samePeople: List<SamePerson> = emptyList(),
-    /** People is off, photos are read, and the person hasn't said Not now: Home offers it where People would be. */
+    /** People is off and photos are read: the one-time card offers it. */
     val peopleOffer: Boolean = false,
     val notificationsOfferDismissed: Boolean = false,
 ) {
@@ -191,7 +191,7 @@ class HomeViewModel(
                         introDue = p.homeIntroDue,
                         automaticReading = p.automaticReading,
                         sessionActive = p.started,
-                        peopleOffer = !p.recognizePeople && !p.peopleOfferDismissed && Kind.PHOTO in p.kinds,
+                        peopleOffer = !p.recognizePeople && Kind.PHOTO in p.kinds,
                         notificationsOfferDismissed = p.notificationsOfferDismissed,
                     )
                 }
@@ -244,13 +244,11 @@ class HomeViewModel(
         launchCatching { retriever.answerSamePerson(question, same) }
     }
 
-    /** The offer's Turn on, as Settings' switch: People appears at once, saying how many photos are left to look at. */
+    /** The one-time card's Turn on, as Settings' switch: People appears at once, saying how many photos are left to look at. */
     fun turnOnPeople() = launchCatching {
         retriever.updatePrefs { it.copy(recognizePeople = true) }
         indexer.indexNow()
     }
-
-    fun dismissPeopleOffer() = launchCatching { retriever.updatePrefs { it.copy(peopleOfferDismissed = true) } }
 
     fun dismissNotificationsOffer() {
         _ui.update { it.copy(notificationsOfferDismissed = true) }

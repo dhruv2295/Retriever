@@ -1,4 +1,4 @@
-// Home, under the search field: one status line, then Starred, Recently added, People (or its offer), On This Day and
+// Home, under the search field: one status line, then Starred, Recently added, People, On This Day and
 // Browse, the optional search-by-meaning offer, and Free up space last. One inset-grouped List; a section with nothing in
 // it is hidden.
 
@@ -87,7 +87,6 @@ struct HomeList: View {
         starred
         recentlyAdded
         people
-        peopleOffer(snap)
         onThisDay(snap)
         // On an iPad the sidebar holds Browse.
         if sizeClass != .regular { browse(snap) }
@@ -170,24 +169,6 @@ struct HomeList: View {
         }
     }
 
-    /// While People is off, in its place. Not beside the one-time card, which already asks for a decision; nothing until the
-    /// prefs have loaded.
-    static func offersPeople(_ snap: AppModel.Snap, dismissed: Bool, introDue: Bool) -> Bool {
-        !snap.recognizePeople && !dismissed && !introDue && snap.kinds.contains(.photo) && (snap.byKind[.photo] ?? 0) > 0
-    }
-
-    @ViewBuilder private func peopleOffer(_ snap: AppModel.Snap) -> some View {
-        if !photosOff,
-            Self.offersPeople(snap, dismissed: snap.prefs?.peopleOfferDismissed ?? true, introDue: snap.prefs?.homeIntroDue ?? false)
-        {
-            Section {
-                PeopleOfferCard(model: model)
-            } header: {
-                SectionHeader(Words.shared.PEOPLE)
-            }
-        }
-    }
-
     @ViewBuilder private func onThisDay(_ snap: AppModel.Snap) -> some View {
         if snap.showOnThisDay, !photosOff, !model.memories.isEmpty {
             let date = Date.now.formatted(.dateTime.day().month(.wide))
@@ -250,6 +231,17 @@ struct HomeIntroCard: View {
                 Words.shared.processingPlanDetail(schedule: model.snap?.automaticReading ?? .charging, sessionActive: model.snap?.prefs?.started == true)
             ) {}
             step("plus", Words.shared.NEW_FILES, Words.shared.NEW_FILES_BODY) {}
+            // A choice, not a step: set off on the grouped list's nested fill, gone once People is on.
+            if model.peopleAvailable, model.snap?.recognizePeople == false {
+                step("person.2", Words.shared.strings.people, Words.shared.strings.peopleRowBody(words: Copy.words)) {
+                    Button(Words.shared.strings.turnOn) { model.setRecognizePeople(true) }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // Out into the row's margin, so its icon lines up with the steps above.
+                .padding(.horizontal, -12)
+            }
             Button(Words.shared.GOT_IT, action: model.dismissHomeIntro).frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
                 .buttonStyle(.borderless)
         }

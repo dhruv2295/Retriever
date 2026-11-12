@@ -113,7 +113,6 @@ class HomeActions(
     val hideOnThisDay: () -> Unit = {},
     val answerSamePerson: (SamePerson, same: Boolean) -> Unit = { _, _ -> },
     val turnOnPeople: () -> Unit = {},
-    val dismissPeopleOffer: () -> Unit = {},
     val turnOnNotifications: () -> Unit = {},
     val dismissNotificationsOffer: () -> Unit = {},
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
@@ -168,7 +167,6 @@ fun HomeScreen(
             },
             answerSamePerson = vm::answerSamePerson,
             turnOnPeople = vm::turnOnPeople,
-            dismissPeopleOffer = vm::dismissPeopleOffer,
             turnOnNotifications = requestNotifications,
             dismissNotificationsOffer = vm::dismissNotificationsOffer,
             dismissIntro = vm::dismissIntro,
@@ -308,6 +306,7 @@ internal fun HomeBody(
                     onNotify = home.notify,
                     onGotIt = home.dismissIntro,
                     modifier = Modifier.padding(horizontal = 16.dp),
+                    onTurnOnPeople = home.turnOnPeople.takeIf { ui.hasAccess && ui.peopleOffer && (counts[Kind.PHOTO] ?: 0L) > 0L },
                 )
             }
         }
@@ -329,9 +328,6 @@ internal fun HomeBody(
             item(key = "people", span = FullLine, contentType = "people") {
                 PeopleSection(ui.people, ui.facesLeft, actions.onNavigate, ui.samePeople, home.answerSamePerson)
             }
-        } else if (!notificationsOffer && ui.hasAccess && ui.peopleOffer && !ui.introDue && (counts[Kind.PHOTO] ?: 0L) > 0L) {
-            // Not beside the one-time card, which already asks for a decision.
-            item(key = "people-offer", span = FullLine) { PeopleOffer(home.turnOnPeople, home.dismissPeopleOffer) }
         }
         val day = ui.memoriesDay
         if (ui.hasAccess && ui.showOnThisDay && day != null && ui.memories.isNotEmpty()) {

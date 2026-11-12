@@ -358,6 +358,16 @@ internal object Japanese : Strings {
     override val peopleOfferBody =
         "Retrieverは写真の顔をグループにまとめられます。名前を付ければ、その名前で探せます。顔はこのスマートフォン上で処理され、外部に送られることはありません。"
     override val turnOn = "オンにする"
+    override fun wholeDeviceTitle(words: DeviceWords) = "${dev(words)}全体を検索"
+    override val wholeDeviceBody = "ダウンロード、WhatsApp、ほかのアプリのフォルダにあるファイルも見つかります。"
+    override val allowAllFiles = "すべてのファイルへのアクセスを許可"
+    override val changeWhatsIncluded = "対象を変更"
+    override val allFilesChoice = "すべてのファイル"
+    override val recommended = "おすすめ"
+    override val allFilesChoiceBody = "写真、書類、ダウンロード、ほかのアプリのファイル。いちばんよく見つかります。"
+    override val orOnly = "または次だけ"
+    override fun peopleChoiceBody(words: DeviceWords) = "顔をグループ分けして、名前で検索できるようにします。この${dev(words)}の中だけで処理されます。"
+    override fun peopleRowBody(words: DeviceWords) = "写っている人で写真を探せます。ファイルの処理のあとに、この${dev(words)}の中で顔をグループ分けします。"
     override val recognizePeopleDetail =
         "写真の顔をグループにまとめ、名前を付けて探せるようにします。このスマートフォン上で処理され、バックアップされることはありません。"
     override val forgetPeopleTitle = "顔のグループと名前をすべて消去しますか？"

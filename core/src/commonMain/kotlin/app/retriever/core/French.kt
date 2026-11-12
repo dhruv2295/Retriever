@@ -401,6 +401,17 @@ internal object French : Strings {
     override val peopleOfferBody = "Retriever peut regrouper les visages de vos photos$NBSP: vous nommez une personne et la retrouvez par son nom. " +
         "Les visages sont traités sur ce téléphone et ne le quittent jamais."
     override val turnOn = "Activer"
+    override fun wholeDeviceTitle(words: DeviceWords) = "Cherchez dans tout votre ${device(words)}"
+    override val wholeDeviceBody = "Trouve aussi les fichiers des Téléchargements, de WhatsApp et des dossiers de vos autres applis."
+    override val allowAllFiles = "Autoriser l’accès à tous les fichiers"
+    override val changeWhatsIncluded = "Modifier ce qui est inclus"
+    override val allFilesChoice = "Tous les fichiers"
+    override val recommended = "Recommandé"
+    override val allFilesChoiceBody = "Photos, documents, téléchargements et fichiers des autres applis. Les meilleurs résultats."
+    override val orOnly = "Ou seulement"
+    override fun peopleChoiceBody(words: DeviceWords) = "Regroupe les visages pour chercher par nom. Tout reste sur ce ${device(words)}."
+    override fun peopleRowBody(words: DeviceWords) =
+        "Trouvez des photos selon qui y figure. Les visages sont regroupés sur ce ${device(words)}, après vos fichiers."
     override val recognizePeopleDetail = "Regroupe les visages de vos photos pour que vous puissiez nommer des personnes et les retrouver par leur nom. " +
         "Les visages sont traités sur ce téléphone et ne sont jamais sauvegardés."
     override val forgetPeopleTitle = "Oublier tous les visages et tous les noms$NBSP?"

@@ -253,6 +253,8 @@ fun HomeShell(
     placeholder: String = Words.SEARCH_FIELD,
     /** Under the pill, pinned with it: the demo's Continue. */
     footer: (@Composable () -> Unit)? = null,
+    /** Over the pill, pinned with it: the demo's People switch. */
+    abovePill: @Composable () -> Unit = {},
     /** Where the page says what it just did, with Undo. */
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     /** False when the navigation rail holds Settings. */
@@ -288,6 +290,7 @@ fun HomeShell(
             ) {
                 // Matching a photo needs the model a words-only phone leaves out, and on the first run photos to match.
                 val photo = if (ui.canSearchByPhoto) ({ pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) else null
+                abovePill()
                 SearchPill(placeholder, photo, pillModifier) { open(SearchRoute()) }
                 footer?.invoke()
             }

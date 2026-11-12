@@ -405,6 +405,17 @@ internal object PortugueseBrazil : Strings {
         "O Retriever pode agrupar os rostos das suas fotos, para você dar nome a alguém e encontrar essa pessoa pelo nome. " +
             "Os rostos são processados neste celular e nunca saem dele."
     override val turnOn = "Ativar"
+    override fun wholeDeviceTitle(words: DeviceWords) = "Pesquise em todo o seu ${device(words)}"
+    override val wholeDeviceBody = "Também encontra arquivos em Downloads, no WhatsApp e nas pastas dos seus outros apps."
+    override val allowAllFiles = "Permitir acesso a todos os arquivos"
+    override val changeWhatsIncluded = "Alterar o que está incluído"
+    override val allFilesChoice = "Todos os arquivos"
+    override val recommended = "Recomendado"
+    override val allFilesChoiceBody = "Fotos, documentos, downloads e arquivos de outros apps. Os melhores resultados."
+    override val orOnly = "Ou apenas"
+    override fun peopleChoiceBody(words: DeviceWords) = "Agrupa rostos para você pesquisar por nome. Fica neste ${device(words)}."
+    override fun peopleRowBody(words: DeviceWords) =
+        "Encontre fotos por quem aparece nelas. Os rostos são agrupados neste ${device(words)}, depois dos seus arquivos."
     override val recognizePeopleDetail =
         "Agrupa os rostos das suas fotos para você dar nome às pessoas e encontrá-las pelo nome. Os rostos são processados neste celular e nunca " +
             "entram em backups."

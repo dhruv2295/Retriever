@@ -145,31 +145,6 @@ private fun FileStrip(title: String, origin: String, files: List<SourceFile>, on
 internal fun RecentlyAddedSection(files: List<SourceFile>, actions: SearchActions) =
     FileStrip(Words.RECENTLY_ADDED, "recent", files, { actions.onNavigate(BrowseRoute(title = Words.RECENTLY_ADDED)) }, actions)
 
-/**
- * People while it is off: Settings' switch asked for where the section will appear, since off by default and only in
- * Settings, nobody found it. Turn on fills this spot with People and its faces count; Not now leaves only the switch.
- */
-@Composable
-internal fun PeopleOffer(turnOn: () -> Unit, notNow: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader(Words.PEOPLE)
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(Words.PEOPLE_OFFER_TITLE, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
-                Text(Words.PEOPLE_OFFER_BODY, style = MaterialTheme.typography.bodyMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = turnOn) { Text(Words.TURN_ON) }
-                    TextButton(onClick = notNow) { Text(Words.NOT_NOW) }
-                }
-            }
-        }
-    }
-}
-
 @Composable
 internal fun NotificationsOffer(turnOn: () -> Unit, notNow: () -> Unit) {
     Surface(

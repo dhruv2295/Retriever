@@ -332,9 +332,30 @@ private struct DemoStep: View {
                 .toolbar { SetupBack(model: model, search: search) }
                 .modifier(
                     StepActions {
+                        if model.peopleAvailable { PeopleChoice(model: model) }
                         Button(action: model.finishSetup) { wide(Words.shared.CONTINUE) }.buttonStyle(.primaryAction)
                     })
         }
+    }
+}
+
+/// Over the first search's Continue: Settings' People switch, off until chosen. Off here asks nothing: a choice made a
+/// moment ago has found no names to forget.
+private struct PeopleChoice: View {
+    let model: AppModel
+
+    var body: some View {
+        // Its note inside the row, as Settings' switch has it: the screen must still fit an iPhone Pro without scrolling.
+        Toggle(isOn: Binding(get: { model.snap?.recognizePeople ?? false }, set: model.setRecognizePeople)) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Words.shared.strings.peopleOfferTitle)
+                Text(Words.shared.strings.peopleChoiceBody(words: Copy.words)).font(.footnote)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -365,7 +386,8 @@ struct DemoIntro: View {
         StepContent(alignment: .center, spacing: 10) {
             // The dog's height holds the banner's place, so the rows under it stay put when it arrives.
             ZStack {
-                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: 120).opacity(state == .ready ? 0 : 1)
+                MascotView(mood: reading ? .walking : .resting, settles: false).frame(width: model.peopleAvailable ? 100 : 120)
+                    .opacity(state == .ready ? 0 : 1)
                 if state == .ready { ReadyBanner().transition(.scale(scale: 0.96).combined(with: .opacity)) }
             }
             .animation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.3), value: state == .ready)
@@ -391,6 +413,8 @@ struct DemoIntro: View {
             )
             // A new pile at the first delivery: the files done by then are there from its start, so they never settle again.
             .id(model.sample == nil)
+            // Smaller, with the dog, while the People choice takes footer height: the screen still fits without scrolling.
+            .frame(maxWidth: model.peopleAvailable ? 150 : nil)
             DemoChips(terms: model.trySuggestions, search: search)
         }
         .sheet(isPresented: $seeingAll) { SampleList(model: model, sample: model.sample ?? []) }

@@ -491,8 +491,6 @@ final class AccessibilityAuditTests: XCTestCase {
                     if route.hasPrefix("home."), element.label == "All folders" { return true }
                     // The upgrade row below them moves the same way; testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize checks it.
                     if route == "home.upgrade", Self.upgradeText.contains(where: element.label.hasPrefix) { return true }
-                    // The People offer sits as low on every Home route where People is off; testHomePeopleOfferGrows... checks it.
-                    if route.hasPrefix("home."), Self.peopleOfferText.contains(where: element.label.hasPrefix) { return true }
                     if route == "browse.folders", Self.folderText.contains(element.label) { return true }
                     if Self.sampleRoutes.contains(route), Self.demoChips.contains(element.label) { return true }
                     // Home's one-time card pushes the status line below it off screen as the text grows; that line is
@@ -645,16 +643,9 @@ final class AccessibilityAuditTests: XCTestCase {
     /// Label prefixes, top to bottom (the growth test only scrolls down); the body joins its size with a no-break space.
     private static let upgradeText = ["Find files by describing them", "One download of", "Download", "Not now"]
 
-    private static let peopleOfferText = ["Find photos of people", "Retriever can group the faces", "Turn on", "Not now"]
-
     /// Home's optional upgrade row grows at AX5, the growth the live-resize audit loses when the rows above scroll it away.
     func testHomeUpgradeRowGrowsAtTheLargestAccessibilitySize() {
         assertGrowsAtTheLargestAccessibilitySize(route: "home.upgrade", labels: Self.upgradeText)
-    }
-
-    /// The People offer, as low on Home while People is off, grows at AX5 too.
-    func testHomePeopleOfferGrowsAtTheLargestAccessibilitySize() {
-        assertGrowsAtTheLargestAccessibilitySize(route: "home.caughtUp", labels: Self.peopleOfferText)
     }
 
     private func assertGrowsAtTheLargestAccessibilitySize(route: String, labels: [String]) {

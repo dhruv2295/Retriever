@@ -323,6 +323,16 @@ internal object English : Strings {
     override val peopleOfferBody =
         "Retriever can group the faces in your photos, so you can name someone and find them by name. Faces are read on this phone and never leave it."
     override val turnOn = "Turn on"
+    override fun wholeDeviceTitle(words: DeviceWords) = "Search your whole ${words.device}"
+    override val wholeDeviceBody = "Also finds files in Downloads, WhatsApp and your other apps’ folders."
+    override val allowAllFiles = "Allow access to all files"
+    override val changeWhatsIncluded = "Change what’s included"
+    override val allFilesChoice = "All files"
+    override val recommended = "Recommended"
+    override val allFilesChoiceBody = "Photos, documents, downloads and files other apps keep. The best results."
+    override val orOnly = "Or only"
+    override fun peopleChoiceBody(words: DeviceWords) = "Groups faces so you can search by name. Stays on this ${words.device}."
+    override fun peopleRowBody(words: DeviceWords) = "Find photos by who’s in them. Faces are grouped on this ${words.device}, after your files."
     override val recognizePeopleDetail =
         "Groups the faces in your photos so you can name people and find them by name. Processed on this phone, never backed up."
     override val forgetPeopleTitle = "Forget every face and name?"

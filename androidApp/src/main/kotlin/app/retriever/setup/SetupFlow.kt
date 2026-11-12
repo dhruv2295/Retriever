@@ -3,6 +3,7 @@ package app.retriever.setup
 import android.util.Log
 import app.retriever.access.Access
 import app.retriever.access.AccessService
+import app.retriever.access.Photos
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Retriever
 import app.retriever.core.SampleFile
@@ -45,8 +46,13 @@ data class SetupUi(
     val pauseReason: String? = null,
     /** Every planned file in plan order, from core; null until its first delivery, which decides what the pile settles. */
     val sample: List<SampleFile>? = null,
+    /** Settings' People switch, offered again on the first search. */
+    val recognizePeople: Boolean = false,
 ) {
     val stage: SetupStage get() = setup.stage
+
+    /** People looks at photos, so the first search offers it only once some are allowed. */
+    val offersPeople: Boolean get() = access.allFiles || access.photos != Photos.NONE
 
     /**
      * The sample is being planned or read: one test for the mascot, the time line and the pile's freeze. Not `running`:
@@ -79,6 +85,7 @@ class SetupFlow(
             textOnly = retriever.textOnly,
             modelPresent = retriever.modelPresent.value,
             downloadBytes = retriever.modelDownloadBytes,
+            recognizePeople = retriever.prefs.value.recognizePeople,
         ),
     )
 
@@ -105,6 +112,7 @@ class SetupFlow(
         scope.launch {
             retriever.modelPresent.collect { p -> _ui.update { it.copy(modelPresent = p, downloadBytes = retriever.modelDownloadBytes) } }
         }
+        scope.launch { retriever.prefs.map { it.recognizePeople }.distinctUntilChanged().collect { on -> _ui.update { it.copy(recognizePeople = on) } } }
         // "The demo is done" reaches a person who left during the demo; on screen, the demo says it. Claimed while visible
         // too, so a demo seen on screen is never announced later. Watched only until the demo is decided or done.
         scope.launch {
@@ -168,6 +176,15 @@ class SetupFlow(
     /** The first search's Continue: everything is processed on the one schedule, and Home says what happens next. */
     fun finish() = launch { retriever.finishSetup() }
 
+    /**
+     * The first search's People switch, as Settings' without its confirm: before setup ends no name has been given, so
+     * off has nothing to forget. On wakes the reader unless the sample's session holds it, as [readSample] does.
+     */
+    fun setPeople(on: Boolean) = launch {
+        retriever.updatePrefs { it.copy(recognizePeople = on) }
+        if (on && !index.foregroundHeld()) index.indexNow()
+    }
+
     private fun mark(m: SetupMark) = launch { retriever.setSetupMark(m) }
 
     private fun launch(block: suspend () -> Unit) {
@@ -201,6 +218,8 @@ data class SetupActions(
     val continueFromAccess: () -> Unit = {},
     val seeAll: () -> Unit = {},
     val finish: () -> Unit = {},
+    /** The first search's People switch. */
+    val setPeople: (Boolean) -> Unit = {},
     /** The first search's quiet line: Use mobile data while waiting for Wi-Fi, Try again after a failed download. */
     val useMobileData: () -> Unit = {},
     val retryDownload: () -> Unit = {},

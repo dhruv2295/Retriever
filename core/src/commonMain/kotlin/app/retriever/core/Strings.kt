@@ -218,6 +218,22 @@ interface Strings {
     val peopleOfferTitle: String
     val peopleOfferBody: String
     val turnOn: String
+
+    /** Android access screen: the whole-device offer after a partial choice. */
+    fun wholeDeviceTitle(words: DeviceWords): String
+    val wholeDeviceBody: String
+    val allowAllFiles: String
+    val changeWhatsIncluded: String
+
+    /** Android's Choose what to include: the whole-device row first. */
+    val allFilesChoice: String
+    val recommended: String
+    val allFilesChoiceBody: String
+    val orOnly: String
+
+    /** The first search's People switch, and Home card's People row. */
+    fun peopleChoiceBody(words: DeviceWords): String
+    fun peopleRowBody(words: DeviceWords): String
     val recognizePeopleDetail: String
     val forgetPeopleTitle: String
     val forgetPeopleBody: String

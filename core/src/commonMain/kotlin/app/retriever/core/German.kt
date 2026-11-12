@@ -408,6 +408,17 @@ internal object German : Strings {
         "Retriever kann die Gesichter in deinen Fotos gruppieren, damit du jemandem einen Namen geben und die Person über den Namen finden kannst. " +
             "Gesichter werden auf diesem Gerät verarbeitet und verlassen es nie."
     override val turnOn = "Aktivieren"
+    override fun wholeDeviceTitle(words: DeviceWords) = "Dein ganzes ${device(words)} durchsuchen"
+    override val wholeDeviceBody = "Findet auch Dateien in Downloads, WhatsApp und den Ordnern deiner anderen Apps."
+    override val allowAllFiles = "Zugriff auf alle Dateien erlauben"
+    override val changeWhatsIncluded = "Auswahl ändern"
+    override val allFilesChoice = "Alle Dateien"
+    override val recommended = "Empfohlen"
+    override val allFilesChoiceBody = "Fotos, Dokumente, Downloads und Dateien anderer Apps. Die besten Ergebnisse."
+    override val orOnly = "Oder nur"
+    override fun peopleChoiceBody(words: DeviceWords) = "Gruppiert Gesichter, damit du nach Namen suchen kannst. Bleibt auf diesem ${device(words)}."
+    override fun peopleRowBody(words: DeviceWords) =
+        "Finde Fotos danach, wer darauf ist. Gesichter werden auf diesem ${device(words)} gruppiert, nach deinen Dateien."
     override val recognizePeopleDetail =
         "Gruppiert die Gesichter in deinen Fotos, damit du Personen benennen und über ihren Namen finden kannst. Die Gesichter werden auf diesem " +
             "Gerät verarbeitet und nie in einer Datensicherung gespeichert."

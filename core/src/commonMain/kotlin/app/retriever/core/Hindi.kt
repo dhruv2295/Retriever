@@ -400,6 +400,17 @@ internal object Hindi : Strings {
         "Retriever आपकी फ़ोटो में मौजूद चेहरों के ग्रुप बना सकता है, ताकि आप किसी को नाम दें और उसे नाम से ढूंढ सकें. " +
             "चेहरे इसी फ़ोन पर प्रोसेस होते हैं और कभी इससे बाहर नहीं जाते."
     override val turnOn = "चालू करें"
+    override fun wholeDeviceTitle(words: DeviceWords) = "पूरे ${phone(words)} में खोजें"
+    override val wholeDeviceBody = "डाउनलोड, WhatsApp और आपके दूसरे ऐप्स के फ़ोल्डरों की फ़ाइलें भी ढूंढता है।"
+    override val allowAllFiles = "सभी फ़ाइलों का ऐक्सेस दें"
+    override val changeWhatsIncluded = "शामिल चीज़ें बदलें"
+    override val allFilesChoice = "सभी फ़ाइलें"
+    override val recommended = "सुझाया गया"
+    override val allFilesChoiceBody = "फ़ोटो, दस्तावेज़, डाउनलोड और दूसरे ऐप्स की फ़ाइलें। सबसे अच्छे नतीजे।"
+    override val orOnly = "या सिर्फ़"
+    override fun peopleChoiceBody(words: DeviceWords) = "चेहरों को समूह में रखता है ताकि आप नाम से खोज सकें। सब इसी ${phone(words)} पर रहता है।"
+    override fun peopleRowBody(words: DeviceWords) =
+        "फ़ोटो में कौन है, उससे फ़ोटो ढूंढें। आपकी फ़ाइलों के बाद, चेहरे इसी ${phone(words)} पर समूह में रखे जाते हैं।"
     override val recognizePeopleDetail =
         "आपकी फ़ोटो में मौजूद चेहरों के ग्रुप बनाता है, ताकि आप लोगों को नाम दे सकें और उन्हें नाम से ढूंढ सकें. " +
             "चेहरे इसी फ़ोन पर प्रोसेस होते हैं और उनका कभी बैकअप नहीं होता."

@@ -128,6 +128,7 @@ fun SetupScreen(
         },
         seeAll = { seeAll = true },
         finish = flow::finish,
+        setPeople = flow::setPeople,
         useMobileData = upgrade::useMobileData,
         retryDownload = upgrade::download,
     )
@@ -210,7 +211,7 @@ fun SetupContent(
                         when (s) {
                             SetupStage.WELCOME -> Hello(ui, reduceMotion)
 
-                            SetupStage.ACCESS -> AccessStage(ui.access)
+                            SetupStage.ACCESS -> AccessStage(ui.access, actions.allowFiles)
 
                             // SAMPLE is hosted by SetupScreen, outside this scroll; DONE leaves for Home.
                             SetupStage.SAMPLE, SetupStage.DONE -> Unit

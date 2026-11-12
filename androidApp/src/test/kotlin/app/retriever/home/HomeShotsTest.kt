@@ -451,25 +451,6 @@ class HomeShotsTest {
         assertEquals(1, dismissed)
     }
 
-    /** People is off by default, and only a Settings switch turned it on: nobody found it. Home offers it in People's place. */
-    @Test fun peopleIsOfferedWherePeopleAppearsUntilAnswered() {
-        val answers = mutableListOf<String>()
-        var ui by mutableStateOf(base.copy(peopleOffer = true))
-        val actions = HomeActions(turnOnPeople = { answers += "on" }, dismissPeopleOffer = { answers += "not now" })
-        RuntimeEnvironment.setQualifiers("+h3000dp")
-        rule.setContent { ShotTheme(false) { Screen(ui, homeActions = actions) } }
-        rule.waitForIdle()
-        rule.shot("clarity_home_people_offer_light")
-        assertTrue("in People's place, above Browse", top(Words.PEOPLE_OFFER_TITLE) < top(Words.MORE_ON_PHONE))
-        rule.onNodeWithText(Words.TURN_ON).performClick()
-        rule.onNodeWithText(Words.NOT_NOW).performClick()
-        assertEquals(listOf("on", "not now"), answers)
-        // Turned on: the section itself, counting the photos left to look at.
-        ui = ui.copy(peopleOffer = false, facesLeft = 1_200)
-        rule.onNodeWithText(Words.PEOPLE_OFFER_TITLE).assertDoesNotExist()
-        rule.onNodeWithText(Words.facesToGo(1_200)).assertExists()
-    }
-
     @Test fun recentlyAddedMergesTheNewestAndOpensThem() {
         val opened = mutableListOf<Pair<SourceFile, String>>()
         val went = mutableListOf<Route>()
@@ -597,6 +578,24 @@ class HomeShotsTest {
         // The explanation keeps processing controls available.
         rule.onNodeWithText("Processing your files").assertExists()
         rule.onAllNodesWithText(Words.TRY_AGAIN).assertCountEquals(0)
+    }
+
+    /** People off with photos read: the card's one choice, raised off it; Turn on is Settings' switch. */
+    @Test fun introOffersPeople() {
+        var on = 0
+        RuntimeEnvironment.setQualifiers("+h891dp")
+        rule.setContent { ShotTheme(false) { Screen(intro.copy(peopleOffer = true), homeActions = HomeActions(turnOnPeople = { on++ })) } }
+        rule.waitForIdle()
+        rule.shot("home_intro_people_light")
+        rule.onNodeWithText(Words.strings.peopleRowBody(DeviceWords.ANDROID)).assertIsDisplayed()
+        rule.onNodeWithText(Words.TURN_ON).performClick()
+        assertEquals(1, on)
+    }
+
+    @Test fun introOffersPeopleDark() {
+        rule.setContent { ShotTheme(true) { Screen(intro.copy(peopleOffer = true)) } }
+        rule.waitForIdle()
+        rule.shot("home_intro_people_dark")
     }
 
     @Test fun introOnItsWay() {
