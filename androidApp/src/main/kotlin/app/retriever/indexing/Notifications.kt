@@ -100,7 +100,9 @@ object Notifications {
         }
         val shown = paused(status, blocker ?: StopReason.PAUSED, Words.strings.processingTapToContinue)
         val text = Words.strings.notificationBody(shown.count, shown.detail, counts.contentRead)
-        val notification = NotificationCompat.Builder(context, CHANNEL)
+        // Below the explicit floor only the charger starts it; a Resume there would do nothing.
+        val needsCharger = blocker == StopReason.UNPLUGGED || blocker == StopReason.LOW_BATTERY
+        val builder = NotificationCompat.Builder(context, CHANNEL)
             .setContentTitle(shown.title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -112,9 +114,8 @@ object Notifications {
             .setPublicVersion(publicVersion(context, active = false))
             .setContentIntent(resumeIntent(context))
             .setAutoCancel(true)
-            .addAction(0, StatusAction.RESUME.label, resumeIntent(context))
-            .build()
-        context.getSystemService(NotificationManager::class.java).notify(WAITING_ID, notification)
+        if (!needsCharger) builder.addAction(0, StatusAction.RESUME.label, resumeIntent(context))
+        context.getSystemService(NotificationManager::class.java).notify(WAITING_ID, builder.build())
     }
 
     fun cancelWaiting(context: Context) = context.getSystemService(NotificationManager::class.java).cancel(WAITING_ID)

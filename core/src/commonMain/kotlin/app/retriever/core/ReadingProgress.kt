@@ -418,9 +418,11 @@ object ReadingPolicy {
         }
         // Faces keep their own detail: the swap below described the files' pass all over again.
         val filesPass = phase in ACTIVE && phase != ReadingPhase.FACES
+        // Already asked for and below the floor: only the charger starts it, so no button that would do nothing.
+        val plugIn = requested && onBattery && battery < RESUMED_BATTERY_FLOOR &&
+            (phase == ReadingPhase.CHARGING || phase == ReadingPhase.LOW_BATTERY)
         val detail = when {
-            requested && onBattery && battery < RESUMED_BATTERY_FLOOR && (phase == ReadingPhase.CHARGING || phase == ReadingPhase.LOW_BATTERY) ->
-                c.processingPlugInDetail
+            plugIn -> c.processingPlugInDetail
 
             phase == ReadingPhase.CHARGING && onBattery && battery < (if (sessionActive) RESUMED_BATTERY_FLOOR else BATTERY_FLOOR) ->
                 c.automaticProcessingPreferenceDetail
@@ -442,6 +444,8 @@ object ReadingPolicy {
         // The line always has the one button that changes what happens: Start processing, Pause or Resume.
         val action = when (phase) {
             ReadingPhase.PAUSED -> StatusAction.RESUME
+
+            ReadingPhase.CHARGING if plugIn -> null
 
             ReadingPhase.CHARGING, ReadingPhase.MANUAL -> if (processingStarted || sessionActive) StatusAction.RESUME else StatusAction.START
 

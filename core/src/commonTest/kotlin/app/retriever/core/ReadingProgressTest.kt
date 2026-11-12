@@ -75,7 +75,7 @@ class ReadingProgressTest {
             processingStarted = true,
         )
         assertEquals(Words.strings.processingPlugInDetail, asked.detail, "below fifty, a person's request asks to plug in")
-        assertEquals(StatusAction.RESUME, asked.action)
+        assertNull(asked.action, "only the charger starts it below fifty, so no Resume that does nothing")
         val complete = ReadingPolicy.decide(
             ReadingProgress(read = 4, partlyRead = 2, couldntRead = 1),
             StopReason.PAUSED,
