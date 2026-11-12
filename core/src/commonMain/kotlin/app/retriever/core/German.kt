@@ -173,6 +173,7 @@ internal object German : Strings {
     override val androidAccessBody = "So findest du Fotos, Dokumente und Downloads, indem du sie beschreibst."
     override val accessScanning =
         "Retriever beginnt jetzt, deine Fotos und Dateien zu verarbeiten, damit du sie durchsuchen kannst."
+    override val startScanning = "Verarbeitung starten"
     override val allFilesOff =
         "Aktiviere „Zugriff zum Verwalten aller Dateien zulassen“, um dein ganzes Handy zu durchsuchen, oder wähle aus, was dabei sein soll."
     override val includeTitle = "Wähle aus, was dabei sein soll"
@@ -200,11 +201,11 @@ internal object German : Strings {
     override val descriptionReady = "Die Suche per Beschreibung ist bereit"
     override val descriptionReadyBody = "Beschreibe jetzt deine neuesten Dateien, um sie zu finden."
 
-    override val homeIntroTitle = "Retriever arbeitet von selbst weiter"
-    override val homeIntroBody = "So geht es weiter."
+    override val homeIntroTitle = "Wie es weitergeht"
+    override val homeIntroBody = "Deine Verarbeitung läuft weiter, während du andere Apps nutzt. In der Benachrichtigung kannst du sie pausieren."
     override val gotIt = "Verstanden"
     override val newFiles = "Neue Fotos und Dateien"
-    override val newFilesBody = "Werden automatisch gefunden. Du musst nichts tun."
+    override val newFilesBody = "Neue Dateien werden zu den Zeiten verarbeitet, die du in den Einstellungen wählst."
     override val notifyWhenSearchable = "Benachrichtige mich, wenn alles durchsuchbar ist"
     override val caughtUpNoticeTitle = "Alles ist durchsuchbar"
 
@@ -561,11 +562,11 @@ internal object German : Strings {
         "Schließe dein Handy an, um weiter zu verarbeiten. Retriever verarbeitet im Akkubetrieb bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
     override val processingTapToContinue = "Tippen, um fortzufahren"
 
-    override val automaticChargingPreferenceDetail = "Wartet automatisch auf das Laden. Mit Fortsetzen kannst du für diesen Durchlauf im Akkubetrieb starten."
+    override val automaticChargingPreferenceDetail = "Zwischen zwei Durchläufen wartet Retriever auf das Laden. Mit Fortsetzen kannst du für diesen Durchlauf im Akkubetrieb starten."
 
-    override val automaticProcessingPreferenceTitle = "Automatische Verarbeitung"
+    override val automaticProcessingPreferenceTitle = "Wann verarbeiten"
     override val automaticProcessingPreferenceDetail =
-        "Die automatische Verarbeitung pausiert im Akkubetrieb unter ${withPercent(ReadingPolicy.BATTERY_FLOOR)}. Eine von dir gestartete oder " +
+        "Zwischen zwei Durchläufen stoppt die Verarbeitung im Akkubetrieb unter ${withPercent(ReadingPolicy.BATTERY_FLOOR)}. Eine von dir gestartete oder " +
             "fortgesetzte Verarbeitung läuft bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
 
     override val pausedDetail = "Die Suche funktioniert weiter."
@@ -609,7 +610,7 @@ internal object German : Strings {
 
     override fun waitingDetail(words: DeviceWords) = "Dein ${device(words)} entscheidet, wann Retriever weitermacht. Nichts geht verloren."
 
-    override val caughtUpDetail = "Retriever verarbeitet neue Dateien von selbst."
+    override val caughtUpDetail = "Neue Dateien werden zu den Zeiten verarbeitet, die du in den Einstellungen wählst."
 
     override val gettingReadersDetail = "Ein einmaliger Download von den Google Play-Diensten. Die Suche über den Namen funktioniert schon."
 

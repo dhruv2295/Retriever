@@ -206,7 +206,7 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.ALLOW_ACCESS).assertDoesNotExist()
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
         rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(3)
-        rule.onNodeWithText(Words.CONTINUE).performClick()
+        rule.onNodeWithText(Words.START_SCANNING).performClick()
         assertEquals(listOf("continue"), calls)
     }
 
@@ -217,7 +217,7 @@ class SetupStatusShotsTest {
         val calls = mutableListOf<String>()
         setup("access_folder_granted_light", folderPicked, actions = SetupActions(allowFiles = { calls += "files" }, chooseInstead = { calls += "choose" }))
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertIsDisplayed()
-        rule.onNodeWithText(Words.CONTINUE).assertIsEnabled()
+        rule.onNodeWithText(Words.START_SCANNING).assertIsEnabled()
         rule.onAllNodesWithContentDescription(Words.ALLOWED).assertCountEquals(1)
         rule.onNodeWithText(Words.foldersAdded(1)).assertIsDisplayed()
         rule.onAllNodesWithText(Words.kindLabelPlural(Kind.PHOTO)).assertCountEquals(0)
@@ -253,7 +253,7 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.ADD_FOLDER).assertExists()
         rule.onNodeWithText(Words.strings.allFilesChoice).assertExists()
         rule.onNodeWithText(Words.strings.recommended).assertExists()
-        rule.onNodeWithText(Words.CONTINUE).assertIsNotEnabled()
+        rule.onNodeWithText(Words.START_SCANNING).assertIsNotEnabled()
         rule.onNodeWithText(Words.ACCESS_SCANNING).assertDoesNotExist()
         rule.onNodeWithText(Words.NOTHING_SELECTED).assertDoesNotExist()
     }
@@ -289,7 +289,7 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.strings.allFilesChoice).performClick()
         rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).performClick()
         rule.onNodeWithText(Words.ADD_FOLDER).performClick()
-        rule.onNodeWithText(Words.CONTINUE).assertIsEnabled().performClick()
+        rule.onNodeWithText(Words.START_SCANNING).assertIsEnabled().performClick()
         assertEquals(listOf("files", "media", "folder", "continue"), calls)
     }
 

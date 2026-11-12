@@ -113,8 +113,11 @@ interface Strings {
     fun foldersAdded(n: Long): String
     val androidAccessBody: String
 
-    /** Android: before Continue once all-files access or at least one selected source is allowed. */
+    /** Android: before Start scanning once all-files access or at least one selected source is allowed. */
     val accessScanning: String
+
+    /** Android: the access screen's button, which starts the scan and its foreground service. */
+    val startScanning: String
     val allFilesOff: String
     val includeTitle: String
     val sharedFilesAndFolders: String

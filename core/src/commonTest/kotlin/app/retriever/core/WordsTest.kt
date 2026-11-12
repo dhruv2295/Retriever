@@ -73,7 +73,7 @@ class WordsTest {
     @Test fun theDeviceIsNamedWhereItIsMeant() {
         assertEquals("Your files are processed on your iPhone", Words.onDevice(iphone))
         assertEquals(
-            "Automatically waits for charging. Resume lets you process on battery this time.",
+            "Between scans, Retriever waits for charging. Resume lets you process on battery this time.",
             Words.processingPlanDetail(ReadingSchedule.CHARGING, sessionActive = false),
         )
         assertEquals("47.6\u00A0MB · kept on this iPhone", Words.keptOn("47.6 MB", iphone))

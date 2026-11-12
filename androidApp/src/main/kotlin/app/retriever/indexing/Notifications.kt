@@ -72,6 +72,7 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion(context))
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(openApp(context, status = true))
             .addAction(0, if (held != null) Words.strings.processingKeepPaused else Words.PAUSE, pauseIntent(context))
             .apply {

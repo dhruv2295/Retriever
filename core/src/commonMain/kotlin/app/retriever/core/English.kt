@@ -139,6 +139,7 @@ internal object English : Strings {
 
     override val androidAccessBody = "So you can find any photo, document or download by describing it."
     override val accessScanning = "Retriever starts scanning your photos and files now, so you can search them."
+    override val startScanning = "Start scanning"
     override val allFilesOff = "Turn on “Allow access to manage all files” to search your whole phone, or choose what to include."
     override val includeTitle = "Choose what to include"
     override val sharedFilesAndFolders = "Files and folders on this phone"
@@ -164,11 +165,11 @@ internal object English : Strings {
     override val descriptionReady = "Search by description is ready"
     override val descriptionReadyBody = "Now describe your recent files to find them."
 
-    override val homeIntroTitle = "Retriever keeps going on its own"
-    override val homeIntroBody = "Here’s what happens next."
+    override val homeIntroTitle = "What happens next"
+    override val homeIntroBody = "Your scan keeps going while you use other apps, with a notification you can pause it from."
     override val gotIt = "Got it"
     override val newFiles = "New photos and files"
-    override val newFilesBody = "Picked up automatically. You don’t need to do anything."
+    override val newFilesBody = "New files are processed at the times you choose in Settings."
     override val notifyWhenSearchable = "Notify me when everything’s searchable"
     override val caughtUpNoticeTitle = "Everything is searchable"
 
@@ -472,11 +473,11 @@ internal object English : Strings {
         "Plug in to keep processing. Retriever processes on battery down to ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
     override val processingTapToContinue = "Tap to continue"
 
-    override val automaticChargingPreferenceDetail = "Automatically waits for charging. Resume lets you process on battery this time."
+    override val automaticChargingPreferenceDetail = "Between scans, Retriever waits for charging. Resume lets you process on battery this time."
 
-    override val automaticProcessingPreferenceTitle = "Automatic processing"
+    override val automaticProcessingPreferenceTitle = "When to process"
     override val automaticProcessingPreferenceDetail =
-        "Automatic processing pauses below ${ReadingPolicy.BATTERY_FLOOR}% on battery. Processing you start or resume runs down to " +
+        "Between scans, processing on battery stops below ${ReadingPolicy.BATTERY_FLOOR}%. A scan you start or resume runs down to " +
             "${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
 
     override val pausedDetail = "Search still works."
@@ -517,7 +518,7 @@ internal object English : Strings {
 
     override fun waitingDetail(words: DeviceWords) = "Your ${words.device} decides when Retriever carries on. Nothing is lost."
 
-    override val caughtUpDetail = "It processes new files by itself."
+    override val caughtUpDetail = "New files are processed at the times you choose in Settings."
 
     override val gettingReadersDetail = "A one-time download from Google Play services. Search by name works now."
 

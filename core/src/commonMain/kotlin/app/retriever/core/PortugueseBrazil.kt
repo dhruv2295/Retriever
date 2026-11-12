@@ -164,6 +164,7 @@ internal object PortugueseBrazil : Strings {
 
     override val androidAccessBody = "Assim você encontra qualquer foto, documento ou download descrevendo o que procura."
     override val accessScanning = "O Retriever começa a analisar suas fotos e arquivos agora para que você possa pesquisá-los."
+    override val startScanning = "Começar a análise"
     override val allFilesOff =
         "Ative “Permitir acesso para gerenciar todos os arquivos” para buscar em todo o celular, ou escolha o que incluir."
     override val includeTitle = "Escolha o que incluir"
@@ -196,11 +197,11 @@ internal object PortugueseBrazil : Strings {
     override val descriptionReady = "A busca por descrição está pronta"
     override val descriptionReadyBody = "Agora descreva seus arquivos recentes para encontrá-los."
 
-    override val homeIntroTitle = "O Retriever continua sozinho"
-    override val homeIntroBody = "Veja o que acontece a seguir."
+    override val homeIntroTitle = "O que acontece agora"
+    override val homeIntroBody = "Sua análise continua enquanto você usa outros apps, com uma notificação para pausá-la."
     override val gotIt = "Entendi"
     override val newFiles = "Novas fotos e arquivos"
-    override val newFilesBody = "Incluídos automaticamente. Você não precisa fazer nada."
+    override val newFilesBody = "Novos arquivos são processados nos horários que você escolher nos Ajustes."
     override val notifyWhenSearchable = "Avisar quando tudo estiver pronto para a busca"
     override val caughtUpNoticeTitle = "Tudo pronto para a busca"
 
@@ -557,11 +558,11 @@ internal object PortugueseBrazil : Strings {
         "Conecte o celular para continuar o processamento. O Retriever processa na bateria até ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
     override val processingTapToContinue = "Toque para continuar"
 
-    override val automaticChargingPreferenceDetail = "Espera automaticamente pelo carregamento. Retomar permite processar com bateria durante esta sessão."
+    override val automaticChargingPreferenceDetail = "Entre análises, o Retriever espera pelo carregamento. Retomar permite processar com bateria durante esta sessão."
 
-    override val automaticProcessingPreferenceTitle = "Processamento automático"
+    override val automaticProcessingPreferenceTitle = "Quando processar"
     override val automaticProcessingPreferenceDetail =
-        "O processamento automático pausa na bateria abaixo de ${ReadingPolicy.BATTERY_FLOOR}%. O processamento que você iniciar ou " +
+        "Entre análises, o processamento na bateria para abaixo de ${ReadingPolicy.BATTERY_FLOOR}%. O processamento que você iniciar ou " +
             "retomar continua até ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
 
     override val pausedDetail = "A busca continua funcionando."
@@ -606,7 +607,7 @@ internal object PortugueseBrazil : Strings {
 
     override fun waitingDetail(words: DeviceWords) = "Seu ${device(words)} decide quando o Retriever continua. Nada se perde."
 
-    override val caughtUpDetail = "Ele processa os arquivos novos sozinho."
+    override val caughtUpDetail = "Novos arquivos são processados nos horários que você escolher nos Ajustes."
 
     override val gettingReadersDetail = "Um download único dos serviços do Google Play. A busca pelo nome já funciona."
 

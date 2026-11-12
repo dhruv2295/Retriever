@@ -121,7 +121,7 @@ class StatusLineTest {
                     "CAUGHT_UP",
                     "All done. Retriever has processed everything it can",
                     "3 of 3 files processed",
-                    "It processes new files by itself.",
+                    "New files are processed at the times you choose in Settings.",
                     "Dismiss",
                 ),
             decide(ReadingProgress(read = 3, partlyRead = 1)) to listOf(

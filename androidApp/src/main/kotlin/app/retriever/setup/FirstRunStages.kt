@@ -141,13 +141,13 @@ private fun WholeDeviceCard(allowFiles: () -> Unit) {
     }
 }
 
-/** Allow access (Continue once a source is allowed), what to do if it was left off, and the quieter choice. */
+/** Allow access (Start scanning once a source is allowed), what to do if it was left off, and the quieter choice. */
 @Composable
 internal fun AccessActions(ui: SetupUi, allFilesOff: Boolean, actions: SetupActions) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OnDevice()
         if (ui.access.ready) {
-            Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.CONTINUE) }
+            Button(onClick = actions.continueFromAccess, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(Words.START_SCANNING) }
             if (!ui.access.allFiles) TextButton(onClick = actions.chooseInstead) { Text(Words.strings.changeWhatsIncluded) }
         } else {
             if (allFilesOff) Muted(Words.ALL_FILES_OFF)
@@ -263,7 +263,7 @@ internal fun IncludeSheet(ui: SetupUi, asked: Boolean, folderError: String?, act
         if (asked && !a.ready) Muted(Words.NOTHING_SELECTED)
         folderError?.let { ErrorText(it) }
         if (a.ready) Text(Words.ACCESS_SCANNING, style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = actions.continueFromAccess, enabled = a.ready, modifier = Modifier.fillMaxWidth()) { Text(Words.CONTINUE) }
+        Button(onClick = actions.continueFromAccess, enabled = a.ready, modifier = Modifier.fillMaxWidth()) { Text(Words.START_SCANNING) }
     }
 }
 

@@ -200,6 +200,7 @@ object Words {
 
     /** Android: under the access tiles once the whole phone is allowed. */
     val ACCESS_SCANNING: String get() = strings.accessScanning
+    val START_SCANNING: String get() = strings.startScanning
 
     // Access, before this version's access screen.
     val ALL_FILES_OFF: String get() = strings.allFilesOff

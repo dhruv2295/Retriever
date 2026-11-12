@@ -185,6 +185,7 @@ internal object Hindi : Strings {
 
     override val androidAccessBody = "ताकि आप किसी भी फ़ोटो, दस्तावेज़ या डाउनलोड को उसके बारे में बताकर ढूंढ सकें."
     override val accessScanning = "Retriever अब आपकी फ़ोटो और फ़ाइलों को स्कैन करना शुरू करेगा, ताकि आप उनमें खोज सकें।"
+    override val startScanning = "स्कैन शुरू करें"
     override val allFilesOff =
         "पूरे फ़ोन में खोजने के लिए “सभी फ़ाइलों को मैनेज करने का ऐक्सेस दें” चालू करें, या चुनें कि क्या शामिल करना है."
     override val includeTitle = "चुनें कि क्या शामिल करना है"
@@ -213,11 +214,11 @@ internal object Hindi : Strings {
     override val descriptionReady = "विवरण से खोज तैयार है"
     override val descriptionReadyBody = "अब अपनी हाल की फ़ाइलों के बारे में बताकर उन्हें ढूंढें."
 
-    override val homeIntroTitle = "Retriever अपने-आप काम करता रहता है"
-    override val homeIntroBody = "आगे यह होगा."
+    override val homeIntroTitle = "आगे क्या होगा"
+    override val homeIntroBody = "आपका स्कैन दूसरे ऐप इस्तेमाल करते समय भी चलता रहता है. सूचना से आप इसे रोक सकते हैं."
     override val gotIt = "ठीक है"
     override val newFiles = "नई फ़ोटो और फ़ाइलें"
-    override val newFilesBody = "अपने-आप जुड़ जाती हैं. आपको कुछ नहीं करना है."
+    override val newFilesBody = "नई फ़ाइलें सेटिंग में आपके चुने हुए समय पर प्रोसेस होती हैं."
     override val notifyWhenSearchable = "सब कुछ खोजने लायक होने पर मुझे बताएं"
     override val caughtUpNoticeTitle = "अब सब कुछ खोजा जा सकता है"
 
@@ -551,11 +552,11 @@ internal object Hindi : Strings {
         "प्रोसेसिंग जारी रखने के लिए फ़ोन चार्ज पर लगाएँ। Retriever बैटरी ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक रहने पर प्रोसेस करता है।"
     override val processingTapToContinue = "जारी रखने के लिए टैप करें"
 
-    override val automaticChargingPreferenceDetail = "अपने आप चार्जिंग का इंतज़ार करता है. फिर शुरू करें चुनकर इस बार बैटरी पर प्रोसेसिंग शुरू कर सकते हैं."
+    override val automaticChargingPreferenceDetail = "दो स्कैन के बीच Retriever चार्जिंग का इंतज़ार करता है. फिर शुरू करें चुनकर इस बार बैटरी पर प्रोसेसिंग शुरू कर सकते हैं."
 
-    override val automaticProcessingPreferenceTitle = "अपने-आप प्रोसेसिंग"
+    override val automaticProcessingPreferenceTitle = "कब प्रोसेस करें"
     override val automaticProcessingPreferenceDetail =
-        "बैटरी ${ReadingPolicy.BATTERY_FLOOR}% से कम होने पर अपने आप होने वाली प्रोसेसिंग रुक जाती है। आपकी शुरू की या फिर से चालू की " +
+        "दो स्कैन के बीच, बैटरी ${ReadingPolicy.BATTERY_FLOOR}% से कम होने पर प्रोसेसिंग रुक जाती है। आपकी शुरू की या फिर से चालू की " +
             "गई प्रोसेसिंग ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक चलती है।"
 
     override val pausedDetail = "खोज अब भी काम करती है."
@@ -597,7 +598,7 @@ internal object Hindi : Strings {
 
     override fun waitingDetail(words: DeviceWords) = "Retriever कब जारी रखेगा, यह आपका ${phone(words)} तय करता है. कुछ भी खोता नहीं है."
 
-    override val caughtUpDetail = "यह नई फ़ाइलें अपने-आप प्रोसेस करता है."
+    override val caughtUpDetail = "नई फ़ाइलें सेटिंग में आपके चुने हुए समय पर प्रोसेस होती हैं."
 
     override val gettingReadersDetail = "Google Play सेवाओं से एक बार का डाउनलोड. नाम से खोज अभी काम करती है."
 

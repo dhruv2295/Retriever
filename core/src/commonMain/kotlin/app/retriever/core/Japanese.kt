@@ -176,6 +176,7 @@ internal object Japanese : Strings {
 
     override val androidAccessBody = "写真、ドキュメント、ダウンロードしたファイルを、説明するだけで見つけられるようになります。"
     override val accessScanning = "Retrieverが写真やファイルのスキャンを開始し、検索できるようにします。"
+    override val startScanning = "スキャンを開始"
     override val allFilesOff = "スマートフォン全体を検索するには「全ファイルの管理権を付与」をオンにするか、対象を選んでください。"
     override val includeTitle = "対象を選択"
     override val sharedFilesAndFolders = "このスマートフォン内のファイルとフォルダ"
@@ -201,11 +202,11 @@ internal object Japanese : Strings {
     override val descriptionReady = "「説明で検索」が使えるようになりました"
     override val descriptionReadyBody = "最近のファイルを説明して、探してみましょう。"
 
-    override val homeIntroTitle = "Retrieverは自動で処理を続けます"
-    override val homeIntroBody = "このあとの流れはこちらです。"
+    override val homeIntroTitle = "このあとの流れ"
+    override val homeIntroBody = "開始したスキャンは、ほかのアプリを使っている間も続きます。通知から一時停止できます。"
     override val gotIt = "OK"
     override val newFiles = "新しい写真とファイル"
-    override val newFilesBody = "自動で処理します。操作は必要ありません。"
+    override val newFilesBody = "新しいファイルは、設定で選んだタイミングで処理されます。"
     override val notifyWhenSearchable = "すべて検索できるようになったら通知する"
     override val caughtUpNoticeTitle = "すべて検索できるようになりました"
 
@@ -502,11 +503,11 @@ internal object Japanese : Strings {
     override val processingPlugInDetail = "処理を続けるには充電してください。Retrieverはバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで処理します。"
     override val processingTapToContinue = "タップして続行"
 
-    override val automaticChargingPreferenceDetail = "自動処理は充電を待ちます。「再開」で、この処理中はバッテリーでも処理を始められます。"
+    override val automaticChargingPreferenceDetail = "スキャンとスキャンの間は充電を待ちます。「再開」で、この処理中はバッテリーでも処理を始められます。"
 
-    override val automaticProcessingPreferenceTitle = "自動処理"
+    override val automaticProcessingPreferenceTitle = "処理するタイミング"
     override val automaticProcessingPreferenceDetail =
-        "自動処理はバッテリー残量${ReadingPolicy.BATTERY_FLOOR}%未満で一時停止します。開始または再開した処理は${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
+        "スキャンとスキャンの間は、バッテリー残量${ReadingPolicy.BATTERY_FLOOR}%未満で処理を止めます。開始または再開した処理は${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
 
     override val pausedDetail = "検索は引き続き使えます。"
 
@@ -545,7 +546,7 @@ internal object Japanese : Strings {
 
     override fun waitingDetail(words: DeviceWords) = "Retrieverを再開するタイミングは${dev(words)}が決めます。データが失われることはありません。"
 
-    override val caughtUpDetail = "新しいファイルは自動で処理します。"
+    override val caughtUpDetail = "新しいファイルは、設定で選んだタイミングで処理されます。"
 
     override val gettingReadersDetail = "Google Play 開発者サービスから一度だけダウンロードします。名前での検索はすぐに使えます。"
 
