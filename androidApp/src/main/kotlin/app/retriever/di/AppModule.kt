@@ -18,6 +18,7 @@
 package app.retriever.di
 
 import android.Manifest
+import android.app.backup.BackupManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
@@ -33,6 +34,7 @@ import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import app.retriever.BuildConfig
 import app.retriever.Demo
 import app.retriever.IndexWorker
+import app.retriever.StateBackupAgent
 import app.retriever.access.AccessService
 import app.retriever.browse.BrowseViewModel
 import app.retriever.core.CompositeSource
@@ -181,11 +183,11 @@ val appModule = module {
     single {
         val app = androidContext()
         val demo = get<DemoMode>().parts
-        // Backed up and moved to a new phone (data_extraction_rules.xml); demo mode keeps the person's state out of its database.
+        // Backed up and moved to a new phone (StateBackupAgent); demo mode keeps the person's state out of its database.
         val userState = if (demo != null) {
             null
         } else {
-            AtomicFile(File(app.filesDir, "user-state.json")).let { f ->
+            AtomicFile(File(app.filesDir, StateBackupAgent.USER_STATE)).let { f ->
                 UserStateFile(
                     read = {
                         try {
@@ -194,7 +196,10 @@ val appModule = module {
                             null
                         }
                     },
-                    write = { f.writeText(it) },
+                    write = {
+                        f.writeText(it)
+                        BackupManager(app).dataChanged()
+                    },
                 )
             }
         }
