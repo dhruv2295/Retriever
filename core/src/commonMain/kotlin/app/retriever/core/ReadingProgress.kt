@@ -267,6 +267,7 @@ object ReadingPolicy {
         requested: Boolean = sessionActive,
         processingStarted: Boolean = false,
         adaptive: Boolean = false,
+        facesStarted: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val c = Words.strings
@@ -275,6 +276,11 @@ object ReadingPolicy {
         val onBattery = !pluggedIn && battery >= 0
         // A session on battery under the automatic floor, which it may process down to the session's.
         val onReserve = sessionActive && onBattery && battery < BATTERY_FLOOR
+        // Faces come once every file and its search by description are done, and once begun ([facesStarted]) they finish
+        // first (Retriever.runBatch). So a running batch with photos left is on faces from its start to its end. Only the
+        // pass itself sets [faces]: around it, the sync and the grouping read as Finishing long files, swapping every batch.
+        val facesNext = (facesWaiting?.pending ?: 0L) > 0 &&
+            (facesStarted || (progress.waiting == 0L && progress.meaningWaiting == 0L))
         val phase = when {
             !progress.counted && !demo -> ReadingPhase.COUNTING
 
@@ -294,7 +300,7 @@ object ReadingPolicy {
             }
 
             // A faces pass first waits for People's model while it downloads (Retriever.peopleModel).
-            running && (faces != null || people == PeopleModel.GETTING) -> ReadingPhase.FACES
+            running && (faces != null || people == PeopleModel.GETTING || facesNext) -> ReadingPhase.FACES
 
             // The demo's own files go first, with search by description; Home already counts the whole phone.
             reading && progress.sample -> ReadingPhase.READING
@@ -332,8 +338,8 @@ object ReadingPolicy {
         // counts that pass; one over only later parts has none, like deepening. Faces come after the files and their search
         // by description (Retriever.runBatch), so a stop counts them only once both are done.
         val looking = when {
-            phase == ReadingPhase.FACES -> faces
-            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { progress.waiting == 0L && progress.meaningWaiting == 0L }
+            phase == ReadingPhase.FACES -> faces ?: facesWaiting
+            phase in STOPS || phase == ReadingPhase.WAITING -> facesWaiting?.takeIf { facesNext }
             else -> null
         }
         // Between batches with only faces or the meaning pass left, their title, never "All files processed" over work waiting.
@@ -382,7 +388,7 @@ object ReadingPolicy {
                 ReadingPhase.MEANING -> c.meaningDetail(words)
 
                 // Faces come last (Retriever.runBatch): every file is processed by now.
-                ReadingPhase.FACES -> if (faces == null) c.peopleDownloadDetail else c.facesDetail
+                ReadingPhase.FACES -> if (faces == null && people == PeopleModel.GETTING) c.peopleDownloadDetail else c.facesDetail
 
                 ReadingPhase.DEEPENING -> c.deepeningDetail
 
@@ -475,7 +481,7 @@ object ReadingPolicy {
             else -> progress.processed to progress.libraryTotal
         }
         val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
-        val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && faces == null) || total == 0L
+        val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && looking == null) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
         val count = when {
             looking != null -> Words.facesOf(done, total)

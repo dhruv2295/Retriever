@@ -617,8 +617,11 @@ class Retriever(
             val t = tick()
             // No device check sees a full disk: the batch that stopped for it says so until the next one runs.
             val diskFull = state.lastStop?.takeIf { it == StopReason.DISK_FULL && !state.running }
-            // Every file processed: photos may still wait for faces, read only then (never a query per file read).
-            val facesWaiting = if (counts.progress.waiting == 0L && faceReader != null && p.recognizePeople && Kind.PHOTO in p.kinds) {
+            // Every file processed, or a faces pass under way (a one-row read): photos may still wait for faces, counted only
+            // then, never per file read.
+            val facesOn = faceReader != null && p.recognizePeople && Kind.PHOTO in p.kinds
+            val facesStarted = facesOn && store.facesRunning()
+            val facesWaiting = if (facesOn && (counts.progress.waiting == 0L || facesStarted)) {
                 store.facesProgress().takeIf { it.pending > 0 }
             } else {
                 null
@@ -641,6 +644,7 @@ class Retriever(
                 processingStarted = p.processingRequested || store.meta(SESSION_START_KEY) != null ||
                     counts.progress.contentRead > store.tasteIds().size,
                 adaptive = t.adaptive,
+                facesStarted = facesStarted,
             )
         }
     }
@@ -953,10 +957,11 @@ class Retriever(
                 peopleChanged()
             }
             var facesLeft = facesOn && store.facesProgress().pending > 0
-            if (reader != null && facesLeft && pending == 0L && deepenBlocker() == null &&
+            // One task at a time: once begun, faces finish before files that came meanwhile, or the two take turns.
+            val facesFirst = store.facesRunning() ||
                 // With tails: without them the counts leave the meaning pass out (Store.outcome) and this read 0.
-                (keywordOnly || store.countsNow().progress.meaningWaiting == 0L)
-            ) {
+                (pending == 0L && (keywordOnly || store.countsNow().progress.meaningWaiting == 0L))
+            if (reader != null && facesLeft && facesFirst && deepenBlocker() == null) {
                 when (peopleModel(reader, minOf(DOWNLOAD_WAIT, budget - started.elapsedNow()))) {
                     PeopleModel.READY -> Unit
 
@@ -969,6 +974,7 @@ class Retriever(
                     // Wi-Fi, a network or Play to come: the next wake-up (the charger, the periodic run, the app) asks again.
                     PeopleModel.WAITING_FOR_WIFI, PeopleModel.UNAVAILABLE -> return end(StopReason.DONE)
                 }
+                store.setFacesRunning(true)
                 _state.update { it.copy(faces = store.facesProgress()) }
                 val faces = FacePass(store, reader, log, onLooked = {
                     facesLooked++
@@ -976,6 +982,7 @@ class Retriever(
                 }, onCurrent = ::onCurrent, onGrouped = ::peopleChanged).run(budget - started.elapsedNow(), policyStop, ::awaitUi)
                 _state.update { it.copy(faces = null) }
                 if (faces != StopReason.DONE) return end(faces)
+                store.setFacesRunning(false)
                 facesLeft = false
             }
             // Nothing to read, no tail to embed, and vectors of the current model: opening it would do nothing.
@@ -1039,7 +1046,12 @@ class Retriever(
                     readAheadContext = dispatchers.readAhead,
                 )
             }
-            val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen)
+            // Faces go before the long files' rest (the order above). A batch that reads new files while faces are left
+            // stops after them: given the rest, every new file handed a whole batch to it, and the two took turns. Not while
+            // a file waits for search by description (also a tail, and faces wait for it), nor before People's model is here.
+            val facesNext = reader != null && facesLeft && deepen && store.countsNow().progress.meaningWaiting == 0L &&
+                reader.ready(store.prefs().allowMobileData) == PeopleModel.READY
+            val result = engine.runBatch(budget - started.elapsedNow(), deepen = deepen && !facesNext)
             // Read, with photos still to look at for faces: the next batch gives them all its time, or the deepen rule's time.
             if (result.stopReason == StopReason.DONE && facesOn && store.facesProgress().pending > 0) {
                 return deepenBlocker()?.let(::end) ?: end(StopReason.DONE).let { NextRun.SOON }

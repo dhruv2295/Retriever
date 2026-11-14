@@ -185,6 +185,16 @@ class StatusLineTest {
         assertEquals("4 of 5 files have search by description", meaningLeft.count, "then the search by description")
     }
 
+    /** A batch around its faces pass (sync, grouping) stays on faces: it said Finishing long files, then faces, every batch. */
+    @Test fun aBatchWithFacesLeftShowsFacesBetweenPasses() {
+        val between = decide(ReadingProgress(read = 4, partlyRead = 1, laterPasses = 1), running = true, facesWaiting = FacesProgress(2, 8))
+        assertEquals(listOf("FACES", "2 of 10 photos checked for people"), listOf(between.phase.name, between.count))
+        assertEquals(Words.strings.facesDetail, between.detail)
+        // Once begun, faces finish before files that came meanwhile, so a file waiting doesn't take the line from them.
+        val newFile = ReadingPolicy.decide(waiting, null, true, false, android, facesWaiting = FacesProgress(2, 8), facesStarted = true)
+        assertEquals(ReadingPhase.FACES, newFile.phase)
+    }
+
     @Test fun queuedAndroidFacesAreStillWorkAfterEveryFileIsProcessed() {
         val queued = ReadingPolicy.decide(
             ReadingProgress(read = 4),

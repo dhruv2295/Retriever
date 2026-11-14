@@ -268,6 +268,13 @@ private val WHITESPACE = Regex("\\s+")
 
 private const val GROUPED_KEY = "faces_grouped_through"
 
+/** Set while a faces pass is under way: it finishes before files that came meanwhile (Retriever.runBatch). */
+private const val FACES_RUN_KEY = "faces_run"
+
+internal fun Store.facesRunning(): Boolean = meta(FACES_RUN_KEY) != null
+
+internal fun Store.setFacesRunning(on: Boolean) = if (on) setMeta(FACES_RUN_KEY, "1") else deleteMeta(FACES_RUN_KEY)
+
 /** Tries per photo; one that stops the app this many times is left out. */
 internal const val MAX_FACE_ATTEMPTS = 3
 
@@ -513,6 +520,7 @@ internal fun Store.forgetAllFaces() = inTransaction {
     faces.deleteAllFaceReads()
     deleteMeta(GROUPED_KEY)
     deleteMeta(NOT_SAME_KEY)
+    deleteMeta(FACES_RUN_KEY)
 }
 
 /**

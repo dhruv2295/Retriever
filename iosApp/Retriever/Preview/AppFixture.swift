@@ -89,7 +89,7 @@ extension AppModel {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
                 sessionActive: explicit, pluggedIn: pluggedIn, faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
-                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false)
+                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false)
         }
         switch fixture {
         case .readingWhileCharging:

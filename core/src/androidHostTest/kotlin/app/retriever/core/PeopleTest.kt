@@ -151,4 +151,49 @@ class PeopleTest {
         r.indexBatch(1.minutes)
         assertEquals(FacesProgress(12, 0), r.facesProgress())
     }
+
+    /** One task at a time: a faces pass under way finishes before a file that came meanwhile, which used to take turns with it. */
+    @Test
+    fun aFacesPassFinishesBeforeANewFile() = runBlocking {
+        val photos = (1..12).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+        val slow = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> = emptyList<FoundFace>().also { delay(100.milliseconds) }
+        }
+        val store = newStore()
+        val r = testRetriever(store, photos, FakeExtractor(), faceReader = slow)
+        store.setProfile(PROFILE)
+        r.uiVisible = true
+        r.updatePrefs { it.copy(recognizePeople = true) }
+        r.indexBatch(1.minutes)
+        r.indexBatch(500.milliseconds)
+        assertTrue(r.facesProgress().done in 1L..11L, "a short batch looks at some photos")
+
+        store.upsertFiles(listOf(testFile("notes.txt", Kind.DOC)))
+        r.indexBatch(1.minutes)
+        assertEquals(FacesProgress(12, 0), r.facesProgress(), "the faces pass finishes first")
+        assertEquals(0L, store.pendingByKind().values.sum(), "then the new file is read")
+    }
+
+    /** Files, then faces, then the long files' rest: given the rest first, each new file put it and faces in turns. */
+    @Test
+    fun aLongFilesRestWaitsForFaces() = runBlocking {
+        val doc = testFile("lease.docx", Kind.DOC)
+        val photos = (1..3).map { testFile("p$it.jpg", Kind.PHOTO, modifiedAt = it.toLong()) }
+        val parts = (1..10).map { textPiece("part $it of a long lease") }
+        val store = newStore()
+        val noFaces = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> = emptyList()
+        }
+        val r = testRetriever(store, photos + doc, FakeExtractor(mapOf(doc.name to parts)), faceReader = noFaces)
+        store.setProfile(PROFILE)
+        r.uiVisible = true
+        r.updatePrefs { it.copy(recognizePeople = true) }
+
+        assertEquals(NextRun.SOON, r.indexBatch(1.minutes))
+        assertEquals(FacesProgress(0, 3), r.facesProgress())
+        assertEquals((10 - IndexEngine.DOC_HEAD_CHUNKS).toLong(), store.tailChunkCount(), "the rest waits for faces")
+        r.indexBatch(1.minutes)
+        assertEquals(FacesProgress(3, 0), r.facesProgress())
+        assertEquals(0L, store.tailChunkCount(), "and follows them in the same batch")
+    }
 }
