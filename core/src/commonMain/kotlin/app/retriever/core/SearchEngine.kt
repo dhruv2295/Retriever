@@ -180,17 +180,34 @@ class SearchEngine(
 
     /**
      * Search by example: the photo is the query, passed raw (no task prefix), vector lane only. [first] (within
-     * [fileIds]): the photos of the person in it, which lead, most alike first; the model matches a scene, not who is in it.
+     * [fileIds]): the photos of the people in it, each with how many of them it shows; the model matches a scene, not who
+     * is in it. Every one of those leads, past [limit], since they are a known set rather than a ranking: most of the
+     * people together first, then most alike, then newest. [limit] more alike photos follow.
      */
-    suspend fun searchImage(jpeg: ByteArray, limit: Int = 20, kinds: Set<Kind>? = null, fileIds: Set<Long>? = null, first: Set<Long>? = null): SearchResult {
+    suspend fun searchImage(
+        jpeg: ByteArray,
+        limit: Int = 20,
+        kinds: Set<Kind>? = null,
+        fileIds: Set<Long>? = null,
+        first: Map<Long, Int>? = null,
+    ): SearchResult {
         val embedder = embedder.takeIf { store.signature() == it.signature } ?: return SearchResult(emptyList(), false)
         val qv = embed(embedder, listOf(Part.Image(jpeg))) ?: return SearchResult(emptyList(), false)
-        suspend fun alike(ids: Set<Long>?) = Filter(SearchRequest("", kinds, fileIds = ids)).let { toHits(listOf(meaningLane(qv, it)), it, limit, emptyList()) }
-        val (hits, strong) = alike(fileIds)
+        suspend fun alike(ids: Set<Long>?, n: Int): Pair<List<Hit>, Int> {
+            val f = Filter(SearchRequest("", kinds, fileIds = ids))
+            return toHits(listOf(meaningLane(qv, f)), f, n, emptyList())
+        }
+        val (hits, strong) = alike(fileIds, limit)
         if (first.isNullOrEmpty()) return SearchResult(hits, true, strong)
-        val theirs = alike(first).first
-        val shown = theirs.flatMapTo(HashSet()) { h -> h.copies.map { it.fileId } + h.fileId }
-        return SearchResult((theirs + hits.filter { it.fileId !in shown }).take(limit), true)
+        // The scan ranks [CANDIDATES] rows at most; the rest of their photos follow newest first.
+        val ranked = alike(first.keys, first.size).first
+        fun ids(h: List<Hit>) = h.flatMapTo(HashSet()) { hit -> hit.copies.map { it.fileId } + hit.fileId }
+        val filter = Filter(SearchRequest("", kinds))
+        val rest = store.storedIn(first.keys - ids(ranked)).filter { filter.admits(it.file) }
+            .sortedByDescending { it.file.takenAt ?: it.file.modifiedAt }.map { Hit(it.file, it.id, 0L, "", null, 0.0, false) }
+        val theirs = (ranked + foldCopies(rest)).sortedByDescending { first[it.fileId] ?: 0 }
+        val shown = ids(theirs)
+        return SearchResult(theirs + hits.filter { it.fileId !in shown }, true)
     }
 
     /** The last query's vector, so a search run again without its filters (the relaxed retry) embeds once. */

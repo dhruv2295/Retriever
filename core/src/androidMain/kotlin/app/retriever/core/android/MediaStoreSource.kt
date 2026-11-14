@@ -39,12 +39,19 @@ import app.retriever.core.SourceFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.time.DateTimeException
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /** [access] names what the app may see (all files, or which media permissions); the token records it. */
 class MediaStoreSource(private val context: Context, private val access: () -> String = { "" }, private val log: (String, Throwable?) -> Unit = { _, _ -> }) :
     FileSource {
-    // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER). 4: folders left out.
-    override val rulesVersion = 4
+    // 3: every storage volume, deletions, and files with no MIME type (kept as OTHER). 4: folders left out. 5: dates from
+    // file names, so one full scan fills them in for files already indexed.
+    override val rulesVersion = 5
 
     override suspend fun changes(since: String?): Changes = withContext(Dispatchers.IO) {
         val seeing = access()
@@ -168,7 +175,8 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
                             size = size,
                             // DATE_MODIFIED is in seconds, DATE_TAKEN in ms.
                             modifiedAt = c.getLong(dateCol) * 1000,
-                            takenAt = if (c.isNull(takenCol)) null else c.getLong(takenCol).takeIf { it > 0 },
+                            takenAt = (if (c.isNull(takenCol)) null else c.getLong(takenCol).takeIf { it > 0 })
+                                ?: dateInName(name, c.getLong(dateCol) * 1000).takeIf { kind in CAPTURED },
                         )
                     } catch (e: Exception) {
                         skips.merge("unreadable", 1, Int::plus)
@@ -198,3 +206,28 @@ class MediaStoreSource(private val context: Context, private val access: () -> S
             .takeIf { !it.isPrimary }?.getDescription(context)
     }.getOrNull()
 }
+
+// A date anywhere in a name, with or without separators, and the local time after it if there is one: IMG-20241024-WA0009,
+// Screenshot_20241024-153012, signal-2024-10-24-153012. Not inside a longer run of digits.
+private val NAME_DATE = Regex("""(?<!\d)(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?:[-_ .]?(\d{2})[-_.]?(\d{2})[-_.]?(\d{2}))?(?!\d)""")
+private val EARLIEST = LocalDate.of(2000, 1, 1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+/**
+ * When a photo or video has no capture date, the date its name gives: WhatsApp strips it from what it saves, and copying
+ * files to a new phone resets their modified date, while the name survives. A day with no time is taken at noon. Null
+ * without a real date, or for one before 2000 or after [modifiedAt] (a day's slack for a day-only name in another zone).
+ */
+internal fun dateInName(name: String, modifiedAt: Long, zone: ZoneId = ZoneId.systemDefault()): Long? = NAME_DATE.findAll(name).firstNotNullOfOrNull { m ->
+    val (y, mo, d, h, mi, s) = m.destructured
+    try {
+        val day = LocalDate.of(y.toInt(), mo.toInt(), d.toInt())
+        if (h.isEmpty()) day.atTime(LocalTime.NOON) else LocalDateTime.of(day, LocalTime.of(h.toInt(), mi.toInt(), s.toInt()))
+    } catch (_: DateTimeException) {
+        null
+    }?.atZone(zone)?.toInstant()?.toEpochMilli()?.takeIf { it in EARLIEST..modifiedAt + DAY_MS }
+}
+
+private const val DAY_MS = 86_400_000L
+
+/** What has a capture date to stand in for; a document's dated name ("Report 2019-03-01.pdf") is no "Taken". */
+private val CAPTURED = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)

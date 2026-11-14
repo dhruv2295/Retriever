@@ -473,28 +473,30 @@ internal fun Store.declineSamePerson(a: Long, b: Long) = inTransaction {
 internal fun Store.personFileIds(id: Long): List<Long> = faces.personFileIds(id).executeAsList()
 
 /**
- * Who the largest clear face of [found] is, by grouping's own rule ([SAME_PERSON] over a person's [CLOSEST] faces), so
- * a photo names a person as a face joins one; null when it shows nobody known.
+ * Who each clear face of [found] is, by grouping's own rule ([SAME_PERSON] over a person's [CLOSEST] faces), so a photo
+ * names people as faces join them; empty when it shows nobody known.
  */
-// ponytail: the largest face only, so a group photo asks about one person; place every clear face if that falls short.
-internal fun Store.personOf(found: List<FoundFace>): Long? {
-    val face = found.filter { length(it.vector) >= MIN_FACE_STRENGTH }.maxByOrNull { it.box.area() } ?: return null
-    // Stored as a kept face would be, so it is compared as grouping compares.
-    val v = FaceVector.of(face.vector).floats()
+internal fun Store.peopleIn(found: List<FoundFace>): Set<Long> {
+    val clear = found.filter { length(it.vector) >= MIN_FACE_STRENGTH }
+    if (clear.isEmpty()) return emptySet()
     val people = faces.groupingFaces { _, person, bytes, scale -> person to FaceVector(bytes, scale.toFloat()).floats() }.executeAsList()
         .groupBy({ it.first }, { it.second })
     val top = FloatArray(CLOSEST)
-    var best: Long? = null
-    var bestScore = SAME_PERSON
-    for ((person, theirs) in people) {
-        if (person == null) continue
-        val score = closestAverage(v, theirs, top)
-        if (score >= bestScore) {
-            best = person
-            bestScore = score
+    return clear.mapNotNullTo(HashSet()) { face ->
+        // Stored as a kept face would be, so it is compared as grouping compares.
+        val v = FaceVector.of(face.vector).floats()
+        var best: Long? = null
+        var bestScore = SAME_PERSON
+        for ((person, theirs) in people) {
+            if (person == null) continue
+            val score = closestAverage(v, theirs, top)
+            if (score >= bestScore) {
+                best = person
+                bestScore = score
+            }
         }
+        best
     }
-    return best
 }
 
 internal fun Store.namedPersons(): List<Pair<Long, String>> = faces.namedPersons { id, name -> id to name.orEmpty() }.executeAsList()

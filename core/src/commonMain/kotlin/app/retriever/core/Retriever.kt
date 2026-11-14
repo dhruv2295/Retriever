@@ -1537,10 +1537,11 @@ class Retriever(
         val from = req.from ?: Long.MIN_VALUE
         val to = req.to ?: Long.MAX_VALUE
         val files = req.fileIds?.let { ids ->
-            // A person's photos ("Asha", "Asha last year"): theirs that pass the other filters, newest taken first.
+            // A person's photos ("Asha", "Asha last year"): every one of theirs that passes the other filters, newest taken
+            // first. They are a known set, not a ranking, so the limit would only hide some.
             ids.chunked(500).flatMap { store.files(it).toList() }
                 .filter { (_, f) -> f.kind in kinds && (f.takenAt ?: f.modifiedAt) in from until to }
-                .sortedByDescending { (_, f) -> f.takenAt ?: f.modifiedAt }.take(req.limit)
+                .sortedByDescending { (_, f) -> f.takenAt ?: f.modifiedAt }
         } ?: store.captured(kinds, from, to, req.onlyStarred, req.limit).map { it.id to it.file }
         val hits = files.map { (id, f) -> SearchEngine.Hit(f, id, 0L, "", null, 0.0, false) }
         // No words were left to match by meaning, so nothing is missing: the screen must not say meaning results are on the way.
@@ -1551,7 +1552,7 @@ class Retriever(
 
     /**
      * [jpeg]: a picked or camera photo, longest side at most 1024 px. Vector lane only. [onlyStarred] keeps starred files
-     * only. [uri]: where the photo is, so that with People on the photos of the person in it come first.
+     * only. [uri]: where the photo is, so that with People on every photo of the people in it comes first, past [limit].
      */
     @Throws(Throwable::class)
     suspend fun searchImage(
@@ -1565,14 +1566,15 @@ class Retriever(
         val ids = io { fileIdsFor(onlyStarred, scope) }
         if (ids != null && ids.isEmpty()) return SearchEngine.SearchResult(emptyList(), vectorLane = true)
         // Inside the search, so reading waits meanwhile and the faces pass yields to this one photo.
-        return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids, first = uri?.let { u -> photosOfThePersonIn(u, ids) }) }
+        return searchWith { it.searchImage(jpeg, limit = limit, kinds = kinds, fileIds = ids, first = uri?.let { u -> photosOfThePeopleIn(u, ids) }) }
     }
 
     /**
-     * The photos, among [within], of the person in the photo at [uri]; null with People off, no face, or nobody known.
-     * Never asks [FaceReader.ready], which starts People's download: a reader without its model finds no face.
+     * The photos, among [within], of the people in the photo at [uri], each with how many of them it shows; null with People
+     * off, no face, or nobody known. Never asks [FaceReader.ready], which starts People's download: a reader without its
+     * model finds no face.
      */
-    private suspend fun photosOfThePersonIn(uri: String, within: Set<Long>?): Set<Long>? = io {
+    private suspend fun photosOfThePeopleIn(uri: String, within: Set<Long>?): Map<Long, Int>? = io {
         val reader = faceReader?.takeIf { prefs.value.recognizePeople } ?: return@io null
         val found = try {
             reader.faces(uri)
@@ -1582,7 +1584,9 @@ class Retriever(
             log("Couldn't look for a face in the search photo", e)
             null
         } ?: return@io null
-        store.personOf(found)?.let { p -> store.personFileIds(p).filterTo(HashSet()) { within == null || it in within } }
+        val shown = HashMap<Long, Int>()
+        for (p in store.peopleIn(found)) store.personFileIds(p).forEach { if (within == null || it in within) shown.merge(it, 1, Int::plus) }
+        shown.ifEmpty { null }
     }
 
     private suspend fun <T> searchWith(run: suspend (SearchEngine) -> T): T {

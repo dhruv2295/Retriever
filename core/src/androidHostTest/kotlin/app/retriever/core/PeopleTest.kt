@@ -74,6 +74,30 @@ class PeopleTest {
         assertEquals(listOf("asha1.jpg", "asha2.jpg", "beach.jpg"), byFace.hits.map { it.file.name })
     }
 
+    /** A photo of two known people finds every photo of either, past the limit, both together first; it used to ask about the larger face only. */
+    @Test
+    fun aPhotoOfTwoPeopleFindsAllTheirPhotos() = runBlocking {
+        val who = mapOf("both.jpg" to listOf(0, 9), "two.jpg" to listOf(0, 9)) +
+            (1..3).associate { "a$it.jpg" to listOf(0) } + (1..3).associate { "r$it.jpg" to listOf(9) }
+        val photos = (who.keys - "two.jpg" + "beach.jpg").mapIndexed { i, name -> testFile(name, Kind.PHOTO, modifiedAt = i.toLong()) }
+        val reader = object : FaceReader {
+            override suspend fun faces(uri: String): List<FoundFace> =
+                who[uri.substringAfterLast('/')].orEmpty().map { FoundFace(FaceBox(0f, 0f, 0.5f, 0.5f), face(it)) }
+        }
+        val store = newStore()
+        val r = testRetriever(store, photos, FakeExtractor(), faceReader = reader)
+        store.setProfile(PROFILE)
+        r.uiVisible = true
+        r.updatePrefs { it.copy(recognizePeople = true) }
+        r.indexBatch(1.minutes)
+        r.indexBatch(1.minutes)
+        r.warmSearch()
+
+        val found = r.searchImage(ByteArray(33), limit = 2, uri = "content://picked/two.jpg").hits.map { it.file.name }
+        assertEquals("both.jpg", found.first())
+        assertEquals(who.keys - "two.jpg", found.take(7).toSet())
+    }
+
     /**
      * Play delivers People's model when People is turned on. A faces pass without it looks at no photo, so none uses up
      * an attempt, and the next pass runs once the model is there.
