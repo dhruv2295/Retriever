@@ -57,6 +57,8 @@ internal object German : Strings {
     override val couldntBeOpened = "Öffnen fehlgeschlagen"
     override val stillToProcess = "Noch zu verarbeiten"
     override val longFilesStillBeingFinished = "Lange Dateien noch in Verarbeitung"
+    override val checkedForPeople = "Auf Personen geprüft"
+    override val stillToCheckForPeople = "Noch auf Personen zu prüfen"
 
     override fun largeFiles(n: Long) = "${files(n)} über 100${NBSP}MB"
 

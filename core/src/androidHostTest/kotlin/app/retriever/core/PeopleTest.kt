@@ -34,6 +34,7 @@ class PeopleTest {
 
         val asha = r.peopleNow().single() // the second person is in 2 photos, below the minimum
         assertEquals(3, asha.photos)
+        assertEquals(FacesSummary(FacesProgress(6, 0), people = 1), r.facesSummaryNow(), "Processing's Details count Home's people")
         r.renamePerson(asha.id, "Asha")
         val found = r.search("asha", null, 10)
         assertEquals(listOf("Asha"), found.parsed?.people)
@@ -43,6 +44,7 @@ class PeopleTest {
         r.updatePrefs { it.copy(recognizePeople = false) }
         assertEquals(emptyList(), r.peopleNow())
         assertEquals(emptyList(), store.people(1), "turning People off forgets every face and name")
+        assertEquals(null, r.facesSummaryNow(), "and Details drop their face rows")
         assertEquals(emptyList(), r.search("asha", null, 10).parsed?.people.orEmpty())
     }
 

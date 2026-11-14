@@ -179,6 +179,8 @@ class CopySnapshotTest {
 
         FacesProgress::class.java -> listOf(null, FacesProgress(5, 10))
 
+        FacesSummary::class.java -> listOf(FacesSummary(FacesProgress(1234, 0), 1), FacesSummary(FacesProgress(5, 10), 0))
+
         else -> if (type.isEnum) listOf(*type.enumConstants, null) else error("No samples for ${type.name} in ${m.name}")
     }
 

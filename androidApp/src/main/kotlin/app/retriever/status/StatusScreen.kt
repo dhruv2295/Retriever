@@ -61,6 +61,7 @@ import app.retriever.access.Access
 import app.retriever.access.Fix
 import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
+import app.retriever.core.FacesSummary
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingPhase
@@ -155,6 +156,7 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
         folderError = ui.folderError,
         error = ui.error,
         celebration = vm.celebration,
+        faces = ui.faces,
         readingStatus = ui.readingStatus,
     )
 }
@@ -175,6 +177,7 @@ fun StatusContent(
     folderError: String? = null,
     error: String? = null,
     celebration: Celebration = Celebration(),
+    faces: FacesSummary? = null,
 ) {
     val progress = counts?.progress
     val skipped = progress?.couldntRead ?: 0
@@ -254,7 +257,7 @@ fun StatusContent(
 
                 Header(Words.DETAILS)
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (row in Words.breakdown(counts.progress)) {
+                    for (row in Words.breakdown(counts.progress) + faces?.let { Words.facesBreakdown(it, index.faces) }.orEmpty()) {
                         Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text(row.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                             Text(row.count, style = MaterialTheme.typography.bodyLarge.tabular())

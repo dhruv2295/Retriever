@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "आंशिक रूप से प्र
 extent(MEANING_LIMITED) = "आंशिक रूप से प्रोसेस हुई · विवरण से खोज पूरी नहीं हो सकी"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=लोगों की जाँच हुई, count=5), DetailRow(label=लोगों की जाँच बाकी, count=10), DetailRow(label=लोग, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=लोगों की जाँच हुई, count=1,234), DetailRow(label=लोग, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=लोगों की जाँच हुई, count=5), DetailRow(label=लोगों की जाँच बाकी, count=10), DetailRow(label=लोग, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=लोगों की जाँच हुई, count=5), DetailRow(label=लोगों की जाँच बाकी, count=10), DetailRow(label=लोग, count=0)]
 facesOf(0, 0) = "0 फ़ोटो में से 0 में लोगों की जाँच हुई"
 facesOf(0, 1) = "1 फ़ोटो में से 0 में लोगों की जाँच हुई"
 facesOf(0, 1234) = "1,234 फ़ोटो में से 0 में लोगों की जाँच हुई"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "अब सब कुछ खोजा जा स�
 strings.CaughtUpTitle = "सब हो गया. Retriever ने जो कुछ प्रोसेस हो सकता था, सब कर लिया"
 strings.ChangeWhatsIncluded = "शामिल चीज़ें बदलें"
 strings.ChargingUpDetail = "बैटरी थोड़ी और चार्ज होते ही प्रोसेसिंग शुरू होगी."
+strings.CheckedForPeople = "लोगों की जाँच हुई"
 strings.CheckingDownload = "डाउनलोड की जांच हो रही है…"
 strings.CheckingYourFiles = "आपकी फ़ाइलें देखी जा रही हैं…"
 strings.Choose = "चुनें"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "स्टार वाली फ़ाइलें"
 strings.StartProcessing = "प्रोसेस शुरू करें"
 strings.StartScanning = "स्कैन शुरू करें"
 strings.Starting = "शुरू हो रहा है…"
+strings.StillToCheckForPeople = "लोगों की जाँच बाकी"
 strings.StillToProcess = "प्रोसेस होना बाकी"
 strings.StopSearching = "खोजना बंद करें"
 strings.StopSearchingByPhoto = "फ़ोटो से खोजना बंद करें"

@@ -265,6 +265,11 @@ extension AppModel {
         }
     }
 
+    func loadFacesSummary() {
+        guard let services else { return }
+        Task { facesSummary = try? await services.retriever.facesSummaryNow() }
+    }
+
     func retrySkipped() {
         guard let services else { return }
         Task {

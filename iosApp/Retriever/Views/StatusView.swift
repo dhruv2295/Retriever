@@ -13,6 +13,9 @@ struct StatusView: View {
             .onChange(of: snap.skipped, initial: true) { _, n in
                 if n > 0 { model.loadSkipped() }
             }
+            // Read again as files are processed and as Home's count of photos left for faces moves.
+            .onChange(of: snap.indexed, initial: true) { model.loadFacesSummary() }
+            .onChange(of: model.facesLeft) { model.loadFacesSummary() }
     }
 }
 
@@ -71,7 +74,8 @@ struct StatusContent: View {
     private var details: some View {
         DisclosureGroup(Words.shared.DETAILS) {
             // What the line's processed files are, then what is left: its parts add up to the count.
-            ForEach(Words.shared.breakdown(progress: snap.readProgress), id: \.label) { row in
+            let faces = model.facesSummary.map { Words.shared.facesBreakdown(faces: $0, live: nil) } ?? []
+            ForEach(Words.shared.breakdown(progress: snap.readProgress) + faces, id: \.label) { row in
                 LabeledContent(row.label) { Text(row.count).monospacedDigit() }
             }
         }

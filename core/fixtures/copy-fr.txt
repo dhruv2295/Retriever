@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "Traité en partie · seulement son début,
 extent(MEANING_LIMITED) = "Traité en partie · préparation de la recherche par description inachevée"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=Vérifiées pour repérer les personnes, count=5), DetailRow(label=Encore à vérifier pour repérer les personnes, count=10), DetailRow(label=Personnes, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=Vérifiées pour repérer les personnes, count=1,234), DetailRow(label=Personnes, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=Vérifiées pour repérer les personnes, count=5), DetailRow(label=Encore à vérifier pour repérer les personnes, count=10), DetailRow(label=Personnes, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=Vérifiées pour repérer les personnes, count=5), DetailRow(label=Encore à vérifier pour repérer les personnes, count=10), DetailRow(label=Personnes, count=0)]
 facesOf(0, 0) = "0 photo vérifiée sur 0 pour repérer les personnes"
 facesOf(0, 1) = "0 photo vérifiée sur 1 pour repérer les personnes"
 facesOf(0, 1234) = "0 photo vérifiée sur 1,234 pour repérer les personnes"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "Tout est prêt pour la recherche"
 strings.CaughtUpTitle = "Terminé. Retriever a traité tout ce qu’il pouvait"
 strings.ChangeWhatsIncluded = "Modifier ce qui est inclus"
 strings.ChargingUpDetail = "Le traitement commence quand la batterie est un peu plus chargée."
+strings.CheckedForPeople = "Vérifiées pour repérer les personnes"
 strings.CheckingDownload = "Vérification du téléchargement…"
 strings.CheckingYourFiles = "Vérification de vos fichiers…"
 strings.Choose = "Choisir"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "Favoris"
 strings.StartProcessing = "Lancer le traitement"
 strings.StartScanning = "Lancer l’analyse"
 strings.Starting = "Démarrage…"
+strings.StillToCheckForPeople = "Encore à vérifier pour repérer les personnes"
 strings.StillToProcess = "Encore à traiter"
 strings.StopSearching = "Ne plus rechercher"
 strings.StopSearchingByPhoto = "Arrêter la recherche par photo"

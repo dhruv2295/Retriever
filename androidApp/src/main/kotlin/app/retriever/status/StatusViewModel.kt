@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.retriever.access.Access
 import app.retriever.access.AccessService
+import app.retriever.core.FacesSummary
 import app.retriever.core.IndexState
 import app.retriever.core.Prefs
 import app.retriever.core.Retriever
@@ -31,6 +32,8 @@ data class StatusUi(
     val folderError: String? = null,
     val error: String? = null,
     val readingStatus: app.retriever.core.ReadingStatus? = null,
+    /** Details' face counts; null while People is off. */
+    val faces: FacesSummary? = null,
 )
 
 class StatusViewModel(
@@ -46,11 +49,11 @@ class StatusViewModel(
     val uiState: StateFlow<StatusUi> = combine(
         retriever.counts(),
         retriever.prefs,
-        combine(retriever.state, retriever.readingStatus(), ::Pair),
+        combine(retriever.state, retriever.readingStatus(), retriever.facesSummary(), ::Triple),
         accessService.state,
         combine(skipped, folderError, error, ::Triple),
-    ) { counts, prefs, (index, status), access, (skipped, folderError, error) ->
-        StatusUi(counts, prefs, index, access, skipped, folderError, error, status)
+    ) { counts, prefs, (index, status, faces), access, (skipped, folderError, error) ->
+        StatusUi(counts, prefs, index, access, skipped, folderError, error, status, faces)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),

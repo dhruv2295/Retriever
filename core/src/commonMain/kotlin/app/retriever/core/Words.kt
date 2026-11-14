@@ -86,6 +86,16 @@ object Words {
         progress.laterPasses.takeIf { it > 0 }?.let { DetailRow(strings.longFilesStillBeingFinished, formatCount(it)) },
     )
 
+    /** Processing's Details while People is on, after [breakdown]; [live] is a running pass's count, newer than [faces]'. */
+    fun facesBreakdown(faces: FacesSummary, live: FacesProgress? = null): List<DetailRow> {
+        val progress = live ?: faces.progress
+        return listOfNotNull(
+            DetailRow(strings.checkedForPeople, formatCount(progress.done)),
+            progress.pending.takeIf { it > 0 }?.let { DetailRow(strings.stillToCheckForPeople, formatCount(it)) },
+            DetailRow(PEOPLE, formatCount(faces.people.toLong())),
+        )
+    }
+
     fun largeFiles(n: Long): String = strings.largeFiles(n)
 
     /** Processing's counts; a file processed in part counts as processed on Home. */

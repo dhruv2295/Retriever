@@ -111,6 +111,9 @@ data class SamePerson(val first: Person, val second: Person)
 /** Photos looked at for faces, and photos still to look at. */
 data class FacesProgress(val done: Long, val pending: Long)
 
+/** Processing’s face counts while People is on: [progress], and the people Home shows. */
+data class FacesSummary(val progress: FacesProgress, val people: Int)
+
 /** Where SFace wants a face: its five points in the 112 px input it reads, and the transform that puts a face there. */
 object FaceAlign {
     const val SIZE = 112

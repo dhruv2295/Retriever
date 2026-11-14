@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "一部処理済み · 冒頭のみ、「�
 extent(MEANING_LIMITED) = "一部処理済み · 「説明で検索」の処理を完了できませんでした"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=人物を確認済み, count=5), DetailRow(label=人物の確認待ち, count=10), DetailRow(label=人物, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=人物を確認済み, count=1,234), DetailRow(label=人物, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=人物を確認済み, count=5), DetailRow(label=人物の確認待ち, count=10), DetailRow(label=人物, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=人物を確認済み, count=5), DetailRow(label=人物の確認待ち, count=10), DetailRow(label=人物, count=0)]
 facesOf(0, 0) = "写真0枚中0枚で人物を確認済み"
 facesOf(0, 1) = "写真1枚中0枚で人物を確認済み"
 facesOf(0, 1234) = "写真1,234枚中0枚で人物を確認済み"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "すべて検索できるようになりました"
 strings.CaughtUpTitle = "完了。Retrieverは処理できるものをすべて処理しました"
 strings.ChangeWhatsIncluded = "対象を変更"
 strings.ChargingUpDetail = "バッテリーがもう少し充電されると処理を始めます。"
+strings.CheckedForPeople = "人物を確認済み"
 strings.CheckingDownload = "ダウンロードを確認しています…"
 strings.CheckingYourFiles = "ファイルを確認しています…"
 strings.Choose = "選択"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "スター付き"
 strings.StartProcessing = "処理を開始"
 strings.StartScanning = "スキャンを開始"
 strings.Starting = "準備しています…"
+strings.StillToCheckForPeople = "人物の確認待ち"
 strings.StillToProcess = "未処理"
 strings.StopSearching = "検索をやめる"
 strings.StopSearchingByPhoto = "写真での検索をやめる"

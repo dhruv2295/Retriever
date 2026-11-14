@@ -67,6 +67,8 @@ internal object Japanese : Strings {
     override val couldntBeOpened = "開けませんでした"
     override val stillToProcess = "未処理"
     override val longFilesStillBeingFinished = "残りを処理中の長いファイル"
+    override val checkedForPeople = "人物を確認済み"
+    override val stillToCheckForPeople = "人物の確認待ち"
 
     override fun largeFiles(n: Long) = "100${NBSP}MBを超える${files(n)}"
 

@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "Processado em parte · só o começo, sem 
 extent(MEANING_LIMITED) = "Processado em parte · não foi possível concluir a busca por descrição"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=Verificadas para encontrar pessoas, count=5), DetailRow(label=Ainda a verificar para encontrar pessoas, count=10), DetailRow(label=Pessoas, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=Verificadas para encontrar pessoas, count=1,234), DetailRow(label=Pessoas, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=Verificadas para encontrar pessoas, count=5), DetailRow(label=Ainda a verificar para encontrar pessoas, count=10), DetailRow(label=Pessoas, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=Verificadas para encontrar pessoas, count=5), DetailRow(label=Ainda a verificar para encontrar pessoas, count=10), DetailRow(label=Pessoas, count=0)]
 facesOf(0, 0) = "0 de 0 foto verificada para encontrar pessoas"
 facesOf(0, 1) = "0 de 1 foto verificada para encontrar pessoas"
 facesOf(0, 1234) = "0 de 1,234 fotos verificadas para encontrar pessoas"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "Tudo pronto para a busca"
 strings.CaughtUpTitle = "Tudo pronto. O Retriever processou tudo o que podia"
 strings.ChangeWhatsIncluded = "Alterar o que está incluído"
 strings.ChargingUpDetail = "O processamento começa quando a bateria tiver um pouco mais de carga."
+strings.CheckedForPeople = "Verificadas para encontrar pessoas"
 strings.CheckingDownload = "Verificando o download…"
 strings.CheckingYourFiles = "Verificando seus arquivos…"
 strings.Choose = "Escolher"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "Com estrela"
 strings.StartProcessing = "Processar"
 strings.StartScanning = "Começar a análise"
 strings.Starting = "Começando…"
+strings.StillToCheckForPeople = "Ainda a verificar para encontrar pessoas"
 strings.StillToProcess = "Ainda a processar"
 strings.StopSearching = "Parar de buscar"
 strings.StopSearchingByPhoto = "Parar de buscar por foto"

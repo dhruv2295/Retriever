@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "Procesado en parte · solo el principio, s
 extent(MEANING_LIMITED) = "Procesado en parte · no se pudo completar la búsqueda por descripción"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=Revisadas para encontrar personas, count=5), DetailRow(label=Por revisar para encontrar personas, count=10), DetailRow(label=Personas, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=Revisadas para encontrar personas, count=1,234), DetailRow(label=Personas, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=Revisadas para encontrar personas, count=5), DetailRow(label=Por revisar para encontrar personas, count=10), DetailRow(label=Personas, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=Revisadas para encontrar personas, count=5), DetailRow(label=Por revisar para encontrar personas, count=10), DetailRow(label=Personas, count=0)]
 facesOf(0, 0) = "0 de 0 fotos revisadas para encontrar personas"
 facesOf(0, 1) = "0 de 1 foto revisada para encontrar personas"
 facesOf(0, 1234) = "0 de 1,234 fotos revisadas para encontrar personas"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "Ya se puede buscar todo"
 strings.CaughtUpTitle = "Listo. Retriever ha procesado todo lo que puede"
 strings.ChangeWhatsIncluded = "Cambiar lo incluido"
 strings.ChargingUpDetail = "El procesamiento empezará cuando la batería tenga algo más de carga."
+strings.CheckedForPeople = "Revisadas para encontrar personas"
 strings.CheckingDownload = "Comprobando la descarga…"
 strings.CheckingYourFiles = "Comprobando tus archivos…"
 strings.Choose = "Elegir"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "Destacados"
 strings.StartProcessing = "Procesar"
 strings.StartScanning = "Empezar a analizar"
 strings.Starting = "Empezando…"
+strings.StillToCheckForPeople = "Por revisar para encontrar personas"
 strings.StillToProcess = "Por procesar"
 strings.StopSearching = "Dejar de buscar"
 strings.StopSearchingByPhoto = "Dejar de buscar por foto"

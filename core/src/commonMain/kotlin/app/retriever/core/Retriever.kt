@@ -1776,6 +1776,17 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun facesProgress(): FacesProgress = io { store.facesProgress() }
 
+    private fun facesSummaryOf(people: List<Person>): FacesSummary? = prefs.value.takeIf {
+        faceReader != null && it.recognizePeople && Kind.PHOTO in it.kinds
+    }?.let { FacesSummary(store.facesProgress(), people.size) }
+
+    /** Processing's face counts, read again as faces are grouped; null while People is off or photos aren't included. */
+    fun facesSummary(): Flow<FacesSummary?> = sharedPeople.map(::facesSummaryOf).flowOn(dispatchers.io)
+
+    /** [facesSummary] once, for platforms that read it on demand. */
+    @Throws(Throwable::class)
+    suspend fun facesSummaryNow(): FacesSummary? = io { facesSummaryOf(if (prefs.value.recognizePeople) store.people() else emptyList()) }
+
     /** [id]'s photos, newest first, a page at a time. */
     @Throws(Throwable::class)
     suspend fun personPhotos(id: Long, limit: Int, offset: Int): List<Store.StoredFile> = io { withExtents(store.personFiles(id, limit, offset)) }

@@ -831,6 +831,10 @@ extent(FIRST_PART_MEANING_LIMITED) = "Teilweise verarbeitet · nur der Anfang, o
 extent(MEANING_LIMITED) = "Teilweise verarbeitet · Suche per Beschreibung nicht abgeschlossen"
 extent(WHOLE) = null
 extent(null) = null
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), FacesProgress(done=5, pending=10)) = [DetailRow(label=Auf Personen geprüft, count=5), DetailRow(label=Noch auf Personen zu prüfen, count=10), DetailRow(label=Personen, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=1234, pending=0), people=1), null) = [DetailRow(label=Auf Personen geprüft, count=1,234), DetailRow(label=Personen, count=1)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), FacesProgress(done=5, pending=10)) = [DetailRow(label=Auf Personen geprüft, count=5), DetailRow(label=Noch auf Personen zu prüfen, count=10), DetailRow(label=Personen, count=0)]
+facesBreakdown(FacesSummary(progress=FacesProgress(done=5, pending=10), people=0), null) = [DetailRow(label=Auf Personen geprüft, count=5), DetailRow(label=Noch auf Personen zu prüfen, count=10), DetailRow(label=Personen, count=0)]
 facesOf(0, 0) = "0 von 0 Fotos auf Personen geprüft"
 facesOf(0, 1) = "0 von 1 Foto auf Personen geprüft"
 facesOf(0, 1234) = "0 von 1,234 Fotos auf Personen geprüft"
@@ -1551,6 +1555,7 @@ strings.CaughtUpNoticeTitle = "Alles ist durchsuchbar"
 strings.CaughtUpTitle = "Fertig. Retriever hat alles verarbeitet, was möglich ist"
 strings.ChangeWhatsIncluded = "Auswahl ändern"
 strings.ChargingUpDetail = "Die Verarbeitung startet, sobald dein Akku etwas mehr geladen ist."
+strings.CheckedForPeople = "Auf Personen geprüft"
 strings.CheckingDownload = "Download wird geprüft…"
 strings.CheckingYourFiles = "Deine Dateien werden geprüft…"
 strings.Choose = "Auswählen"
@@ -1924,6 +1929,7 @@ strings.StarredSection = "Markiert"
 strings.StartProcessing = "Verarbeitung starten"
 strings.StartScanning = "Verarbeitung starten"
 strings.Starting = "Wird gestartet…"
+strings.StillToCheckForPeople = "Noch auf Personen zu prüfen"
 strings.StillToProcess = "Noch zu verarbeiten"
 strings.StopSearching = "Nicht mehr durchsuchen"
 strings.StopSearchingByPhoto = "Suche per Foto beenden"

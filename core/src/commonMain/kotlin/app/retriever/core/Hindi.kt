@@ -67,6 +67,8 @@ internal object Hindi : Strings {
     override val couldntBeOpened = "खोली नहीं जा सकीं"
     override val stillToProcess = "प्रोसेस होना बाकी"
     override val longFilesStillBeingFinished = "लंबी फ़ाइलें, जिनका काम अभी पूरा हो रहा है"
+    override val checkedForPeople = "लोगों की जाँच हुई"
+    override val stillToCheckForPeople = "लोगों की जाँच बाकी"
 
     override fun largeFiles(n: Long) = "100${NBSP}MB से बड़ी ${files(n)}"
 

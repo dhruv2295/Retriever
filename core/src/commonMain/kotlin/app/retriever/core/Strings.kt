@@ -34,6 +34,10 @@ interface Strings {
     val stillToProcess: String
     val longFilesStillBeingFinished: String
 
+    /** Processing’s Details while People is on: photos looked at for faces, and photos still to look at. */
+    val checkedForPeople: String
+    val stillToCheckForPeople: String
+
     fun largeFiles(n: Long): String
 
     /** "1,200 files processed". */
