@@ -495,7 +495,8 @@ private fun StatusHero(status: ReadingStatus, mood: MascotMood, onOpen: () -> Un
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Mascot(mood, Modifier.width(130.dp))
+                // The dog is the sign a step runs: it keeps working for as long as one does, not the shared walk-and-rest.
+                Mascot(mood, Modifier.width(130.dp), settles = !status.active)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     StepLabel(status.journey)
                     StatusTitle(status, style = MaterialTheme.typography.titleLarge)

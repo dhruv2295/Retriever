@@ -480,7 +480,8 @@ struct StatusLine: View {
                 // Reading status has its own large dog.
                 if link {
                     StatusDog(
-                        mood: mood, width: hero ? 130 : 28, icon: "checkmark.circle.fill",
+                        // The hero's dog keeps working while a step runs, as Reading status's does.
+                        mood: mood, width: hero ? 130 : 28, settles: !hero, icon: "checkmark.circle.fill",
                         due: dismissable && model.caughtUpDue && status.action == .dismiss, done: model.celebrate)
                 }
                 // Settings' small line keeps the step after the title; the hero and Reading status lead with it.
