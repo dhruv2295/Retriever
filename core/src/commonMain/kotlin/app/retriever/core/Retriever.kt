@@ -1585,7 +1585,7 @@ class Retriever(
             null
         } ?: return@io null
         val shown = HashMap<Long, Int>()
-        for (p in store.peopleIn(found)) store.personFileIds(p).forEach { if (within == null || it in within) shown.merge(it, 1, Int::plus) }
+        for (p in store.peopleIn(found)) store.personFileIds(p).forEach { if (within == null || it in within) shown[it] = (shown[it] ?: 0) + 1 }
         shown.ifEmpty { null }
     }
 
