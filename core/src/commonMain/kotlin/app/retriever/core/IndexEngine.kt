@@ -100,33 +100,52 @@ class IndexEngine(
         val files = ArrayDeque<Store.StoredFile>()
         val tails = ArrayDeque<Store.TailChunk>()
         val words = ArrayDeque<Store.TailChunk>()
-        // The files read ahead, in order: always the first ones of [files].
+        // The reads ahead, in order: always the first ones of [files], or once no file is left, of [words].
         val ahead = ArrayDeque<Ahead>()
         val scope = CoroutineScope(currentCoroutineContext())
 
-        // While a file embeds on the GPU or NPU the CPU is free, so the next files' decode and OCR run beside it. Never on CPU
-        // inference (the two would share cores) and never while the app is in use (its frames come first). The tail
-        // interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS never
-        // gets here (a backgrounded iOS app infers on CPU).
+        // While a file or a photo's words embed on the GPU or NPU the CPU is free, so the next ones' decode and OCR run beside
+        // it. Never on CPU inference (the two would share cores) and never while the app is in use (its frames come first).
+        // The tail interleaved below may call extractor.visual at the same time; Android's extractor allows that, and iOS
+        // never gets here (a backgrounded iOS app infers on CPU).
         fun readAhead() {
             val e = embedder ?: return
             if (e.backend == Backend.CPU || e.visionBackend == Backend.CPU) return
             val depth = readAheadDepth(monitor.state())
             while (ahead.size < depth) {
-                val next = files.getOrNull(ahead.size)?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
                 val now = settings()
-                val inside = readsInside(next.file, now)
-                store.recordAttempt(next.id, next.attempts + 1)
-                ahead += Ahead(
-                    next,
-                    inside,
-                    scope.async(readAheadContext) {
-                        runCatching {
-                            extract(next.file, inside, now.profile)
-                        }
-                    },
-                )
+                ahead += if (files.isNotEmpty()) {
+                    val next = files.getOrNull(ahead.size)?.takeIf { it.attempts < MAX_FILE_ATTEMPTS } ?: return
+                    val inside = readsInside(next.file, now)
+                    store.recordAttempt(next.id, next.attempts + 1)
+                    Ahead(next, inside, scope.async(readAheadContext) { runCatching { extract(next.file, inside, now.profile) } }) {
+                        it.markFailed(next.id, next.attempts)
+                    }
+                } else {
+                    // A photo gone or no longer read is left to embedTail, which settles it without a read.
+                    val next = words.getOrNull(ahead.size) ?: return
+                    val file = store.file(next.fileId)?.takeIf { readsInside(it, now) } ?: return
+                    store.setTailAttempts(next.id, next.attempts + 1)
+                    val read = scope.async(readAheadContext) { runCatching { extractor.later(file, next.locator.removePrefix(LATER), now.profile) } }
+                    Ahead(next, true, read) { it.setTailAttempts(next.id, next.attempts) }
+                }
             }
+        }
+
+        // A stop never charges a read ahead; neither does a turn to the other queue (new files while photos' words were
+        // being read): their attempts go back and they are read again in their turn.
+        fun dropAhead() {
+            for (it in ahead) {
+                it.pieces.cancel()
+                it.giveBack(store)
+            }
+            ahead.clear()
+        }
+
+        fun aheadOf(next: Any): Ahead? {
+            if (ahead.firstOrNull()?.key === next) return ahead.removeFirst()
+            dropAhead()
+            return null
         }
 
         // Warm: rest as long as the work took (capped), never past the budget. The batch's watchdog stops it for heat or Pause.
@@ -136,7 +155,8 @@ class IndexEngine(
             currentCoroutineContext().ensureActive()
         }
 
-        suspend fun embedTailThenRest(tail: Store.TailChunk, e: Embedder) = restIfWarm(measureTime { embedTail(tail, e) })
+        suspend fun embedTailThenRest(tail: Store.TailChunk, e: Embedder, mine: Ahead? = null, readAhead: () -> Unit = {}) =
+            restIfWarm(measureTime { embedTail(tail, e, mine, readAhead) })
         try {
             while (true) {
                 fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
@@ -148,7 +168,7 @@ class IndexEngine(
                 if (files.isEmpty()) files += pendingPage()
                 val next = files.removeFirstOrNull()
                 if (next != null) {
-                    val mine = ahead.firstOrNull()?.takeIf { it.stored.id == next.id }?.also { ahead.removeFirst() }
+                    val mine = aheadOf(next)
                     val metric = try {
                         index(next, now, state, mine, ::readAhead)
                     } catch (s: ReadingStopped) {
@@ -181,7 +201,7 @@ class IndexEngine(
                 val word = words.removeFirstOrNull()
                 if (word != null) {
                     try {
-                        embedTailThenRest(word, embedder)
+                        embedTailThenRest(word, embedder, aheadOf(word), ::readAhead)
                     } catch (s: ReadingStopped) {
                         return stop(s.reason)
                     }
@@ -196,11 +216,7 @@ class IndexEngine(
                 }
             }
         } finally {
-            // A stop never charges a file, including the ones read ahead.
-            for (it in ahead) {
-                it.pieces.cancel()
-                store.markFailed(it.stored.id, it.stored.attempts)
-            }
+            dropAhead()
         }
     }
 
@@ -212,21 +228,22 @@ class IndexEngine(
     /**
      * Embeds one tail chunk. The attempt is counted first, so a chunk that fails, or kills the process
      * natively, drops out of the queue after three tries and stays keyword-only. Without [embedder] only a [LATER]
-     * placeholder comes here, read without vectors.
+     * placeholder comes here, read without vectors. One read [ahead] counted its attempt when that read began.
      */
-    private suspend fun embedTail(tail: Store.TailChunk, embedder: Embedder?) {
-        store.setTailAttempts(tail.id, tail.attempts + 1)
+    private suspend fun embedTail(tail: Store.TailChunk, embedder: Embedder?, ahead: Ahead? = null, readAhead: () -> Unit = {}) {
+        if (ahead == null) store.setTailAttempts(tail.id, tail.attempts + 1)
         try {
             checkpoint()
             val file = store.file(tail.fileId) ?: return
             onCurrent(file)
             if (tail.locator.startsWith(LATER)) {
                 // A kind no longer read (a video without the model) holds nothing; null is a failed try, counted above.
-                val pieces = if (readsInside(file, settings())) {
-                    extractor.later(file, tail.locator.removePrefix(LATER), settings().profile) ?: return
-                } else {
-                    emptyList()
-                }
+                val pieces = when {
+                    !readsInside(file, settings()) -> emptyList()
+                    ahead != null -> ahead.pieces.await().getOrThrow()
+                    else -> extractor.later(file, tail.locator.removePrefix(LATER), settings().profile)
+                } ?: return
+                readAhead()
                 val embed: (suspend (List<Part>) -> Vector)? = embedder?.let { e ->
                     { parts ->
                         checkpoint()
@@ -297,8 +314,11 @@ class IndexEngine(
         else -> tracedAsync("extract") { extractor.extract(file, profile) }
     }
 
-    /** A file whose extraction started while the one before it was embedding; its attempt is already counted. */
-    private class Ahead(val stored: Store.StoredFile, val readInside: Boolean, val pieces: Deferred<Result<List<Piece>>>)
+    /**
+     * A read begun while the one before it was embedding, of a file or a photo's words ([key], the queue's own entry). Its
+     * attempt is already counted; [giveBack] returns it.
+     */
+    private class Ahead(val key: Any, val readInside: Boolean, val pieces: Deferred<Result<List<Piece>?>>, val giveBack: (Store) -> Unit)
 
     private suspend fun index(stored: Store.StoredFile, settings: IndexSettings, state: DeviceState, ahead: Ahead?, readAhead: () -> Unit): FileMetric {
         val file = stored.file
@@ -318,7 +338,7 @@ class IndexEngine(
         if (ahead == null) store.recordAttempt(stored.id, stored.attempts + 1)
         try {
             val extracted = measureTimedValue {
-                ahead?.pieces?.await()?.getOrThrow() ?: extract(file, readInside, settings.profile)
+                if (ahead != null) ahead.pieces.await().getOrThrow().orEmpty() else extract(file, readInside, settings.profile)
             }
             // For a file read ahead, only the wait: the pace books want this file's share of the wall clock.
             extractMs = extracted.duration.inWholeNanoseconds / 1e6
