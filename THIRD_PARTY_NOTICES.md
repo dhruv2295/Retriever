@@ -31,6 +31,13 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - Copyright Google LLC
 - License: ML Kit SDK terms (https://developers.google.com/ml-kit/terms); binary client libraries, not open source
 
+## Play In-App Review (dependency, not adapted code)
+
+- Source: https://developer.android.com/guide/playcore/in-app-review
+- Artifact: com.google.android.play:review-ktx (Android only; shows Google Play's own rating dialog)
+- Copyright Google LLC
+- License: Play Core Software Development Kit Terms of Service; binary client library, not open source
+
 ## SFace face recognition model (bundled model, not adapted code)
 
 - Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface
@@ -152,7 +159,7 @@ and every pin in the iOS `Package.resolved`. Licences are read from each artifac
 | com.google.android.datatransport | Apache-2.0 |
 | com.google.android.gms | Android Software Development Kit License and ML Kit Terms of Service (Google Play services binaries, not open source) |
 | com.google.android.odml | Android Software Development Kit License |
-| com.google.android.play | Play Core Software Development Kit Terms of Service (ai-delivery, asset-delivery and core-common, by way of LiteRT; not open source) |
+| com.google.android.play | Play Core Software Development Kit Terms of Service (ai-delivery, asset-delivery, core-common and review; not open source) |
 | com.google.code.findbugs | Apache-2.0 |
 | com.google.code.gson | Apache-2.0 |
 | com.google.errorprone | Apache-2.0 |

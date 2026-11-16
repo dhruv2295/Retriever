@@ -20,6 +20,7 @@ package app.retriever.search
 
 import android.content.Context
 import android.net.Uri
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
@@ -204,9 +205,23 @@ fun SearchScreen(
     val stage by upgrade.stage.collectAsStateWithLifecycle()
     val ui = remember(search, stage) { search.copy(upgrade = stage) }
     val context = LocalContext.current
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
+    val activity = LocalActivity.current
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        vm.refreshRecent()
+        // Back from the opened result: a pause, not over the file being looked at.
+        if (vm.takeReviewDue()) activity?.let(::requestPlayReview)
+    }
     // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
-    val actions = remember(context, onNavigate, morph) { vm.actions(context, onNavigate).copy(morph = morph) }
+    val actions = remember(context, onNavigate, morph) {
+        val base = vm.actions(context, onNavigate)
+        base.copy(
+            morph = morph,
+            onOpenHit = { hit ->
+                base.onOpenHit(hit)
+                vm.resultOpened()
+            },
+        )
+    }
     LaunchedEffect(vm) { vm.start(route) }
     SearchContent(ui, home, actions, onBack, modifier, query = route.query, typing = !route.run && route.photo == null)
 }

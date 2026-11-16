@@ -40,6 +40,8 @@ Uninstalling Retriever deletes everything it stored. You can also clear its data
   the app itself. Text recognition for some scripts runs inside Google Play services, which may still send Google
   diagnostics about it: device model and OS version, app name and version, a per-installation identifier, timings and
   error codes, encrypted in transit and not shared with third parties. Never your images, text or files.
+- **Rating prompt.** After you open a few search results, Retriever asks the system to offer a store rating. Google Play
+  (Android) or Apple (iOS) shows and handles that dialog under its own privacy policy; Retriever sends it nothing.
 - **Cloud files.** If you open a file stored with a cloud provider (for example through the system file picker), that
   provider may fetch it under its own terms.
 

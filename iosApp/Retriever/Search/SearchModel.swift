@@ -383,6 +383,12 @@ final class SearchModel {
         }
     }
 
+    /// A result was opened; true when the system's rating prompt should be requested now.
+    func resultOpened() async -> Bool {
+        guard let retriever = services?.retriever else { return false }
+        return (try? await retriever.resultOpened())?.boolValue ?? false
+    }
+
     func loadRecent() async {
         defer { recentLoaded = true }
         guard let retriever = services?.retriever else { return }
