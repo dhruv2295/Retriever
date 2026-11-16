@@ -183,6 +183,9 @@ class StatusLineTest {
         // which goes first.
         val meaningLeft = decide(ReadingProgress(read = 5, meaningWaiting = 1), stop = StopReason.HOT, facesWaiting = FacesProgress(2, 8))
         assertEquals("4 of 5 files have search by description", meaningLeft.count, "then the search by description")
+        // Photos' words come before faces too (Retriever.runBatch): a batch on them says so, not faces.
+        val wordsLeft = decide(ReadingProgress(read = 5, wordsWaiting = 3), running = true, reading = true, facesWaiting = FacesProgress(2, 8))
+        assertEquals(listOf("READING", Words.strings.readingPhotoWordsTitle), listOf(wordsLeft.phase.name, wordsLeft.title))
     }
 
     /** A batch around its faces pass (sync, grouping) stays on faces: it said Finishing long files, then faces, every batch. */

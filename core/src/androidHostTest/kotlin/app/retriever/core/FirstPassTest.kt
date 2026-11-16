@@ -263,6 +263,7 @@ class FirstPassTest {
         store.upsertFiles(listOf(photo))
         IndexEngine(store, extractor, FakeEmbedder(store.signature()!!), FakeMonitor(), settingsOf(), wordsPage = { emptyList() }).runBatch(1.minutes)
         assertEquals(1L, store.wordsChunkCount())
+        assertTrue(store.tailChunks(64).none { it.locator == LATER + WORDS }, "never one of the tails interleaved with files")
         assertEquals(NextRun.DONE, testRetriever(store, files + photo, extractor).indexBatch(1.minutes, deepen = false))
         assertEquals("words late.jpg", calls.last())
         assertEquals(0L, store.wordsChunkCount())

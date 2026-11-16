@@ -383,11 +383,11 @@ UPDATE chunks SET text = ?, content_text = ?, labels = ?, content = ? WHERE id =
 
 -- Files with no search by description yet (reach 16 unset) before more of files that have it: a Pixel's 3,609 photos read
 -- without the model waited behind 28,000 later pages of PDFs and documents while the status line said it was adding search
--- by description to them.
+-- by description to them. Photos' words are first-pass work (wordsChunks), never interleaved with the files they follow.
 tailChunks:
 SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
 FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE f.state = 'INDEXED' AND c.vector IS NULL AND c.tail_attempts < 3
+WHERE f.state = 'INDEXED' AND c.vector IS NULL AND c.tail_attempts < 3 AND c.locator != 'later:words'
 ORDER BY (f.reach & 16) != 0,
   CASE f.kind WHEN 'SCREENSHOT' THEN 0 WHEN 'DOC' THEN 1 WHEN 'PDF' THEN 2 WHEN 'PHOTO' THEN 3 WHEN 'VIDEO' THEN 4 WHEN 'AUDIO' THEN 5 ELSE 6 END,
   f.modified_at DESC, c.id

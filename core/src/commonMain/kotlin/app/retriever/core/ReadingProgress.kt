@@ -282,7 +282,7 @@ object ReadingPolicy {
         // first (Retriever.runBatch). So a running batch with photos left is on faces from its start to its end. Only the
         // pass itself sets [faces]: around it, the sync and the grouping read as Finishing long files, swapping every batch.
         val facesNext = (facesWaiting?.pending ?: 0L) > 0 &&
-            (facesStarted || (progress.waiting == 0L && progress.meaningWaiting == 0L))
+            (facesStarted || (progress.waiting == 0L && progress.meaningWaiting == 0L && progress.wordsWaiting == 0L))
         val phase = when {
             !progress.counted && !demo -> ReadingPhase.COUNTING
 

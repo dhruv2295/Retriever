@@ -1040,7 +1040,7 @@ class Retriever(
                     store, extractor, e, monitor, settings, ::onFile, awaitUi = ::awaitUi,
                     // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
-                    tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
+                    tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()).filter { it.locator != LATER + WORDS } },
                     wordsPage = { store.tailChunksIn(sampleIds.value.orEmpty()).filter { it.locator == LATER + WORDS } },
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
