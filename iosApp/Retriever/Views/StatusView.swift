@@ -27,8 +27,10 @@ struct StatusContent: View {
         let status = model.statusLine(snap) ?? Copy.reading(snap)
         List {
             Section { progress(status) }
-            // The reading status, not the line: a download or its setup holds the line, while the stages still apply.
+            // The reading status, not the line: a download or its setup holds the line, while the stages still apply. Right
+            // under the line, so what search can do now shows without scrolling.
             if let journey = Copy.reading(snap).journey { stages(journey) }
+            if status.active || !snap.reading.recent.isEmpty { Section { files(status) } }
             if snap.textOnly { Section { Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)) } }
             if snap.skipped > 0 { Section { skipped } }
             Section { details }
@@ -61,15 +63,18 @@ struct StatusContent: View {
         .listRowSeparator(.hidden)
         StatusLine(status: status, model: model, link: false)
         if let reason = Self.reason(detail: nil, lastError: snap.lastError, message: model.readingMessage) { Failure(reason.text) }
-        // While reading runs, even between two batches: the row keeps its last file rather than leaving and coming back.
-        if status.active { ReadingNow(file: snap.reading.current, size: 56) }
-        // What was read stays on show through a pause or a wait; only the line above changes.
-        if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }
         if model.screenKeptOn { Note(Copy.screenKeptOn) }
         // Resume and Stop are the line's own button.
         if status.offersPause(progress: snap.readProgress) {
             Button(action: model.pause) { Text(Words.shared.PAUSE).fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
         }
+    }
+
+    @ViewBuilder private func files(_ status: ReadingStatus) -> some View {
+        // While reading runs, even between two batches: the row keeps its last file rather than leaving and coming back.
+        if status.active { ReadingNow(file: snap.reading.current, size: 56) }
+        // What was read stays on show through a pause or a wait; only the line above changes.
+        if !snap.reading.recent.isEmpty { RecentlyRead(files: snap.reading.recent) }
     }
 
     /// The journey as a checklist: what each stage lets the person search, done, now or coming up. People while off is an

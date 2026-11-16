@@ -253,7 +253,8 @@ object ReadingPolicy {
      * file count beside work still to do. [people]: People's model when a faces pass found it missing ([IndexState.people]).
      * [readersMissing]: the batch waits for the text and label readers downloading ([IndexState.readersMissing]).
      * [battery]: [DeviceState.batteryPct]. [requested]: [Prefs.processingRequested]; below [RESUMED_BATTERY_FLOOR] off the
-     * charger, a person's request asks to plug in. [processingStarted]: Resume rather than Start.
+     * charger, a person's request asks to plug in. [processingStarted]: Resume rather than Start. [photosExcluded]: photos are not
+     * among the kinds processed, so their words are no stage.
      */
     fun decide(
         progress: ReadingProgress,
@@ -274,6 +275,7 @@ object ReadingPolicy {
         facesStarted: Boolean = false,
         peopleOn: Boolean = false,
         textOnly: Boolean = false,
+        photosExcluded: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val c = Words.strings
@@ -495,7 +497,7 @@ object ReadingPolicy {
         val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && looking == null) || total == 0L
         // Faces are counted once every file is processed; before that their count is unknown, not zero.
         val facesLeft = (faces ?: facesWaiting)?.pending ?: 0L.takeIf { progress.waiting == 0L }
-        val journey = journey(progress, phase, title, peopleOn, textOnly, facesLeft)
+        val journey = journey(progress, phase, peopleOn, textOnly, facesLeft, !photosExcluded, facesNext = looking != null, photoWords)
         if (none) return ReadingStatus(phase, title, detail, action, journey = journey)
         val count = when {
             looking != null -> Words.facesOf(done, total)

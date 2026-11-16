@@ -567,7 +567,7 @@ internal object German : Strings {
         StageState.OFF -> "Optional"
     }
 
-    override fun stepOf(step: Int, steps: Int, stage: String?) = "Schritt $step von $steps" + (stage?.let { " · $it" } ?: "")
+    override fun stepOf(step: Int, steps: Int) = "Schritt $step von $steps"
 
     override fun stageNoteTitle(stage: Stage) = when (stage) {
         Stage.NAMES -> "Jede Datei ist über ihren Namen auffindbar"
@@ -603,7 +603,6 @@ internal object German : Strings {
     override val processingBatteryOverrideDetail = "Die Verarbeitung läuft im Akkubetrieb bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
 
     override val processingKeepPaused = "Pausiert lassen"
-    override val processingSearchAvailableDetail = "Du kannst jetzt suchen. Dateinamen und bereits verarbeitete Inhalte bleiben durchsuchbar."
     override val processingPlugInDetail =
         "Schließe dein Handy an, um weiter zu verarbeiten. Retriever verarbeitet im Akkubetrieb bis ${withPercent(ReadingPolicy.RESUMED_BATTERY_FLOOR)}."
     override val processingTapToContinue = "Tippen, um fortzufahren"

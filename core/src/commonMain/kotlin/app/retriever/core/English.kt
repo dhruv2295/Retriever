@@ -479,7 +479,7 @@ internal object English : Strings {
         StageState.OFF -> "Optional"
     }
 
-    override fun stepOf(step: Int, steps: Int, stage: String?) = "Step $step of $steps" + (stage?.let { " · $it" } ?: "")
+    override fun stepOf(step: Int, steps: Int) = "Step $step of $steps"
 
     override fun stageNoteTitle(stage: Stage) = when (stage) {
         Stage.NAMES -> "Every file can be found by name"
@@ -505,8 +505,6 @@ internal object English : Strings {
     override val processingBatteryOverrideDetail = "Processing runs on battery down to ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
 
     override val processingKeepPaused = "Keep paused"
-    override val processingSearchAvailableDetail =
-        "Search is available now. File names and content already processed remain searchable."
     override val processingPlugInDetail =
         "Plug in to keep processing. Retriever processes on battery down to ${ReadingPolicy.RESUMED_BATTERY_FLOOR}%."
     override val processingTapToContinue = "Tap to continue"

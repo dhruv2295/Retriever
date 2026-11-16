@@ -647,6 +647,7 @@ class Retriever(
                 facesStarted = facesStarted,
                 peopleOn = facesOn,
                 textOnly = textOnly,
+                photosExcluded = Kind.PHOTO !in p.kinds,
             ).let { withStagesDone(it, p) }
         }
     }

@@ -65,7 +65,6 @@ import app.retriever.core.FacesSummary
 import app.retriever.core.IndexState
 import app.retriever.core.Journey
 import app.retriever.core.Prefs
-import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.SourceFile
@@ -254,15 +253,17 @@ fun StatusContent(
                             OutlinedButton(onClick = actions.pause) { Text(Words.strings.processingKeepPaused) }
                         }
                     }
-                    // The faces pass's own detail already says files are searchable.
-                    if (readingStatus?.phase != ReadingPhase.FACES) Muted(Words.strings.processingSearchAvailableDetail)
+                }
+
+                // Right under the line, so what search can do now shows without scrolling.
+                readingStatus?.journey?.let { Stages(it, actions.turnOnPeople) }
+
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Laid out from the batch's start, before core names its first file, so the row never blinks in.
                     if (readingStatus?.active == true && (index.running || index.currentFile != null)) ReadingNow(index.currentFile, size = 48.dp)
                     // What was read stays on show through a pause or a wait; only the sentence above changes.
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, index.running, actions.openFile)
                 }
-
-                readingStatus?.journey?.let { Stages(it, actions.turnOnPeople) }
 
                 Header(Words.DETAILS)
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

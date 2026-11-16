@@ -511,7 +511,7 @@ internal object Japanese : Strings {
         StageState.OFF -> "オプション"
     }
 
-    override fun stepOf(step: Int, steps: Int, stage: String?) = "ステップ$step/$steps" + (stage?.let { " · $it" } ?: "")
+    override fun stepOf(step: Int, steps: Int) = "ステップ$step/$steps"
 
     override fun stageNoteTitle(stage: Stage) = when (stage) {
         Stage.NAMES -> "すべてのファイルを名前で検索できます"
@@ -537,7 +537,6 @@ internal object Japanese : Strings {
     override val processingBatteryOverrideDetail = "処理はバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで続きます。"
 
     override val processingKeepPaused = "一時停止を続ける"
-    override val processingSearchAvailableDetail = "今すぐ検索できます。ファイル名と処理済みの内容を検索できます。"
     override val processingPlugInDetail = "処理を続けるには充電してください。Retrieverはバッテリー残量${ReadingPolicy.RESUMED_BATTERY_FLOOR}%まで処理します。"
     override val processingTapToContinue = "タップして続行"
 

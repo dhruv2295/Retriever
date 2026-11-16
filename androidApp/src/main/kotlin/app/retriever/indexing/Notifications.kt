@@ -62,13 +62,13 @@ object Notifications {
         val display = if (held != null && status != null) paused(status, held, status.detail) else status
         val text = Words.strings.notificationBody(display?.count, display?.detail, counts.contentRead)
         val step = display?.journey?.step
-        // Running, the step leads the title ("Step 2 of 4 · Reading the words in your photos"); held, the header names it.
-        val title = if (display?.active == true && step != null) "$step · ${display.title}" else display?.title ?: Words.STARTING
+        // Collapsed there is room for one short line: the step and what it has left ("Step 2 of 3 · 7,400 to go").
+        val short = listOfNotNull(step, display?.journey?.now?.left?.takeIf { it > 0 }?.let(Words.strings::notReadYet)).joinToString(" · ")
         return NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle(title)
-            .setSubText(step.takeIf { display?.active != true })
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentTitle(display?.title ?: Words.STARTING)
+            .setContentText(short.ifEmpty { text })
+            // Expanded, the full body replaces the short line, so the step leads it.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(listOfNotNull(step, text).joinToString("\n")))
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

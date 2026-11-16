@@ -559,7 +559,7 @@ internal object Hindi : Strings {
         StageState.OFF -> "वैकल्पिक"
     }
 
-    override fun stepOf(step: Int, steps: Int, stage: String?) = "$steps में से चरण $step" + (stage?.let { " · $it" } ?: "")
+    override fun stepOf(step: Int, steps: Int) = "$steps में से चरण $step"
 
     override fun stageNoteTitle(stage: Stage) = when (stage) {
         Stage.NAMES -> "अब हर फ़ाइल नाम से मिल सकती है"
@@ -593,7 +593,6 @@ internal object Hindi : Strings {
     override val processingBatteryOverrideDetail = "प्रोसेसिंग बैटरी ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक रहने पर चलती है।"
 
     override val processingKeepPaused = "रुका रहने दें"
-    override val processingSearchAvailableDetail = "अभी खोज सकते हैं. फ़ाइलों के नाम और पहले से प्रोसेस किया गया कॉन्टेंट खोजा जा सकता है."
     override val processingPlugInDetail =
         "प्रोसेसिंग जारी रखने के लिए फ़ोन चार्ज पर लगाएँ। Retriever बैटरी ${ReadingPolicy.RESUMED_BATTERY_FLOOR}% तक रहने पर प्रोसेस करता है।"
     override val processingTapToContinue = "जारी रखने के लिए टैप करें"

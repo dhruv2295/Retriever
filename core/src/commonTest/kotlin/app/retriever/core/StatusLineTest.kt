@@ -405,20 +405,37 @@ class StatusLineTest {
         assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:OFF REST:NEXT", states(words))
         assertEquals("Step 2 of 3", words.journey?.step, "People off is optional, not a step")
         assertEquals(12L, words.journey?.now?.left)
-        // People on: four steps, and a pause names the stage it holds.
+        // People on, and no file with later parts once every file is processed: no long-files step. A pause keeps its reason
+        // as the title; the step is only the number.
         val paused = ReadingPolicy.decide(ReadingProgress(read = 20, wordsWaiting = 12), StopReason.HOT, false, false, android, peopleOn = true)
-        assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:NEXT REST:NEXT", states(paused))
-        assertEquals("Step 2 of 4 · Reading the words in your photos", paused.journey?.step)
+        assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:NEXT", states(paused))
+        assertEquals("Step 2 of 3", paused.journey?.step)
         val faces = ReadingPolicy.decide(ReadingProgress(read = 20), null, true, false, android, faces = FacesProgress(2, 8), peopleOn = true)
-        assertEquals("NAMES:DONE MEANING:DONE WORDS:DONE PEOPLE:NOW REST:NEXT", states(faces))
-        assertEquals("Step 3 of 4", faces.journey?.step)
-        // The model still to come: files are read for their words first and step 1 lasts until descriptions are added.
+        assertEquals("Step 3 of 3", faces.journey?.step)
+        // Faces begun run ahead of new files, a stop included: the step is People's, as the count is.
+        val facesHeld = ReadingPolicy.decide(
+            ReadingProgress(read = 20, scheduled = 5),
+            StopReason.HOT,
+            false,
+            false,
+            android,
+            facesWaiting = FacesProgress(2, 8),
+            facesStarted = true,
+            peopleOn = true,
+        )
+        assertEquals("NAMES:DONE MEANING:NEXT WORDS:DONE PEOPLE:NOW REST:NEXT", states(facesHeld))
+        assertEquals(Words.facesOf(2, 10), facesHeld.count)
+        // The model still to come: files are read for their words first and step 1 lasts until descriptions are added; their
+        // later parts may still come, so the long-files step stays.
         val noModel = ReadingPolicy.decide(ReadingProgress(read = 20, meaningWaiting = 20), null, true, false, android)
         assertEquals("NAMES:DONE MEANING:NOW WORDS:NEXT PEOPLE:OFF REST:NEXT", states(noModel))
         assertEquals("Step 1 of 3", noModel.journey?.step)
+        // Photos left out of processing have no words to read.
+        val noPhotos = ReadingPolicy.decide(ReadingProgress(read = 20, scheduled = 5), null, true, true, android, photosExcluded = true)
+        assertEquals("NAMES:DONE MEANING:NOW PEOPLE:OFF REST:NEXT", states(noPhotos))
         // Text-only phones read photos' words in the first pass; all done leaves no step.
         val done = ReadingPolicy.decide(ReadingProgress(read = 20), null, false, false, android, textOnly = true)
-        assertEquals("NAMES:DONE MEANING:DONE PEOPLE:OFF REST:DONE", states(done))
+        assertEquals("NAMES:DONE MEANING:DONE PEOPLE:OFF", states(done))
         assertNull(done.journey?.step)
         assertNull(ReadingPolicy.decide(ReadingProgress(read = 2, scheduled = 3, sample = true), null, true, true, android).journey, "the demo has none")
     }
@@ -438,5 +455,10 @@ class StatusLineTest {
         val newPhoto = journey(ReadingProgress(read = 20, scheduled = 1)).remembered(dismissed, peopleOffered = true).first
         assertEquals(Words.strings.newFiles, newPhoto.step)
         assertEquals(StageState.DONE, newPhoto.rows.first { it.stage == Stage.WORDS }.state, "a finished stage stays ticked")
+        // All done is the one celebration: the last stage's note is dropped, and the long files' rest counts as finished.
+        val (allDone, finished) = journey(ReadingProgress(read = 20)).remembered(noted ?: Prefs(), peopleOffered = false)
+        assertEquals(null to null, allDone.note to finished?.stageNote)
+        val longFile = journey(ReadingProgress(read = 20, laterPasses = 1)).remembered(finished ?: Prefs(), peopleOffered = false).first
+        assertEquals(Words.strings.newFiles, longFile.step)
     }
 }

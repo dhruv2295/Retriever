@@ -36,11 +36,22 @@ data class Journey(val rows: List<StageRow>, val step: String? = null, val note:
 }
 
 /**
- * [phase] and [title]: decide's own, so the stage it calls running is the one the line names (faces, once begun, run ahead
- * of new files). [facesLeft]: null while unknown (the count waits until every file is processed, Retriever.readingStatus).
- * Text-only phones read photos' words in the first pass, so their journey has no separate words stage.
+ * [phase], [facesNext] and [photoWords]: decide's own, so the stage it calls running is the one its count is for (faces, once
+ * begun, run ahead of new files, a stop included). [facesLeft]: null while unknown (the count waits until every file is
+ * processed, Retriever.readingStatus). Text-only phones read photos' words in the first pass, and a library without photos
+ * ([photos] false) has none to read, so neither has a words stage. The long files' rest shows only while some file has later
+ * parts, or files still to process may: a phone with none never counts it, and the step total only ever shrinks.
  */
-internal fun journey(progress: ReadingProgress, phase: ReadingPhase, title: String, peopleOn: Boolean, textOnly: Boolean, facesLeft: Long?): Journey? {
+internal fun journey(
+    progress: ReadingProgress,
+    phase: ReadingPhase,
+    peopleOn: Boolean,
+    textOnly: Boolean,
+    facesLeft: Long?,
+    photos: Boolean = true,
+    facesNext: Boolean = false,
+    photoWords: Boolean = false,
+): Journey? {
     if (progress.sample || progress.notNow) return null
     val c = Words.strings
     fun left(stage: Stage): Long? = when (stage) {
@@ -50,12 +61,21 @@ internal fun journey(progress: ReadingProgress, phase: ReadingPhase, title: Stri
         Stage.PEOPLE -> facesLeft
         Stage.REST -> progress.laterPasses
     }
-    val stages = Stage.entries.filter { !(it == Stage.WORDS && textOnly) }
-    val now = when (phase) {
-        ReadingPhase.COUNTING -> Stage.NAMES
-        ReadingPhase.FACES -> Stage.PEOPLE
-        ReadingPhase.DEEPENING -> Stage.REST
-        ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> null
+    // Files waiting for search by description hold their later parts back until it is added (Store's outcome).
+    val restMayCome = progress.laterPasses > 0 || progress.waiting > 0 || progress.rereads > 0 || progress.meaningWaiting > 0 || !progress.counted
+    val stages = Stage.entries.filter {
+        when (it) {
+            Stage.WORDS -> photos && !textOnly
+            Stage.REST -> restMayCome
+            else -> true
+        }
+    }
+    val now = when {
+        phase == ReadingPhase.COUNTING -> Stage.NAMES
+        phase == ReadingPhase.FACES || (facesNext && peopleOn) -> Stage.PEOPLE
+        phase == ReadingPhase.DEEPENING -> Stage.REST
+        photoWords && Stage.WORDS in stages -> Stage.WORDS
+        phase == ReadingPhase.CAUGHT_UP || phase == ReadingPhase.LIMITED -> null
         else -> stages.firstOrNull { (it != Stage.PEOPLE || peopleOn) && (left(it) ?: 1L) > 0 }
     }
     val rows = stages.map { stage ->
@@ -68,50 +88,40 @@ internal fun journey(progress: ReadingProgress, phase: ReadingPhase, title: Stri
         StageRow(stage, state, c.stageUnlock(stage, textOnly), c.stageStateLabel(state), left(stage))
     }
     val numbered = rows.filter { it.stage != Stage.NAMES && it.state != StageState.OFF }
-    val step = numbered.indexOfFirst { it.state == StageState.NOW }.takeIf { it >= 0 }?.let { i ->
-        // A stop or a wait keeps its own title; the step line then names the stage it holds.
-        c.stepOf(i + 1, numbered.size, stageTitle(numbered[i].stage, progress).takeIf { it != title })
-    }
+    // A stop keeps its reason as the title; the checklist names the stage it holds.
+    val step = numbered.indexOfFirst { it.state == StageState.NOW }.takeIf { it >= 0 }?.let { c.stepOf(it + 1, numbered.size) }
     return Journey(rows, step, textOnly = textOnly)
-}
-
-/** The title a running stage has on the line, the four existing ones. */
-internal fun stageTitle(stage: Stage, progress: ReadingProgress): String {
-    val c = Words.strings
-    return when (stage) {
-        Stage.NAMES -> c.gettingReadyTitle
-        Stage.MEANING -> if (progress.scheduled == 0L && progress.meaningWaiting > 0) c.addingDescriptionTitle else c.processingYourFiles
-        Stage.WORDS -> c.readingPhotoWordsTitle
-        Stage.PEOPLE -> c.lookingForFacesTitle
-        Stage.REST -> c.deepeningTitle
-    }
 }
 
 /**
  * The journey as the person has lived it, from [Prefs.stagesDone]: a stage once finished stays ticked while an earlier one
  * takes new files, and a finished stage with work again holds new files ([Strings.newFiles]), never "Step 1 of 4" over a
  * journey already made. A stage newly finished gets the one note ([Prefs.stageNote]); the first sighting only records, so
- * an update never fires every stage's note at once. People's Turn on shows only where it can work ([peopleOffered]).
- * Returns what to show, and the prefs to save when they change.
+ * an update never fires every stage's note at once. Once every stage is done the line's "All done" is the one celebration:
+ * the last stage's note is dropped, not kept to surface beside new files weeks later. People's Turn on shows only where it
+ * can work ([peopleOffered]). Returns what to show, and the prefs to save when they change.
  */
 internal fun Journey.remembered(prefs: Prefs, peopleOffered: Boolean): Pair<Journey, Prefs?> {
     val known = prefs.stagesDone
     val c = Words.strings
-    val shown = rows.filter { it.stage != Stage.PEOPLE || it.state != StageState.OFF || peopleOffered }.map {
-        if (it.state == StageState.NEXT && it.left == 0L && known.orEmpty().contains(it.stage)) {
-            it.copy(state = StageState.DONE, stateLabel = c.stageStateLabel(StageState.DONE))
-        } else {
-            it
-        }
+    val shown = copy(
+        rows = rows.filter { it.stage != Stage.PEOPLE || it.state != StageState.OFF || peopleOffered }.map {
+            if (it.state == StageState.NEXT && it.left == 0L && known.orEmpty().contains(it.stage)) {
+                it.copy(state = StageState.DONE, stateLabel = c.stageStateLabel(StageState.DONE))
+            } else {
+                it
+            }
+        },
+    )
+    // A finished journey has finished the long files' rest too, shown or not, so a long file later reads as new files.
+    val done = shown.rows.filter { it.state == StageState.DONE }.map { it.stage }.toSet() + listOfNotNull(Stage.REST.takeIf { shown.finished })
+    val note = when {
+        shown.finished -> null
+        known == null -> prefs.stageNote
+        else -> (done - known - Stage.NAMES).maxOrNull() ?: prefs.stageNote
     }
-    val done = shown.filter { it.state == StageState.DONE }.map { it.stage }.toSet()
-    val saved = if (known == null || !known.containsAll(done)) {
-        val note = if (known == null) prefs.stageNote else (done - known - Stage.NAMES).maxOrNull() ?: prefs.stageNote
-        prefs.copy(stagesDone = known.orEmpty() + done, stageNote = note)
-    } else {
-        null
-    }
+    val saved = prefs.copy(stagesDone = known.orEmpty() + done, stageNote = note).takeIf { it != prefs }
     val running = now?.stage
     val step = if (running != null && running != Stage.NAMES && known.orEmpty().contains(running)) c.newFiles else step
-    return copy(rows = shown, step = step, note = (saved ?: prefs).stageNote) to saved
+    return shown.copy(step = step, note = note) to saved
 }

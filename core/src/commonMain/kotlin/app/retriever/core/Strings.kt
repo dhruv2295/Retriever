@@ -348,8 +348,8 @@ interface Strings {
 
     fun stageStateLabel(state: StageState): String
 
-    /** "Step 2 of 4", with the stage's title when the line's own title is a pause or a wait. */
-    fun stepOf(step: Int, steps: Int, stage: String?): String
+    /** "Step 2 of 4". */
+    fun stepOf(step: Int, steps: Int): String
 
     /** The one note when a stage finishes: what now works, and one thing to try. */
     fun stageNoteTitle(stage: Stage): String
@@ -366,7 +366,6 @@ interface Strings {
     val processingAdaptiveDetail: String
     val processingBatteryOverrideDetail: String
     val processingKeepPaused: String
-    val processingSearchAvailableDetail: String
     val processingPlugInDetail: String
     val processingTapToContinue: String
     val automaticChargingPreferenceDetail: String

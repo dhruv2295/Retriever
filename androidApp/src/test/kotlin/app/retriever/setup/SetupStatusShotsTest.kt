@@ -727,7 +727,6 @@ class SetupStatusShotsTest {
         rule.onNodeWithText(Words.strings.automaticProcessingPreferenceDetail).assertExists()
         rule.onNodeWithText("Resume").assertIsEnabled()
         rule.onNodeWithText("Pause").assertDoesNotExist()
-        rule.onNodeWithText(Words.strings.processingSearchAvailableDetail).assertExists()
     }
 
     @Test fun statusThermalWaitDoesNotPromiseResume() {

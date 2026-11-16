@@ -95,7 +95,7 @@ extension AppModel {
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
                 sessionActive: explicit, pluggedIn: pluggedIn, faces: faces, facesWaiting: faces, people: nil, readersMissing: false,
                 battery: battery, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false,
-                peopleOn: snap.recognizePeople, textOnly: snap.textOnly)
+                peopleOn: snap.recognizePeople, textOnly: snap.textOnly, photosExcluded: false)
         }
         /// Core's own decision on counts that stand for a library of 20,000 photos and 1,000 documents.
         func journey(_ shot: JourneyShot) {

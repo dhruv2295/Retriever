@@ -29,7 +29,7 @@ enum Copy {
                 sessionActive: session, pluggedIn: false,
                 faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
                 battery: 100, requested: session, processingStarted: session, adaptive: false, facesStarted: false,
-                peopleOn: s.recognizePeople, textOnly: s.textOnly
+                peopleOn: s.recognizePeople, textOnly: s.textOnly, photosExcluded: s.prefs.map { !$0.kinds.contains(.photo) } ?? false
             )
     }
 
