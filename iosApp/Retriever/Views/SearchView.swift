@@ -27,6 +27,7 @@ struct SearchView: View {
     @State private var picked: PhotosPickerItem?
     @State private var addingFolder = false
     @State private var folderNote: String?
+    @State private var reviewDue = false
     @Environment(\.openFile) private var openFile
     @Environment(\.requestReview) private var requestReview
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -103,6 +104,11 @@ struct SearchView: View {
         .onAppear {
             visible = true
             takeSearchRequest()
+            // Back from the opened result: a pause, not over the file being looked at.
+            if reviewDue {
+                reviewDue = false
+                requestReview()
+            }
         }
         .onDisappear { visible = false }
         .task(id: search.key) { [key = search.key] in await search.search(key) }
@@ -177,7 +183,7 @@ struct SearchView: View {
             hit.file, locator: hit.locator, words: highlightWords(snippet: hit.snippet, query: search.photo == nil ? search.query : nil),
             among: search.answer?.hits.map(\.file) ?? [])
         Task { @MainActor in
-            if await search.resultOpened() { requestReview() }
+            if await search.resultOpened() { reviewDue = true }
         }
     }
 }

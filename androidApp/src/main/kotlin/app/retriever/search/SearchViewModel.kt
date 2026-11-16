@@ -422,8 +422,12 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
         record(q)
     }
 
-    /** Calls [ask] when this open is the one to request the store rating on. */
-    fun askReviewIfDue(ask: () -> Unit) = launchCatching { if (retriever.resultOpened()) ask() }
+    private var reviewDue = false
+
+    /** Counts an opened result; the store rating is requested on coming back to the results ([takeReviewDue]). */
+    fun resultOpened() = launchCatching { if (retriever.resultOpened()) reviewDue = true }
+
+    fun takeReviewDue(): Boolean = reviewDue.also { reviewDue = false }
 
     fun opened() {
         input.value.let { if (it.photo == null) record(it.query) }

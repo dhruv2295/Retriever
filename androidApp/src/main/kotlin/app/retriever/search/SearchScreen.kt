@@ -205,16 +205,20 @@ fun SearchScreen(
     val stage by upgrade.stage.collectAsStateWithLifecycle()
     val ui = remember(search, stage) { search.copy(upgrade = stage) }
     val context = LocalContext.current
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshRecent() }
-    // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
     val activity = LocalActivity.current
-    val actions = remember(context, onNavigate, morph, activity) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        vm.refreshRecent()
+        // Back from the opened result: a pause, not over the file being looked at.
+        if (vm.takeReviewDue()) activity?.let(::requestPlayReview)
+    }
+    // Remembered, so the result grid sees the same actions on every keystroke and can skip recomposing its tiles.
+    val actions = remember(context, onNavigate, morph) {
         val base = vm.actions(context, onNavigate)
         base.copy(
             morph = morph,
             onOpenHit = { hit ->
                 base.onOpenHit(hit)
-                activity?.let { vm.askReviewIfDue { requestPlayReview(it) } }
+                vm.resultOpened()
             },
         )
     }
