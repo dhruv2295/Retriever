@@ -20,3 +20,6 @@ iosApp/Configuration/Local.xcconfig
 
 # Local Perfetto trace processor wrapper
 /trace_processor
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output

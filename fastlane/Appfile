@@ -1,0 +1,3 @@
+package_name("app.retriever")
+app_identifier("app.retriever")
+team_id(ENV["IOS_TEAM_ID"])

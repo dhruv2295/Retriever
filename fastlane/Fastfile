@@ -1,0 +1,44 @@
+# Releases come from main. Set CURRENT_PROJECT_VERSION and MARKETING_VERSION in iosApp/Configuration/Config.xcconfig
+# (Android reads both), commit and tag v<version>-<build>, then run each platform's release lane. Neither lane sends
+# anything for review: that stays a click in Play Console and App Store Connect.
+#
+# Credentials stay outside the repo:
+#   Android: ~/.gradle/gradle.properties sets retrieverPlayCredentials (a Play service account's JSON key) and the
+#            upload key's retrieverUpload* properties.
+#   iOS:     fastlane/.env (gitignored) sets IOS_TEAM_ID and an App Store Connect API key: APP_STORE_CONNECT_KEY_ID,
+#            APP_STORE_CONNECT_ISSUER_ID and APP_STORE_CONNECT_KEY_PATH.
+
+platform :android do
+  desc "Build the release bundle and upload it as a draft production release"
+  lane :release do
+    # --rerun: without it the Play plugin can skip an "up to date" upload and commit an empty edit.
+    gradle(task: ":androidApp:publishReleaseBundle", flags: "--rerun --track production --release-status draft")
+  end
+end
+
+platform :ios do
+  desc "Archive and export a signed App Store IPA"
+  lane :build do
+    project = { project: "iosApp/iosApp.xcodeproj", scheme: "Retriever", configuration: "Release", archive_path: "build/fastlane/ios/Retriever.xcarchive" }
+    build_app(**project, skip_package_ipa: true, xcargs: "-allowProvisioningUpdates")
+    # Homebrew's rsync breaks the export ("Copy failed"): Xcode's openrsync must find the system rsync first. Only for
+    # the export: the archive's Kotlin build step needs the usual PATH.
+    path = ENV["PATH"]
+    ENV["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:#{path}"
+    build_app(**project, skip_build_archive: true, export_method: "app-store", export_team_id: ENV.fetch("IOS_TEAM_ID"),
+              export_xcargs: "-allowProvisioningUpdates", output_directory: "build/fastlane/ios")
+  ensure
+    ENV["PATH"] = path if path
+  end
+
+  desc "Build and upload to App Store Connect, ready to attach to a version"
+  lane :release do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_filepath: ENV.fetch("APP_STORE_CONNECT_KEY_PATH")
+    )
+    build
+    upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
+  end
+end
