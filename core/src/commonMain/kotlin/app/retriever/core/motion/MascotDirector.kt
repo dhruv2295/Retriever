@@ -52,8 +52,8 @@ enum class MascotMood {
 
 /**
  * One animated WebP in the shared Frames folder, and its resting pose. 2x the slot width; 12 drawings a second for quick
- * motion, fewer for slow motion (sit 8, welcome 10, doze 5). The stage clips and FOUND are drawn pose sheets, not video:
- * six drawings each, played back and forth (DIG's paw cycle runs straight round; FOUND plays five of them once).
+ * motion, fewer for slow motion (sit 8, welcome 10, doze 5). The stage clips and FOUND are one fixed drawing each with
+ * only the moving parts (tail, head, paws) bent per frame, 12 a second, so the dog never changes size between frames.
  */
 enum class MascotClip(val file: String, val still: String, val seconds: Double) {
     WALK("mascot_walk.webp", "mascot_walk_still.webp", 1.25),
@@ -64,11 +64,11 @@ enum class MascotClip(val file: String, val still: String, val seconds: Double) 
     HUH("mascot_huh.webp", "mascot_huh_still.webp", 2.24),
     WELCOME("mascot_welcome.webp", "mascot_welcome_still.webp", 2.6),
     CAUGHT_UP("mascot_caughtup.webp", "mascot_caughtup_still.webp", 1.33),
-    FOLDERS("mascot_folders.webp", "mascot_folders_still.webp", 1.25),
-    PHOTO("mascot_photo.webp", "mascot_photo_still.webp", 1.67),
+    FOLDERS("mascot_folders.webp", "mascot_folders_still.webp", 1.33),
+    PHOTO("mascot_photo.webp", "mascot_photo_still.webp", 1.66),
     RECEIPT("mascot_receipt.webp", "mascot_receipt_still.webp", 2.0),
     GREET("mascot_greet.webp", "mascot_greet_still.webp", 1.0),
-    DIG("mascot_dig.webp", "mascot_dig_still.webp", 0.6),
+    DIG("mascot_dig.webp", "mascot_dig_still.webp", 1.0),
     FOUND("mascot_found.webp", "mascot_found_still.webp", 1.0),
     TROUBLE("mascot_trouble_still.webp", "mascot_trouble_still.webp", 0.0),
 }
