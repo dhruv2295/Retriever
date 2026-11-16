@@ -323,7 +323,8 @@ struct StepRow<Action: View>: View {
                     .frame(width: 30, height: 30)
                     .background(
                         done ? AnyShapeStyle(.tint) : later ? AnyShapeStyle(Color(.tertiarySystemFill)) : AnyShapeStyle(.tint.opacity(0.16)),
-                        in: Circle())
+                        in: Circle()
+                    )
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(later ? .secondary : .primary)
