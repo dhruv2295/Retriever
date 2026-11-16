@@ -28,6 +28,8 @@ final class AppModel {
         var partlyRead = 0
         var rereads = 0
         var meaningWaiting = 0
+        /// Photos searchable by description whose words are still to read (core's `ReadingProgress.wordsWaiting`).
+        var wordsWaiting = 0
         var nameOnly = 0
         /// Core's reading status; nil until the first snapshot, when `Copy.reading` decides the same way.
         var readingStatus: ReadingStatus?
@@ -70,7 +72,7 @@ final class AppModel {
             ReadingProgress(
                 read: Int64(max(0, indexed - partlyRead)), partlyRead: Int64(partlyRead), scheduled: Int64(pending), notScheduled: Int64(waiting),
                 nameOnly: Int64(nameOnly), couldntRead: Int64(skipped), laterPasses: Int64(tailFiles), sample: trial, rereads: Int64(rereads),
-                meaningWaiting: Int64(meaningWaiting), counted: counted, notNow: notNow)
+                meaningWaiting: Int64(meaningWaiting), wordsWaiting: Int64(wordsWaiting), counted: counted, notNow: notNow)
         }
         var total: Int { Int(readProgress.libraryTotal) }
 
@@ -421,6 +423,7 @@ extension AppModel.Snap {
         partlyRead = Int(coverage.partlyRead)
         rereads = Int(coverage.rereads)
         meaningWaiting = Int(coverage.meaningWaiting)
+        wordsWaiting = Int(coverage.wordsWaiting)
         nameOnly = Int(coverage.nameOnly)
         counted = coverage.counted
         notNow = coverage.notNow

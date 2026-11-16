@@ -22,10 +22,17 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         val uri = file.uri
         val maxChars = chunkChars(profile.maxTokens)
         return when (file.kind) {
+            // A screenshot's words are what it holds, so they come first; a photo's wait for the first pass's end.
+            Kind.PHOTO if head -> photoHead(uri)
+
             Kind.PHOTO, Kind.SCREENSHOT -> photo(uri, maxChars)
+
             Kind.PDF -> pdf(uri, maxChars, if (head) PDF_HEAD_OCR_PAGES else PDF_OCR_PAGES)
+
             Kind.DOC -> doc(file, uri, maxChars)
+
             Kind.VIDEO -> video(uri, profile, head)
+
             else -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
     }
@@ -39,6 +46,8 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
                 scannedPage(file.uri, page, native.pdfPageText(file.uri, page).orEmpty(), chunkChars(profile.maxTokens))
                     .also { currentCoroutineContext().ensureActive() }.ifEmpty { null }
             }
+
+            Kind.PHOTO if locator == WORDS -> photo(file.uri, chunkChars(profile.maxTokens))
 
             // No frame: the moment holds nothing and its placeholder goes, as on Android.
             Kind.VIDEO -> listOfNotNull(frameAt(file.uri, locator, Locator.msOf(locator) ?: return emptyList()))
@@ -61,8 +70,17 @@ class IosExtractor(private val native: NativeExtractor) : Extractor {
         // A read stopped meanwhile (background time up) is a stop, not an unreadable photo.
         currentCoroutineContext().ensureActive()
         // A failed try, not an empty photo: the engine counts it and tries again, so an iCloud photo waits for Wi-Fi.
-        return pieces ?: throw IllegalStateException("no image to read yet (an iCloud photo waits for Wi-Fi)")
+        return pieces ?: throw noImageYet()
     }
+
+    /** The image alone at the model's size, its words left for later ([imageFirst]); a missing image fails as [photo]'s. */
+    private suspend fun photoHead(uri: String): List<Piece> {
+        val jpeg = autoreleasepool { native.imageJpeg(uri, EMBED_PX)?.toByteArray() }
+        currentCoroutineContext().ensureActive()
+        return imageFirst(jpeg ?: throw noImageYet())
+    }
+
+    private fun noImageYet() = IllegalStateException("no image to read yet (an iCloud photo waits for Wi-Fi)")
 
     override suspend fun visual(file: SourceFile, locator: String): Part.Image? {
         currentCoroutineContext().ensureActive()

@@ -957,10 +957,12 @@ class Retriever(
                 peopleChanged()
             }
             var facesLeft = facesOn && store.facesProgress().pending > 0
+            // Photos' words are first-pass work: they run with or without the deepen rule, before faces and long files' rest.
+            val wordsLeft = if (ids == null) store.wordsChunkCount() else store.tailChunksIn(ids).count { it.locator == LATER + WORDS }.toLong()
             // One task at a time: once begun, faces finish before files that came meanwhile, or the two take turns.
             val facesFirst = store.facesRunning() ||
                 // With tails: without them the counts leave the meaning pass out (Store.outcome) and this read 0.
-                (pending == 0L && (keywordOnly || store.countsNow().progress.meaningWaiting == 0L))
+                (pending == 0L && wordsLeft == 0L && (keywordOnly || store.countsNow().progress.meaningWaiting == 0L))
             if (reader != null && facesLeft && facesFirst && deepenBlocker() == null) {
                 when (peopleModel(reader, minOf(DOWNLOAD_WAIT, budget - started.elapsedNow()))) {
                     PeopleModel.READY -> Unit
@@ -989,8 +991,8 @@ class Retriever(
             val idle = pending == 0L &&
                 (!deepen || (if (ids == null) store.tailChunkCount() else store.tailCountsIn(ids).first) == 0L) &&
                 (keywordOnly || store.signature() == Signature.of(requiredBuild.value, stored.visionTokens, stored.maxTokens)) &&
-                // Pages or moments left for a deepen pass the absent model can't run: this batch resolves them.
-                (!keywordOnly || store.laterChunkCount() == 0L)
+                // Pages or moments left for a deepen pass the absent model can't run, or photos' words: this batch resolves them.
+                (if (keywordOnly) store.laterChunkCount() else wordsLeft) == 0L
             // Later parts left that may not run now: stop for that reason, so the platform comes back on the charger or at screen-off.
             if (idle) return end(if (tails > 0 || facesLeft) deepenBlocker() ?: StopReason.DONE else StopReason.DONE)
             // Play services delivers the text and label readers after install: no file is read without them.
@@ -1039,6 +1041,7 @@ class Retriever(
                     // One at a time, strictly in plan order.
                     pendingPage = { store.pendingIn(sampleIds.value.orEmpty()).sortedBy { rank[it.id] }.take(1) },
                     tailPage = { store.tailChunksIn(sampleIds.value.orEmpty()) },
+                    wordsPage = { store.tailChunksIn(sampleIds.value.orEmpty()).filter { it.locator == LATER + WORDS } },
                     onCurrent = ::onCurrent,
                     configurationChanged = changedConfiguration,
                     policyStop = policyStop,

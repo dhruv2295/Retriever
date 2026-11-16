@@ -306,10 +306,10 @@ partialFiles:
 SELECT id FROM files WHERE id IN ? AND partial = 1;
 
 -- Files with a later pass to come: text, or a page or moment left for later, beside vectors already added. A file with no vector yet only waits for meaning,
--- a count and never a Partly read file.
+-- a count and never a Partly read file. A photo's words are no later part: its image has search by description.
 deepeningFiles:
 SELECT DISTINCT c.file_id FROM chunks c JOIN files f ON f.id = c.file_id
-WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
+WHERE c.file_id IN ? AND f.state = 'INDEXED' AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3 AND c.locator != 'later:words'
   AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR c.visual = 1)
   AND EXISTS (SELECT 1 FROM chunks d WHERE d.file_id = c.file_id AND d.ordinal > 0
     AND (d.vector IS NOT NULL OR (d.tail_attempts >= 3 AND length(trim(CASE WHEN d.content = 1 THEN d.text ELSE d.content_text END)) > 0)));
@@ -361,6 +361,25 @@ LIMIT ?;
 laterChunkCount:
 SELECT COUNT(*) FROM chunks c CROSS JOIN files f ON f.id = c.file_id
 WHERE c.locator LIKE 'later:%' AND f.state = 'INDEXED' AND c.tail_attempts < 3;
+
+-- Photos' words (Extraction.WORDS), newest photo first as pendingFiles reads them; the LIKE term keeps chunks_later.
+wordsChunks:
+SELECT c.id, c.file_id, c.ordinal, c.locator, c.text, f.name, c.tail_attempts, c.visual
+FROM chunks c CROSS JOIN files f ON f.id = c.file_id
+WHERE c.locator LIKE 'later:%' AND c.locator = 'later:words' AND f.state = 'INDEXED' AND c.tail_attempts < 3
+ORDER BY f.modified_at DESC, c.id
+LIMIT ?;
+
+wordsChunkCount:
+SELECT COUNT(*) FROM chunks c CROSS JOIN files f ON f.id = c.file_id
+WHERE c.locator LIKE 'later:%' AND c.locator = 'later:words' AND f.state = 'INDEXED' AND c.tail_attempts < 3;
+
+-- A file's image chunk at a locator, which a photo's words join when read after it.
+visualChunkAt:
+SELECT id FROM chunks WHERE file_id = ? AND locator = ? AND visual = 1 LIMIT 1;
+
+setChunkWords:
+UPDATE chunks SET text = ?, content_text = ?, labels = ?, content = ? WHERE id = ?;
 
 -- Files with no search by description yet (reach 16 unset) before more of files that have it: a Pixel's 3,609 photos read
 -- without the model waited behind 28,000 later pages of PDFs and documents while the status line said it was adding search
@@ -600,19 +619,21 @@ WHERE file_id = ? AND (content = 1 OR content_text IS NOT NULL) ORDER BY ordinal
 --   1 content: words, labels or a picture's vector;   2 tail text: words waiting for a vector, or a picture with tries left;
 --   4 tail queued: 2, with tries left;   8 meaning queued: no vector yet, with tries left;
 --   16 meaning reached: a vector, or words whose tries ran out;   32 any vector (ordinal 0 too);   64 any chunk without one.
+--   128 a photo's words (Extraction.WORDS) to read, with tries left. They never get a vector, so 2, 4, 8 and 64 leave them out.
 refreshReach:
 UPDATE files SET reach =
   EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
     AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR length(trim(c.labels)) > 0 OR (c.vector IS NOT NULL AND c.text IS NULL)))
-  + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL
+  + 2 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.locator != 'later:words'
     AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR (c.visual = 1 AND c.tail_attempts < 3)))
-  + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3
+  + 4 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3 AND c.locator != 'later:words'
     AND (length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0 OR c.visual = 1))
-  + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3)
+  + 8 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0 AND c.vector IS NULL AND c.tail_attempts < 3 AND c.locator != 'later:words')
   + 16 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.ordinal > 0
     AND (c.vector IS NOT NULL OR (c.tail_attempts >= 3 AND length(trim(CASE WHEN c.content = 1 THEN c.text ELSE c.content_text END)) > 0)))
   + 32 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NOT NULL)
-  + 64 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NULL)
+  + 64 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.vector IS NULL AND c.locator != 'later:words')
+  + 128 * EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = files.id AND c.locator = 'later:words' AND c.tail_attempts < 3)
 WHERE id IN ?;
 
 -- What refreshReach covers after a write across the library: files that hold chunks or held them.

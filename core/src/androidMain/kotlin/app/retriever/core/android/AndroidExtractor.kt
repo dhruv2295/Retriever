@@ -41,6 +41,7 @@ import app.retriever.core.Part
 import app.retriever.core.Piece
 import app.retriever.core.SourceFile
 import app.retriever.core.TEXT_BYTES
+import app.retriever.core.WORDS
 import app.retriever.core.ZipBudget
 import app.retriever.core.betterPageText
 import app.retriever.core.chunkChars
@@ -48,6 +49,7 @@ import app.retriever.core.cutShort
 import app.retriever.core.decodeText
 import app.retriever.core.docFormat
 import app.retriever.core.fitSize
+import app.retriever.core.imageFirst
 import app.retriever.core.imageWithText
 import app.retriever.core.joinStrips
 import app.retriever.core.later
@@ -209,11 +211,19 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
         val maxChars = chunkChars(profile.maxTokens)
         val ctx = currentCoroutineContext()
         return when (file.kind) {
+            // A screenshot's words are what it holds, so they come first; a photo's wait for the first pass's end.
+            Kind.PHOTO if head -> traced("pic.decode") { ImageBytes.jpeg(context, uri, EMBED_PX) }?.let { imageFirst(it) }.orEmpty()
+
             Kind.PHOTO, Kind.SCREENSHOT -> picture(uri, maxChars, file.kind == Kind.PHOTO)
+
             Kind.PDF -> pdf(uri, maxChars, if (head) PDF_HEAD_OCR_PAGES else PDF_OCR_PAGES)
+
             Kind.DOC -> doc(file, uri, maxChars)
+
             Kind.AUDIO -> emptyList()
+
             Kind.VIDEO -> video(uri, profile, ctx, head)
+
             Kind.OTHER -> emptyList()
         }.also { currentCoroutineContext().ensureActive() }
     }
@@ -231,6 +241,9 @@ class AndroidExtractor(private val context: Context, private val log: MediaLog) 
                     }
                 }
             }
+
+            // The whole read, as extract gives it; no picture now is a failed try, not a photo with no words.
+            Kind.PHOTO if locator == WORDS -> picture(uri, chunkChars(profile.maxTokens), photo = true).ifEmpty { null }
 
             // A moment whose frame turned out black holds nothing, as the first read would have dropped it.
             Kind.VIDEO -> MediaDecoding.frameJpeg(context, uri, Locator.msOf(locator) ?: return emptyList())

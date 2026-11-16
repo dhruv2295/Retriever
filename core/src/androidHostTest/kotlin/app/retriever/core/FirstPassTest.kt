@@ -1,5 +1,10 @@
 package app.retriever.core
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.retriever.core.db.IndexDb
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,6 +21,24 @@ class FirstPassTest {
 
     private fun engine(store: Store, extractor: Extractor, embedder: Embedder = FakeEmbedder()) =
         IndexEngine(store, extractor, embedder, FakeMonitor(), settingsOf())
+
+    private fun rowStore(): Pair<SqlDriver, Store> {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY).also { IndexDb.Schema.create(it) }
+        return driver to Store(driver).also { it.resetForModel(SIG) }
+    }
+
+    /** Every chunk as stored, with its keyword row; ordinals aside, which a placeholder's read takes from its place. */
+    private fun rows(driver: SqlDriver): List<String> = driver.executeQuery(
+        null,
+        """SELECT c.ordinal = 0, c.locator, c.text, c.content_text, c.labels, c.visual, c.content, c.vector IS NOT NULL, f.text, f.labels
+           FROM chunks c LEFT JOIN chunk_fts f ON f.rowid = c.id ORDER BY c.visual DESC, c.text""",
+        { c ->
+            val rows = mutableListOf<String>()
+            while (c.next().value) rows += (0 until 10).joinToString("|") { c.getString(it).toString() }
+            QueryResult.Value(rows)
+        },
+        0,
+    ).value
 
     @Test
     fun aShortOcrScrapIsFoundByKeywordWithoutAVectorOfItsOwn() = runTest {
@@ -171,6 +194,79 @@ class FirstPassTest {
         assertEquals(0L, store.laterChunkCount())
         assertEquals(Locator.page(5), SearchEngine(store, FakeEmbedder()).search("elderberry", SearchEngine.Mode.KEYWORD).hits.single().locator)
         assertEquals(listOf("0:05"), vectorLocators(store).filter { ":" in it }, "the moment read stays; the one left goes")
+    }
+
+    /** A photo's words read after its image leave the file's chunks and keyword rows exactly as one read leaves them. */
+    @Test
+    fun aPhotoReadImageFirstEndsAsOneReadLeavesIt() = runTest {
+        val long = (1..12).joinToString(" ") { "Platform $it departs for the harbour at noon." }
+        for ((ocr, labels) in listOf(long to "sign\nstreet", "4471" to "door", "" to "")) {
+            val read = imageWithText("", ByteArray(4), ocr, 60, labels)
+            val (onceDriver, once) = rowStore()
+            val (twiceDriver, store) = rowStore()
+            val photo = testFile("IMG_1.jpg", Kind.PHOTO)
+            listOf(once, store).forEach { it.upsertFiles(listOf(photo)) }
+            val whole = object : Extractor {
+                override suspend fun extract(file: SourceFile, profile: DeviceProfile) = read
+            }
+            engine(once, whole).runBatch(1.minutes)
+            val split = object : Extractor {
+                override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = error("the model is here: the head is read")
+
+                override suspend fun extractHead(file: SourceFile, profile: DeviceProfile) = imageFirst(ByteArray(4))
+
+                override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile) = read.also { assertEquals(WORDS, locator) }
+            }
+            val id = store.fileByUri(photo.uri)!!.id
+            IndexEngine(store, split, FakeEmbedder(), FakeMonitor(), settingsOf(), wordsPage = { emptyList() }).runBatch(1.minutes)
+            store.countsNow().progress.let {
+                assertEquals(listOf(1L, 0L, 0L, 1L), listOf(it.read, it.partlyRead, it.laterPasses, it.wordsWaiting), "read, its words to come")
+            }
+            assertEquals(emptyMap(), store.readExtents(listOf(id)), "no long file being finished")
+
+            engine(store, split).runBatch(1.minutes)
+            assertEquals(rows(onceDriver), rows(twiceDriver), "OCR ${ocr.length} chars")
+            assertEquals(once.countsNow().progress, store.countsNow().progress)
+        }
+    }
+
+    /** Words are first-pass work: read after every pending file, newest photo first, without the deepen pass or a charger. */
+    @Test
+    fun photosWordsFollowThePendingFilesWithoutTheDeepenPass() = runBlocking {
+        val calls = mutableListOf<String>()
+        val doc = testFile("lease.docx", Kind.DOC)
+        val older = testFile("old.jpg", Kind.PHOTO, modifiedAt = 1)
+        val newer = testFile("new.jpg", Kind.PHOTO, modifiedAt = 2)
+        val extractor = object : Extractor {
+            override suspend fun extract(file: SourceFile, profile: DeviceProfile): List<Piece> = error("the model is here: the head is read")
+
+            override suspend fun extractHead(file: SourceFile, profile: DeviceProfile): List<Piece> {
+                calls += file.name
+                return if (file.kind == Kind.PHOTO) imageFirst(ByteArray(2)) else (1..10).map { textPiece("part $it of the lease") }
+            }
+
+            override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
+                calls += "$locator ${file.name}"
+                return imageWithText("", ByteArray(2), "Gate 12", 800)
+            }
+        }
+        val store = newStore()
+        store.setProfile(PROFILE)
+        val files = listOf(doc, older, newer)
+        testRetriever(store, files, extractor).indexBatch(1.minutes, deepen = false)
+        assertEquals(listOf("lease.docx", "new.jpg", "old.jpg", "words new.jpg", "words old.jpg"), calls)
+        assertEquals(0L, store.wordsChunkCount())
+        assertEquals(10L - IndexEngine.DOC_HEAD_CHUNKS, store.tailChunkCount(), "the long file's rest waits for the deepen pass")
+
+        // A batch that may not deepen, with no file pending: the words left are its work, not a reason to stop.
+        val photo = testFile("late.jpg", Kind.PHOTO, modifiedAt = 3)
+        store.upsertFiles(listOf(photo))
+        IndexEngine(store, extractor, FakeEmbedder(store.signature()!!), FakeMonitor(), settingsOf(), wordsPage = { emptyList() }).runBatch(1.minutes)
+        assertEquals(1L, store.wordsChunkCount())
+        assertEquals(NextRun.DONE, testRetriever(store, files + photo, extractor).indexBatch(1.minutes, deepen = false))
+        assertEquals("words late.jpg", calls.last())
+        assertEquals(0L, store.wordsChunkCount())
+        assertEquals(10L - IndexEngine.DOC_HEAD_CHUNKS, store.tailChunkCount())
     }
 
     @Test

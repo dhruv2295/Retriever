@@ -14,6 +14,8 @@ data class ReadingProgress(
     val rereads: Long = 0,
     /** Files read without vectors that the model will add search by description to; a subset count, never a partition bucket. */
     val meaningWaiting: Long = 0,
+    /** Photos read with search by description whose words (Extraction.WORDS) are still to read; a subset of [read]. */
+    val wordsWaiting: Long = 0,
     /** The phone's files have all been counted once (the first full scan is written); until then the totals still grow. */
     val counted: Boolean = true,
     /** Not now was chosen after the demo: only names can be found until the person chooses when to process. */
@@ -28,7 +30,7 @@ data class ReadingProgress(
 
     /** The files still to process, null until they are all counted ("the rest of your files"). */
     val rest: Long? get() = waiting.takeIf { counted }
-    val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0 || meaningWaiting > 0
+    val unfinished: Boolean get() = scheduled > 0 || laterPasses > 0 || rereads > 0 || meaningWaiting > 0 || wordsWaiting > 0
 }
 
 enum class ReadingSchedule {
@@ -309,7 +311,8 @@ object ReadingPolicy {
             // they are done, a running batch is on these passes even between files.
             (reading || running) && progress.scheduled == 0L && progress.meaningWaiting > 0 -> ReadingPhase.MEANING
 
-            (reading || running) && progress.scheduled == 0L && progress.laterPasses > 0 -> ReadingPhase.DEEPENING
+            // Photos' words go before the long files' rest (IndexEngine.runBatch), as READING with their own title.
+            (reading || running) && progress.scheduled == 0L && progress.laterPasses > 0 && progress.wordsWaiting == 0L -> ReadingPhase.DEEPENING
 
             reading || (running && unfinished) -> ReadingPhase.READING
 
@@ -331,6 +334,8 @@ object ReadingPolicy {
             (blocker == null || blocker == StopReason.DONE || blocker == StopReason.BUDGET)
         // A stop over only those passes says why it stopped, then that every file is processed and what is left.
         val restStopped = phase in STOPS && unfinished && allProcessed
+        // Every file processed and searchable by description, the words in photos read now: no full bar beside the work.
+        val photoWords = phase == ReadingPhase.READING && !progress.sample && progress.scheduled == 0L && progress.wordsWaiting > 0
         // Play services delivers the text and label readers after install; the first batch may wait for them.
         val gettingReaders = readersMissing && running && phase == ReadingPhase.READING
         // The count and the bar are the same numbers. None while counting, or while deepening:
@@ -361,7 +366,7 @@ object ReadingPolicy {
                 ReadingPhase.MEANING -> c.addingDescriptionTitle
                 ReadingPhase.FACES -> c.lookingForFacesTitle
                 ReadingPhase.DEEPENING -> c.deepeningTitle
-                ReadingPhase.READING -> c.processingYourFiles
+                ReadingPhase.READING -> if (photoWords) c.readingPhotoWordsTitle else c.processingYourFiles
                 ReadingPhase.LOOKING -> c.lookingTitle
                 ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> c.caughtUpTitle
                 else -> stopCopy(blocker ?: StopReason.DONE, words)
@@ -401,6 +406,7 @@ object ReadingPolicy {
 
                 ReadingPhase.WAITING if firstPassDone -> when {
                     looking != null -> c.facesWaitingDetail(words)
+                    progress.wordsWaiting > 0 -> c.waitingPhotoWordsDetail(words)
                     progress.laterPasses > 0 -> c.waitingLongFilesDetail(words)
                     else -> c.waitingMeaningDetail(words)
                 }
@@ -418,6 +424,7 @@ object ReadingPolicy {
         val lead = when {
             people == PeopleModel.WAITING_FOR_WIFI && facesWaiting != null && !running -> c.peopleWaitsForWifi
             phase == ReadingPhase.DEEPENING -> c.deepeningLead(progress.laterPasses)
+            photoWords -> c.deepeningLead(progress.wordsWaiting)
             restStopped && !meaning && progress.laterPasses > 0 -> c.longFilesWait(progress.laterPasses)
             restStopped -> c.allFilesProcessedLead
             else -> null
@@ -480,7 +487,7 @@ object ReadingPolicy {
             meaning -> progress.contentRead - progress.meaningWaiting to progress.contentRead
             else -> progress.processed to progress.libraryTotal
         }
-        val laterOnly = phase == ReadingPhase.DEEPENING || (restStopped && !meaning && looking == null)
+        val laterOnly = phase == ReadingPhase.DEEPENING || photoWords || (restStopped && !meaning && looking == null)
         val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && looking == null) || total == 0L
         if (none) return ReadingStatus(phase, title, detail, action)
         val count = when {

@@ -149,6 +149,7 @@ class CopySnapshotTest {
             ReadingProgress(read = 2, scheduled = 3, sample = true),
             ReadingProgress(read = 2, scheduled = 3, notNow = true),
             ReadingProgress(read = 5, partlyRead = 1),
+            ReadingProgress(read = 20, wordsWaiting = 12),
         )
 
         TasteProgress::class.java -> listOf(TasteProgress(emptyMap(), emptySet(), 0, 0, 0), TasteProgress(emptyMap(), emptySet(), 3, 2, 5))

@@ -540,6 +540,7 @@ internal object French : Strings {
 
     override val lookingForFacesTitle = "Repérage des personnes dans vos photos"
     override val deepeningTitle = "Traitement de la suite de certains fichiers longs"
+    override val readingPhotoWordsTitle = "Lecture du texte de vos photos"
     override val lookingTitle = "Recherche de nouveaux fichiers…"
     override val caughtUpTitle = "Terminé. Retriever a traité tout ce qu’il pouvait"
 
@@ -597,6 +598,9 @@ internal object French : Strings {
 
     override fun waitingLongFilesDetail(words: DeviceWords) =
         "Retriever traite la suite de certains fichiers longs quand votre ${device(words)} le permet. La recherche fonctionne déjà."
+
+    override fun waitingPhotoWordsDetail(words: DeviceWords) =
+        "Retriever lit le texte de vos photos quand votre ${device(words)} le permet. La recherche fonctionne déjà."
 
     override fun waitingMeaningDetail(words: DeviceWords) =
         "Retriever ajoute la recherche par description quand votre ${device(words)} le permet. La recherche fonctionne déjà."

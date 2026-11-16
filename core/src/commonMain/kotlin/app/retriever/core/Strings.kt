@@ -339,6 +339,7 @@ interface Strings {
 
     val lookingForFacesTitle: String
     val deepeningTitle: String
+    val readingPhotoWordsTitle: String
     val lookingTitle: String
     val caughtUpTitle: String
 
@@ -382,6 +383,8 @@ interface Strings {
     fun readingDetail(words: DeviceWords): String
 
     fun waitingLongFilesDetail(words: DeviceWords): String
+
+    fun waitingPhotoWordsDetail(words: DeviceWords): String
 
     fun waitingMeaningDetail(words: DeviceWords): String
     val diskFullDetail: String

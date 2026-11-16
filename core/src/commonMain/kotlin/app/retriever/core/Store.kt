@@ -434,12 +434,21 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         }
     }
 
-    /** Replaces a [LATER] placeholder with what was read there, at its place in the file; with nothing, it just goes. */
-    fun replaceTailChunk(id: Long, chunks: List<NewChunk>) {
+    /**
+     * Replaces a [LATER] placeholder with what was read there, at its place in the file; with nothing, it just goes.
+     * [image]: the words and labels of the file's image chunk at that locator ([WORDS]), set on it in place.
+     */
+    fun replaceTailChunk(id: Long, chunks: List<NewChunk>, image: NewChunk? = null) {
         val index = signature()
         check(chunks.all { it.vector == null || it.vector.signature == index }) { "vector signature does not match index ${index?.value}" }
         transaction {
             val c = q.chunkById(id).executeAsOneOrNull() ?: return@transaction
+            image?.let { words ->
+                val imageId = q.visualChunkAt(c.file_id, words.locator).executeAsOneOrNull() ?: return@let
+                q.setChunkWords(words.text, words.contentText.takeUnless { words.ownText }, words.labels, if (words.ownText) 1L else 0L, imageId)
+                q.deleteFts(imageId)
+                if (words.text != null || words.labels != null) insertFts(imageId, words.text, words.labels)
+            }
             for (n in chunks) {
                 insertChunk(c.file_id, c.ordinal, n)
                 if (n.text != null || n.labels != null) insertFts(q.lastId().executeAsOne(), n.text, n.labels)
@@ -451,8 +460,10 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     }
 
     /** Content that is the chunk's own text is stored as a flag, not as a second copy of it. */
+    private val NewChunk.ownText get() = contentText != null && contentText == text
+
     private fun insertChunk(fileId: Long, ordinal: Long, c: NewChunk) {
-        val own = c.contentText != null && c.contentText == c.text
+        val own = c.ownText
         q.insertChunk(
             fileId, ordinal, c.locator, c.text, c.vector?.bytes, c.vector?.scale?.toDouble(),
             c.contentText.takeUnless { own }, c.labels, if (c.visual) 1L else 0L, if (own) 1L else 0L,
@@ -472,6 +483,13 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
     }.executeAsList()
 
     fun laterChunkCount(): Long = q.laterChunkCount().executeAsOne()
+
+    /** Photos' [WORDS] placeholders with tries left, newest photo first. */
+    fun wordsChunks(limit: Int): List<TailChunk> = q.wordsChunks(limit.toLong()) { id, fileId, ordinal, locator, text, name, attempts, visual ->
+        TailChunk(id, name, text, attempts.toInt(), fileId, ordinal.toInt(), locator, visual != 0L)
+    }.executeAsList()
+
+    fun wordsChunkCount(): Long = q.wordsChunkCount().executeAsOne()
 
     /**
      * Gives a tail chunk its vector. The chunk moves to a new id, so a loaded [VectorTable] picks it up by
@@ -698,7 +716,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
 
     private enum class Coverage { READ, PARTIAL, WAITING, NAME, ERROR }
 
-    private class Outcome(val kind: Kind, val coverage: Coverage, val later: Boolean, val meaning: Boolean, val n: Long)
+    private class Outcome(val kind: Kind, val coverage: Coverage, val later: Boolean, val meaning: Boolean, val words: Boolean, val n: Long)
 
     /** The reading contract's buckets; tails and the meaning upgrade count only with [includeTails]. */
     private fun Group.outcome(kinds: Set<Kind>, includeTails: Boolean): Outcome {
@@ -712,7 +730,14 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             state == FileState.INDEXED -> Coverage.NAME
             else -> Coverage.WAITING
         }
-        return Outcome(kind, coverage, later = includeTails && has(Reach.TAIL_QUEUED) && !upgrade, meaning = upgrade && kind in kinds, n)
+        return Outcome(
+            kind,
+            coverage,
+            later = includeTails && has(Reach.TAIL_QUEUED) && !upgrade,
+            meaning = upgrade && kind in kinds,
+            words = includeTails && state == FileState.INDEXED && has(Reach.WORDS_QUEUED) && kind in kinds,
+            n,
+        )
     }
 
     /**
@@ -746,6 +771,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             laterPasses = scoped.filter { it.coverage == Coverage.PARTIAL && it.later }.sumOf { it.n },
             sample = ids != null,
             meaningWaiting = scoped.filter { it.meaning }.sumOf { it.n },
+            wordsWaiting = scoped.filter { it.words }.sumOf { it.n },
             rereads = (rows.filterKeys { it.second == FileState.PENDING && it.first in kinds }.values.sum() - scheduled).coerceAtLeast(0),
             counted = meta(LAST_FULL_SCAN_KEY) != null,
             notNow = ids != null && flag(TASTE_DECIDED_KEY) &&
@@ -775,6 +801,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
                     laterPasses = progress.laterPasses,
                     sample = true,
                     meaningWaiting = progress.meaningWaiting,
+                    wordsWaiting = progress.wordsWaiting,
                     rereads = progress.rereads,
                 )
             },
@@ -797,6 +824,7 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
         const val MEANING_REACHED = 16L
         const val ANY_VECTOR = 32L
         const val NO_VECTOR = 64L
+        const val WORDS_QUEUED = 128L
     }
 
     /** The [limit] newest files of [kinds], newest first. */

@@ -75,6 +75,8 @@ class IndexEngine(
     private val tailPage: () -> List<Store.TailChunk> = { store.tailChunks(PAGE) },
     /** Without the model: the [LATER] placeholders still to resolve. */
     private val laterPage: () -> List<Store.TailChunk> = { store.laterChunks(PAGE) },
+    /** The photos' [WORDS] still to read, newest first; read once no file is pending, with or without [runBatch]'s deepen. */
+    private val wordsPage: () -> List<Store.TailChunk> = { store.wordsChunks(PAGE) },
     /**
      * Before extraction starts, after any wait for the UI. Never cleared between two files, so every surface keeps saying
      * the batch reads (no "Getting started…" blink per file); the batch's end clears it.
@@ -97,6 +99,7 @@ class IndexEngine(
         // Pages, so the queue's sort runs once per PAGE files rather than once per file.
         val files = ArrayDeque<Store.StoredFile>()
         val tails = ArrayDeque<Store.TailChunk>()
+        val words = ArrayDeque<Store.TailChunk>()
         // The files read ahead, in order: always the first ones of [files].
         val ahead = ArrayDeque<Ahead>()
         val scope = CoroutineScope(currentCoroutineContext())
@@ -173,6 +176,17 @@ class IndexEngine(
                     }
                     continue
                 }
+                // The first pass's rule, not the charger's: a photo's words finish what its read began.
+                if (words.isEmpty()) words += wordsPage()
+                val word = words.removeFirstOrNull()
+                if (word != null) {
+                    try {
+                        embedTailThenRest(word, embedder)
+                    } catch (s: ReadingStopped) {
+                        return stop(s.reason)
+                    }
+                    continue
+                }
                 if (!deepen) return stop(StopReason.DONE)
                 if (tails.isEmpty()) tails += tailPage()
                 try {
@@ -219,8 +233,16 @@ class IndexEngine(
                         e.embed(parts)
                     }
                 }
-                val chunks = if (pieces.isEmpty()) emptyList() else draftChunks(file, pieces, embed = embed)
-                store.replaceTailChunk(tail.id, chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) })
+                // A photo's words come as one read gives them, image first: that piece's scrap and labels join the image chunk
+                // the first pass stored, so the file ends as one read leaves it. The image is not embedded again.
+                val image = pieces.firstOrNull()?.takeIf { tail.locator == LATER + WORDS && it.parts.firstOrNull() is Part.Image }
+                val rest = if (image == null) pieces else pieces.drop(1)
+                val chunks = if (rest.isEmpty()) emptyList() else draftChunks(file, rest, embed = embed)
+                store.replaceTailChunk(
+                    tail.id,
+                    chunks.map { Store.NewChunk(it.ordinal, it.locator, it.text, it.vector, it.contentText, it.labels, it.visual) },
+                    image?.let { Store.NewChunk(0, it.locator, it.keywordText, null, it.contentText, it.labels, visual = true) },
+                )
                 return
             }
             if (embedder == null) return

@@ -492,6 +492,7 @@ internal object Japanese : Strings {
 
     override val lookingForFacesTitle = "写真の中の人物を見つけています"
     override val deepeningTitle = "一部の長いファイルの残りを処理しています"
+    override val readingPhotoWordsTitle = "写真の中の文字を読み取っています"
     override val lookingTitle = "新しいファイルを確認しています…"
     override val caughtUpTitle = "完了。Retrieverは処理できるものをすべて処理しました"
 
@@ -541,6 +542,8 @@ internal object Japanese : Strings {
     }
 
     override fun waitingLongFilesDetail(words: DeviceWords) = "${dev(words)}が許可したときに、Retrieverが一部の長いファイルの残りを処理します。検索は今すぐ使えます。"
+
+    override fun waitingPhotoWordsDetail(words: DeviceWords) = "${dev(words)}が許可したときに、Retrieverが写真の中の文字を読み取ります。検索は今すぐ使えます。"
 
     override fun waitingMeaningDetail(words: DeviceWords) = "${dev(words)}が許可したときに、Retrieverが「説明で検索」を追加します。検索は今すぐ使えます。"
 

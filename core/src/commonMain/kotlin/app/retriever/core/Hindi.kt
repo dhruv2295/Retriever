@@ -540,6 +540,7 @@ internal object Hindi : Strings {
 
     override val lookingForFacesTitle = "आपकी फ़ोटो में लोगों को ढूंढा जा रहा है"
     override val deepeningTitle = "कुछ लंबी फ़ाइलों का बाकी हिस्सा प्रोसेस हो रहा है"
+    override val readingPhotoWordsTitle = "आपकी फ़ोटो में लिखे शब्द पढ़े जा रहे हैं"
     override val lookingTitle = "नई फ़ाइलें देखी जा रही हैं…"
     override val caughtUpTitle = "सब हो गया. Retriever ने जो कुछ प्रोसेस हो सकता था, सब कर लिया"
 
@@ -594,6 +595,9 @@ internal object Hindi : Strings {
 
     override fun waitingLongFilesDetail(words: DeviceWords) =
         "जब आपका ${phone(words)} अनुमति देता है, तब Retriever कुछ लंबी फ़ाइलों का बाकी हिस्सा प्रोसेस करता है. खोज अभी काम करती है."
+
+    override fun waitingPhotoWordsDetail(words: DeviceWords) =
+        "जब आपका ${phone(words)} अनुमति देता है, तब Retriever आपकी फ़ोटो में लिखे शब्द पढ़ता है. खोज अभी काम करती है."
 
     override fun waitingMeaningDetail(words: DeviceWords) = "जब आपका ${phone(words)} अनुमति देता है, तब Retriever विवरण से खोज जोड़ता है. खोज अभी काम करती है."
 

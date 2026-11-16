@@ -38,8 +38,8 @@ interface Extractor {
     suspend fun ready(): Boolean = true
 
     /**
-     * The first pass's read while the model is there to deepen later: a video's one moment and a scanned PDF's first
-     * [PDF_HEAD_OCR_PAGES] pages, the rest left as [later] placeholders. By default, the whole file now.
+     * The first pass's read while the model is there to deepen later: a photo's image ([imageFirst]), a video's one moment
+     * and a scanned PDF's first [PDF_HEAD_OCR_PAGES] pages, the rest left as [later] placeholders. By default, the whole file now.
      */
     suspend fun extractHead(file: SourceFile, profile: DeviceProfile): List<Piece> = extract(file, profile)
 
@@ -47,7 +47,8 @@ interface Extractor {
     suspend fun visual(file: SourceFile, locator: String): Part.Image? = null
 
     /**
-     * What a [later] placeholder at [locator] holds, read in the deepen pass: empty when there is nothing there (the
+     * What a [later] placeholder at [locator] holds, read in the deepen pass ([WORDS]: as one read gives a photo, once the
+     * first pass has no files left): empty when there is nothing there (the
      * placeholder goes), null when it can't be read now (a failed try; after three the placeholder stays as it is).
      */
     suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece>? =

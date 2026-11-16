@@ -18,8 +18,12 @@ class IosExtractorTest {
     private val profile = DeviceProfile(Tier.BALANCED, ModelVariant.M440, Backend.CPU, 70, 5, true, false)
     private val video = SourceFile("ph://video", "video.mp4", "Photos", "video/mp4", Kind.VIDEO, 100, 1)
 
-    private class Frames(private val bytes: ByteArray? = null, private val scanned: NativeScan? = null, private val afterFrame: () -> Unit = {}) :
-        NativeExtractor {
+    private class Frames(
+        private val bytes: ByteArray? = null,
+        private val scanned: NativeScan? = null,
+        private val image: ByteArray? = null,
+        private val afterFrame: () -> Unit = {},
+    ) : NativeExtractor {
         var frames = 0
         val scans = mutableListOf<Triple<String, Int, Int>>()
         override fun videoDurationMs(uri: String): Long = 120_000
@@ -36,7 +40,7 @@ class IosExtractorTest {
         }
         override fun imageJpeg(uri: String, maxSide: Int): NSData? {
             afterFrame()
-            return null
+            return image?.toNSData()
         }
         override fun pdfPageCount(uri: String): Int = error("unexpected PDF")
         override fun pdfPageText(uri: String, page: Int): String? = ""
@@ -57,6 +61,17 @@ class IosExtractorTest {
         assertContentEquals(byteArrayOf(7), (image.parts.single() as Part.Image).jpeg)
         assertEquals("receipt", image.labels)
         assertEquals("Total 1250", image.contentText)
+    }
+
+    /** With the model here, a photo's first read is its image alone; its words and labels are the scan, read later. */
+    @Test fun aPhotoHeadIsItsImageAndItsWordsComeLater() = runBlocking {
+        val native = Frames(scanned = receipt, image = byteArrayOf(5))
+        val head = IosExtractor(native).extractHead(photo, profile)
+        assertEquals(emptyList(), native.scans)
+        assertContentEquals(byteArrayOf(5), (head.first().parts.single() as Part.Image).jpeg)
+        assertEquals(LATER + WORDS, head.last().locator)
+        assertEquals("Total 1250", IosExtractor(native).later(photo, WORDS, profile)?.first()?.contentText)
+        assertEquals(listOf(Triple(photo.uri, -1, 512)), native.scans)
     }
 
     @Test fun aScannedPageIsRenderedOnce() = runBlocking {

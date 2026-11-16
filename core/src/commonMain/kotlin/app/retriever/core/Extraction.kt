@@ -429,6 +429,15 @@ const val LATER = "later:"
 fun later(locator: String) = Piece(LATER + locator, emptyList(), null)
 
 /**
+ * The [later] locator of a photo's words and labels, read once the first pass has no files left rather than in the deepen
+ * pass. The image vector never used them, so a photo has search by description from its image alone.
+ */
+const val WORDS = "words"
+
+/** A photo's first read while the model is here: its image as the model embeds it, its [WORDS] after. */
+fun imageFirst(jpeg: ByteArray) = listOf(Piece("", listOf(Part.Image(jpeg)), null), later(WORDS))
+
+/**
  * A PDF's pieces: each page by its text layer ([text]), else rendered and read by OCR ([scanned], given the page
  * index and its layer text) up to [PDF_OCR_PAGES], then skipped and the file marked [cutShort]. A file known to have
  * no text layer ([hasTextLayer] false), or not known (null) with no text on any page so far, stops opening pages once
