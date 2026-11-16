@@ -91,6 +91,15 @@ enum class StatusAction {
 }
 
 private val ACTIVE = setOf(ReadingPhase.READING, ReadingPhase.DEEPENING, ReadingPhase.MEANING, ReadingPhase.FACES)
+private val ALWAYS_ON_HOME = setOf(
+    ReadingPhase.NO_ACCESS,
+    ReadingPhase.SETTING_UP,
+    ReadingPhase.DOWNLOADING,
+    ReadingPhase.DOWNLOAD_STOPPED,
+    ReadingPhase.TUNING,
+    ReadingPhase.CAUGHT_UP,
+)
+
 private val STOPS = setOf(
     ReadingPhase.PAUSED,
     ReadingPhase.POWER_SAVE,
@@ -187,6 +196,17 @@ object ReadingPolicy {
 
     /** Why reading stopped, as every surface titles it; DONE and BUDGET are the system's turn between batches. */
     fun stopCopy(stop: StopReason, words: DeviceWords): String = Words.strings.stopCopy(stop, words)
+
+    /**
+     * What Home shows of [line]. Once the first run has finished ([Prefs.stagesDone] holds the last stage), new files are
+     * processed quietly: Home keeps only access, setup and the download, a stage's first run (People turned on later) and
+     * the one "All done". Status and Settings still show every line.
+     */
+    fun home(line: ReadingStatus?, stagesDone: Set<Stage>?): ReadingStatus? {
+        if (line == null || stagesDone == null || Stage.REST !in stagesDone) return line
+        val firstRun = line.journey?.now?.stage?.let { it !in stagesDone } == true
+        return line.takeIf { firstRun || it.phase in ALWAYS_ON_HOME }
+    }
 
     /**
      * Home's status line: lost access first, then setup's access step, then the model download or its setup (a stopped

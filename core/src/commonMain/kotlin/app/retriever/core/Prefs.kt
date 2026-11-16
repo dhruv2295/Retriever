@@ -61,7 +61,8 @@ data class Prefs(
 
     val caughtUpDismissed: Boolean get() = dismissedReadingCycle == readingCycle
 
-    fun readingStarted(): Prefs = if (caughtUpDismissed) copy(readingCycle = readingCycle + 1) else this
+    /** A dismissed "All done" comes back for the next run, until the first run has finished: new files don't bring it back. */
+    fun readingStarted(): Prefs = if (caughtUpDismissed && stagesDone?.contains(Stage.REST) != true) copy(readingCycle = readingCycle + 1) else this
 
     fun dismissCaughtUp(): Prefs = copy(dismissedReadingCycle = readingCycle)
 

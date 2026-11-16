@@ -14,6 +14,7 @@ import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SamePerson
+import app.retriever.core.Stage
 import app.retriever.core.StatusAction
 import app.retriever.core.Store
 import app.retriever.core.YearMemory
@@ -47,6 +48,8 @@ data class HomeUi(
     val progress: ReadingProgress = ReadingProgress(),
     val readingStatus: ReadingStatus? = null,
     val caughtUpDismissed: Boolean = false,
+    /** core's [app.retriever.core.Prefs.stagesDone]: after the first run, Home's status line stays quiet for new files. */
+    val stagesDone: Set<Stage>? = null,
     /** Words from the person's own files for the search bar's "Try:"; null until core has answered (the view model's start). */
     val suggestions: List<String>? = emptyList(),
     val home: HomeFacts? = null,
@@ -146,6 +149,7 @@ class HomeViewModel(
                 access = access.state.value,
                 showOnThisDay = retriever.prefs.value.showOnThisDay,
                 caughtUpDismissed = retriever.prefs.value.caughtUpDismissed,
+                stagesDone = retriever.prefs.value.stagesDone,
                 introDue = retriever.prefs.value.homeIntroDue,
                 automaticReading = retriever.prefs.value.automaticReading,
                 sessionActive = retriever.prefs.value.started,
@@ -202,6 +206,7 @@ class HomeViewModel(
                     it.copy(
                         showOnThisDay = p.showOnThisDay,
                         caughtUpDismissed = p.caughtUpDismissed,
+                        stagesDone = p.stagesDone,
                         introDue = p.homeIntroDue,
                         automaticReading = p.automaticReading,
                         sessionActive = p.started,

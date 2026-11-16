@@ -569,7 +569,9 @@ private fun EmptyHome(looking: Boolean) {
  * Core's status line, once its live reading status has arrived (its detail carries the live count). [noSpace]: why a
  * download Android refused for space stopped, said in place of core's stopped-download line, which speaks of Wi-Fi.
  */
-internal fun homeStatus(ui: HomeUi, download: DownloadState? = null, noSpace: String? = null): ReadingStatus? =
-    ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)?.let {
+internal fun homeStatus(ui: HomeUi, download: DownloadState? = null, noSpace: String? = null): ReadingStatus? {
+    val line = ReadingPolicy.line(ui.readingStatus, ui.libraryChosen, ui.hasAccess, ui.progress.libraryTotal, DeviceWords.ANDROID, download)
+    return ReadingPolicy.home(line, ui.stagesDone)?.let {
         if (noSpace != null && it.phase == ReadingPhase.DOWNLOAD_STOPPED) it.copy(title = Words.NO_SPACE, detail = noSpace) else it
     }
+}

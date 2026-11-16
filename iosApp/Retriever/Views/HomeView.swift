@@ -357,7 +357,7 @@ private struct HomeStatusSection: View {
     }
 
     var body: some View {
-        let status = model.statusLine(shown)
+        let status = ReadingPolicy.shared.home(line: model.statusLine(shown), stagesDone: snap.prefs?.stagesDone)
         // One remedy at a time: Resume while paused, or no access at all, else what Photos access needs.
         let photosNote = snap.total == 0 || status.map({ [.paused, .noAccess].contains($0.phase) }) == true ? nil : Copy.photosNote(photos)
         // Home's one-time card says the same until Got it.

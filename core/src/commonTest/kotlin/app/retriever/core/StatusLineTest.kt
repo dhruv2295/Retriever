@@ -465,4 +465,15 @@ class StatusLineTest {
         val newPhotos = journey(ReadingProgress(read = 20, scheduled = 1)).remembered(finished ?: Prefs(), peopleOffered = false).first
         assertTrue(newPhotos.rows.none { it.stage == Stage.REST }, "no long-files row comes back ticked with new files")
     }
+
+    /** After the first run, Home stays quiet while new files are processed, but still shows a stage's first run. */
+    @Test fun homeShowsProgressOnlyForAFirstRun() {
+        fun running(stage: Stage) = ReadingStatus(ReadingPhase.READING, "", journey = Journey(listOf(StageRow(stage, StageState.NOW, "", ""))))
+        val firstRunDone = setOf(Stage.NAMES, Stage.MEANING, Stage.WORDS, Stage.REST)
+        assertNotEquals(null, ReadingPolicy.home(running(Stage.MEANING), setOf(Stage.NAMES)))
+        assertNull(ReadingPolicy.home(running(Stage.MEANING), firstRunDone))
+        assertNull(ReadingPolicy.home(ReadingStatus(ReadingPhase.WAITING, ""), firstRunDone))
+        assertNotEquals(null, ReadingPolicy.home(running(Stage.PEOPLE), firstRunDone))
+        assertNotEquals(null, ReadingPolicy.home(ReadingStatus(ReadingPhase.NO_ACCESS, ""), firstRunDone))
+    }
 }
