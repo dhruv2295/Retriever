@@ -61,8 +61,8 @@ fun midWord(typed: String): Boolean {
 
 /** Search timings shared by both apps; the Android values, which the iOS model matches except where noted. */
 object SearchTiming {
-    const val NAMES_MS = 20L
-    const val FULL_MS = 200L
+    /** Typed words are searched once they hold still this long; phone typing averages about 330 ms a key. */
+    const val PAUSE_MS = 400L
     const val TYPING_MS = 1_500L
     const val WORDS_ONLY_WAIT_MS = 2_000L
     const val WORDS_ONLY_RETRIES = 5

@@ -220,6 +220,8 @@ final class SearchModel {
     }
 
     @ObservationIgnored private var typing: Task<Void, Never>?
+    /// The words last searched: only new words wait for typing to pause.
+    @ObservationIgnored private var askedWords = ""
 
     /// Reading steps aside for a moment after each keystroke, not for as long as the search stays open; a search
     /// running holds it off in core.
@@ -268,8 +270,14 @@ final class SearchModel {
         // Reuse a finished meaning answer only for the same request; retries and words-only answers ask again.
         if let done = phase as? SearchPhaseResults, done.complete, answer?.key == key, done.result.vectorLane { return }
         phase = SearchPhaseKt.onAsk(phase, q: q)
-        let start = ContinuousClock.now
         let limit = timing.LIMIT
+        // Debounce: each key replaces this task (`.task(id:)`), so typed words are searched once they hold still. A chip,
+        // filter or photo asks at once.
+        if key.photo == nil, key.query != askedWords {
+            try? await Task.sleep(for: .milliseconds(timing.PAUSE_MS))
+            guard !Task.isCancelled else { return }
+            askedWords = key.query
+        }
         let waiting = Task {
             try await Task.sleep(for: .milliseconds(timing.SEARCHING_BAR_MS))
             slow = true
@@ -285,15 +293,10 @@ final class SearchModel {
             // Phase one: names, from memory, with no model. Nothing found yet isn't "no matches", so the reducer
             // doesn't show it; a retry of the same question keeps its full answer instead.
             if key.photo == nil, SearchPhaseKt.answerFor(phase, current: q) == nil {
-                try? await Task.sleep(until: start + .milliseconds(timing.NAMES_MS))
-                guard !Task.isCancelled else { return }
                 let names = try await ask(key, retriever, limit: limit, namesOnly: true)
                 guard !Task.isCancelled else { return }
                 phase = SearchPhaseKt.onNames(phase, q: q, r: names)
                 if !names.hits.isEmpty { answer = Answer(names, strong: names.hits.count, key: key) }
-                // Phase two waits for the words to hold still, so typing never starts a full search.
-                try? await Task.sleep(until: start + .milliseconds(timing.FULL_MS))
-                guard !Task.isCancelled else { return }
             }
             let asked = photo.flatMap { $0.id == key.photo ? $0 : nil }
             let result = try await ask(key, retriever, limit: limit, namesOnly: false, photo: asked)

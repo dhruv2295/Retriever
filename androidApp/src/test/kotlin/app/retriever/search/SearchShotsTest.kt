@@ -12,6 +12,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isSelected
@@ -517,6 +518,18 @@ class SearchShotsTest {
         rule.setContent { ShotTheme(false, 1f) { SearchContent(ui, readyHome, actions, onBack = {}, typing = false) } }
         rule.waitForIdle()
         rule.onNodeWithText(text).assertExists()
+    }
+
+    /** The names answer found documents; the full one ranks photos above them. At the top, the list stays there. */
+    @Test fun photosRankedAboveTheNamesAnswerOpenAtTheTop() {
+        val docs = (1L..30L).map { hit(it, file("Bill $it.pdf", Kind.PDF)) }
+        val names = ready.answered("bill", docs, complete = false)
+        var ui by mutableStateOf(names)
+        rule.setContent { ShotTheme(false, 1f) { SearchContent(ui, readyHome, SearchActions(), onBack = {}, typing = false) } }
+        rule.waitForIdle()
+        ui = names.answered("bill", (31L..34L).map { hit(it, file("IMG_$it.jpg", Kind.PHOTO)) } + docs)
+        rule.waitForIdle()
+        rule.onNodeWithText(Words.PHOTOS_AND_VIDEOS).assertIsDisplayed()
     }
 
     @Test fun theSearchingDogWaitsBelowTheChipsAndNeverOverHits() {

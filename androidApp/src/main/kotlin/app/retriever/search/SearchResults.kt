@@ -137,7 +137,7 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
     // The answer on screen was to other words or filters: newer ones are being searched. It dims only once the wait is
     // noticeable, like the bar, so typing doesn't pulse it at every key.
     val stale = phase.isStale(question)
-    val dim = heldFor(SearchTiming.SEARCHING_BAR_MS, stale, question)
+    val dim = heldFor(SearchTiming.SEARCHING_BAR_MS, stale && ui.searching, question)
     // What was understood is of the words searched; while newer ones wait, it would be of the old ones.
     val parsed = shown?.parsed?.takeIf { ui.similar == null && !stale && it.understood.isNotEmpty() }
     // Kinds the words asked for show as picked chips too, so the row never says "All" over filtered results.
@@ -276,7 +276,7 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
-        else -> if (heldFor(SearchTiming.SEARCHING_MASCOT_MS, true, question)) {
+        else -> if (heldFor(SearchTiming.SEARCHING_MASCOT_MS, ui.searching, question)) {
             Message { Mascot(MascotMood.SEARCHING, Modifier.width(160.dp).testTag(SEARCHING_MASCOT_TAG)) }
         }
     }

@@ -379,6 +379,9 @@ private struct ResultsView: View {
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.immediately)
+        // A new question's answer opens at its top, not where the last one was scrolled to. A better answer to the same
+        // question keeps the place; at the top, photos ranked above the documents stay in view.
+        .id(answer.key.question)
         .onChange(of: answer.key) { expanded = false }
     }
 

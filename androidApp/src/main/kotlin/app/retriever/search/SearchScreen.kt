@@ -78,6 +78,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +112,7 @@ import app.retriever.R
 import app.retriever.core.Kind
 import app.retriever.core.Retriever
 import app.retriever.core.SearchEngine
+import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
@@ -377,14 +379,17 @@ fun SearchContent(
     LaunchedEffect(text) { snapshotFlow { text.text.toString() }.collect { actions.onQuery(it) } }
     // A search by photo replaces the words.
     LaunchedEffect(ui.similar) { if (ui.similar != null) text.clearText() }
-    // The grid keeps its place by item key, so a new answer sharing a key (a section header, a file) would open
-    // part way down, past its best matches. Saveable, so coming back from a viewer keeps the place.
+    // The grid keeps its first visible item in place by key, so a new answer sharing a key (a section header, a file)
+    // would open part way down, past its best matches; and the full answer, ranking photos above the documents the
+    // names answer showed, would open at Documents. So a new question starts at the top, and a better answer to the
+    // same one stays at the top when the grid was there; read before the new items are measured. Saveable, so coming
+    // back from a viewer keeps the place.
     var shownAnswer by rememberSaveable { mutableIntStateOf(ui.answer) }
-    LaunchedEffect(ui.answer) {
-        if (ui.answer != shownAnswer) {
-            grid.scrollToItem(0)
-            shownAnswer = ui.answer
-        }
+    val atTop by remember(grid) { derivedStateOf { grid.firstVisibleItemIndex == 0 && grid.firstVisibleItemScrollOffset == 0 } }
+    val top = atTop
+    LaunchedEffect((ui.phase as? SearchPhase.Results)?.result) {
+        if (ui.answer != shownAnswer || top) grid.requestScrollToItem(0)
+        shownAnswer = ui.answer
     }
     ScrollingEffect({ grid.isScrollInProgress }, actions.onScrolling)
     var arrived by rememberSaveable { mutableStateOf(false) }

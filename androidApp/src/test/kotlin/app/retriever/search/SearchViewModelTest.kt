@@ -397,26 +397,57 @@ class SearchViewModelTest {
         assertEquals(emptyList<String>(), retriever.recentQueries())
     }
 
-    @Test fun theNamesAnswerFirstAndTheFullOneRefreshesInPlace() = runTest {
+    /** Keys a little faster than phone typing's average (330 ms): nothing is searched until the words hold still. */
+    @Test fun typingSearchesOnlyOnceItPauses() = runTest {
+        retriever.indexBatch(1.minutes)
+        val vm = vm()
+        val seen = record(vm)
+        for (q in listOf("b", "bi", "bil", "bill")) {
+            vm.setQuery(q)
+            advanceTimeBy(300)
+        }
+        runCurrent()
+        assertTrue(seen.none { it.phase is SearchPhase.Results })
+        advanceTimeBy(SearchTiming.PAUSE_MS)
+        runCurrent()
+        assertTrue(vm.ui.value.done)
+        assertEquals(listOf("bill"), seen.mapNotNull { (it.phase as? SearchPhase.Results)?.question?.text }.distinct())
+    }
+
+    /** Only typing waits for the pause: a chip searches at once. */
+    @Test fun aTapSearchesAtOnce() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         vm.setQuery("bill")
-        advanceTimeBy(40)
+        vm.ui.first { it.done }
+        vm.setChip(Kind.PDF)
+        runCurrent()
+        assertTrue(vm.ui.value.done)
+        assertEquals(Kind.PDF, (vm.ui.value.phase as SearchPhase.Results).question.kind)
+    }
+
+    @Test fun theNamesAnswerFirstAndTheFullOneRefreshesInPlace() = runTest {
+        val hold = CompletableDeferred<Unit>()
+        val r = withModel(asked = { hold.await() })
+        r.indexBatch(1.minutes, deepen = false)
+        val vm = vm(r)
+        vm.setQuery("notes")
+        advanceTimeBy(SearchTiming.PAUSE_MS + 1)
         runCurrent()
         val names = vm.ui.value
         assertTrue(names.hits!!.isNotEmpty())
         assertFalse(names.done)
         assertTrue(names.searching)
-        advanceTimeBy(300)
-        runCurrent()
+        hold.complete(Unit)
+        advanceUntilIdle()
         assertTrue(vm.ui.value.done)
         assertFalse(vm.ui.value.searching)
         // The same answer, so the screen stays where the person scrolled to.
         assertEquals(names.answer, vm.ui.value.answer)
         // A new word and a kind are each a new answer.
-        vm.setChip(Kind.PDF)
+        vm.setChip(Kind.DOC)
         vm.ui.first { it.answer == names.answer + 1 }
-        vm.setQuery("bill from")
+        vm.setQuery("big")
         vm.ui.first { it.answer == names.answer + 2 && it.hits != null }
     }
 
@@ -426,14 +457,13 @@ class SearchViewModelTest {
         val vm = vm()
         vm.setQuery("bill")
         val before = vm.ui.first { it.done }
+        val seen = record(vm)
         vm.setQuery("zzqx")
-        advanceTimeBy(40)
-        runCurrent()
-        val names = vm.ui.value
-        assertEquals(before.phase, names.phase)
-        assertTrue(names.phase.isStale(names.question))
-        assertEquals(before.answer, names.answer)
-        val full = vm.ui.first { it.done }
+        val full = vm.ui.first { it.query == "zzqx" && it.done }
+        // Every state for the new words before their full answer still shows the earlier hits.
+        val waiting = seen.filter { it.query == "zzqx" && !it.done }
+        assertTrue(waiting.isNotEmpty())
+        assertTrue(waiting.all { it.phase == before.phase && it.phase.isStale(it.question) && it.answer == before.answer })
         assertTrue(full.empty)
         assertEquals(before.answer + 1, full.answer)
     }
@@ -447,7 +477,7 @@ class SearchViewModelTest {
         vm.setQuery("bills")
         advanceTimeBy(50)
         vm.setQuery("bill")
-        advanceTimeBy(300)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 100)
         runCurrent()
         assertTrue(vm.ui.value.done)
         assertFalse(vm.ui.value.searching)
@@ -461,7 +491,7 @@ class SearchViewModelTest {
         vm.setQuery("bill")
         val before = vm.ui.first { it.done }
         vm.setQuery("bill z")
-        advanceTimeBy(SearchTiming.FULL_MS + 500)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 500)
         runCurrent()
         assertEquals(before.phase, vm.ui.value.phase)
         assertFalse(vm.ui.value.empty)
@@ -510,7 +540,7 @@ class SearchViewModelTest {
         // The model was closed: a search answers from words now and opens it off its path, which takes seconds.
         val vm = vm(r)
         vm.setQuery("dog")
-        advanceTimeBy(300)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 100)
         runCurrent()
         val wordsOnly = vm.ui.value
         assertEquals("dog", (wordsOnly.phase as SearchPhase.Results).question.text)
@@ -682,7 +712,7 @@ class SearchViewModelTest {
         val seen = record(vm)
         // No file's name or words hold "dog": the words-only answer is empty, and only meaning finds the photos.
         vm.setQuery("dog")
-        advanceTimeBy(300)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 100)
         runCurrent()
         assertTrue(vm.ui.value.hits!!.isEmpty())
         hold.complete(Unit)
@@ -745,7 +775,7 @@ class SearchViewModelTest {
         val vm = vm(r)
         val seen = record(vm)
         vm.setQuery("boom")
-        advanceTimeBy(300)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 100)
         runCurrent()
         // The full search for "boom" waits in the model; new words replace it before its full search starts.
         vm.setQuery("bill")
@@ -756,23 +786,19 @@ class SearchViewModelTest {
         assertTrue(vm.ui.value.done)
     }
 
-    @Test fun clearingAndRetypingTheSameWordsAnswersFromNamesFirst() = runTest {
+    @Test fun clearingAndRetypingTheSameWordsAnswersOnceTypingPauses() = runTest {
         retriever.indexBatch(1.minutes)
         val vm = vm()
         vm.setQuery("bill")
         advanceUntilIdle()
         assertTrue(vm.ui.value.done)
         vm.setQuery("")
-        advanceTimeBy(300)
         runCurrent()
         assertEquals(SearchPhase.Idle, vm.ui.value.phase)
         vm.setQuery("bill")
-        advanceTimeBy(40)
+        advanceTimeBy(SearchTiming.PAUSE_MS + 1)
         runCurrent()
-        val names = vm.ui.value
-        assertTrue(names.hits!!.isNotEmpty())
-        assertFalse(names.done)
-        assertTrue(names.searching)
+        assertTrue(vm.ui.value.hits!!.isNotEmpty())
     }
 
     @Test fun aViewModelClearedMidTypingLeavesReadingFree() = runTest {

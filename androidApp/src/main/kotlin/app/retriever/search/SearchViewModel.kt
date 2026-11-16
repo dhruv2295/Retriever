@@ -183,7 +183,8 @@ private data class Shown(
         val q = step.question
         if (step is Step.Asked) {
             // Retyping the same words is a new search: its first answer counts again.
-            return if (q.text.isEmpty() && q.similarTo == null) Shown(q, answer = answer, quietNoMatch = quietNoMatch) else copy(asked = q, searching = true)
+            // Not searching yet: typed words wait for the pause, and the search marks itself when it starts.
+            return if (q.text.isEmpty() && q.similarTo == null) Shown(q, answer = answer, quietNoMatch = quietNoMatch) else copy(asked = q, searching = false)
         }
         if (q != asked) return this
         return when (step) {
@@ -240,14 +241,14 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
         }
     }
 
-    /**
-     * The question once it held for [wait] ms. Not made distinct after the wait: a key typed and taken back settles on the
-     * question already answered, and asks it again so a pass ends what the key started.
-     */
-    private fun asks(wait: Long) = input.map { Ask(it.question, it.photo) }.distinctUntilChanged().debounce(wait)
+    /** The question with the typed words debounced; clearing them, a chip, a filter or a photo asks at once. */
+    private val typed = input.map { it.query }.distinctUntilChanged().debounce { if (it.isBlank()) 0L else SearchTiming.PAUSE_MS }
+    private val asks = combine(typed, input) { q, i ->
+        Ask(i.copy(query = q).question, i.photo)
+    }.distinctUntilChanged()
 
-    /** File names alone, in memory, a moment after typing; a search by photo has none. */
-    private val names: Flow<Step> = asks(SearchTiming.NAMES_MS).mapLatest { a ->
+    /** File names alone, in memory, first once typing paused; a search by photo has none. */
+    private val names: Flow<Step> = asks.mapLatest { a ->
         val q = a.question
         if (a.blank || a.photo != null) return@mapLatest null
         // The quick answer failing is no news: the full one is on its way.
@@ -255,7 +256,7 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     }.filterNotNull()
 
     /** The full search once typing paused, asked again on Retry, when files change and when files read may fill an empty answer. */
-    private val full: Flow<Step> = combine(asks(SearchTiming.FULL_MS), retries, retriever.fileRevision) { a, _, _ -> a }.flatMapLatest(::fullSearch)
+    private val full: Flow<Step> = combine(asks, retries, retriever.fileRevision) { a, _, _ -> a }.flatMapLatest(::fullSearch)
 
     private val shown: StateFlow<Shown> = merge(input.map { Step.Asked(it.question) }.distinctUntilChanged(), names, full)
         .scan(Shown()) { s, step -> s.after(step) { retriever.prefs.value.noMatchSeen >= SearchTiming.NO_MATCH_QUIET_AFTER } }
