@@ -460,5 +460,7 @@ class StatusLineTest {
         assertEquals(null to null, allDone.note to finished?.stageNote)
         val longFile = journey(ReadingProgress(read = 20, laterPasses = 1)).remembered(finished ?: Prefs(), peopleOffered = false).first
         assertEquals(Words.strings.newFiles, longFile.step)
+        val newPhotos = journey(ReadingProgress(read = 20, scheduled = 1)).remembered(finished ?: Prefs(), peopleOffered = false).first
+        assertTrue(newPhotos.rows.none { it.stage == Stage.REST }, "no long-files row comes back ticked with new files")
     }
 }

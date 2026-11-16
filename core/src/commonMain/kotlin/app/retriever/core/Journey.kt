@@ -40,7 +40,7 @@ data class Journey(val rows: List<StageRow>, val step: String? = null, val note:
  * begun, run ahead of new files, a stop included). [facesLeft]: null while unknown (the count waits until every file is
  * processed, Retriever.readingStatus). Text-only phones read photos' words in the first pass, and a library without photos
  * ([photos] false) has none to read, so neither has a words stage. The long files' rest shows only while some file has later
- * parts, or files still to process may: a phone with none never counts it, and the step total only ever shrinks.
+ * parts, or files still to process may: a phone with none stops counting it once its first pass is done.
  */
 internal fun journey(
     progress: ReadingProgress,
@@ -105,7 +105,11 @@ internal fun Journey.remembered(prefs: Prefs, peopleOffered: Boolean): Pair<Jour
     val known = prefs.stagesDone
     val c = Words.strings
     val shown = copy(
-        rows = rows.filter { it.stage != Stage.PEOPLE || it.state != StageState.OFF || peopleOffered }.map {
+        // The long files' rest, finished before and with nothing left, would only come back ticked with each batch of new files.
+        rows = rows.filter {
+            (it.stage != Stage.PEOPLE || it.state != StageState.OFF || peopleOffered) &&
+                !(it.stage == Stage.REST && it.left == 0L && it.state != StageState.NOW && known.orEmpty().contains(Stage.REST))
+        }.map {
             if (it.state == StageState.NEXT && it.left == 0L && known.orEmpty().contains(it.stage)) {
                 it.copy(state = StageState.DONE, stateLabel = c.stageStateLabel(StageState.DONE))
             } else {
