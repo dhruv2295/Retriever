@@ -493,6 +493,7 @@ internal object Japanese : Strings {
     override val lookingForFacesTitle = "写真の中の人物を見つけています"
     override val deepeningTitle = "一部の長いファイルの残りを処理しています"
     override val readingPhotoWordsTitle = "写真の中の文字を読み取っています"
+    override val learningYourFilesTitle = "ファイルの内容を確認しています"
 
     override val stagesHeader = "検索できること"
 

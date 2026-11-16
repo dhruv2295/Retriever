@@ -259,13 +259,13 @@ final class AccessibilityAuditTests: XCTestCase {
                     // Home's one status line, its button spelled out (clarity-proposal section 3).
                     let lines =
                         [
-                            "home.charging": ("Processing your files", "Pause"),
+                            "home.charging": ("Learning what’s in your files", "Pause"),
                             "home.firstDay": ("Only names can be found for now", "Start processing"),
                             "home.notNow": ("Only names can be found for now", "Start processing"),
                             "home.counting": ("Getting ready…", nil),
                             "home.unplugged": ("Paused · continues when you plug in", "Start processing"),
                             "home.chargingUp": ("Paused · continues when the battery has a bit more charge", nil),
-                            "home.processing": ("Processing your files", "Pause"),
+                            "home.processing": ("Learning what’s in your files", "Pause"),
                             "home.downloading": ("Downloading search by description · 34%", "Stop"), "home.meaning": ("Adding search by description", "Pause"),
                             "home.noAccess": ("Retriever can’t see your files", "Allow access"),
                         ] as [String: (String, String?)]

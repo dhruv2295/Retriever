@@ -546,6 +546,7 @@ internal object PortugueseBrazil : Strings {
     override val lookingForFacesTitle = "Encontrando pessoas nas suas fotos"
     override val deepeningTitle = "Processando o restante de alguns arquivos longos"
     override val readingPhotoWordsTitle = "Lendo o texto das suas fotos"
+    override val learningYourFilesTitle = "Aprendendo o que há nos seus arquivos"
 
     override val stagesHeader = "O que você pode buscar"
 

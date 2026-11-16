@@ -287,7 +287,7 @@ class ReadingFilesTest {
             }
         }
         rule.onNodeWithText("5.jpg").assertExists()
-        rule.onNodeWithText("Processing your files", substring = true).assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle, substring = true).assertExists()
         rule.onNodeWithText("Getting started…").assertDoesNotExist()
         index.value = index.value.copy(currentFile = null)
         rule.onNodeWithText("Processing now").assertExists()

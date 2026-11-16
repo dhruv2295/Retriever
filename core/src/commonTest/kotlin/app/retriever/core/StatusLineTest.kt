@@ -82,14 +82,14 @@ class StatusLineTest {
                 listOf("WAITING", "Paused", count, Words.strings.processingReadyDetail, "Start processing"),
             // The demo's own passes after its Continue: the same title and whole-phone count as any read.
             decide(waiting.copy(sample = true), reading = true) to
-                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
+                listOf("READING", Words.strings.learningYourFilesTitle, count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             // Not now pauses: the line says what can be found, counts the whole phone, and offers to start.
             decide(ReadingProgress(read = 30, notScheduled = 25_763, sample = true, notNow = true), stop = StopReason.PAUSED) to
                 listOf("NOT_NOW", "Only names can be found for now", "30 of ${formatCount(25_793)} files processed", null, "Start processing"),
             decide(reading = true) to
-                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
+                listOf("READING", Words.strings.learningYourFilesTitle, count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             decide(reading = true, plugged = true) to
-                listOf("READING", "Processing your files", count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
+                listOf("READING", Words.strings.learningYourFilesTitle, count, "You can close Retriever; it carries on. Search works the whole time.", "Pause"),
             decide(ReadingProgress(read = 4, meaningWaiting = 3), reading = true) to listOf(
                 "MEANING",
                 "Adding search by description",

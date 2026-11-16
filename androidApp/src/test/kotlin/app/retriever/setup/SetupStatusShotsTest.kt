@@ -688,7 +688,7 @@ class SetupStatusShotsTest {
     @Test fun statusReading() {
         status("clarity_status_reading_light", tall = true)
         rule.onNodeWithText(Words.READING_STATUS).assertExists()
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         // The count and Details' breakdown are the same numbers: its parts add up to the count's X, and "to go" is Y − X.
         val p = reading.progress
         rule.onNodeWithText(Words.readOf(p.processed, p.libraryTotal)).assertExists()

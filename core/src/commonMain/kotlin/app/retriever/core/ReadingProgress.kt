@@ -372,7 +372,7 @@ object ReadingPolicy {
                 ReadingPhase.MEANING -> c.addingDescriptionTitle
                 ReadingPhase.FACES -> c.lookingForFacesTitle
                 ReadingPhase.DEEPENING -> c.deepeningTitle
-                ReadingPhase.READING -> if (photoWords) c.readingPhotoWordsTitle else c.processingYourFiles
+                ReadingPhase.READING -> if (photoWords) c.readingPhotoWordsTitle else c.learningYourFilesTitle
                 ReadingPhase.LOOKING -> c.lookingTitle
                 ReadingPhase.CAUGHT_UP, ReadingPhase.LIMITED -> c.caughtUpTitle
                 else -> stopCopy(blocker ?: StopReason.DONE, words)
