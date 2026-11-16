@@ -11,6 +11,8 @@
                     Section(title: "Search", moods: [.searching, .noMatch, .noMatchQuiet])
                     Section(title: "Welcome (180 pt)", moods: [.welcome], width: 180)
                     Section(title: "All caught up", moods: [.caughtUp])
+                    Section(title: "Stages", moods: Stage.entries.map { MascotDirector.shared.working(stage: $0) } + [.resting])
+                    Section(title: "Stage done", moods: [.foundIt])
                 }
                 .padding()
             }

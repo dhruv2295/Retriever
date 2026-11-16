@@ -285,7 +285,7 @@ struct StageNoteCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                MascotView(mood: .caughtUp, settles: false).frame(width: 76)
+                MascotView(mood: .foundIt, settles: false).frame(width: 76)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Words.shared.strings.stageNoteTitle(stage: stage)).font(.headline).accessibilityAddTraits(.isHeader)
                     Text(Words.shared.strings.stageNote(stage: stage, textOnly: textOnly)).font(.subheadline)
@@ -495,7 +495,7 @@ struct StatusLine: View {
 
     /// Walking while files are read, resting otherwise; "all done" plays its pose once, then keeps a check.
     private var mood: MascotMood? {
-        if status.active || status.phase == .looking { return .walking }
+        if status.active || status.phase == .looking { return MascotDirector.shared.working(stage: status.journey?.now?.stage) }
         return status.action == .dismiss ? nil : .resting
     }
 

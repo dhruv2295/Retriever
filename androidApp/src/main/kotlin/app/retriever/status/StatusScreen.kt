@@ -74,6 +74,7 @@ import app.retriever.core.StageState
 import app.retriever.core.StatusAction
 import app.retriever.core.Store
 import app.retriever.core.Words
+import app.retriever.core.motion.MascotDirector
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
 import app.retriever.home.IntroRow
@@ -216,7 +217,7 @@ fun StatusContent(
                     // The short read being done is not the first full read: counts.waiting is the part nobody chose yet.
                     val celebrating = rememberCelebrating(!unfinished && counts.waiting == 0L && !prefs.paused && !index.running, celebration)
                     val mood = when {
-                        index.running -> MascotMood.WALKING
+                        index.running -> MascotDirector.working(readingStatus?.journey?.now?.stage)
                         celebrating -> MascotMood.CAUGHT_UP
                         unfinished -> MascotMood.RESTING
                         else -> null

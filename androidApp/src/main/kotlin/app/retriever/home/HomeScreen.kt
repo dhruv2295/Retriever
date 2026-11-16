@@ -68,6 +68,7 @@ import app.retriever.core.StatusAction
 import app.retriever.core.UpgradePolicy
 import app.retriever.core.UpgradeStage
 import app.retriever.core.Words
+import app.retriever.core.motion.MascotDirector
 import app.retriever.core.motion.MascotMood
 import app.retriever.indexing.NotificationPermissionSession
 import app.retriever.indexing.processingNotificationsEnabled
@@ -287,7 +288,7 @@ internal fun HomeBody(
                                 status,
                                 when {
                                     celebrating -> MascotMood.CAUGHT_UP
-                                    status.active -> MascotMood.WALKING
+                                    status.active -> MascotDirector.working(status.journey?.now?.stage)
                                     else -> MascotMood.RESTING
                                 },
                                 onOpen = { actions.onNavigate(StatusRoute) },

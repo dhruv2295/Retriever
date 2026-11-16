@@ -1,5 +1,6 @@
 package app.retriever.core.motion
 
+import app.retriever.core.Stage
 import app.retriever.core.motion.MascotClip.DOZE
 import app.retriever.core.motion.MascotClip.HUH
 import app.retriever.core.motion.MascotClip.SIT
@@ -107,11 +108,23 @@ class MascotDirectorTest {
 
     @Test
     fun welcomeAndCaughtUpPlayOnceThenHold() {
-        for (mood in listOf(MascotMood.WELCOME, MascotMood.CAUGHT_UP)) {
+        for (mood in listOf(MascotMood.WELCOME, MascotMood.CAUGHT_UP, MascotMood.FOUND_IT)) {
             val first = MascotDirector.next(mood, null, 0.0)
             assertEquals(ONCE, first.kind)
             assertEquals(MascotStep(HOLD, first.clip), MascotDirector.next(mood, first, 3.0))
         }
+    }
+
+    @Test
+    fun aRunningStageLoopsItsClipAndSitsWhenHeld() {
+        assertEquals(MascotMood.GREETING, MascotDirector.working(Stage.PEOPLE))
+        assertEquals(MascotMood.WALKING, MascotDirector.working(null))
+        val steps = run({ if (it < 30) MascotDirector.working(Stage.WORDS) else MascotMood.RESTING }, 40.0).map { it.second }
+        assertEquals(listOf(LOOP, ONCE, LOOP), steps.take(3).map { it.kind })
+        assertEquals(listOf(MascotClip.RECEIPT, SIT, DOZE), steps.take(3).map { it.clip })
+        // Long on screen, a stage settles into the same walk-and-rest cadence as the walk.
+        val late = MascotDirector.next(MascotMood.DIGGING, MascotStep(LOOP, MascotClip.DIG), 200.0)
+        assertEquals(MascotStep(HOLD, MascotClip.DIG, MascotDirector.CADENCE_REST), late)
     }
 
     @Test

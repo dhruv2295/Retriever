@@ -26,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.retriever.core.Stage
+import app.retriever.core.motion.MascotDirector
 import app.retriever.core.motion.MascotMood
 import app.retriever.motion.Mascot
 import app.retriever.ui.RetrieverTheme
@@ -50,6 +52,8 @@ private fun Gallery(start: MascotMood?) {
         Section("Search", listOf(MascotMood.SEARCHING, MascotMood.NO_MATCH, MascotMood.NO_MATCH_QUIET), start)
         Section("Welcome (180 dp)", listOf(MascotMood.WELCOME), start, width = 180)
         Section("All caught up", listOf(MascotMood.CAUGHT_UP), start)
+        Section("Stages", Stage.entries.map(MascotDirector::working) + MascotMood.RESTING, start)
+        Section("Stage done", listOf(MascotMood.FOUND_IT), start)
     }
 }
 
