@@ -1,8 +1,15 @@
 # Retriever
 
-Find photos, screenshots and documents on your phone by their names, contents or a description.
-Retriever uses a Kotlin Multiplatform core with native Android (Compose Material 3) and iOS (SwiftUI) apps.
-Android is the primary release target.
+Search your phone's photos, documents and videos by describing them, entirely on the device.
+Google's EmbeddingGemma 2 runs locally through LiteRT-LM (on the NPU on Pixel Tensor G5/G6), behind a
+Kotlin Multiplatform core with native Android (Compose Material 3) and iOS (SwiftUI) apps.
+
+[Google Play](https://play.google.com/store/apps/details?id=app.retriever) ·
+[App Store](https://apps.apple.com/app/id6829902478) · free, no ads, no account · Apache-2.0
+
+<img src="docs/media/demo.gif" width="280" alt="Searching “delicious food” finds a biryani photo; “rental agreement” opens the PDF at the matching page">
+
+The demo runs on a sample library, not a real one.
 
 - Name, document-text, OCR and photo-label search work without the large search model.
 - A downloadable EmbeddingGemma 2 model adds search by description and visual similarity.
