@@ -137,7 +137,7 @@ class IndexEngine(
         fun dropAhead() {
             for (it in ahead) {
                 it.pieces.cancel()
-                it.giveBack(store)
+                giveBack(it.giveBack)
             }
             ahead.clear()
         }
