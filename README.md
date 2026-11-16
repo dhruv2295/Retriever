@@ -151,6 +151,8 @@ properties; `python3 -I eval/relevance-fit.py build/fit` summarizes the resultin
 
 ## Licensing
 
-A project license has not been chosen. [Third-party notices](THIRD_PARTY_NOTICES.md) retain the
-licenses for dependencies, model weights and adapted code, including Apple's platform-specific terms.
-The same notices are included in the app.
+Retriever is licensed under the [Apache License 2.0](LICENSE). [Third-party notices](THIRD_PARTY_NOTICES.md)
+retain the licenses for dependencies, model weights and adapted code; the same notices are included in the app.
+
+The license covers the code, not the name: the Retriever name, app icon and mascot artwork identify the official
+apps, so a fork published to an app store needs its own name and icon.
