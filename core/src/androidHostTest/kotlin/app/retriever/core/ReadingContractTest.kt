@@ -279,12 +279,39 @@ class ReadingContractTest {
         val file = testFile("private.txt")
         store.upsertFiles(listOf(file))
         store.replaceChunks(store.fileByUri(file.uri)!!.id, listOf(Store.NewChunk(1, "", "content", null)))
-        val r = testRetriever(store, listOf(file), FakeExtractor())
+        val r = testRetriever(store, listOf(file), FakeExtractor(), platformReady = { false })
         r.pause()
         r.clearUnavailableLibrary()
         assertEquals(0, r.counts().first().progress.libraryTotal)
         assertTrue(r.prefs.value.paused)
         assertTrue(r.searchNames("private").hits.isEmpty())
+    }
+
+    /** The worker decides "no access" before a minute's model download; access given meanwhile keeps what setup scanned. */
+    @Test fun accessGivenBeforeTheClearKeepsTheLibrary() = runBlocking {
+        val store = newStore()
+        val file = testFile("kept.txt")
+        store.upsertFiles(listOf(file))
+        testRetriever(store, listOf(file), FakeExtractor(), platformReady = { true }).clearUnavailableLibrary()
+        assertEquals(setOf(file.uri), store.knownUris())
+    }
+
+    /** A MediaStore-like source lists only what changed since a token, so a cleared library must not resume from it. */
+    @Test fun aClearedLibraryIsListedAgainByTheNextSync() = runBlocking {
+        val store = newStore()
+        val file = testFile("back.txt")
+        val source = object : FileSource {
+            override suspend fun changes(since: String?) = if (since == null) {
+                Changes(listOf(file), emptyList(), "generation 1", isFullScan = true)
+            } else {
+                Changes(emptyList(), emptyList(), since)
+            }
+        }
+        val sync = LibrarySync(store, source, now = { 0L })
+        sync.sync()
+        sync.clear()
+        sync.sync()
+        assertEquals(setOf(file.uri), store.knownUris())
     }
 
     @Test fun aCapAndQueuedMeaningWorkRemainSeparateFacts() {
