@@ -461,6 +461,41 @@ internal object English : Strings {
     override val lookingForFacesTitle = "Finding people in your photos"
     override val deepeningTitle = "Processing the rest of some long files"
     override val readingPhotoWordsTitle = "Reading the words in your photos"
+
+    override val stagesHeader = "What you can search"
+
+    override fun stageUnlock(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Find any file by its name"
+        Stage.MEANING -> if (textOnly) "Search the words inside your files" else "Find any photo or file by describing it"
+        Stage.WORDS -> "Search the words in your photos, like receipts and signs"
+        Stage.PEOPLE -> "Find photos of someone by their name"
+        Stage.REST -> "Search all the way through long PDFs and videos"
+    }
+
+    override fun stageStateLabel(state: StageState) = when (state) {
+        StageState.DONE -> "Done"
+        StageState.NOW -> "In progress"
+        StageState.NEXT -> "Coming up"
+        StageState.OFF -> "Optional"
+    }
+
+    override fun stepOf(step: Int, steps: Int, stage: String?) = "Step $step of $steps" + (stage?.let { " · $it" } ?: "")
+
+    override fun stageNoteTitle(stage: Stage) = when (stage) {
+        Stage.NAMES -> "Every file can be found by name"
+        Stage.MEANING -> "Your files are ready to search"
+        Stage.WORDS -> "The words in your photos are searchable"
+        Stage.PEOPLE -> "People is ready"
+        Stage.REST -> "Long files are searchable all the way through"
+    }
+
+    override fun stageNote(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Type part of a file’s name to find it."
+        Stage.MEANING -> if (textOnly) "Search for a word inside any document. Try “invoice”." else "Describe any photo to find it. Try “dog on the beach”."
+        Stage.WORDS -> "Search for words you saw in a photo. Try “receipt”."
+        Stage.PEOPLE -> "Name someone in People, then search for them by name."
+        Stage.REST -> "Search for something deep inside a long PDF or video, like a phrase from a later page."
+    }
     override val lookingTitle = "Checking for new files…"
     override val caughtUpTitle = "All done. Retriever has processed everything it can"
 

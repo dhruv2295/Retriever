@@ -63,16 +63,20 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.access.openSettingsIfBlocked
 import app.retriever.core.FacesSummary
 import app.retriever.core.IndexState
+import app.retriever.core.Journey
 import app.retriever.core.Prefs
 import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
 import app.retriever.core.SourceFile
+import app.retriever.core.Stage
+import app.retriever.core.StageState
 import app.retriever.core.StatusAction
 import app.retriever.core.Store
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
+import app.retriever.home.IntroRow
 import app.retriever.home.rememberCelebrating
 import app.retriever.indexing.openBatterySettings
 import app.retriever.motion.Mascot
@@ -99,6 +103,7 @@ class StatusActions(
     val allowAllFiles: () -> Unit = {},
     val addFolder: () -> Unit = {},
     val removeFolder: (String) -> Unit = {},
+    val turnOnPeople: () -> Unit = {},
     /** Null hides the link, for a host that has nowhere to go. */
     val openSettings: (() -> Unit)? = null,
 )
@@ -150,6 +155,7 @@ fun StatusScreen(onBack: () -> Unit, onNavigate: (Route) -> Unit, onOpenSettings
             allowAllFiles = { openAllFilesSettings(context) },
             addFolder = { folderLauncher.launch(null) },
             removeFolder = vm::removeFolder,
+            turnOnPeople = vm::turnOnPeople,
             openSettings = onOpenSettings,
         ),
         access = ui.access,
@@ -227,6 +233,7 @@ fun StatusContent(
                             contentDescription = title.substringBefore(" · ")
                         },
                     )
+                    readingStatus?.journey?.step?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
                     // One reason at a time: a failure outranks the schedule's own wait, which follows from the title.
                     if (failure != null) {
                         Text(failure, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -254,6 +261,8 @@ fun StatusContent(
                     // What was read stays on show through a pause or a wait; only the sentence above changes.
                     if (index.recentFiles.isNotEmpty()) RecentlyRead(index.recentFiles, index.running, actions.openFile)
                 }
+
+                readingStatus?.journey?.let { Stages(it, actions.turnOnPeople) }
 
                 Header(Words.DETAILS)
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -320,6 +329,40 @@ fun StatusContent(
             }
         }
     }
+}
+
+/**
+ * The journey as a checklist: what each stage lets the person search, done, now or coming up. People while off is an
+ * option with its own Turn on, never a step left. Each row reads as one sentence: what it unlocks, then its state.
+ */
+@Composable
+private fun Stages(journey: Journey, turnOnPeople: () -> Unit) {
+    Header(Words.strings.stagesHeader)
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        for (row in journey.rows) {
+            val done = row.state == StageState.DONE
+            IntroRow(
+                if (done) R.drawable.ic_check else stageIcon(row.stage),
+                row.label,
+                row.stateLabel,
+                modifier = Modifier.semantics(mergeDescendants = true) {},
+                filled = done,
+                later = row.state == StageState.NEXT,
+            ) {
+                if (row.state == StageState.OFF) {
+                    OutlinedButton(onClick = turnOnPeople, modifier = Modifier.padding(top = 8.dp)) { Text(Words.TURN_ON) }
+                }
+            }
+        }
+    }
+}
+
+private fun stageIcon(stage: Stage) = when (stage) {
+    Stage.NAMES -> R.drawable.ic_search
+    Stage.MEANING -> R.drawable.ic_image_search
+    Stage.WORDS -> R.drawable.ic_screenshot
+    Stage.PEOPLE -> R.drawable.ic_people
+    Stage.REST -> R.drawable.ic_picture_as_pdf
 }
 
 /** What Retriever can see, folders the person added, and what it can't see with a way to fix it. */

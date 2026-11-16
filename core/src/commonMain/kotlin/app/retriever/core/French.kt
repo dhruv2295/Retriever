@@ -541,6 +541,49 @@ internal object French : Strings {
     override val lookingForFacesTitle = "Repérage des personnes dans vos photos"
     override val deepeningTitle = "Traitement de la suite de certains fichiers longs"
     override val readingPhotoWordsTitle = "Lecture du texte de vos photos"
+
+    override val stagesHeader = "Ce que vous pouvez rechercher"
+
+    override fun stageUnlock(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Trouver n’importe quel fichier par son nom"
+        Stage.MEANING -> if (textOnly) "Rechercher les mots dans vos fichiers" else "Trouver une photo ou un fichier en le décrivant"
+        Stage.WORDS -> "Rechercher les mots de vos photos, comme des tickets ou des panneaux"
+        Stage.PEOPLE -> "Trouver les photos de quelqu’un par son nom"
+        Stage.REST -> "Rechercher jusqu’au bout des PDF et des vidéos longs"
+    }
+
+    override fun stageStateLabel(state: StageState) = when (state) {
+        StageState.DONE -> "Terminé"
+        StageState.NOW -> "En cours"
+        StageState.NEXT -> "À venir"
+        StageState.OFF -> "Facultatif"
+    }
+
+    override fun stepOf(step: Int, steps: Int, stage: String?) = "Étape $step sur $steps" + (stage?.let { " · $it" } ?: "")
+
+    override fun stageNoteTitle(stage: Stage) = when (stage) {
+        Stage.NAMES -> "Tous les fichiers se trouvent par leur nom"
+        Stage.MEANING -> "Vos fichiers sont prêts pour la recherche"
+        Stage.WORDS -> "Vous pouvez rechercher les mots de vos photos"
+        Stage.PEOPLE -> "Personnes est prêt"
+        Stage.REST -> "Vous pouvez rechercher jusqu’au bout des fichiers longs"
+    }
+
+    override fun stageNote(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Tapez une partie du nom d’un fichier pour le trouver."
+
+        Stage.MEANING -> if (textOnly) {
+            "Recherchez un mot dans n’importe quel document. Essayez «${NBSP}facture$NBSP»."
+        } else {
+            "Décrivez une photo pour la trouver. Essayez «${NBSP}chien sur la plage$NBSP»."
+        }
+
+        Stage.WORDS -> "Recherchez des mots vus sur une photo. Essayez «${NBSP}ticket$NBSP»."
+
+        Stage.PEOPLE -> "Nommez quelqu’un dans Personnes, puis recherchez-le par son nom."
+
+        Stage.REST -> "Recherchez un passage au fond d’un long PDF ou d’une longue vidéo, comme une phrase d’une page lointaine."
+    }
     override val lookingTitle = "Recherche de nouveaux fichiers…"
     override val caughtUpTitle = "Terminé. Retriever a traité tout ce qu’il pouvait"
 

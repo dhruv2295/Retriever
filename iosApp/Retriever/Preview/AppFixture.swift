@@ -89,7 +89,8 @@ extension AppModel {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
                 sessionActive: explicit, pluggedIn: pluggedIn, faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
-                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false)
+                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false,
+                peopleOn: snap.recognizePeople, textOnly: snap.textOnly)
         }
         switch fixture {
         case .readingWhileCharging:
@@ -250,6 +251,6 @@ extension AppModel {
             notificationsPermissionRequested: false, noMatchSeen: 0, showOnThisDay: true, readingCycle: 0,
             dismissedReadingCycle: -1, searchTried: searchTried, upgradeOfferDismissed: false,
             homeIntroDue: homeIntroDue, notifyWhenCaughtUp: false, recognizePeople: false, peopleOfferDismissed: false,
-            processingRequested: sessionActive, widenAccessOfferDismissed: false)
+            processingRequested: sessionActive, widenAccessOfferDismissed: false, stagesDone: nil, stageNote: nil)
     }
 }

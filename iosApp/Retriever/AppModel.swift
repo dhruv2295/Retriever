@@ -371,6 +371,10 @@ final class AppModel {
         fileRevision += 1
     }
 
+    func dismissStageNote() {
+        Task { try? await services?.retriever.dismissStageNote() }
+    }
+
     func dismissCaughtUp() {
         snap?.caughtUpDismissed = true
         Task { try? await services?.retriever.dismissCaughtUp() }

@@ -274,7 +274,8 @@ final class AppModelTests: XCTestCase {
                 readingCycle: prefs.readingCycle, dismissedReadingCycle: prefs.dismissedReadingCycle, searchTried: tried,
                 upgradeOfferDismissed: dismissed, homeIntroDue: intro, notifyWhenCaughtUp: prefs.notifyWhenCaughtUp,
                 recognizePeople: prefs.recognizePeople, peopleOfferDismissed: prefs.peopleOfferDismissed,
-                processingRequested: prefs.processingRequested, widenAccessOfferDismissed: prefs.widenAccessOfferDismissed)
+                processingRequested: prefs.processingRequested, widenAccessOfferDismissed: prefs.widenAccessOfferDismissed,
+                stagesDone: prefs.stagesDone, stageNote: prefs.stageNote)
         }
         model.snap?.prefs = with(tried: false, dismissed: false)
         XCTAssertTrue(model.upgradeOnHome, "offered at once, before any search")

@@ -61,8 +61,12 @@ object Notifications {
         }
         val display = if (held != null && status != null) paused(status, held, status.detail) else status
         val text = Words.strings.notificationBody(display?.count, display?.detail, counts.contentRead)
+        val step = display?.journey?.step
+        // Running, the step leads the title ("Step 2 of 4 · Reading the words in your photos"); held, the header names it.
+        val title = if (display?.active == true && step != null) "$step · ${display.title}" else display?.title ?: Words.STARTING
         return NotificationCompat.Builder(context, CHANNEL)
-            .setContentTitle(display?.title ?: Words.STARTING)
+            .setContentTitle(title)
+            .setSubText(step.takeIf { display?.active != true })
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_notification)

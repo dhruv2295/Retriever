@@ -50,6 +50,10 @@ data class Prefs(
     val processingRequested: Boolean = false,
     /** Not now on Home's offer to search more: all files (Android) or a folder from Files (iOS). */
     val widenAccessOfferDismissed: Boolean = false,
+    /** The stages ever finished, so new files later read as new files, not a restart; null until the journey is first seen. */
+    val stagesDone: Set<Stage>? = null,
+    /** A stage that just finished: Home's one note on what it unlocked, until Got it. */
+    val stageNote: Stage? = null,
 ) {
     val automaticReading: ReadingSchedule get() = schedule ?: if (onlyWhileCharging) ReadingSchedule.CHARGING else ReadingSchedule.BATTERY
 

@@ -28,7 +28,11 @@ struct HomeList: View {
         List {
             if let snap {
                 // Just under the search field, once, after setup: what happens next. The status line takes over after Got it.
-                if snap.prefs?.homeIntroDue == true { Section { HomeIntroCard(model: model) } }
+                if snap.prefs?.homeIntroDue == true {
+                    Section { HomeIntroCard(model: model) }
+                } else if let journey = model.statusLine(snap)?.journey, let note = journey.note {
+                    Section { StageNoteCard(stage: note, textOnly: journey.textOnly, model: model) }
+                }
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)
                 if snap.total == 0 {
                     empty(snap)
@@ -268,24 +272,68 @@ struct HomeIntroCard: View {
     private func step<Action: View>(
         _ icon: String, done: Bool = false, _ title: String, _ detail: String, @ViewBuilder action: () -> Action
     ) -> some View {
+        StepRow(icon: icon, done: done, title: title, detail: detail, action: action)
+    }
+}
+
+/// A stage just finished: what now works and one thing to try, with the dog's one bounce, until Got it.
+struct StageNoteCard: View {
+    let stage: Stage
+    let textOnly: Bool
+    let model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                MascotView(mood: .caughtUp, settles: false).frame(width: 76)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Words.shared.strings.stageNoteTitle(stage: stage)).font(.headline).accessibilityAddTraits(.isHeader)
+                    Text(Words.shared.strings.stageNote(stage: stage, textOnly: textOnly)).font(.subheadline)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Button(Words.shared.GOT_IT, action: model.dismissStageNote).frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
+                .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+/// One step: a small round icon (filled once done, quiet while `later`), the title, its line, and an optional action under
+/// them. Home's one-time card, and Processing's stage checklist.
+struct StepRow<Action: View>: View {
+    let icon: String
+    var done = false
+    var later = false
+    let title: String
+    let detail: String
+    let action: Action
+
+    init(icon: String, done: Bool = false, later: Bool = false, title: String, detail: String, @ViewBuilder action: () -> Action) {
+        (self.icon, self.done, self.later, self.title, self.detail, self.action) = (icon, done, later, title, detail, action())
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // The icon inside the step's one element: People's two-heads glyph reads as text to the audit's element
             // detection, which needs an element over it. Hidden, so VoiceOver still reads only the words.
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: icon).font(.subheadline.weight(.semibold))
-                    .foregroundStyle(done ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.tint))
+                    .foregroundStyle(done ? AnyShapeStyle(Color(.systemBackground)) : later ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
                     .frame(width: 30, height: 30)
-                    .background(done ? AnyShapeStyle(.tint) : AnyShapeStyle(.tint.opacity(0.16)), in: Circle())
+                    .background(
+                        done ? AnyShapeStyle(.tint) : later ? AnyShapeStyle(Color(.tertiarySystemFill)) : AnyShapeStyle(.tint.opacity(0.16)),
+                        in: Circle())
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(later ? .secondary : .primary)
                     Text(detail).font(.footnote)
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
             // Under the words, past the icon's 30 pt and the 12 pt gap.
-            action().padding(.leading, 42)
+            action.padding(.leading, 42)
         }
     }
 }
@@ -432,6 +480,7 @@ struct StatusLine: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title).font(.headline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+                if let step = status.journey?.step { Text(step).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true) }
                 // "30 of 25,793 files processed", and a bar of exactly those numbers; core leaves both out while it counts.
                 if let count = status.count { Text(count).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
                 if let done = status.done, let total = status.total, total.int64Value > 0 {

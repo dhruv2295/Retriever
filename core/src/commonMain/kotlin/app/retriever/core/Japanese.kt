@@ -493,6 +493,41 @@ internal object Japanese : Strings {
     override val lookingForFacesTitle = "写真の中の人物を見つけています"
     override val deepeningTitle = "一部の長いファイルの残りを処理しています"
     override val readingPhotoWordsTitle = "写真の中の文字を読み取っています"
+
+    override val stagesHeader = "検索できること"
+
+    override fun stageUnlock(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "ファイル名でどのファイルも見つける"
+        Stage.MEANING -> if (textOnly) "ファイルの中の文字を検索" else "説明するだけで写真やファイルを見つける"
+        Stage.WORDS -> "レシートや看板など、写真の中の文字を検索"
+        Stage.PEOPLE -> "名前で人物の写真を見つける"
+        Stage.REST -> "長いPDFや動画を最後まで検索"
+    }
+
+    override fun stageStateLabel(state: StageState) = when (state) {
+        StageState.DONE -> "完了"
+        StageState.NOW -> "処理中"
+        StageState.NEXT -> "このあと"
+        StageState.OFF -> "オプション"
+    }
+
+    override fun stepOf(step: Int, steps: Int, stage: String?) = "ステップ$step/$steps" + (stage?.let { " · $it" } ?: "")
+
+    override fun stageNoteTitle(stage: Stage) = when (stage) {
+        Stage.NAMES -> "すべてのファイルを名前で検索できます"
+        Stage.MEANING -> "ファイルを検索する準備ができました"
+        Stage.WORDS -> "写真の中の文字を検索できるようになりました"
+        Stage.PEOPLE -> "人物の準備ができました"
+        Stage.REST -> "長いファイルを最後まで検索できるようになりました"
+    }
+
+    override fun stageNote(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "ファイル名の一部を入力すると見つかります。"
+        Stage.MEANING -> if (textOnly) "ドキュメントの中の言葉を検索してみましょう。たとえば「請求書」。" else "写真の内容を説明して探してみましょう。たとえば「ビーチの犬」。"
+        Stage.WORDS -> "写真で見た文字を検索してみましょう。たとえば「レシート」。"
+        Stage.PEOPLE -> "人物で名前を付けると、その名前で検索できます。"
+        Stage.REST -> "長いPDFや動画の奥の内容も検索できます。後半のページの一文などで試してみましょう。"
+    }
     override val lookingTitle = "新しいファイルを確認しています…"
     override val caughtUpTitle = "完了。Retrieverは処理できるものをすべて処理しました"
 

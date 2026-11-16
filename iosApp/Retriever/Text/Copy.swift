@@ -28,7 +28,8 @@ enum Copy {
                 progress: s.readProgress, blocker: s.paused ? .paused : s.lastStop, running: s.running, reading: s.reading.current != nil, words: words,
                 sessionActive: session, pluggedIn: false,
                 faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
-                battery: 100, requested: session, processingStarted: session, adaptive: false, facesStarted: false
+                battery: 100, requested: session, processingStarted: session, adaptive: false, facesStarted: false,
+                peopleOn: s.recognizePeople, textOnly: s.textOnly
             )
     }
 

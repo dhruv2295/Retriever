@@ -396,4 +396,30 @@ class StatusLineTest {
             assertTrue("new file" !in s.title || s.phase == ReadingPhase.LOOKING, s.title)
         }
     }
+
+    /** One journey: each stage done, now or next from the same counts, numbered over the stages that apply here. */
+    @Test fun theStagesReadAsOneJourney() {
+        fun states(s: ReadingStatus) = s.journey?.rows.orEmpty().joinToString(" ") { "${it.stage}:${it.state}" }
+        // Mid-stage 2: every photo has search by description, their words are read now.
+        val words = ReadingPolicy.decide(ReadingProgress(read = 20, wordsWaiting = 12, laterPasses = 15), null, true, true, android)
+        assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:OFF REST:NEXT", states(words))
+        assertEquals("Step 2 of 3", words.journey?.step, "People off is optional, not a step")
+        assertEquals(12L, words.journey?.now?.left)
+        // People on: four steps, and a pause names the stage it holds.
+        val paused = ReadingPolicy.decide(ReadingProgress(read = 20, wordsWaiting = 12), StopReason.HOT, false, false, android, peopleOn = true)
+        assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:NEXT REST:NEXT", states(paused))
+        assertEquals("Step 2 of 4 · Reading the words in your photos", paused.journey?.step)
+        val faces = ReadingPolicy.decide(ReadingProgress(read = 20), null, true, false, android, faces = FacesProgress(2, 8), peopleOn = true)
+        assertEquals("NAMES:DONE MEANING:DONE WORDS:DONE PEOPLE:NOW REST:NEXT", states(faces))
+        assertEquals("Step 3 of 4", faces.journey?.step)
+        // The model still to come: files are read for their words first and step 1 lasts until descriptions are added.
+        val noModel = ReadingPolicy.decide(ReadingProgress(read = 20, meaningWaiting = 20), null, true, false, android)
+        assertEquals("NAMES:DONE MEANING:NOW WORDS:NEXT PEOPLE:OFF REST:NEXT", states(noModel))
+        assertEquals("Step 1 of 3", noModel.journey?.step)
+        // Text-only phones read photos' words in the first pass; all done leaves no step.
+        val done = ReadingPolicy.decide(ReadingProgress(read = 20), null, false, false, android, textOnly = true)
+        assertEquals("NAMES:DONE MEANING:DONE PEOPLE:OFF REST:DONE", states(done))
+        assertNull(done.journey?.step)
+        assertNull(ReadingPolicy.decide(ReadingProgress(read = 2, scheduled = 3, sample = true), null, true, true, android).journey, "the demo has none")
+    }
 }

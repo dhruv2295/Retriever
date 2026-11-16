@@ -119,6 +119,7 @@ class HomeActions(
     val dismissWidenAccess: () -> Unit = {},
     /** The one-time card's Got it, and its Notify me: null when there is nothing to ask. */
     val dismissIntro: () -> Unit = {},
+    val dismissStageNote: () -> Unit = {},
     val notify: (() -> Unit)? = null,
 )
 
@@ -173,6 +174,7 @@ fun HomeScreen(
             dismissNotificationsOffer = vm::dismissNotificationsOffer,
             dismissWidenAccess = vm::dismissWidenAccess,
             dismissIntro = vm::dismissIntro,
+            dismissStageNote = vm::dismissStageNote,
             // Hidden once asked: the card has nothing more to promise.
             notify = if (prefs.notifyWhenCaughtUp) {
                 null
@@ -300,6 +302,13 @@ internal fun HomeBody(
                 }
             }
         }
+        status?.journey?.let { journey ->
+            journey.note?.takeUnless { ui.introDue }?.let { note ->
+                item(key = "stageNote", span = FullLine) {
+                    StageNoteCard(note, journey.textOnly, home.dismissStageNote, Modifier.padding(horizontal = 16.dp))
+                }
+            }
+        }
         if (ui.introDue) {
             item(key = "intro", span = FullLine) {
                 val state = upgrade.description
@@ -400,9 +409,10 @@ internal fun StatusLine(
                     },
                 )
             },
-            supportingContent = if (status.detail != null || status.count != null || bar) {
+            supportingContent = if (status.detail != null || status.count != null || bar || status.journey?.step != null) {
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        status.journey?.step?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                         status.count?.let { Text(it) }
                         if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth())
                         status.detail?.let { Text(it) }

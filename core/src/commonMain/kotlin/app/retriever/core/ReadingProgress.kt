@@ -115,6 +115,8 @@ data class ReadingStatus(
     val count: String? = null,
     val done: Long? = null,
     val total: Long? = null,
+    /** The stages as one journey, for the step line and Processing's checklist; null for the demo and Not now. */
+    val journey: Journey? = null,
 ) {
     val active: Boolean get() = phase in ACTIVE
 
@@ -270,6 +272,8 @@ object ReadingPolicy {
         processingStarted: Boolean = false,
         adaptive: Boolean = false,
         facesStarted: Boolean = false,
+        peopleOn: Boolean = false,
+        textOnly: Boolean = false,
     ): ReadingStatus {
         // The demo in front has its own count; Not now's numbers are the whole phone's.
         val c = Words.strings
@@ -489,13 +493,16 @@ object ReadingPolicy {
         }
         val laterOnly = phase == ReadingPhase.DEEPENING || photoWords || (restStopped && !meaning && looking == null)
         val none = !progress.counted || laterOnly || (phase == ReadingPhase.FACES && looking == null) || total == 0L
-        if (none) return ReadingStatus(phase, title, detail, action)
+        // Faces are counted once every file is processed; before that their count is unknown, not zero.
+        val facesLeft = (faces ?: facesWaiting)?.pending ?: 0L.takeIf { progress.waiting == 0L }
+        val journey = journey(progress, phase, title, peopleOn, textOnly, facesLeft)
+        if (none) return ReadingStatus(phase, title, detail, action, journey = journey)
         val count = when {
             looking != null -> Words.facesOf(done, total)
             meaning -> Words.meaningOf(done, total)
             else -> Words.readOf(done, total)
         }
-        return ReadingStatus(phase, title, detail, action, count, done, total)
+        return ReadingStatus(phase, title, detail, action, count, done, total, journey)
     }
 }
 

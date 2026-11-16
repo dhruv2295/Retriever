@@ -549,6 +549,49 @@ internal object German : Strings {
     override val lookingForFacesTitle = "Personen in deinen Fotos werden gefunden"
     override val deepeningTitle = "Der Rest einiger langer Dateien wird verarbeitet"
     override val readingPhotoWordsTitle = "Der Text in deinen Fotos wird gelesen"
+
+    override val stagesHeader = "Was du suchen kannst"
+
+    override fun stageUnlock(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Jede Datei über ihren Namen finden"
+        Stage.MEANING -> if (textOnly) "Die Wörter in deinen Dateien durchsuchen" else "Jedes Foto und jede Datei per Beschreibung finden"
+        Stage.WORDS -> "Die Wörter in deinen Fotos durchsuchen, etwa Belege und Schilder"
+        Stage.PEOPLE -> "Fotos von jemandem über den Namen finden"
+        Stage.REST -> "Lange PDFs und Videos bis zum Ende durchsuchen"
+    }
+
+    override fun stageStateLabel(state: StageState) = when (state) {
+        StageState.DONE -> "Fertig"
+        StageState.NOW -> "Läuft"
+        StageState.NEXT -> "Folgt"
+        StageState.OFF -> "Optional"
+    }
+
+    override fun stepOf(step: Int, steps: Int, stage: String?) = "Schritt $step von $steps" + (stage?.let { " · $it" } ?: "")
+
+    override fun stageNoteTitle(stage: Stage) = when (stage) {
+        Stage.NAMES -> "Jede Datei ist über ihren Namen auffindbar"
+        Stage.MEANING -> "Deine Dateien sind bereit für die Suche"
+        Stage.WORDS -> "Die Wörter in deinen Fotos sind durchsuchbar"
+        Stage.PEOPLE -> "Personen ist bereit"
+        Stage.REST -> "Lange Dateien sind bis zum Ende durchsuchbar"
+    }
+
+    override fun stageNote(stage: Stage, textOnly: Boolean) = when (stage) {
+        Stage.NAMES -> "Tippe einen Teil eines Dateinamens ein, um die Datei zu finden."
+
+        Stage.MEANING -> if (textOnly) {
+            "Such nach einem Wort in einem beliebigen Dokument. Probier „Rechnung“."
+        } else {
+            "Beschreib ein Foto, um es zu finden. Probier „Hund am Strand“."
+        }
+
+        Stage.WORDS -> "Such nach Wörtern, die du auf einem Foto gesehen hast. Probier „Kassenbon“."
+
+        Stage.PEOPLE -> "Gib jemandem unter Personen einen Namen und such dann nach diesem Namen."
+
+        Stage.REST -> "Such nach etwas tief in einem langen PDF oder Video, etwa einem Satz von einer späteren Seite."
+    }
     override val lookingTitle = "Suche nach neuen Dateien…"
     override val caughtUpTitle = "Fertig. Retriever hat alles verarbeitet, was möglich ist"
 

@@ -645,9 +645,34 @@ class Retriever(
                     counts.progress.contentRead > store.tasteIds().size,
                 adaptive = t.adaptive,
                 facesStarted = facesStarted,
-            )
+                peopleOn = facesOn,
+                textOnly = textOnly,
+            ).let { withStagesDone(it, p) }
         }
     }
+
+    /**
+     * Records the stages that finished and words the step line from them: a finished stage with work again holds new files
+     * ([Strings.newFiles]), never "Step 1 of 4" over a journey already made. The first sighting only records, so an
+     * update never fires every stage's note at once; the journey's last stage has the caught-up line instead of a note.
+     */
+    private fun withStagesDone(status: ReadingStatus, p: Prefs): ReadingStatus {
+        val journey = status.journey ?: return status
+        val done = journey.rows.filter { it.state == StageState.DONE }.map { it.stage }.toSet()
+        val known = p.stagesDone
+        if (known == null || !known.containsAll(done)) {
+            val note = if (known == null || journey.finished) p.stageNote else (done - known).filter { it != Stage.NAMES }.maxOrNull() ?: p.stageNote
+            store.updatePrefs { it.copy(stagesDone = known.orEmpty() + done, stageNote = note) }
+            loadPrefs()
+        }
+        val now = journey.now?.stage
+        val step = if (now != null && now != Stage.NAMES && known.orEmpty().contains(now)) Words.strings.newFiles else journey.step
+        return status.copy(journey = journey.copy(step = step, note = p.stageNote))
+    }
+
+    /** Home's Got it on a stage's note. */
+    @Throws(Throwable::class)
+    suspend fun dismissStageNote() = updatePrefs { it.copy(stageNote = null) }
 
     /** Shared over [counts], like it: its once-a-second blocker check runs once however many screens watch. */
     fun readingStatus(): Flow<ReadingStatus> = sharedStatus

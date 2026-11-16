@@ -79,6 +79,12 @@ class StatusViewModel(
 
     fun pause() = attempt(appScope) { indexer.pause() }
 
+    /** The People stage's Turn on, as Home's: its row turns from optional to a step at once. */
+    fun turnOnPeople() = attempt {
+        retriever.updatePrefs { it.copy(recognizePeople = true) }
+        indexer.indexNow()
+    }
+
     fun loadSkipped() = attempt { skipped.value = retriever.skipped(50) }
 
     fun retrySkipped() = attempt {

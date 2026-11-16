@@ -253,6 +253,8 @@ class HomeViewModel(
     /** The one-time card's Got it. */
     fun dismissIntro() = launchCatching { retriever.dismissHomeIntro() }
 
+    fun dismissStageNote() = launchCatching { retriever.dismissStageNote() }
+
     /** People's "Same person?": that pair hidden at once, then merged or never asked again. */
     fun answerSamePerson(question: SamePerson, same: Boolean) {
         _ui.update { it.copy(samePeople = it.samePeople - question) }

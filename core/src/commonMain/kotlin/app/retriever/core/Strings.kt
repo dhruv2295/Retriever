@@ -340,6 +340,21 @@ interface Strings {
     val lookingForFacesTitle: String
     val deepeningTitle: String
     val readingPhotoWordsTitle: String
+
+    /** Processing's checklist: what each stage lets the person search, its state in words, and the step line. */
+    val stagesHeader: String
+
+    fun stageUnlock(stage: Stage, textOnly: Boolean): String
+
+    fun stageStateLabel(state: StageState): String
+
+    /** "Step 2 of 4", with the stage's title when the line's own title is a pause or a wait. */
+    fun stepOf(step: Int, steps: Int, stage: String?): String
+
+    /** The one note when a stage finishes: what now works, and one thing to try. */
+    fun stageNoteTitle(stage: Stage): String
+
+    fun stageNote(stage: Stage, textOnly: Boolean): String
     val lookingTitle: String
     val caughtUpTitle: String
 

@@ -677,8 +677,10 @@ class SetupStatusShotsTest {
                 readingStatus = decidedStatus(caughtUp, prefs, idle),
             )
         }
-        listOf("Only read while charging", "Screenshots", "PDFs", "Tune again", "Folders Retriever skips", "Read inside", "Sample mode")
+        listOf("Only read while charging", "Screenshots", "Tune again", "Folders Retriever skips", "Read inside", "Sample mode")
             .forEach { rule.onAllNodesWithText(it, substring = true).assertCountEquals(0) }
+        // The PDFs switch; the stage checklist names PDFs in a sentence.
+        rule.onAllNodesWithText("PDFs").assertCountEquals(0)
         rule.onNodeWithText("Settings").performClick()
         assertEquals(1, opened)
     }

@@ -27,6 +27,7 @@ struct StatusContent: View {
         let status = model.statusLine(snap) ?? Copy.reading(snap)
         List {
             Section { progress(status) }
+            if let journey = status.journey { stages(journey) }
             if snap.textOnly { Section { Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)) } }
             if snap.skipped > 0 { Section { skipped } }
             Section { details }
@@ -67,6 +68,33 @@ struct StatusContent: View {
         // Resume and Stop are the line's own button.
         if status.offersPause(progress: snap.readProgress) {
             Button(action: model.pause) { Text(Words.shared.PAUSE).fixedSize(horizontal: false, vertical: true).frame(minHeight: 44) }
+        }
+    }
+
+    /// The journey as a checklist: what each stage lets the person search, done, now or coming up. People while off is an
+    /// option with its own Turn on, never a step left. Each row reads as one sentence: what it unlocks, then its state.
+    private func stages(_ journey: Journey) -> some View {
+        Section(Words.shared.strings.stagesHeader) {
+            ForEach(journey.rows, id: \.stage) { row in
+                StepRow(
+                    icon: row.state == .done ? "checkmark" : Self.icon(row.stage), done: row.state == .done, later: row.state == .next,
+                    title: row.label, detail: row.stateLabel
+                ) {
+                    if row.state == .off {
+                        Button(Words.shared.strings.turnOn) { model.setRecognizePeople(true) }.buttonStyle(.bordered).buttonBorderShape(.capsule)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func icon(_ stage: Stage) -> String {
+        switch stage {
+        case .names: "magnifyingglass"
+        case .meaning: "photo"
+        case .words: "text.viewfinder"
+        case .people: "person.2"
+        default: "doc.text"
         }
     }
 

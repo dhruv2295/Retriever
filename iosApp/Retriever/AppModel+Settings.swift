@@ -23,7 +23,8 @@ extension AppModel {
                 dismissedReadingCycle: p.dismissedReadingCycle, searchTried: p.searchTried, upgradeOfferDismissed: p.upgradeOfferDismissed,
                 homeIntroDue: p.homeIntroDue, notifyWhenCaughtUp: p.notifyWhenCaughtUp, recognizePeople: people ?? p.recognizePeople,
                 peopleOfferDismissed: p.peopleOfferDismissed,
-                processingRequested: p.processingRequested, widenAccessOfferDismissed: p.widenAccessOfferDismissed)
+                processingRequested: p.processingRequested, widenAccessOfferDismissed: p.widenAccessOfferDismissed,
+                stagesDone: p.stagesDone, stageNote: p.stageNote)
         }
     }
 

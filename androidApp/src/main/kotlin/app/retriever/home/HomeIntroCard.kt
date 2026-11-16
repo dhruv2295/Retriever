@@ -29,6 +29,7 @@ import app.retriever.R
 import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.ReadingSchedule
+import app.retriever.core.Stage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.model.FreeUpSpaceButton
@@ -105,23 +106,64 @@ internal fun HomeIntroCard(
     }
 }
 
-/** One step: a small round icon ([filled] once done), the title, its line, and an optional action under them. */
+/** A stage just finished: what now works and one thing to try, with the dog's one bounce, until Got it. */
 @Composable
-private fun IntroRow(@DrawableRes icon: Int, title: String, body: String, filled: Boolean = false, action: @Composable () -> Unit = {}) {
+internal fun StageNoteCard(stage: Stage, textOnly: Boolean, onGotIt: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 18.dp, bottom = 8.dp)) {
+            Row(Modifier.padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Mascot(MascotMood.CAUGHT_UP, Modifier.width(76.dp))
+                Column {
+                    Text(Words.strings.stageNoteTitle(stage), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                    Text(
+                        Words.strings.stageNote(stage, textOnly),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            TextButton(onClick = onGotIt, modifier = Modifier.align(Alignment.End)) { Text(Words.GOT_IT) }
+        }
+    }
+}
+
+/**
+ * One step: a small round icon ([filled] once done, quiet while [later]), the title, its line, and an optional action under
+ * them. Also Processing's stage checklist, where [modifier] carries the row's merged semantics.
+ */
+@Composable
+internal fun IntroRow(
+    @DrawableRes icon: Int,
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    later: Boolean = false,
+    action: @Composable () -> Unit = {},
+) {
     val colors = MaterialTheme.colorScheme
-    Row(Modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(color = if (filled) colors.primary else colors.secondaryContainer, shape = CircleShape, modifier = Modifier.size(30.dp)) {
+    Row(modifier.padding(vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        val container = when {
+            filled -> colors.primary
+            later -> colors.surfaceContainerHighest
+            else -> colors.secondaryContainer
+        }
+        Surface(color = container, shape = CircleShape, modifier = Modifier.size(30.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     painterResource(icon),
                     contentDescription = null,
-                    tint = if (filled) colors.onPrimary else colors.onSecondaryContainer,
+                    tint = when {
+                        filled -> colors.onPrimary
+                        later -> colors.onSurfaceVariant
+                        else -> colors.onSecondaryContainer
+                    },
                     modifier = Modifier.size(18.dp),
                 )
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.titleSmall, color = if (later) colors.onSurfaceVariant else colors.onSurface)
             Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             action()
         }

@@ -133,7 +133,7 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(Words.shared.DEMO_PICKING, "Picking your recent files…")
         XCTAssertEqual(Words.shared.readOf(done: 12, total: 30), "12 of 30 files processed", "always the total: it is fixed at picking")
         XCTAssertEqual(Words.shared.READ, "Found by what’s inside")
-        XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, count: nil, done: nil, total: nil).pause, "not a pause")
+        XCTAssertNil(ReadingStatus(phase: .caughtUp, title: "All done", detail: nil, action: nil, count: nil, done: nil, total: nil, journey: nil).pause, "not a pause")
     }
 
     func testProcessingCopyHasNoFixedDuration() {
