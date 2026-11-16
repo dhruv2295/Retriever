@@ -114,27 +114,26 @@ Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and 
 `MARKETING_VERSION` as `versionName` and `CURRENT_PROJECT_VERSION` as `versionCode`. Bump the build number
 there before each store upload, and tag the commit after it, e.g. `git tag -a v0.2-5 -m "Retriever 0.2 (5)"`.
 
-Store builds need the Play upload key and a Play Console service account's JSON key, both kept outside the
-repo and named in `~/.gradle/gradle.properties`. Without the upload key, release builds use the debug key
-for local testing and publish tasks refuse to run.
+Store builds need the Play upload key, kept outside the repo and named in `~/.gradle/gradle.properties`.
+Without it, release builds use the debug key for local testing, and Play refuses their uploads.
 
 ```properties
 retrieverUploadStoreFile=/path/to/upload-keystore
 retrieverUploadStorePassword=...
 retrieverUploadKeyAlias=...
 retrieverUploadKeyPassword=...
-retrieverPlayCredentials=/path/to/service-account.json
 ```
 
-Uploads go to Play's internal testing track through the
-[Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) plugin, once the app exists in the
-Play Console and the service account is invited to it.
+[fastlane](https://fastlane.tools) uploads to both stores; neither lane sends anything for review. Its
+credentials go in the gitignored `fastlane/.env`: `GOOGLE_PLAY_JSON_KEY_PATH` (a Play service account invited
+to the app), and `IOS_TEAM_ID` with an App Store Connect API key (`APP_STORE_CONNECT_KEY_ID`,
+`APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_PATH`).
 
 ```sh
-./gradlew :androidApp:publishReleaseBundle
+bundle exec fastlane android release   # bundle, uploaded as a draft production release
+bundle exec fastlane ios release       # archive, uploaded to App Store Connect
 ```
 
-While the Play app is still a draft, add `--release-status draft` and roll the release out in the Console.
 The bundle carries the R8 mapping and the baseline profile, so Play deobfuscates crashes itself.
 
 The Play Console needs declarations for all-files access (`MANAGE_EXTERNAL_STORAGE`, on-device file search),

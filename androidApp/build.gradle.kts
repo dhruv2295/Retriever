@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.play.publisher)
     alias(libs.plugins.kover)
 }
 
@@ -18,15 +17,8 @@ val xcconfig =
 
 // Play upload key, from ~/.gradle/gradle.properties or ORG_GRADLE_PROJECT_* env vars (docs: README, Release).
 val uploadKey = listOf("StoreFile", "StorePassword", "KeyAlias", "KeyPassword").map { providers.gradleProperty("retrieverUpload$it").orNull }
-val requestedTasks = gradle.startParameter.taskNames
-val publishing = requestedTasks.any { it.contains("publish", ignoreCase = true) }
-val forPlay = publishing || requestedTasks.any { it.contains("bundle", ignoreCase = true) } // see splits below
-
-// Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still
-// works. Play rejects a debug-signed upload, so publish tasks stop here instead.
-if (publishing && uploadKey.any { it == null }) {
-    throw GradleException("Publishing needs the upload key: set the retrieverUpload* properties (README, Release)")
-}
+// Without the upload key (other machines, CI checks), release builds use the debug key so installRelease still works.
+val forPlay = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) } // see splits below
 
 // Test coverage only with -Pcoverage (scripts/verify.sh --full); otherwise tests run uninstrumented.
 kover { if (!providers.gradleProperty("coverage").isPresent) disable() }
@@ -75,7 +67,7 @@ android {
 
     // Every variant builds one APK per ABI, no universal APK: arm64-v8a for phones, x86_64 for ChromeOS and emulators
     // (installDebug picks the device's). AGP can't build an App Bundle with splits on (issuetracker 402800800), and Play
-    // splits a bundle by ABI itself, so a bundle or Play publish build turns them off: run those apart from assemble
+    // splits a bundle by ABI itself, so a bundle build turns them off: run it apart from assemble
     // tasks. The 32-bit excludes under packaging keep 32-bit devices out of both. Splits and ndk abiFilters conflict
     // in any build type, so there are no filters.
     splits {
@@ -131,13 +123,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-}
-
-// Uploads go to the internal testing track (the plugin's default), signed in with the service-account JSON key at
-// retrieverPlayCredentials. The bundle carries the R8 mapping and baseline profile.
-play {
-    defaultToAppBundles = true
-    providers.gradleProperty("retrieverPlayCredentials").orNull?.let { serviceAccountCredentials.set(file(it)) }
 }
 
 // litertlm-android (also pulled in by mediapipe tasks-retrieval) drags in kotlin-reflect (~2 MB), reached only from
