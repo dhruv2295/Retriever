@@ -121,6 +121,12 @@ class LibrarySync(private val store: Store, private val source: FileSource, priv
         names = names?.update(ids, emptyList())
     }
 
+    /** Drops every file and the token: resuming from it would list only what changed since, never the files dropped. */
+    suspend fun clear() = syncLock.withLock {
+        store.deleteMeta(TOKEN)
+        remove(store.knownUris().toList())
+    }
+
     /** Removes the files in folders [prefs] excludes at once, with no scan, so it works while paused. Returns how many. */
     suspend fun dropExcluded(prefs: Prefs): Int {
         val gone = namesLock.withLock {

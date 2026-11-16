@@ -390,10 +390,14 @@ class Retriever(
     /** No included source is permitted. Keep preferences and stars, but drop inaccessible file revisions. */
     @Throws(Throwable::class)
     suspend fun clearUnavailableLibrary() {
+        // Callers decide before a wait (the worker's model download and tune, this lock): access given meanwhile keeps the
+        // library a scan just listed.
+        if (platformReady()) return
         cancelBatch()
         indexLock.withLock {
+            if (platformReady()) return@withLock
             io {
-                sync.remove(store.knownUris().toList())
+                sync.clear()
                 reconcileRecentFiles()
                 _starred.value = store.starredUris()
                 libraryChanged()

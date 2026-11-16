@@ -163,6 +163,7 @@ internal fun testRetriever(
     factory: FakeFactory = FakeFactory(),
     monitor: FakeMonitor = FakeMonitor(),
     modelReady: (ModelBuild) -> Boolean = { true },
+    platformReady: () -> Boolean = { true },
     fewWaitingLimit: Int = 0,
     hasher: ContentHasher = object : ContentHasher {
         override suspend fun quickHash(uri: String, size: Long): String? = null
@@ -182,7 +183,7 @@ internal fun testRetriever(
         hasher = hasher,
         probe = probe,
         modelReady = modelReady,
-        platformReady = { true },
+        platformReady = platformReady,
         log = { _, _ -> },
         now = now,
         zoneOffsetMs = { 0L },
