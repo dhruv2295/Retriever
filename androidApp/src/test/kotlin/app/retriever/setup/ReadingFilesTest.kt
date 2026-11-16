@@ -350,6 +350,8 @@ class ReadingFilesTest {
     @Test fun statusOpensRecentFilesAndKeepsThemWhenReadingStops() {
         val index = mutableStateOf(IndexState(running = true, pendingAtStart = 40, currentFile = file(5, Kind.PDF), recentFiles = recent))
         var opened: SourceFile? = null
+        // Tall enough to show the recent files under Processing's large dog and checklist.
+        RuntimeEnvironment.setQualifiers("+h1300dp")
         rule.setContent {
             ShotTheme(false, 1f) {
                 val counts = app.retriever.readCounts(mapOf(FileState.INDEXED to 30L, FileState.PENDING to 10L), emptyMap(), 0)

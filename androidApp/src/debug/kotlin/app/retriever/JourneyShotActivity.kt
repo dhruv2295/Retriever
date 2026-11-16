@@ -29,7 +29,8 @@ import app.retriever.ui.RetrieverTheme
 
 /**
  * Debug builds only: the processing journey's real screens on made-up counts (20,000 photos, 1,000 documents), for design review.
- * `adb shell am start -n app.retriever/.JourneyShotActivity --es shot meaning|words|held|done|people|home|note|notification`
+ * `adb shell am start -n app.retriever/.JourneyShotActivity --es shot meaning|words|held|done|people|home|note|notification`,
+ * plus `--ez home true` for Home in that state.
  */
 class JourneyShotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,8 +52,8 @@ class JourneyShotActivity : ComponentActivity() {
         setContent {
             RetrieverTheme {
                 Surface {
-                    when (shot) {
-                        "home", "note" -> {
+                    when {
+                        shot == "home" || shot == "note" || intent.getBooleanExtra("home", false) -> {
                             val shown = if (shot == "note") status.copy(journey = status.journey?.copy(note = Stage.MEANING)) else status
                             val ui = HomeUi(libraryChosen = true, counts = counts.byKind, progress = progress, readingStatus = shown)
                             HomeShell(SearchUi(), SearchActions(), open = {}) { padding, list ->

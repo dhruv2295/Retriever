@@ -28,9 +28,16 @@ data class StageRow(val stage: Stage, val state: StageState, val label: String, 
  * The stages as one journey, read from the counts [ReadingPolicy.decide] already has. [step]: "Step 2 of 4", numbering only
  * the stages after the name scan that apply here, so a skipped stage never leaves a gap; null with no stage running.
  * [note]: a stage that just finished, for its one "now you can" moment (Retriever sets it from [Prefs.stageNote]); its words
- * are [Strings.stageNoteTitle] and [Strings.stageNote] with [textOnly].
+ * are [Strings.stageNoteTitle] and [Strings.stageNote] with [textOnly]. [segments]: the step indicator, the numbered stages'
+ * states in order; empty whenever [step] is not "Step N of M".
  */
-data class Journey(val rows: List<StageRow>, val step: String? = null, val note: Stage? = null, val textOnly: Boolean = false) {
+data class Journey(
+    val rows: List<StageRow>,
+    val step: String? = null,
+    val note: Stage? = null,
+    val textOnly: Boolean = false,
+    val segments: List<StageState> = emptyList(),
+) {
     val now: StageRow? get() = rows.firstOrNull { it.state == StageState.NOW }
     val finished: Boolean get() = rows.none { it.state == StageState.NOW || it.state == StageState.NEXT }
 }
@@ -87,10 +94,16 @@ internal fun journey(
         }
         StageRow(stage, state, c.stageUnlock(stage, textOnly), c.stageStateLabel(state), left(stage))
     }
-    val numbered = rows.filter { it.stage != Stage.NAMES && it.state != StageState.OFF }
     // A stop keeps its reason as the title; the checklist names the stage it holds.
-    val step = numbered.indexOfFirst { it.state == StageState.NOW }.takeIf { it >= 0 }?.let { c.stepOf(it + 1, numbered.size) }
-    return Journey(rows, step, textOnly = textOnly)
+    val numbered = numbered(rows)
+    return Journey(rows, numbered?.first, textOnly = textOnly, segments = numbered?.second.orEmpty())
+}
+
+/** "Step N of M" over the stages after the name scan that apply here, and their states; null with none of them running. */
+private fun numbered(rows: List<StageRow>): Pair<String, List<StageState>>? {
+    val states = rows.filter { it.stage != Stage.NAMES && it.state != StageState.OFF }.map { it.state }
+    val now = states.indexOf(StageState.NOW).takeIf { it >= 0 } ?: return null
+    return Words.strings.stepOf(now + 1, states.size) to states
 }
 
 /**
@@ -126,6 +139,10 @@ internal fun Journey.remembered(prefs: Prefs, peopleOffered: Boolean): Pair<Jour
     }
     val saved = prefs.copy(stagesDone = known.orEmpty() + done, stageNote = note).takeIf { it != prefs }
     val running = now?.stage
-    val step = if (running != null && running != Stage.NAMES && known.orEmpty().contains(running)) c.newFiles else step
-    return shown.copy(step = step, note = note) to saved
+    if (running != null && running != Stage.NAMES && known.orEmpty().contains(running)) {
+        return shown.copy(step = c.newFiles, segments = emptyList(), note = note) to saved
+    }
+    // Numbered again over the rows shown, so the indicator's segments and "of M" agree once a row is dropped.
+    val numbered = numbered(shown.rows)
+    return shown.copy(step = numbered?.first, segments = numbered?.second.orEmpty(), note = note) to saved
 }

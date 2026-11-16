@@ -2,26 +2,32 @@ package app.retriever.home
 
 import android.os.Build
 import androidx.activity.compose.ReportDrawnWhen
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -35,7 +41,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -43,10 +51,12 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -58,12 +68,14 @@ import app.retriever.access.openAllFilesSettings
 import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
 import app.retriever.core.DownloadState
+import app.retriever.core.Journey
 import app.retriever.core.Kind
 import app.retriever.core.ReadingPhase
 import app.retriever.core.ReadingPolicy
 import app.retriever.core.ReadingStatus
 import app.retriever.core.Retriever
 import app.retriever.core.SamePerson
+import app.retriever.core.StageState
 import app.retriever.core.StatusAction
 import app.retriever.core.UpgradePolicy
 import app.retriever.core.UpgradeStage
@@ -93,6 +105,7 @@ import app.retriever.search.SearchActions
 import app.retriever.ui.Format
 import app.retriever.ui.components.CountBar
 import app.retriever.ui.components.contentPaddingFor
+import app.retriever.ui.tabular
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -277,24 +290,31 @@ internal fun HomeBody(
                 val shown = status.action != StatusAction.DISMISS || !ui.caughtUpDismissed
                 if (shown) {
                     val celebrating = rememberCelebrating(status.action == StatusAction.DISMISS, celebration)
+                    val mood = when {
+                        celebrating -> MascotMood.CAUGHT_UP
+                        status.active -> MascotDirector.working(status.journey?.now?.stage)
+                        else -> MascotMood.RESTING
+                    }
+                    // A stage running or held is the hero; otherwise a compact card like Home's other blocks.
+                    val hero = status.journey?.now != null
                     // On a card like Home's other blocks; Settings keeps it a plain row in its list.
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceContainer,
-                        shape = MaterialTheme.shapes.large,
+                        shape = if (hero) MaterialTheme.shapes.extraLarge else MaterialTheme.shapes.large,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     ) {
                         Column {
-                            StatusLine(
-                                status,
-                                when {
-                                    celebrating -> MascotMood.CAUGHT_UP
-                                    status.active -> MascotDirector.working(status.journey?.now?.stage)
-                                    else -> MascotMood.RESTING
-                                },
-                                onOpen = { actions.onNavigate(StatusRoute) },
-                                onAction = { onAction(it, status.phase) },
-                                more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
-                            )
+                            if (hero) {
+                                StatusHero(status, mood, onOpen = { actions.onNavigate(StatusRoute) }, onAction = { onAction(it, status.phase) })
+                            } else {
+                                StatusLine(
+                                    status,
+                                    mood,
+                                    onOpen = { actions.onNavigate(StatusRoute) },
+                                    onAction = { onAction(it, status.phase) },
+                                    more = if (noSpace != null && status.phase == ReadingPhase.DOWNLOAD_STOPPED) ({ FreeUpSpaceButton() }) else null,
+                                )
+                            }
                             if (ui.showWidenAccess(status)) {
                                 WidenAccessRow(ui.access, home.allowAccess, home.dismissWidenAccess)
                             }
@@ -401,15 +421,7 @@ internal fun StatusLine(
     Column(modifier) {
         ListItem(
             leadingContent = { Mascot(mood, Modifier.width(24.dp)) },
-            headlineContent = {
-                Text(
-                    status.title,
-                    modifier = Modifier.semantics(mergeDescendants = true) {
-                        liveRegion = LiveRegionMode.Polite
-                        if (bar) contentDescription = status.title.substringBefore(" · ")
-                    },
-                )
-            },
+            headlineContent = { StatusTitle(status) },
             supportingContent = if (status.detail != null || status.count != null || bar || status.journey?.step != null) {
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -449,6 +461,78 @@ internal fun StatusLine(
                     FilledTonalButton(onClick = { onAction(action) }) { Text(action.label) }
                 }
                 more?.invoke()
+            }
+        }
+    }
+}
+
+/** The line's title, its own live node: a change of state is announced, each file's count is not. */
+@Composable
+private fun StatusTitle(status: ReadingStatus, modifier: Modifier = Modifier, style: TextStyle = LocalTextStyle.current) {
+    Text(
+        status.title,
+        style = style,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            liveRegion = LiveRegionMode.Polite
+            if (status.done != null && status.total != null) contentDescription = status.title.substringBefore(" · ")
+        },
+    )
+}
+
+/**
+ * Home's status while a stage runs or is held: the stage's dog large beside the step and the title, then the count, its bar
+ * and the detail, all of it opening Processing ([onOpen]); the line's one button under it, its own control.
+ */
+@Composable
+private fun StatusHero(status: ReadingStatus, mood: MascotMood, onOpen: () -> Unit, onAction: (StatusAction) -> Unit) {
+    val done = status.done
+    val total = status.total
+    Column(Modifier.padding(bottom = 8.dp)) {
+        Column(
+            Modifier
+                .clickable(role = Role.Button, onClickLabel = Words.strings.showProcessingDetails, onClick = onOpen)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Mascot(mood, Modifier.width(130.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StepLabel(status.journey)
+                    StatusTitle(status, style = MaterialTheme.typography.titleLarge)
+                }
+            }
+            status.count?.let { Text(it, style = MaterialTheme.typography.bodyMedium.tabular()) }
+            if (done != null && total != null) CountBar(done, total, Modifier.fillMaxWidth())
+            status.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        status.action?.takeIf { it != StatusAction.DISMISS }?.let { action ->
+            FilledTonalButton(onClick = { onAction(action) }, modifier = Modifier.padding(horizontal = 16.dp)) { Text(action.label) }
+        }
+    }
+}
+
+/**
+ * "Step 2 of 3" and its indicator under it, one segment a step: filled once done, half filled while current, a bare track
+ * still to come. The words carry it for TalkBack; the segments are drawing only.
+ */
+@Composable
+internal fun StepLabel(journey: Journey?, modifier: Modifier = Modifier) {
+    val step = journey?.step ?: return
+    val colors = MaterialTheme.colorScheme
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(step, style = MaterialTheme.typography.labelLarge, color = colors.primary)
+        if (journey.segments.isNotEmpty()) {
+            Row(Modifier.clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (state in journey.segments) {
+                    Box(Modifier.size(28.dp, 6.dp).clip(CircleShape).background(colors.surfaceContainerHighest)) {
+                        val fill = when (state) {
+                            StageState.DONE -> 1f
+                            StageState.NOW -> 0.5f
+                            else -> 0f
+                        }
+                        if (fill > 0f) Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(colors.primary))
+                    }
+                }
             }
         }
     }

@@ -56,8 +56,8 @@ struct StatusContent: View {
         // Walking while reading runs, resting while it waits or is paused; CAUGHT_UP once, the first time all is read.
         // Reading is what this screen is for, so the walk never settles into Home's walk-and-rest cadence.
         StatusDog(
-            mood: snap.running ? MascotDirector.shared.working(stage: status.journey?.now?.stage) : snap.readProgress.unfinished ? .resting : nil, settles: Self.dogSettles, due: model.caughtUpDue,
-            done: model.celebrate
+            mood: snap.running ? MascotDirector.shared.working(stage: status.journey?.now?.stage) : snap.readProgress.unfinished ? .resting : nil,
+            width: 240, settles: Self.dogSettles, due: model.caughtUpDue, done: model.celebrate
         )
         .frame(maxWidth: .infinity)
         .listRowSeparator(.hidden)

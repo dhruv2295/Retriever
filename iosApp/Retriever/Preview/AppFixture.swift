@@ -114,7 +114,7 @@ extension AppModel {
                     snap.readingStatus = status.doCopy(
                         phase: status.phase, title: status.title, detail: status.detail, action: status.action, count: status.count,
                         done: status.done, total: status.total,
-                        journey: journey.doCopy(rows: journey.rows, step: journey.step, note: .meaning, textOnly: journey.textOnly))
+                        journey: journey.doCopy(rows: journey.rows, step: journey.step, note: .meaning, textOnly: journey.textOnly, segments: journey.segments))
                 }
             case .held:
                 (snap.running, snap.reading, snap.lastStop) = (false, ReadingPreview(current: nil, recent: Array(photos.dropFirst())), .unplugged)

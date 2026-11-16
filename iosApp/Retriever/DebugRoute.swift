@@ -67,6 +67,9 @@
         case journeyPeople = "journey.people"
         case journeyHome = "journey.home"
         case journeyNote = "journey.note"
+        case journeyHomeMeaning = "journey.home.meaning"
+        case journeyHomeHeld = "journey.home.held"
+        case journeyHomeDone = "journey.home.done"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
@@ -200,10 +203,10 @@
             case .upgradeTuning: .tuning
             case .upgradeMeaning: .meaning(1_204)
             case .statusReading, .statusReadingTurnover, .searchReading: .reading(done: 1_204, total: 5_310)
-            case .journeyMeaning: .journey(.meaning)
+            case .journeyMeaning, .journeyHomeMeaning: .journey(.meaning)
             case .journeyWords, .journeyHome: .journey(.words)
-            case .journeyHeld: .journey(.held)
-            case .journeyDone: .journey(.done)
+            case .journeyHeld, .journeyHomeHeld: .journey(.held)
+            case .journeyDone, .journeyHomeDone: .journey(.done)
             case .journeyPeople: .journey(.people)
             case .journeyNote: .journey(.note)
             case .statusPaused: .paused
@@ -263,7 +266,8 @@
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
             case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeProcessing, .homeDownloading, .homeMeaning, .homeNoAccess,
-                .homeNotNow, .homeCounting, .journeyHome, .journeyNote, .homeIntroReady, .homeIntroOnItsWay, .homePhotosOnly:
+                .homeNotNow, .homeCounting, .journeyHome, .journeyNote, .journeyHomeMeaning, .journeyHomeHeld, .journeyHomeDone,
+                .homeIntroReady, .homeIntroOnItsWay, .homePhotosOnly:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {

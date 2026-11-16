@@ -611,7 +611,8 @@ class HomeShotsTest {
     /** People off with photos read: the card's one choice, raised off it; Turn on is Settings' switch. */
     @Test fun introOffersPeople() {
         var on = 0
-        RuntimeEnvironment.setQualifiers("+h891dp")
+        // Tall enough that Turn on clears the search bar below the status card.
+        RuntimeEnvironment.setQualifiers("+h1100dp")
         rule.setContent { ShotTheme(false) { Screen(intro.copy(peopleOffer = true), homeActions = HomeActions(turnOnPeople = { on++ })) } }
         rule.waitForIdle()
         rule.shot("home_intro_people_light")

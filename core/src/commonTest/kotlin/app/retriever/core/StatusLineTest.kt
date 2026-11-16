@@ -404,6 +404,7 @@ class StatusLineTest {
         val words = ReadingPolicy.decide(ReadingProgress(read = 20, wordsWaiting = 12, laterPasses = 15), null, true, true, android)
         assertEquals("NAMES:DONE MEANING:DONE WORDS:NOW PEOPLE:OFF REST:NEXT", states(words))
         assertEquals("Step 2 of 3", words.journey?.step, "People off is optional, not a step")
+        assertEquals(listOf(StageState.DONE, StageState.NOW, StageState.NEXT), words.journey?.segments, "one segment per step")
         assertEquals(12L, words.journey?.now?.left)
         // People on, and no file with later parts once every file is processed: no long-files step. A pause keeps its reason
         // as the title; the step is only the number.
@@ -454,6 +455,7 @@ class StatusLineTest {
         assertNull(restLeft.remembered(dismissed, peopleOffered = false).second, "Got it sticks")
         val newPhoto = journey(ReadingProgress(read = 20, scheduled = 1)).remembered(dismissed, peopleOffered = true).first
         assertEquals(Words.strings.newFiles, newPhoto.step)
+        assertTrue(newPhoto.segments.isEmpty(), "no step indicator beside new files")
         assertEquals(StageState.DONE, newPhoto.rows.first { it.stage == Stage.WORDS }.state, "a finished stage stays ticked")
         // All done is the one celebration: the last stage's note is dropped, and the long files' rest counts as finished.
         val (allDone, finished) = journey(ReadingProgress(read = 20)).remembered(noted ?: Prefs(), peopleOffered = false)

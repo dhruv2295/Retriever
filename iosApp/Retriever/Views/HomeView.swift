@@ -470,27 +470,43 @@ struct StatusLine: View {
         }
     }
 
+    /// Home's line while a stage runs or is held: the stage's dog large beside the step and the title, the rest under them.
+    private var hero: Bool { dismissable && status.journey?.now != nil }
+
     private var row: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Reading status has its own large dog.
-            if link {
-                StatusDog(
-                    mood: mood, width: 28, icon: "checkmark.circle.fill", due: dismissable && model.caughtUpDue && status.action == .dismiss,
-                    done: model.celebrate)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(status.title).font(.headline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
-                if let step = status.journey?.step { Text(step).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true) }
-                // "30 of 25,793 files processed", and a bar of exactly those numbers; core leaves both out while it counts.
-                if let count = status.count { Text(count).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
-                if let done = status.done, let total = status.total, total.int64Value > 0 {
-                    ProgressView(value: Double(done.int64Value), total: Double(total.int64Value)).accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: hero ? .center : .top, spacing: hero ? 16 : 12) {
+                // Reading status has its own large dog.
+                if link {
+                    StatusDog(
+                        mood: mood, width: hero ? 130 : 28, icon: "checkmark.circle.fill",
+                        due: dismissable && model.caughtUpDue && status.action == .dismiss, done: model.celebrate)
                 }
-                if let detail = status.detail { Note(detail) }
+                // Settings' small line keeps the step after the title; the hero and Reading status lead with it.
+                let leads = hero || !link
+                VStack(alignment: .leading, spacing: leads ? 8 : 4) {
+                    if leads { StepLabel(journey: status.journey) }
+                    Text(status.title).font(leads ? .title3.weight(.semibold) : .headline).monospacedDigit()
+                        .fixedSize(horizontal: false, vertical: true)
+                    if link && !hero, let step = status.journey?.step {
+                        Text(step).font(.subheadline).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !hero { progress }
+                }
             }
+            if hero { progress }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, hero ? 8 : 2)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var progress: some View {
+        // "30 of 25,793 files processed", and a bar of exactly those numbers; core leaves both out while it counts.
+        if let count = status.count { Text(count).font(.subheadline).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
+        if let done = status.done, let total = status.total, total.int64Value > 0 {
+            ProgressView(value: Double(done.int64Value), total: Double(total.int64Value)).accessibilityHidden(true)
+        }
+        if let detail = status.detail { Note(detail) }
     }
 
     /// Walking while files are read, resting otherwise; "all done" plays its pose once, then keeps a check.
@@ -508,6 +524,39 @@ struct StatusLine: View {
         case .resume: model.resume()
         case .tryAgain: if status.phase == .tuning { model.retryTune() } else { model.downloadModel() }
         default: break
+        }
+    }
+}
+
+/// "Step 2 of 3" and its indicator under it, one segment a step: filled once done, half filled while current, a bare track
+/// still to come. The words carry it for VoiceOver; the segments are drawing only.
+struct StepLabel: View {
+    let journey: Journey?
+
+    var body: some View {
+        if let journey, let step = journey.step {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(step).font(.subheadline.weight(.semibold)).foregroundStyle(.tint).fixedSize(horizontal: false, vertical: true)
+                if !journey.segments.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(Array(journey.segments.enumerated()), id: \.offset) { _, state in
+                            Capsule().fill(Color(.tertiarySystemFill))
+                                .overlay(alignment: .leading) { Rectangle().fill(.tint).frame(width: 28 * Self.filled(state)) }
+                                .frame(width: 28, height: 6)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .accessibilityHidden(true)
+                }
+            }
+        }
+    }
+
+    private static func filled(_ state: StageState) -> CGFloat {
+        switch state {
+        case .done: 1
+        case .now: 0.5
+        default: 0
         }
     }
 }

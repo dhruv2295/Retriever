@@ -77,6 +77,7 @@ import app.retriever.core.motion.MascotDirector
 import app.retriever.core.motion.MascotMood
 import app.retriever.home.Celebration
 import app.retriever.home.IntroRow
+import app.retriever.home.StepLabel
 import app.retriever.home.rememberCelebrating
 import app.retriever.indexing.openBatterySettings
 import app.retriever.motion.Mascot
@@ -221,8 +222,9 @@ fun StatusContent(
                         unfinished -> MascotMood.RESTING
                         else -> null
                     }
-                    // Reading is this screen's subject: the dog walks for as long as it runs, not the shared walk-and-rest.
-                    if (mood != null) Mascot(mood, Modifier.width(64.dp), settles = !index.running)
+                    // Reading is this screen's subject: the dog works for as long as it runs, not the shared walk-and-rest.
+                    if (mood != null) Mascot(mood, Modifier.align(Alignment.CenterHorizontally).width(240.dp), settles = !index.running)
+                    StepLabel(readingStatus?.journey)
                     // Only the state is announced, not each file: the count is in the detail, the bar is the same numbers.
                     val title = readingStatus?.title ?: Words.strings.checkingYourFiles
                     Text(
@@ -233,7 +235,6 @@ fun StatusContent(
                             contentDescription = title.substringBefore(" · ")
                         },
                     )
-                    readingStatus?.journey?.step?.let { Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) }
                     // One reason at a time: a failure outranks the schedule's own wait, which follows from the title.
                     if (failure != null) {
                         Text(failure, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
