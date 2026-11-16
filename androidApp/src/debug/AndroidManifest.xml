@@ -20,5 +20,11 @@
             android:exported="true"
             android:label="Mascot gallery"
             android:taskAffinity="app.retriever.mascot" />
+        <!-- Debug builds only: the processing journey's screens on made-up counts, for design review. -->
+        <activity
+            android:name=".JourneyShotActivity"
+            android:exported="true"
+            android:label="Journey shots"
+            android:taskAffinity="app.retriever.journey" />
     </application>
 </manifest>

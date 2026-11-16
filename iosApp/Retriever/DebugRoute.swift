@@ -59,6 +59,14 @@
         case setupReady = "setup.ready"
         case setupPaused = "setup.paused"
         case setupSampleDone = "setup.sampleDone"
+        /// The processing journey: Processing in each state, then Home's line and its stage note.
+        case journeyMeaning = "journey.meaning"
+        case journeyWords = "journey.words"
+        case journeyHeld = "journey.held"
+        case journeyDone = "journey.done"
+        case journeyPeople = "journey.people"
+        case journeyHome = "journey.home"
+        case journeyNote = "journey.note"
         case statusTextOnly = "status.textOnly"
         case statusTailFiles = "status.tailFiles"
         case setupTextOnly = "setup.textOnly"
@@ -192,6 +200,12 @@
             case .upgradeTuning: .tuning
             case .upgradeMeaning: .meaning(1_204)
             case .statusReading, .statusReadingTurnover, .searchReading: .reading(done: 1_204, total: 5_310)
+            case .journeyMeaning: .journey(.meaning)
+            case .journeyWords, .journeyHome: .journey(.words)
+            case .journeyHeld: .journey(.held)
+            case .journeyDone: .journey(.done)
+            case .journeyPeople: .journey(.people)
+            case .journeyNote: .journey(.note)
             case .statusPaused: .paused
             case .statusSkipped: .skipped(6)
             case .statusTailFiles: .tailFiles(12)
@@ -211,6 +225,8 @@
                 NavigationStack { List { UpgradeCard(model: model) }.navigationTitle("Settings") }
             case .statusReadingTurnover:
                 NavigationStack { StatusView(model: model) }.task { await Self.turnOver(model) }
+            case .journeyMeaning, .journeyWords, .journeyHeld, .journeyDone, .journeyPeople:
+                NavigationStack { StatusView(model: model) }
             case .statusReading, .statusCaughtUp, .statusPaused, .statusProcessing, .statusSkipped, .statusTextOnly, .statusTailFiles:
                 NavigationStack { StatusView(model: model) }
             case .mascotGallery:
@@ -247,7 +263,7 @@
             case .homeCaughtUp, .homeUpgrade:
                 SearchView(model: model, search: .fixture(recent: ["passport scan", "wifi password", "lease agreement"]))
             case .homeCharging, .homeFirstDay, .homeUnplugged, .homeChargingUp, .homeProcessing, .homeDownloading, .homeMeaning, .homeNoAccess,
-                .homeNotNow, .homeCounting, .homeIntroReady, .homeIntroOnItsWay, .homePhotosOnly:
+                .homeNotNow, .homeCounting, .journeyHome, .journeyNote, .homeIntroReady, .homeIntroOnItsWay, .homePhotosOnly:
                 SearchView(model: model, search: .fixture())
             case .homePhotos:
                 SearchView(model: model, search: .fixture()).onAppear {

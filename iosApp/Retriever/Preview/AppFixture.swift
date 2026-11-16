@@ -30,7 +30,12 @@ enum AppFixture {
     case noAccess
     case tailFiles(Int)
     case textOnly(ramGb: Double)
+    /// The processing journey on a 20,000-photo, 1,000-document library (the design review's shots).
+    case journey(JourneyShot)
 }
+
+/// One state of the journey: step 1 running, step 2 running, step 2 held on battery, all done, People running, or Home's stage note.
+enum JourneyShot { case meaning, words, held, done, people, note }
 
 extension AppModel {
     convenience init(fixture: AppFixture) {
@@ -85,14 +90,46 @@ extension AppModel {
             snap.reading = ReadingPreview(current: running ? files[0] : nil, recent: Array(files.dropFirst()))
         }
         /// Pins core's decision for a state the snapshot alone can't say (plugged in, an explicit untimed run).
-        func decided(_ blocker: StopReason?, explicit: Bool = false, pluggedIn: Bool = false) {
+        func decided(_ blocker: StopReason?, explicit: Bool = false, pluggedIn: Bool = false, battery: Int32 = 100, faces: FacesProgress? = nil) {
             snap.readingStatus = ReadingPolicy.shared.decide(
                 progress: snap.readProgress, blocker: blocker, running: snap.running, reading: snap.reading.current != nil, words: Copy.words,
-                sessionActive: explicit, pluggedIn: pluggedIn, faces: nil, facesWaiting: nil, people: nil, readersMissing: false,
-                battery: 100, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false,
+                sessionActive: explicit, pluggedIn: pluggedIn, faces: faces, facesWaiting: faces, people: nil, readersMissing: false,
+                battery: battery, requested: explicit, processingStarted: explicit, adaptive: false, facesStarted: false,
                 peopleOn: snap.recognizePeople, textOnly: snap.textOnly)
         }
+        /// Core's own decision on counts that stand for a library of 20,000 photos and 1,000 documents.
+        func journey(_ shot: JourneyShot) {
+            let photos = Self.journeyFiles
+            snap.byKind = [.photo: 20_000, .pdf: 600, .doc: 400]
+            (snap.indexed, snap.pending, snap.wordsWaiting, snap.tailFiles, snap.lastStop) = (21_000, 0, 7_400, 600, nil)
+            (snap.running, snap.reading) = (true, ReadingPreview(current: photos[0], recent: Array(photos.dropFirst())))
+            switch shot {
+            case .meaning:
+                (snap.indexed, snap.pending, snap.wordsWaiting) = (12_000, 9_000, 12_000)
+                snap.pendingByKind = [.photo: 9_000]
+                decided(nil, pluggedIn: true)
+            case .words, .note:
+                decided(nil, pluggedIn: true)
+                if shot == .note, let status = snap.readingStatus, let journey = status.journey {
+                    snap.readingStatus = status.doCopy(
+                        phase: status.phase, title: status.title, detail: status.detail, action: status.action, count: status.count,
+                        done: status.done, total: status.total,
+                        journey: journey.doCopy(rows: journey.rows, step: journey.step, note: .meaning, textOnly: journey.textOnly))
+                }
+            case .held:
+                (snap.running, snap.reading, snap.lastStop) = (false, ReadingPreview(current: nil, recent: Array(photos.dropFirst())), .unplugged)
+                decided(.unplugged, battery: 40)
+            case .done:
+                (snap.running, snap.wordsWaiting, snap.tailFiles) = (false, 0, 0)
+                snap.reading = ReadingPreview(current: nil, recent: Array(photos.dropFirst()))
+                decided(nil)
+            case .people:
+                (snap.wordsWaiting, snap.recognizePeople) = (0, true)
+                decided(nil, pluggedIn: true, faces: FacesProgress(done: 9_200, pending: 10_800))
+            }
+        }
         switch fixture {
+        case .journey(let shot): journey(shot)
         case .readingWhileCharging:
             midway(running: true)
             decided(nil, pluggedIn: true)
@@ -228,6 +265,12 @@ extension AppModel {
 
     /// What reading shows: the file being read, then the newest read. A mix of kinds, as the demo processes them.
     private static let readingFiles = (1...8).map(readingFile)
+
+    nonisolated private static let journeyFiles = (0..<5).map { i in
+        SourceFile(
+            uri: "folder://fixture/IMG_\(2041 - i)", name: "IMG_\(2041 - i).jpg", folder: "Photos", mime: "image/jpeg", kind: .photo, size: 240_000,
+            modifiedAt: 1_760_000_000_000, takenAt: nil)
+    }
 
     nonisolated private static func readingFile(_ i: Int) -> SourceFile {
         let (name, kind, mime) =
