@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -102,6 +103,69 @@ class ReadAheadTest {
             val stored = store.fileByUri(f.uri)!!
             assertEquals(FileState.PENDING to 0, stored.state to stored.attempts, "${f.name} was read ahead, then the stop gave its attempt back")
         }
+    }
+
+    private val fruit = mapOf("p1.jpg" to "apple", "p2.jpg" to "banana", "p3.jpg" to "cherry")
+    private val photos = fruit.keys.mapIndexed { i, n -> testFile(n, Kind.PHOTO, modifiedAt = 10L - i) }
+
+    /** Photos whose words come later; each photo's OCR text starts with its own fruit. */
+    private inner class Photos(private val onWords: (SourceFile) -> Unit = {}) : Extractor {
+        val words: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
+        override suspend fun extract(file: SourceFile, profile: DeviceProfile) = imageFirst(ByteArray(2))
+
+        override suspend fun extractHead(file: SourceFile, profile: DeviceProfile) = imageFirst(ByteArray(2))
+
+        override suspend fun later(file: SourceFile, locator: String, profile: DeviceProfile): List<Piece> {
+            words += file.name
+            onWords(file)
+            return imageWithText("", ByteArray(2), "${fruit[file.name]} platform departs for the harbour at noon", 800)
+        }
+    }
+
+    // p1's words embed only once p2's are being read: without the read-ahead this would time out.
+    private fun gatedOnP2(p2Read: CompletableDeferred<Unit>, onApple: () -> Unit = {}) = OnGpu(FakeEmbedder()) { parts ->
+        if (parts.any { it is Part.Text && "apple" in it.text }) {
+            withTimeout(5.seconds) { p2Read.await() }
+            onApple()
+        }
+    }
+
+    @Test
+    fun photosWordsAreReadWhileTheOnesBeforeEmbedAndLandOnTheirOwnPhoto(): Unit = runBlocking {
+        val store = newStore().apply { upsertFiles(photos) }
+        val p2Read = CompletableDeferred<Unit>()
+        val extractor = Photos { if (it.name == "p2.jpg") p2Read.complete(Unit) }
+
+        IndexEngine(store, extractor, gatedOnP2(p2Read), FakeMonitor(), settingsOf(), readAheadDepth = { 1 }).runBatch(1.minutes)
+
+        assertEquals(fruit.keys.toList(), extractor.words, "newest first, each once")
+        assertEquals(0L, store.wordsChunkCount())
+        for ((name, word) in fruit) {
+            assertEquals(listOf(name), SearchEngine(store, FakeEmbedder()).search(word, SearchEngine.Mode.KEYWORD).hits.map { it.file.name })
+        }
+    }
+
+    @Test
+    fun aStopGivesTheReadAheadWordsTheirAttemptBack(): Unit = runBlocking {
+        val store = newStore().apply { upsertFiles(photos) }
+        IndexEngine(store, Photos(), OnGpu(FakeEmbedder()), FakeMonitor(), settingsOf(), wordsPage = { emptyList() }).runBatch(1.minutes)
+        val p2Read = CompletableDeferred<Unit>()
+        var appleEmbedded = false
+        val engine = IndexEngine(
+            store,
+            Photos { if (it.name == "p2.jpg") p2Read.complete(Unit) },
+            gatedOnP2(p2Read) { appleEmbedded = true },
+            FakeMonitor(),
+            settingsOf(),
+            policyStop = { StopReason.MANUAL.takeIf { appleEmbedded } },
+            readAheadDepth = { 1 },
+        )
+
+        assertEquals(StopReason.MANUAL, engine.runBatch(1.minutes).stopReason)
+        val left = store.wordsChunks(64)
+        assertEquals(listOf("p2.jpg", "p3.jpg"), left.map { it.fileName })
+        assertEquals(listOf(0, 0), left.map { it.attempts }, "p2 was read ahead, then the stop gave its attempt back")
     }
 
     @Test
