@@ -124,11 +124,9 @@ data class DeviceProfile(
 enum class Thermal { NONE, LIGHT, MODERATE, SEVERE, CRITICAL }
 
 /**
- * Heat policy. Android's thermal headroom (0 cool, 1.0 at SEVERE throttling) leads where the phone reports one: read-ahead
- * narrows from [AHEAD_NARROWS_AT] and stops at [AHEAD_STOPS_AT], and reading pauses at [PAUSE_AT] or SEVERE. Without one
- * (iOS, a phone with no thermal HAL) the status alone decides: LIGHT narrows read-ahead, SEVERE pauses. In between
- * (MODERATE, or past [AHEAD_STOPS_AT]) reading slows to half time instead of stopping: Android's MODERATE still leaves UX
- * "not largely impacted".
+ * Heat policy: reading only pauses, at SEVERE or a headroom forecast of [PAUSE_AT] ([DeviceState.hot]). Below that it runs
+ * at full pace: the OS throttles the chip itself, and a slow-down of our own on top halved a charging phone's pace while
+ * it sat at the forecast line.
  */
 object ThermalRest {
     /** A rest outside a foreground run (WorkManager's follow-up, iOS's loop): check again after this. */
@@ -140,12 +138,7 @@ object ThermalRest {
     /** Android documents NaN for headroom read more often; a foreground run's rest polls at this pace too. */
     val POLL = 10.seconds
     const val PAUSE_AT = 0.95f
-    const val AHEAD_STOPS_AT = 0.85f
-    const val AHEAD_NARROWS_AT = 0.7f
     const val MAX_READ_AHEAD = 2
-
-    /** While warm, each file is followed by a rest as long as it took, up to this. */
-    val WARM_REST_MAX = 10.seconds
 }
 
 /** [charging] is Android's "level rising", false for up to 15 minutes after plugging in below 90%; [pluggedIn] is on a charger. */
@@ -165,28 +158,6 @@ data class DeviceState(
     private val pauseAt: Float get() = if (!screenOn && pluggedIn) 1f else ThermalRest.PAUSE_AT
 
     val hot: Boolean get() = thermal >= Thermal.SEVERE || headroom.let { it != null && it >= pauseAt }
-
-    /** Short of [hot] but throttling: reading rests between files ([ThermalRest.WARM_REST_MAX]). */
-    val warm: Boolean get() = !hot && (thermal >= Thermal.MODERATE || headroom.let { it != null && it >= ThermalRest.AHEAD_STOPS_AT })
-
-    /** How many files heat allows to be read ahead (see [ThermalRest]). */
-    val aheadRoom: Int get() {
-        if (hot) return 0
-        val byStatus = when (thermal) {
-            Thermal.NONE -> ThermalRest.MAX_READ_AHEAD
-            Thermal.LIGHT -> 1
-            else -> 0
-        }
-        val byHeadroom = when {
-            headroom == null || headroom < ThermalRest.AHEAD_NARROWS_AT -> ThermalRest.MAX_READ_AHEAD
-            headroom < ThermalRest.AHEAD_STOPS_AT -> 1
-            else -> 0
-        }
-        return minOf(byStatus, byHeadroom)
-    }
-
-    /** Cool enough to end a rest: read-ahead would run again, so the next file doesn't land back at the pause line. */
-    val cooled: Boolean get() = aheadRoom > 0
 }
 
 enum class Platform { ANDROID, IOS }

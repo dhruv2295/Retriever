@@ -5,7 +5,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
@@ -13,9 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
-import kotlin.time.measureTime
 import kotlin.time.measureTimedValue
 
 data class FileMetric(
@@ -148,15 +145,6 @@ class IndexEngine(
             return null
         }
 
-        // Warm: rest as long as the work took (capped), never past the budget. The batch's watchdog stops it for heat or Pause.
-        suspend fun restIfWarm(took: Duration) {
-            if (!monitor.state().warm) return
-            delay(minOf(took, ThermalRest.WARM_REST_MAX, budget - start.elapsedNow()))
-            currentCoroutineContext().ensureActive()
-        }
-
-        suspend fun embedTailThenRest(tail: Store.TailChunk, e: Embedder, mine: Ahead? = null, readAhead: () -> Unit = {}) =
-            restIfWarm(measureTime { embedTail(tail, e, mine, readAhead) })
         try {
             while (true) {
                 fun stop(reason: StopReason) = BatchResult(processed, failed, reason)
@@ -176,10 +164,9 @@ class IndexEngine(
                     }
                     if (metric.ok) processed++ else failed++
                     onFile(metric)
-                    restIfWarm((metric.extractMs + metric.embedMs).milliseconds)
                     if (deepen && embedder != null && (processed + failed) % TAIL_EVERY == 0) {
                         try {
-                            tailPage().firstOrNull()?.let { embedTailThenRest(it, embedder) }
+                            tailPage().firstOrNull()?.let { embedTail(it, embedder) }
                         } catch (s: ReadingStopped) {
                             return stop(s.reason)
                         }
@@ -201,7 +188,7 @@ class IndexEngine(
                 val word = words.removeFirstOrNull()
                 if (word != null) {
                     try {
-                        embedTailThenRest(word, embedder, aheadOf(word), ::readAhead)
+                        embedTail(word, embedder, aheadOf(word), ::readAhead)
                     } catch (s: ReadingStopped) {
                         return stop(s.reason)
                     }
@@ -210,7 +197,7 @@ class IndexEngine(
                 if (!deepen) return stop(StopReason.DONE)
                 if (tails.isEmpty()) tails += tailPage()
                 try {
-                    embedTailThenRest(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
+                    embedTail(tails.removeFirstOrNull() ?: return stop(StopReason.DONE), embedder)
                 } catch (s: ReadingStopped) {
                     return stop(s.reason)
                 }
@@ -406,24 +393,14 @@ class IndexEngine(
 
         /**
          * Files read while one embeds: two on a charger, one on battery or under [TWO_AHEAD_MIN_RAM_GB] (two files' decoded
-         * pages beside the model), fewer as the phone warms; one while the app shows untouched on a charger ([idle],
-         * [idleInFront]); none while it is in use or the system says memory is low.
+         * pages beside the model); one while the app shows untouched on a charger ([idle], [idleInFront]); none while it is
+         * in use or the system says memory is low. Heat doesn't narrow it: reading only pauses, at [DeviceState.hot].
          */
         fun readAheadDepth(state: DeviceState, visible: Boolean, lowMemory: Boolean = false, idle: Boolean = false): Int = when {
             lowMemory || (visible && !idle) || (state.screenOn && !visible) -> 0
-
-            visible -> minOf(state.aheadRoom, 1)
-
-            else -> minOf(
-                state.aheadRoom,
-                if (state.pluggedIn &&
-                    state.ramGb >= TWO_AHEAD_MIN_RAM_GB
-                ) {
-                    ThermalRest.MAX_READ_AHEAD
-                } else {
-                    1
-                },
-            )
+            visible -> 1
+            state.pluggedIn && state.ramGb >= TWO_AHEAD_MIN_RAM_GB -> ThermalRest.MAX_READ_AHEAD
+            else -> 1
         }
 
         const val TWO_AHEAD_MIN_RAM_GB = 6.0
