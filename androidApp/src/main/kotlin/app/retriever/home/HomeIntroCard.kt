@@ -106,13 +106,13 @@ internal fun HomeIntroCard(
     }
 }
 
-/** A stage just finished: what now works and one thing to try, with the dog's one bounce, until Got it. */
+/** A stage just finished: what now works and one thing to try, with the dog's one "found it", until Got it. */
 @Composable
 internal fun StageNoteCard(stage: Stage, textOnly: Boolean, onGotIt: () -> Unit, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.extraLarge, modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 18.dp, bottom = 8.dp)) {
             Row(Modifier.padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Mascot(MascotMood.CAUGHT_UP, Modifier.width(76.dp))
+                Mascot(MascotMood.FOUND_IT, Modifier.width(76.dp))
                 Column {
                     Text(Words.strings.stageNoteTitle(stage), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                     Text(
