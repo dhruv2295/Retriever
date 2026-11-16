@@ -18,7 +18,10 @@ enum class StageState {
     OFF,
 }
 
-/** One checklist row: [label] says what the stage unlocks, [stateLabel] its state in words (for TalkBack and VoiceOver too). */
+/**
+ * One checklist row: [label] says what the stage unlocks, [stateLabel] its state in words (for TalkBack and VoiceOver too),
+ * [left] what it still has to do, null while unknown.
+ */
 data class StageRow(val stage: Stage, val state: StageState, val label: String, val stateLabel: String, val left: Long? = null)
 
 /**
@@ -62,7 +65,7 @@ internal fun journey(progress: ReadingProgress, phase: ReadingPhase, title: Stri
             left(stage) == 0L && (now == null || stage < now) -> StageState.DONE
             else -> StageState.NEXT
         }
-        StageRow(stage, state, c.stageUnlock(stage, textOnly), c.stageStateLabel(state), left(stage).takeIf { state == StageState.NOW })
+        StageRow(stage, state, c.stageUnlock(stage, textOnly), c.stageStateLabel(state), left(stage))
     }
     val numbered = rows.filter { it.stage != Stage.NAMES && it.state != StageState.OFF }
     val step = numbered.indexOfFirst { it.state == StageState.NOW }.takeIf { it >= 0 }?.let { i ->
@@ -82,4 +85,33 @@ internal fun stageTitle(stage: Stage, progress: ReadingProgress): String {
         Stage.PEOPLE -> c.lookingForFacesTitle
         Stage.REST -> c.deepeningTitle
     }
+}
+
+/**
+ * The journey as the person has lived it, from [Prefs.stagesDone]: a stage once finished stays ticked while an earlier one
+ * takes new files, and a finished stage with work again holds new files ([Strings.newFiles]), never "Step 1 of 4" over a
+ * journey already made. A stage newly finished gets the one note ([Prefs.stageNote]); the first sighting only records, so
+ * an update never fires every stage's note at once. People's Turn on shows only where it can work ([peopleOffered]).
+ * Returns what to show, and the prefs to save when they change.
+ */
+internal fun Journey.remembered(prefs: Prefs, peopleOffered: Boolean): Pair<Journey, Prefs?> {
+    val known = prefs.stagesDone
+    val c = Words.strings
+    val shown = rows.filter { it.stage != Stage.PEOPLE || it.state != StageState.OFF || peopleOffered }.map {
+        if (it.state == StageState.NEXT && it.left == 0L && known.orEmpty().contains(it.stage)) {
+            it.copy(state = StageState.DONE, stateLabel = c.stageStateLabel(StageState.DONE))
+        } else {
+            it
+        }
+    }
+    val done = shown.filter { it.state == StageState.DONE }.map { it.stage }.toSet()
+    val saved = if (known == null || !known.containsAll(done)) {
+        val note = if (known == null) prefs.stageNote else (done - known - Stage.NAMES).maxOrNull() ?: prefs.stageNote
+        prefs.copy(stagesDone = known.orEmpty() + done, stageNote = note)
+    } else {
+        null
+    }
+    val running = now?.stage
+    val step = if (running != null && running != Stage.NAMES && known.orEmpty().contains(running)) c.newFiles else step
+    return copy(rows = shown, step = step, note = (saved ?: prefs).stageNote) to saved
 }

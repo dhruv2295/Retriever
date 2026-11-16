@@ -422,4 +422,21 @@ class StatusLineTest {
         assertNull(done.journey?.step)
         assertNull(ReadingPolicy.decide(ReadingProgress(read = 2, scheduled = 3, sample = true), null, true, true, android).journey, "the demo has none")
     }
+
+    /** The journey as lived: the first sighting seeds silently, a newly finished stage gets one note, new files aren't step 1. */
+    @Test fun aJourneyRemembersItsFinishedStages() {
+        fun journey(progress: ReadingProgress) = ReadingPolicy.decide(progress, null, true, true, android).journey ?: Journey(emptyList())
+        val (_, seeded) = journey(ReadingProgress(read = 20, wordsWaiting = 12, laterPasses = 3)).remembered(Prefs(), peopleOffered = false)
+        assertEquals(setOf(Stage.NAMES, Stage.MEANING), seeded?.stagesDone)
+        assertNull(seeded?.stageNote, "an update fires no note")
+        val restLeft = journey(ReadingProgress(read = 20, laterPasses = 3))
+        val (shown, noted) = restLeft.remembered(seeded ?: Prefs(), peopleOffered = false)
+        assertEquals(listOf(Stage.WORDS, Stage.WORDS), listOf(noted?.stageNote, shown.note))
+        assertTrue(shown.rows.none { it.stage == Stage.PEOPLE }, "no Turn on where People can't work")
+        val dismissed = (noted ?: Prefs()).copy(stageNote = null)
+        assertNull(restLeft.remembered(dismissed, peopleOffered = false).second, "Got it sticks")
+        val newPhoto = journey(ReadingProgress(read = 20, scheduled = 1)).remembered(dismissed, peopleOffered = true).first
+        assertEquals(Words.strings.newFiles, newPhoto.step)
+        assertEquals(StageState.DONE, newPhoto.rows.first { it.stage == Stage.WORDS }.state, "a finished stage stays ticked")
+    }
 }

@@ -935,7 +935,8 @@ class Store(sqlDriver: SqlDriver, internal val log: (String, Throwable?) -> Unit
             return
         }
         transaction {
-            state.prefs?.let { q.setMeta(PREFS_KEY, JSON.encodeToString(it)) }
+            // A new index starts its journey over: its stages are to come, not new files.
+            state.prefs?.let { q.setMeta(PREFS_KEY, JSON.encodeToString(it.copy(stagesDone = null, stageNote = null))) }
             state.starred.forEach { q.restoreStar(it.uri, it.starredAt, it.name, it.size, it.modifiedAt) }
         }
     }

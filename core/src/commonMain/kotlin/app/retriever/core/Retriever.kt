@@ -651,23 +651,16 @@ class Retriever(
         }
     }
 
-    /**
-     * Records the stages that finished and words the step line from them: a finished stage with work again holds new files
-     * ([Strings.newFiles]), never "Step 1 of 4" over a journey already made. The first sighting only records, so an
-     * update never fires every stage's note at once; the journey's last stage has the caught-up line instead of a note.
-     */
+    /** Records the stages that finished ([Journey.remembered]) in the same transaction that reads them. */
     private fun withStagesDone(status: ReadingStatus, p: Prefs): ReadingStatus {
         val journey = status.journey ?: return status
-        val done = journey.rows.filter { it.state == StageState.DONE }.map { it.stage }.toSet()
-        val known = p.stagesDone
-        if (known == null || !known.containsAll(done)) {
-            val note = if (known == null || journey.finished) p.stageNote else (done - known).filter { it != Stage.NAMES }.maxOrNull() ?: p.stageNote
-            store.updatePrefs { it.copy(stagesDone = known.orEmpty() + done, stageNote = note) }
+        val offered = faceReader != null && Kind.PHOTO in p.kinds
+        val (shown, changed) = journey.remembered(p, offered)
+        if (changed != null) {
+            store.updatePrefs { old -> journey.remembered(old, offered).second ?: old }
             loadPrefs()
         }
-        val now = journey.now?.stage
-        val step = if (now != null && now != Stage.NAMES && known.orEmpty().contains(now)) Words.strings.newFiles else journey.step
-        return status.copy(journey = journey.copy(step = step, note = p.stageNote))
+        return status.copy(journey = shown)
     }
 
     /** Home's Got it on a stage's note. */

@@ -30,7 +30,7 @@ struct HomeList: View {
                 // Just under the search field, once, after setup: what happens next. The status line takes over after Got it.
                 if snap.prefs?.homeIntroDue == true {
                     Section { HomeIntroCard(model: model) }
-                } else if let journey = model.statusLine(snap)?.journey, let note = journey.note {
+                } else if let journey = Copy.reading(snap).journey, let note = journey.note {
                     Section { StageNoteCard(stage: note, textOnly: journey.textOnly, model: model) }
                 }
                 HomeStatusSection(snap: snap, live: liveProgress, photos: photos, model: model, addFolder: addFolder)

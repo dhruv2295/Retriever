@@ -27,7 +27,8 @@ struct StatusContent: View {
         let status = model.statusLine(snap) ?? Copy.reading(snap)
         List {
             Section { progress(status) }
-            if let journey = status.journey { stages(journey) }
+            // The reading status, not the line: a download or its setup holds the line, while the stages still apply.
+            if let journey = Copy.reading(snap).journey { stages(journey) }
             if snap.textOnly { Section { Note(Words.shared.textOnlyNote(ramGb: snap.ramGb, words: Copy.words)) } }
             if snap.skipped > 0 { Section { skipped } }
             Section { details }

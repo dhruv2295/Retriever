@@ -302,7 +302,7 @@ internal fun HomeBody(
                 }
             }
         }
-        status?.journey?.let { journey ->
+        ui.readingStatus?.journey?.let { journey ->
             journey.note?.takeUnless { ui.introDue }?.let { note ->
                 item(key = "stageNote", span = FullLine) {
                     StageNoteCard(note, journey.textOnly, home.dismissStageNote, Modifier.padding(horizontal = 16.dp))
