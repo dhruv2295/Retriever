@@ -53,7 +53,7 @@ enum class MascotMood {
 /**
  * One animated WebP in the shared Frames folder, and its resting pose. 2x the slot width; 12 drawings a second for quick
  * motion, fewer for slow motion (sit 8, welcome 10, doze 5). The stage clips and FOUND are drawn pose sheets, not video:
- * six drawings each, the loops played back and forth.
+ * six drawings each, played back and forth (DIG's paw cycle runs straight round; FOUND plays five of them once).
  */
 enum class MascotClip(val file: String, val still: String, val seconds: Double) {
     WALK("mascot_walk.webp", "mascot_walk_still.webp", 1.25),
