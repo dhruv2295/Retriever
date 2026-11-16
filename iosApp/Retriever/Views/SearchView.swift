@@ -7,6 +7,7 @@
 import Photos
 import PhotosUI
 @preconcurrency import RetrieverCore
+import StoreKit
 import SwiftUI
 
 // MARK: Screen
@@ -27,6 +28,7 @@ struct SearchView: View {
     @State private var addingFolder = false
     @State private var folderNote: String?
     @Environment(\.openFile) private var openFile
+    @Environment(\.requestReview) private var requestReview
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.searchRequest) private var searchRequest
     @FocusState private var fieldFocused: Bool
@@ -174,6 +176,9 @@ struct SearchView: View {
         openFile(
             hit.file, locator: hit.locator, words: highlightWords(snippet: hit.snippet, query: search.photo == nil ? search.query : nil),
             among: search.answer?.hits.map(\.file) ?? [])
+        Task { @MainActor in
+            if await search.resultOpened() { requestReview() }
+        }
     }
 }
 

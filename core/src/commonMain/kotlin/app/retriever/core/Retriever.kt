@@ -1675,6 +1675,17 @@ class Retriever(
         io { if (store.prefs().rememberSearches) store.addRecentQuery(q, now()) }
     }
 
+    /** A search result was opened: counts it and says whether the OS rating prompt should be requested now. */
+    @Throws(Throwable::class)
+    suspend fun resultOpened(): Boolean = io {
+        val opens = (store.meta(REVIEW_OPENS)?.toIntOrNull() ?: 0) + 1
+        val at = now()
+        val due = ReviewAsk.due(opens, store.meta(REVIEW_ASKED_AT)?.toLongOrNull(), at)
+        store.setMeta(REVIEW_OPENS, opens.toString())
+        if (due) store.setMeta(REVIEW_ASKED_AT, at.toString())
+        due
+    }
+
     @Throws(Throwable::class)
     suspend fun dismissUpgradeOffer() = updatePrefs { it.copy(upgradeOfferDismissed = true) }
 
@@ -2150,6 +2161,8 @@ class Retriever(
         /** Long enough for a cancelled batch to unwind, short enough that a waiting job never nears its 10 minute limit. */
         val LOCK_WAIT = 30.seconds
         const val SPEED_KEY = "speed_by_kind_CPU_CPU"
+        private const val REVIEW_OPENS = "review_opens"
+        private const val REVIEW_ASKED_AT = "review_asked_at_ms"
         const val BG_SPEED_KEY = "bg_speed"
         const val SAVE_EVERY_MS = 30_000L
 

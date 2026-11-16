@@ -186,6 +186,7 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
+    implementation(libs.play.review)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.sqldelight.android.driver)
