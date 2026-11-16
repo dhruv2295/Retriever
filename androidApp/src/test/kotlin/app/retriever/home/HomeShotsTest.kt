@@ -232,7 +232,7 @@ class HomeShotsTest {
 
     @Test fun defaultLight() {
         shot("default", false)
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         // A live count by the one rule (name-only files count), not a percent that sits still for minutes.
         rule.onNodeWithText(Words.readOf(1_572, 3_672)).assertExists()
         rule.onNodeWithText("You can close Retriever; it carries on. Search works the whole time.").assertExists()
@@ -245,7 +245,7 @@ class HomeShotsTest {
     @Test fun defaultLargestText() {
         shot("default", false, fontScale = 2f)
         // Large text wraps the line, never cuts it.
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         rule.onNodeWithContentDescription("Photos, 2,140").assertExists()
         // Two Browse tiles a row: the second sits beside the first, not under it.
         fun tileTop(prefix: String) = rule.onNode(described(prefix)).fetchSemanticsNode().boundsInRoot.top
@@ -277,7 +277,7 @@ class HomeShotsTest {
 
     @Test fun readNowLight() {
         shot("processing", false)
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         rule.onNodeWithText("Pause").assertExists()
     }
 
@@ -329,7 +329,7 @@ class HomeShotsTest {
     @Test fun theOrderIsTitleStatusStarredRecentOnThisDayBrowse() {
         rule.setContent { ShotTheme(false) { Screen(base) } }
         val order =
-            listOf("Retriever", "Processing your files", "Starred", Words.RECENTLY_ADDED, "On this day", Words.MORE_ON_PHONE)
+            listOf("Retriever", Words.strings.learningYourFilesTitle, "Starred", Words.RECENTLY_ADDED, "On this day", Words.MORE_ON_PHONE)
                 .map(::top)
         assertEquals(order.sorted(), order)
         rule.onNode(hasText("Retriever") and isHeading()).assertExists()
@@ -337,13 +337,14 @@ class HomeShotsTest {
 
     @Test fun onlyTheStateIsAnnouncedNotEachPercent() {
         rule.setContent { ShotTheme(false) { Screen(base) } }
-        rule.onNode(hasContentDescription("Processing your files") and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
+        val title = Words.strings.learningYourFilesTitle
+        rule.onNode(hasContentDescription(title) and SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion)).assertExists()
     }
 
     @Test fun theLineOpensReadingStatus() {
         val went = mutableListOf<Route>()
         rule.setContent { ShotTheme(false) { Screen(base, actions = SearchActions(onNavigate = { went += it })) } }
-        rule.onNodeWithText("Processing your files").performClick()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).performClick()
         assertEquals(listOf<Route>(StatusRoute), went)
     }
 
@@ -383,7 +384,7 @@ class HomeShotsTest {
 
     @Test fun demoChargingLight() {
         shot("charging", false, prefix = "demo_home")
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         rule.onNodeWithText(Words.readOf(30, 25_793)).assertExists()
         assertEquals(30L to 25_793L, states.getValue("charging").first.readingStatus!!.let { it.done to it.total })
     }
@@ -604,7 +605,7 @@ class HomeShotsTest {
         rule.onNodeWithText(Words.otherFiles(25_763)).assertIsDisplayed()
         rule.onNodeWithText(Words.NEW_FILES).assertIsDisplayed()
         // The explanation keeps processing controls available.
-        rule.onNodeWithText("Processing your files").assertExists()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).assertExists()
         rule.onAllNodesWithText(Words.TRY_AGAIN).assertCountEquals(0)
     }
 

@@ -541,6 +541,7 @@ internal object Hindi : Strings {
     override val lookingForFacesTitle = "आपकी फ़ोटो में लोगों को ढूंढा जा रहा है"
     override val deepeningTitle = "कुछ लंबी फ़ाइलों का बाकी हिस्सा प्रोसेस हो रहा है"
     override val readingPhotoWordsTitle = "आपकी फ़ोटो में लिखे शब्द पढ़े जा रहे हैं"
+    override val learningYourFilesTitle = "आपकी फ़ाइलों में क्या है, यह समझा जा रहा है"
 
     override val stagesHeader = "आप क्या खोज सकते हैं"
 

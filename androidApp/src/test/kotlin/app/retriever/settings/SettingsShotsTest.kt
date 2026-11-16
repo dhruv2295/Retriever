@@ -141,7 +141,7 @@ class SettingsShotsTest {
         rule.onNodeWithText(Words.START_PROCESSING).performScrollTo().performClick()
         ui = ready.copy(readingStatus = line(null, sessionActive = true, running = true))
         rule.onNodeWithText("Pause").performClick()
-        rule.onNodeWithText("Processing your files").performClick()
+        rule.onNodeWithText(Words.strings.learningYourFilesTitle).performClick()
         assertEquals(listOf("start", "pause", "status"), seen)
     }
 

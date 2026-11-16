@@ -46,7 +46,7 @@ final class CopyTests: XCTestCase {
     func testStatusTitle() {
         typealias Snap = AppModel.Snap
         XCTAssertEqual(Copy.reading(Snap(running: true)).title, "Checking for new files…")
-        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, "Processing your files")
+        XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).title, Words.shared.strings.learningYourFilesTitle)
         XCTAssertEqual(Copy.reading(Snap(pending: 4, running: true)).count, "0 of 4 files processed")
         XCTAssertEqual(Copy.reading(Snap(pending: 4, paused: true)).title, "Paused")
         XCTAssertEqual(Copy.reading(Snap(indexed: 4)).title, "All done. Retriever has processed everything it can")
@@ -87,7 +87,7 @@ final class CopyTests: XCTestCase {
 
     func testHomeStatusReadingShowsHowFar() {
         let status = Copy.homeStatus(AppModel.Snap(setUp: true, indexed: 5, pending: 5, running: true))
-        XCTAssertEqual(status?.title, "Processing your files")
+        XCTAssertEqual(status?.title, Words.shared.strings.learningYourFilesTitle)
         XCTAssertEqual(status?.count, "5 of 10 files processed", "A batch without an active file already says how far")
         XCTAssertEqual(status?.done?.int64Value, 5, "the bar is the count's numbers")
         XCTAssertEqual(status?.total?.int64Value, 10)
@@ -152,7 +152,7 @@ final class CopyTests: XCTestCase {
         }
         // A live count, not a percent: 1,204 processed of 5,310, the bar the same numbers.
         let count = "1,204 of 5,310 files processed"
-        XCTAssertEqual(try line(.readingWhileCharging).title, "Processing your files")
+        XCTAssertEqual(try line(.readingWhileCharging).title, Words.shared.strings.learningYourFilesTitle)
         XCTAssertEqual(try line(.readingWhileCharging).count, count)
         XCTAssertEqual(try line(.readingWhileCharging).done?.int64Value, 1_204)
         XCTAssertEqual(try line(.readingWhileCharging).total?.int64Value, 5_310)
@@ -161,7 +161,7 @@ final class CopyTests: XCTestCase {
         XCTAssertEqual(try line(.unplugged).phase, .charging)
         XCTAssertEqual(try line(.unplugged).action, .start)
         XCTAssertEqual(try line(.chargingUp).title, "Paused · continues when the battery has a bit more charge")
-        XCTAssertEqual(try line(.processing).title, "Processing your files")
+        XCTAssertEqual(try line(.processing).title, Words.shared.strings.learningYourFilesTitle)
         XCTAssertEqual(try line(.processing).action, .pause)
         XCTAssertEqual(try line(.processing).detail, Words.shared.strings.readingDetail(words: Copy.words))
         XCTAssertEqual(try line(.processing).count, count)

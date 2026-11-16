@@ -340,6 +340,7 @@ interface Strings {
     val lookingForFacesTitle: String
     val deepeningTitle: String
     val readingPhotoWordsTitle: String
+    val learningYourFilesTitle: String
 
     /** Processing's checklist: what each stage lets the person search, its state in words, and the step line. */
     val stagesHeader: String
