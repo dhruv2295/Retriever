@@ -205,7 +205,7 @@ private struct AccessStep: View {
                         photosAction
                     }
                     Divider().padding(.leading, 70)
-                    AccessRow(icon: "folder", title: Words.shared.DOCUMENTS, detail: foldersDetail) { foldersAction }
+                    AccessRow(icon: "folder", title: Words.shared.DOCUMENTS, detail: foldersDetail, below: !model.folders.isEmpty) { foldersAction }
                 }
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .frame(maxWidth: 342)
@@ -262,7 +262,8 @@ private struct AccessStep: View {
 
     @ViewBuilder private var foldersAction: some View {
         if !model.folders.isEmpty {
-            Done()
+            // Its line already counts the folders; this adds another, as Photos' Choose more does.
+            Button(Words.shared.ADD_FOLDER) { picking = true }.buttonStyle(.bordered)
         } else if model.photos == .notDetermined {
             // Photos is the row to answer first; Choose is the strong one once it has been.
             Button(Words.shared.CHOOSE) { picking = true }.buttonStyle(.bordered)
