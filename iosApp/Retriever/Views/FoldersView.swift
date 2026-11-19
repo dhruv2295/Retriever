@@ -120,6 +120,12 @@ struct FoldersView: View {
             }
         }
         .navigationTitle(Words.shared.strings.folders)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(Words.shared.ADD_FOLDER, systemImage: "folder.badge.plus") { adding = true }
+                    .labelStyle(.iconOnly)
+            }
+        }
         .task(id: excluded) { await load() }
         .fileImporter(isPresented: $adding, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }

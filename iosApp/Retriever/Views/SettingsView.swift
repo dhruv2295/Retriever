@@ -198,15 +198,16 @@ struct SettingsView: View {
                 NavigationLink(value: Route.folders) {
                     LabeledContent(Words.shared.strings.folders, value: Copy.count(model.folders.count))
                 }
+            }
+            Button {
+                addingFolder = true
+            } label: {
+                Label(Words.shared.ADD_FOLDER, systemImage: "folder.badge.plus")
+            }
+            if hasFolders {
                 kindToggles([.pdf, .doc], of: kinds, snap)
                 // No platform reads audio yet, so it has no switch: only the plain fact.
                 LabeledContent(Words.shared.kindLabelPlural(kind: .audio), value: Words.shared.FOUND_BY_NAME)
-            } else {
-                Button {
-                    addingFolder = true
-                } label: {
-                    Label(Words.shared.ADD_FOLDER, systemImage: "folder.badge.plus")
-                }
             }
         } header: {
             Text(Words.shared.strings.foldersFromFiles)
