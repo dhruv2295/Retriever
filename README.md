@@ -5,7 +5,8 @@ Google's EmbeddingGemma 2 runs locally through LiteRT-LM (on the NPU on Pixel Te
 Kotlin Multiplatform core with native Android (Compose Material 3) and iOS (SwiftUI) apps.
 
 [Google Play](https://play.google.com/store/apps/details?id=app.retriever) ·
-[App Store](https://apps.apple.com/app/id6829902478) · free, no ads, no account · Apache-2.0
+[App Store](https://apps.apple.com/app/id6829902478) ·
+[How it works](docs/how-it-works.md) · free, no ads, no account · Apache-2.0
 
 <img src="docs/media/demo.gif" width="280" alt="Searching “delicious food” finds a biryani photo; “rental agreement” opens the PDF at the matching page">
 

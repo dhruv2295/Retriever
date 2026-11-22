@@ -1,5 +1,9 @@
 # Search your phone by describing it: EmbeddingGemma 2 on Android and iPhone
 
+[Google Play](https://play.google.com/store/apps/details?id=app.retriever) ·
+[App Store](https://apps.apple.com/app/id6829902478) ·
+[Source (Apache-2.0)](https://github.com/dhruv2295/Retriever) · free, no ads, no account
+
 <img src="media/demo.gif" width="280" alt="Searching “delicious food” finds a biryani photo; “rental agreement” opens the PDF at the matching page">
 
 *Numbers are from my own test runs, marked where they come from.*
@@ -13,8 +17,8 @@ This post is about what it took to make that usable on a real library, because t
 ## How it's built
 
 - **One shared core, two native apps.** Indexing, search, storage and the processing rules are Kotlin Multiplatform (`core/`). The Android app is Jetpack Compose; the iOS app is SwiftUI and talks to the core through a Kotlin/Native framework. Platform adapters do the platform things: MediaStore and ML Kit on Android, PhotoKit and Vision on iOS.
-- **The model.** [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), the 440M text-vision build, through LiteRT-LM. Recent Pixels (Tensor G5/G6) and MediaTek Dimensity 9400/9500 phones get a chip-specific NPU build. Other phones run the general build on the GPU or the CPU: on first run the app times both and keeps the faster one. (Snapdragon stays on the GPU for now: the Maven package ships the NPU dispatch library but no QNN libraries.)
-- **The index.** SQLite through SQLDelight: full-text search over names, document text and the text read out of images, plus one compact vector per photo, page or video moment. A query runs both lanes — words and meaning — and merges them, so "invoice" finds the word and "flight tickets for the trip" finds the booking whose file is called `Document_04.pdf`.
+- **The model.** [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2), the 440M text-vision LiteRT-LM export ([`litert-community/embeddinggemma-2-text-vision-440m-litert-lm`](https://huggingface.co/litert-community/embeddinggemma-2-text-vision-440m-litert-lm), 388 MB generic download). Recent Pixels (Tensor G5/G6) and MediaTek Dimensity 9400/9500 phones get a chip-specific NPU build (513–798 MB). Other phones run the generic build on the GPU or CPU: on first run the app times both and keeps the faster one. (Snapdragon stays on the GPU for now: the Maven package ships the NPU dispatch library but no QNN libraries.)
+- **The index.** SQLite through SQLDelight: full-text search over names, document text and the text read out of images, plus the first 256 Matryoshka dimensions quantized to `int8` (256 bytes + scale per photo, page or video moment) scanned by a small native/Kotlin dot-product kernel. A query runs both lanes — words and meaning — and merges them, so "invoice" finds the word and "flight tickets for the trip" finds the booking whose file is called `Document_04.pdf`.
 - **Everything else on-device too.** Text in images (ML Kit / Apple Vision), photo labels, and an optional People feature (on-device face detection and SFace) that's off unless you turn it on.
 
 ## The real problem: the first run
@@ -48,7 +52,14 @@ Processing now pauses only when Android reports *severe* heat or forecasts it is
 
 - **Reading several photos' text at once.** I tried multiple ML Kit text recognizers in parallel. Reading ML Kit's bytecode showed why it couldn't help: every Latin recognizer feeds one process-wide queue that runs one task at a time. What does help is overlapping that text reading with the next photo's embedding.
 - **Tags straight from the vector.** Zero-shot tags from the image vector (score it against a label vocabulary) are nearly free, since the vector already exists. On concrete objects (COCO's labels) they were more precise than ML Kit's and found more. But in a blind judging of everything a person might tag, ML Kit was right more often: 84% against 71%, over 252 tags each. Below a confidence cut-off the vector's tags were right only 55% of the time. So: keep ML Kit, maybe add the confident vector tags.
-- **…but the same vector can skip work.** "Does this photo have a face?" from the vector skipped face detection on ~47% of photos while catching 35 of 36 that had faces in a 450-photo test on the phone's model. That's worth building.
+- **…but the same vector can skip work.** "Does this photo have a face?" from the vector skipped face detection on ~47% of photos while catching 35 of 36 that had faces in a 450-photo test on a Pixel 8 Pro. That's worth building.
+
+## Outside the NPU: Pixel 8 Pro and iPhone 12 mini
+
+Most phones don't have a Tensor G5/G6 NPU, and that's where the trade-offs get sharper.
+
+- **Pixel 8 Pro (Tensor G3, no NPU build).** The generic model runs on the GPU or CPU. In benchmarks on the phone, a full photo took **0.87 s on GPU against 1.97 s on CPU** (about 1.4 s vs 2.1 s during steady charging runs), and the single-pass first read of an 18,000-file library took 7–8 hours on a charger (with optional face detection taking ~0.3 s a photo, about 1.5 hours for 16,700 photos). The catch: GPU inference caused **three times as many janky UI frames** while the app was open. So on phones whose GPU stalls rendering, Retriever switches to the CPU while you're interacting with the app, then moves back to the GPU after 30 seconds untouched on a charger. Moving ML Kit's text readers and labeler to Play services, and the People face model into an on-demand download, also brought the arm64 Play download down from **56.6 MB to 19.1 MB** (`bundletool get-size`).
+- **iPhone 12 mini (A14, 4 GB RAM).** On a charger at full speed, the phone hit Apple's `serious` thermal state after **90 seconds** — which is why `serious` now slows reading instead of pausing it, and only `critical` pauses. And while iOS's continued background tasks can request the GPU on newer devices that advertise it, the 12 mini reports no background GPU support, so once you leave the app background reading falls back to the CPU — roughly **10× slower** than while the app is open.
 
 ## Making the wait legible
 
@@ -60,12 +71,6 @@ Fast isn't enough when the job takes an hour. Processing is now one journey with
 4. **The rest of long files** → search deep inside long PDFs and videos
 
 A short note appears when each step finishes, with something to try. And during that first run a golden retriever acts out the current step on the home screen — sniffing folders, tilting its head at a photo, nose to a receipt — so you can see the app working without reading a number.
-
-## A bug worth sharing
-
-A fresh install on one test phone ended setup with "Nothing to search yet" — on a phone with 26,000 files. The library had been scanned. Then a background job that woke up *before* the user granted access spent a minute downloading and tuning the model, came back, and — still believing there was no access — cleared the library. It cleared the files but kept the "last scanned" marker, so every later scan only looked for changes and found none, for up to a day.
-
-Two fixes: re-check access after any long wait before clearing anything, and never keep a scan marker without the files it describes. It had been in the shipped app since the first public build.
 
 ## Privacy, concretely
 
