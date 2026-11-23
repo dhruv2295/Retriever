@@ -1652,6 +1652,10 @@ class Retriever(
         return found
     }
 
+    /** Only the name index, for a search that can't wait for [warmSearch]: the system file picker's, from a cold app. */
+    @Throws(Throwable::class)
+    suspend fun loadNames() = io { sync.loadNames() }
+
     /** Opens the model ahead of a search, once set up; a failure is logged and the search stays on keywords. */
     private suspend fun openAhead() {
         if (_setUp.value != true || textOnly) return

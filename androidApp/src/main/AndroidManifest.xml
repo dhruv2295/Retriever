@@ -104,6 +104,19 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- Retriever in the system file picker. MANAGE_DOCUMENTS: only the picker can read through it, never another
+             app, since the app holds all-files access. -->
+        <provider
+            android:name=".files.PickerProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <!-- WorkManager starts on demand: RetrieverApp is its Configuration.Provider, so it isn't built at launch. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
