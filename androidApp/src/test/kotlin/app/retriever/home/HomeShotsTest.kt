@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -23,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import app.retriever.ShotTheme
@@ -710,7 +712,8 @@ class HomeShotsTest {
     @Test fun notifyAsksForTheNotice() {
         var asked = false
         introShot("home_intro_notify_light", DescriptionState.DOWNLOADING, home = HomeActions(notify = { asked = true }))
-        rule.onNodeWithText(Words.NOTIFY_WHEN_SEARCHABLE).performClick()
+        // The intro card runs past a phone's first screen, under the search pill: its action, not a touch.
+        rule.onNodeWithText(Words.NOTIFY_WHEN_SEARCHABLE).performSemanticsAction(SemanticsActions.OnClick)
         assertTrue(asked)
     }
 
