@@ -22,6 +22,19 @@ class ModelBuildsTest {
         assertEquals(ModelVariant.M440, ModelBuilds.installedOrSelected(device, profile, Signature("changed"), emptySet()) { true }.variant)
     }
 
+    // An update that adds a chip build (Snapdragon, 2026-11) must not switch description search off for a finished library.
+    @Test
+    fun anInstalledGenericServesItsVectorsUntilTheChipBuildIsDownloaded() {
+        val device = android("SM8650", vendor = "QTI")
+        val generic = ModelVariant.M440.generic
+        val chip = pick(device)
+        val profile = DeviceProfile(Tier.FULL, ModelVariant.M440, Backend.GPU, 70, 5, false, false)
+        val signature = Signature.of(generic, 70, 512)
+        assertEquals(generic, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { it == generic })
+        assertEquals(chip, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { true })
+        assertEquals(chip, ModelBuilds.installedOrSelected(device, null, null, emptySet()) { false }, "a new install takes the chip build")
+    }
+
     @Test
     fun tensorG3HasNoNpuBuild() = assertEquals(ModelVariant.M440.generic, pick(android("Tensor G3")))
 

@@ -40,7 +40,11 @@ object ModelBuilds {
 
     fun variantFor(@Suppress("UNUSED_PARAMETER") probe: DeviceProbe): ModelVariant = ModelVariant.M440
 
-    /** Keep a downloaded legacy build only while it owns the current vectors. New downloads always select M440. */
+    /**
+     * Keep a downloaded legacy build only while it owns the current vectors. New downloads always select M440. An installed
+     * generic M440 that owns them also stays until the chip build is downloaded, so an update that adds a chip build
+     * leaves search by description on.
+     */
     fun installedOrSelected(
         probe: DeviceProbe,
         profile: DeviceProfile?,
@@ -53,7 +57,10 @@ object ModelBuilds {
                 it.fileName !in failed && Signature.of(it, profile.visionTokens, profile.maxTokens) == signature && ready(it)
             }?.let { return it }
         }
-        return buildFor(ModelVariant.M440, probe, failed)
+        val selected = buildFor(ModelVariant.M440, probe, failed)
+        val generic = ModelVariant.M440.generic
+        val genericOwnsVectors = profile != null && Signature.of(generic, profile.visionTokens, profile.maxTokens) == signature
+        return if (selected != generic && !ready(selected) && genericOwnsVectors && ready(generic)) generic else selected
     }
 
     /** Build key = socKey of the soc after its vendor ('tensorg5', 'sm8650'); a prefix match tolerates 'SM8650-AC'. */
