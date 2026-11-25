@@ -251,25 +251,30 @@ private struct FolderPath: View {
     let folder: String
 
     var body: some View {
+        // From the leading edge when it fits; a deep path scrolls, opened at its end, where you are.
+        ViewThatFits(in: .horizontal) {
+            crumbs.frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal) { crumbs }.scrollIndicators(.hidden).defaultScrollAnchor(.trailing)
+        }
+    }
+
+    private var crumbs: some View {
         let parts = folder.isEmpty ? [Words.shared.strings.topLevel] : folder.split(separator: "/").map(String.init)
-        ScrollView(.horizontal) {
-            HStack(spacing: 6) {
-                NavigationLink(Words.shared.strings.allFolders, value: Route.folders)
-                ForEach(parts.indices, id: \.self) { i in
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
-                    if i == parts.count - 1 {
-                        Text(parts[i]).accessibilityAddTraits(.isHeader)
-                    } else {
-                        NavigationLink(parts[i], value: Route.files(.folder(parts[...i].joined(separator: "/"))))
-                    }
+        return HStack(spacing: 6) {
+            NavigationLink(Words.shared.strings.allFolders, value: Route.folders)
+            ForEach(parts.indices, id: \.self) { i in
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                if i == parts.count - 1 {
+                    Text(parts[i]).accessibilityAddTraits(.isHeader)
+                } else {
+                    NavigationLink(parts[i], value: Route.files(.folder(parts[...i].joined(separator: "/"))))
                 }
             }
-            .font(.subheadline)
-            .padding(.horizontal)
-            .frame(minHeight: 44)
         }
-        .scrollIndicators(.hidden)
-        .defaultScrollAnchor(.trailing)
+        .font(.subheadline)
+        .lineLimit(1)
+        .padding(.horizontal)
+        .frame(minHeight: 44)
     }
 }
 

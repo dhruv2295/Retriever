@@ -306,7 +306,8 @@ fun BrowseContent(
         Column(Modifier.padding(top = padding.calculateTopPadding())) {
             if (folder != null) PathBar(folder, onNavigate, column)
             // Starred is ordered by when you starred, so the sort chips would not apply.
-            if (sortable && !starredOnly) {
+            // A folder of folders alone has nothing for them to sort.
+            if (sortable && !starredOnly && (folder == null || files.isNotEmpty())) {
                 Row(
                     column.padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

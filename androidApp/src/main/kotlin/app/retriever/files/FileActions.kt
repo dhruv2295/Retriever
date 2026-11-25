@@ -321,6 +321,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     var batch by actions::batch
     var name by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Pair<Request, String>?>(null) }
+    var asked by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     fun failed() {
         request = null
@@ -348,11 +349,15 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         val approved = pending
+        val several = asked
         pending = null
-        // Several files (or one whose request didn't survive the prompt): whatever the person chose, the index is the
-        // truth, so sync and let the lists reload, as Duplicates does.
-        if (approved == null) {
+        asked = emptyList()
+        // Android deletes all of them or none. A request that didn't survive the prompt leaves the index as the truth:
+        // sync, and the lists reload, as Duplicates does.
+        if (approved == null && several.isEmpty()) {
             indexer.indexNow()
+        } else if (approved == null) {
+            if (result.resultCode == Activity.RESULT_OK) run { retriever.deletedFiles(several) }
         } else if (result.resultCode == Activity.RESULT_OK) {
             run {
                 val (r, wanted) = approved
@@ -386,7 +391,7 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
         val n = b.files.size.toLong()
         AlertDialog(
             onDismissRequest = { if (!busy) batch = null },
-            title = { Text(Words.strings.deleteFilesAsk(n)) },
+            title = { Text(Words.strings.deleteFilesTitle) },
             text = { Text(Words.strings.deleteFilesMessage(n)) },
             confirmButton = {
                 TextButton(enabled = !busy, onClick = {
@@ -399,7 +404,10 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
                         b.done()
                         val left = b.files.size - result.deleted.size - result.asked.size
                         if (left > 0) Toast.makeText(context, Words.strings.filesWerentDeleted(left.toLong()), Toast.LENGTH_LONG).show()
-                        result.consent?.let { consent.launch(IntentSenderRequest.Builder(it).build()) }
+                        result.consent?.let {
+                            asked = result.asked
+                            consent.launch(IntentSenderRequest.Builder(it).build())
+                        }
                     }
                 }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
             },
