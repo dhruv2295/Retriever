@@ -1,6 +1,7 @@
 package app.retriever.files
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -27,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +46,8 @@ import app.retriever.core.SourceFile
 import app.retriever.core.Words
 import app.retriever.duplicates.MediaDeleter
 import app.retriever.duplicates.mediaItemUri
+import app.retriever.indexing.IndexService
+import app.retriever.nav.BrowseRoute
 import app.retriever.ui.components.PressMenu
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
@@ -83,15 +87,39 @@ internal fun fileActions(uri: String): List<FileAction> = if (sourceOf(uri) == F
 /** The folder's own name, as Folders shows it; "Top level" for a file that sits at the root. */
 internal fun friendlyFolder(folder: String) = folder.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
 
+/** A folder's own Browse. Titled the same way from everywhere, so the route is the same key and going there again goes back. */
+internal fun folderRoute(folder: String) = BrowseRoute(folder = folder, title = friendlyFolder(folder))
+
+/** The one mime type of [mimes], else their common top level with any subtype (all images), else anything. */
+internal fun shareType(mimes: List<String>): String {
+    val types = mimes.distinct()
+    types.singleOrNull()?.let { return it }
+    return types.map { it.substringBefore('/') }.distinct().singleOrNull()?.let { "$it/*" } ?: "*/*"
+}
+
 internal fun validFileName(name: String): Boolean =
     name.isNotBlank() && name != "." && name != ".." && name.none { it == '/' || it == '\\' || it.isISOControl() }
 
 internal data class Request(val file: SourceFile, val action: FileAction, val deleted: () -> Unit)
+
+/** [action] (Share or Delete) on several files at once; [done] once it has been carried out. */
+internal class Batch(val files: List<SourceFile>, val action: FileAction, val done: () -> Unit)
 internal class FileActions {
     var request by mutableStateOf<Request?>(null)
+    var batch by mutableStateOf<Batch?>(null)
 
     fun select(file: SourceFile, action: FileAction, deleted: () -> Unit) {
         request = Request(file, action, deleted)
+    }
+
+    /** One file takes the one-file way, with its own dialog. */
+    fun selectAll(files: List<SourceFile>, action: FileAction, done: () -> Unit = {}) {
+        val one = files.singleOrNull()
+        if (one != null) {
+            select(one, action, done)
+        } else if (files.isNotEmpty()) {
+            batch = Batch(files, action, done)
+        }
     }
 }
 
@@ -142,11 +170,23 @@ internal fun FileActionItems(
     copies: List<SourceFile> = emptyList(),
     openCopy: (SourceFile) -> Unit = {},
     notThisPerson: (() -> Unit)? = null,
+    select: (() -> Unit)? = null,
+    showInFolder: (() -> Unit)? = null,
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
     Column {
+        if (select != null) {
+            DropdownMenuItem(
+                text = { Text(Words.strings.select) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_check_circle_outlined), contentDescription = null) },
+                onClick = {
+                    dismiss()
+                    select()
+                },
+            )
+        }
         if (notThisPerson != null) {
             DropdownMenuItem(
                 text = { Text(Words.NOT_THIS_PERSON) },
@@ -180,6 +220,16 @@ internal fun FileActionItems(
                     },
                 )
             }
+            if (action == FileAction.INFO && showInFolder != null) {
+                DropdownMenuItem(
+                    text = { Text(Words.strings.showInFolder) },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_folder_open), contentDescription = null) },
+                    onClick = {
+                        dismiss()
+                        showInFolder()
+                    },
+                )
+            }
             if (action == FileAction.DELETE) HorizontalDivider()
             val error = MaterialTheme.colorScheme.error
             DropdownMenuItem(
@@ -210,14 +260,31 @@ internal fun FilePressMenu(
     copies: List<SourceFile> = emptyList(),
     openCopy: (SourceFile) -> Unit = {},
     notThisPerson: (() -> Unit)? = null,
+    select: (() -> Unit)? = null,
+    showInFolder: (() -> Unit)? = null,
     content: @Composable (menu: () -> Unit, actions: Modifier) -> Unit,
 ) {
     val host = remember { KoinPlatform.getKoinOrNull()?.getOrNull<FileActions>() }
     val on = starred ?: rememberStarred(file.uri)
     val write = onStar ?: rememberStarWriter(file.uri)
-    val actions = remember(file.uri, on, host, copies, notThisPerson) {
+    // Called through the latest lambdas, so a list's new ones each frame don't rebuild every row's actions.
+    val selectNow by rememberUpdatedState(select)
+    val showNow by rememberUpdatedState(showInFolder)
+    val actions = remember(file.uri, on, host, copies, notThisPerson, select != null, showInFolder != null) {
         Modifier.semantics {
             customActions = listOfNotNull(
+                select?.let {
+                    CustomAccessibilityAction(Words.strings.select) {
+                        selectNow?.invoke()
+                        true
+                    }
+                },
+                showInFolder?.let {
+                    CustomAccessibilityAction(Words.strings.showInFolder) {
+                        showNow?.invoke()
+                        true
+                    }
+                },
                 notThisPerson?.let { act ->
                     CustomAccessibilityAction(Words.NOT_THIS_PERSON) {
                         act()
@@ -238,7 +305,7 @@ internal fun FilePressMenu(
         }
     }
     PressMenu(content = { menu -> content(menu, actions) }, modifier = modifier) { dismiss ->
-        FileActionItems(file, dismiss, on, write, onDeleted, similar, copies, openCopy, notThisPerson)
+        FileActionItems(file, dismiss, on, write, onDeleted, similar, copies, openCopy, notThisPerson, select, showInFolder)
     }
 }
 
@@ -249,12 +316,16 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     val actions = org.koin.compose.koinInject<FileActions>()
     val deleter = org.koin.compose.koinInject<MediaDeleter>()
     val access = org.koin.compose.koinInject<AccessService>()
+    val indexer = org.koin.compose.koinInject<IndexService>()
     var request by actions::request
+    var batch by actions::batch
     var name by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Pair<Request, String>?>(null) }
+    var asked by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     fun failed() {
         request = null
+        batch = null
         Toast.makeText(context, Words.strings.couldntFinishThat, Toast.LENGTH_LONG).show()
     }
     fun run(work: suspend () -> Unit) {
@@ -278,8 +349,16 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
     }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         val approved = pending
+        val several = asked
         pending = null
-        if (result.resultCode == Activity.RESULT_OK && approved != null) {
+        asked = emptyList()
+        // Android deletes all of them or none. A request that didn't survive the prompt leaves the index as the truth:
+        // sync, and the lists reload, as Duplicates does.
+        if (approved == null && several.isEmpty()) {
+            indexer.indexNow()
+        } else if (approved == null) {
+            if (result.resultCode == Activity.RESULT_OK) run { retriever.deletedFiles(several) }
+        } else if (result.resultCode == Activity.RESULT_OK) {
             run {
                 val (r, wanted) = approved
                 if (r.action == FileAction.RENAME) {
@@ -300,6 +379,40 @@ internal fun FileActionsHost(retriever: Retriever, content: @Composable () -> Un
             request = null
             run { shareOrOpen(context, selected.file, selected.action == FileAction.SHARE) }
         }
+    }
+    LaunchedEffect(batch) {
+        val b = batch ?: return@LaunchedEffect
+        if (b.action == FileAction.SHARE) {
+            batch = null
+            run { shareAll(context, b.files) }
+        }
+    }
+    batch?.takeIf { it.action == FileAction.DELETE }?.let { b ->
+        val n = b.files.size.toLong()
+        AlertDialog(
+            onDismissRequest = { if (!busy) batch = null },
+            title = { Text(Words.strings.deleteFilesTitle) },
+            text = { Text(Words.strings.deleteFilesMessage(n)) },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    run {
+                        // A provider Retriever can't write to keeps its files; they count as not deleted.
+                        val writable = b.files.map { it.uri }.filter { FileAction.DELETE in fileActions(it) }
+                        val result = deleter.deleteOrAsk(writable, access.access().allFiles)
+                        if (result.deleted.isNotEmpty()) retriever.deletedFiles(result.deleted)
+                        batch = null
+                        b.done()
+                        val left = b.files.size - result.deleted.size - result.asked.size
+                        if (left > 0) Toast.makeText(context, Words.strings.filesWerentDeleted(left.toLong()), Toast.LENGTH_LONG).show()
+                        result.consent?.let {
+                            asked = result.asked
+                            consent.launch(IntentSenderRequest.Builder(it).build())
+                        }
+                    }
+                }) { Text(Words.deleteFrom(DeviceWords.ANDROID)) }
+            },
+            dismissButton = { TextButton(onClick = { batch = null }, enabled = !busy) { Text(Words.CANCEL) } },
+        )
     }
     val r = request ?: return
     when (r.action) {
@@ -397,4 +510,17 @@ private fun shareOrOpen(context: Context, file: SourceFile, share: Boolean) {
     }
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(Intent.createChooser(intent, if (share) null else Words.strings.openInAnotherApp))
+}
+
+/** Several files to one app; the read grant covers the uris the ClipData lists. */
+private fun shareAll(context: Context, files: List<SourceFile>) {
+    val uris = files.map { it.uri.toUri() }
+    val clip = ClipData.newRawUri(null, uris.firstOrNull() ?: return)
+    uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE)
+        .setType(shareType(files.map { it.mime }))
+        .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    intent.clipData = clip
+    context.startActivity(Intent.createChooser(intent, null))
 }

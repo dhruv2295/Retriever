@@ -7,23 +7,14 @@ import SwiftUI
 
 struct FoldersView: View {
     let model: AppModel
-    @State private var folders: [FolderCount] = []
+    @State private var folders: [FolderNode] = []
     @State private var picked: [FolderSource.Folder] = []
     @State private var unreachable: [FolderSource.Folder] = []
     @State private var loading = true
     @State private var failed = false
-    @State private var excluding: FolderCount?
     @State private var removing: FolderSource.Folder?
     @State private var adding = false
     @State private var note: String?
-
-    struct FolderCount: Identifiable {
-        let path: String
-        let count: Int
-        var id: String { path }
-        var name: String { path.split(separator: "/").last.map(String.init) ?? Words.shared.strings.topLevel }
-        var parent: String? { path.contains("/") ? String(path[..<path.lastIndex(of: "/")!]) : nil }
-    }
 
     private var services: AppServices? { model.services }
     private var excluded: Set<String> { model.snap?.excludedFolders ?? [] }
@@ -33,23 +24,8 @@ struct FoldersView: View {
             let shown = folders.filter { f in !excluded.contains { f.path == $0 || f.path.hasPrefix($0 + "/") } }
             if !shown.isEmpty {
                 Section {
-                    ForEach(shown) { f in
-                        NavigationLink(value: Route.files(FileQuery(folder: f.path, title: f.name))) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Label {
-                                    Text(f.name).fixedSize(horizontal: false, vertical: true)
-                                } icon: {
-                                    Image(systemName: "folder")
-                                }
-                                Text(Words.shared.strings.filesInParent(n: Int64(f.count), parent: f.parent))
-                                    .font(.footnote)
-                                    .foregroundStyle(Color.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .accessibilityElement(children: .combine)
-                        }
-                        .swipeActions { Button(Words.shared.strings.stopSearching, systemImage: "eye.slash") { excluding = f }.tint(.orange) }
-                        .contextMenu { Button(Words.shared.strings.stopSearchingThisFolder, systemImage: "eye.slash") { excluding = f } }
+                    ForEach(shown, id: \.path) { f in
+                        FolderRow(node: f) { model.setExcluded(f.path, true) }
                     }
                 } header: {
                     Text(Words.shared.strings.foldersWithFiles).foregroundStyle(Color.primary)
@@ -134,16 +110,6 @@ struct FoldersView: View {
         }
         .alert(note ?? "", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) {}
         .alert(
-            Words.shared.strings.stopSearchingAsk(name: excluding?.name ?? ""),
-            isPresented: Binding(get: { excluding != nil }, set: { if !$0 { excluding = nil } }),
-            presenting: excluding
-        ) { f in
-            Button(Words.shared.strings.stopSearching, role: .destructive) { model.setExcluded(f.path, true) }
-            Button(Words.shared.CANCEL, role: .cancel) {}
-        } message: { f in
-            Text(Words.shared.strings.stopSearchingForget(n: Int64(f.count), name: f.name))
-        }
-        .alert(
             Words.shared.strings.removeFolderAsk(name: removing?.name ?? ""),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing
         ) {
@@ -164,8 +130,7 @@ struct FoldersView: View {
         picked = services.folders.folders.filter { $0.id != FolderSource.documentsId }
         unreachable = services.folders.unreachable
         do {
-            let pairs = try await services.retriever.folders()
-            folders = pairs.map { FolderCount(path: ($0.first as String?) ?? "", count: $0.second?.intValue ?? 0) }
+            folders = try await services.retriever.subfolders(parent: nil)
             failed = false
         } catch {
             failed = true
@@ -179,5 +144,45 @@ struct FoldersView: View {
         services.retriever.notifyChanged()
         model.wake()
         Task { await load() }
+    }
+}
+
+/// A folder that opens its files and folders, with how many files are in it and below. With `exclude`, a swipe or its
+/// menu stops searching it, after asking.
+struct FolderRow: View {
+    let node: FolderNode
+    var exclude: (() -> Void)?
+    @State private var asking = false
+
+    /// Several joined parts ("media/com.whatsapp") read as one name; "" is files with no folder.
+    static func name(_ node: FolderNode) -> String { node.name.isEmpty ? Words.shared.strings.topLevel : node.name }
+
+    var body: some View {
+        NavigationLink(value: Route.files(.folder(node.path))) {
+            VStack(alignment: .leading, spacing: 2) {
+                Label {
+                    Text(Self.name(node)).fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "folder")
+                }
+                Text(Words.shared.strings.files(n: node.files))
+                    .font(.footnote)
+                    .foregroundStyle(Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+        }
+        .swipeActions {
+            if exclude != nil { Button(Words.shared.strings.stopSearching, systemImage: "eye.slash") { asking = true }.tint(.orange) }
+        }
+        .contextMenu {
+            if exclude != nil { Button(Words.shared.strings.stopSearchingThisFolder, systemImage: "eye.slash") { asking = true } }
+        }
+        .alert(Words.shared.strings.stopSearchingAsk(name: Self.name(node)), isPresented: $asking) {
+            Button(Words.shared.strings.stopSearching, role: .destructive) { exclude?() }
+            Button(Words.shared.CANCEL, role: .cancel) {}
+        } message: {
+            Text(Words.shared.strings.stopSearchingForget(n: node.files, name: Self.name(node)))
+        }
     }
 }

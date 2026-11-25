@@ -821,6 +821,10 @@ internal object Japanese : Strings {
 
     override val findSimilar = "似たものを探す"
 
+    override val showInFolder = "フォルダで表示"
+
+    override fun selectedCount(n: Long) = "${formatCount(n)}件を選択中"
+
     override val couldntFinishThat = "完了できませんでした。ファイルが移動されたか、アクセス権が変わった可能性があります。"
 
     override val renameFile = "ファイル名を変更"

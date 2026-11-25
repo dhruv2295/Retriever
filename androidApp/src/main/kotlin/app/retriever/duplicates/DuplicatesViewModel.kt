@@ -100,14 +100,10 @@ class DuplicatesViewModel(
         }) {
             // Only copies that still match the kept file go; the rest count as not deleted.
             val copies = retriever.verifiedCopies(now.groups, now.selected)
-            // Without all-files access, Android itself asks the person before others' photos and videos go.
             accessService.refresh()
-            val media = copies.filterNot { it.startsWith(SafSource.PREFIX) }
-            val ask = if (accessService.state.value.allFiles) emptyList() else media
-            val tried = copies - ask.toSet()
-            val deleted = deleter.delete(tried)
-            val request = if (ask.isEmpty()) null else deleter.request(ask)
-            if (request == null) finishDelete(uris, deleted) else confirmations.send(request)
+            val result = deleter.deleteOrAsk(copies, accessService.state.value.allFiles)
+            val consent = result.consent
+            if (consent == null) finishDelete(uris, result.deleted) else confirmations.send(consent)
         }
     }
 

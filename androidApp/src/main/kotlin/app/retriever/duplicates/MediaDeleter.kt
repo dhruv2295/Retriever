@@ -14,6 +14,9 @@ import app.retriever.diagnostics.LogSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** What [MediaDeleter.deleteOrAsk] deleted, and the files [consent] asks the person about; none when Android can't ask. */
+class Deletion(val deleted: List<String>, val asked: List<String>, val consent: IntentSender?)
+
 /** Deletes files the app found, through the provider each one came from. */
 class MediaDeleter(context: Context) {
     private val resolver = context.contentResolver
@@ -32,6 +35,17 @@ class MediaDeleter(context: Context) {
                 false
             }
         }
+    }
+
+    /**
+     * Deletes [uris]: at once what the app may delete itself, and Android's confirmation for the rest, which goes in
+     * [Deletion.consent]. Without all-files access, Android itself asks the person before others' photos and videos go.
+     */
+    suspend fun deleteOrAsk(uris: List<String>, allFiles: Boolean): Deletion {
+        val ask = if (allFiles) emptyList() else uris.filterNot { it.startsWith(SafSource.PREFIX) }
+        val deleted = delete(uris - ask.toSet())
+        val consent = if (ask.isEmpty()) null else request(ask)
+        return Deletion(deleted, if (consent == null) emptyList() else ask, consent)
     }
 
     /** Android's own confirmation for deleting others' photos and videos, or null when it can't ask. */

@@ -43,6 +43,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -77,6 +78,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.Access
 import app.retriever.access.openAllFilesSettings
@@ -91,6 +93,9 @@ import app.retriever.core.Words
 import app.retriever.core.isStale
 import app.retriever.core.motion.MascotMood
 import app.retriever.core.showsEmpty
+import app.retriever.files.Selection
+import app.retriever.files.folderRoute
+import app.retriever.files.picked
 import app.retriever.home.HomeUi
 import app.retriever.motion.Mascot
 import app.retriever.nav.SettingsRoute
@@ -265,11 +270,21 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
             // Read at the tap: the viewer swipes through the photos among these hits.
             val hitsNow by rememberUpdatedState(hits)
             val textOnly = ui.textOnly
+            val picked = actions.selection?.picked?.collectAsStateWithLifecycle()
             val act = remember(actions, textOnly, star) {
-                HitActions({ hit ->
-                    Opener.queue(hitsNow.map { it.file })
-                    actions.onOpenHit(hit)
-                }, actions.onFindSimilar.takeUnless { textOnly }, { starred }, star, actions.morph)
+                HitActions(
+                    { hit ->
+                        Opener.queue(hitsNow.map { it.file })
+                        actions.onOpenHit(hit)
+                    },
+                    actions.onFindSimilar.takeUnless { textOnly },
+                    { starred },
+                    star,
+                    actions.morph,
+                    showFolder = { actions.onNavigate(folderRoute(it.folder)) },
+                    selection = actions.selection,
+                    picked = { picked?.value },
+                )
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
             ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, act, wider)
@@ -338,18 +353,24 @@ internal val RESULT_CELL_GAP = 8.dp
 // to their places and leave at once, since sliding and fading together drew rows over each other at every key.
 private val fastEffects = spring<Float>(dampingRatio = 1f, stiffness = 3800f)
 
-/** What a result can do: open, find similar (null when the phone cannot), and be starred. */
+/**
+ * What a result can do: open, find similar (null when the phone cannot), be starred, open its folder, and be picked:
+ * [picked] is null while not selecting.
+ */
 private class HitActions(
     val open: (SearchEngine.Hit) -> Unit,
     val findSimilar: ((SourceFile) -> Unit)?,
     val starred: () -> Set<String>,
     val star: (SourceFile, Boolean) -> Unit,
     val morph: PhotoMorph?,
+    val showFolder: (SourceFile) -> Unit = {},
+    val selection: Selection? = null,
+    val picked: () -> Set<String>? = { null },
 )
 
 /**
  * [content] is a result; a long press on it opens a menu to star it, to find similar when [similar], and to open each of
- * its other copies.
+ * its other copies. While selecting, a tap or long press picks it instead; [content] is told whether it is picked.
  */
 @Composable
 private fun HitMenu(
@@ -357,11 +378,13 @@ private fun HitMenu(
     act: HitActions,
     similar: Boolean,
     modifier: Modifier = Modifier,
-    content: @Composable (onLongClick: () -> Unit, actions: Modifier) -> Unit,
+    content: @Composable (onClick: () -> Unit, onLongClick: () -> Unit, actions: Modifier, picked: Boolean?) -> Unit,
 ) {
     val file = hit.file
-    // Derived per file, so starring one file recomposes that file's menu and no other.
+    // Derived per file, so starring or picking one file recomposes that file's menu and no other.
     val starred by remember(file.uri) { derivedStateOf { file.uri in act.starred() } }
+    val picked by remember(file.uri) { derivedStateOf { act.picked()?.let { file.uri in it } } }
+    val selection = act.selection
     app.retriever.files.FilePressMenu(
         file,
         modifier,
@@ -370,8 +393,12 @@ private fun HitMenu(
         similar = act.findSimilar?.takeIf { similar }?.let { find -> { find(file) } },
         copies = hit.copies.map { it.file },
         openCopy = { copy -> hit.copies.firstOrNull { it.file == copy }?.let(act.open) },
-        content = content,
-    )
+        select = selection?.takeIf { picked == null }?.let { s -> { s.start(file.uri) } },
+        showInFolder = { act.showFolder(file) },
+    ) { menu, actions ->
+        val pick = selection?.takeIf { picked != null }?.let { s -> { s.toggle(file.uri) } }
+        content(pick ?: { act.open(hit) }, pick ?: menu, actions, picked)
+    }
 }
 
 /** Given the filters, not the whole [SearchUi]: a keystroke brings several answers and leaves every chip as it was. */
@@ -521,19 +548,20 @@ private fun LazyGridScope.mediaSection(hits: List<SearchEngine.Hit>, extents: Ma
             act,
             similar = hit.file.kind != Kind.VIDEO && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = null, fadeOutSpec = null),
-        ) { menu, actions ->
+        ) { click, press, actions, picked ->
             Column {
                 ThumbCell(
                     hit.file,
                     modifier = actions,
-                    onClick = { act.open(hit) },
+                    onClick = click,
                     requestSize = cell(),
                     locator = hit.locator,
                     readNote = Words.extent(extents[hit.fileId]),
-                    onLongClick = menu,
+                    onLongClick = press,
                     onLongClickLabel = Words.strings.moreOptions,
                     morph = act.morph,
                     origin = SEARCH_ORIGIN,
+                    selected = picked,
                 )
                 val line = Words.strings.reasonLine(listOfNotNull(hit.reason, hit.copiesNote))
                 if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.labelSmall)
@@ -559,18 +587,24 @@ private fun LazyGridScope.docSection(
             act,
             similar = hit.file.kind == Kind.SCREENSHOT && act.findSimilar != null,
             Modifier.animateItem(fadeInSpec = fastEffects, placementSpec = null, fadeOutSpec = null).bleed(16.dp),
-        ) { menu, actions ->
+        ) { click, press, actions, picked ->
             FileRow(
                 hit.file,
-                modifier = actions,
+                modifier = if (picked == null) actions else actions.picked(picked, MaterialTheme.colorScheme.secondaryContainer),
                 snippet = hit.snippet,
                 locator = hit.locator,
                 // Bold the words only where the file was found by its name.
                 query = query.takeIf { hit.byName },
                 readNote = Words.strings.reasonLine(listOfNotNull(hit.reason, Words.extent(extents[hit.fileId]), hit.copiesNote)).ifEmpty { null },
-                onLongClick = menu,
+                leading = picked?.let { { Checkbox(checked = it, onCheckedChange = null) } },
+                onLongClick = press,
                 onLongClickLabel = Words.strings.moreOptions,
-                onClick = { act.open(hit) },
+                onClickLabel = when (picked) {
+                    null -> Words.strings.openAction
+                    true -> Words.strings.deselect
+                    false -> Words.strings.select
+                },
+                onClick = click,
             )
         }
     }

@@ -28,6 +28,7 @@ struct SearchView: View {
     @State private var addingFolder = false
     @State private var folderNote: String?
     @State private var reviewDue = false
+    @State private var selection = FileSelection()
     @Environment(\.openFile) private var openFile
     @Environment(\.requestReview) private var requestReview
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -52,6 +53,9 @@ struct SearchView: View {
     /// Read here and not `model.snap`, so the counts that change as files are read don't redraw this screen.
     private var textOnly: Bool { fixedSnap?.textOnly ?? model.textOnly }
 
+    /// Picked results stay while a search runs or fails; an answer lets go of those it no longer shows.
+    private var answered: Bool { [.results, .empty, .idle].contains(search.screen) }
+
     /// The system's bottom search field on iOS 26, within reach of a thumb; the bar's drawer before it.
     private static var placement: SearchFieldPlacement {
         if #available(iOS 26.0, *) { .automatic } else { .navigationBarDrawer(displayMode: .always) }
@@ -69,7 +73,7 @@ struct SearchView: View {
         }
         .modifier(WarmOnSearch(retriever: model.services?.retriever))
         // The demo's title is its content's first line, so its bar says nothing.
-        .navigationTitle(trial == nil ? "Retriever" : "")
+        .navigationTitle(selection.title(trial == nil ? "Retriever" : ""))
         .navigationBarTitleDisplayMode(trial == nil ? .automatic : .inline)
         .searchable(
             text: Binding(get: { search.text }, set: search.setText), isPresented: $presented, placement: Self.placement,
@@ -98,6 +102,7 @@ struct SearchView: View {
                 }
             }
         }
+        .selectingFiles(selection, files: search.active ? search.answer?.hits.map(\.file) ?? [] : [], settled: answered)
         .onChange(of: model.fileRevision) { search.retry() }
         .modifier(FocusSearchField(focused: $fieldFocused))
         .onChange(of: searchRequest.wrappedValue) { takeSearchRequest() }

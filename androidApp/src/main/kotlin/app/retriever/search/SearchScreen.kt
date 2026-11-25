@@ -116,6 +116,8 @@ import app.retriever.core.SearchPhase
 import app.retriever.core.SearchTiming
 import app.retriever.core.SourceFile
 import app.retriever.core.Words
+import app.retriever.files.Selection
+import app.retriever.files.SelectionBar
 import app.retriever.home.HomeScreen
 import app.retriever.home.HomeUi
 import app.retriever.home.HomeViewModel
@@ -155,6 +157,8 @@ data class SearchActions(
     val onErrorShown: () -> Unit = {},
     /** Where a tapped photo grows into the viewer from its tile; null when it just opens. */
     val morph: PhotoMorph? = null,
+    /** Picks results for Share, Star and Delete; null where the screen has no bar for them (the first run's demo). */
+    val selection: Selection? = null,
 )
 
 internal val visualKinds = setOf(Kind.PHOTO, Kind.SCREENSHOT, Kind.VIDEO)
@@ -218,6 +222,7 @@ fun SearchScreen(
         val base = vm.actions(context, onNavigate)
         base.copy(
             morph = morph,
+            selection = vm.selection,
             onOpenHit = { hit ->
                 base.onOpenHit(hit)
                 vm.resultOpened()
@@ -409,34 +414,49 @@ fun SearchContent(
     val dismiss by rememberUpdatedState(done)
     LaunchedEffect(grid) { grid.interactionSource.interactions.filterIsInstance<DragInteraction.Start>().collect { dismiss() } }
     val similar = ui.similar
+    val selection = actions.selection
+    val picked = selection?.picked?.collectAsStateWithLifecycle()?.value
     Surface(modifier.fillMaxSize(), color = SearchBarDefaults.colors().containerColor) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-            SearchBarDefaults.InputField(
-                state = text,
-                onSearch = {
-                    actions.onSubmit(it)
-                    done()
-                },
-                expanded = true,
-                onExpandedChange = {},
-                modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { actions.onFocus(it.hasFocus) },
-                placeholder = { Text(Words.SEARCH_FIELD, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                leadingIcon = {
-                    IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
-                },
-                trailingIcon = {
-                    if (text.text.isNotEmpty() || similar != null) {
-                        IconButton(onClick = {
-                            text.clearText()
-                            actions.onClearSimilar()
-                        }) { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.clearSearch) }
-                    } else if (ui.canSearchByPhoto) {
-                        IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
-                            Icon(painterResource(R.drawable.ic_image_search), contentDescription = Words.strings.searchWithPhoto)
+            if (selection != null && picked != null) {
+                val files = (ui.phase as? SearchPhase.Results)?.result?.hits.orEmpty().map { it.file }
+                SelectionBar(selection, picked, files, ui.starredUris, onStar = actions.onStar, windowInsets = WindowInsets(0))
+            } else {
+                SearchBarDefaults.InputField(
+                    state = text,
+                    onSearch = {
+                        actions.onSubmit(it)
+                        done()
+                    },
+                    expanded = true,
+                    onExpandedChange = {},
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged { actions.onFocus(it.hasFocus) },
+                    placeholder = { Text(Words.SEARCH_FIELD, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = {
+                        IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back) }
+                    },
+                    trailingIcon = {
+                        if (text.text.isNotEmpty() || similar != null) {
+                            Row {
+                                if (selection != null && (ui.phase as? SearchPhase.Results)?.result?.hits.orEmpty().isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        done()
+                                        selection.start()
+                                    }) { Icon(painterResource(R.drawable.ic_check_circle_outlined), contentDescription = Words.strings.select) }
+                                }
+                                IconButton(onClick = {
+                                    text.clearText()
+                                    actions.onClearSimilar()
+                                }) { Icon(painterResource(R.drawable.ic_close), contentDescription = Words.strings.clearSearch) }
+                            }
+                        } else if (ui.canSearchByPhoto) {
+                            IconButton(onClick = { pickPhoto.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }) {
+                                Icon(painterResource(R.drawable.ic_image_search), contentDescription = Words.strings.searchWithPhoto)
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
             HorizontalDivider()
             // Opening a result ends the typing too: on a wide window the list stays beside the file, and its keyboard would
             // stay up over the file.

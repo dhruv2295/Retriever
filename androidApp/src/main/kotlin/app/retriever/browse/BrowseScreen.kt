@@ -3,6 +3,7 @@ package app.retriever.browse
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -54,13 +57,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
 import app.retriever.access.AccessService
 import app.retriever.core.DeviceWords
+import app.retriever.core.FolderNode
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.files.FilePressMenu
+import app.retriever.files.Selection
+import app.retriever.files.SelectionBar
+import app.retriever.files.folderRoute
+import app.retriever.files.picked
+import app.retriever.folders.FolderRow
 import app.retriever.nav.BrowseRoute
+import app.retriever.nav.FoldersRoute
 import app.retriever.nav.Route
 import app.retriever.nav.StatusRoute
 import app.retriever.starred.StarFailureEffect
@@ -145,33 +155,47 @@ fun BrowseScreen(
     val person = people.firstOrNull { it.id == route.person }
     // Until the people load, the name Home opened them with.
     val title = if (route.person == null) browseTitle(route, ui.sort, access.allFiles) else person?.let { Words.personTitle(it.name) } ?: route.title
-    val personFailed by vm.personFailed.collectAsStateWithLifecycle()
-    LaunchedEffect(personFailed) {
-        if (personFailed) {
-            snackbar.showSnackbar(Words.strings.couldntChangePerson)
-            vm.personFailureShown()
+    val failure by vm.failure.collectAsStateWithLifecycle()
+    LaunchedEffect(failure) {
+        failure?.let {
+            snackbar.showSnackbar(it)
+            vm.failureShown()
         }
     }
+    val subfolders by vm.subfolders.collectAsStateWithLifecycle()
+    val picked by vm.selection.picked.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
+            val selecting = picked
+            if (selecting != null) {
+                SelectionBar(vm.selection, selecting, ui.files.map { it.file }, starred, onStar = { file, on -> vm.stars.set(file.uri, on) })
+            } else {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) {
+                                Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = Words.strings.back)
+                            }
                         }
-                    }
-                },
-                actions = {
-                    // Search is reachable from every place: here in the bar, or the rail's Search on a wide window.
-                    onSearch?.let { IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_search), contentDescription = Words.strings.searchAction) } }
-                    if (route.person != null) PersonActions(person, people.filter { it.id != route.person }, vm::rename, vm::sameAs)
-                },
-            )
+                    },
+                    actions = {
+                        // Search is reachable from every place: here in the bar, or the rail's Search on a wide window.
+                        onSearch?.let {
+                            IconButton(onClick = it) { Icon(painterResource(R.drawable.ic_search), contentDescription = Words.strings.searchAction) }
+                        }
+                        if (ui.files.isNotEmpty()) {
+                            IconButton(onClick = { vm.selection.start() }) {
+                                Icon(painterResource(R.drawable.ic_check_circle_outlined), contentDescription = Words.strings.select)
+                            }
+                        }
+                        if (route.person != null) PersonActions(person, people.filter { it.id != route.person }, vm::rename, vm::sameAs)
+                    },
+                )
+            }
         },
     ) { padding ->
         BrowseContent(
@@ -198,7 +222,33 @@ fun BrowseScreen(
             starred = starred,
             onStar = onStar,
             morph = morph,
+            folder = route.folder,
+            subfolders = subfolders,
+            onNavigate = onNavigate,
+            picked = picked,
+            selection = vm.selection,
+            onShowFolder = { onNavigate(folderRoute(it.folder)) },
+            onExcludeFolder = vm::exclude,
         )
+    }
+}
+
+/** "All folders › DCIM › Camera": each folder above this one opens; the last, this one, is where you are. */
+@Composable
+private fun PathBar(folder: String, onNavigate: (Route) -> Unit, modifier: Modifier = Modifier) {
+    val parts = folder.split('/')
+    // Scrolled from the end, so a deep folder shows where you are first.
+    Row(modifier.horizontalScroll(rememberScrollState(), reverseScrolling = true).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { onNavigate(FoldersRoute) }) { Text(Words.strings.allFolders) }
+        parts.forEachIndexed { i, part ->
+            Icon(painterResource(R.drawable.ic_keyboard_arrow_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            val name = part.ifEmpty { Words.strings.topLevel }
+            if (i == parts.lastIndex) {
+                Text(name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp))
+            } else {
+                TextButton(onClick = { onNavigate(folderRoute(parts.take(i + 1).joinToString("/"))) }) { Text(name) }
+            }
+        }
     }
 }
 
@@ -227,15 +277,37 @@ fun BrowseContent(
     morph: PhotoMorph? = null,
     /** The date a date-ordered grid is in, which splits it under month headers; null keeps it flat. */
     dateOf: ((Store.StoredFile) -> Long)? = null,
+    /** A folder's own list: its path above, its [subfolders] (null until read) before its files. */
+    folder: String? = null,
+    subfolders: List<FolderNode>? = emptyList(),
+    onNavigate: (Route) -> Unit = {},
+    /** The picked files while selecting, else null; [selection] picks them. */
+    picked: Set<String>? = null,
+    selection: Selection? = null,
+    /** Offers Show in folder, except for a file already in [folder]. */
+    onShowFolder: ((SourceFile) -> Unit)? = null,
+    /** Stop searching a subfolder; null offers no menu on them. */
+    onExcludeFolder: ((String) -> Unit)? = null,
 ) {
     val files = ui.files
+    val folders = subfolders.orEmpty()
+    val nothing = files.isEmpty() && folders.isEmpty()
     // Rows keep a readable width on a wide window, and the chips and caption above them share its edges, so the page
     // is one column; a grid of pictures uses the whole width.
     val column = if (kind in GRID_KINDS) Modifier.fillMaxWidth() else Modifier.readingWidth()
+    val tint = MaterialTheme.colorScheme.secondaryContainer
+
+    // While selecting, a tap or long press picks; otherwise a tap opens and a long press opens the menu.
+    fun tap(file: SourceFile) = if (picked != null && selection != null) selection.toggle(file.uri) else onOpen(file)
+    fun press(file: SourceFile, menu: () -> Unit) = if (picked != null && selection != null) selection.toggle(file.uri) else menu()
+    fun select(file: SourceFile) = selection?.takeIf { picked == null }?.let { { it.start(file.uri) } }
+    fun showFolder(file: SourceFile) = onShowFolder?.takeIf { file.folder != folder }?.let { { it(file) } }
     Box(modifier) {
         Column(Modifier.padding(top = padding.calculateTopPadding())) {
+            if (folder != null) PathBar(folder, onNavigate, column)
             // Starred is ordered by when you starred, so the sort chips would not apply.
-            if (sortable && !starredOnly) {
+            // A folder of folders alone has nothing for them to sort.
+            if (sortable && !starredOnly && (folder == null || files.isNotEmpty())) {
                 Row(
                     column.padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -251,7 +323,7 @@ fun BrowseContent(
                 Muted(sortCaption(ui.sort), column.padding(horizontal = 16.dp))
             }
 
-            if (files.isEmpty() && ui.error != null) {
+            if (nothing && ui.error != null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         title = Words.strings.couldntLoadYourFiles,
@@ -261,9 +333,9 @@ fun BrowseContent(
                         action = Words.TRY_AGAIN to onRetry,
                     )
                 }
-            } else if (files.isEmpty() && ui.loading) {
+            } else if (nothing && (ui.loading || subfolders == null)) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            } else if (files.isEmpty()) {
+            } else if (nothing) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (starredOnly) {
                         EmptyState(
@@ -325,19 +397,25 @@ fun BrowseContent(
                             }
                             items(run, key = { it.id }, contentType = { "file" }) { stored ->
                                 val on = stored.file.uri in starred
-                                FilePressMenu(stored.file, starred = on, onStar = {
-                                    onStar(stored.file, it)
-                                }, notThisPerson = onNotThisPerson?.let { { it(stored) } }) { menu, actions ->
+                                FilePressMenu(
+                                    stored.file,
+                                    starred = on,
+                                    onStar = { onStar(stored.file, it) },
+                                    notThisPerson = onNotThisPerson?.let { { it(stored) } },
+                                    select = select(stored.file),
+                                    showInFolder = showFolder(stored.file),
+                                ) { menu, actions ->
                                     ThumbCell(
                                         file = stored.file,
-                                        onClick = { onOpen(stored.file) },
+                                        onClick = { tap(stored.file) },
                                         requestSize = with(LocalDensity.current) { request.toDp() },
                                         readNote = Words.coverage(stored, ui.inside),
-                                        onLongClick = menu,
+                                        onLongClick = { press(stored.file, menu) },
                                         onLongClickLabel = Words.strings.moreOptions,
                                         modifier = actions,
                                         morph = morph,
                                         origin = BROWSE_ORIGIN,
+                                        selected = picked?.let { stored.file.uri in it },
                                     )
                                 }
                             }
@@ -353,16 +431,33 @@ fun BrowseContent(
                         contentPadding = listPadding,
                         modifier = Modifier.fillMaxSize(),
                     ) {
+                        items(folders, key = { "f" + it.path }, contentType = { "folder" }) { node ->
+                            FolderRow(node, onOpen = { onNavigate(folderRoute(node.path)) }, onExclude = onExcludeFolder?.let { { it(node.path) } })
+                        }
                         items(files, key = { it.id }, contentType = { "file" }) { stored ->
                             val on = stored.file.uri in starred
-                            FilePressMenu(stored.file, column, starred = on, onStar = { onStar(stored.file, it) }) { menu, actions ->
+                            val chosen = picked?.let { stored.file.uri in it }
+                            FilePressMenu(
+                                stored.file,
+                                column,
+                                starred = on,
+                                onStar = { onStar(stored.file, it) },
+                                select = select(stored.file),
+                                showInFolder = showFolder(stored.file),
+                            ) { menu, actions ->
                                 FileRow(
                                     file = stored.file,
-                                    onClick = { onOpen(stored.file) },
+                                    onClick = { tap(stored.file) },
                                     readNote = Words.coverage(stored, ui.inside),
-                                    onLongClick = menu,
+                                    leading = chosen?.let { { Checkbox(checked = it, onCheckedChange = null) } },
+                                    onLongClick = { press(stored.file, menu) },
                                     onLongClickLabel = Words.strings.moreOptions,
-                                    modifier = actions,
+                                    onClickLabel = when (chosen) {
+                                        null -> Words.strings.openAction
+                                        true -> Words.strings.deselect
+                                        false -> Words.strings.select
+                                    },
+                                    modifier = if (chosen == null) actions else actions.picked(chosen, tint),
                                 )
                             }
                         }

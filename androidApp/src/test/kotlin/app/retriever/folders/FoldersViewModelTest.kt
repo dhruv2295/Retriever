@@ -33,7 +33,7 @@ class FoldersViewModelTest {
     private val app = ApplicationProvider.getApplicationContext<Application>()
     private fun file(name: String, folder: String) = SourceFile("content://test/$folder/$name", name, folder, "image/jpeg", Kind.PHOTO, 100, 1)
 
-    private val files = listOf(file("a.jpg", "/Pictures"), file("b.jpg", "/Pictures"), file("c.jpg", "/Download"))
+    private val files = listOf(file("a.jpg", "Pictures"), file("b.jpg", "Pictures"), file("c.jpg", "Download"))
 
     @Before fun setUp() {
         Dispatchers.setMain(StandardTestDispatcher())
@@ -47,11 +47,11 @@ class FoldersViewModelTest {
         retriever.indexBatch(1.minutes)
         val vm = FoldersViewModel(retriever, IndexService(app, retriever))
         val loaded = vm.ui.first { !it.loading }
-        assertEquals(mapOf("/Pictures" to 2L, "/Download" to 1L), loaded.folders.toMap())
+        assertEquals(mapOf("Pictures" to 2L, "Download" to 1L), loaded.folders.associate { it.path to it.files })
 
-        vm.exclude("/Pictures")
+        vm.exclude("Pictures")
         val left = vm.ui.first { it.folders.size == 1 }
-        assertEquals("/Download", left.folders.single().first)
+        assertEquals("Download", left.folders.single().path)
         assertEquals(FoldersUi(left.folders, loading = false), left)
     }
 
@@ -63,7 +63,7 @@ class FoldersViewModelTest {
         vm.ui.first { !it.loading }
         driver.close()
 
-        vm.exclude("/Pictures")
+        vm.exclude("Pictures")
 
         val failed = vm.ui.first { it.error != null }
         assertEquals("Couldn't stop searching that folder. Try again in a moment.", failed.error)

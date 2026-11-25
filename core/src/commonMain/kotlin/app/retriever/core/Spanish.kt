@@ -888,6 +888,10 @@ internal object Spanish : Strings {
 
     override val findSimilar = "Buscar similares"
 
+    override val showInFolder = "Mostrar en la carpeta"
+
+    override fun selectedCount(n: Long) = "${formatCount(n)} ${if (n == 1L) "seleccionado" else "seleccionados"}"
+
     override val couldntFinishThat = "No se pudo completar. Puede que el archivo se haya movido o que el acceso haya cambiado."
 
     override val renameFile = "Cambiar nombre del archivo"

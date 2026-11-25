@@ -4,19 +4,23 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.retriever.core.FolderNode
 import app.retriever.core.Kind
 import app.retriever.core.Person
 import app.retriever.core.Retriever
 import app.retriever.core.Store
 import app.retriever.core.Words
+import app.retriever.files.Selection
 import app.retriever.nav.BrowseRoute
 import app.retriever.starred.Starring
 import app.retriever.ui.launchCatching
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,6 +41,16 @@ data class BrowseUi(
 /** The sort is kept in [saved], so it survives rotation and process death; the first page loads at once. */
 class BrowseViewModel(private val retriever: Retriever, private val saved: SavedStateHandle, val route: BrowseRoute) : ViewModel() {
     val stars = Starring(retriever, viewModelScope)
+    val selection = Selection(saved)
+
+    /** A folder's own subfolders, read again when files change; null until read, and empty off a folder. */
+    val subfolders: StateFlow<List<FolderNode>?> = retriever.fileRevision
+        .map { route.folder?.let { folder -> retriever.subfolders(folder) }.orEmpty() }
+        .catch {
+            Log.e("Retriever", "BrowseViewModel subfolders", it)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val paged = MutableStateFlow(BrowseUi(sort = saved[SORT] ?: route.sort))
 
@@ -90,18 +104,26 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
     val people: StateFlow<List<Person>> = (if (route.person == null) flowOf(emptyList()) else retriever.people())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _personFailed = MutableStateFlow(false)
+    private val _failure = MutableStateFlow<String?>(null)
 
-    /** A rename, merge or "Not this person" failed: the screen says so once, then calls [personFailureShown]. */
-    val personFailed: StateFlow<Boolean> = _personFailed
+    /** A person's rename, merge or "Not this person", or a folder's exclusion, failed: the screen says so once, then calls [failureShown]. */
+    val failure: StateFlow<String?> = _failure
 
-    fun personFailureShown() {
-        _personFailed.value = false
+    fun failureShown() {
+        _failure.value = null
     }
 
     private fun personFailed(e: Exception) {
         Log.e("Retriever", "BrowseViewModel person", e)
-        _personFailed.value = true
+        _failure.value = Words.strings.couldntChangePerson
+    }
+
+    /** Core drops the folder's files at once, and the lists reload with them gone. */
+    fun exclude(folder: String) {
+        launchCatching({
+            Log.e("Retriever", "BrowseViewModel exclude", it)
+            _failure.value = Words.strings.couldntStopSearchingFolder
+        }) { retriever.updatePrefs { it.copy(excludedFolders = it.excludedFolders + folder) } }
     }
 
     fun rename(name: String) {
@@ -161,6 +183,8 @@ class BrowseViewModel(private val retriever: Retriever, private val saved: Saved
             // ponytail: OFFSET paging over a table the indexer changes; rows can shift between pages.
             // Dedupe so a shifted row never repeats a lazy-list key; keyset paging if skips matter.
             paged.update { it.copy(files = (if (replace) page else it.files + page).distinctBy { f -> f.id }, loading = false, exhausted = page.size < limit) }
+            // The list was read again from its top: a picked file not among its rows is gone, or no longer loaded.
+            if (offset == 0) selection.keepOnly(page.map { it.file.uri })
             replacing = false
             busy = false
         }

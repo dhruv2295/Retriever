@@ -93,14 +93,7 @@ enum FileAction: CaseIterable {
     func delete(model: AppModel) {
         guard let file, let services = model.services else { return }
         perform(model: model) {
-            if file.uri.hasPrefix("ph://") {
-                let assets = PHAsset.fetchAssets(withLocalIdentifiers: [String(file.uri.dropFirst(5))], options: nil)
-                guard assets.count == 1 else { throw CocoaError(.fileNoSuchFile) }
-                try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.deleteAssets(assets) }
-            } else {
-                guard let url = services.folders.resolve(file.uri) else { throw CocoaError(.fileNoSuchFile) }
-                try await Self.trash(url)
-            }
+            guard await Self.remove([file.uri], folders: services.folders).contains(file.uri) else { throw CocoaError(.fileNoSuchFile) }
             try await services.retriever.deletedFiles(uris: [file.uri])
             self.action = nil
             await model.filesChanged()
@@ -108,8 +101,28 @@ enum FileAction: CaseIterable {
         }
     }
 
-    @concurrent private static func trash(_ url: URL) async throws {
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+    /// Deletes what it can and returns the uris it deleted: library photos in one change (iOS asks first), files in
+    /// added folders to the trash, or for good with `permanently`.
+    @concurrent static func remove(_ uris: [String], folders: FolderSource, permanently: Bool = false) async -> Set<String> {
+        var gone = Set<String>()
+        let ids = uris.filter { $0.hasPrefix("ph://") }.map { String($0.dropFirst(5)) }
+        if !ids.isEmpty {
+            let assets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+            let found = assets.objects(at: IndexSet(integersIn: 0..<assets.count)).map { "ph://" + $0.localIdentifier }
+            if !found.isEmpty, (try? await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.deleteAssets(assets) }) != nil {
+                gone.formUnion(found)
+            }
+        }
+        for uri in uris where !uri.hasPrefix("ph://") {
+            guard let url = folders.resolve(uri) else { continue }
+            do {
+                if permanently { try FileManager.default.removeItem(at: url) } else { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                gone.insert(uri)
+            } catch {
+                continue
+            }
+        }
+        return gone
     }
 
     nonisolated private static func rename(_ file: SourceFile, name: String, folders: FolderSource) throws -> SourceFile {
@@ -214,6 +227,7 @@ struct FileActionButtons: View {
     let file: SourceFile
     var starred = false
     var similar: ((SourceFile) -> Void)?
+    var showFolder: (() -> Void)?
     var deleted: () -> Void = {}
     @Environment(FileActions.self) private var actions: FileActions?
     @Environment(AppModel.self) private var model: AppModel?
@@ -237,7 +251,10 @@ struct FileActionButtons: View {
             case .delete:
                 Divider()
                 row(action) { actions?.select(action, file: file, deleted: deleted) }
-            case .info, .rename:
+            case .info:
+                if let showFolder { Button(action: showFolder) { Label(Words.shared.strings.showInFolder, systemImage: "folder") } }
+                row(action) { actions?.select(action, file: file, deleted: deleted) }
+            case .rename:
                 row(action) { actions?.select(action, file: file, deleted: deleted) }
             }
         }
@@ -259,6 +276,141 @@ struct FileOverflow: View {
             FileActionButtons(file: file, starred: model?.starred.contains(file.uri) == true, deleted: { dismiss() })
         } label: {
             Label(Words.shared.strings.moreActions, systemImage: "ellipsis").labelStyle(.iconOnly)
+        }
+    }
+}
+
+/// Files picked on one list for one action, as in Photos. Kept by uri, so they stay picked while the list refreshes.
+@MainActor @Observable final class FileSelection {
+    var active = false
+    var uris: Set<String> = []
+
+    func start(_ uri: String? = nil) {
+        active = true
+        if let uri { uris.insert(uri) }
+    }
+
+    func end() {
+        active = false
+        uris = []
+    }
+
+    func toggle(_ uri: String) {
+        if uris.remove(uri) == nil { uris.insert(uri) }
+    }
+
+    /// The count stands in for the screen's own title while picking.
+    func title(_ title: String) -> String { active ? Words.shared.strings.selectedCount(n: Int64(uris.count)) : title }
+}
+
+extension EnvironmentValues {
+    /// Set by a list that can select files; its cells toggle instead of opening while it is active.
+    @Entry var fileSelection: FileSelection?
+    @Entry var showFolder = ShowFolder()
+}
+
+/// "Show in folder" for a file; nil where there is no folder to show, or the list already is it.
+struct ShowFolder {
+    var action: (SourceFile) -> (() -> Void)? = { _ in nil }
+
+    func callAsFunction(_ file: SourceFile) -> (() -> Void)? { action(file) }
+}
+
+/// The check on a picked row or cell.
+struct SelectionMark: View {
+    let on: Bool
+
+    var body: some View {
+        Image(systemName: on ? "checkmark.circle.fill" : "circle")
+            .font(.title3)
+            .foregroundStyle(on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+    }
+}
+
+extension View {
+    /// Select in the toolbar, the count as the title, and Share, Star and Delete for what is picked. `files` are the
+    /// ones the list shows; once `settled` (loaded), a picked file it no longer shows is let go.
+    func selectingFiles(_ selection: FileSelection, files: [SourceFile], settled: Bool, deleted: @escaping (Set<String>) -> Void = { _ in }) -> some View {
+        modifier(SelectingFiles(selection: selection, files: files, settled: settled, deleted: deleted))
+    }
+}
+
+private struct SelectingFiles: ViewModifier {
+    let selection: FileSelection
+    let files: [SourceFile]
+    let settled: Bool
+    let deleted: (Set<String>) -> Void
+    @Environment(AppModel.self) private var model: AppModel?
+    @State private var deleting: [SourceFile]?
+    @State private var notDeleted = 0
+
+    func body(content: Content) -> some View {
+        let chosen = files.filter { selection.uris.contains($0.uri) }
+        content
+            .environment(\.fileSelection, selection)
+            .toolbar {
+                if selection.active {
+                    ToolbarItem(placement: .topBarTrailing) { Button(Words.shared.strings.done) { selection.end() }.bold() }
+                    ToolbarItemGroup(placement: .bottomBar) { bar(chosen) }
+                } else if !files.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) { Button(Words.shared.strings.select) { selection.start() } }
+                }
+            }
+            .confirmationDialog(
+                deleting?.count == 1 ? Words.shared.strings.deleteThisFile : Words.shared.strings.deleteFilesAsk(n: Int64(deleting?.count ?? 0)),
+                isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting
+            ) { picked in
+                Button(Words.shared.strings.delete_, role: .destructive) { delete(picked) }
+            } message: { picked in
+                if picked.count == 1 { Text(Words.shared.deleteConfirm(words: Copy.words)) }
+            }
+            .alert(
+                Words.shared.strings.filesWerentDeleted(n: Int64(notDeleted)), isPresented: Binding(get: { notDeleted > 0 }, set: { if !$0 { notDeleted = 0 } })
+            ) { Button(Words.shared.strings.ok) {} }
+            .onChange(of: settled ? Set(files.map(\.uri)) : nil) { _, shown in
+                guard let shown else { return }
+                if shown.isEmpty { selection.end() } else { selection.uris.formIntersection(shown) }
+            }
+    }
+
+    @ViewBuilder private func bar(_ chosen: [SourceFile]) -> some View {
+        let shared = chosen.filter { FileAction.available($0.uri).contains(.share) }
+        if shared.count == 1, let file = shared.first {
+            ShareButton(file: file)
+        } else {
+            ShareLink(items: shared.compactMap { SharedFile($0, folders: model?.services?.folders) }) { SharePreview($0.name) }
+                .disabled(shared.isEmpty)
+        }
+        Spacer()
+        if let model {
+            let starred = !chosen.isEmpty && chosen.allSatisfy { model.starred.contains($0.uri) }
+            Button(
+                starred ? Words.shared.strings.removeFromStarred : Words.shared.strings.addToStarred, systemImage: FileAction.star.icon(starred: starred)
+            ) {
+                for file in chosen { model.setStarred(file.uri, !starred) }
+            }
+            .disabled(chosen.isEmpty)
+        }
+        Spacer()
+        let removable = chosen.filter { FileAction.available($0.uri).contains(.delete) }
+        Button(FileAction.delete.title(starred: false), systemImage: FileAction.delete.icon(starred: false), role: .destructive) {
+            // iOS asks before library photos go, as for one photo.
+            if removable.allSatisfy({ $0.uri.hasPrefix("ph://") }) { delete(removable) } else { deleting = removable }
+        }
+        .disabled(removable.isEmpty)
+    }
+
+    private func delete(_ picked: [SourceFile]) {
+        guard let model, let services = model.services else { return }
+        Task {
+            let gone = await FileActions.remove(picked.map(\.uri), folders: services.folders)
+            if !gone.isEmpty {
+                try? await services.retriever.deletedFiles(uris: Array(gone))
+                await model.filesChanged()
+            }
+            deleted(gone)
+            notDeleted = picked.count - gone.count
+            if notDeleted == 0 { selection.end() } else { selection.uris.subtract(gone) }
         }
     }
 }

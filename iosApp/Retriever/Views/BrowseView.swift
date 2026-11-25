@@ -45,6 +45,11 @@ struct FileQuery: Hashable {
     var takenRange: ClosedRange<Int64>?
     /// One person's photos (core's Person.id), newest first; the sort menu doesn't apply.
     var person: Int64?
+
+    /// A folder's own files, titled by its last part ("" is the top level).
+    static func folder(_ path: String) -> FileQuery {
+        FileQuery(folder: path, title: path.split(separator: "/").last.map(String.init) ?? Words.shared.strings.topLevel)
+    }
 }
 
 /// Files a page at a time: pictures as a grid, everything else as rows.
@@ -54,6 +59,8 @@ struct FileListView: View {
     @State private var sort: FileQuery.Sort
     @State private var pages: FilePages
     @State private var slow = false
+    @State private var subfolders: [FolderNode] = []
+    @State private var selection = FileSelection()
     @Environment(\.openFile) private var openFile
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(AppModel.self) private var model: AppModel?
@@ -102,15 +109,17 @@ struct FileListView: View {
         // One read of the stars for every row. Starred follows them as they change (here, in a viewer), without reloading its pages.
         let starred = model?.starred ?? []
         let visible = query.starredOnly ? pages.files.filter { starred.contains($0.file.uri) } : pages.files
+        // A folder holding only folders is a list of them, not an empty one.
+        let nothing = visible.isEmpty && subfolders.isEmpty
         Group {
-            if visible.isEmpty && pages.loading {
+            if nothing && pages.loading {
                 // Never an empty Group: its modifiers (title, task) would vanish with it.
                 ZStack { if slow { ProgressView().controlSize(.large) } }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if visible.isEmpty && pages.failed {
+            } else if nothing && pages.failed {
                 StateView(mood: .trouble, title: Words.shared.strings.couldntLoadFiles, message: Words.shared.strings.wentWrongReadingList) {
                     Button(Words.shared.TRY_AGAIN) { Task { await pages.loadPage() } }.buttonStyle(.primaryAction)
                 }
-            } else if visible.isEmpty {
+            } else if nothing {
                 if query.starredOnly {
                     StateView(mood: .noMatch, title: Words.shared.strings.keepUsefulFilesClose, message: Words.shared.strings.tapStarToFindHere)
                 } else if libraryEmpty {
@@ -134,24 +143,38 @@ struct FileListView: View {
                     .padding(4)
                 }
             } else {
-                List(visible, id: \.id) { stored in
-                    let f = stored.file
-                    FileButton(
-                        file: f, subtitle: Words.shared.strings.sizeFolderDate(size: Copy.bytes(f.size), folder: f.folder, date: Format.date(f.modifiedAt)),
-                        coverage: Words.shared.coverage(file: stored, inside: services?.retriever.readInside() ?? []),
-                        starred: starred.contains(f.uri), onOpen: { openFile(f, among: visible.map(\.file)) }
-                    )
-                    .onAppear { more(after: stored) }
+                List {
+                    ForEach(subfolders, id: \.path) { node in
+                        FolderRow(node: node, exclude: model.map { model in { model.setExcluded(node.path, true) } })
+                    }
+                    ForEach(visible, id: \.id) { stored in
+                        let f = stored.file
+                        FileButton(
+                            file: f, subtitle: Words.shared.strings.sizeFolderDate(size: Copy.bytes(f.size), folder: f.folder, date: Format.date(f.modifiedAt)),
+                            coverage: Words.shared.coverage(file: stored, inside: services?.retriever.readInside() ?? []),
+                            starred: starred.contains(f.uri), onOpen: { openFile(f, among: visible.map(\.file)) }
+                        )
+                        .onAppear { more(after: stored) }
+                    }
                 }
                 .listStyle(.plain)
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(selection.title(title))
         .safeAreaInset(edge: .top) {
-            if sortable && !visible.isEmpty {
-                Text(sort.caption).font(.footnote).foregroundStyle(Color.primary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(
-                    .vertical, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                if let folder = query.folder { FolderPath(folder: folder) }
+                if sortable && !visible.isEmpty {
+                    Text(sort.caption).font(.footnote).foregroundStyle(Color.primary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal)
+                        .padding(.vertical, 4)
+                }
             }
+        }
+        // Not this folder again: its files are already here.
+        .transformEnvironment(\.showFolder) { show in
+            guard let here = query.folder else { return }
+            let others = show
+            show = ShowFolder { $0.folder == here ? nil : others($0) }
         }
         .toolbar {
             if let id = query.person, let model {
@@ -173,6 +196,9 @@ struct FileListView: View {
                 }
             }
         }
+        .selectingFiles(selection, files: visible.map(\.file), settled: !pages.loading) { gone in
+            for stored in pages.files where gone.contains(stored.file.uri) { pages.remove(stored) }
+        }
         .safeAreaInset(edge: .bottom) {
             if pages.failed && !pages.files.isEmpty {
                 VStack(spacing: 8) {
@@ -185,9 +211,15 @@ struct FileListView: View {
         .alert(
             model?.peopleMessage ?? "", isPresented: Binding(get: { model?.peopleMessage != nil }, set: { if !$0 { model?.peopleMessage = nil } })
         ) { Button(Words.shared.strings.ok) {} }
-        .onChange(of: model?.fileRevision) { Task { await pages.load(sort) } }
+        .onChange(of: model?.fileRevision) {
+            Task {
+                await pages.load(sort)
+                await loadSubfolders()
+            }
+        }
         .task(id: sort) {
             guard services != nil else { return }
+            await loadSubfolders()
             await pages.load(sort)
         }
         .task(id: pages.loading) {
@@ -205,6 +237,44 @@ struct FileListView: View {
 
     private func notThisPerson(_ id: Int64, _ stored: Store.StoredFile) {
         model?.notThisPerson(id, fileId: stored.id) { pages.remove(stored) }
+    }
+
+    /// A folder's folders; on a failed read the ones already shown stay.
+    private func loadSubfolders() async {
+        guard let folder = query.folder, let retriever = services?.retriever, let nodes = try? await retriever.subfolders(parent: folder) else { return }
+        subfolders = nodes
+    }
+}
+
+/// "All folders › Photos › Camera": each folder above this one opens; this one is where the list is.
+private struct FolderPath: View {
+    let folder: String
+
+    var body: some View {
+        // From the leading edge when it fits; a deep path scrolls, opened at its end, where you are.
+        ViewThatFits(in: .horizontal) {
+            crumbs.frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal) { crumbs }.scrollIndicators(.hidden).defaultScrollAnchor(.trailing)
+        }
+    }
+
+    private var crumbs: some View {
+        let parts = folder.isEmpty ? [Words.shared.strings.topLevel] : folder.split(separator: "/").map(String.init)
+        return HStack(spacing: 6) {
+            NavigationLink(Words.shared.strings.allFolders, value: Route.folders)
+            ForEach(parts.indices, id: \.self) { i in
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                if i == parts.count - 1 {
+                    Text(parts[i]).accessibilityAddTraits(.isHeader)
+                } else {
+                    NavigationLink(parts[i], value: Route.files(.folder(parts[...i].joined(separator: "/"))))
+                }
+            }
+        }
+        .font(.subheadline)
+        .lineLimit(1)
+        .padding(.horizontal)
+        .frame(minHeight: 44)
     }
 }
 
