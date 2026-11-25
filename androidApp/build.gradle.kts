@@ -42,6 +42,7 @@ android {
         targetSdk = libs.versions.compileSdk.get().toInt()
         versionCode = xcconfig["CURRENT_PROJECT_VERSION"]?.toIntOrNull() ?: throw GradleException("Config.xcconfig has no CURRENT_PROJECT_VERSION")
         versionName = xcconfig["MARKETING_VERSION"] ?: throw GradleException("Config.xcconfig has no MARKETING_VERSION")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -81,9 +82,14 @@ android {
     // People's face model, fetched from Play when People is turned on (AndroidFaceReader.ready).
     assetPacks += listOf(":facepack")
 
-    // Snapdragon NPU runtimes, installed by Play only on the SoC each one names (ModelBuilds.npuRuntimeReady). The
-    // hand-built APKs don't carry them, so a sideloaded Snapdragon stays on the GPU.
-    dynamicFeatures += listOf(":npu:qualcomm_runtime_v73", ":npu:qualcomm_runtime_v75", ":npu:qualcomm_runtime_v79", ":npu:qualcomm_runtime_v81")
+    // Snapdragon NPU runtimes, installed by Play only on the SoC each one names (ModelBuilds.npuRuntimeReady). Bundle
+    // builds only: AGP can't build a dynamic feature against the ABI-split APKs, and those stay on the GPU anyway.
+    if (forPlay) {
+        dynamicFeatures += listOf(":npu:qualcomm_runtime_v73", ":npu:qualcomm_runtime_v75", ":npu:qualcomm_runtime_v79", ":npu:qualcomm_runtime_v81")
+        // The modules' dist:title, which Play requires; they install with the app, so nobody sees it.
+        buildFeatures.resValues = true
+        defaultConfig.resValue("string", "qualcomm_npu_runtime", "Snapdragon NPU runtime")
+    }
     bundle { deviceTargetingConfig = file("device_targeting_configuration.xml") }
 
     buildFeatures {
@@ -218,4 +224,13 @@ dependencies {
     testImplementation(libs.work.testing)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary.android)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    // -PqnnInApk: Firebase Test Lab installs no Play device-targeted modules, so SnapdragonNpuTest's debug APK carries
+    // the QNN libraries itself (all four HTP versions, ~90 MB). Never for a shipped build.
+    if (providers.gradleProperty("qnnInApk").isPresent) debugImplementation(libs.qnn.runtime)
+}
+
+if (providers.gradleProperty("qnnInApk").isPresent) {
+    android.packaging.jniLibs.excludes += listOf("**/libQnnHtpPrepare.so", "**/libQnnGpu.so", "**/libQnnDsp*.so", "**/libQnnHtpV6*")
 }
