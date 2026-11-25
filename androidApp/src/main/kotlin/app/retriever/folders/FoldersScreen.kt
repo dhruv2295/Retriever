@@ -34,9 +34,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.retriever.R
+import app.retriever.core.FolderNode
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
-import app.retriever.nav.BrowseRoute
+import app.retriever.files.folderRoute
 import app.retriever.nav.Route
 import app.retriever.ui.components.ConfirmDialog
 import app.retriever.ui.components.EmptyState
@@ -57,7 +58,6 @@ fun FoldersScreen(
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val (folders, loading, loadFailed, error) = ui
-    var confirming by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     // Shown first, cleared after: clearing first would change the key and dismiss the snackbar at once.
     LaunchedEffect(error) {
@@ -98,74 +98,68 @@ fun FoldersScreen(
             }
         } else {
             LazyColumn(contentPadding = contentPaddingFor(padding), modifier = Modifier.fillMaxSize()) {
-                items(folders, key = { it.first }) { (path, count) ->
-                    FolderRow(
-                        path = path,
-                        count = count,
-                        onOpen = {
-                            onNavigate(BrowseRoute(folder = path, title = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }))
-                        },
-                        onExclude = { confirming = path },
-                    )
+                items(folders, key = { it.path }) { node ->
+                    FolderRow(node, onOpen = { onNavigate(folderRoute(node.path)) }, onExclude = { vm.exclude(node.path) })
                 }
             }
         }
     }
-
-    confirming?.let { path ->
-        val count = folders.firstOrNull { it.first == path }?.second ?: return@let
-        val name = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
-        ConfirmDialog(
-            title = Words.strings.stopSearchingAsk(name),
-            message = Words.strings.stopSearchingMessage(count, name),
-            confirmLabel = Words.strings.stopSearching,
-            onConfirm = {
-                confirming = null
-                vm.exclude(path)
-            },
-            onDismiss = { confirming = null },
-        )
-    }
 }
 
+/** A folder's name as a row shows it: a joined chain reads "media/com.whatsapp"; files at the root, "Top level". */
+private val FolderNode.label: String get() = name.ifEmpty { Words.strings.topLevel }
+
+/**
+ * A folder in the tree: Folders' rows, and a folder's subfolders in Browse. Its menu stops searching it, after asking;
+ * [onExclude] null offers no menu.
+ */
 @Composable
-private fun FolderRow(path: String, count: Long, onOpen: () -> Unit, onExclude: () -> Unit) {
+internal fun FolderRow(node: FolderNode, onOpen: () -> Unit, onExclude: (() -> Unit)? = null) {
     var showMenu by remember { mutableStateOf(false) }
-    val name = path.substringAfterLast('/').ifEmpty { Words.strings.topLevel }
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    val name = node.label
+    if (confirming && onExclude != null) {
+        ConfirmDialog(
+            title = Words.strings.stopSearchingAsk(name),
+            message = Words.strings.stopSearchingMessage(node.files, name),
+            confirmLabel = Words.strings.stopSearching,
+            onConfirm = {
+                confirming = false
+                onExclude()
+            },
+            onDismiss = { confirming = false },
+        )
+    }
+
+    val menu = onExclude?.let { { showMenu = true } }
 
     ListItem(
-        // The folder's own name leads; the full path (long for app folders like WhatsApp's) sits underneath.
-        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
-            Text(
-                Words.strings.filesInParent(count, parent.ifEmpty { null }),
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-            )
-        },
+        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.MiddleEllipsis) },
+        supportingContent = { Text(Words.strings.files(node.files), maxLines = 1) },
         leadingContent = { Icon(painterResource(R.drawable.ic_folder), contentDescription = null) },
-        trailingContent = {
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptionsFor(name))
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(EXCLUDE_LABEL) },
-                        onClick = {
-                            showMenu = false
-                            onExclude()
-                        },
-                    )
+        trailingContent = onExclude?.let {
+            {
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(painterResource(R.drawable.ic_more_vert), contentDescription = Words.strings.moreOptionsFor(name))
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(EXCLUDE_LABEL) },
+                            onClick = {
+                                showMenu = false
+                                confirming = true
+                            },
+                        )
+                    }
                 }
             }
         },
         modifier = Modifier
             .readingWidth()
             .heightIn(min = 56.dp)
-            .onRightClick { showMenu = true }
-            .combinedClickable(onLongClickLabel = EXCLUDE_LABEL, onLongClick = { showMenu = true }, onClick = onOpen),
+            .onRightClick { menu?.invoke() }
+            .combinedClickable(onLongClickLabel = menu?.let { EXCLUDE_LABEL }, onLongClick = menu, onClick = onOpen),
     )
 }
 

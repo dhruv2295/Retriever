@@ -153,6 +153,7 @@ struct AppStack<Root: View>: View {
                     path.append(Route.view(viewing(file, locator: locator, words: words, among: among)))
                 }
             )
+            .environment(\.showFolder, ShowFolder { file in { path.append(.files(.folder(file.folder))) } })
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {

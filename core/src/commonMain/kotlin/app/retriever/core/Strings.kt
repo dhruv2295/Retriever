@@ -710,6 +710,12 @@ interface Strings {
     /** both apps: file action */
     val findSimilar: String
 
+    /** both apps: file action that opens the folder the file is in */
+    val showInFolder: String
+
+    /** both apps: the bar's title while files are selected */
+    fun selectedCount(n: Long): String
+
     /** both apps: toast (Android) / alert message (iOS) */
     val couldntFinishThat: String
 

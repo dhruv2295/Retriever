@@ -884,6 +884,10 @@ internal object Hindi : Strings {
 
     override val findSimilar = "मिलती-जुलती ढूंढें"
 
+    override val showInFolder = "फ़ोल्डर में दिखाएं"
+
+    override fun selectedCount(n: Long) = if (n == 1L) "1 चुनी गई" else "${formatCount(n)} चुनी गईं"
+
     override val couldntFinishThat = "यह पूरा नहीं हो सका. हो सकता है फ़ाइल कहीं और चली गई हो या ऐक्सेस बदल गया हो."
 
     override val renameFile = "फ़ाइल का नाम बदलें"

@@ -897,6 +897,10 @@ internal object German : Strings {
 
     override val findSimilar = "Ähnliche finden"
 
+    override val showInFolder = "Im Ordner anzeigen"
+
+    override fun selectedCount(n: Long) = "${formatCount(n)} ausgewählt"
+
     override val couldntFinishThat = "Das hat nicht geklappt. Die Datei wurde vielleicht verschoben, oder der Zugriff hat sich geändert."
 
     override val renameFile = "Datei umbenennen"

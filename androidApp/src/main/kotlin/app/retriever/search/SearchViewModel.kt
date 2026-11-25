@@ -25,6 +25,7 @@ import app.retriever.core.midWord
 import app.retriever.core.onFull
 import app.retriever.core.onNames
 import app.retriever.core.showsEmpty
+import app.retriever.files.Selection
 import app.retriever.nav.SearchRoute
 import app.retriever.ui.components.DocPage
 import app.retriever.ui.launchCatching
@@ -48,6 +49,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.scan
@@ -301,6 +303,9 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SearchUi(textOnly = retriever.textOnly))
 
+    /** Not kept past process death: the search runs again then, and its answer may differ. */
+    val selection = Selection()
+
     init {
         // Files read since an answer found nothing may hold the match: ask the same question again. Only an empty
         // answer, so a list being read never reshuffles; and core's counts are watched only while one is on screen, not
@@ -316,6 +321,12 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
             }.collect { retry() }
         }
         launchCatching { loadRecent() }
+        // A whole new answer (a chip changed, files changed): a picked file it no longer holds can't stay picked.
+        viewModelScope.launch {
+            ui.mapNotNull { (it.phase as? SearchPhase.Results)?.takeIf { r -> r.complete }?.result?.hits }
+                .distinctUntilChanged()
+                .collect { hits -> selection.keepOnly(hits.map { it.file.uri }) }
+        }
     }
 
     /**

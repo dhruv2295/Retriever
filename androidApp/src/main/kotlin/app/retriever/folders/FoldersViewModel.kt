@@ -2,6 +2,7 @@ package app.retriever.folders
 
 import androidx.lifecycle.ViewModel
 import app.retriever.BuildConfig
+import app.retriever.core.FolderNode
 import app.retriever.core.Retriever
 import app.retriever.core.Words
 import app.retriever.diagnostics.LogSink
@@ -17,7 +18,8 @@ import kotlinx.coroutines.flow.update
  * [error]: one line for the snackbar, cleared by [FoldersViewModel.errorShown].
  */
 data class FoldersUi(
-    val folders: List<Pair<String, Long>> = emptyList(),
+    /** The top of the folder tree; each opens on its own subfolders and files. */
+    val folders: List<FolderNode> = emptyList(),
     val loading: Boolean = true,
     val loadFailed: Boolean = false,
     val error: String? = null,
@@ -33,7 +35,7 @@ class FoldersViewModel(private val retriever: Retriever, private val indexer: In
 
     private fun refresh() {
         launchCatching(onError = { fail(it, Words.strings.couldntLoadYourFolders, loadFailed = true) }) {
-            val folders = retriever.folders()
+            val folders = retriever.subfolders(null)
             _ui.update { it.copy(folders = folders, loading = false, loadFailed = false) }
         }
     }

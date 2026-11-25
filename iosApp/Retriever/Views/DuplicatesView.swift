@@ -81,9 +81,7 @@ struct DuplicatesView: View {
                 toggle(file.uri)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(checked ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    SelectionMark(on: checked)
                     FileRowView(file: file, subtitle: Words.shared.strings.folderAndDate(folder: file.folder, date: Format.date(file.modifiedAt)))
                 }
             }
@@ -166,10 +164,8 @@ struct DuplicatesView: View {
         let uris = Array(selected)
         // Only copies that still match the kept file go; the rest count as not deleted.
         let copies = (try? await services.retriever.verifiedCopies(groups: groups ?? [], selected: selected)) ?? []
-        var gone = Set<String>()
-        for uri in copies {
-            if let url = services.folders.resolve(uri), (try? FileManager.default.removeItem(at: url)) != nil { gone.insert(uri) }
-        }
+        // For good, not to the trash: this screen is for freeing space.
+        let gone = await FileActions.remove(copies, folders: services.folders, permanently: true)
         // The next reading round drops the deleted files from the index.
         services.retriever.notifyChanged()
         model.wake()

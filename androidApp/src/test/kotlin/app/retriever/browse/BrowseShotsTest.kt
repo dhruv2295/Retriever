@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import app.retriever.ShotTheme
 import app.retriever.core.FileState
+import app.retriever.core.FolderNode
 import app.retriever.core.Kind
 import app.retriever.core.SourceFile
 import app.retriever.core.Store
@@ -95,6 +96,26 @@ class BrowseShotsTest {
         rule.onNodeWithText("Item 0.pdf").assertExists()
         rule.onNodeWithText("Newest").assertDoesNotExist()
         rule.shot("browse_starred_light")
+    }
+
+    @Test fun folderOfFoldersIsNotEmpty() {
+        rule.setContent {
+            ShotTheme(false) {
+                BrowseContent(
+                    ui = BrowseUi(loading = false),
+                    kind = null,
+                    padding = PaddingValues(),
+                    onSort = {},
+                    onLoadMore = {},
+                    onOpen = {},
+                    filtered = true,
+                    folder = "Android/media",
+                    subfolders = listOf(FolderNode("Android/media/com.whatsapp/WhatsApp/Media", "com.whatsapp/WhatsApp/Media", 9)),
+                )
+            }
+        }
+        rule.onNodeWithText("com.whatsapp/WhatsApp/Media").assertExists()
+        rule.onNodeWithText("Nothing here yet").assertDoesNotExist()
     }
 
     @Test fun starredEmptyState() {

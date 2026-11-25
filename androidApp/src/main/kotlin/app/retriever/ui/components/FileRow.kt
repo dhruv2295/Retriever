@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// ThumbCell adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt BackgroundAssetGridTile (Apache-2.0). Modified for Retriever: loads through Thumbnails at the match, a page or time badge instead of selection and analysed states, 12 dp corners, merged TalkBack description.
+// ThumbCell adapted from google-ai-edge/gallery Android/src/app/src/main/java/com/google/ai/edge/gallery/customtasks/smartalbum/SmartAlbumSearchScreen.kt BackgroundAssetGridTile (Apache-2.0). Modified for Retriever: loads through Thumbnails at the match, a page or time badge instead of analysed states, its own selection check, 12 dp corners, merged TalkBack description.
 
 package app.retriever.ui.components
 
@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,9 +52,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -204,6 +209,8 @@ fun ThumbCell(
     onLongClickLabel: String? = null,
     morph: PhotoMorph? = null,
     origin: String = "",
+    /** While selecting: whether this file is picked. A tap then picks it, and the cell is spoken as a checkbox. */
+    selected: Boolean? = null,
 ) {
     val badge = Format.locatorLabel(locator)?.takeIf { file.kind == Kind.VIDEO || file.kind == Kind.PDF }
     Box(
@@ -220,9 +227,17 @@ fun ThumbCell(
                     Words.spokenPosition(locator),
                     readNote,
                 )
+                if (selected != null) {
+                    role = Role.Checkbox
+                    toggleableState = ToggleableState(selected)
+                }
             }
             .combinedClickable(
-                onClickLabel = clickLabel(locator),
+                onClickLabel = when (selected) {
+                    null -> clickLabel(locator)
+                    true -> Words.strings.deselect
+                    false -> Words.strings.select
+                },
                 onLongClickLabel = onLongClickLabel,
                 onLongClick = onLongClick,
                 onClick = onClick,
@@ -257,6 +272,15 @@ fun ThumbCell(
                 }
                 if (badge != null) Text(badge, style = MaterialTheme.typography.labelMedium.tabular(), color = Color.White, maxLines = 1)
             }
+        }
+        if (selected != null) {
+            if (selected) Box(Modifier.fillMaxSize().background(colors.primary.copy(alpha = 0.3f)))
+            Icon(
+                painterResource(if (selected) R.drawable.ic_check_circle else R.drawable.ic_circle),
+                contentDescription = null,
+                tint = if (selected) colors.primary else Color.White,
+                modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(if (selected) colors.surface else Color.Transparent, CircleShape),
+            )
         }
     }
 }

@@ -2014,6 +2014,10 @@ class Retriever(
     @Throws(Throwable::class)
     suspend fun folders(): List<Pair<String, Long>> = io { store.folders() }
 
+    /** The folders directly under [parent] (null: the top), as [folderChildren] sets them out. */
+    @Throws(Throwable::class)
+    suspend fun subfolders(parent: String?): List<FolderNode> = io { folderChildren(store.folders(), parent) }
+
     @Throws(Throwable::class)
     suspend fun duplicates(minSize: Long): List<DuplicateGroup> = io { DuplicateFinder(store, hasher).find(minSize) }
 

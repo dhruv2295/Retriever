@@ -46,14 +46,21 @@ struct ResultCell: View {
     var copies: [SourceFile] = []
     var onOpenCopy: (SourceFile) -> Void = { _ in }
     var notThisPerson: (() -> Void)?
+    @Environment(\.fileSelection) private var selection
 
     var body: some View {
-        Button(action: onOpen) {
+        let selected = selection?.uris.contains(file.uri) == true
+        Button {
+            if let selection, selection.active { selection.toggle(file.uri) } else { onOpen() }
+        } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Color.clear
                     .aspectRatio(1, contentMode: .fit)
                     .overlay { Thumb(file: file, locator: locator, points: 160) }
                     .overlay(alignment: .bottomLeading) { badge }
+                    .overlay(alignment: .topTrailing) {
+                        if selection?.active == true { SelectionMark(on: selected).background(.background.opacity(0.7), in: Circle()).padding(6) }
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 if let matchReason { Text(matchReason).font(.caption).foregroundStyle(.secondary) }
@@ -63,6 +70,7 @@ struct ResultCell: View {
         .hoverEffect()
         .accessibilityLabel(label)
         .accessibilityHint(Format.openHint(locator))
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy, notThisPerson: notThisPerson)
     }
 
@@ -199,13 +207,21 @@ struct FileButton: View {
     var onFindSimilar: ((SourceFile) -> Void)?
     var copies: [SourceFile] = []
     var onOpenCopy: (SourceFile) -> Void = { _ in }
+    @Environment(\.fileSelection) private var selection
 
     var body: some View {
-        Button(action: onOpen) {
-            FileRowView(file: file, locator: locator, snippet: snippet, styledName: styledName, subtitle: subtitle, extent: extent, coverage: coverage)
+        let selected = selection?.uris.contains(file.uri) == true
+        Button {
+            if let selection, selection.active { selection.toggle(file.uri) } else { onOpen() }
+        } label: {
+            HStack(spacing: 12) {
+                if selection?.active == true { SelectionMark(on: selected) }
+                FileRowView(file: file, locator: locator, snippet: snippet, styledName: styledName, subtitle: subtitle, extent: extent, coverage: coverage)
+            }
         }
         .buttonStyle(.plain)
         .hoverEffect()
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .resultActions(file, starred: starred, onFindSimilar, copies: copies, onOpenCopy: onOpenCopy)
     }
 }
@@ -233,8 +249,17 @@ private struct ResultActions: ViewModifier {
     let openCopy: (SourceFile) -> Void
     /// On a person's photos: their face in this one isn't them.
     let notThisPerson: (() -> Void)?
+    @Environment(\.fileSelection) private var selection
+    @Environment(\.showFolder) private var showFolder
 
     @ViewBuilder private var items: some View {
+        if let selection, !selection.active {
+            Button {
+                selection.start(file.uri)
+            } label: {
+                Label(Words.shared.strings.select, systemImage: "checkmark.circle")
+            }
+        }
         if let notThisPerson {
             Button(action: notThisPerson) { Label(Words.shared.NOT_THIS_PERSON, systemImage: "person.badge.minus") }
             Divider()
@@ -247,7 +272,7 @@ private struct ResultActions: ViewModifier {
             }
         }
         if !copies.isEmpty { Divider() }
-        FileActionButtons(file: file, starred: starred, similar: similar)
+        FileActionButtons(file: file, starred: starred, similar: similar, showFolder: showFolder(file))
     }
 
     func body(content: Content) -> some View {
@@ -288,6 +313,41 @@ struct ShareButton: View {
         } else if let url = services?.folders.resolve(file.uri) {
             ShareLink(item: url)
         }
+    }
+}
+
+/// One of several files shared at once, sent as ShareButton sends it alone: a library photo is exported only when a
+/// share target asks for it, so a long selection needs no wait up front.
+struct SharedFile: Transferable {
+    let name: String
+    private let asset: SharedAsset?
+    private let url: URL?
+
+    /// Nil for a folder file that can't be reached any more.
+    init?(_ file: SourceFile, folders: FolderSource?) {
+        name = file.name
+        if file.uri.hasPrefix("ph://") {
+            asset = SharedAsset(id: String(file.uri.dropFirst(5)), video: file.kind == .video)
+            url = nil
+        } else if let url = folders?.resolve(file.uri) {
+            asset = nil
+            self.url = url
+        } else {
+            return nil
+        }
+    }
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation { (file: SharedFile) throws -> SharedAsset in
+            guard let asset = file.asset else { throw CocoaError(.fileNoSuchFile) }
+            return asset
+        }
+        .exportingCondition { $0.asset != nil }
+        ProxyRepresentation { (file: SharedFile) throws -> URL in
+            guard let url = file.url else { throw CocoaError(.fileNoSuchFile) }
+            return url
+        }
+        .exportingCondition { $0.url != nil }
     }
 }
 

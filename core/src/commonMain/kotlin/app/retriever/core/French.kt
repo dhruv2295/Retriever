@@ -893,6 +893,10 @@ internal object French : Strings {
 
     override val findSimilar = "Trouver des fichiers similaires"
 
+    override val showInFolder = "Afficher dans le dossier"
+
+    override fun selectedCount(n: Long) = "${formatCount(n)} ${agree(n, "sélectionné", "sélectionnés")}"
+
     override val couldntFinishThat = "Impossible de terminer. Le fichier a peut-être été déplacé ou l’accès a changé."
 
     override val renameFile = "Renommer le fichier"
