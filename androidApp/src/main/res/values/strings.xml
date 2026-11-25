@@ -4,4 +4,6 @@
     <string name="language">en</string>
     <string name="shortcut_search_short">Search</string>
     <string name="shortcut_search_long">Search your files</string>
+    <!-- Title Play requires for the npu/qualcomm_runtime_v* modules; they install with the app, so nobody sees it. -->
+    <string name="qualcomm_npu_runtime" translatable="false">Snapdragon NPU runtime</string>
 </resources>

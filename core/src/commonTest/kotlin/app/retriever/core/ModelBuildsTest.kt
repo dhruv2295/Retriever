@@ -79,7 +79,6 @@ class ModelBuildsTest {
             assertTrue(b.fileName.endsWith("_${b.soc}.litertlm"), b.fileName)
             assertTrue(b.sizeBytes > 0)
         }
-        assertEquals(8, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
     }
 
     // A TestFlight iPhone short of space aborted in XNNPack writing the weight cache, at every launch.

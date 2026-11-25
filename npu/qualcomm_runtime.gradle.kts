@@ -1,10 +1,5 @@
-// Build file of every npu/qualcomm_runtime_v* module (settings.gradle.kts): Qualcomm's QNN runtime for one Hexagon NPU
-// (HTP) version. Play installs it with the app, and only on the Snapdragon its manifest names (device groups:
-// androidApp/device_targeting_configuration.xml).
-// Adapted from google-ai-edge/litert-samples samples/litert/image_segmentation/kotlin_npu/android/litert_npu_runtime_libraries
-// (Apache-2.0). Modified for Retriever: the libraries are taken from Qualcomm's Maven artifact, at the QAIRT version the
-// sample's fetch_qualcomm_library.sh pins, instead of the script's SDK zip; libQnnSystem and libQnnHtp ride in each
-// per-version module instead of their own, since a phone gets exactly one.
+// Build file of every npu/qualcomm_runtime_v* module: Qualcomm's QNN runtime for one Hexagon NPU version, which Play
+// installs only on the Snapdragon its manifest names. Adapted from litert-samples kotlin_npu (THIRD_PARTY_NOTICES.md).
 plugins {
     alias(libs.plugins.android.dynamic.feature)
 }

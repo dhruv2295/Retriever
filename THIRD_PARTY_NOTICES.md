@@ -70,8 +70,10 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - Source: Maven Central `com.qualcomm.qti:qnn-runtime` 2.50.0; Retriever packages libQnnHtp, libQnnSystem and one
   libQnnHtpV*Stub/Skel pair per Snapdragon in the `npu/qualcomm_runtime_v*` modules, which Play installs only on that SoC
 - Copyright Qualcomm Technologies, Inc.
-- License: Qualcomm AI Hub Model License (https://softwarecenter.qualcomm.com/api/download/software/licenses/ai_model_hub/v1/LICENSE.pdf),
-  which permits distribution in object code as part of an application only; binary libraries, not open source
+- License: Qualcomm AI Hub Model License, named by the artifact's POM
+  (https://softwarecenter.qualcomm.com/api/download/software/licenses/ai_model_hub/v1/LICENSE.pdf), and Qualcomm's AI
+  Stack License, shipped as LICENSE.pdf inside it. Both permit distribution in object code as part of an application only;
+  binary libraries, not open source
 
 ## google-ai-edge/litert-samples
 

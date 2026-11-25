@@ -68,13 +68,12 @@ object ModelBuilds {
     }
 
     /**
-     * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present.
-     * Qualcomm also needs the QNN libraries, which only Play installs, and only on a supported Snapdragon (the
-     * npu/qualcomm_runtime_v* feature modules); a sideloaded APK lacks them and stays on GPU.
+     * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present. Qualcomm's QNN
+     * libraries come only from Play, in the npu/qualcomm_runtime_v* module for that SoC.
      */
     fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean {
         val dispatch = dispatchLibrary(socManufacturer) ?: return false
-        return hasLib(dispatch) && (!isQualcomm(socManufacturer) || QNN_LIBRARIES.all(hasLib))
+        return hasLib(dispatch) && (!isQualcomm(socManufacturer) || hasLib("libQnnHtp.so"))
     }
 
     /** The vendor's NPU dispatch library; [vendor] is a SoC manufacturer or an NPU build's [ModelBuild.soc]. */
@@ -90,9 +89,6 @@ object ModelBuilds {
 
     // Build.SOC_MANUFACTURER reads "QTI" on most Snapdragon phones and "Qualcomm" on some; builds say "Qualcomm_SM…".
     private fun isQualcomm(vendor: String) = vendor.lowercase().let { "qualcomm" in it || it == "qti" }
-
-    // The per-SoC libQnnHtpV*Stub.so and Skel come in the same feature module as these.
-    private val QNN_LIBRARIES = listOf("libQnnHtp.so", "libQnnSystem.so")
 
     fun fallback(build: ModelBuild): ModelBuild = build.variant.generic
 

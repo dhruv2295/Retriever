@@ -4,7 +4,6 @@
 
     <!-- Snapdragon 8 Gen 2 -->
     <dist:module
-        dist:instant="false"
         dist:title="@string/qualcomm_npu_runtime">
         <dist:delivery>
             <dist:install-time>
