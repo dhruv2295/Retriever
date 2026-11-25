@@ -227,6 +227,26 @@ internal object French : Strings {
         else -> plural(rest, "autre fichier", "autres fichiers")
     }
 
+    override fun readTime(span: ReadSpan, nights: Int, words: DeviceWords): String {
+        val time = when (span) {
+            ReadSpan.UNDER_AN_HOUR -> "moins d’une heure"
+            ReadSpan.A_FEW_HOURS -> "quelques heures"
+            ReadSpan.A_NIGHT -> "environ une nuit"
+            ReadSpan.NIGHTS -> "environ ${plural(nights.toLong(), "nuit")}"
+        }
+        val where = when {
+            words.ios -> " avec Retriever ouvert et en charge, et davantage en arrière-plan"
+            span >= ReadSpan.A_NIGHT -> " en charge"
+            else -> ""
+        }
+        return "Pour les traiter tous, comptez $time$where."
+    }
+
+    override fun onceOnDevice(words: DeviceWords) = "Une seule fois, sur votre ${device(words)}"
+
+    override fun onceOnDeviceBody(words: DeviceWords) = "Retriever traite chaque fichier une seule fois, ici sur votre ${device(words)}, " +
+        "et vos fichiers ne le quittent jamais. Votre ${device(words)} peut chauffer pendant le traitement$NBSP; Retriever se met en pause s’il chauffe trop."
+
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "Retrouvez-les en les décrivant."
 

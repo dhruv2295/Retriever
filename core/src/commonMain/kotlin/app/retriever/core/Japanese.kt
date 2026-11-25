@@ -226,6 +226,25 @@ internal object Japanese : Strings {
         else -> "残りの${files(rest)}"
     }
 
+    override fun readTime(span: ReadSpan, nights: Int, words: DeviceWords): String {
+        val time = when (span) {
+            ReadSpan.UNDER_AN_HOUR -> "1時間未満"
+            ReadSpan.A_FEW_HOURS -> "数時間"
+            ReadSpan.A_NIGHT -> "一晩ほど"
+            ReadSpan.NIGHTS -> "${formatCount(nights.toLong())}晩ほど"
+        }
+        return when {
+            words.ios -> "Retrieverを開いたまま充電すると、すべての処理に${time}かかります。バックグラウンドではさらにかかります。"
+            span >= ReadSpan.A_NIGHT -> "充電しながら、すべての処理に${time}かかります。"
+            else -> "すべての処理に${time}かかります。"
+        }
+    }
+
+    override fun onceOnDevice(words: DeviceWords) = "一度だけ、お使いの${dev(words)}上で"
+
+    override fun onceOnDeviceBody(words: DeviceWords) = "Retrieverは各ファイルを一度だけ、この${dev(words)}上で処理します。ファイルが外部に出ることはありません。" +
+        "処理中は${dev(words)}が温かくなることがあり、熱くなりすぎるとRetrieverは一時停止します。"
+
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "説明して見つけられます。"
 

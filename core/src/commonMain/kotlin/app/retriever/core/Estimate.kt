@@ -93,8 +93,21 @@ internal fun SpeedBook.measures(pending: Map<Kind, Number>): Boolean = pending.f
 const val ESTIMATE_LOW = 0.9
 const val ESTIMATE_HIGH = 1.4
 
-/** While false, no UI may show hours from [readEstimate]: use the fallback copy. */
+/** While false, no UI may show a number of hours or a clock time from [readEstimate]; only [span]'s wide ranges. */
 const val ESTIMATE_CALIBRATED = false
+
+/** How long the rest takes, as a person can rely on it: wide ranges over the high end, which its ±40% can't overturn. */
+enum class ReadSpan { UNDER_AN_HOUR, A_FEW_HOURS, A_NIGHT, NIGHTS }
+
+fun ReadEstimate.span(): ReadSpan = when {
+    highMin < 60 -> ReadSpan.UNDER_AN_HOUR
+    highMin < 300 -> ReadSpan.A_FEW_HOURS
+    highMin <= NIGHT_MINUTES -> ReadSpan.A_NIGHT
+    else -> ReadSpan.NIGHTS
+}
+
+/** Charging nights over the high end, on either platform: iOS's [ReadEstimate.nightsOnCharger] counts background runs. */
+val ReadEstimate.nights: Int get() = ceil(highMin / NIGHT_MINUTES).toInt()
 
 /** One charging night, INFERRED (onboarding §3.4). */
 const val NIGHT_MINUTES = 360.0

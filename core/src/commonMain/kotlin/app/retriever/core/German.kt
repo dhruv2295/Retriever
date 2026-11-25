@@ -227,6 +227,26 @@ internal object German : Strings {
         else -> "Die anderen ${files(rest)}"
     }
 
+    override fun readTime(span: ReadSpan, nights: Int, words: DeviceWords): String {
+        val time = when (span) {
+            ReadSpan.UNDER_AN_HOUR -> "weniger als eine Stunde"
+            ReadSpan.A_FEW_HOURS -> "einige Stunden"
+            ReadSpan.A_NIGHT -> "etwa eine Nacht"
+            ReadSpan.NIGHTS -> "etwa ${plural(nights.toLong(), "Nacht", "Nächte")}"
+        }
+        val where = when {
+            words.ios -> " mit geöffnetem Retriever am Ladegerät, im Hintergrund länger"
+            span >= ReadSpan.A_NIGHT -> " am Ladegerät"
+            else -> ""
+        }
+        return "Alle zu verarbeiten dauert $time$where."
+    }
+
+    override fun onceOnDevice(words: DeviceWords) = "Einmalig, auf deinem ${device(words)}"
+
+    override fun onceOnDeviceBody(words: DeviceWords) = "Retriever verarbeitet jede Datei nur einmal, hier auf deinem ${device(words)}, " +
+        "und deine Dateien verlassen es nie. Dein ${device(words)} kann dabei warm werden; wird es zu heiß, pausiert Retriever."
+
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "Finde sie, indem du sie beschreibst."
 

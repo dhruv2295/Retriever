@@ -24,16 +24,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
 import app.retriever.R
 import app.retriever.core.DescriptionState
 import app.retriever.core.DeviceWords
+import app.retriever.core.ReadEstimate
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.Stage
 import app.retriever.core.Words
 import app.retriever.core.motion.MascotMood
 import app.retriever.model.FreeUpSpaceButton
 import app.retriever.motion.Mascot
+import app.retriever.ui.RetrieverTheme
 
 /**
  * Home's one-time card after setup: what happens next to the recent files, the rest, and new ones. Until Got it it stands
@@ -49,6 +52,7 @@ internal fun HomeIntroCard(
     size: String,
     schedule: ReadingSchedule,
     sessionActive: Boolean,
+    estimate: ReadEstimate?,
     onRecentAction: () -> Unit,
     onNotify: (() -> Unit)?,
     onGotIt: () -> Unit,
@@ -80,8 +84,9 @@ internal fun HomeIntroCard(
                 IntroRow(
                     R.drawable.ic_bolt,
                     Words.otherFiles(rest),
-                    Words.processingPlanDetail(schedule, sessionActive),
+                    Words.otherFilesBody(estimate, schedule, sessionActive, DeviceWords.ANDROID),
                 )
+                IntroRow(R.drawable.ic_lock, Words.onceOnDevice(DeviceWords.ANDROID), Words.onceOnDeviceBody(DeviceWords.ANDROID))
                 IntroRow(R.drawable.ic_add, Words.NEW_FILES, Words.NEW_FILES_BODY)
                 // The one choice in the card, raised off it so it reads as something to do, not a step that happens.
                 onTurnOnPeople?.let { turnOn ->
@@ -166,6 +171,43 @@ internal fun IntroRow(
             Text(title, style = MaterialTheme.typography.titleSmall, color = if (later) colors.onSurfaceVariant else colors.onSurface)
             Text(body, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             action()
+        }
+    }
+}
+
+// Previews of Home's one-time card, light and dark, in the states its time line takes.
+
+@PreviewLightDark
+@Composable
+private fun IntroCardFewHoursPreview() = IntroCardPreview(DescriptionState.READY, 4_106, ReadEstimate(4_106, 120, 190, 1, true))
+
+@PreviewLightDark
+@Composable
+private fun IntroCardNightsPreview() = IntroCardPreview(DescriptionState.DOWNLOADING, 28_000, ReadEstimate(28_000, 900, 1_400, 4, true))
+
+/** Before the demo has timed a file: no time line, only the schedule. */
+@PreviewLightDark
+@Composable
+private fun IntroCardNotTimedPreview() = IntroCardPreview(DescriptionState.WAITING_FOR_WIFI, null, null)
+
+@Composable
+private fun IntroCardPreview(state: DescriptionState, rest: Long?, estimate: ReadEstimate?) {
+    RetrieverTheme(dynamic = false) {
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            HomeIntroCard(
+                state = state,
+                planned = 30,
+                rest = rest,
+                size = "388 MB",
+                schedule = ReadingSchedule.CHARGING,
+                sessionActive = true,
+                estimate = estimate,
+                onRecentAction = {},
+                onNotify = {},
+                onGotIt = {},
+                modifier = Modifier.padding(16.dp),
+                onTurnOnPeople = {},
+            )
         }
     }
 }

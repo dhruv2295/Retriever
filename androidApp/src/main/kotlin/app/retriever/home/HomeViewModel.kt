@@ -9,6 +9,7 @@ import app.retriever.access.AccessService
 import app.retriever.core.HomeFacts
 import app.retriever.core.Kind
 import app.retriever.core.Person
+import app.retriever.core.ReadEstimate
 import app.retriever.core.ReadingProgress
 import app.retriever.core.ReadingSchedule
 import app.retriever.core.ReadingStatus
@@ -68,6 +69,8 @@ data class HomeUi(
     /** The card distinguishes this active scan from the saved automatic policy. */
     val automaticReading: ReadingSchedule = ReadingSchedule.CHARGING,
     val sessionActive: Boolean = false,
+    /** The card's time for the rest, core's [Retriever.estimateAll]; null until a file is measured. */
+    val readEstimate: ReadEstimate? = null,
     /** Setup's first search's files, core's [app.retriever.core.SetupInputs.planned]. */
     val planned: Long = 0,
     /** Grouped faces, most photos first; empty while Recognize people is off. */
@@ -223,6 +226,17 @@ class HomeViewModel(
                 .filterNotNull().distinctUntilChanged().collect { loadMemories(it) }
         }
         viewModelScope.launch { retriever.starred.collect { s -> _ui.update { it.copy(starred = s.size) } } }
+        // Once, when the card appears: the demo has timed this phone on real files by then.
+        viewModelScope.launch {
+            retriever.prefs.map { it.homeIntroDue }.distinctUntilChanged().collect { due ->
+                if (due) {
+                    launchCatching {
+                        val estimate = retriever.estimateAll()
+                        _ui.update { it.copy(readEstimate = estimate) }
+                    }
+                }
+            }
+        }
     }
 
     /** A failed look still answers (with none), so Home's sections never wait on it. */

@@ -222,6 +222,14 @@ struct HomeList: View {
 struct HomeIntroCard: View {
     let model: AppModel
     @State private var askingMobileData = false
+    /// The rest's time, once when the card appears: the demo has timed this device on real files by then.
+    @State private var estimate: ReadEstimate?
+
+    /// [estimate]: a preview's, kept when there is no core to ask.
+    init(model: AppModel, estimate: ReadEstimate? = nil) {
+        self.model = model
+        _estimate = State(initialValue: estimate)
+    }
 
     var body: some View {
         let state = model.descriptionState
@@ -243,8 +251,12 @@ struct HomeIntroCard: View {
             }
             step(
                 "bolt.fill", Words.shared.otherFiles(rest: model.snap?.readProgress.rest),
-                Words.shared.processingPlanDetail(schedule: model.snap?.automaticReading ?? .charging, sessionActive: model.snap?.prefs?.started == true)
+                Words.shared.otherFilesBody(
+                    estimate: estimate, schedule: model.snap?.automaticReading ?? .charging,
+                    sessionActive: model.snap?.prefs?.started == true, words: Copy.words
+                )
             ) {}
+            step("lock.fill", Words.shared.onceOnDevice(words: Copy.words), Words.shared.onceOnDeviceBody(words: Copy.words)) {}
             step("plus", Words.shared.NEW_FILES, Words.shared.NEW_FILES_BODY) {}
             // A choice, not a step: set off on the grouped list's nested fill, gone once People is on.
             if model.peopleAvailable, model.snap?.recognizePeople == false {
@@ -262,6 +274,7 @@ struct HomeIntroCard: View {
         }
         .padding(.vertical, 6)
         .mobileDataAsk(model, isPresented: $askingMobileData)
+        .task { if let found = try? await model.services?.retriever.estimateAll() { estimate = found } }
     }
 
     /// Use mobile data asks first; Try again and Download start the download.
@@ -601,4 +614,22 @@ private struct HomeRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Words.shared.strings.titleDetailSpoken(title: title, detail: detail))
     }
+}
+
+// Home's one-time card in the states its time line takes.
+
+#Preview("Intro card, a few hours") {
+    introCardPreview(ready: true, estimate: ReadEstimate(files: 4_106, lowMin: 120, highMin: 190, nightsOnCharger: KotlinInt(int: 1), measured: true))
+}
+
+#Preview("Intro card, several nights") {
+    introCardPreview(ready: false, estimate: ReadEstimate(files: 28_000, lowMin: 900, highMin: 1_400, nightsOnCharger: KotlinInt(int: 4), measured: true))
+}
+
+#Preview("Intro card, not timed yet") {
+    introCardPreview(ready: false, estimate: nil)
+}
+
+@MainActor private func introCardPreview(ready: Bool, estimate: ReadEstimate?) -> some View {
+    List { Section { HomeIntroCard(model: AppModel(fixture: .homeIntro(ready: ready)), estimate: estimate) } }.listStyle(.insetGrouped)
 }

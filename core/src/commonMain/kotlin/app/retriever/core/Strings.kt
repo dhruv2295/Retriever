@@ -152,6 +152,14 @@ interface Strings {
 
     fun otherFiles(rest: Long?): String
 
+    /** How long the other files take; [nights] only for [ReadSpan.NIGHTS]. iOS says it's with Retriever open. */
+    fun readTime(span: ReadSpan, nights: Int, words: DeviceWords): String
+
+    fun onceOnDevice(words: DeviceWords): String
+
+    /** Processed once, on the device, files never leave it; it may warm up and processing pauses if too hot. */
+    fun onceOnDeviceBody(words: DeviceWords): String
+
     fun recentFilesBody(state: DescriptionState): String
 
     fun recentFilesAction(state: DescriptionState, size: String): String?

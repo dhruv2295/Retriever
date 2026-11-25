@@ -240,6 +240,25 @@ internal object Hindi : Strings {
         else -> "बाकी ${files(rest)}"
     }
 
+    override fun readTime(span: ReadSpan, nights: Int, words: DeviceWords): String {
+        val time = when (span) {
+            ReadSpan.UNDER_AN_HOUR -> "एक घंटे से कम"
+            ReadSpan.A_FEW_HOURS -> "कुछ घंटों"
+            ReadSpan.A_NIGHT -> "लगभग एक रात"
+            ReadSpan.NIGHTS -> "लगभग ${formatCount(nights.toLong())} रातों"
+        }
+        return when {
+            words.ios -> "Retriever खुला रखकर चार्जर पर इन सबके प्रोसेस होने में $time का समय लगेगा; बैकग्राउंड में इससे ज़्यादा."
+            span >= ReadSpan.A_NIGHT -> "चार्जर पर इन सबके प्रोसेस होने में $time का समय लगेगा."
+            else -> "इन सबके प्रोसेस होने में $time का समय लगेगा."
+        }
+    }
+
+    override fun onceOnDevice(words: DeviceWords) = "एक ही बार, आपके ${phone(words)} पर"
+
+    override fun onceOnDeviceBody(words: DeviceWords) = "Retriever हर फ़ाइल को एक ही बार, यहीं आपके ${phone(words)} पर प्रोसेस करता है, " +
+        "और आपकी फ़ाइलें इससे बाहर नहीं जातीं. काम करते समय आपका ${phone(words)} गर्म लग सकता है; ज़्यादा गर्म होने पर Retriever रुक जाता है."
+
     override fun recentFilesBody(state: DescriptionState) = when (state) {
         DescriptionState.READY -> "इनके बारे में बताकर इन्हें ढूंढें."
 

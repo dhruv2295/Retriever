@@ -168,6 +168,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material3.navigation.suite)
     implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
@@ -211,5 +212,7 @@ dependencies {
     testImplementation(libs.koin.test.junit4)
     testImplementation(libs.work.testing)
     debugImplementation(libs.compose.ui.test.manifest)
+    // Renders @Preview functions in Android Studio; debug only, so release builds don't carry it.
+    debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.leakcanary.android)
 }

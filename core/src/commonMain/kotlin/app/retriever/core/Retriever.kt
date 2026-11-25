@@ -1244,7 +1244,11 @@ class Retriever(
     suspend fun estimateAll(): ReadEstimate? = io {
         val ios = probe.platform == Platform.IOS
         val book = if (_state.value.running) speedBook.value else store.profile()?.let { bookFor(factory.profileNow(it, uiVisible)) } ?: speedBook.value
-        readEstimate(book, store.pendingByKind(), store.pendingBytes(Kind.VIDEO), ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
+        // The kinds the counts call waiting ([ReadingProgress.rest]): a kind turned off is never processed, so it takes no time.
+        val kinds = store.prefs().kinds - Kind.OTHER
+        val pending = store.pendingByKind().filterKeys { it in kinds }
+        val videoBytes = if (Kind.VIDEO in kinds) store.pendingBytes(Kind.VIDEO) else 0L
+        readEstimate(book, pending, videoBytes, ios, if (ios) BgSpeed.decode(store.meta(BG_SPEED_KEY)) else null)
     }
 
     /** iOS: one background run read [files] in [seconds]; after the first, [estimateAll] counts nights. */

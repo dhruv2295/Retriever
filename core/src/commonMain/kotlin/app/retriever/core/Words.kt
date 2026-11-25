@@ -271,6 +271,20 @@ object Words {
         return listOfNotNull(session, automatic).joinToString(strings.sentenceGap)
     }
 
+    /**
+     * The card's line under [otherFiles]: how long they take ([Retriever.estimateAll]; left out before a file is measured
+     * or with none left), then [processingPlanDetail].
+     */
+    fun otherFilesBody(estimate: ReadEstimate?, schedule: ReadingSchedule, sessionActive: Boolean, words: DeviceWords): String {
+        val time = estimate?.takeIf { it.files > 0 }?.let { strings.readTime(it.span(), it.nights, words) }
+        return listOfNotNull(time, processingPlanDetail(schedule, sessionActive)).joinToString(strings.sentenceGap)
+    }
+
+    /** The card's row that the files are processed once, on the device, and it may warm up. */
+    fun onceOnDevice(words: DeviceWords): String = strings.onceOnDevice(words)
+
+    fun onceOnDeviceBody(words: DeviceWords): String = strings.onceOnDeviceBody(words)
+
     fun recentFilesBody(state: DescriptionState): String = strings.recentFilesBody(state)
 
     /** The card's action under the recent files, null when there is nothing to do; [size]: the download's size. */

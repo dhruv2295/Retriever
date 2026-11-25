@@ -340,6 +340,7 @@ internal fun HomeBody(
                     Format.downloadSize(context, upgrade.sizeBytes),
                     ui.automaticReading,
                     ui.sessionActive,
+                    ui.readEstimate,
                     onRecentAction = if (state == DescriptionState.WAITING_FOR_WIFI) upgradeActions.useMobileData else upgradeActions.download,
                     onNotify = home.notify,
                     onGotIt = home.dismissIntro,
