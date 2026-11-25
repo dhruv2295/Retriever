@@ -10,8 +10,10 @@ struct RetrieverApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
-        // Hosting the unit tests: no index, no scheduled work, no services.
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+        // Hosting the unit tests or Xcode's previews: no index, no scheduled work, no services. Each preview builds its own
+        // fixture model; the services' start crashed every preview.
+        let env = ProcessInfo.processInfo.environment
+        if env["XCTestConfigurationFilePath"] != nil || env["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
             _model = State(initialValue: AppModel(fixture: .caughtUp))
             return
         }
