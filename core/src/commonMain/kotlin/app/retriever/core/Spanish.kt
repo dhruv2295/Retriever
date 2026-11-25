@@ -1040,6 +1040,8 @@ internal object Spanish : Strings {
 
     override fun lessLikelyMatches(n: Long) = "Resultados menos probables (${formatCount(n)})"
 
+    override val showMoreResults = "Mostrar más resultados"
+
     override val moreDocuments = "Más documentos"
 
     override val recordings = "Grabaciones"

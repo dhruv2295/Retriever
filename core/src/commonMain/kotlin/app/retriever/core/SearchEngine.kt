@@ -194,7 +194,7 @@ class SearchEngine(
         val embedder = embedder.takeIf { store.signature() == it.signature } ?: return SearchResult(emptyList(), false)
         val qv = embed(embedder, listOf(Part.Image(jpeg))) ?: return SearchResult(emptyList(), false)
         suspend fun alike(ids: Set<Long>?, n: Int): Pair<List<Hit>, Int> {
-            val f = Filter(SearchRequest("", kinds, fileIds = ids))
+            val f = Filter(SearchRequest("", kinds, fileIds = ids, limit = minOf(n, limit)))
             return toHits(listOf(meaningLane(qv, f)), f, n, emptyList())
         }
         val (hits, strong) = alike(fileIds, limit)
@@ -242,7 +242,7 @@ class SearchEngine(
             val l = loaded ?: return Lane(emptyList(), Source.MEANING)
             val histogram = rule?.histogram()
             val dead = l.dead.takeIf { l.anyDead }
-            val top = scanSliced(q, CANDIDATES, l.view, f.allowed, f.days, f.contentIds, histogram, dead)
+            val top = scanSliced(q, f.candidates, l.view, f.allowed, f.days, f.contentIds, histogram, dead)
             val rows = traced("fuse.lookups") { store.chunks(top.rows.map { l.view.chunkId(it) }) }
             // A picked row whose chunk is gone was deleted after the load: mark it and scan again, so it frees its slot.
             var missed = false
@@ -274,7 +274,7 @@ class SearchEngine(
             emptyList()
         } else {
             traced("kw.fts") {
-                val hits = store.keywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f.scope)
+                val hits = store.keywordSearch(q, f.candidates, f.kinds, f.dates, f.onlyStarred, f.scope)
                 val rows = store.chunks(hits)
                 hits.mapNotNull { id -> rows[id]?.takeIf { f.admitsContent(it.fileId) }?.let { Candidate(it.fileId, it.id, it.locator) } }
             }
@@ -291,10 +291,10 @@ class SearchEngine(
     private fun nameLanes(q: String, f: Filter): List<Lane> = traced("kw.names") {
         val index = nameIndex()
         if (index == null) {
-            listOf(Lane(store.fileKeywordSearch(q, CANDIDATES, f.kinds, f.dates, f.onlyStarred, f::admits).map { Candidate(it) }, Source.NAME))
+            listOf(Lane(store.fileKeywordSearch(q, f.candidates, f.kinds, f.dates, f.onlyStarred, f::admits).map { Candidate(it) }, Source.NAME))
         } else {
             val dates = f.dates
-            val hits = index.search(q, f.kinds, CANDIDATES) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
+            val hits = index.search(q, f.kinds, f.candidates) { e -> f.admits(e.id) && (dates == null || e.at in dates) }
             val (exact, rest) = hits.partition { it.exactName }
             listOf(
                 Lane(exact.map { Candidate(it.id) }, Source.NAME_EXACT),
@@ -501,6 +501,9 @@ class SearchEngine(
         /** What the words and meaning lanes may return: [ids] narrowed to the request's content ids. */
         val contentIds = req.contentIds?.filter { admits(it) }?.toLongArray()?.apply { sort() } ?: ids
         val onlyStarred = req.onlyStarred
+
+        /** Rows each lane hands to fusion: [CANDIDATES] for a first page, in proportion past it, so "Show more" finds more. */
+        val candidates = maxOf(CANDIDATES, req.limit * CANDIDATES / SearchTiming.LIMIT)
 
         /** The content scope for the keyword lane's SQL, so it applies before the cap; null when unscoped or too big to bind. */
         val scope = if (req.contentIds == null) null else contentIds?.takeIf { it.size <= MAX_BOUND_IDS }?.asList()

@@ -968,6 +968,8 @@ internal object Japanese : Strings {
 
     override fun lessLikelyMatches(n: Long) = "関連性の低い結果（${formatCount(n)}）"
 
+    override val showMoreResults = "さらに結果を表示"
+
     override val moreDocuments = "その他のドキュメント"
 
     override val recordings = "録音"

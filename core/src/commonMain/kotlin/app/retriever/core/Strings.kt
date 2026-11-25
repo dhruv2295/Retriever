@@ -933,6 +933,9 @@ interface Strings {
     /** both apps: disclosure title; today the raw count */
     fun lessLikelyMatches(n: Long): String
 
+    /** both apps: button after the results, fetching the next page */
+    val showMoreResults: String
+
     /** both apps: results section header */
     val moreDocuments: String
 

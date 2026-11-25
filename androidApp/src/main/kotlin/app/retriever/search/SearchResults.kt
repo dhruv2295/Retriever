@@ -287,7 +287,17 @@ internal fun Results(ui: SearchUi, home: HomeUi, actions: SearchActions, star: (
                 )
             }
             // An answer to earlier words or filters dims while the new one is searched; a names answer is current, so it doesn't.
-            ResultGrid(hits, results.result.strongCount, ui.extents, results.question.text.ifEmpty { null }, dim, grid, act, wider)
+            ResultGrid(
+                hits,
+                results.result.strongCount,
+                ui.extents,
+                results.question.text.ifEmpty { null },
+                dim,
+                grid,
+                act,
+                wider,
+                actions.onMore.takeIf { ui.more && !dim },
+            )
         }
 
         // Nothing to show yet: the dog sniffs once the wait is noticeable, below the chips and notes, never over hits.
@@ -453,6 +463,8 @@ private fun ResultGrid(
     act: HitActions,
     /** Partial access under few results: [WiderSearchHint] after them. */
     wider: Access? = null,
+    /** The answer filled its limit: a button after it asks for more. */
+    more: (() -> Unit)? = null,
 ) {
     val visibleCount = strongCount.coerceIn(if (hits.isEmpty()) 0 else 1, hits.size)
     val strong = hits.take(visibleCount)
@@ -484,6 +496,15 @@ private fun ResultGrid(
                 ) { Text(Words.strings.lessLikelyMatches(weak.size.toLong())) }
             }
             if (expanded) sections(weak, extents, query, titled = false, cell, act)
+        }
+        // Not past a collapsed tail, whose rows come first; it opens the tail, where most new rows land.
+        if (more != null && (expanded || weak.isEmpty())) {
+            item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                TextButton(onClick = {
+                    expanded = true
+                    more()
+                }) { Text(Words.strings.showMoreResults) }
+            }
         }
         wider?.let { access ->
             item(key = "wider", span = { GridItemSpan(maxLineSpan) }) { WiderSearchHint(access, Modifier.padding(top = 8.dp)) }

@@ -378,6 +378,13 @@ private struct ResultsView: View {
                         sections(weak, answer: answer, rows: rows, titled: false)
                     }
                 }
+                // Not past a collapsed tail, whose rows come first; it opens the tail, where most new rows land.
+                if search.canShowMore, expanded || weak.isEmpty {
+                    Button(Words.shared.strings.showMoreResults) {
+                        expanded = true
+                        search.showMore()
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -387,7 +394,7 @@ private struct ResultsView: View {
         // A new question's answer opens at its top, not where the last one was scrolled to. A better answer to the same
         // question keeps the place; at the top, photos ranked above the documents stay in view.
         .id(answer.key.question)
-        .onChange(of: answer.key) { expanded = false }
+        .onChange(of: answer.key.question) { expanded = false }
     }
 
     @ViewBuilder private func header(_ answer: SearchModel.Answer) -> some View {

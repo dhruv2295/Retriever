@@ -145,6 +145,7 @@ data class SearchActions(
     val onRemoveRecent: (String) -> Unit = {},
     val onClearRecent: () -> Unit = {},
     val onRetry: () -> Unit = {},
+    val onMore: () -> Unit = {},
     val onOpenHit: (SearchEngine.Hit) -> Unit = {},
     /** A file and the tile list it was tapped in, which its photo viewer grows from. */
     val onOpenFile: (SourceFile, String) -> Unit = { _, _ -> },
@@ -244,6 +245,7 @@ fun SearchViewModel.actions(context: Context, onNavigate: (Route) -> Unit) = Sea
     onRemoveRecent = { removeRecent(it) },
     onClearRecent = { clearRecent() },
     onRetry = this::retry,
+    onMore = this::showMore,
     onOpenHit = { hit ->
         opened()
         // The words asked at the tap (none for a search by photo), so the reader highlights them.

@@ -105,6 +105,8 @@ data class SearchUi(
     val sampleDone: Int = 0,
     val samplePlanned: Int = 0,
     val photosRead: Int = 0,
+    /** The answer filled its limit, so [SearchViewModel.showMore] may find more. */
+    val more: Boolean = false,
 ) {
     /** Searching by photo needs the model and, on the first run, enough photos read for it to mean something. */
     val canSearchByPhoto get() = !wordsOnly && (scope == null || photosRead >= PHOTOS_FOR_PHOTO_SEARCH)
@@ -135,7 +137,7 @@ private data class Input(
 }
 
 /** A question as a search asks it: [photo] by identity, so picking the same photo again searches its new bytes. */
-private data class Ask(val question: Question, val photo: PickedPhoto?) {
+private data class Ask(val question: Question, val photo: PickedPhoto?, val limit: Int = SearchTiming.LIMIT) {
     val blank get() = photo == null && question.text.isEmpty()
 }
 
@@ -154,7 +156,8 @@ private sealed interface Step {
     /** Nothing yet for a word still being typed: the answer on screen stays until typing pauses. */
     data class Waiting(override val question: Question) : Step
 
-    data class Full(override val question: Question, val result: SearchEngine.SearchResult, val askAgain: Boolean) : Step
+    /** [more]: it filled its limit, so a bigger one may find more. */
+    data class Full(override val question: Question, val result: SearchEngine.SearchResult, val askAgain: Boolean, val more: Boolean) : Step
 
     data class Read(override val question: Question, val extents: Map<Long, ReadExtent>) : Step
 
@@ -173,6 +176,7 @@ private data class Shown(
     val quietNoMatch: Boolean = false,
     /** This step put up a "no matches" for its question; [quiet] says whether it was seen often enough before. */
     val noMatch: Boolean = false,
+    val more: Boolean = false,
 ) {
     fun after(step: Step, quiet: () -> Boolean): Shown {
         val next = take(step)
@@ -202,10 +206,10 @@ private data class Shown(
             is Step.Names -> if ((phase is SearchPhase.Results || phase is SearchPhase.Failed) && !phase.isStale(q)) {
                 this
             } else {
-                answered(phase.onNames(q, step.result), step.result).copy(searching = true)
+                answered(phase.onNames(q, step.result), step.result).copy(searching = true, more = false)
             }
 
-            is Step.Full -> answered(phase.onFull(q, step.result, step.askAgain), step.result).copy(searching = false, vectorLane = step.result.vectorLane)
+            is Step.Full -> answered(phase.onFull(q, step.result, step.askAgain), step.result).copy(searching = false, vectorLane = step.result.vectorLane, more = step.more)
         }
     }
 
@@ -225,6 +229,9 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     private val retries = MutableStateFlow(0)
     private val recent = MutableStateFlow(emptyList<String>())
     private val error = MutableStateFlow<String?>(null)
+
+    /** "Show more" for a question: its bigger limit. Another question asks the first page again. */
+    private val more = MutableStateFlow<Pair<Question, Int>?>(null)
     private var typing: Job? = null
     private var scrolling = false
     private var started = false
@@ -245,8 +252,9 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
 
     /** The question with the typed words debounced; clearing them, a chip, a filter or a photo asks at once. */
     private val typed = input.map { it.query }.distinctUntilChanged().debounce { if (it.isBlank()) 0L else SearchTiming.PAUSE_MS }
-    private val asks = combine(typed, input) { q, i ->
-        Ask(i.copy(query = q).question, i.photo)
+    private val asks = combine(typed, input, more) { q, i, m ->
+        val question = i.copy(query = q).question
+        Ask(question, i.photo, m?.takeIf { it.first == question }?.second ?: SearchTiming.LIMIT)
     }.distinctUntilChanged()
 
     /** File names alone, in memory, first once typing paused; a search by photo has none. */
@@ -298,6 +306,7 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
             searching = s.searching,
             vectorLane = s.vectorLane,
             quietNoMatch = s.quietNoMatch,
+            more = s.more,
             recent = recent,
             error = error,
         )
@@ -344,11 +353,11 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
             val r = logged {
                 if (a.photo != null) {
                     // A search by photo has no weak tail.
-                    retriever.searchImage(a.photo.jpeg, kinds, SearchTiming.LIMIT, q.starredOnly, q.scope, a.photo.similar.uri).let {
+                    retriever.searchImage(a.photo.jpeg, kinds, a.limit, q.starredOnly, q.scope, a.photo.similar.uri).let {
                         it.copy(strongCount = it.hits.size)
                     }
                 } else {
-                    retriever.search(q.text, kinds, SearchTiming.LIMIT, q.starredOnly, q.literal, q.scope)
+                    retriever.search(q.text, kinds, a.limit, q.starredOnly, q.literal, q.scope)
                 }
             }
             if (r == null) {
@@ -361,7 +370,7 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
             }
             val noModelComing = retriever.textOnly || retriever.modelMissing.value || retriever.setUp.value != true
             val again = !r.vectorLane && !noModelComing && askedAgain < SearchTiming.WORDS_ONLY_RETRIES
-            emit(Step.Full(q, r, again))
+            emit(Step.Full(q, r, again, r.hits.size >= a.limit))
             // After the rows are up; the read notes join them a moment later.
             logged { retriever.readExtents(r.hits.map { it.fileId }) }?.let { emit(Step.Read(q, it)) }
             if (!again) return@flow
@@ -427,6 +436,12 @@ class SearchViewModel(private val retriever: Retriever, private val recentShortc
     }
 
     fun retry() = retries.update { it + 1 }
+
+    /** The answer on screen, asked again for another page of results. */
+    fun showMore() {
+        val q = shown.value.asked ?: return
+        more.update { m -> q to (m?.takeIf { it.first == q }?.second ?: SearchTiming.LIMIT) + SearchTiming.LIMIT }
+    }
 
     /** The keyboard's search key, or a suggestion picked. */
     fun submit(q: String = input.value.query) {

@@ -1031,6 +1031,8 @@ internal object Hindi : Strings {
 
     override fun lessLikelyMatches(n: Long) = "कम मिलते-जुलते नतीजे (${formatCount(n)})"
 
+    override val showMoreResults = "और नतीजे दिखाएं"
+
     override val moreDocuments = "और दस्तावेज़"
 
     override val recordings = "रिकॉर्डिंग"

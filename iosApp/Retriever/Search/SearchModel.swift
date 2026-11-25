@@ -111,6 +111,8 @@ final class SearchModel {
         /// First run's try-it: only these files may answer.
         var ids: [Int64]?
         var retry = 0
+        /// Results asked for; "Show more" raises it for the same question.
+        var limit = SearchTiming.shared.LIMIT
 
         /// What core's reducer compares; a retry is not part of it, so it keeps the answer it has.
         var question: Question {
@@ -171,6 +173,8 @@ final class SearchModel {
     /// The demo's files: while set, every search stays inside them.
     var fileIds: [Int64]?
     private var retries = 0
+    /// "Show more" for a question: its bigger limit. Another question asks the first page again.
+    private var more: (question: Question, limit: Int32)?
     /// Times "no matches" was shown (Prefs.noMatchSeen); after a few, the dog stops moving for it.
     private(set) var noMatchSeen: Int
     @ObservationIgnored private var wordsOnlyRetries = 0
@@ -184,7 +188,20 @@ final class SearchModel {
 
     var query: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     var active: Bool { !query.isEmpty || photo != nil }
-    var key: Key { Key(query: photo == nil ? query : "", scope: scope, photo: photo?.id, literal: literal, ids: fileIds, retry: retries) }
+    var key: Key {
+        var k = Key(query: photo == nil ? query : "", scope: scope, photo: photo?.id, literal: literal, ids: fileIds, retry: retries)
+        if let more, more.question == k.question { k.limit = more.limit }
+        return k
+    }
+
+    /// The answer filled its limit, so a bigger one may find more.
+    var canShowMore: Bool { answer.map { $0.key == key && $0.hits.count >= Int($0.key.limit) } ?? false }
+
+    /// The answer on screen, asked again for another page of results.
+    func showMore() {
+        let k = key
+        more = (k.question, k.limit + timing.LIMIT)
+    }
     var question: Question { key.question }
 
     var screen: Screen {
@@ -299,7 +316,7 @@ final class SearchModel {
                 if !names.hits.isEmpty { answer = Answer(names, strong: names.hits.count, key: key) }
             }
             let asked = photo.flatMap { $0.id == key.photo ? $0 : nil }
-            let result = try await ask(key, retriever, limit: limit, namesOnly: false, photo: asked)
+            let result = try await ask(key, retriever, limit: key.limit, namesOnly: false, photo: asked)
             guard !Task.isCancelled else { return }
             // Nothing yet for a word still being typed: the answer on screen stays until typing pauses. A key cancels this.
             if result.hits.isEmpty, key.photo == nil, SearchPhaseKt.midWord(typed: text) {

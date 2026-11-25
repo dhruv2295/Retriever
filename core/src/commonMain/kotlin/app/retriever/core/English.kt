@@ -944,6 +944,8 @@ internal object English : Strings {
 
     override fun lessLikelyMatches(n: Long) = "Less likely matches (${formatCount(n)})"
 
+    override val showMoreResults = "Show more results"
+
     override val moreDocuments = "More documents"
 
     override val recordings = "Recordings"
