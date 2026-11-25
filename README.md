@@ -1,43 +1,53 @@
 # Retriever
 
-Search your phone's photos, documents and videos by describing them, entirely on the device.
-Google's EmbeddingGemma 2 runs locally through LiteRT-LM (on the NPU on Pixel Tensor G5/G6), behind a
-Kotlin Multiplatform core with native Android (Compose Material 3) and iOS (SwiftUI) apps.
+Search your phone's photos, screenshots, documents and videos by describing them — on the device, with no account and no server.
+
+Runs Google's [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) locally through LiteRT-LM with NPU acceleration on Snapdragon, Pixel Tensor, and Dimensity — behind one Kotlin Multiplatform core with native Jetpack Compose and SwiftUI apps.
 
 [Google Play](https://play.google.com/store/apps/details?id=app.retriever) ·
 [App Store](https://apps.apple.com/app/id6829902478) ·
-[How it works](docs/how-it-works.md) · free, no ads, no account · Apache-2.0
+[20s demo video](https://youtu.be/C73lFjjDEcA) ·
+[How it works & benchmarks](docs/how-it-works.md) · free, no ads, no account · Apache-2.0
 
 <img src="docs/media/demo.gif" width="280" alt="Searching “delicious food” finds a biryani photo; “rental agreement” opens the PDF at the matching page">
 
-The demo runs on a sample library, not a real one.
+*The demo runs on a sample library, not a real one.*
 
-- Name, document-text, OCR and photo-label search work without the large search model.
-- A downloadable EmbeddingGemma 2 model adds search by description and visual similarity.
-- Browse folders, star files, find duplicate copies, and open matched pages or video moments.
-  People recognition is opt-in. Audio files are currently found by name.
+## What it does
+
+- **One search across your files:** Photos, screenshots, PDFs, Word docs, spreadsheets, presentations, ebooks and videos. Opens PDFs straight at the matching page and videos at the matching moment. Audio files are currently found by name.
+- **Hybrid local search:** Name, document-text, OCR and photo-label search work right away; the one-time EmbeddingGemma 2 download (388 MB generic, or 447–798 MB chip-specific NPU build) adds search by description and visual similarity.
+- **System file picker (Android):** Search Retriever directly from Android's file picker when attaching files in other apps or websites.
+- **Browse & organize:** Folders, starred files, duplicate finder, and opt-in on-device People grouping (off unless you turn it on).
+
+## How it works (short version)
+
+| Piece | Implementation |
+|---|---|
+| Shared core (`core/`) | Kotlin Multiplatform: indexing pipeline, hybrid search, thermal/battery rules, localization |
+| Native UI | Jetpack Compose Material 3 (Android, Koin) · SwiftUI (iOS, Kotlin/Native framework) |
+| Index | SQLite (SQLDelight): FTS4 + 256-dim `int8` Matryoshka vectors with a custom Kotlin/C dot-product kernel |
+| Acceleration | NPU on Snapdragon 8 Gen 2 – 8 Elite Gen 5 (`SM8550`–`SM8850`: 2.0–2.7× faster embeds than GPU, 6–14 ms query embeds), Pixel Tensor G5/G6 (Pixel 11 Pro Fold: ~350 photos/min pass 1), Dimensity 9400/9500; auto-tuned GPU/CPU elsewhere |
+
+See **[docs/how-it-works.md](docs/how-it-works.md)** for Snapdragon device benchmarks (Galaxy S23–S26), real-library measurements (Pixel 11 Pro Fold, Pixel 8 Pro, iPhone 12 mini), and engineering trade-offs.
 
 ## Privacy
 
-File processing, queries and the search index stay on the device. Search-model downloads need internet;
-Android may also download OCR models through Google Play services, and cloud file providers may fetch
-selected files. Search models are pinned to a commit and verified with SHA-256 before use.
-There is no Retriever account or backend.
+File processing, queries and the search index stay on the device, with no Retriever account or backend. Search works offline after the one-time, commit-pinned, SHA-256-verified model download. On Android, Google Play services downloads ML Kit's text-recognition and image-label models (and the face detector if People is turned on), may download additional OCR models for scripts like Chinese or Japanese, and may send Google its own diagnostics (device model, OS and app version, a per-installation identifier, timings and error codes — never your files or text). Cloud file providers may also fetch selected files. Full details in [PRIVACY.md](PRIVACY.md).
 
 ## Structure
 
 ```text
 core/        Shared search, indexing, storage and platform adapters; builds RetrieverCore for iOS
-androidApp/  Android UI and background services
-iosApp/     SwiftUI app and native Apple adapters (Xcode project)
+androidApp/  Android UI, background services and system file picker (DocumentsProvider)
+iosApp/      SwiftUI app and native Apple adapters (Xcode project)
+npu/         Play device-targeted Qualcomm QNN runtime modules (v73/v75/v79/v81)
+facepack/    On-demand Play asset pack for opt-in People face recognition
 eval/        Synthetic fixtures and optional relevance experiments
 scripts/     Verification and optional iOS simulator tools
 ```
 
-The two Gradle modules and native Xcode app follow Kotlin's [recommended structure](https://kotlinlang.org/docs/multiplatform/multiplatform-project-recommended-structure.html).
-`Retriever` coordinates the shared engines; `Store` owns SQLDelight persistence. Platform sources and
-extractors supply files and content. Android uses Koin; Swift constructs its services directly.
-No extra feature modules, shared UI module or dependency-injection layer is needed.
+`core` and `androidApp` hold the Kotlin/Android code alongside the native Xcode app, following Kotlin's [recommended structure](https://kotlinlang.org/docs/multiplatform/multiplatform-project-recommended-structure.html); `facepack` is a Play asset pack and `npu/` holds four code-free Qualcomm runtime feature modules. `Retriever` coordinates the shared engines; `Store` owns SQLDelight persistence. Platform sources and extractors supply files and content. Android uses Koin; Swift constructs its services directly. No shared UI module or extra dependency-injection layer is needed.
 
 Keep source changes, indexed content and search visibility consistent: deleted, revised, excluded or
 revoked files must not leave stale searchable content. Preserve database migrations and the persisted
@@ -110,7 +120,9 @@ results are in `build/ios-tests/summary.txt`. Model-backed simulator checks are 
 ./gradlew :androidApp:installRelease   # test the optimized build locally
 ```
 
-Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and R8 mapping.
+Outputs are under `androidApp/build/outputs/`: the app bundle, per-ABI APKs and R8 mapping. Standalone APKs
+carry no Qualcomm QNN runtime; Snapdragon phones stay on the GPU unless installed from the bundle
+(`bundletool --local-testing`).
 `iosApp/Configuration/Config.xcconfig` holds the version and build number for both apps: Android reads
 `MARKETING_VERSION` as `versionName` and `CURRENT_PROJECT_VERSION` as `versionCode`. Bump the build number
 there before each store upload, and tag the commit after it, e.g. `git tag -a v0.2-5 -m "Retriever 0.2 (5)"`.
@@ -155,6 +167,9 @@ To regenerate model dumps, set `MODELS` and `PREPARED` (containing `manifest.jso
 `library/`) and run `scripts/ios-dump.sh M440 70`. Replay with `:core:testAndroidHostTest --tests
 '*RelevanceReplayTest.replayDump'` and the `relevance.dump`, `relevance.data`, and `relevance.out` system
 properties; `python3 -I eval/relevance-fit.py build/fit` summarizes the resulting TSVs.
+
+Snapdragon NPU timings: build with `./gradlew :androidApp:assembleDebug :androidApp:assembleDebugAndroidTest -PqnnInApk`
+and run `SnapdragonNpuTest` on Firebase Test Lab; results are logged under the `NpuBench` tag.
 
 ## Licensing
 

@@ -1,6 +1,6 @@
 # Retriever privacy policy
 
-Effective 10 November 2026.
+Effective 25 November 2026.
 
 Retriever finds photos, screenshots, videos and documents on your device by their names, contents or a description.
 It is published on Google Play by Dhruv Gupta and on the App Store by GlitchVerse Technologies ("we").
@@ -33,13 +33,14 @@ Uninstalling Retriever deletes everything it stored. You can also clear its data
 - **Search model download.** Search by description needs a model of several hundred megabytes, downloaded from
   Hugging Face (huggingface.co) when you choose to. Like any download, this request reveals your IP address and device type to
   Hugging Face, under its own privacy policy. Retriever sends nothing else.
-- **Text recognition models.** On Android, Google Play services may download text-recognition models for some scripts
-  (for example Chinese, Japanese and Korean). Google handles those downloads under its own privacy policy.
-- **Google ML Kit diagnostics.** Retriever uses Google's ML Kit on the device for text recognition, photo labels and
-  face detection. ML Kit normally reports diagnostics to Google; Retriever removes the component that sends them from
-  the app itself. Text recognition for some scripts runs inside Google Play services, which may still send Google
-  diagnostics about it: device model and OS version, app name and version, a per-installation identifier, timings and
-  error codes, encrypted in transit and not shared with third parties. Never your images, text or files.
+- **ML Kit models.** On Android, Google Play services downloads ML Kit's text-recognition and image-labeling models
+  at install (and the face-detection model if you turn People on), and may download additional text-recognition models
+  for some scripts (for example Chinese, Japanese and Korean). Google handles those downloads under its own privacy
+  policy.
+- **Google ML Kit diagnostics.** Retriever uses Google Play services' ML Kit on the device for text recognition, photo
+  labels and optional face detection. Those modules run inside Google Play services, which may send Google diagnostics
+  about them: device model and OS version, app name and version, a per-installation identifier, timings and error codes,
+  encrypted in transit and not shared with third parties. Never your images, text or files.
 - **Rating prompt.** After you open a few search results, Retriever asks the system to offer a store rating. Google Play
   (Android) or Apple (iOS) shows and handles that dialog under its own privacy policy; Retriever sends it nothing.
 - **Cloud files.** If you open a file stored with a cloud provider (for example through the system file picker), that
