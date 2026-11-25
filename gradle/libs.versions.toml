@@ -25,6 +25,9 @@ compileSdk = "37"
 minSdk = "30"
 # LiteRT and its NPU runtimes ship together.
 litert = "2.3.0"
+# Qualcomm's QNN runtime for the Snapdragon NPU modules; the QAIRT version google-ai-edge/litert-samples pairs with LiteRT 2.3.0
+# (kotlin_npu fetch_qualcomm_library.sh). Move it with litert.
+qnn = "2.50.0"
 mlkitFace = "17.1.0"
 junit = "4.13.2"
 ktlint = "1.8.0"
@@ -82,11 +85,15 @@ litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
 mlkit-face-detection = { module = "com.google.android.gms:play-services-mlkit-face-detection", version.ref = "mlkitFace" }
 litert-npu-google-tensor = { module = "com.google.ai.edge.litert:litert-npu-runtime-google-tensor", version.ref = "litert" }
 litert-npu-mediatek = { module = "com.google.ai.edge.litert:litert-npu-runtime-mediatek", version.ref = "litert" }
+litert-npu-qualcomm = { module = "com.google.ai.edge.litert:litert-npu-runtime-qualcomm", version.ref = "litert" }
+qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnn" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+androidx-test-runner = { module = "androidx.test:runner", version = "1.7.0" }
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version = "1.3.0" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
@@ -106,6 +113,7 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-asset-pack = { id = "com.android.asset-pack", version.ref = "agp" }
+android-dynamic-feature = { id = "com.android.dynamic-feature", version.ref = "agp" }
 android-lint = { id = "com.android.lint", version.ref = "agp" }
 android-kmp-library ={ id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

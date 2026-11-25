@@ -65,6 +65,22 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - License: Apache License 2.0, declared by both pinned export model cards and the main model card
   (https://ai.google.dev/gemma/apache_2). The Apache text below applies to these weights as well as the Apache-licensed code.
 
+## Qualcomm QNN runtime (dependency, not adapted code)
+
+- Source: Maven Central `com.qualcomm.qti:qnn-runtime` 2.50.0; Retriever packages libQnnHtp, libQnnSystem and one
+  libQnnHtpV*Stub/Skel pair per Snapdragon in the `npu/qualcomm_runtime_v*` modules, which Play installs only on that SoC
+- Copyright Qualcomm Technologies, Inc.
+- License: Qualcomm AI Hub Model License, named by the artifact's POM
+  (https://softwarecenter.qualcomm.com/api/download/software/licenses/ai_model_hub/v1/LICENSE.pdf), and Qualcomm's AI
+  Stack License, shipped as LICENSE.pdf inside it. Both permit distribution in object code as part of an application only;
+  binary libraries, not open source
+
+## google-ai-edge/litert-samples
+
+- Source: https://github.com/google-ai-edge/litert-samples
+- Copyright 2025 The Google AI Edge Authors
+- License: Apache License 2.0
+
 ## OkHttp and Okio (dependencies, not adapted code)
 
 - Source: https://github.com/square/okhttp and https://github.com/square/okio
@@ -141,6 +157,7 @@ the upstream file had one) and carry an "Adapted from" line describing what was 
 - core/src/iosMain/kotlin/app/retriever/core/IosEmbedder.kt — gallery `Android/src/app/src/main/java/com/google/ai/edge/gallery/services/semanticretrieval/OnDeviceEmbedder.kt`, by way of MediaPipeEmbedder.kt (Apache-2.0)
 - iosApp/Retriever/Core/MediaPipeEmbedder.swift — mediapipe-samples `examples/universal_embedder/ios/UniversalEmbedder/UniversalEmbedderHelper.swift` (Apache-2.0)
 - androidApp/src/main/kotlin/app/retriever/viewer/PhotoScreen.kt — saket/telephoto `zoomable` and `sub-sampling-image` usage, as a dependency (Apache-2.0)
+- npu/qualcomm_runtime.gradle.kts, npu/qualcomm_runtime_v*/src/main/AndroidManifest.xml and androidApp/device_targeting_configuration.xml — litert-samples `samples/litert/image_segmentation/kotlin_npu/android` (`litert_npu_runtime_libraries/qualcomm_runtime_v*`, `app/device_targeting_configuration.xml`) (Apache-2.0)
 - iosApp/Retriever/Views/ResultViews.swift — Queryable `Queryable/Queryable/View/PhotoResult` (grid layout reference) (MIT)
 
 ## Runtime libraries

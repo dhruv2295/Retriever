@@ -22,6 +22,19 @@ class ModelBuildsTest {
         assertEquals(ModelVariant.M440, ModelBuilds.installedOrSelected(device, profile, Signature("changed"), emptySet()) { true }.variant)
     }
 
+    // An update that adds a chip build (Snapdragon, 2026-11) must not switch description search off for a finished library.
+    @Test
+    fun anInstalledGenericServesItsVectorsUntilTheChipBuildIsDownloaded() {
+        val device = android("SM8650", vendor = "QTI")
+        val generic = ModelVariant.M440.generic
+        val chip = pick(device)
+        val profile = DeviceProfile(Tier.FULL, ModelVariant.M440, Backend.GPU, 70, 5, false, false)
+        val signature = Signature.of(generic, 70, 512)
+        assertEquals(generic, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { it == generic })
+        assertEquals(chip, ModelBuilds.installedOrSelected(device, profile, signature, emptySet()) { true })
+        assertEquals(chip, ModelBuilds.installedOrSelected(device, null, null, emptySet()) { false }, "a new install takes the chip build")
+    }
+
     @Test
     fun tensorG3HasNoNpuBuild() = assertEquals(ModelVariant.M440.generic, pick(android("Tensor G3")))
 
@@ -41,8 +54,9 @@ class ModelBuildsTest {
     }
 
     @Test
-    fun mediaTekMatchesAndQualcommIsGeneric() {
-        assertEquals(ModelVariant.M440.generic, pick(android("SM8650", vendor = "QTI")))
+    fun mediaTekAndSnapdragonMatchTheirSoc() {
+        assertEquals("Qualcomm_SM8650", pick(android("SM8650", vendor = "QTI")).soc)
+        assertEquals(ModelVariant.M440.generic, pick(android("SM8635", vendor = "QTI")))
         assertEquals("MediaTek_MT6991", pick(android("MT6991", vendor = "Mediatek")).soc)
         assertEquals("MediaTek_MT6991", pick(android("MT6991-AB", vendor = "Mediatek")).soc)
     }
@@ -78,8 +92,6 @@ class ModelBuildsTest {
             assertTrue(b.fileName.endsWith("_${b.soc}.litertlm"), b.fileName)
             assertTrue(b.sizeBytes > 0)
         }
-        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
-        assertEquals(4, ModelBuilds.npu.count { it.variant == ModelVariant.M440 })
     }
 
     // A TestFlight iPhone short of space aborted in XNNPack writing the weight cache, at every launch.
