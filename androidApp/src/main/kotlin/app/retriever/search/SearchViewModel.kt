@@ -209,7 +209,10 @@ private data class Shown(
                 answered(phase.onNames(q, step.result), step.result).copy(searching = true, more = false)
             }
 
-            is Step.Full -> answered(phase.onFull(q, step.result, step.askAgain), step.result).copy(searching = false, vectorLane = step.result.vectorLane, more = step.more)
+            is Step.Full -> answered(
+                phase.onFull(q, step.result, step.askAgain),
+                step.result,
+            ).copy(searching = false, vectorLane = step.result.vectorLane, more = step.more)
         }
     }
 
