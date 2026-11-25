@@ -81,6 +81,11 @@ android {
     // People's face model, fetched from Play when People is turned on (AndroidFaceReader.ready).
     assetPacks += listOf(":facepack")
 
+    // Snapdragon NPU runtimes, installed by Play only on the SoC each one names (ModelBuilds.npuRuntimeReady). The
+    // hand-built APKs don't carry them, so a sideloaded Snapdragon stays on the GPU.
+    dynamicFeatures += listOf(":npu:qualcomm_runtime_v73", ":npu:qualcomm_runtime_v75", ":npu:qualcomm_runtime_v79", ":npu:qualcomm_runtime_v81")
+    bundle { deviceTargetingConfig = file("device_targeting_configuration.xml") }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -187,6 +192,7 @@ dependencies {
     implementation(libs.lifecycle.process)
     implementation(libs.litert.npu.google.tensor)
     implementation(libs.litert.npu.mediatek)
+    implementation(libs.litert.npu.qualcomm)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.compose)

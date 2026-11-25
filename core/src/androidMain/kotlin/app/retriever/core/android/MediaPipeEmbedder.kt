@@ -225,13 +225,18 @@ private class MediaPipeEmbedder(
      * LiteRT loads the first dispatch library it finds in the directory, and the APK carries every vendor's: on a
      * Tensor G6 it took MediaTek's and the NPU build never ran. A directory holding a link to this build's vendor's
      * library alone leaves it no choice. Relinked on every open: an app update moves [libs].
+     * Qualcomm's dispatch library loads the QNN libraries from its own directory and points the NPU's loader
+     * (ADSP_LIBRARY_PATH) there for libQnnHtpV*Skel.so (LiteRT v2.3.0 qnn_manager.cc), so those are linked too.
      */
     private fun dispatchDir(libs: String): String {
         val name = ModelBuilds.dispatchLibrary(modelBuild.soc.orEmpty()) ?: return libs
         val dir = File(context.noBackupFilesDir, "npu-dispatch/${name.substringBeforeLast('.')}").apply { mkdirs() }
-        val link = File(dir, name).toPath()
-        Files.deleteIfExists(link)
-        Files.createSymbolicLink(link, File(libs, name).toPath())
+        val qnn = File(libs).list()?.filter { it.startsWith("libQnn") }.orEmpty()
+        for (lib in listOf(name) + qnn) {
+            val link = File(dir, lib).toPath()
+            Files.deleteIfExists(link)
+            Files.createSymbolicLink(link, File(libs, lib).toPath())
+        }
         return dir.path
     }
 

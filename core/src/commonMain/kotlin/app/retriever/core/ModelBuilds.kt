@@ -19,7 +19,7 @@
 package app.retriever.core
 
 object ModelBuilds {
-    /** litert-community NPU builds per SoC, fetched from the HF API 2026-10-17. Intel PTL and QCS8275 are not phone SoCs; the Qualcomm builds are left out because the Maven AAR has the dispatch library and compiler plugin but no QNN libraries, so Snapdragon stays on GPU. */
+    /** litert-community NPU builds per SoC, fetched from the HF API 2026-10-17 (Qualcomm 2026-11-25). Intel PTL and QCS8275 are not phone SoCs. Qualcomm has M440 builds only. */
     val npu: List<ModelBuild> = listOf(
         npuBuild(ModelVariant.M740, "Google_Tensor_G5", 657_656_500, "5b53d76c2c7c66d2dc6230ff158ea0033ac5939ac7cfcf827c3a22cdfc742a5e"),
         npuBuild(ModelVariant.M740, "Google_Tensor_G6", 615_713_460, "ed0e4f413e705946eda544078d8bf5acf10fe5aee2946451c81919a1f59665e7"),
@@ -29,6 +29,10 @@ object ModelBuilds {
         npuBuild(ModelVariant.M440, "Google_Tensor_G6", 513_166_004, "40e98aeed9ef08abfd91d5d309f64f4fa06195c513931e917bcf5ea41a910668"),
         npuBuild(ModelVariant.M440, "MediaTek_MT6991", 798_097_408, "53cb4b8b3d8ca3e022ceec1dd809ddd26c281721c4652e1fadc82d2433cbc5de"),
         npuBuild(ModelVariant.M440, "MediaTek_MT6993", 767_770_624, "1cfc52d73266fe0e099e853b816150c22deb32fea421cabf9647dc8d8112ede9"),
+        npuBuild(ModelVariant.M440, "Qualcomm_SM8550", 465_993_728, "4427eecca4289555e72b297308f4c9cf97110a657de25dd2fe7946ac824f6214"),
+        npuBuild(ModelVariant.M440, "Qualcomm_SM8650", 465_747_968, "ec7d2ee513830337343567409f32fea4a3e4f8f7b94facd0a20f3d3523cd7480"),
+        npuBuild(ModelVariant.M440, "Qualcomm_SM8750", 446_611_456, "c5c05cb59833541a2d0d9374c7b50d2c3a406a4a84c85762775e5f9c6d96cd0c"),
+        npuBuild(ModelVariant.M440, "Qualcomm_SM8850", 462_536_704, "661369235aa9fc23cf04a213d4e445c4634073832279f5a261ed22650a8ebc5b"),
     )
 
     /** A native crash (SIGSEGV) in the NPU delegate throws nothing; opens that never reached a first embed count instead. */
@@ -65,9 +69,13 @@ object ModelBuilds {
 
     /**
      * Whether the NPU runtime for this SoC vendor is installed, judged by the native libraries present.
-     * Qualcomm has no build here: the Maven AAR has the dispatch library and compiler plugin but no QNN libraries, so Snapdragon stays on GPU with the generic build.
+     * Qualcomm also needs the QNN libraries, which only Play installs, and only on a supported Snapdragon (the
+     * npu/qualcomm_runtime_v* feature modules); a sideloaded APK lacks them and stays on GPU.
      */
-    fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean = dispatchLibrary(socManufacturer)?.let(hasLib) == true
+    fun npuRuntimeReady(socManufacturer: String, hasLib: (String) -> Boolean): Boolean {
+        val dispatch = dispatchLibrary(socManufacturer) ?: return false
+        return hasLib(dispatch) && (!isQualcomm(socManufacturer) || QNN_LIBRARIES.all(hasLib))
+    }
 
     /** The vendor's NPU dispatch library; [vendor] is a SoC manufacturer or an NPU build's [ModelBuild.soc]. */
     fun dispatchLibrary(vendor: String): String? {
@@ -75,9 +83,16 @@ object ModelBuilds {
         return when {
             "google" in m -> "libLiteRtDispatch_GoogleTensor.so"
             "mediatek" in m -> "libLiteRtDispatch_MediaTek.so"
+            isQualcomm(vendor) -> "libLiteRtDispatch_Qualcomm.so"
             else -> null
         }
     }
+
+    // Build.SOC_MANUFACTURER reads "QTI" on most Snapdragon phones and "Qualcomm" on some; builds say "Qualcomm_SM…".
+    private fun isQualcomm(vendor: String) = vendor.lowercase().let { "qualcomm" in it || it == "qti" }
+
+    // The per-SoC libQnnHtpV*Stub.so and Skel come in the same feature module as these.
+    private val QNN_LIBRARIES = listOf("libQnnHtp.so", "libQnnSystem.so")
 
     fun fallback(build: ModelBuild): ModelBuild = build.variant.generic
 
